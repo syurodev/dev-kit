@@ -42,3 +42,38 @@ export function editsText(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   return target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), .xterm") !== null;
 }
+
+type PeekKeyLike = KeyLike & {
+  /** The physical key. Option changes what `key` says on macOS (⌥1 is "¡"); this does not. */
+  code: string;
+  getModifierState?: (key: string) => boolean;
+};
+
+/**
+ * Maps ⌘⌥1–⌘⌥9 (Ctrl+Alt+1–9 elsewhere) to a zero-based switcher slot: the
+ * chord that opens a slot's peek — a module's open tabs, a group's members —
+ * without the pointer.
+ *
+ * Read from `code`, not `key`: with ⌥ held macOS reports "¡™£" for the digit
+ * row. Accepts either ⌘ or Ctrl, as moduleIndexFromEvent does.
+ *
+ * Two places it must not fire. On Windows and Linux Ctrl+Alt *is* AltGr, which
+ * types characters on many layouts, so with the caret in a text field — or when
+ * the platform says AltGraph is down — it stays out of the way, as Ctrl+K does.
+ * And the Notes editor binds ⌘⌥1–⌘⌥6 to headings; a `richText` focus keeps them.
+ */
+export function peekIndexFromEvent(
+  event: PeekKeyLike,
+  focus: { editsText: boolean; richText: boolean },
+): number | null {
+  if (!event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return null;
+  if (focus.richText) return null;
+  if (!event.metaKey && (focus.editsText || event.getModifierState?.("AltGraph"))) return null;
+  const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+  return digit ? Number(digit[1]) - 1 : null;
+}
+
+/** True where ⌘⌥1–⌘⌥6 mean headings: inside the Notes editor. */
+export function inRichTextEditor(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-slate-editor]") !== null;
+}

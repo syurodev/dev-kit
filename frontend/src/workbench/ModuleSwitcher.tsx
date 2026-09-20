@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Columns2, Plus, SquareArrowOutUpRight, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import { getModule, viewIcon, type ModulePeekProps } from "@/modules/registry";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { MAX_GROUPS } from "@/stores/documentGroups";
 import { useModuleGroupsStore } from "@/stores/moduleGroups";
+import { useSwitcherPeekStore } from "@/stores/switcherPeek";
 import { representative, type SwitcherItem, type SwitcherModule } from "./switcherItems";
 
 export type { SwitcherModule };
@@ -48,6 +49,7 @@ export function ModuleSwitcher({ items, activeModuleId, onSelectModule }: Module
           <ModuleButton
             key={item.module.id}
             module={item.module}
+            slot={index}
             digit={digit}
             active={item.module.id === activeModuleId}
             onSelect={(beside) => onSelectModule(item.module.id, { beside })}
@@ -57,6 +59,7 @@ export function ModuleSwitcher({ items, activeModuleId, onSelectModule }: Module
             key={item.group.id}
             group={item.group}
             members={item.members}
+            slot={index}
             digit={digit}
             activeModuleId={activeModuleId}
             onSelect={(moduleId, beside) => onSelectModule(moduleId, { beside })}
@@ -79,17 +82,22 @@ export function ModuleSwitcher({ items, activeModuleId, onSelectModule }: Module
 function GroupButton({
   group,
   members,
+  slot,
   digit,
   activeModuleId,
   onSelect,
 }: {
   group: ModuleGroup;
   members: SwitcherModule[];
+  /** Its place in the bar, which is what ⌘⌥digit names. */
+  slot: number;
   digit: string | null;
   activeModuleId: string;
   onSelect: (moduleId: string, beside?: boolean) => void;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
+  const keyboardOpen = useSwitcherPeekStore((state) => state.slot === slot);
+  const closeKeyboardPeek = useSwitcherPeekStore((state) => state.close);
   const lastUsed = useModuleGroupsStore((state) => state.lastUsed[group.id]);
   const shown = representative(members, lastUsed, activeModuleId, group.primary);
   const active = members.some((member) => member.id === activeModuleId);
@@ -134,7 +142,15 @@ function GroupButton({
   );
 
   return (
-    <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
+    <HoverCard
+      open={peekOpen || keyboardOpen}
+      onOpenChange={(open) => {
+        setPeekOpen(open);
+        if (!open) closeKeyboardPeek();
+      }}
+      openDelay={250}
+      closeDelay={120}
+    >
       {/* The peek gives way to the menu: both would open from the one button. */}
       <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
         <HoverCardTrigger asChild>
@@ -149,27 +165,103 @@ function GroupButton({
         ) : null}
       </ContextMenu>
       <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
-        <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
-          {label}
-        </div>
-        {members.map((member) => (
-          <GroupPeekRow
-            key={member.id}
-            member={member}
-            current={member.id === shown?.id}
-            onSelect={() => {
-              setPeekOpen(false);
-              onSelect(member.id);
-            }}
-          />
-        ))}
-        {shown ? (
-          <p className="mt-0.5 border-t border-border-subtle px-2 pt-1.5 pb-1 text-caption-11 text-text-tertiary">
-            Click opens {shown.title}, the one you used last.
-          </p>
-        ) : null}
+        <PeekKeyboard active={keyboardOpen} onEscape={closeKeyboardPeek}>
+          <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
+            {label}
+          </div>
+          {members.map((member) => (
+            <GroupPeekRow
+              key={member.id}
+              member={member}
+              current={member.id === shown?.id}
+              onSelect={() => {
+                setPeekOpen(false);
+                closeKeyboardPeek();
+                onSelect(member.id);
+              }}
+            />
+          ))}
+          {shown ? (
+            <p className="mt-0.5 border-t border-border-subtle px-2 pt-1.5 pb-1 text-caption-11 text-text-tertiary">
+              Click opens {shown.title}, the one you used last.
+            </p>
+          ) : null}
+        </PeekKeyboard>
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+/**
+ * What makes a peek usable without the pointer. When ⌘⌥digit opened it, focus
+ * moves to its current row (else its first), ↑ ↓ Home End move between the
+ * rows, Enter or Space picks — they are buttons — and Esc closes it and puts
+ * focus back where it was. A peek opened by hovering is left as it always was:
+ * nothing here runs, and the rows are still reached with the mouse.
+ *
+ * Generic over the peek's content on purpose: a module's own peek (Agent Hub
+ * lists its sessions) is any set of buttons, and gets the same keys.
+ */
+function PeekKeyboard({
+  active,
+  onEscape,
+  children,
+}: {
+  active: boolean;
+  onEscape: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const restore = useRef<HTMLElement | null>(null);
+  const escaped = useRef(false);
+
+  useEffect(() => {
+    if (!active) return;
+    restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    escaped.current = false;
+    // After the card has been placed: the content mounts a frame after the request.
+    const frame = requestAnimationFrame(() => {
+      const root = ref.current;
+      (root?.querySelector<HTMLElement>("button[aria-current]:not(:disabled)") ??
+        root?.querySelector<HTMLElement>("button:not(:disabled)"))?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      // Only Esc puts focus back; picking a row moves on to somewhere else.
+      if (escaped.current) restore.current?.focus();
+    };
+  }, [active]);
+
+  return (
+    <div
+      ref={ref}
+      className="contents"
+      onKeyDown={(event) => {
+        if (!active) return;
+        if (event.key === "Escape") {
+          escaped.current = true;
+          onEscape();
+          return;
+        }
+        const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+        if (!keys.includes(event.key)) return;
+        const rows = [...(ref.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+        if (rows.length === 0) return;
+        event.preventDefault();
+        const at = rows.indexOf(document.activeElement as HTMLElement);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? rows.length - 1
+              : event.key === "ArrowDown"
+                ? (at + 1) % rows.length
+                : (at - 1 + rows.length) % rows.length;
+        rows[next].focus();
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -213,16 +305,21 @@ function GroupPeekRow({
 
 function ModuleButton({
   module,
+  slot,
   digit,
   active,
   onSelect,
 }: {
   module: SwitcherModule;
+  /** Its place in the bar, which is what ⌘⌥digit names. */
+  slot: number;
   digit: string | null;
   active: boolean;
   onSelect: (beside?: boolean) => void;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
+  const keyboardOpen = useSwitcherPeekStore((state) => state.slot === slot);
+  const closeKeyboardPeek = useSwitcherPeekStore((state) => state.close);
   const manifest = getModule(module.id);
   const Icon = manifest?.icon ?? Wrench;
   const Badge = manifest?.badge;
@@ -285,11 +382,20 @@ function ModuleButton({
 
   function focusFromPeek() {
     setPeekOpen(false);
+    closeKeyboardPeek();
     onSelect();
   }
 
   return (
-    <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
+    <HoverCard
+      open={peekOpen || keyboardOpen}
+      onOpenChange={(open) => {
+        setPeekOpen(open);
+        if (!open) closeKeyboardPeek();
+      }}
+      openDelay={250}
+      closeDelay={120}
+    >
       {/* The peek gives way to the menu: both would open from the one button. */}
       <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
         <HoverCardTrigger asChild>
@@ -298,14 +404,16 @@ function ModuleButton({
         {menu}
       </ContextMenu>
       <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
-        <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
-          {label}
-        </div>
-        {Peek ? (
-          <Peek focusModule={focusFromPeek} />
-        ) : (
-          <ModuleTabsPeek moduleId={module.id} focusModule={focusFromPeek} />
-        )}
+        <PeekKeyboard active={keyboardOpen} onEscape={closeKeyboardPeek}>
+          <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
+            {label}
+          </div>
+          {Peek ? (
+            <Peek focusModule={focusFromPeek} />
+          ) : (
+            <ModuleTabsPeek moduleId={module.id} focusModule={focusFromPeek} />
+          )}
+        </PeekKeyboard>
       </HoverCardContent>
     </HoverCard>
   );

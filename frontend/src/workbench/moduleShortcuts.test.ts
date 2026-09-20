@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isPaletteShortcut, moduleIndexFromEvent } from "./moduleShortcuts";
+import { isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 
 test("a meta+digit event maps to a zero-based module index", () => {
   expect(moduleIndexFromEvent({ key: "1", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(0);
@@ -52,4 +52,49 @@ test("other chords on K are left alone", () => {
   expect(isPaletteShortcut(key({ metaKey: true, ctrlKey: true }), false)).toBe(false);
   expect(isPaletteShortcut(key({}), false)).toBe(false);
   expect(isPaletteShortcut(key({ metaKey: true, key: "j" }), false)).toBe(false);
+});
+
+const peekKey = (over: Partial<Parameters<typeof peekIndexFromEvent>[0]> = {}) => ({
+  key: "¡",
+  code: "Digit1",
+  metaKey: true,
+  ctrlKey: false,
+  altKey: true,
+  shiftKey: false,
+  ...over,
+});
+const anywhere = { editsText: false, richText: false };
+
+test("⌘⌥digit names a slot from the physical key, since ⌥ changes what the key says", () => {
+  expect(peekIndexFromEvent(peekKey(), anywhere)).toBe(0);
+  expect(peekIndexFromEvent(peekKey({ key: "™", code: "Digit2" }), anywhere)).toBe(1);
+  expect(peekIndexFromEvent(peekKey({ code: "Numpad9" }), anywhere)).toBe(8);
+});
+
+test("Ctrl+Alt+digit does the same off macOS, when nothing is being typed", () => {
+  expect(peekIndexFromEvent(peekKey({ metaKey: false, ctrlKey: true }), anywhere)).toBe(0);
+});
+
+test("Ctrl+Alt is AltGr on Windows, so it leaves a text field — and an AltGraph key — alone", () => {
+  const ctrlAlt = peekKey({ metaKey: false, ctrlKey: true });
+  expect(peekIndexFromEvent(ctrlAlt, { editsText: true, richText: false })).toBeNull();
+  expect(peekIndexFromEvent({ ...ctrlAlt, getModifierState: (key) => key === "AltGraph" }, anywhere)).toBeNull();
+  // ⌘⌥ types nothing, so a field does not stop it.
+  expect(peekIndexFromEvent(peekKey(), { editsText: true, richText: false })).toBe(0);
+});
+
+test("the Notes editor keeps ⌘⌥1–⌘⌥6 for headings", () => {
+  expect(peekIndexFromEvent(peekKey(), { editsText: true, richText: true })).toBeNull();
+});
+
+test("neither ⌘digit nor a chord with Shift or without ⌥ opens a peek", () => {
+  expect(peekIndexFromEvent(peekKey({ altKey: false }), anywhere)).toBeNull();
+  expect(peekIndexFromEvent(peekKey({ shiftKey: true }), anywhere)).toBeNull();
+  expect(peekIndexFromEvent(peekKey({ metaKey: false }), anywhere)).toBeNull();
+  expect(peekIndexFromEvent(peekKey({ code: "Digit0" }), anywhere)).toBeNull();
+  expect(peekIndexFromEvent(peekKey({ code: "KeyA" }), anywhere)).toBeNull();
+});
+
+test("the module shortcut still ignores the peek chord", () => {
+  expect(moduleIndexFromEvent({ key: "1", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false })).toBeNull();
 });

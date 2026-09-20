@@ -8,7 +8,7 @@ import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleSwitcher } from "./ModuleSwitcher";
 import { buildSwitcherItems, slotModuleIds, slotTarget } from "./switcherItems";
-import { editsText, isPaletteShortcut, moduleIndexFromEvent } from "./moduleShortcuts";
+import { editsText, inRichTextEditor, isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -54,6 +54,7 @@ import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { ModuleVisibilityProvider } from "@/components/ui/module-visibility";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useModuleGroupsStore } from "../stores/moduleGroups";
+import { useSwitcherPeekStore } from "../stores/switcherPeek";
 import {
   allOpenTabs,
   moduleTabs,
@@ -353,6 +354,22 @@ export function Workbench() {
       // listener is registered once (empty deps) and must never see a
       // stale module list — same reason stores/moduleActions.ts reads
       // onClick through a ref inside its long-lived registration.
+      // ⌘⌥1–⌘⌥9: open that slot's peek, to pick from with the arrow keys. A slot
+      // whose module has nothing to peek at ignores it and leaves the chord alone.
+      const peekIndex = peekIndexFromEvent(event, {
+        editsText: editsText(event.target),
+        richText: inRichTextEditor(event.target),
+      });
+      if (peekIndex !== null) {
+        const item = switcherItemsRef.current[peekIndex];
+        const module = item?.kind === "module" ? getModule(item.module.id) : undefined;
+        const peeks = item?.kind === "group" || Boolean(module?.peek || module?.tabs);
+        if (peeks) {
+          event.preventDefault();
+          useSwitcherPeekStore.getState().toggle(peekIndex);
+        }
+        return;
+      }
       const moduleIndex = moduleIndexFromEvent(event);
       if (moduleIndex !== null) {
         // A slot is a module, or a group — which opens the member used last, and
