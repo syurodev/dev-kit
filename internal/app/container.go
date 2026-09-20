@@ -104,6 +104,9 @@ type Container struct {
 	// Git is the project's own repository. Probing for a usable git is done
 	// once here; a machine without one still gets a Service that reports why.
 	Git *gitservice.Service
+	// GitBindings holds the guards and remote-to-account bindings the Git
+	// module reads but cannot store itself.
+	GitBindings *GitBindings
 	// APIClient sends HTTP requests with credentials resolved from Accounts.
 	APIClient    *apiclient.Service
 	Sync         SyncService
@@ -382,9 +385,10 @@ func NewContainerWithStores(
 		Kafka:        kafka.NewService(itemStore, envService, nil),
 		// No *sql.DB here: an ephemeral container has no local table, so it
 		// holds shared accounts only. main rebuilds this with the real handle.
-		Accounts:  accounts.NewService(itemStore, nil, "", vaultService, accounts.NewRegistry(accounts.DefaultProviders()), envService),
-		Tasks:     tasks.NewService(itemStore),
-		Git:       gitservice.NewService(context.Background()),
-		APIClient: apiclient.NewService(itemStore, envService),
+		Accounts:    accounts.NewService(itemStore, nil, "", vaultService, accounts.NewRegistry(accounts.DefaultProviders()), envService),
+		Tasks:       tasks.NewService(itemStore),
+		Git:         gitservice.NewService(context.Background()),
+		GitBindings: NewGitBindings(itemStore),
+		APIClient:   apiclient.NewService(itemStore, envService),
 	}
 }

@@ -278,3 +278,58 @@ func (s *AppService) GitPull(remote string) error {
 	})
 	return err
 }
+
+// GitGuards lists the branch patterns protected in the open project.
+func (s *AppService) GitGuards() ([]gitservice.Guard, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:guards", map[string]any{
+		"action": "guards",
+	}, func(context.Context) (any, error) {
+		return s.container.GitBindings.ListGuards(s.container.Git.Project())
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]gitservice.Guard), nil
+}
+
+// GitCreateGuard protects a branch pattern with an environment tag, which is
+// what turns commit gating on for this repository. Without a guard, committing
+// is never gated — that is the default, and it is deliberate.
+func (s *AppService) GitCreateGuard(pattern, env string) (gitservice.Guard, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:write", "repo:guards", map[string]any{
+		"action":  "create_guard",
+		"pattern": pattern,
+		"env":     env,
+	}, func(context.Context) (any, error) {
+		return s.container.GitBindings.CreateGuard(s.container.Git.Project(), pattern, env)
+	})
+	if err != nil {
+		return gitservice.Guard{}, err
+	}
+	return result.(gitservice.Guard), nil
+}
+
+func (s *AppService) GitDeleteGuard(id string) error {
+	_, err := s.call(context.Background(), "builtin.git", "git:write", "repo:guards", map[string]any{
+		"action": "delete_guard",
+	}, func(context.Context) (any, error) {
+		return nil, s.container.GitBindings.DeleteGuard(id)
+	})
+	return err
+}
+
+// GitBindRemote points a remote at an account and an environment tag. An empty
+// account clears the binding and git's own configuration takes over again.
+func (s *AppService) GitBindRemote(name, accountID, env string) (gitservice.Remote, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:write", "repo:remotes", map[string]any{
+		"action": "bind_remote",
+		"remote": name,
+		"env":    env,
+	}, func(context.Context) (any, error) {
+		return s.container.GitBindings.BindRemote(s.container.Git.Project(), name, accountID, env)
+	})
+	if err != nil {
+		return gitservice.Remote{}, err
+	}
+	return result.(gitservice.Remote), nil
+}

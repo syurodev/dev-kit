@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"devkit/internal/accounts"
+	"devkit/internal/agenthub"
 	"devkit/internal/apiclient"
 	gitservice "devkit/internal/git"
 	"devkit/internal/interaction"
@@ -40,6 +41,11 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	}
 	c.Git.SetEnvs(c.Environments)
 	c.Git.SetCredentials(accountResolver{accounts: c.Accounts})
+	// Without these two the Git module's guards and remote bindings are nil,
+	// which silently turns off commit gating and means a push never resolves
+	// a credential at all.
+	c.Git.SetGuards(c.GitBindings)
+	c.Git.SetRemotes(c.GitBindings)
 
 	// The close gate. Without the notifier a run that lands while the user is
 	// elsewhere would be silent, which is the worst case for a durable queue.
@@ -60,6 +66,7 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// Accounts refuses to delete one something still binds, which needs each
 	// module that binds to answer for itself.
 	c.Accounts.RegisterUsage(apiUsage{api: c.APIClient})
+	c.Accounts.RegisterUsage(c.GitBindings)
 
 	// One answer to "what changed": Code Graph's file-tree markers now read
 	// the Git module rather than running a second `git status` of their own.
@@ -214,4 +221,46 @@ func (g gitWorkTree) Changes(ctx context.Context) (map[string]string, error) {
 		return nil, err
 	}
 	return status.Files, nil
+}
+
+// agentLiveness answers whether an agent session is still running, which is
+// what lets a claim held by a dead one be taken over.
+//
+// Without it the tasks service sees a nil liveness and refuses every takeover,
+// so a task claimed by a session that has since died stays claimed forever.
+// That is the safe direction to fail — refusing beats stealing work from a
+// live agent — but it is not the behaviour the design asked for.
+type agentLiveness struct{ hub agentSessions }
+
+// agentSessions is the slice of *agenthub.Service used here.
+type agentSessions interface {
+	GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error)
+}
+
+func (l agentLiveness) Alive(sessionID string) bool {
+	if l.hub == nil || sessionID == "" {
+		return false
+	}
+	session, err := l.hub.GetStatus(context.Background(), sessionID)
+	if err != nil {
+		// A session the hub cannot find is gone. Reading that as "alive" would
+		// make its claim permanent, which is the failure this exists to fix.
+		return false
+	}
+	switch session.Status {
+	case agenthub.SessionStatusClosed, agenthub.SessionStatusError:
+		return false
+	default:
+		return true
+	}
+}
+
+// WireAgentLiveness connects Agent Hub to the board. It is separate from
+// WireCredentialsAndWork because main builds the hub later, after the vendor
+// registry and the sandbox runner.
+func WireAgentLiveness(c *Container) {
+	if c == nil || c.Tasks == nil || c.AgentHub == nil {
+		return
+	}
+	c.Tasks.SetLiveness(agentLiveness{hub: c.AgentHub})
 }

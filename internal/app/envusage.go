@@ -16,6 +16,11 @@ var profileTypesWithEnv = []string{
 	// whether sending asks first. Deleting it out from under one would leave a
 	// send that nothing could gate.
 	vaultitem.ItemTypeAPIEnvironment,
+	// A guard is an env tag plus a branch pattern, and a remote binding is an
+	// env tag plus an account. Deleting a tag either still names would turn
+	// off a gate without saying so.
+	vaultitem.ItemTypeGitGuard,
+	vaultitem.ItemTypeGitRemote,
 }
 
 // listEnvTypes store metadata.env as a LIST: an account may be restricted to

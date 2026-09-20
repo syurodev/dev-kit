@@ -50,6 +50,24 @@ export interface Conflict {
 }
 
 /**
+ * Guard binds an environment tag to a branch name pattern. A branch matching
+ * one runs commit and push through that environment's confirmation.
+ * 
+ * Push is gated by its remote regardless; a guard is what makes *commit* ask,
+ * which matters for the repository whose commits are deploy manifests. No
+ * guard means nothing is gated — the default is not to be in anyone's way.
+ * 
+ * The pattern matches names, not paths: "main", "release/*". It cannot say
+ * "when this touches deploy/", which is a real ceiling and written down.
+ */
+export interface Guard {
+    "id": string;
+    "projectKey": string;
+    "pattern": string;
+    "env": string;
+}
+
+/**
  * Remote is one configured remote and the account that authenticates to it.
  */
 export interface Remote {

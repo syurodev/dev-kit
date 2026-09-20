@@ -19,6 +19,9 @@ import * as agentruntime$0 from "../agentruntime/models.js";
 import * as apiclient$0 from "../apiclient/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as app$0 from "../app/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as codegraph$0 from "../codegraph/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -1073,6 +1076,14 @@ export function GitAvailability(): $CancellablePromise<$models.GitAvailability> 
     return $Call.ByID(2641668709);
 }
 
+/**
+ * GitBindRemote points a remote at an account and an environment tag. An empty
+ * account clears the binding and git's own configuration takes over again.
+ */
+export function GitBindRemote(name: string, accountID: string, env: string): $CancellablePromise<git$0.Remote> {
+    return $Call.ByID(3006044103, name, accountID, env);
+}
+
 export function GitBranches(): $CancellablePromise<git$0.Branch[] | null> {
     return $Call.ByID(3987290938);
 }
@@ -1083,6 +1094,18 @@ export function GitCheckout(name: string): $CancellablePromise<void> {
 
 export function GitCommit(message: string, taskKey: string, amend: boolean): $CancellablePromise<git$0.Commit> {
     return $Call.ByID(413335887, message, taskKey, amend);
+}
+
+/**
+ * GitCommitTurn stages exactly what one agent turn changed and drafts its
+ * message. It is the bridge between two histories of one work tree: the
+ * agent's per-turn checkpoints and the user's commits.
+ * 
+ * It stages and drafts, and stops. The message and the decision to commit stay
+ * with the person — GitCommit is a separate call.
+ */
+export function GitCommitTurn(sessionID: string, checkpointID: string): $CancellablePromise<app$0.TurnCommit> {
+    return $Call.ByID(3911885068, sessionID, checkpointID);
 }
 
 /**
@@ -1108,12 +1131,32 @@ export function GitCreateBranch(name: string, $from: string): $CancellablePromis
     return $Call.ByID(3089158422, name, $from);
 }
 
+/**
+ * GitCreateGuard protects a branch pattern with an environment tag, which is
+ * what turns commit gating on for this repository. Without a guard, committing
+ * is never gated — that is the default, and it is deliberate.
+ */
+export function GitCreateGuard(pattern: string, env: string): $CancellablePromise<git$0.Guard> {
+    return $Call.ByID(323447743, pattern, env);
+}
+
+export function GitDeleteGuard(id: string): $CancellablePromise<void> {
+    return $Call.ByID(587744070, id);
+}
+
 export function GitDiff(rev: string, staged: boolean): $CancellablePromise<gitparse$0.Change[] | null> {
     return $Call.ByID(3338272585, rev, staged);
 }
 
 export function GitFetch(remote: string): $CancellablePromise<void> {
     return $Call.ByID(1222806806, remote);
+}
+
+/**
+ * GitGuards lists the branch patterns protected in the open project.
+ */
+export function GitGuards(): $CancellablePromise<git$0.Guard[] | null> {
+    return $Call.ByID(3124040920);
 }
 
 export function GitLog(limit: number): $CancellablePromise<git$0.Commit[] | null> {

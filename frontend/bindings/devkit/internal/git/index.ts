@@ -5,6 +5,7 @@ export type {
     Branch,
     Commit,
     Conflict,
+    Guard,
     Remote,
     Status
 } from "./models.js";

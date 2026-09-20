@@ -45,6 +45,14 @@ const (
 	ItemTypeAPICollection  = "api-collection"
 	ItemTypeAPIRequest     = "api-request"
 	ItemTypeAPIEnvironment = "api-environment"
+
+	// The Git module's two bindings. Neither holds a secret: a guard names a
+	// branch pattern and an environment tag, a remote names an account by id.
+	// They sync because they are properties of the repository rather than of
+	// the laptop — a rule about which branch is protected should follow the
+	// user between machines.
+	ItemTypeGitGuard  = "git-guard"
+	ItemTypeGitRemote = "git-remote"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -60,7 +68,8 @@ func IsSupportedItemType(itemType string) bool {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
 		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount,
 		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment,
-		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment:
+		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment,
+		ItemTypeGitGuard, ItemTypeGitRemote:
 		return true
 	default:
 		return false
@@ -155,6 +164,32 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "db-query-body"
+
+	case ItemTypeGitGuard:
+		var value struct {
+			ProjectKey string `json:"project_key"`
+			Pattern    string `json:"pattern"`
+			Env        string `json:"env"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.ProjectKey == "" ||
+			value.Pattern == "" || value.Env == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "git-guard"
+
+	case ItemTypeGitRemote:
+		var value struct {
+			ProjectKey string `json:"project_key"`
+			Name       string `json:"name"`
+			// AccountID is plaintext because it is an id, not a secret — the
+			// same reason api-request stores one.
+			AccountID string `json:"account_id"`
+			Env       string `json:"env"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.ProjectKey == "" || value.Name == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "git-remote"
 
 	case ItemTypeAPICollection:
 		var value struct {
