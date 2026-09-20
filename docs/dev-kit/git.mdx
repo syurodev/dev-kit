@@ -87,6 +87,7 @@ sợ: không ai biết mình có mất việc đã commit không.
 | FR-4 | **Commit**: message nhiều dòng, amend lượt cuối (chỉ khi chưa push), author lấy từ config repo. |
 | FR-5 | **Seed message từ Code Graph**: file đã stage → node → layer/endpoint, dựng phần thân dạng dữ kiện (`RefundService.refund`, `POST /refunds`). Người dùng sửa tự do; **không** tự sinh dòng tiêu đề bằng model. |
 | FR-6 | **Commit lượt này**: từ một checkpoint của Agent Hub, stage đúng `ChangedFile` của lượt đó và seed message từ prompt của lượt + FR-5. |
+| FR-6b | Phiên agent đang giữ một task ([Tasks](/dev-kit/tasks)) ⇒ message seed thêm trailer `Task: <key>`. Đó là **toàn bộ** liên kết task ↔ commit: Tasks không lưu SHA, chỉ `git log --grep` theo `key` khi cần hiển thị. |
 | FR-7 | **Branch**: list, checkout, tạo mới từ ref, xoá branch local. Checkout báo cho Code Graph để re-index (`IndexInfo.Branch` hiện đã có, chưa ai theo dõi). |
 | FR-8 | **Stash**: push/pop/list. Đây là lối thoát cho "đổi branch khi đang dở". |
 | FR-9 | **Remote**: fetch, pull (`--ff-only` mặc định), push. Credential từ [Accounts](/dev-kit/accounts) qua `account_id` gắn trên remote. |
@@ -279,6 +280,9 @@ sử không giữ lại được gì.
 | Git → Code Graph | Checkout branch ⇒ re-index | `IndexInfo.Branch` hiện chưa ai theo dõi (FR-7) |
 | Agent Hub → Git | Lượt bất kỳ: *Commit lượt này* | FR-6 — lý do module này tồn tại |
 | Git → Agent Hub | Diff / commit: *Attach to agent* | Chip `EntityRef` kind `commit`, `diff` |
+| Git → Tasks | Trailer `Task: <key>` trong message | Git ghi; Tasks đọc bằng `--grep`, không lưu lại gì |
+| Tasks → Git | Task detail: danh sách commit, nút tạo branch `<key>-…` | Hỏi lúc hiển thị; `tasks.claim` **không** đụng work tree |
+| Tasks → Git | Cửa duyệt đóng task hỏi: còn thay đổi chưa commit? đã push? đã merge? | Hiển thị, **không chặn** — xem [Tasks FR-20](/dev-kit/tasks) |
 | Git → Accounts | Dòng remote hiện chip account; hết hạn ⇒ peek ngay tại chỗ | Không chuyển tab |
 
 ## Known ceiling (v1)

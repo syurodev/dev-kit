@@ -1,6 +1,6 @@
 ---
 title: Tasks
-description: Board kiểu Jira/kanban trên vault_items — agent trong Agent Hub tự tạo task, tự nhận việc và tự chuyển trạng thái, trừ bước đóng task và xoá vẫn là của con người.
+description: Board kiểu Jira/kanban trên vault_items — agent trong Agent Hub tự tạo task, tự nhận việc và tự chuyển trạng thái, trừ bước đóng task và xoá vẫn là của con người; cửa duyệt đóng task đọc thêm trạng thái git.
 ---
 
 # Tasks
@@ -21,7 +21,8 @@ Chưa có runtime. Trang này là thiết kế đầy đủ cho module mới; ch
 `internal/tasks`, chưa có record type `task` trong
 `internal/vaultitem/schema.go`. Phụ thuộc: [Agent Hub](/dev-kit/agent-hub)
 (Implemented, Claude-only) và [Code Graph § Plan-first flow](/dev-kit/codegraph)
-(Design).
+(Design). [Git](/dev-kit/git) (Design) là phụ thuộc **tuỳ chọn**: không có nó
+thì FR-17…19 biến mất và board chạy y nguyên.
 </Callout>
 
 ```mermaid
@@ -37,6 +38,7 @@ flowchart TD
   STORE --> ITEMS[("vault_items type in task, task-board, task-comment")]
   SVC -.->|"link 2 chiều, không FK"| CG["internal/codegraph plan_nodes"]
   SVC -.->|"sessionId, kết quả turn"| AH["internal/agenthub"]
+  SVC -.->|"GitFacts - hỏi, không lưu"| GIT["internal/git"]
 ```
 
 Module đăng ký qua `ModuleManifest` như `notes`/`database`/`ssh`/`kafka`/`codegraph`/`agenthub`
@@ -99,6 +101,10 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-14 | Tạo hàng loạt task từ một plan **đã được người duyệt** (`tasks.createFromPlan`) — mỗi plan node thành một task, link sẵn. |
 | FR-15 | Board view kiểu kanban: cột theo status, kéo-thả card giữa cột; task detail mở trong panel hoặc tab riêng. |
 | FR-16 | Xoá task (`tasks:admin`) và mọi thao tác trên board/workflow là **UI-only**, không expose MCP. Task không dùng nữa thì **archive**, không xoá. |
+| FR-17 | **Branch cho task**: tạo/checkout một branch đặt tên từ `key` (mẫu khai ở board, mặc định `<key>-<slug(title)>`). Là **hành động tường minh trong UI**; `tasks.claim` không bao giờ đụng vào work tree — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
+| FR-18 | **Commit mang `key`**: khi phiên agent đang giữ một task, `git.commitTurn` seed thêm trailer `Task: <key>` vào message. Git ghi, Tasks không ghi gì. |
+| FR-19 | **Task detail hiện việc đã commit**: danh sách commit mang `key` của task (bounded), mỗi dòng mở diff. Không có repo / chưa fetch ⇒ danh sách rỗng, không phải lỗi. |
+| FR-20 | **Cửa duyệt `terminal` đọc thêm trạng thái git**: dialog xác nhận của FR-8 hiện thêm ba dữ kiện chỉ git trả lời được — còn thay đổi chưa commit không, commit mang `key` đã push chưa, branch của task đã vào default chưa. **Hiển thị, không chặn** — cùng luật đã áp cho `blocked_by`. |
 
 ### Non-functional requirements
 
@@ -113,6 +119,8 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | NFR-7 | Transition là **metadata-only write** — không reseal `description`, cùng đường với `NotesSetOrganization`. Agent cập nhật tiến độ không phải giải mã lại nội dung task. |
 | NFR-8 | Task sync như mọi `vault_items` record; không có pipeline riêng, không auto-winner khi conflict (xem [Sync & conflict](#sync--conflict)). |
 | NFR-9 | Thêm 3 record type mới không được làm vỡ validate của module khác — xem Blast radius ở [Vaultitem contract](#vaultitem-contract). |
+| NFR-10 | `internal/tasks` **không import `internal/git`**. Dữ kiện git vào qua một interface hẹp do `internal/app` tiêm, đúng cách `environments` nhận `ProfileEnvUsage` và `mcp` khai `NotesAPI` — không thêm cạnh mới vào đồ thị `internal/arch`. Interface `nil` ⇒ mọi thứ git im lặng biến mất. |
+| NFR-11 | Không lưu SHA, không lưu tên branch trong record task. Mọi dữ kiện git được **hỏi lúc hiển thị**, bounded — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
 
 ### Out of scope (v1)
 
@@ -128,6 +136,12 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 - **Task template / recurring task / automation rule** kiểu Jira Automation.
 - **Trash + purge tự động** — task là bản ghi lịch sử dự án, xoá tự động sau
   N ngày là sai; dùng archive (xem FR-16).
+- **Đóng task tự động khi branch được merge.** Cám dỗ rõ ràng, và sai: merge
+  là một dữ kiện của repo, còn "việc đã xong đúng ý" là phán xét của người —
+  cùng lý do `implemented_matching` chỉ đẩy task sang `review` chứ không sang
+  `done`. Git chỉ đưa dữ kiện vào cửa duyệt (FR-20), không tự mở cửa.
+- **Tạo PR / MR từ task.** Đó là API của GitHub/GitLab, không phải git; thuộc
+  [API Client](/dev-kit/api-client) cộng [Tài khoản](/dev-kit/accounts).
 
 ### Acceptance criteria
 
@@ -150,6 +164,16 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 - Duyệt một plan ở Code Graph rồi gọi `tasks.createFromPlan` → mỗi plan node
   thành một task đã link sẵn; sửa code đúng FQN → sau incremental re-index,
   task tương ứng tự chuyển sang `review`.
+- Agent gọi `tasks.claim` → work tree **không đổi**: branch hiện tại giữ
+  nguyên, không file nào bị checkout.
+- Agent commit trong lượt nó giữ task `DEV-4f2a91` → message có trailer
+  `Task: DEV-4f2a91`; mở task detail thấy đúng commit đó.
+- Task còn thay đổi chưa commit → dialog `done` hiện dòng cảnh báo đó nhưng
+  nút Allow **vẫn bấm được**; Allow → task sang `done` bình thường.
+- Đóng module Git / mở một folder không phải repo → task detail không còn mục
+  commit, dialog `done` không còn phần git, mọi thứ khác không đổi.
+- Rebase/squash đổi hết SHA của branch → task detail vẫn liệt kê đúng commit,
+  vì nó grep theo `key` chứ không giữ SHA.
 - Vault đang locked → `tasks.get` (cần `description`) trả `vault_locked`
   structured, không phải task rỗng.
 - Board có 2.000 task → mở board không có Long Task > 50 ms, DOM bounded.
@@ -282,7 +306,7 @@ Ba record type mới trên `vault_items` ([ADR-008](/dev-kit/architecture-decisi
 | Field | At rest | Notes |
 |---|---|---|
 | `type` | `"task-board"` | Schema-validated |
-| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...}}` plaintext | `workflow` là danh sách status + `category`, xem dưới |
+| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...},"branch_template":"","project_path":""}` plaintext | `workflow` là danh sách status + `category`, xem dưới. `branch_template` (FR-17) và `project_path` là **optional**, thêm field vào type đã có — không phải record type thứ tư |
 | `payload` | Envelope V2 rỗng `{}` | `key_id` phải = `task-board` — board không có secret, envelope chỉ để record hợp lệ với sync validation (cùng cách `note-folder` đang làm) |
 
 #### Task — `type = "task"`
@@ -410,6 +434,7 @@ opaque qua `recordID()` như mọi module khác.
 | `TasksCommentList` | `tasks:read` | `task:<id>` | |
 | `TasksLinkPlanNode` | `tasks:write` | `task:<id>` | Set/clear `plan_node_id`, đồng bộ ngược sang `plan_nodes` |
 | `TasksCreateFromPlan` | `tasks:write` | `task:new` | Chỉ chạy trên plan đã `approved` |
+| `TasksGitActivity` | `tasks:read` | `task:<id>` | Commit + branch + trạng thái push của một task. Không đọc vault; trả rỗng khi không có Git (FR-19, NFR-10/11) |
 
 Ba capability tách theo bản chất hành động, cùng lý do đã áp cho
 `kafka:connect` / `kafka:produce` / `kafka:admin`:
@@ -457,6 +482,10 @@ Xem cơ chế chung + rationale ở [MCP / Agent](/dev-kit/mcp-agent).
 `author` của comment và `by` trong `history` **do service gán từ ngữ cảnh
 call** (`origin` + `session_id`), không lấy từ tham số tool — agent không tự
 khai mình là `user` được.
+
+**Không thêm tool nào cho phần git.** Agent lấy `key` từ `tasks.get` rồi dùng
+`git.*` của [Git](/dev-kit/git); một `tasks.git.*` chỉ là cửa thứ hai tới cùng
+một fact. Xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu).
 
 ### Tích hợp Agent Hub
 
@@ -524,6 +553,98 @@ nguồn sự thật thứ hai cho cùng một fact — đúng loại drift đã 
 docs này. Nếu cần thêm dữ liệu, thêm field vào **bên đang sở hữu fact đó**,
 không nhân bản sang bên kia.
 </Callout>
+
+### Tích hợp Git — hỏi, không lưu
+
+[Git](/dev-kit/git) giữ một loại sự thật nữa, và lần này cách nối **khác** với
+Code Graph:
+
+| Sự thật | Sở hữu bởi | Nguồn |
+|---|---|---|
+| Việc này đang ở bước nào trong quy trình | Tasks | Người hoặc agent chuyển tường minh |
+| Code của việc này đã commit chưa, đã push chưa, trên branch nào | Git | `.git` của project — DevKit không ghi lại bản sao |
+
+Code Graph nối bằng **hai ID trỏ nhau** vì `plan_nodes.id` là một ID ổn định do
+Code Graph cấp. Git không có thứ tương đương: SHA **đổi** sau rebase, amend hay
+squash-merge. Một danh sách SHA lưu trong task sẽ mục ruỗng trong im lặng —
+đúng kiểu hỏng mà `plan_node_id` tránh được nhờ trỏ vào một ID bất biến.
+
+Nên liên kết nằm ở chỗ khác: **trong chính message của commit.**
+
+```
+Task: DEV-4f2a91
+```
+
+Một trailer, và nó tốt hơn một bảng trong DevKit ở đúng những chỗ quan trọng:
+nó sống sót qua rebase, qua việc archive task, qua việc gỡ DevKit, và người
+đồng nghiệp chưa từng cài DevKit vẫn đọc được nó bằng `git log`. Một cặp ID
+trong SQLite local thì không làm được điều nào trong số đó.
+
+Hệ quả, và đây là luật của mục này: **Git được hỏi, không được lưu.**
+
+- Record `task` **không thêm field nào**. Không SHA, không tên branch.
+- Danh sách commit của một task là `git log --grep` theo `key`, bounded, chạy
+  lúc hiển thị. Branch của task tìm bằng tiền tố `<key>` trong `git.branch.list`.
+- Task là `vault_items` và **sync**; SHA từ máy A vô nghĩa trên máy B cho tới
+  khi máy B fetch. Một task mang SHA chết trên thiết bị khác tệ hơn một task
+  không mang gì.
+
+Cùng kỷ luật đã viết cho Code Graph ("Tasks không bao giờ ghi vào `plan_nodes`"),
+áp cho một quan hệ mà lần này DevKit thậm chí không sở hữu storage.
+
+#### Ba điểm nối
+
+| Điểm nối | Chiều | Cơ chế |
+|---|---|---|
+| Branch cho task | UI → Git | Nút tường minh trong task detail; gọi `git.branch.create` theo `branch_template` của board (FR-17) |
+| Commit mang `key` | Git → (đọc được bởi Tasks) | Phiên agent đang giữ task ⇒ `git.commitTurn` seed trailer `Task: <key>` (FR-18) |
+| Việc đã commit | Tasks → Git | Task detail hỏi `git.log --grep`, mỗi dòng mở diff bằng viewer của Git (FR-19) |
+
+`tasks.claim` **không** tạo hay checkout branch. Claim là tool MCP agent gọi tự
+do, không qua xác nhận; để nó đổi branch của work tree là để agent thay đổi
+những file đang mở trên màn hình người dùng mà không ai hỏi ai. Agent muốn một
+branch thì gọi `git.branch.create` — `git:write`, và `git.checkout` vốn đã từ
+chối khi còn thay đổi chưa commit.
+
+#### Cửa duyệt `terminal` đọc thêm ba dữ kiện
+
+Đây là phần đáng giá nhất của cả mục. FR-8 đã bắt xác nhận **mỗi lần** khi
+chuyển sang `terminal`; đó là điểm kiểm soát duy nhất còn lại của con người.
+Nhưng hôm nay cửa đó không biết code đã đi tới đâu, mà "Done" trên một work
+tree còn thay đổi chưa commit là một trạng thái **nói dối**.
+
+Dialog của FR-8 hiện thêm ba dòng, và chỉ git trả lời được:
+
+- còn thay đổi chưa commit trên các path commit của task đã đụng tới;
+- commit mang `key` này đã push chưa;
+- branch của task đã vào branch mặc định chưa.
+
+**Hiển thị, không chặn.** Cùng luật đã chốt cho `blocked_by` — "chỉ để hiển thị
+và cho agent đọc; **không** chặn transition, DevKit không tự quyết định thay
+người dùng". Việc chưa push vẫn đóng được: có thể người dùng cố ý. Cái thay
+đổi là họ **biết** trước khi bấm, thay vì phát hiện ba ngày sau.
+
+Nó cũng không thêm chế độ hỏng nào mới: nó bơm thông tin vào một gate đã tồn
+tại, không dựng gate thứ hai.
+
+#### Không thêm tool MCP nào
+
+Agent đã có đủ: `tasks.get` trả `key`, và [Git](/dev-kit/git) đã có
+`git.log` / `git.status` / `git.diff`. Thêm một `tasks.git.*` là mở **cửa thứ
+hai tới cùng một fact** — trái luật "một cửa cho agent" của
+[Liên module](/dev-kit/cross-module#nguyên-tắc). Phần Go cũng vậy:
+`internal/tasks` nhận dữ kiện git qua một interface hẹp do `internal/app` tiêm
+(NFR-10), không import `internal/git`, nên `go test ./internal/arch/` không có
+cạnh mới nào để phàn nàn.
+
+#### Khi không có gì cả
+
+Không có module Git, folder không phải work tree, chưa mở project nào, hoặc
+interface tiêm vào là `nil`: mục commit biến mất khỏi task detail, phần git
+biến mất khỏi dialog `terminal`, nút branch ẩn đi. Board, workflow, gate và
+mọi thứ khác **không đổi một dòng**. Tasks đứng trước Git trong thứ tự triển
+khai ([Liên module § Thứ tự](/dev-kit/cross-module#thứ-tự-triển-khai-gợi-ý)),
+nên đây là trạng thái mặc định khi Tasks v1 ship, không phải một trường hợp lạ.
 
 ### UI
 
@@ -611,6 +732,16 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
   thường không có gì tự động.
 - Chấm trạng thái phiên trên tab task phụ thuộc follow-up
   `agenthub:sessionUpdate` → `setTabStatus` chưa implement.
+- Dữ kiện git chỉ đúng với **project đang mở** trong Code Graph/Git. Board khai
+  `project_path` khác project đang mở ⇒ task detail nói "board này gắn với
+  project khác" thay vì trả lời sai; board không khai gì thì lấy project đang
+  mở. Nhiều repo cùng lúc chưa nằm trong phạm vi — cùng giới hạn "một project
+  active per session" của Code Graph.
+- Commit không mang trailer `Task:` thì không có cách nào tìm ra. Trailer chỉ
+  được seed tự động ở `git.commitTurn` (FR-18); người tự gõ `git commit` trong
+  terminal phải tự thêm.
+- `git log --grep` quét lịch sử theo giới hạn số commit, không quét toàn bộ
+  repo — task rất cũ trên repo rất dài có thể không thấy commit của nó nữa.
 
 ## Open questions
 
@@ -630,10 +761,18 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
 - Comment `kind=system` do service tự post có nên đếm vào cùng danh sách với
   comment người/agent không, hay tách thành một tab "Activity" riêng trong
   task detail?
+- Trailer `Task:` hiện chỉ được seed ở `git.commitTurn`. Có nên để Git đề
+  nghị thêm nó cho **mọi** commit khi đang có task `active` mang branch trùng
+  tên không, hay như thế là đoán ý người dùng quá xa?
+- Dữ kiện git ở cửa duyệt `terminal` là **hiển thị, không chặn** (FR-20). Với
+  board mà mọi task đều phải push mới tính là xong, có nên cho board khai một
+  luật chặn tuỳ chọn không — hay đó chính là "transition graph" đã bị loại ra
+  khỏi v1, chỉ mặc áo khác?
 
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />
   <Card title="Code Graph" href="/dev-kit/codegraph" description="Plan-first flow — plan đã duyệt sinh backlog, auto-diff đẩy task sang review" />
+  <Card title="Git" href="/dev-kit/git" description="Commit mang key của task; cửa duyệt đóng task đọc trạng thái commit/push" />
   <Card title="Vault" href="/dev-kit/vault" description="Substrate vaultitem mà task/board/comment adapter vào" />
   <Card title="MCP / Agent" href="/dev-kit/mcp-agent" description="Cơ chế tool surface + confirmation gate được tái dùng nguyên" />
   <Card title="Module tabs" href="/dev-kit/module-tabs" description="Per-item tab cho task detail + setTabStatus theo phiên agent" />

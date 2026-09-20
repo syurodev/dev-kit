@@ -122,6 +122,8 @@ cùng hiện; *Reveal in Code Graph* từ một task mở `replace`.
 | Git → Agent Hub | Diff / commit: **Attach to agent** | `agent.attach([commit \| diff])` | Agent Hub; diff đã cắt theo giới hạn |
 | Git → Code Graph | Dòng commit: **Blast radius**; checkout branch ⇒ re-index | `codegraph.reveal`, `codegraph.reindex` | Code Graph trả phạm vi ảnh hưởng; Git chỉ nói file nào đổi |
 | Code Graph → Git | Marker `M`/`A` ở tab Files; tab file: **View diff** | `git.reveal` | **Git sở hữu trạng thái git**; `codegraph.GitStatus` chuyển sang đọc từ Git |
+| Tasks → Git | Task detail: commit mang `key`, nút tạo branch; cửa duyệt đóng task hỏi trạng thái commit/push | `git.reveal`, `git.branch.create` | **Git sở hữu**; Tasks hỏi lúc hiển thị, không lưu SHA |
+| Git → Tasks | `git.commitTurn` seed trailer `Task: <key>` khi phiên đang giữ task | — | Liên kết nằm trong message commit, không nằm trong bảng nào của DevKit |
 | API Client / Git → Accounts | Thiếu account hoặc account hết hạn: peek ngay tại chỗ | `accounts.pick` | Accounts; bên gọi chỉ nhận lại `account_id` |
 | Accounts → mọi module | Account detail liệt kê ai đang dùng nó | usage index (như `ProfileEnvUsage`) | Module sở hữu binding trả lời |
 | Agent Hub → mọi module | Agent tự gọi `codegraph.*`, `tasks.*`, `api.*`, `git.*`, `accounts.*` qua MCP | tool của module sở hữu | Module sở hữu, qua Gateway + gate env |
