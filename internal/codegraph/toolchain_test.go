@@ -594,3 +594,36 @@ func TestAnalyzeGivesUpOnAnAnalyzerThatNeverExits(t *testing.T) {
 		t.Fatal("Analyze did not return after its context expired")
 	}
 }
+
+// A source checkout finds its artifact as a path relative to where the app was
+// started ("analyzer-ts/bin/tsgo"), and a language server is then launched with
+// the opened project as its working directory. The command has to name the
+// artifact in a way that survives that chdir.
+func TestRunCommandNamesTheArtifactByAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.MkdirAll(filepath.Join("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("bin", "server"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	toolchain := Toolchain{
+		Language: "test",
+		Artifact: filepath.Join("bin", "server"),
+		Run:      []string{ArtifactArg, "--stdio"},
+	}
+
+	argv, _, err := toolchain.serverCommand(context.Background())
+	if err != nil {
+		t.Fatalf("serverCommand: %v", err)
+	}
+	want := filepath.Join(dir, "bin", "server")
+	// t.TempDir can sit behind a symlink (/var -> /private/var on macOS), so
+	// compare what both resolve to rather than the spelling.
+	gotReal, _ := filepath.EvalSymlinks(argv[0])
+	wantReal, _ := filepath.EvalSymlinks(want)
+	if !filepath.IsAbs(argv[0]) || gotReal != wantReal {
+		t.Fatalf("argv[0] = %q, want the absolute path of %q", argv[0], want)
+	}
+}

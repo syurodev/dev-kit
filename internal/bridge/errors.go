@@ -4,6 +4,7 @@ import (
 	"context"
 	"devkit/internal/capabilities"
 	"errors"
+	"io/fs"
 	"log"
 	"os"
 
@@ -293,7 +294,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, codegraph.ErrPathOutsideProject):
 			return apperrors.Wrap(codeValidationFailed, "File path must stay inside the active CodeGraph project.", true, err)
 		case errors.Is(err, os.ErrNotExist):
-			return apperrors.Wrap(codeValidationFailed, "CodeGraph file or directory not found.", true, err)
+			return apperrors.Wrap(codeValidationFailed, codeGraphNotFoundMessage(err), true, err)
 		case errors.Is(err, codegraph.ErrBinaryFile):
 			return apperrors.Wrap(codeValidationFailed, "This file is not text and cannot be opened in the editor.", true, codegraph.ErrBinaryFile)
 		case errors.Is(err, codegraph.ErrFileTooLarge):
@@ -349,6 +350,20 @@ func publicError(subject string, err error) *apperrors.AppError {
 		return apperrors.Wrap(codeConnectionFailed, message, true, err)
 	}
 	return unexpectedError(subject, err)
+}
+
+// codeGraphNotFoundMessage names what was missing. A bare "not found" leaves
+// the person guessing between the analyzer, the runtime that launches it and
+// the project folder itself, and the *fs.PathError underneath already knows:
+// its Path is the missing file and its Op is what was being done to it
+// (fork/exec for a program that is not there, chdir for a missing working
+// directory). The path is the user's own, on their own machine.
+func codeGraphNotFoundMessage(err error) string {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && pathErr.Path != "" {
+		return "CodeGraph file or directory not found: " + pathErr.Path + " (" + pathErr.Op + ")."
+	}
+	return "CodeGraph file or directory not found."
 }
 
 func publicErrorForCode(subject string, err error, code string) *apperrors.AppError {
