@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   createGuard,
   deleteGuard,
+  gitAbortMerge,
   gitAvailability,
   gitCommit,
   gitFilePatch,
@@ -28,6 +29,7 @@ import {
   type Guard,
 } from "@/bridge/git";
 import { buildPatch, hunkSummary, parsePatch, type FilePatch } from "./hunks";
+import { GitConflictPanel } from "./GitConflictPanel";
 
 function FileList({
   title,
@@ -239,6 +241,10 @@ export function GitChangesView() {
   const [message, setMessage] = useState("");
   // The one changed file whose hunks are open. Empty is none.
   const [expanded, setExpanded] = useState("");
+  // The unmerged path being resolved. The panel takes the whole view while it
+  // is open: a three-pane merge does not fit beside a file list, and nothing
+  // else here can be done until the merge is finished or thrown away.
+  const [resolving, setResolving] = useState("");
   const [error, setError] = useState("");
 
   const reload = useCallback(() => {
@@ -273,6 +279,20 @@ export function GitChangesView() {
   }
   if (!status || !guards) {
     return null;
+  }
+
+  if (resolving) {
+    return (
+      <GitConflictPanel
+        path={resolving}
+        branch={status.branch}
+        onClose={() => setResolving("")}
+        onResolved={() => {
+          setResolving("");
+          reload();
+        }}
+      />
+    );
   }
 
   // The guard covering the branch you are on, if any. Its absence is the
@@ -344,14 +364,27 @@ export function GitChangesView() {
           <section className="border-b border-border-subtle bg-amber-500/5">
             <header className="flex items-center gap-2 px-3 py-1.5">
               <GitMerge className="size-3.5 text-amber-500" aria-hidden />
-              <h3 className="text-xs font-medium text-amber-500">
+              <h3 className="flex-1 text-xs font-medium text-amber-500">
                 Conflicted ({conflicted.length}) · resolve before committing
               </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                title="Throw the whole merge away and go back to before it started"
+                onClick={() => {
+                  gitAbortMerge().then(reload).catch((e: Error) => setError(e.message));
+                }}
+              >
+                Abort merge
+              </Button>
             </header>
             <ul>
               {conflicted.map((path) => (
-                <li key={path} className="px-3 py-1 font-mono text-xs">
-                  {path}
+                <li key={path} className="flex items-center gap-2 px-3 py-1">
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setResolving(path)}>
+                    Resolve
+                  </Button>
                 </li>
               ))}
             </ul>
