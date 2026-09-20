@@ -165,7 +165,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
 		TableSyncLocalEntities, TableSyncLocalMutations, TableSyncConflicts,
 		TableAppPreferences, TableUIState, TableDBQueryHistory, TableDBSchemaCache,
-		TableAuditEvents, TableAgentCheckpoints,
+		TableAuditEvents, TableAgentCheckpoints, TableAccountSecrets,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -176,8 +176,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 22 {
-		t.Fatalf("migration version = %d, want 22", version)
+	if version != 23 {
+		t.Fatalf("migration version = %d, want 23", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -462,7 +462,9 @@ func TestMigration22KeepsTurnsWrittenBeforeIt(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO agent_turns (id, session_id, created_at) VALUES ('old-turn', 's1', 'x')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, stmt := range []string{`DROP TABLE agent_checkpoints`, `DELETE FROM schema_migrations WHERE version = 22`} {
+	// The runner resumes from MAX(version), so replaying 22 means clearing 22
+	// and everything after it — otherwise the newer row keeps 22 skipped.
+	for _, stmt := range []string{`DROP TABLE agent_checkpoints`, `DELETE FROM schema_migrations WHERE version >= 22`} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}

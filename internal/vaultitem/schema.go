@@ -23,6 +23,14 @@ const (
 	// deliberately not a vault item: everything in vault_items is sync-bound
 	// by construction, and history must never leave the device.
 	ItemTypeDatabaseQuery = "db-query"
+	// ItemTypeAccount covers *shared* accounts only — an identity reused in
+	// several places, which is exactly what should follow the user between
+	// devices. A scoped account (one connection's password) is deliberately
+	// not a vault item: everything here is sync-bound by construction, so a
+	// credential that must stay on one machine cannot live here at all. It
+	// goes to storage.TableAccountSecrets, the same separation query history
+	// keeps from saved queries.
+	ItemTypeAccount = "account"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -36,7 +44,7 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
-		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery:
+		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount:
 		return true
 	default:
 		return false
@@ -132,6 +140,25 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 		}
 		expectedKeyID = "db-query-body"
 
+	case ItemTypeAccount:
+		var value struct {
+			Provider   string   `json:"provider"`
+			Kind       string   `json:"kind"`
+			Label      string   `json:"label"`
+			Subject    string   `json:"subject"`
+			Scopes     []string `json:"scopes"`
+			Env        []string `json:"env"`
+			State      string   `json:"state"`
+			ExpiresAt  string   `json:"expires_at"`
+			VerifiedAt string   `json:"verified_at"`
+			Ref        string   `json:"ref"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Provider == "" ||
+			value.Label == "" || !validAccountKind(value.Kind) || !validAccountState(value.State) {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "account-secret"
+
 	case ItemTypeSSH:
 		var value struct {
 			Name               string `json:"name"`
@@ -210,4 +237,27 @@ func decodeMetadataObject(metadata json.RawMessage, destination any) error {
 		return ErrInvalidRecordSchema
 	}
 	return nil
+}
+
+// validAccountKind mirrors accounts.Kind. It is duplicated rather than
+// imported because vaultitem is the substrate every module builds on and must
+// not depend on any of them — the same reason the note and profile shapes are
+// restated here instead of imported.
+//
+// "scoped" is absent on purpose: a scoped account is never a vault item, so a
+// record claiming to be one is a record that must not enter the ledger.
+func validAccountKind(kind string) bool {
+	switch kind {
+	case "token", "basic", "oauth", "secret", "external":
+		return true
+	}
+	return false
+}
+
+func validAccountState(state string) bool {
+	switch state {
+	case "valid", "expiring", "expired", "revoked", "unverified":
+		return true
+	}
+	return false
 }

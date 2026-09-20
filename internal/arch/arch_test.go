@@ -65,7 +65,15 @@ func TestLayering(t *testing.T) {
 		// central design decision behind their locally-declared EnvLookup
 		// interfaces ("accept interfaces, return structs"), not just a
 		// preference, so it is pinned the same way vaultitem's boundary is.
-		pkg("ssh"):      {pkg("environments"), pkg("mcp")},
+		pkg("ssh"): {pkg("environments"), pkg("mcp")},
+		// accounts is the credential substrate: modules depend on it, never the
+		// reverse, and it declares EnvLookup locally like ssh/database/kafka.
+		// It takes a *sql.DB and a table name rather than importing storage,
+		// so the scoped-secret table stays the composition root's decision.
+		pkg("accounts"): {
+			pkg("environments"), pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+			pkg("ssh"), pkg("database"), pkg("kafka"), pkg("notes"), pkg("agenthub"),
+		},
 		pkg("database"): {pkg("environments"), pkg("mcp")},
 		pkg("kafka"):    {pkg("environments"), pkg("mcp")},
 		// notes must not depend upward on the MCP host.

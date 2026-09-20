@@ -39,8 +39,15 @@ const (
 	// data directory; a row is what makes one reachable, and deleting the row
 	// is what lets maintenance collect it. Device-local like the transcript.
 	TableAgentCheckpoints = "agent_checkpoints"
-	TableAppPreferences   = "app_preferences"
-	TableUIState          = "ui_state"
+
+	// TableAccountSecrets holds scoped account credentials: the ones belonging
+	// to exactly one connection. It is NOT vault_items, and that is the whole
+	// design — everything in vault_items is sync-bound by construction, and a
+	// database password is only useful on a machine that can reach the
+	// database. Same reason db_query_history has a table of its own.
+	TableAccountSecrets = "account_secrets"
+	TableAppPreferences = "app_preferences"
+	TableUIState        = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
@@ -772,7 +779,41 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22})
+	m23 := Migration{
+		Version: 23,
+		Name:    "scoped account secrets",
+		Up: func(ctx context.Context) error {
+			// scope_owner is the profile that owns this credential, and it is
+			// the link instead of the profile storing an account id: an id
+			// pointing at a row that does not sync dangles on the next device,
+			// and writing a replacement back would have two devices overwrite
+			// each other forever.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					scope_owner TEXT NOT NULL,
+					provider TEXT NOT NULL,
+					kind TEXT NOT NULL,
+					label TEXT NOT NULL DEFAULT '',
+					username TEXT NOT NULL DEFAULT '',
+					envelope TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableAccountSecrets,
+			)); err != nil {
+				return err
+			}
+			// One credential per owning profile: the lookup is always "the
+			// secret for this profile", and two would make that ambiguous.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_account_secrets_owner ON %s (scope_owner)`,
+				TableAccountSecrets,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23})
 	if err != nil {
 		return err
 	}
