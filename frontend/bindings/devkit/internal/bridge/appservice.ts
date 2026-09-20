@@ -1346,6 +1346,15 @@ export function GitRemotes(): $CancellablePromise<git$0.Remote[] | null> {
     return $Call.ByID(3133910209);
 }
 
+/**
+ * GitRepositories lists the work trees at or under a folder with their branch
+ * and change counts — how a folder of many repositories, which is not itself
+ * one, is browsed. Pointing Git at one of them is WorkFolderPin.
+ */
+export function GitRepositories(root: string): $CancellablePromise<git$0.Repository[] | null> {
+    return $Call.ByID(3827825346, root);
+}
+
 export function GitResolve(path: string, merged: string): $CancellablePromise<void> {
     return $Call.ByID(534163570, path, merged);
 }

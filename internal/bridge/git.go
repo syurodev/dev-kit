@@ -32,6 +32,21 @@ func (s *AppService) GitProject() string {
 	return s.container.Git.Project()
 }
 
+// GitRepositories lists the work trees at or under a folder with their branch
+// and change counts — how a folder of many repositories, which is not itself
+// one, is browsed. Pointing Git at one of them is WorkFolderPin.
+func (s *AppService) GitRepositories(root string) ([]gitservice.Repository, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:list", map[string]any{
+		"action": "repositories",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.Repositories(ctx, root)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]gitservice.Repository), nil
+}
+
 // GitStatus is the single source of what changed. Code Graph's file-tree
 // markers read this rather than running git of their own.
 func (s *AppService) GitStatus() (gitservice.Status, error) {

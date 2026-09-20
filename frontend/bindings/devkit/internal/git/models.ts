@@ -105,6 +105,40 @@ export interface Remote {
 }
 
 /**
+ * Repository is one work tree found under a folder, with enough of its state to
+ * choose between it and its neighbours without opening each.
+ */
+export interface Repository {
+    /**
+     * Path is the work tree's absolute path.
+     */
+    "path": string;
+
+    /**
+     * Name is Path relative to the folder searched, or the folder's own name
+     * when the folder is itself the repository.
+     */
+    "name": string;
+    "branch": string;
+    "detached": boolean;
+    "ahead": number;
+    "behind": number;
+
+    /**
+     * Changed counts files with any change — staged, unstaged, untracked or
+     * conflicted — and Conflicted the ones that are unmerged.
+     */
+    "changed": number;
+    "conflicted": number;
+
+    /**
+     * Error is why this repository's state could not be read; the rest of the
+     * row is empty then. One unreadable repository must not hide its neighbours.
+     */
+    "error": string;
+}
+
+/**
  * Status is what changed in the work tree, and where the branch stands.
  */
 export interface Status {

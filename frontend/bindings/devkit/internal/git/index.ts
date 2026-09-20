@@ -7,5 +7,6 @@ export type {
     Conflict,
     Guard,
     Remote,
+    Repository,
     Status
 } from "./models.js";

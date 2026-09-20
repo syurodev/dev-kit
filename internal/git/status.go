@@ -16,7 +16,15 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	out, err := r.run(ctx, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--branch")
+	return readStatus(ctx, r, "all")
+}
+
+// readStatus is Status for any work tree. untracked is git's
+// --untracked-files mode: "all" lists every untracked file, which the Changes
+// view needs, and "normal" stops at a directory's name, which is enough to
+// count and does not walk a build output.
+func readStatus(ctx context.Context, r runner, untracked string) (Status, error) {
+	out, err := r.run(ctx, nil, "status", "--porcelain=v1", "-z", "--untracked-files="+untracked, "--branch")
 	if err != nil {
 		return Status{}, err
 	}
