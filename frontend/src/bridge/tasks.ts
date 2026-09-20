@@ -183,6 +183,43 @@ export function addComment(taskId: string, body: string): Promise<Comment> {
   return callBridge(async () => (await AppService.TasksCommentAdd(taskId, body)) as Comment);
 }
 
+/**
+ * Finds tasks by key, title or label. Not by description: that is the
+ * encrypted half, and searching it would mean decrypting the whole board.
+ */
+export function searchTasks(boardId: string, query: string): Promise<Task[]> {
+  return callBridge(async () => ((await AppService.TasksSearch(boardId, query)) ?? []) as Task[]);
+}
+
+/**
+ * Points a task at a Code Graph plan node, or clears it with "".
+ *
+ * The link lives on the task and only there: `plan_nodes` is rewritten
+ * wholesale on every proposal, so a back-reference on that side would be wiped
+ * each time an agent re-proposed the plan.
+ */
+export function linkPlanNode(id: string, planNodeId: string): Promise<Task> {
+  return callBridge(async () => (await AppService.TasksLinkPlanNode(id, planNodeId)) as Task);
+}
+
+/** A board's tasks grouped by the plan node they implement, for canvas chips. */
+export function tasksByPlanNode(boardId: string): Promise<Record<string, Task[]>> {
+  return callBridge(
+    async () => ((await AppService.TasksByPlanNode(boardId)) ?? {}) as Record<string, Task[]>,
+  );
+}
+
+/**
+ * Turns the project's APPROVED plan into a backlog, one task per node. A draft
+ * is refused — it is a proposal under discussion, not agreed work. Safe to run
+ * twice: a node that already has a task is skipped.
+ */
+export function createTasksFromPlan(boardId: string): Promise<Task[]> {
+  return callBridge(
+    async () => ((await AppService.TasksCreateFromPlan(boardId)) ?? []) as Task[],
+  );
+}
+
 export function taskProgress(parentId: string): Promise<Progress> {
   return callBridge(async () => (await AppService.TasksProgress(parentId)) as Progress);
 }

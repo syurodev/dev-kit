@@ -663,6 +663,11 @@ func main() {
 	// another take over its claim. Separate because the hub is built above,
 	// after the vendor registry and the sandbox runner.
 	app.WireAgentLiveness(container)
+	// A re-index that changed the index reconciles any board pointed at this
+	// project: a plan node whose code now matches moves its task to review,
+	// one that diverged moves it back. Chains the existing listener rather
+	// than replacing it, so the frontend still hears about re-indexes.
+	app.WirePlanReconcile(container)
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
@@ -685,7 +690,10 @@ func main() {
 		// Which branches an agent may push: the ones written on tasks it
 		// holds, so the permission survives the session that created them.
 		TaskBranches: app.NewTaskBranches(container.Tasks),
-		Hub:          hub,
+		// Turning an approved plan into a backlog is the join of two modules
+		// that must not import each other, so it arrives as its own adapter.
+		PlanBacklog: app.NewPlanBacklog(container),
+		Hub:         hub,
 	})
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())
 	defer mcpCancel()

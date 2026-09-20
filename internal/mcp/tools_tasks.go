@@ -24,6 +24,15 @@ type TasksAPI interface {
 	AddComment(caller tasks.Caller, taskID, body string) (tasks.Comment, error)
 	Comments(taskID string) ([]tasks.Comment, error)
 	Progress(parentID string) (tasks.Progress, error)
+	Search(boardID, query string) ([]tasks.Task, error)
+	LinkPlanNode(id, planNodeID string) (tasks.Task, error)
+}
+
+// PlanBacklog turns an approved Code Graph plan into tasks. It is a function
+// rather than a method on TasksAPI because it is the join of two modules that
+// must not import each other, and only the composition root can see both.
+type PlanBacklog interface {
+	CreateTasksFromPlan(ctx context.Context, boardID string) ([]tasks.Task, error)
 }
 
 // taskCaller turns the request's identity into the board's. An agent's
@@ -115,6 +124,29 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 		Description: "Count a task's subtasks and how many are finished",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolTasksProgress)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "tasks.search",
+		Description: "Find tasks by key, title or label. Descriptions are not searched — they are " +
+			"encrypted, and searching them would mean decrypting the whole board",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolTasksSearch)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "tasks.linkPlanNode",
+		Description: "Point a task at a Code Graph plan node, or pass an empty id to clear it. " +
+			"The link lives on the task",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolTasksLinkPlanNode)
+
+	if s.deps.PlanBacklog != nil {
+		sdk.AddTool(ms, &sdk.Tool{
+			Name: "tasks.createFromPlan",
+			Description: "Create one task per node of the project's APPROVED plan, each linked to its " +
+				"node. A draft plan is refused. Safe to call twice: a node that already has a task is skipped",
+			Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+		}, s.toolTasksCreateFromPlan)
+	}
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tasks.archive",
@@ -328,6 +360,51 @@ func (s *Server) toolTasksProgress(ctx context.Context, _ *sdk.CallToolRequest, 
 func (s *Server) toolTasksArchive(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("archive", nil), func(context.Context) (any, error) {
 		return s.deps.Tasks.Archive(in.TaskID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type tasksSearchInput struct {
+	BoardID string `json:"boardId"`
+	Query   string `json:"query"`
+}
+
+func (s *Server) toolTasksSearch(ctx context.Context, _ *sdk.CallToolRequest, in tasksSearchInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:search", meta("search", nil), func(context.Context) (any, error) {
+		return s.deps.Tasks.Search(in.BoardID, in.Query)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type tasksLinkPlanNodeInput struct {
+	TaskID string `json:"taskId"`
+	// PlanNodeID empty clears the link.
+	PlanNodeID string `json:"planNodeId"`
+}
+
+func (s *Server) toolTasksLinkPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in tasksLinkPlanNodeInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("link_plan_node", nil), func(context.Context) (any, error) {
+		return s.deps.Tasks.LinkPlanNode(in.TaskID, in.PlanNodeID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type tasksCreateFromPlanInput struct {
+	BoardID string `json:"boardId"`
+}
+
+func (s *Server) toolTasksCreateFromPlan(ctx context.Context, _ *sdk.CallToolRequest, in tasksCreateFromPlanInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:new", meta("create_from_plan", nil), func(ctx context.Context) (any, error) {
+		return s.deps.PlanBacklog.CreateTasksFromPlan(ctx, in.BoardID)
 	})
 	if err != nil {
 		return nil, nil, err

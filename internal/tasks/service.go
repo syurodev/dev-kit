@@ -404,6 +404,8 @@ type Fields struct {
 	BlockedBy *[]string
 	Branch    *string
 	BoardID   *string
+	// PlanNodeID links the task to a Code Graph plan node, or clears it.
+	PlanNodeID *string
 }
 
 // SetFields applies metadata-only changes.
@@ -438,6 +440,9 @@ func (s *Service) SetFields(id string, fields Fields) (Task, error) {
 		}
 		if fields.Branch != nil {
 			meta.Branch = *fields.Branch
+		}
+		if fields.PlanNodeID != nil {
+			meta.PlanNodeID = *fields.PlanNodeID
 		}
 		if fields.BoardID != nil {
 			meta.BoardID = *fields.BoardID

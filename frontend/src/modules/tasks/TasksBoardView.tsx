@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KanbanSquare, Plus, RefreshCw } from "lucide-react";
+import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   createBoard,
   createTask,
+  createTasksFromPlan,
   listBoards,
   listTasks,
   progressOf,
@@ -47,6 +48,9 @@ function TaskCard({
           <span>
             {progress.done}/{progress.total}
           </span>
+        ) : null}
+        {task.planNodeId ? (
+          <span title="Implements a Code Graph plan node">plan</span>
         ) : null}
         {task.branch ? <span className="truncate font-mono">{task.branch}</span> : null}
         <div className="flex-1" />
@@ -156,6 +160,33 @@ export function TasksBoardView() {
           <span className="text-xs text-fg-muted">closing asks every time</span>
         )}
         <div className="flex-1" />
+        {/* Only offered for a board that names a project: the plan belongs to
+            the project Code Graph has open, and a board pointed somewhere else
+            would build a backlog out of somebody else's plan. */}
+        {board.projectPath ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="One task per node of the approved plan, each linked to its node"
+            onClick={() => {
+              createTasksFromPlan(board.id)
+                .then((created) => {
+                  if (created.length === 0) {
+                    // Nothing created is the normal answer on a second run,
+                    // not a failure — say which it was.
+                    setError("Every node of the plan already has a task.");
+                  } else {
+                    setError("");
+                  }
+                  reloadTasks();
+                })
+                .catch((e: Error) => setError(e.message));
+            }}
+          >
+            <Workflow className="size-4" aria-hidden />
+            From plan
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
