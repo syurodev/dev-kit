@@ -102,6 +102,7 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-13 | Task link được tới một **plan node** của [Code Graph](/dev-kit/codegraph) (`plan_node_id`) và ngược lại; hai chiều, không copy trạng thái của nhau — xem [Tích hợp Code Graph](#tích-hợp-code-graph--hai-chiều-không-gộp-storage). |
 | FR-14 | Tạo hàng loạt task từ một plan **đã được người duyệt** (`tasks.createFromPlan`) — mỗi plan node thành một task, link sẵn. |
 | FR-15 | Board view kiểu kanban: cột theo status, kéo-thả card giữa cột; task detail mở trong panel hoặc tab riêng. Comment `kind=system` **tách** sang tab *Activity* riêng, không trộn vào dòng hội thoại người/agent. |
+| FR-15b | **Subtask có UI riêng**: task detail hiện checklist các task con (`key`, title, status), thêm task con ngay tại chỗ, bỏ liên kết ngay tại chỗ. Card ở board hiện bộ đếm `2/5` khi task có con. Gán cha bằng kéo-thả một card lên một card khác. Vẫn **một cấp**, vẫn `parent_id`, vẫn `tasks.create` — không đổi data model, không thêm tool. |
 | FR-16 | Xoá task (`tasks:admin`) và mọi thao tác trên board/workflow là **UI-only**, không expose MCP. Task không dùng nữa thì **archive**, không xoá. |
 | FR-17 | **Branch cho task**: tạo/checkout một branch đặt tên từ `key` (mẫu khai ở board, mặc định `<key>-<slug(title)>`). Là **hành động tường minh trong UI**; `tasks.claim` không bao giờ đụng vào work tree — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
 | FR-17b | Branch mà agent tạo được **ghi vào task** (`task.branch`) ngay bằng `tasks.setFields`: `git.branch.create` trả tên branch, agent ghi lại. Đây là chỗ duy nhất DevKit nhớ "branch này thuộc việc này", và là thứ [Git NFR-4](/dev-kit/git) dựa vào để biết agent được push lên branch nào sau khi phiên đã restart. |
@@ -730,6 +731,14 @@ Module `tasks` với hai view trong cùng workbench pane:
 - **Mỗi cột virtualize riêng** bằng `VirtualList` (helper opt-in đã thiết kế ở
   [Sidebar § Hiệu năng](/dev-kit/sidebar#hiệu-năng-khi-nội-dung-sidebar-lớn)) —
   board 2.000 task vẫn bounded DOM.
+- **Checklist subtask** trong detail và bộ đếm `2/5` trên card (FR-15b). Con
+  vẫn là task đầy đủ — có `key`, có status, mở được tab riêng của nó; checklist
+  chỉ là **một cách nhìn** vào `parent_id`, không phải một loại dữ liệu thứ hai.
+  Bộ đếm lấy theo `category`: xong = `terminal`, nên nó không cần biết board
+  đặt tên cột là gì.
+- **Kéo một card lên một card khác** = gán cha. Cùng lớp cross-list drag với
+  kéo giữa cột (xem gotcha dưới), thêm một loại drop target chứ không thêm
+  một cơ chế; thả lên một card đã có cha thì từ chối, vì một cấp là một cấp.
 
 <Callout type="warn" title="Gotcha: kéo-thả giữa hai cột không phải Reorder">
 `TabStrip` dùng framer-motion `Reorder` cho kéo-thả — nhưng `Reorder` chỉ sắp
@@ -782,7 +791,10 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
 - Không có transition graph: agent chuyển từ `todo` thẳng sang `review` là
   hợp lệ. Nếu cần siết thì đó là thiết kế v2.
 - Subtask **một cấp** (`parent_id`), không cây nhiều tầng — cùng giới hạn đã
-  áp cho folder của [Notes](/dev-kit/notes).
+  áp cho folder của [Notes](/dev-kit/notes). Checklist và bộ đếm của FR-15b là
+  lớp hiển thị trên đúng field đó, không nới giới hạn.
+- Bộ đếm subtask đếm trạng thái, **không chặn**: đóng task cha khi con chưa
+  xong vẫn được — cùng luật đã áp cho `blocked_by` và cho dữ kiện git (FR-20).
 - `blocked_by` chỉ để hiển thị và cho agent đọc; **không** chặn transition —
   DevKit không tự quyết định thay người dùng rằng một việc chưa được làm.
 - Conflict trên task chỉ ours/theirs, không merge field-level (xem trên).
@@ -820,6 +832,7 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 | Gộp `assignee` và `session_id`? | **Không.** `assignee` là *ý định* và có thể sai — chính người dùng cũng gán nhầm task; `session_id` là *thực tế* ai đang cầm. Gộp lại là mất đường phân biệt "giao nhầm" với "đang làm" |
 | Comment `kind=system` trộn chung dòng hội thoại? | **Tách** sang tab *Activity* (FR-15) |
 | Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
+| "Thêm sub task" nghĩa là gì? | **Lớp UI**: checklist trong detail, bộ đếm trên card, kéo-thả gán cha (FR-15b). Giữ một cấp, giữ `parent_id`, không thêm tool MCP nào |
 | Cho board khai luật chặn transition theo trạng thái git? | **Không cần.** Dữ kiện git ở cửa duyệt vẫn là hiển thị, không chặn (FR-20). Việc chặn thuộc về [Git](/dev-kit/git) qua env gate trên branch, không phải thuộc về workflow của board |
 
 ## Open questions
