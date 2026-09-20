@@ -1,4 +1,5 @@
 import { KanbanSquare } from "lucide-react";
+import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 
@@ -8,6 +9,7 @@ export const tasksModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: KanbanSquare,
+  group: PLAN_GROUP,
   padded: false,
   tabs: true,
   // tasks:admin is separate so an agent can hold read+write and never change

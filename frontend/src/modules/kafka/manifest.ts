@@ -1,4 +1,5 @@
 import { Workflow } from "lucide-react";
+import { INFRA_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const kafkaModule: ModuleManifest = {
@@ -7,6 +8,7 @@ export const kafkaModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Workflow,
+  group: INFRA_GROUP,
   // The view draws its own 24px inset (Figma 1137:17).
   padded: false,
   capabilities: ["kafka:connect", "kafka:produce"],

@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { WorkbenchTab } from "../stores/workbenchTabs";
+import type { ModuleGroup } from "./groups";
 
 /**
  * One entry a module adds to its tabs' right-click menu. The shell draws them
@@ -99,6 +100,14 @@ export type ModuleManifest = {
   apiVersion: string;
   /** Identifies the module in the title bar and on its tabs — each module owns its own icon. */
   icon: LucideIcon;
+  /**
+   * The group the title bar shows this module under, if it has one: several
+   * modules share one button, which shows the member used last. The module is
+   * otherwise unchanged — see ModuleGroup.
+   *
+   * Presentational and frontend-only: module parity ignores it.
+   */
+  group?: ModuleGroup;
   commands: ModuleCommand[];
   views: ModuleView[];
   capabilities: string[];

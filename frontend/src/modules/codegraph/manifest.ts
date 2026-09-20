@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { FileCode2, ListChecks, Network, Workflow } from "lucide-react";
+import { Code, FileCode2, ListChecks, Workflow } from "lucide-react";
 import { registerIntent } from "@/workbench/intents";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 
@@ -8,7 +8,7 @@ export const codegraphModule: ModuleManifest = {
   title: "Code Graph",
   version: "1.0.0",
   apiVersion: "1",
-  icon: Network,
+  icon: Code,
   // Keeps the shell's padding until this module owns its own chrome.
   padded: true,
   // A flow, a file and the plan are documents you want side by side, so

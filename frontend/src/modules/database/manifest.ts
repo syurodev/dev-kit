@@ -1,6 +1,7 @@
 import { runDocumentCommand } from "./documentCommands";
 import { Activity, Bookmark, Database, History, Network, Table2, Terminal } from "lucide-react";
 import { lazy } from "react";
+import { INFRA_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import {
   activeConsoleId,
@@ -19,6 +20,7 @@ export const databaseModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Database,
+  group: INFRA_GROUP,
   capabilities: ["db:query"],
   // Every one of these is also an item in the native menu bar
   // (internal/appmenu), which knows the id and the shortcut and nothing else.

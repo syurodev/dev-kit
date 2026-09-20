@@ -1,4 +1,5 @@
 import { Wrench } from "lucide-react";
+import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { TOOLS } from "./toolCatalogue";
 
@@ -16,6 +17,7 @@ export const toolsModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Wrench,
+  group: UTILITIES_GROUP,
   // The view draws its own 24px inset (Figma 1144:16).
   padded: false,
   capabilities: ["tools:hash", "tools:util"],

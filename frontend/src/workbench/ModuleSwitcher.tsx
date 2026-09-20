@@ -14,14 +14,17 @@ import { MENU_ROW, MenuRow } from "@/components/ui/menu-row";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { modKey, shortcut } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
+import type { ModuleGroup } from "@/modules/groups";
 import { getModule, viewIcon, type ModulePeekProps } from "@/modules/registry";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { MAX_GROUPS } from "@/stores/documentGroups";
+import { useModuleGroupsStore } from "@/stores/moduleGroups";
+import { representative, type SwitcherItem, type SwitcherModule } from "./switcherItems";
 
-export type SwitcherModule = { id: string; title: string; unavailable?: boolean };
+export type { SwitcherModule };
 
 type ModuleSwitcherProps = {
-  modules: SwitcherModule[];
+  items: SwitcherItem[];
   activeModuleId: string;
   /** `beside`: ⌥-click, open the module in a new group beside the focused one. */
   onSelectModule: (moduleId: string, opts?: { beside?: boolean }) => void;
@@ -35,20 +38,176 @@ type ModuleSwitcherProps = {
  * Each module owns what its button carries: its icon, a `badge`, and a `peek`
  * that opens on hover. See ModuleManifest.
  */
-export function ModuleSwitcher({ modules, activeModuleId, onSelectModule }: ModuleSwitcherProps) {
+export function ModuleSwitcher({ items, activeModuleId, onSelectModule }: ModuleSwitcherProps) {
   return (
     <nav aria-label="Modules" className="flex shrink-0 items-center gap-0.5">
-      {modules.map((module, index) => (
-        <ModuleButton
-          key={module.id}
-          module={module}
-          // There is no ⌘10. The handler is in Workbench.tsx.
-          digit={index < 9 ? String(index + 1) : null}
-          active={module.id === activeModuleId}
-          onSelect={(beside) => onSelectModule(module.id, { beside })}
-        />
-      ))}
+      {items.map((item, index) => {
+        // There is no ⌘10. The handler is in Workbench.tsx.
+        const digit = index < 9 ? String(index + 1) : null;
+        return item.kind === "module" ? (
+          <ModuleButton
+            key={item.module.id}
+            module={item.module}
+            digit={digit}
+            active={item.module.id === activeModuleId}
+            onSelect={(beside) => onSelectModule(item.module.id, { beside })}
+          />
+        ) : (
+          <GroupButton
+            key={item.group.id}
+            group={item.group}
+            members={item.members}
+            digit={digit}
+            activeModuleId={activeModuleId}
+            onSelect={(moduleId, beside) => onSelectModule(moduleId, { beside })}
+          />
+        );
+      })}
     </nav>
+  );
+}
+
+/**
+ * Figma `Titlebar / Module Group`: several modules on one button. It shows the
+ * member on screen — or, with none, the one used last — and a click opens that
+ * one, so what you do every day stays one click away; the corner notch says
+ * there are more, and hovering lists them (`Titlebar / Group Peek`).
+ *
+ * The members are still modules: right-click and ⌥-click act on the one the
+ * button stands for, exactly as they would on its own button.
+ */
+function GroupButton({
+  group,
+  members,
+  digit,
+  activeModuleId,
+  onSelect,
+}: {
+  group: ModuleGroup;
+  members: SwitcherModule[];
+  digit: string | null;
+  activeModuleId: string;
+  onSelect: (moduleId: string, beside?: boolean) => void;
+}) {
+  const [peekOpen, setPeekOpen] = useState(false);
+  const lastUsed = useModuleGroupsStore((state) => state.lastUsed[group.id]);
+  const shown = representative(members, lastUsed, activeModuleId, group.primary);
+  const active = members.some((member) => member.id === activeModuleId);
+  const Icon = (shown ? getModule(shown.id)?.icon : undefined) ?? Wrench;
+
+  const label = (
+    <>
+      {group.title}
+      {digit ? <Kbd className="ml-1.5">{shortcut(digit)}</Kbd> : null}
+    </>
+  );
+
+  const button = (
+    <Button
+      variant="titlebar"
+      size="icon-sm"
+      disabled={!shown}
+      aria-label={group.title}
+      aria-current={active ? "page" : undefined}
+      aria-haspopup="dialog"
+      aria-keyshortcuts={digit ? `${modKey() === "⌘" ? "Meta" : "Control"}+${digit}` : undefined}
+      className={cn("relative", active && "bg-accent text-foreground")}
+      onPointerEnter={() => {
+        void (shown ? getModule(shown.id)?.views[0]?.preload?.() : undefined)?.catch(() => undefined);
+      }}
+      onClick={(event) => {
+        setPeekOpen(false);
+        if (shown) onSelect(shown.id, event.altKey);
+      }}
+    >
+      <Icon className="size-4" />
+      {/* The notch: a corner of the button folded over, the way a toolbar marks
+          a button that hides others. Its colour follows the button's state. */}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute right-1 bottom-1 size-1.25 bg-current [clip-path:polygon(100%_0,100%_100%,0_100%)] transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
+          active ? "text-text-primary" : "text-text-tertiary group-hover/button:text-text-secondary",
+        )}
+      />
+    </Button>
+  );
+
+  return (
+    <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
+      {/* The peek gives way to the menu: both would open from the one button. */}
+      <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
+        <HoverCardTrigger asChild>
+          <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+        </HoverCardTrigger>
+        {shown ? (
+          <ModuleContextMenu
+            moduleId={shown.id}
+            digit={digit}
+            onSelect={(beside) => onSelect(shown.id, beside)}
+          />
+        ) : null}
+      </ContextMenu>
+      <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
+        <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
+          {label}
+        </div>
+        {members.map((member) => (
+          <GroupPeekRow
+            key={member.id}
+            member={member}
+            current={member.id === shown?.id}
+            onSelect={() => {
+              setPeekOpen(false);
+              onSelect(member.id);
+            }}
+          />
+        ))}
+        {shown ? (
+          <p className="mt-0.5 border-t border-border-subtle px-2 pt-1.5 pb-1 text-caption-11 text-text-tertiary">
+            Click opens {shown.title}, the one you used last.
+          </p>
+        ) : null}
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/** Figma `Titlebar / Group Peek Row`: a member, what it has open, and a dot on the one the button stands for. */
+function GroupPeekRow({
+  member,
+  current,
+  onSelect,
+}: {
+  member: SwitcherModule;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = getModule(member.id)?.icon ?? Wrench;
+  const open = useWorkbenchTabsStore((state) => moduleTabs(state.modules, member.id).openTabs.length);
+  return (
+    <button
+      type="button"
+      disabled={member.unavailable}
+      aria-current={current ? "true" : undefined}
+      className={cn(MENU_ROW, "min-w-0 text-left", current && "bg-state-soft")}
+      onClick={onSelect}
+    >
+      <MenuRow
+        icon={<Icon />}
+        trailing={
+          <span className="flex items-center gap-2">
+            <span className="text-body-12 tabular-nums text-text-tertiary">
+              {open === 0 ? "Nothing open" : `${open} open`}
+            </span>
+            {/* Always drawn, so the counts line up whether or not this row has it. */}
+            <span className={cn("size-1.5 rounded-full", current ? "bg-action-primary" : "bg-transparent")} />
+          </span>
+        }
+      >
+        {member.title}
+      </MenuRow>
+    </button>
   );
 }
 

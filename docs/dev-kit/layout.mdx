@@ -174,6 +174,28 @@ canvas Code Graph.
 Mỗi group hiện **icon + tên module** ở đầu tab strip khi có hơn một module trên
 màn hình — người dùng luôn biết sidebar đang nói về group nào.
 
+### Nhóm module trên titlebar
+
+Module switcher không có một nút cho mỗi module: các module hay đi cùng nhau
+dùng chung một nút (`frontend/src/modules/groups.ts`).
+
+| Nhóm | Module | Mặc định mở |
+|---|---|---|
+| Infra | Database, Kafka, SSH | Database |
+| Plan | Notes, Tasks | Notes |
+| Utilities | API Client, Accounts, Tools | API Client |
+
+- Nút nhóm hiện icon của module đang mở, hoặc module dùng gần nhất (nhớ qua các
+  lần mở app). **Click** mở đúng module đó; **hover** 250 ms hiện danh sách các
+  thành viên kèm số tab đang mở; ⌥-click và chuột phải tác động lên module đó
+  như trên nút riêng.
+- Nhóm chỉ là cách vẽ: mỗi thành viên vẫn là một module đầy đủ — tab, sidebar,
+  pin work folder và palette theo id của chính nó. Backend không biết nhóm tồn tại.
+- Một nhóm là **một slot**: `⌘1`–`⌘9` đếm slot, và nhấn lại phím của nhóm khi
+  đang ở trong nó thì chuyển sang thành viên kế tiếp. Vị trí của nhóm theo id của
+  nhóm (`infra` nằm giữa `git` và `plan`); `utilities` cuối cùng vì ít dùng nhất.
+- Một module vào nhóm bằng cách khai `group` trong manifest.
+
 ### Mở một group
 
 - `⌘\` hoặc *Split right* trên tab: group mới cùng module, tab chuyển sang đó.

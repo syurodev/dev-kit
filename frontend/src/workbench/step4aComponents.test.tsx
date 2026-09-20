@@ -291,10 +291,10 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         <TooltipProvider>
           <ModuleSwitcher
             activeModuleId="database"
-            modules={[
-              { id: "database", title: "Database" },
-              { id: "agenthub", title: "Agent Hub" },
-              { id: "notes", title: "Notes", unavailable: true },
+            items={[
+              { kind: "module", module: { id: "database", title: "Database" } },
+              { kind: "module", module: { id: "agenthub", title: "Agent Hub" } },
+              { kind: "module", module: { id: "notes", title: "Notes", unavailable: true } },
             ]}
             onSelectModule={() => {}}
           />
@@ -304,6 +304,39 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html.match(/aria-current="page"/g)?.length).toBe(1);
       expect(html).toContain('aria-label="Database"');
       expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="Notes"/);
+    });
+
+    it("draws a group as one button, lit while any member is on screen", () => {
+      const members = [
+        { id: "database", title: "Database" },
+        { id: "kafka", title: "Kafka" },
+        { id: "ssh", title: "SSH" },
+      ];
+      const draw = (activeModuleId: string) =>
+        renderToString(
+          <TooltipProvider>
+            <ModuleSwitcher
+              activeModuleId={activeModuleId}
+              items={[
+                { kind: "module", module: { id: "git", title: "Git" } },
+                { kind: "group", group: { id: "infra", title: "Infra" }, members },
+              ]}
+              onSelectModule={() => {}}
+            />
+          </TooltipProvider>,
+        );
+      const away = draw("git");
+      // Two buttons for three members: the members are behind the peek, not on the bar.
+      expect(away.match(/\[--wails-draggable:no-drag\]/g)?.length).toBe(2);
+      expect(away).toContain('aria-label="Infra"');
+      expect(away).not.toContain('aria-label="Kafka"');
+      // The notch is what says there is more behind the button.
+      expect(away).toContain("clip-path");
+      expect(away.match(/aria-current="page"/g)?.length).toBe(1);
+
+      const inside = draw("kafka");
+      expect(inside.match(/aria-current="page"/g)?.length).toBe(1);
+      expect(inside).toMatch(/aria-label="Infra"[^>]*aria-current="page"|aria-current="page"[^>]*aria-label="Infra"/);
     });
   });
 });
