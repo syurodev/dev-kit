@@ -3,8 +3,10 @@ import { FolderOpen, GitBranch, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { agentHubChooseDirectory } from "@/bridge/agenthub";
-import { gitProject } from "@/bridge/git";
+import { gitProject, type Repository } from "@/bridge/git";
 import { useModuleFolder } from "@/stores/workFolder";
+import { NoRepositories, RepositoryList, RepositorySwitcher, useRepositories } from "./GitRepositories";
+import { repositoryRoot } from "./repositories";
 
 /**
  * Wraps a Git view with the folder it reads. Git works in the app's work
@@ -24,6 +26,9 @@ export function withGitFolder(View: ComponentType): ComponentType {
 function GitFolderGate({ View }: { View: ComponentType }) {
   const { loaded, folder, current, pinned, pin, follow } = useModuleFolder("git");
   const [error, setError] = useState("");
+  // The repositories in the folder the app has open, so Git can offer its
+  // neighbours while it is pinned to one of them.
+  const { repos, loading, reload } = useRepositories(repositoryRoot(current, folder));
   // What Go says Git is reading, and for which folder it said so, so a stale
   // answer to the previous folder is never taken for this one's.
   const [asked, setAsked] = useState<{ folder: string; project: string } | null>(null);
@@ -45,6 +50,18 @@ function GitFolderGate({ View }: { View: ComponentType }) {
       const picked = await agentHubChooseDirectory(folder);
       // "" is a cancelled dialog: Git keeps the folder it had.
       if (picked) await pin(picked);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  // Choosing one of the folder's repositories points Git at it. The folder the
+  // app has open being the repository itself is following, not a pin.
+  async function chooseRepository(repo: Repository) {
+    setError("");
+    try {
+      if (repo.path === current) await follow();
+      else await pin(repo.path);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -72,11 +89,22 @@ function GitFolderGate({ View }: { View: ComponentType }) {
   } else if (asked?.folder !== folder) {
     body = null;
   } else if (!asked.project) {
-    body = (
-      <EmptyState icon={GitBranch} title="Not a git repository" body={`${folder} is not inside a git work tree.`}>
-        {openButton}
-      </EmptyState>
-    );
+    // A folder of repositories is not one itself, but is not nothing either:
+    // list what is in it. Until it has been read, show nothing rather than
+    // flash the empty state.
+    body =
+      repos === null ? null : repos.length > 0 ? (
+        <RepositoryList
+          root={repositoryRoot(current, folder)}
+          repos={repos}
+          loading={loading}
+          onReload={reload}
+          onChoose={chooseRepository}
+          action={openButton}
+        />
+      ) : (
+        <NoRepositories folder={folder}>{openButton}</NoRepositories>
+      );
   } else {
     body = <View key={folder} />;
   }
@@ -85,9 +113,15 @@ function GitFolderGate({ View }: { View: ComponentType }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5">
         {pinned ? <Pin className="size-3.5 shrink-0 text-fg-muted" aria-label="Pinned to this folder" /> : null}
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted" title={folder || undefined}>
-          {folder || "No folder"}
-        </span>
+        {asked?.folder === folder && asked.project && repos && repos.length > 1 ? (
+          <div className="min-w-0 flex-1">
+            <RepositorySwitcher folder={folder} repos={repos} onOpen={reload} onChoose={chooseRepository} />
+          </div>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted" title={folder || undefined}>
+            {folder || "No folder"}
+          </span>
+        )}
         {error ? <span className="truncate text-xs text-status-danger">{error}</span> : null}
         {pinned ? (
           <Button variant="ghost" size="sm" onClick={() => follow().catch((e: Error) => setError(e.message))}>
