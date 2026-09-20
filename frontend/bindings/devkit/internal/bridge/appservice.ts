@@ -58,6 +58,9 @@ import * as ssh$0 from "../ssh/models.js";
 import * as tasks$0 from "../tasks/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as workfolder$0 from "../workfolder/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -1318,10 +1321,13 @@ export function GitLog(limit: number): $CancellablePromise<git$0.Commit[] | null
 }
 
 /**
- * GitOpen points the module at a project.
+ * GitProject is the folder the module is reading, empty when it is in none —
+ * no folder open, or one that is not a repository. The module's own answer
+ * rather than the work folder's: the two differ exactly when the folder is not
+ * a repo, and telling those apart is the point.
  */
-export function GitOpen(projectPath: string): $CancellablePromise<void> {
-    return $Call.ByID(3699903610, projectPath);
+export function GitProject(): $CancellablePromise<string> {
+    return $Call.ByID(2604396275);
 }
 
 export function GitPull(remote: string): $CancellablePromise<void> {
@@ -1937,4 +1943,29 @@ export function VaultSearch(query: string): $CancellablePromise<$models.VaultSea
 
 export function VaultStatus(): $CancellablePromise<$models.VaultStatusDTO> {
     return $Call.ByID(252340320);
+}
+
+/**
+ * WorkFolderFollow sends a module back to following the current folder.
+ */
+export function WorkFolderFollow($module: string): $CancellablePromise<void> {
+    return $Call.ByID(2966223574, $module);
+}
+
+/**
+ * WorkFolderPin points one module at a folder, whatever the current folder is.
+ * It is the module-level "open a different folder": Code Graph is not moved,
+ * so nothing is re-indexed.
+ */
+export function WorkFolderPin($module: string, folder: string): $CancellablePromise<void> {
+    return $Call.ByID(1015658474, $module, folder);
+}
+
+/**
+ * WorkFolderState is the folder the app is working in and the modules that have
+ * been pointed somewhere else. The frontend reads it once on start and then
+ * follows the workfolder:changed event.
+ */
+export function WorkFolderState(): $CancellablePromise<workfolder$0.State> {
+    return $Call.ByID(1076132276);
 }

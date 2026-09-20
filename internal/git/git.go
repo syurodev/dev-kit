@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"devkit/internal/checkpoint"
 )
@@ -117,6 +118,10 @@ func (r runner) run(ctx context.Context, stdin []byte, args ...string) ([]byte, 
 type Service struct {
 	availability checkpoint.Availability
 
+	// The folder follows the app's work folder (internal/workfolder), so it is
+	// changed from whichever goroutine announced the change while a request is
+	// reading it.
+	mu      sync.RWMutex
 	project string
 	runner  runner
 
@@ -177,17 +182,35 @@ func (s *Service) Open(ctx context.Context, projectPath string) error {
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return ErrNoRepository
 	}
+	s.mu.Lock()
 	s.project, s.runner = projectPath, r
+	s.mu.Unlock()
 	return nil
 }
 
+// Reset lets go of the open project. A folder that is not a repository leaves
+// Open failing without touching what was open before, which is right for a
+// person typing a path and wrong for a module following the work folder: it
+// would go on showing the previous repository under the new folder's name.
+func (s *Service) Reset() {
+	s.mu.Lock()
+	s.project, s.runner = "", runner{}
+	s.mu.Unlock()
+}
+
 // Project is the open project's path, empty when none is open.
-func (s *Service) Project() string { return s.project }
+func (s *Service) Project() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.project
+}
 
 func (s *Service) active() (runner, error) {
 	if !s.availability.OK() {
 		return runner{}, ErrGitUnavailable
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.project == "" {
 		return runner{}, ErrNoProject
 	}

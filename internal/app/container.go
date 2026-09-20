@@ -34,6 +34,7 @@ import (
 	"devkit/internal/uistate"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
+	"devkit/internal/workfolder"
 )
 
 // SyncService is the narrow runtime contract exposed to the bridge. Keeping it
@@ -105,6 +106,9 @@ type Container struct {
 	// Git is the project's own repository. Probing for a usable git is done
 	// once here; a machine without one still gets a Service that reports why.
 	Git *gitservice.Service
+	// WorkFolder is the folder the app is working in and which modules follow
+	// it. Code Graph sets it when a project opens; see WireWorkFolder.
+	WorkFolder *workfolder.Service
 	// GitBindings holds the guards and remote-to-account bindings the Git
 	// module reads but cannot store itself.
 	GitBindings *GitBindings
@@ -406,6 +410,7 @@ func NewContainerWithStores(
 		Accounts:    accounts.NewService(itemStore, nil, "", vaultService, accounts.NewRegistry(accounts.DefaultProviders()), envService),
 		Tasks:       tasks.NewService(itemStore),
 		Git:         gitservice.NewService(context.Background()),
+		WorkFolder:  workfolder.NewService(),
 		GitBindings: NewGitBindings(itemStore),
 		APIClient:   apiclient.NewService(itemStore, envService),
 	}

@@ -73,10 +73,13 @@ export function gitAvailability(): Promise<GitAvailability> {
   return callBridge(async () => (await AppService.GitAvailability()) as GitAvailability);
 }
 
-export function gitOpen(projectPath: string): Promise<void> {
-  return callBridge(async () => {
-    await AppService.GitOpen(projectPath);
-  });
+/**
+ * The folder the module is reading — "" when it is in none: no folder open, or
+ * one that is not a repository. Pointing the module somewhere is the work
+ * folder's job (bridge/workfolder.ts); this is only what came of it.
+ */
+export function gitProject(): Promise<string> {
+  return callBridge(async () => (await AppService.GitProject()) as string);
 }
 
 export function gitStatus(): Promise<GitStatus> {
