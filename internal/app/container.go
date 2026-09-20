@@ -136,6 +136,10 @@ type Container struct {
 	// auth and syncBlocked are mutable after startup: the cloudconfig refresh
 	// goroutine rewrites them while bridge call handlers read them, so every
 	// access goes through the mutex-guarded accessors below.
+	// recoverErr is the verify queue recovery failure, if any. Kept rather
+	// than fatal: tasks simply stay where they were, which is the safe end.
+	recoverErr error
+
 	mu          sync.Mutex
 	auth        AuthService
 	syncBlocked error

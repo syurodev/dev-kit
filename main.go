@@ -655,6 +655,10 @@ func main() {
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	container.Interaction = hub
 	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
+	// Accounts, Tasks, Git and the API client need the database, the vault and
+	// this hub — none of which an ephemeral container has. Wired in one place
+	// so main does not have to know which module needs which collaborator.
+	app.WireCredentialsAndWork(container, db, container.Vault)
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
@@ -670,7 +674,14 @@ func main() {
 		Kafka:     container.Kafka,
 		CodeGraph: container.CodeGraph,
 		AgentHub:  container.AgentHub,
-		Hub:       hub,
+		Tasks:     container.Tasks,
+		Git:       container.Git,
+		Accounts:  container.Accounts,
+		API:       container.APIClient,
+		// Which branches an agent may push: the ones written on tasks it
+		// holds, so the permission survives the session that created them.
+		TaskBranches: app.NewTaskBranches(container.Tasks),
+		Hub:          hub,
 	})
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())
 	defer mcpCancel()
