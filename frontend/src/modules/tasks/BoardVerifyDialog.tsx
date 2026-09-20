@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { chooseBoardProject, type Board } from "@/bridge/tasks";
+import { useModuleFolder } from "@/stores/workFolder";
 
 /**
  * The command that closes a task on this board, and the folder it runs in.
@@ -35,13 +36,18 @@ export function BoardVerifyDialog({
 }) {
   const [command, setCommand] = useState("");
   const [timeout, setTimeoutSec] = useState("600");
-  const [projectPath, setProjectPath] = useState("");
+  // What was typed or picked, until something is. A board with no folder of its
+  // own starts on the one the app is working in, shown in the field so saving
+  // it is a choice the person can see.
+  const [typedPath, setProjectPath] = useState<string | null>(null);
+  const { folder: workFolder } = useModuleFolder("tasks");
+  const projectPath = typedPath ?? (board?.projectPath || workFolder);
 
   useEffect(() => {
     if (!board) return;
     setCommand(board.verify?.command ?? "");
     setTimeoutSec(String(board.verify?.timeout_sec || 600));
-    setProjectPath(board.projectPath ?? "");
+    setProjectPath(null);
   }, [board]);
 
   const seconds = Number(timeout);

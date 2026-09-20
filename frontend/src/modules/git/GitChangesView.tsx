@@ -30,6 +30,7 @@ import {
 } from "@/bridge/git";
 import { buildPatch, hunkSummary, parsePatch, type FilePatch } from "./hunks";
 import { GitConflictPanel } from "./GitConflictPanel";
+import { bumpGitRevision } from "./gitRevision";
 
 function FileList({
   title,
@@ -248,6 +249,9 @@ export function GitChangesView() {
   const [error, setError] = useState("");
 
   const reload = useCallback(() => {
+    // Whoever calls this has just changed the repository or is about to look at
+    // it; the rail beside the view reads it again either way.
+    bumpGitRevision();
     gitStatus()
       .then((next) => {
         setStatus(next);

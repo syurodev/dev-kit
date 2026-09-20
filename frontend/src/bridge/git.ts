@@ -73,10 +73,34 @@ export function gitAvailability(): Promise<GitAvailability> {
   return callBridge(async () => (await AppService.GitAvailability()) as GitAvailability);
 }
 
-export function gitOpen(projectPath: string): Promise<void> {
-  return callBridge(async () => {
-    await AppService.GitOpen(projectPath);
-  });
+/** One work tree found under a folder, with enough state to choose between it and its neighbours. */
+export type Repository = {
+  path: string;
+  /** Path relative to the folder searched, or the folder's own name when it is itself the repository. */
+  name: string;
+  branch: string;
+  detached: boolean;
+  ahead: number;
+  behind: number;
+  /** Files with any change: staged, unstaged, untracked or conflicted. */
+  changed: number;
+  conflicted: number;
+  /** Why this repository could not be read; the rest of the row is empty then. */
+  error: string;
+};
+
+/** The repositories at or under a folder — a folder of services is not itself one. */
+export function gitRepositories(root: string): Promise<Repository[]> {
+  return callBridge(async () => ((await AppService.GitRepositories(root)) ?? []) as Repository[]);
+}
+
+/**
+ * The folder the module is reading — "" when it is in none: no folder open, or
+ * one that is not a repository. Pointing the module somewhere is the work
+ * folder's job (bridge/workfolder.ts); this is only what came of it.
+ */
+export function gitProject(): Promise<string> {
+  return callBridge(async () => (await AppService.GitProject()) as string);
 }
 
 export function gitStatus(): Promise<GitStatus> {

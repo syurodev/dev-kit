@@ -5,6 +5,7 @@ import {
   mcpUninstall,
 } from "../../bridge/mcp";
 import { errorMessage } from "../../bridge/errors";
+import { useCurrentFolder } from "../../stores/workFolder";
 
 type Scope = "global" | "project";
 
@@ -12,7 +13,11 @@ export function McpInstallPanel() {
   const [agents, setAgents] = useState<string[]>(["claude-code", "codex"]);
   const [agent, setAgent] = useState("claude-code");
   const [scope, setScope] = useState<Scope>("global");
-  const [projectPath, setProjectPath] = useState("");
+  // What was typed, until something is: the field starts on the folder the app
+  // is working in rather than empty, and typing over it is the person's own.
+  const [typedPath, setProjectPath] = useState<string | null>(null);
+  const currentFolder = useCurrentFolder();
+  const projectPath = typedPath ?? currentFolder;
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 

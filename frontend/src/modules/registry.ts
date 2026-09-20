@@ -139,6 +139,19 @@ export type ModuleManifest = {
    */
   newTab?: () => void;
   /**
+   * Opens the module's home view when the module is brought on screen with
+   * nothing open, instead of showing the "has nothing open" state.
+   *
+   * The shell's default is to open nothing: a module's home used to be opened
+   * for it, and for a console or a note that was a guess (visiting Database
+   * always produced a blank console). Set this where the home view is what
+   * anyone arriving would ask for and costs nothing to open — Git's Changes,
+   * which already reads the folder the app is working in.
+   *
+   * Presentational and frontend-only: module parity ignores it.
+   */
+  opensHome?: boolean;
+  /**
    * What a tab of this module adds to its right-click menu.
    *
    * The shell knows a tab's id and view and nothing about what it holds; only

@@ -39,7 +39,7 @@ func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 	}
 	bindings := map[string]Remote{}
 	if s.remotes != nil {
-		stored, err := s.remotes.ListRemotes(s.project)
+		stored, err := s.remotes.ListRemotes(s.Project())
 		if err == nil {
 			for _, binding := range stored {
 				bindings[binding.Name] = binding

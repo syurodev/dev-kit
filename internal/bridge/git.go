@@ -24,14 +24,27 @@ func (s *AppService) GitAvailability() GitAvailability {
 	}
 }
 
-// GitOpen points the module at a project.
-func (s *AppService) GitOpen(projectPath string) error {
-	_, err := s.call(context.Background(), "builtin.git", "git:read", "repo:status", map[string]any{
-		"action": "open",
+// GitProject is the folder the module is reading, empty when it is in none —
+// no folder open, or one that is not a repository. The module's own answer
+// rather than the work folder's: the two differ exactly when the folder is not
+// a repo, and telling those apart is the point.
+func (s *AppService) GitProject() string {
+	return s.container.Git.Project()
+}
+
+// GitRepositories lists the work trees at or under a folder with their branch
+// and change counts — how a folder of many repositories, which is not itself
+// one, is browsed. Pointing Git at one of them is WorkFolderPin.
+func (s *AppService) GitRepositories(root string) ([]gitservice.Repository, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:list", map[string]any{
+		"action": "repositories",
 	}, func(ctx context.Context) (any, error) {
-		return nil, s.container.Git.Open(ctx, projectPath)
+		return s.container.Git.Repositories(ctx, root)
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return result.([]gitservice.Repository), nil
 }
 
 // GitStatus is the single source of what changed. Code Graph's file-tree

@@ -25,3 +25,12 @@ export function showModuleHome(moduleId: string): void {
     state.focusModule(moduleId);
   }
 }
+
+/**
+ * After a module is focused: opens its home view when the module asked for that
+ * (ModuleManifest.opensHome) and has nothing open. Any other module keeps the
+ * shell's default, which is to show its empty state and let the person choose.
+ */
+export function openHomeWhenAsked(moduleId: string): void {
+  if (getModule(moduleId)?.opensHome) showModuleHome(moduleId);
+}

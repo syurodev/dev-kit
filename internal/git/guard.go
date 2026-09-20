@@ -46,7 +46,7 @@ func (s *Service) guardFor(branch string) (Guard, bool) {
 	if s.guards == nil || branch == "" {
 		return Guard{}, false
 	}
-	guards, err := s.guards.ListGuards(s.project)
+	guards, err := s.guards.ListGuards(s.Project())
 	if err != nil {
 		// A guard store that cannot be read must not silently un-gate a
 		// protected branch. Refuse by reporting a guard with no env, which

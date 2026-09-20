@@ -41,6 +41,7 @@ import (
 	"devkit/internal/uistate"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
+	"devkit/internal/workfolder"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -595,8 +596,20 @@ func main() {
 	// the window is up — and an editor holding a buffer from the old folder has
 	// to know before its next save lands in the new one.
 	container.CodeGraph.OnProjectChanged = func(root string) {
+		// The folder Code Graph opened is the folder the rest of the app works
+		// in until someone points a module elsewhere.
+		container.WorkFolder.SetCurrent(root)
 		emitAppEvent("codegraph:projectChanged", map[string]any{"root": root})
 	}
+	// Git follows the work folder. Wired before the announcement below and
+	// before the last project is restored, so neither finds it missing.
+	app.WireWorkFolder(container)
+	container.WorkFolder.Subscribe(func(state workfolder.State) {
+		emitAppEvent("workfolder:changed", map[string]any{
+			"current": state.Current,
+			"pins":    state.Pins,
+		})
+	})
 	container.CodeGraph.SetConfigDir(container.ConfigDir)
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
