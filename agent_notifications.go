@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"sync"
 
-	"devkit/internal/agenthub"
+	"devkit/internal/notify"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
-// wailsNotifications is Wails' notification service as agenthub.Notifier
+// wailsNotifications is Wails' notification service as notify.Notifier
 // needs it.
 //
 // It is deliberately not passed to application.New as a Service. Wails runs a
@@ -47,9 +47,9 @@ func (w *wailsNotifications) RequestAuthorization() (allowed bool, err error) {
 	return w.service.RequestNotificationAuthorization()
 }
 
-func (w *wailsNotifications) Send(n agenthub.DesktopNotification, update bool) (err error) {
+func (w *wailsNotifications) Send(n notify.Notification, update bool) (err error) {
 	defer recoverNotificationPanic(&err)
-	options := agentNotificationOptions(n)
+	options := notificationOptions(n)
 	if update {
 		return w.service.UpdateNotification(options)
 	}
@@ -88,23 +88,38 @@ func (n notificationStartup) ServiceShutdown() (err error) {
 	return n.desktop.service.ServiceShutdown()
 }
 
-// agentNotificationOptions keys the notification and its thread by session, so
-// a later event replaces the session's notification instead of stacking, and
-// carries the session id back when it is clicked.
-func agentNotificationOptions(n agenthub.DesktopNotification) notifications.NotificationOptions {
+// notificationOptions keys the notification and its thread by target, so a
+// later event about the same thing replaces its notification instead of
+// stacking, and carries the target back when it is clicked.
+//
+// The key holds the module too: two modules using the same id are two
+// notifications, which the session-only key could not express.
+func notificationOptions(n notify.Notification) notifications.NotificationOptions {
+	key := notificationKey(n.Target)
 	return notifications.NotificationOptions{
-		ID:       "agenthub-" + n.SessionID,
+		ID:       key,
 		Title:    n.Title,
 		Body:     n.Body,
-		ThreadID: "agenthub-" + n.SessionID,
-		Data:     map[string]interface{}{"sessionId": n.SessionID},
+		ThreadID: key,
+		Data: map[string]interface{}{
+			"module": n.Target.Module,
+			"kind":   n.Target.Kind,
+			"id":     n.Target.ID,
+		},
 	}
 }
 
-// notificationSessionID is the session a clicked notification opens.
-func notificationSessionID(response notifications.NotificationResponse) (string, bool) {
-	sessionID, ok := response.UserInfo["sessionId"].(string)
-	return sessionID, ok && sessionID != ""
+func notificationKey(t notify.Target) string {
+	return t.Module + "-" + t.Kind + "-" + t.ID
+}
+
+// notificationTarget is what a clicked notification opens.
+func notificationTarget(response notifications.NotificationResponse) (notify.Target, bool) {
+	module, _ := response.UserInfo["module"].(string)
+	kind, _ := response.UserInfo["kind"].(string)
+	id, _ := response.UserInfo["id"].(string)
+	target := notify.Target{Module: module, Kind: kind, ID: id}
+	return target, module != "" && id != ""
 }
 
 // The platform backends cross into Objective-C, D-Bus and COM; a panic there
@@ -113,4 +128,9 @@ func recoverNotificationPanic(err *error) {
 	if recovered := recover(); recovered != nil {
 		*err = fmt.Errorf("desktop notification panic: %v", recovered)
 	}
+}
+
+// agentTarget is one Agent Hub session as the notifier addresses it.
+func agentTarget(sessionID string) notify.Target {
+	return notify.Target{Module: "agenthub", Kind: "session", ID: sessionID}
 }

@@ -1,31 +1,47 @@
-package agenthub
+// Package notify raises OS notifications on behalf of any module.
+//
+// It is a leaf: it must not import any devkit/internal package. That is why
+// Target is three strings of its own rather than the workbench's EntityRef —
+// EntityRef carries a label, a project and a resolver registry that belong to
+// the frontend, and the bridge translates between the two. The two types
+// describing the same thing from opposite sides of a layer boundary is the
+// intent, not duplication to be merged.
+package notify
 
 import (
 	"log"
 	"sync"
 )
 
-// DesktopNotification is one OS notification about a session. SessionID is
-// what a click on it opens.
-type DesktopNotification struct {
-	SessionID string
-	Title     string
-	Body      string
+// Target names what a notification is about, and what a click on it opens.
+// Module is the owning module's id ("agenthub", "tasks"), Kind the thing's
+// kind within it ("session", "task"), ID its id.
+type Target struct {
+	Module string
+	Kind   string
+	ID     string
 }
 
-// DesktopNotifications is the OS notification service, as the Notifier needs
+// Notification is one OS notification.
+type Notification struct {
+	Target Target
+	Title  string
+	Body   string
+}
+
+// Notifications is the OS notification service, as the Notifier needs
 // it. Every method may block — macOS holds RequestAuthorization for as long as
 // its dialog is up, up to three minutes — which is why only the Notifier's own
 // goroutines call them.
-type DesktopNotifications interface {
+type Notifications interface {
 	// Start brings the service up. It fails where the OS has no notification
 	// service to offer: no session D-Bus on Linux (WSL, minimal WMs,
 	// containers), no bundle identifier on macOS (a plain `go build`).
 	Start() error
 	RequestAuthorization() (bool, error)
-	// Send delivers n; update replaces the session's earlier notification
+	// Send delivers n; update replaces the target's earlier notification
 	// instead of adding another.
-	Send(n DesktopNotification, update bool) error
+	Send(n Notification, update bool) error
 }
 
 // notifyQueueSize bounds how many notifications wait while the OS is slow to
@@ -42,8 +58,7 @@ const (
 	notifierUnavailable
 )
 
-// Notifier raises OS notifications when an agent needs the user or finishes,
-// without ever holding up what raised them.
+// Notifier raises OS notifications without ever holding up what raised them.
 //
 // It used to run inline: the permission waiter notified before it started
 // waiting for the answer, and Invoke notified in its deferred turn end, both
@@ -54,7 +69,7 @@ const (
 // authorization is asked for only through Authorize — when the user turns the
 // setting on or focuses the window, never on the path of a pending permission.
 type Notifier struct {
-	Desktop DesktopNotifications
+	Desktop Notifications
 	// Enabled is the user's setting; nil means on.
 	Enabled func() bool
 	// Focused reports whether the user is already looking at the app, in which
@@ -68,8 +83,8 @@ type Notifier struct {
 	Logf func(format string, args ...any)
 
 	queueOnce sync.Once
-	queue     chan DesktopNotification
-	gate      NotificationGate
+	queue     chan Notification
+	gate      Gate
 
 	mu      sync.Mutex
 	state   notifierState
@@ -78,16 +93,16 @@ type Notifier struct {
 
 // Notify queues a notification and returns at once. A nil Notifier — server
 // mode, where there is no desktop — does nothing.
-func (n *Notifier) Notify(sessionID, title, body string) {
+func (n *Notifier) Notify(target Target, title, body string) {
 	if n == nil {
 		return
 	}
 	n.queueOnce.Do(func() {
-		n.queue = make(chan DesktopNotification, notifyQueueSize)
+		n.queue = make(chan Notification, notifyQueueSize)
 		go n.deliver()
 	})
 	select {
-	case n.queue <- DesktopNotification{SessionID: sessionID, Title: title, Body: body}:
+	case n.queue <- Notification{Target: target, Title: title, Body: body}:
 	default:
 	}
 }
@@ -124,7 +139,7 @@ func (n *Notifier) authorize() {
 	if !started {
 		if err := n.Desktop.Start(); err != nil {
 			// Off for the rest of the run, and said once: the app itself is fine.
-			n.logf("agenthub: desktop notifications unavailable: %v", err)
+			n.logf("notify: desktop notifications unavailable: %v", err)
 			next = notifierUnavailable
 			return
 		}
@@ -134,7 +149,7 @@ func (n *Notifier) authorize() {
 	}
 	allowed, err := n.Desktop.RequestAuthorization()
 	if err != nil {
-		n.logf("agenthub: desktop notification authorization: %v", err)
+		n.logf("notify: desktop notification authorization: %v", err)
 		return
 	}
 	if allowed {
@@ -156,12 +171,13 @@ func (n *Notifier) deliver() {
 		if !authorized {
 			continue
 		}
-		update := n.gate.Next(note.SessionID)
+		update := n.gate.Next(note.Target)
 		if err := n.Desktop.Send(note, update); err != nil {
 			if !update {
-				n.gate.Reset(note.SessionID)
+				n.gate.Reset(note.Target)
 			}
-			n.logf("agenthub: send desktop notification for session %s: %v", note.SessionID, err)
+			n.logf("notify: send desktop notification for %s/%s %s: %v",
+				note.Target.Module, note.Target.Kind, note.Target.ID, err)
 		}
 	}
 }

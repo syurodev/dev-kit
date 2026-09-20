@@ -29,6 +29,7 @@ import (
 	"devkit/internal/mcp"
 	"devkit/internal/mcp/install"
 	"devkit/internal/notes"
+	"devkit/internal/notify"
 	"devkit/internal/preferences"
 	"devkit/internal/servermode"
 
@@ -323,12 +324,12 @@ func main() {
 	// Desktop notifications for Agent Hub. Nil in server mode, where there is no
 	// desktop to notify; Notify and Authorize are no-ops on nil. Nothing here
 	// touches the OS yet — the backend starts in app.Run (notificationStartup)
-	// and asks for permission on focus (agenthub.Notifier).
-	var agentNotifier *agenthub.Notifier
+	// and asks for permission on focus (notify.Notifier).
+	var agentNotifier *notify.Notifier
 	var desktopNotifications *wailsNotifications
 	if !application.System.IsServer() {
 		desktopNotifications = &wailsNotifications{service: notifications.New()}
-		agentNotifier = &agenthub.Notifier{
+		agentNotifier = &notify.Notifier{
 			Desktop: desktopNotifications,
 			Enabled: func() bool {
 				enabled, err := container.Preferences.AgentNotifications()
@@ -341,8 +342,10 @@ func main() {
 				log.Printf("agenthub: desktop notification response: %v", result.Error)
 				return
 			}
-			if sessionID, ok := notificationSessionID(result.Response); ok {
-				emitAppEvent("agenthub:notificationAction", map[string]any{"sessionId": sessionID})
+			// Only Agent Hub raises these today; a target from anywhere else
+			// has no handler yet and is dropped rather than mis-routed.
+			if target, ok := notificationTarget(result.Response); ok && target.Module == "agenthub" {
+				emitAppEvent("agenthub:notificationAction", map[string]any{"sessionId": target.ID})
 			}
 		})
 		container.AgentNotifications = agentNotifier
@@ -373,7 +376,7 @@ func main() {
 		emitAppEvent("agenthub:permission", payload)
 		// Queues and returns: the waiter starts waiting for the answer only
 		// after this callback, so nothing here may wait on the OS.
-		agentNotifier.Notify(p.SessionID, "Permission needed", "The agent is waiting for your approval.")
+		agentNotifier.Notify(agentTarget(p.SessionID), "Permission needed", "The agent is waiting for your approval.")
 	})
 	agentElicitations := agenthub.NewElicitationWaiter(func(e agenthub.PendingElicitation) {
 		// Its own event, not agenthub:sessionUpdate: that channel runs
@@ -401,7 +404,7 @@ func main() {
 			}
 		}
 		emitAppEvent("agenthub:elicitation", payload)
-		agentNotifier.Notify(e.SessionID, "Question from the agent", "The agent is waiting for your answer.")
+		agentNotifier.Notify(agentTarget(e.SessionID), "Question from the agent", "The agent is waiting for your answer.")
 	}, func(c agenthub.ElicitationClosed) {
 		// Answered here, answered elsewhere, taken back by the agent, or the
 		// turn was stopped: every open card for this id goes away.
@@ -475,7 +478,7 @@ func main() {
 		})
 		if outcome == "completed" {
 			// Runs in Invoke's deferred turn end; queues and returns.
-			agentNotifier.Notify(sessionID, "Answer ready", "The agent finished its turn.")
+			agentNotifier.Notify(agentTarget(sessionID), "Answer ready", "The agent finished its turn.")
 		}
 	}
 	agentSvc.OnRecordError = func(sessionID string, err error) {

@@ -18,6 +18,7 @@ import (
 	"devkit/internal/kafka"
 	"devkit/internal/modules"
 	"devkit/internal/notes"
+	"devkit/internal/notify"
 	"devkit/internal/permissions"
 	"devkit/internal/preferences"
 	sshservice "devkit/internal/ssh"
@@ -106,7 +107,7 @@ type Container struct {
 	AgentHubElicitations *agenthub.ElicitationWaiter
 	// AgentNotifications raises Agent Hub's OS notifications. Nil in server
 	// mode and in tests that do not set it.
-	AgentNotifications *agenthub.Notifier
+	AgentNotifications *notify.Notifier
 	// AgentRuntimes installs and resolves the ACP adapters Agent Hub runs.
 	// Nil in ephemeral tests; main roots it at <dataDir>/runtimes.
 	AgentRuntimes *agentruntime.Manager

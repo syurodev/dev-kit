@@ -103,6 +103,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: sandbox must not import %s", short(imp))
 	}
 
+	// notify is a leaf: it raises OS notifications for any module and must not
+	// know what a module is. That is why its Target is three strings of its
+	// own rather than the workbench's EntityRef — see internal/notify.
+	for _, imp := range graph[pkg("notify")] {
+		t.Errorf("layering violation: notify must not import %s", short(imp))
+	}
+
 	// checkpoint is a leaf too: it runs git against a project directory and
 	// knows nothing about sessions, transcripts or storage. agenthub consumes
 	// it through a locally-declared interface, never the reverse — the same
