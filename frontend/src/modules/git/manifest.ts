@@ -10,6 +10,9 @@ export const gitModule: ModuleManifest = {
   icon: GitBranch,
   padded: false,
   tabs: true,
+  // Changes is the whole point of arriving here, and it follows the folder the
+  // app has open, so there is nothing to choose before showing it.
+  opensHome: true,
   // git:push is separate from git:write because it leaves the machine.
   // There is no git:push:force, here or in the backend.
   capabilities: ["git:read", "git:write", "git:push"],

@@ -65,6 +65,7 @@ import { AppShell } from "./AppShell";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 import { focusedGroup } from "../stores/documentGroups";
+import { openHomeWhenAsked } from "./showModule";
 
 const LazyAgentPermissionToastHost = lazy(() =>
   import("./AgentPermissionToastHost").then((m) => ({
@@ -551,6 +552,10 @@ export function Workbench() {
     // workbench did not have: visiting Database always produced a blank
     // console whether or not anyone wanted one. The empty state below offers
     // it instead, which is the same click without the assumption.
+    //
+    // Except for a module that says its home is what anyone arriving wants
+    // (Git's Changes, which reads the folder the app has open).
+    openHomeWhenAsked(moduleId);
   }
 
   // Mirrors for the mount-once keydown listener above, which must not close
