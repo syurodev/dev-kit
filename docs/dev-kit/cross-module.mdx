@@ -156,23 +156,26 @@ Code Graph biết cấu trúc code nên là nơi phát ra nhiều ref nhất. Si
 
 ## Thứ tự triển khai gợi ý
 
+Hai điểm quyết định thứ tự này. **[Tài khoản](/dev-kit/accounts) đi trước** hai
+module dùng nó: làm sau thì API Client và Git đều phải viết lại phần auth. Và
+**hai bước refactor đứng riêng** (3 và 6): chúng không đổi hành vi, nên chúng
+phải có bước xanh của chính mình — một refactor lẫn vào một tính năng mới thì
+lúc CI đỏ không ai biết bên nào gây ra.
+
 1. `EntityRef` + `Shared / Entity Chip` + resolver cho `codegraph` (endpoint,
    planNode, file) — dùng ngay trong composer của Agent Hub (`agent.attach`).
 2. ~~Intent registry; chuyển `openFileInProject` sang `codegraph.reveal`.~~ Xong.
-3. API Client v1 với `api.fromEndpoint` (cần analyzer đọc `@RequestBody` /
-   `@PathVariable` — xem [API Client § Phụ thuộc](/dev-kit/api-client#phụ-thuộc-analyzer-phải-hiểu-tham-số-của-handler)).
-4. Tasks v1 — resolver `task` và `tasks.createFromPlan` cắm vào tab Plan.
-
-Ba module mới thêm vào thứ tự đó như sau. Điểm đáng chú ý: **[Tài khoản](/dev-kit/accounts)
-đi trước**, vì nó nhỏ nhất và hai module kia đều phải đợi nó, còn nếu làm sau
-thì API Client và Git đều phải viết lại phần auth.
-
+3. **`internal/notify`** — tách `Notifier` + `NotificationGate` ra khỏi
+   `agenthub`, đổi khoá `SessionID` → target chung. **Thuần refactor**:
+   `agenthub` là consumer duy nhất và hành vi của nó không đổi một chút nào.
+4. **Tasks v1** — board, workflow, `tasks.*`, resolver `task` và
+   `tasks.createFromPlan` cắm vào tab Plan. Cửa duyệt `verify` dùng
+   `internal/notify` vừa tách ([Tasks FR-8g](/dev-kit/tasks)).
 5. **Tài khoản v1** — record type `account`, provider registry với `github` +
    `generic`, verify, `Resolve` cho module khác. Chưa có module nào dùng thì nó
    vẫn có giá trị một mình: một danh sách "tôi đăng nhập gì, cái nào sắp hết hạn".
 6. **`internal/gitparse`** — tách parser porcelain/diff ra leaf dùng chung.
-   Thuần refactor, không đổi hành vi, và là thứ để `checkpoint` và `codegraph`
-   thôi giữ hai bản.
+   **Thuần refactor**, và là thứ để `checkpoint` với `codegraph` thôi giữ hai bản.
 7. **Git v1** — status + diff + stage/commit + branch, với `git.commitTurn` cắm
    vào Agent Hub ngay từ đầu (đó là lý do module này tồn tại). Push đến sau,
    cùng lúc với binding `git-remote` → account.

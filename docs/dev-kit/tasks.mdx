@@ -328,8 +328,9 @@ quyền mới.
 - **`internal/vaultitem`** — substrate dùng chung, thêm 3 record type.
 - **`internal/interaction`** — gate xác nhận đã Implemented, dùng lại nguyên.
 - **`internal/notify`** (leaf, **tách ra từ `agenthub`**) — `Notifier` +
-  `NotificationGate` đổi khoá từ `SessionID` sang target chung; `agenthub` là
-  consumer đầu, Tasks là consumer thứ hai (FR-8g).
+  `NotificationGate` đổi khoá từ `SessionID` sang target chung. Tách **trước**
+  Tasks thành một bước thuần refactor ([Liên module § Thứ tự](/dev-kit/cross-module#thứ-tự-triển-khai-gợi-ý)),
+  khi `agenthub` còn là consumer duy nhất; Tasks là consumer thứ hai (FR-8g).
 - **Bảng local `task_verify_runs`** — hàng đợi `verify` bền qua restart
   (FR-8e), derived/operational, không sync.
 - **Bridge + MCP adapter** — cùng gọi `tasks.Service`, cùng qua Capability
@@ -952,6 +953,7 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 | Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
 | `verify` chạy đồng bộ hay chạy nền? | **Chạy nền** (FR-8c). Kết quả rơi vào **task** chứ không vào call, nên agent bỏ đi giữa chừng cũng không mất gì. Đổi lại: một lượt một project (FR-8d), vì work tree là thứ bị tranh chấp |
 | Lượt `verify` xong thì báo thế nào? | **Notification hệ điều hành** khi người dùng không nhìn app (FR-8g) — nhưng phải **tách `internal/notify`** ra leaf trước, vì `Notifier` đang khoá theo `SessionID` của Agent Hub |
+| Tách `internal/notify` cùng lúc với Tasks hay trước? | **Trước, thành một thay đổi thuần refactor** ([Liên module § Thứ tự](/dev-kit/cross-module#thứ-tự-triển-khai-gợi-ý), bước 3). Lúc tách, `agenthub` vẫn là consumer duy nhất và hành vi không đổi — nên CI đỏ ở bước đó chỉ có thể là do lần tách |
 | Hàng đợi `verify` có lưu không? | **Có, SQLite** (FR-8e). Lượt đang chạy khi thoát thì **quay lại hàng đợi**, không bao giờ suy ra kết quả; quá hạn thì `stale` chứ không chạy lén (FR-8f) |
 | "Thêm sub task" nghĩa là gì? | **Lớp UI**: checklist trong detail, bộ đếm trên card, kéo-thả gán cha (FR-15b). Giữ một cấp, giữ `parent_id`, không thêm tool MCP nào |
 | Cho board khai luật chặn transition theo trạng thái git? | **Không cần.** Dữ kiện git ở cửa duyệt vẫn là hiển thị, không chặn (FR-20). Việc chặn thuộc về [Git](/dev-kit/git) qua env gate trên branch, không phải thuộc về workflow của board |
@@ -963,9 +965,11 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
   tránh cướp nhầm một agent đang reconnect?
 - Ngưỡng `stale` mặc định 24h (FR-8f). Nên cho board khai lại, hay một con số
   cứng là đủ và khai được chỉ thêm một nút để chỉnh sai?
-- Tách `internal/notify` làm `agenthub` đổi khoá `SessionID` → target. Làm
-  cùng lúc với Tasks, hay tách trước thành một thay đổi thuần refactor để
-  `agenthub` có bước xanh riêng trước khi có consumer thứ hai?
+- Sau khi tách, `agenthub` gọi `notify` với target kind `session`. Tasks dùng
+  kind `task`. Target nên chính là `EntityRef` của
+  [Liên module](/dev-kit/cross-module#primitive-1--entityref) — đã có sẵn
+  `module` + `kind` + `id` và cú click đã biết cách mở — hay một kiểu nhỏ hơn
+  của riêng `notify`, để một leaf không phải biết tới khái niệm của workbench?
 
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />
