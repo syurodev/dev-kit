@@ -342,6 +342,23 @@ func (t Toolchain) installedArtifact() string {
 	return firstExisting([]string{t.Artifact})
 }
 
+// runnableArtifact is installedArtifact as a path that still points at the
+// artifact once the child changes directory. From a source checkout the
+// artifact is found as "analyzer-ts/bin/tsgo", relative to wherever the app was
+// started; a server launched with cmd.Dir set to the project being opened would
+// then look for it under that project and fail with "no such file or directory"
+// for a file that is right where it was found.
+func (t Toolchain) runnableArtifact() string {
+	artifact := t.installedArtifact()
+	if artifact == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(artifact); err == nil {
+		return abs
+	}
+	return artifact
+}
+
 // resolve probes every requirement and reports whether all of them are met.
 func (t Toolchain) resolve(ctx context.Context) ([]Requirement, bool) {
 	requirements := make([]Requirement, 0, len(t.Requirements))
@@ -619,7 +636,7 @@ func (t Toolchain) serverCommand(ctx context.Context) ([]string, []string, error
 // analyzerCommand builds the argv and environment for one analysis, or reports
 // why it cannot.
 func (t Toolchain) analyzerCommand(ctx context.Context, project, output string) ([]string, []string, error) {
-	artifact := t.installedArtifact()
+	artifact := t.runnableArtifact()
 	if artifact == "" || len(t.Run) == 0 {
 		return nil, nil, ErrAnalyzerNotConfigured
 	}
@@ -652,7 +669,7 @@ func (t Toolchain) analyzerCommand(ctx context.Context, project, output string) 
 // case probes nothing: there is no version to check on a binary that carries
 // its own runtime.
 func (t Toolchain) runCommand(ctx context.Context, extra *strings.Replacer) ([]string, []string, error) {
-	artifact := t.installedArtifact()
+	artifact := t.runnableArtifact()
 	if artifact == "" || len(t.Run) == 0 {
 		return nil, nil, ErrAnalyzerNotConfigured
 	}
