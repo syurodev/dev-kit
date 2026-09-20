@@ -37,11 +37,29 @@ export interface Conflict {
 
     /**
      * Ours, Theirs and Base are the three stages git keeps in the index.
-     * Missing on one side (added by one, deleted by the other) means empty.
      */
     "ours": string;
     "theirs": string;
     "base": string;
+
+    /**
+     * HasOurs/HasTheirs/HasBase say whether that stage EXISTS, which an empty
+     * string cannot: a side that deleted the file and a side that emptied it
+     * are different conflicts and are resolved differently. A missing base is
+     * the ordinary add/add case and means only that there is nothing to
+     * compare against.
+     */
+    "hasOurs": boolean;
+    "hasTheirs": boolean;
+    "hasBase": boolean;
+
+    /**
+     * Merged is git's OWN merge of the two sides, as it sits in the work tree:
+     * everything that merged cleanly, plus <<<<<<< markers around what did
+     * not. It is the seed the panel edits, because seeding from Ours would
+     * silently throw away every clean change the other side made.
+     */
+    "merged": string;
 
     /**
      * Binary means there is nothing to merge by hand: only a side to pick.

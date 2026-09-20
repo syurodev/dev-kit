@@ -310,7 +310,9 @@ sử không giữ lại được gì.
 ## Known ceiling (v1)
 
 - Conflict giải bằng tay ba cột; không có merge tool tự động, không có gợi ý
-  hợp nhất, không có diff theo từ.
+  hợp nhất, không có diff theo từ. Ô giữa seed bằng bản merge của chính git
+  (kèm marker), không phải bằng một bên. Lấy nguyên một bên là git tự copy
+  stage, nên file nhị phân cũng chọn được bên.
 - `git-guard` khớp theo mẫu tên branch, không theo đường dẫn file: không khai
   được "chặn khi đụng `deploy/`".
 - Log tuyến tính một branch; không thấy hình dạng nhánh.

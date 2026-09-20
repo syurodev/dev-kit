@@ -221,6 +221,19 @@ func (s *AppService) GitResolve(path, merged string) error {
 	return err
 }
 
+// GitResolveSide takes one whole side of a conflict. It is separate from
+// GitResolve because git copies the stage itself: sending the text out and
+// back would re-encode it, and a binary file could not be expressed at all.
+func (s *AppService) GitResolveSide(path, side string) error {
+	_, err := s.call(context.Background(), "builtin.git", "git:write", "repo:conflicts", map[string]any{
+		"action": "resolve_side",
+		"side":   side,
+	}, func(ctx context.Context) (any, error) {
+		return nil, s.container.Git.ResolveSide(ctx, path, side)
+	})
+	return err
+}
+
 // GitAbortMerge throws a whole merge away. UI-only: it is not in the MCP tool
 // surface, because discarding everyone's in-flight merge is a person's call.
 func (s *AppService) GitAbortMerge() error {

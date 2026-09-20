@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FileText, KeyRound, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MergePanes } from "@/components/ui/merge-panes";
 import { cn } from "@/lib/utils";
 import {
   syncConflictDetail,
@@ -17,11 +18,6 @@ type Props = {
   onClose: () => void;
   onResolved: () => void;
 };
-
-const PANE =
-  "flex min-h-0 flex-1 flex-col rounded-control border bg-surface-well pb-3";
-const PANE_HEAD = "px-4 pt-3 pb-2.5 text-label-11-caps text-text-tertiary";
-const PANE_BODY = "min-h-0 flex-1 overflow-auto px-4 text-code-12 whitespace-pre-wrap text-text-secondary";
 
 /**
  * Figma `Sync / Resolve — Merge` (781:216) and `Choose a side` (782:451): the
@@ -130,35 +126,26 @@ export function ResolvePanel({ recordId, detectedAt, onClose, onResolved }: Prop
       </p>
 
       {detail && (
-        <div className="flex min-h-0 flex-1 gap-3">
-          <section className={cn(PANE, "border-border-subtle")}>
-            <span className={PANE_HEAD}>Local · this device</span>
-            <pre className={PANE_BODY}>{detail.oursDeleted ? "(deleted on this device)" : detail.oursText}</pre>
-          </section>
-          {mergeable && (
-            <section className={cn(PANE, "border-status-info")}>
-              <span className={PANE_HEAD}>Merged · editable</span>
-              <textarea
-                value={merged}
-                onChange={(event) => setMerged(event.target.value)}
-                disabled={busy}
-                spellCheck={false}
-                aria-label="Merged result"
-                className="min-h-0 flex-1 resize-none bg-transparent px-4 text-code-12 text-text-primary outline-none"
-              />
-            </section>
-          )}
-          <section className={cn(PANE, "border-border-subtle")}>
-            <span className={PANE_HEAD}>Remote · cloud</span>
-            <pre className={PANE_BODY}>
-              {!detail.theirsCaptured
-                ? "(not pulled yet)"
-                : detail.theirsDeleted
-                  ? "(deleted remotely)"
-                  : detail.theirsText}
-            </pre>
-          </section>
-        </div>
+        <MergePanes
+          disabled={busy}
+          left={{
+            label: "Local · this device",
+            text: detail.oursDeleted ? "(deleted on this device)" : detail.oursText,
+          }}
+          right={{
+            label: "Remote · cloud",
+            text: !detail.theirsCaptured
+              ? "(not pulled yet)"
+              : detail.theirsDeleted
+                ? "(deleted remotely)"
+                : detail.theirsText,
+          }}
+          merged={
+            mergeable
+              ? { label: "Merged · editable", value: merged, onChange: setMerged }
+              : undefined
+          }
+        />
       )}
     </div>
   );

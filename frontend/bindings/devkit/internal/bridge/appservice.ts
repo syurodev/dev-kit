@@ -1222,6 +1222,15 @@ export function GitResolve(path: string, merged: string): $CancellablePromise<vo
     return $Call.ByID(534163570, path, merged);
 }
 
+/**
+ * GitResolveSide takes one whole side of a conflict. It is separate from
+ * GitResolve because git copies the stage itself: sending the text out and
+ * back would re-encode it, and a binary file could not be expressed at all.
+ */
+export function GitResolveSide(path: string, side: string): $CancellablePromise<void> {
+    return $Call.ByID(3994671297, path, side);
+}
+
 export function GitStage(paths: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(2290481020, paths);
 }

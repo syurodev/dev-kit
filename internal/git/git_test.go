@@ -525,3 +525,183 @@ func TestFilePatchOnABinaryFileHasNoHunks(t *testing.T) {
 		t.Fatalf("a binary file produced hunks:\n%s", patch)
 	}
 }
+
+// mergeConflict builds a real merge conflict: `main` and `other` each change
+// the same path away from a common base, then `other` is merged into `main`.
+// The two mutate funcs run on their branch with the work tree checked out, so
+// a test can delete the file on one side instead of editing it.
+func mergeConflict(t *testing.T, path string, base string, ours, theirs func(dir string)) (*Service, string) {
+	t.Helper()
+	svc, dir := newRepo(t)
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(svc.availability.Path, append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=T", "GIT_AUTHOR_EMAIL=t@e.x",
+			"GIT_COMMITTER_NAME=T", "GIT_COMMITTER_EMAIL=t@e.x")
+		_ = cmd.Run() // the merge itself is expected to fail
+	}
+	write(t, dir, path, base)
+	git("add", ".")
+	git("commit", "-m", "base")
+	git("switch", "-c", "other")
+	theirs(dir)
+	git("add", "-A")
+	git("commit", "-m", "theirs")
+	git("switch", "main")
+	ours(dir)
+	git("add", "-A")
+	git("commit", "-m", "ours")
+	git("merge", "other")
+	return svc, dir
+}
+
+// The panel edits git's own merge, not one of the two sides. Seeding from
+// Ours would silently drop every hunk the other side merged cleanly, which
+// looks like the editor eating someone's work.
+func TestConflictCarriesGitsOwnMergeWithMarkers(t *testing.T) {
+	svc, _ := mergeConflict(t, "shared.txt",
+		"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n",
+		func(dir string) {
+			write(t, dir, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n")
+		},
+		func(dir string) {
+			write(t, dir, "shared.txt", "1\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nNINE\n")
+		},
+	)
+	conflict, err := svc.Conflict(context.Background(), "shared.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conflict.HasOurs || !conflict.HasTheirs || !conflict.HasBase {
+		t.Fatalf("all three stages exist here: %+v", conflict)
+	}
+	if !strings.Contains(conflict.Merged, "<<<<<<<") || !strings.Contains(conflict.Merged, ">>>>>>>") {
+		t.Fatalf("merged has no conflict markers:\n%s", conflict.Merged)
+	}
+	// The far end of the file merged cleanly and must be present un-marked —
+	// this is the part seeding from Ours would have lost.
+	if !strings.Contains(conflict.Merged, "NINE\n") {
+		t.Fatalf("the cleanly merged change from the other side is missing:\n%s", conflict.Merged)
+	}
+}
+
+// Taking a side is git copying its own stage, never this process round-tripping
+// the bytes through a panel.
+func TestResolveSideTakesTheStageExactly(t *testing.T) {
+	ctx := context.Background()
+	svc, dir := mergeConflict(t, "shared.txt", "base\n",
+		func(dir string) { write(t, dir, "shared.txt", "ours\r\nwith crlf\r\n") },
+		func(dir string) { write(t, dir, "shared.txt", "theirs\n") },
+	)
+	if err := svc.ResolveSide(ctx, "shared.txt", "ours"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "shared.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "ours\r\nwith crlf\r\n" {
+		t.Fatalf("taking ours changed the bytes: %q", content)
+	}
+	status, err := svc.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Conflicted) != 0 {
+		t.Fatalf("still conflicted: %v", status.Conflicted)
+	}
+	// Taking ours leaves the file identical to HEAD, so there is nothing for
+	// it to be staged AS. What matters is that the path is resolved in the
+	// index, which is what lets the merge be concluded.
+	for _, path := range status.Unstaged {
+		if path == "shared.txt" {
+			t.Fatal("taking a side left an unstaged change behind")
+		}
+	}
+	if _, err := svc.Commit(ctx, CommitInput{Message: "merged"}); err != nil {
+		t.Fatalf("commit after taking a side: %v", err)
+	}
+}
+
+func TestResolveSideRefusesASideThatIsNeither(t *testing.T) {
+	svc, _ := mergeConflict(t, "shared.txt", "base\n",
+		func(dir string) { write(t, dir, "shared.txt", "ours\n") },
+		func(dir string) { write(t, dir, "shared.txt", "theirs\n") },
+	)
+	if err := svc.ResolveSide(context.Background(), "shared.txt", "mine"); !errors.Is(err, ErrNoSuchSide) {
+		t.Fatalf("ResolveSide with a made-up side = %v", err)
+	}
+}
+
+// Delete/modify: one side removed the file, the other edited it. Taking the
+// deleting side means removing the file, not writing an empty one — which is
+// why the stages' EXISTENCE is reported separately from their content.
+func TestResolveSideTakesADeletionAsADeletion(t *testing.T) {
+	ctx := context.Background()
+	svc, dir := mergeConflict(t, "shared.txt", "base\n",
+		func(dir string) {
+			if err := os.Remove(filepath.Join(dir, "shared.txt")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		func(dir string) { write(t, dir, "shared.txt", "theirs\n") },
+	)
+	conflict, err := svc.Conflict(ctx, "shared.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict.HasOurs {
+		t.Fatal("this branch deleted the file; there is no ours stage")
+	}
+	if !conflict.HasTheirs || conflict.Theirs != "theirs\n" {
+		t.Fatalf("theirs stage = %+v", conflict)
+	}
+	if err := svc.ResolveSide(ctx, "shared.txt", "ours"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "shared.txt")); !os.IsNotExist(err) {
+		t.Fatalf("taking the deleting side left the file behind: %v", err)
+	}
+	status, err := svc.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Conflicted) != 0 {
+		t.Fatalf("still conflicted: %v", status.Conflicted)
+	}
+}
+
+// A binary conflict has nothing to hand a textarea, and says so rather than
+// offering an edit that would corrupt the file.
+func TestBinaryConflictOffersOnlyASide(t *testing.T) {
+	ctx := context.Background()
+	svc, dir := mergeConflict(t, "logo.bin", "\x00base\x00",
+		func(dir string) { write(t, dir, "logo.bin", "\x00ours\x00") },
+		func(dir string) { write(t, dir, "logo.bin", "\x00theirs\x00") },
+	)
+	conflict, err := svc.Conflict(ctx, "logo.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conflict.Binary {
+		t.Fatal("a file with NUL bytes is binary")
+	}
+	if conflict.Ours != "" || conflict.Theirs != "" || conflict.Merged != "" {
+		t.Fatalf("binary content was handed out anyway: %+v", conflict)
+	}
+	// The stages still have to be reported as existing, or the panel cannot
+	// tell a binary conflict from a delete/modify one.
+	if !conflict.HasOurs || !conflict.HasTheirs {
+		t.Fatalf("both sides have this file: %+v", conflict)
+	}
+	if err := svc.ResolveSide(ctx, "logo.bin", "theirs"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "logo.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "\x00theirs\x00" {
+		t.Fatalf("binary bytes did not survive taking a side: %q", content)
+	}
+}

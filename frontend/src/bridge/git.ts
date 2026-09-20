@@ -43,14 +43,31 @@ export type Branch = { name: string; current: boolean; upstream: string };
 
 export type Remote = { name: string; url: string; accountId: string; env: string };
 
-/** One unmerged file, in the shape Sync's ResolvePanel already renders. */
+/** One unmerged file, in the shape the shared MergePanes layout renders. */
 export type Conflict = {
   path: string;
   ours: string;
   theirs: string;
   base: string;
+  /**
+   * Whether that stage EXISTS, which an empty string cannot say: a side that
+   * deleted the file and a side that emptied it are different conflicts.
+   */
+  hasOurs: boolean;
+  hasTheirs: boolean;
+  hasBase: boolean;
+  /**
+   * Git's own merge as it sits in the work tree — everything that merged
+   * cleanly, plus `<<<<<<<` markers around what did not. This is what the
+   * middle pane edits; seeding from `ours` would drop the other side's clean
+   * changes without saying so.
+   */
+  merged: string;
+  /** Nothing to merge by hand: only a side to pick. */
   binary: boolean;
 };
+
+export type ConflictSide = "ours" | "theirs";
 
 export function gitAvailability(): Promise<GitAvailability> {
   return callBridge(async () => (await AppService.GitAvailability()) as GitAvailability);
@@ -156,6 +173,17 @@ export function gitConflict(path: string): Promise<Conflict> {
 export function gitResolve(path: string, merged: string): Promise<void> {
   return callBridge(async () => {
     await AppService.GitResolve(path, merged);
+  });
+}
+
+/**
+ * Takes one whole side. Separate from gitResolve because git copies the stage
+ * itself: sending the text out here and back would re-encode it, and a binary
+ * file could not be expressed at all.
+ */
+export function gitResolveSide(path: string, side: ConflictSide): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitResolveSide(path, side);
   });
 }
 
