@@ -1,5 +1,6 @@
 import { KanbanSquare } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { registerIntent } from "@/workbench/intents";
 
 export const tasksModule: ModuleManifest = {
   id: "tasks",
@@ -30,3 +31,22 @@ export const tasksModule: ModuleManifest = {
     },
   ],
 };
+
+/**
+ * `tasks.reveal` (docs/dev-kit/cross-module.mdx): open a task from anywhere —
+ * a chip on Code Graph's plan canvas, a link in a commit — without the caller
+ * importing this module's views or its store.
+ *
+ * Registered with the manifest, which is eager; the document helper loads on
+ * the first dispatch. `beside` by default: a chip is clicked while reading the
+ * plan, and replacing the canvas would take away the thing being read.
+ */
+registerIntent(
+  "tasks.reveal",
+  async (ref, { placement }) => {
+    if (ref.kind !== "task") return;
+    const { openTaskDetail } = await import("./documents");
+    openTaskDetail(ref.id, ref.label, { preview: false, beside: placement === "beside" });
+  },
+  "beside",
+);

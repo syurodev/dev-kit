@@ -10,7 +10,13 @@ import { PlanNodeDetail } from "./plan/PlanNodeDetail";
 import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { PLAN_STATUS } from "./plan/planStatus";
 import { useCodeGraphStore } from "./codegraphStore";
-import { approvePlan, loadPlan, relinkPlanNode, setPlanCommentCount } from "./codegraphActions";
+import {
+  approvePlan,
+  loadPlan,
+  loadPlanTasks,
+  relinkPlanNode,
+  setPlanCommentCount,
+} from "./codegraphActions";
 import { useProjectReady } from "./useDocument";
 
 const set = useCodeGraphStore.getState().set;
@@ -28,11 +34,21 @@ export function PlanDocument() {
   const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
   const commentsPlanNodeId = useCodeGraphStore((s) => s.commentsPlanNodeId);
   const commentCounts = useCodeGraphStore((s) => s.commentCounts);
+  const planTasks = useCodeGraphStore((s) => s.planTasks);
 
   // Restored after a relaunch, or opened before the sidebar's Plan section
   // ever loaded it.
   useEffect(() => {
     if (ready && !useCodeGraphStore.getState().plan) void loadPlan();
+  }, [ready]);
+
+  // The chips come from Tasks, which changes without Code Graph hearing about
+  // it — a task created on the board, or moved by the reconcile after a
+  // re-index. Refreshing them when this tab opens costs one bounded query and
+  // keeps the canvas honest; a task created while it is already on screen
+  // still waits for the next open.
+  useEffect(() => {
+    if (ready) void loadPlanTasks();
   }, [ready]);
 
   // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
@@ -80,16 +96,21 @@ export function PlanDocument() {
       const p = planById.get(n.id);
       const status = p?.status ?? "not_implemented";
       const comments = commentCounts[n.id] ?? 0;
+      const tasks = planTasks[n.id];
       const title = shortLabel(n.label, n.kind);
       return {
         title,
         fqn: p?.fqn ?? "",
         status,
         commentCount: comments,
-        ariaLabel: `${title}, ${PLAN_STATUS[status].label}${comments ? `, ${comments} comment(s)` : ""}`,
+        tasks,
+        ariaLabel:
+          `${title}, ${PLAN_STATUS[status].label}` +
+          (comments ? `, ${comments} comment(s)` : "") +
+          (tasks?.length ? `, ${tasks.length} task(s)` : ""),
       };
     },
-    [planById, commentCounts],
+    [planById, commentCounts, planTasks],
   );
   const edgeLabel = useCallback(
     (e: CodeGraphEdge) => conditionByEdge.get(`${e.from}->${e.to}`) || undefined,
