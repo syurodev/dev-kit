@@ -1,11 +1,11 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import { FolderOpen, GitBranch, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { agentHubChooseDirectory } from "@/bridge/agenthub";
-import { gitProject, type Repository } from "@/bridge/git";
+import type { Repository } from "@/bridge/git";
 import { useModuleFolder } from "@/stores/workFolder";
-import { NoRepositories, RepositoryList, RepositorySwitcher, useRepositories } from "./GitRepositories";
+import { NoRepositories, RepositoryList, RepositorySwitcher, useGitProject, useRepositories } from "./GitRepositories";
 import { repositoryRoot } from "./repositories";
 
 /**
@@ -29,20 +29,8 @@ function GitFolderGate({ View }: { View: ComponentType }) {
   // The repositories in the folder the app has open, so Git can offer its
   // neighbours while it is pinned to one of them.
   const { repos, loading, reload } = useRepositories(repositoryRoot(current, folder));
-  // What Go says Git is reading, and for which folder it said so, so a stale
-  // answer to the previous folder is never taken for this one's.
-  const [asked, setAsked] = useState<{ folder: string; project: string } | null>(null);
-
-  useEffect(() => {
-    if (!folder) return;
-    let live = true;
-    gitProject()
-      .then((project) => live && setAsked({ folder, project }))
-      .catch(() => live && setAsked({ folder, project: "" }));
-    return () => {
-      live = false;
-    };
-  }, [folder]);
+  // What Go says Git is reading in this folder; null until it has said.
+  const project = useGitProject(folder);
 
   async function openFolder() {
     setError("");
@@ -86,9 +74,9 @@ function GitFolderGate({ View }: { View: ComponentType }) {
         {openButton}
       </EmptyState>
     );
-  } else if (asked?.folder !== folder) {
+  } else if (project === null) {
     body = null;
-  } else if (!asked.project) {
+  } else if (!project) {
     // A folder of repositories is not one itself, but is not nothing either:
     // list what is in it. Until it has been read, show nothing rather than
     // flash the empty state.
@@ -113,7 +101,7 @@ function GitFolderGate({ View }: { View: ComponentType }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5">
         {pinned ? <Pin className="size-3.5 shrink-0 text-fg-muted" aria-label="Pinned to this folder" /> : null}
-        {asked?.folder === folder && asked.project && repos && repos.length > 1 ? (
+        {project && repos && repos.length > 1 ? (
           <div className="min-w-0 flex-1">
             <RepositorySwitcher folder={folder} repos={repos} onOpen={reload} onChoose={chooseRepository} />
           </div>

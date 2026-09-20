@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { gitRepositories, type Repository } from "@/bridge/git";
+import { gitProject, gitRepositories, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { describeRepository } from "./repositories";
 
@@ -40,7 +40,27 @@ export function useRepositories(root: string) {
   return { repos: current?.repos ?? null, error: current?.error ?? "", loading, reload };
 }
 
-function RepositoryRow({ repo }: { repo: Repository }) {
+/**
+ * The repository Git is reading in `folder`, "" when it is in none, and null
+ * until Go has been asked about this folder — so an answer about the previous
+ * folder is never taken for this one's.
+ */
+export function useGitProject(folder: string): string | null {
+  const [asked, setAsked] = useState<{ folder: string; project: string } | null>(null);
+  useEffect(() => {
+    if (!folder) return;
+    let live = true;
+    gitProject()
+      .then((project) => live && setAsked({ folder, project }))
+      .catch(() => live && setAsked({ folder, project: "" }));
+    return () => {
+      live = false;
+    };
+  }, [folder]);
+  return asked?.folder === folder ? asked.project : null;
+}
+
+export function RepositoryRow({ repo }: { repo: Repository }) {
   const line = describeRepository(repo);
   return (
     <span className="flex min-w-0 flex-1 items-center gap-3">
