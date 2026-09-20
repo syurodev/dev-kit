@@ -44,6 +44,35 @@ export interface Account {
 }
 
 /**
+ * HostMatch is what the accounts for a host come to.
+ */
+export interface HostMatch {
+    /**
+     * Decided is true when there is nothing to ask: exactly one account
+     * matches, or a previous answer for this pair still does.
+     */
+    "decided": boolean;
+
+    /**
+     * Account is the one to use when Decided. Zero otherwise.
+     */
+    "account": Account;
+
+    /**
+     * Options is every match, for the caller to offer when Decided is false.
+     * It is also filled when Decided is true by a remembered answer, so the UI
+     * can show that there was a choice and offer to change it.
+     */
+    "options": Account[] | null;
+
+    /**
+     * Remembered says Decided came from a stored answer rather than from
+     * there being only one candidate.
+     */
+    "remembered": boolean;
+}
+
+/**
  * Kind is what shape of credential an account holds.
  */
 export enum Kind {

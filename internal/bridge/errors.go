@@ -52,12 +52,17 @@ const (
 )
 
 var safeValidationMessages = map[string]struct{}{
-	"title is required":                                      {},
-	"name is required":                                       {},
-	"host is required":                                       {},
-	"username is required":                                   {},
-	"unsupported auth method":                                {},
-	"master password too short":                              {},
+	"title is required":         {},
+	"name is required":          {},
+	"host is required":          {},
+	"username is required":      {},
+	"unsupported auth method":   {},
+	"master password too short": {},
+	// A wrong password has to reach the UI as a sentence, or the unlock gate
+	// and the reveal dialog can only say that something went wrong — which is
+	// the one thing the user can do nothing about. It tells an attacker
+	// nothing they could not learn by trying again.
+	"invalid master password":                                {},
 	"forward direction is required":                          {},
 	"unsupported forward direction":                          {},
 	"bind host must be loopback":                             {},

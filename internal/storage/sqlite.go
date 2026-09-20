@@ -53,8 +53,15 @@ const (
 	// by a quit must come back as a queued run rather than as a guess about
 	// what its exit code would have been.
 	TableTaskVerifyRuns = "task_verify_runs"
-	TableAppPreferences = "app_preferences"
-	TableUIState        = "ui_state"
+
+	// TableAccountHostChoices remembers which account was picked for a host on
+	// an environment, so the question is asked once per pair rather than every
+	// time. Local, not a vault item: it is a convenience that can be answered
+	// again in one click, and making it sync would buy a record type, a schema
+	// and a conflict rule for a preference whose worst failure is one dialog.
+	TableAccountHostChoices = "account_host_choices"
+	TableAppPreferences     = "app_preferences"
+	TableUIState            = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
@@ -855,7 +862,28 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24})
+	m25 := Migration{
+		Version: 25,
+		Name:    "account host choices",
+		Up: func(ctx context.Context) error {
+			// Keyed by the pair, because the same host on a different
+			// environment is a different question: the personal GitHub account
+			// on dev and the company one on prod is the ordinary case, not an
+			// edge one.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					host TEXT NOT NULL,
+					env TEXT NOT NULL,
+					account_id TEXT NOT NULL,
+					chosen_at TEXT NOT NULL,
+					PRIMARY KEY (host, env)
+				)`, TableAccountHostChoices,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25})
 	if err != nil {
 		return err
 	}

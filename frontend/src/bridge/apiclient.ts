@@ -121,6 +121,22 @@ export function missingVars(template: string, vars: Record<string, string>): str
 }
 
 /**
+ * Fills {{name}} placeholders from an environment, for working out which host
+ * a request actually goes to.
+ *
+ * It is not the sender — the backend substitutes for real, including the
+ * secret variables this never sees. It exists so the UI can ask "which account
+ * covers this host" against the server the request would reach rather than
+ * against the template, and it leaves an unfillable placeholder in place so a
+ * caller can tell the URL is not resolved yet.
+ */
+export function resolveUrl(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (whole, name: string) =>
+    name in vars ? vars[name] : whole,
+  );
+}
+
+/**
  * Turns a Code Graph endpoint into a draft. Path parameters become
  * {{variables}}; the body is left to the caller, because only Java and
  * TypeScript can say what shape it is — a Kong or Lapis endpoint declares no

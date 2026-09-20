@@ -188,3 +188,22 @@ func TestAgentCheckpointsReadsTheOlderBooleanValue(t *testing.T) {
 		t.Errorf("stored = %+v, want the ceiling kept and the retention defaulted", stored)
 	}
 }
+
+// Unset means on. The person who has not thought about this yet is the one
+// the prompt exists for.
+func TestRevealRequiresPasswordDefaultsOn(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	required, err := svc.RevealRequiresPassword()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !required {
+		t.Fatal("an unset reveal preference must mean on")
+	}
+	if err := svc.SetRevealRequiresPassword(false); err != nil {
+		t.Fatal(err)
+	}
+	if required, err = svc.RevealRequiresPassword(); err != nil || required {
+		t.Fatalf("turning it off did not stick: %v %v", required, err)
+	}
+}

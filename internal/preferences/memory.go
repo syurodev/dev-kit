@@ -13,6 +13,23 @@ type MemoryRepository struct {
 	hasAgentNotifications bool
 	agentCheckpoints      AgentCheckpointSettings
 	hasAgentCheckpoints   bool
+
+	revealRequiresPassword    bool
+	hasRevealRequiresPassword bool
+}
+
+func (r *MemoryRepository) GetRevealRequiresPassword() (bool, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.revealRequiresPassword, r.hasRevealRequiresPassword, nil
+}
+
+func (r *MemoryRepository) SetRevealRequiresPassword(required bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.revealRequiresPassword = required
+	r.hasRevealRequiresPassword = true
+	return nil
 }
 
 func (r *MemoryRepository) GetAgentNotifications() (bool, bool, error) {

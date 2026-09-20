@@ -39,6 +39,14 @@ const DefaultThemeFamily = ThemeFamilyDevKit
 
 var ErrInvalidThemeFamily = errors.New("unsupported theme family")
 
+// DefaultRevealRequiresPassword is on.
+//
+// The setting is the user's because the cost falls on exactly them, and
+// somebody rotating a token ten times a day knows what they are trading. It
+// defaults to on because the person who has not thought about it yet is the
+// one the prompt is for.
+const DefaultRevealRequiresPassword = true
+
 // DefaultAgentNotifications is on: the notifications exist so a user who
 // switched away is not left waiting on an agent that is waiting on them.
 const DefaultAgentNotifications = true
@@ -133,6 +141,8 @@ type Repository interface {
 	SetThemeFamily(family ThemeFamily) error
 	GetAgentNotifications() (bool, bool, error)
 	SetAgentNotifications(enabled bool) error
+	GetRevealRequiresPassword() (bool, bool, error)
+	SetRevealRequiresPassword(required bool) error
 	GetAgentCheckpoints() (AgentCheckpointSettings, bool, error)
 	SetAgentCheckpoints(settings AgentCheckpointSettings) error
 }
@@ -217,6 +227,23 @@ func (s *Service) AgentNotifications() (bool, error) {
 
 func (s *Service) SetAgentNotifications(enabled bool) error {
 	return s.repo.SetAgentNotifications(enabled)
+}
+
+// RevealRequiresPassword reports whether showing a credential's value asks for
+// the Master Password again. Off leaves reveal behind a confirmation only.
+func (s *Service) RevealRequiresPassword() (bool, error) {
+	required, found, err := s.repo.GetRevealRequiresPassword()
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return DefaultRevealRequiresPassword, nil
+	}
+	return required, nil
+}
+
+func (s *Service) SetRevealRequiresPassword(required bool) error {
+	return s.repo.SetRevealRequiresPassword(required)
 }
 
 // AgentCheckpoints reports how Agent Hub snapshots a project's files around

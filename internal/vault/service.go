@@ -114,6 +114,29 @@ func (s *Service) Unlock(masterPassword string) error {
 	return nil
 }
 
+// VerifyMasterPassword checks a password without changing anything.
+//
+// It re-authenticates an action inside a session that is already unlocked —
+// revealing a credential — which is not the same as unlocking. The derived key
+// is zeroed and s.dek is never touched, so a wrong answer cannot lock a vault
+// that is open and a right answer cannot open one that is not.
+func (s *Service) VerifyMasterPassword(masterPassword string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	keyring, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	dek, err := keyring.UnlockWithPassword(masterPassword)
+	if err != nil {
+		return err
+	}
+	for i := range dek {
+		dek[i] = 0
+	}
+	return nil
+}
+
 // UnlockWithRecovery decrypts the DEK using the recovery key, serialized
 // against Lock exactly like Unlock.
 func (s *Service) UnlockWithRecovery(recoveryKey string) error {

@@ -35,6 +35,7 @@ import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
+import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import {
   Select,
@@ -350,6 +351,11 @@ function AccountTab() {
       </div>
 
       {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
+
+      <div className="flex flex-col gap-3">
+        <GroupLabel>SAVED CREDENTIALS</GroupLabel>
+        <RevealPasswordSetting />
+      </div>
 
       <SecurityNotice
         type="secure"
