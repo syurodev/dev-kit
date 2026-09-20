@@ -1,6 +1,37 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { useDatabaseStore, visibleResult, type RunVerdict } from "./databaseStore";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { RunVerdict } from "./databaseStore";
 import { consoleFiles } from "./consoleFiles";
+
+// This file mocks the bridge it depends on, rather than running against
+// whatever mock happens to be installed.
+//
+// bun's mock.module is global for the whole run and last-writer-wins, and two
+// other files in this directory replace this same module — one of them with a
+// runQuery that returns a promise nobody ever resolves, which is the point of
+// THAT file and a five-second timeout in this one. A test that reads the
+// store's bookkeeping must not depend on which file loaded first.
+//
+// Spread first: a replacement that lists only what it needs deletes every
+// other export from everyone else's view.
+const bridge = await import("../../bridge/database");
+
+mock.module("../../bridge/database", () => ({
+  ...bridge,
+  runQuery: async () => ({ columns: ["n"], rows: [["1"]], rowCount: 1, truncated: false }),
+  listProfiles: async () => [],
+  listConsoles: async () => [],
+  listColumns: async () => [],
+  getSchemaCache: async () => null,
+  indexSchema: async () => null,
+  closeSession: async () => {},
+  applyEdits: async () => ({ applied: 0, failed: [] }),
+  setTransactionMode: async () => {},
+  commitTransaction: async () => {},
+  rollbackTransaction: async () => {},
+  transactionState: async () => ({ manual: false, open: false }),
+}));
+
+const { useDatabaseStore, visibleResult } = await import("./databaseStore");
 
 beforeEach(() => {
   useDatabaseStore.setState({ consoles: {} });

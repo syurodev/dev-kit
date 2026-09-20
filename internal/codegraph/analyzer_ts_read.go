@@ -71,7 +71,7 @@ func tsReadParams(lines []string, sel lsp.Position) []Param {
 		return nil
 	}
 	text := strings.Join(lines[sel.Line:], "\n")
-	scan := newTSScanner(text)
+	scan := newTSTypeScanner(text)
 	// Past the name itself, then to the opening parenthesis. A generic
 	// signature puts type parameters in between, which readArgs's bracket
 	// tracking steps over.
@@ -272,11 +272,32 @@ func tsSpecifierOn(line string, keywords ...string) (string, int, bool) {
 	return "", 0, false
 }
 
+// tsSplitTopLevel splits on every separator that is not inside a bracket, a
+// string or a template — what an array or object literal's elements need.
+func tsSplitTopLevel(text string, sep byte) []string {
+	var parts []string
+	scan := newTSTypeScanner(text)
+	start := 0
+	for !scan.done() {
+		if scan.peek() == sep && scan.depth == 0 {
+			parts = append(parts, text[start:scan.pos])
+			scan.advance()
+			start = scan.pos
+			continue
+		}
+		scan.advance()
+	}
+	if rest := strings.TrimSpace(text[start:]); rest != "" {
+		parts = append(parts, text[start:])
+	}
+	return parts
+}
+
 // tsCutTopLevel splits on the first occurrence of sep that is not inside a
 // bracket, a string or a template — which is what keeps `Map<string, number>`
 // one type and `{ a, b }: Options` one parameter.
 func tsCutTopLevel(text string, sep byte) (string, string, bool) {
-	scan := newTSScanner(text)
+	scan := newTSTypeScanner(text)
 	for !scan.done() {
 		c := scan.peek()
 		if c == sep && scan.depth == 0 {
@@ -285,4 +306,81 @@ func tsCutTopLevel(text string, sep byte) (string, string, bool) {
 		scan.advance()
 	}
 	return text, "", false
+}
+
+// tsControlKeywords are the words followed by a parenthesis that are not calls
+// — but only when nothing precedes them. After a dot they are member names
+// like any other, and several are ones that matter: `router.delete('/x')` is a
+// route, `Array.of(...)` is a call, and a generator has `.return()`.
+//
+// Keeping the bare forms out is not required — a framework filters by the name
+// it cares about — but a call list full of `if` and `catch` is a call list
+// nobody can read while debugging one.
+var tsControlKeywords = map[string]bool{
+	"if": true, "for": true, "while": true, "switch": true, "catch": true,
+	"return": true, "typeof": true, "await": true, "function": true,
+	"do": true, "with": true, "yield": true, "void": true, "delete": true,
+	"in": true, "of": true, "case": true, "instanceof": true,
+}
+
+// tsReadCalls finds every call expression in a file, with the path it was made
+// on and its arguments as written.
+//
+// Whole-file text scanning, unlike everything else in this file, because there
+// is no bound to work inside: a call can be anywhere. What makes it affordable
+// is that it is one linear pass with no backtracking, and what makes it safe
+// is the scanner underneath — strings, templates and comments are stepped
+// over, and an argument list that never closes rewinds rather than swallowing
+// the rest of the file.
+//
+// It is deliberately generous. A framework filters by the name it cares about,
+// so a false positive costs nothing and a miss costs a route.
+func tsReadCalls(source string) []tsCall {
+	scan := newTSScanner(source)
+	var calls []tsCall
+	var chain []string
+
+	for !scan.done() {
+		c := scan.peek()
+		if !isTSNameStart(c) {
+			scan.advance()
+			chain = nil
+			continue
+		}
+
+		line := scan.line
+		name := scan.readIdentifier()
+		scan.skipSpace()
+		if scan.done() {
+			break
+		}
+		switch scan.peek() {
+		case '.':
+			// Another segment of the same path: `this` . `client` . `send`.
+			chain = append(chain, name)
+			scan.advance()
+		case '(':
+			if len(chain) == 0 && tsControlKeywords[name] {
+				chain = nil
+				continue
+			}
+			if args, ok := scan.readArgs(); ok {
+				calls = append(calls, tsCall{
+					Receiver: strings.Join(chain, "."),
+					Method:   name,
+					Args:     args,
+					Line:     line,
+					EndLine:  scan.line,
+				})
+			}
+			chain = nil
+		default:
+			chain = nil
+		}
+	}
+	return calls
+}
+
+func isTSNameStart(c byte) bool {
+	return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

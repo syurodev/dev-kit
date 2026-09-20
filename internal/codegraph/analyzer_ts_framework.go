@@ -51,7 +51,7 @@ type tsFramework interface {
 // wins for a layer, so a framework that is sure about a file should come
 // before one that guesses.
 func tsFrameworks() []tsFramework {
-	return []tsFramework{nestFramework{}, nextFramework{}}
+	return []tsFramework{nestFramework{}, nextFramework{}, routerFramework{}}
 }
 
 // tsClassNamed is how a framework turns a type NAME into the node it refers
@@ -79,6 +79,77 @@ func (p *tsProject) classNamed(name string) *tsDecl {
 		}
 	}
 	return found
+}
+
+// functionNamed is classNamed for a callable: what resolves the handler in
+// `app.get('/users', listUsers)` to the function it names. Same rule — exactly
+// one match across the project, or nothing, because two functions with one
+// name is common and picking either is a guess.
+func (p *tsProject) functionNamed(name string) *tsDecl {
+	if name == "" {
+		return nil
+	}
+	var found *tsDecl
+	for _, file := range p.files {
+		for _, decl := range file.decls {
+			if decl.kind != "method" || decl.name != name || decl.owner != nil {
+				continue
+			}
+			if found != nil {
+				return nil
+			}
+			found = decl
+		}
+	}
+	return found
+}
+
+// handlerFor is the node a route-registering call should start a flow from.
+//
+// Three places to look, in order of how much the source said. The callback
+// written inline is the usual case and the language server already reports it
+// as a function of its own — an anonymous arrow in an argument list is still a
+// declaration, and it has a range inside the call's. Failing that the handler
+// is named, and resolves like any other identifier. Failing both, the call
+// itself is somebody's body, and that body is where the route is served from.
+func (p *tsProject) handlerFor(f *tsFile, call tsCall) *tsDecl {
+	var inline *tsDecl
+	for _, decl := range f.decls {
+		if decl.kind != "method" {
+			continue
+		}
+		start := decl.line - 1
+		if start < call.Line || start > call.EndLine || decl == call.Enclosing {
+			continue
+		}
+		if inline == nil || start < inline.line-1 {
+			inline = decl
+		}
+	}
+	if inline != nil {
+		return inline
+	}
+	for i := len(call.Args) - 1; i >= 1; i-- {
+		if named := p.functionNamed(call.Identifier(i)); named != nil {
+			return named
+		}
+	}
+	return call.Enclosing
+}
+
+// tsMemo caches per-project work a framework would otherwise redo for every
+// file — an index over the whole project, asked for once per file, is the
+// shape that turns a linear pass into a quadratic one.
+func tsMemo[T any](p *tsProject, key string, build func() T) T {
+	if p.memo == nil {
+		p.memo = map[string]any{}
+	}
+	if cached, ok := p.memo[key]; ok {
+		return cached.(T)
+	}
+	built := build()
+	p.memo[key] = built
+	return built
 }
 
 // tsBaseType strips a type expression down to the name a class node could

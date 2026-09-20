@@ -6,7 +6,17 @@ let implementations: CodeGraphDefinition[] = [];
 let references: CodeGraphReference[] = [];
 const calls: Array<{ filePath: string; line: number; identifier: string }> = [];
 
+// Spread the real module, override the three this file is about.
+//
+// bun's mock.module replaces a module for the WHOLE run, not just this file,
+// and a replacement that lists only what it needs deletes every other export
+// from everyone else's view. Left partial, this made codegraphActions — loaded
+// later, by another test file — fail to import getCodeGraphNeighbors, which
+// read as a syntax error in a file that had nothing wrong with it.
+const bridge = await import("@/bridge/codegraph");
+
 mock.module("@/bridge/codegraph", () => ({
+  ...bridge,
   findCodeGraphDefinitions: async (filePath: string, line: number, identifier: string) => {
     calls.push({ filePath, line, identifier });
     return response;

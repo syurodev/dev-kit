@@ -27,6 +27,8 @@ type tsProject struct {
 	// byPath indexes files by absolute path, for turning a server's answer
 	// back into one of ours.
 	byPath map[string]*tsFile
+	// memo is where a framework keeps an index it builds once; see tsMemo.
+	memo map[string]any
 }
 
 // dependsOn reports whether the project declares any of these packages.
@@ -52,6 +54,72 @@ type tsFile struct {
 	module  string
 	decls   []*tsDecl
 	imports []tsImport
+	// calls are the call expressions this file makes, as written. A
+	// language-level fact, not a framework one: a call has a receiver, a name
+	// and arguments in every framework and in none.
+	//
+	// The graph's call EDGES come from the checker, not from here — these are
+	// for the calls whose meaning is in their arguments rather than in what
+	// they resolve to. `app.get('/users', handler)` declares a route and
+	// `client.send({ cmd: 'divide' })` names a handler in another service;
+	// the checker resolves both to a library method and is right to.
+	calls []tsCall
+}
+
+// tsCall is one call expression.
+type tsCall struct {
+	// Receiver is the dotted path the call was made on — "this.client" for
+	// this.client.send(...), "app" for app.get(...) — and "" for a bare call.
+	Receiver string
+	Method   string
+	Args     []string
+	// Line and EndLine are zero-based, matching the language server's.
+	Line    int
+	EndLine int
+	// Enclosing is the declaration the call sits in, nil at module level.
+	Enclosing *tsDecl
+}
+
+// StringArg is the i-th argument when it is a string literal, "" otherwise.
+func (c tsCall) StringArg(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	return tsStringLiteral(c.Args[i])
+}
+
+// StringArgOrObject is the i-th argument as written, for a caller that will
+// normalise it itself — a message pattern is a string as often as an object.
+func (c tsCall) StringArgOrObject(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	return c.Args[i]
+}
+
+// Identifier is the i-th argument when it is a bare name — the handler in
+// `app.get('/users', listUsers)` — and "" for anything else.
+func (c tsCall) Identifier(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	name := strings.TrimSpace(c.Args[i])
+	if name == "" || !isTSIdentifier(name) {
+		return ""
+	}
+	return name
+}
+
+func isTSIdentifier(text string) bool {
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		letter := c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		if letter || (i > 0 && c >= '0' && c <= '9') {
+			continue
+		}
+		return false
+	}
+	return text != ""
 }
 
 // tsDecl is one declaration: a class, an interface, an enum, or something
@@ -117,6 +185,70 @@ func (d tsDecorator) StringArg(i int) string {
 		return ""
 	}
 	return tsStringLiteral(d.Args[i])
+}
+
+// StringArgs is the i-th argument's string literals: one for a plain literal,
+// several for an array of them, none for anything else.
+//
+// The array form is not exotic — `@Controller(['legacy', 'v2'])` and
+// `@Get(['a', 'b'])` are how one handler serves several paths, and reading
+// only the first (or, worse, none) reports a route the service does not
+// serve.
+func (d tsDecorator) StringArgs(i int) []string {
+	if i >= len(d.Args) {
+		return nil
+	}
+	return tsStringLiterals(d.Args[i])
+}
+
+// tsStringLiterals reads one argument as a list of strings: a plain literal is
+// a list of one, an array literal is its string elements, and anything else is
+// no list at all.
+func tsStringLiterals(text string) []string {
+	text = strings.TrimSpace(text)
+	if literal := tsStringLiteral(text); literal != "" {
+		return []string{literal}
+	}
+	if !strings.HasPrefix(text, "[") || !strings.HasSuffix(text, "]") {
+		return nil
+	}
+	var found []string
+	for _, element := range tsSplitTopLevel(text[1:len(text)-1], ',') {
+		if literal := tsStringLiteral(element); literal != "" {
+			found = append(found, literal)
+		}
+	}
+	return found
+}
+
+// tsObjectSummary turns an object literal into something a sidebar can show:
+// `{ cmd: 'divide' }` becomes "cmd: divide".
+//
+// A message pattern is as often an object as a string — `@MessagePattern({ cmd
+// 'divide' })` is the idiom for a request/response handler — and the handler's
+// own name is a poor substitute for the pattern a caller has to send.
+func tsObjectSummary(text string) string {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "{") || !strings.HasSuffix(text, "}") {
+		return ""
+	}
+	var parts []string
+	for _, field := range tsSplitTopLevel(text[1:len(text)-1], ',') {
+		key, value, found := tsCutTopLevel(field, ':')
+		if !found {
+			continue
+		}
+		key = strings.Trim(strings.TrimSpace(key), `'"`+"`")
+		value = strings.TrimSpace(value)
+		if literal := tsStringLiteral(value); literal != "" {
+			value = literal
+		}
+		if key == "" || value == "" {
+			continue
+		}
+		parts = append(parts, key+": "+value)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // tsImport is one module this file pulls in.

@@ -14,12 +14,24 @@ import "strings"
 // parenthesis.
 
 type tsScanner struct {
-	text  string
-	pos   int
+	text string
+	pos  int
+	// line is the zero-based line pos sits on, kept as the scan moves so a
+	// position never has to be converted by counting newlines from the start —
+	// which over a whole file is quadratic.
+	line  int
 	depth int
+	// angles counts < and > as brackets. On in a type position, where
+	// `Repository<User, Id>` must not split on its comma; OFF when scanning
+	// arbitrary code, where `a < b` is a comparison and counting it would
+	// leave the depth permanently wrong for everything after it.
+	angles bool
 }
 
 func newTSScanner(text string) *tsScanner { return &tsScanner{text: text} }
+
+// newTSTypeScanner is the scanner for a type or parameter position.
+func newTSTypeScanner(text string) *tsScanner { return &tsScanner{text: text, angles: true} }
 
 func (s *tsScanner) done() bool { return s.pos >= len(s.text) }
 
@@ -38,25 +50,34 @@ func (s *tsScanner) advance() {
 	if s.done() {
 		return
 	}
+	// Line counting is inline rather than deferred. advance runs once per
+	// character of every file, and a deferred closure plus a scan of the span
+	// it covered, several million times over, costs more than everything else
+	// in this file put together.
 	switch c := s.text[s.pos]; {
 	case c == '/' && s.pos+1 < len(s.text) && s.text[s.pos+1] == '/':
+		// Stops AT the newline, so the line count is somebody else's.
 		if end := strings.IndexByte(s.text[s.pos:], '\n'); end >= 0 {
 			s.pos += end
 		} else {
 			s.pos = len(s.text)
 		}
 	case c == '/' && s.pos+1 < len(s.text) && s.text[s.pos+1] == '*':
+		before := s.pos
 		if end := strings.Index(s.text[s.pos+2:], "*/"); end >= 0 {
 			s.pos += end + 4
 		} else {
 			s.pos = len(s.text)
 		}
+		s.line += strings.Count(s.text[before:s.pos], "\n")
 	case c == '\'' || c == '"' || c == '`':
+		before := s.pos
 		s.skipString(c)
-	case c == '(' || c == '[' || c == '{' || c == '<':
+		s.line += strings.Count(s.text[before:s.pos], "\n")
+	case c == '(' || c == '[' || c == '{' || (c == '<' && s.angles):
 		s.depth++
 		s.pos++
-	case c == ')' || c == ']' || c == '}' || c == '>':
+	case c == ')' || c == ']' || c == '}' || (c == '>' && s.angles):
 		// Clamped: a lone '>' is an operator as often as it is the end of a
 		// type argument list, and a depth that can go negative turns every
 		// later top-level test into a lie.
@@ -65,6 +86,9 @@ func (s *tsScanner) advance() {
 		}
 		s.pos++
 	default:
+		if c == '\n' {
+			s.line++
+		}
 		s.pos++
 	}
 }
@@ -130,6 +154,7 @@ func (s *tsScanner) readArgs() ([]string, bool) {
 		return nil, false
 	}
 	opened := s.depth
+	openedAt, openedLine := s.pos, s.line
 	s.advance() // past '('
 
 	var args []string
@@ -153,6 +178,10 @@ func (s *tsScanner) readArgs() ([]string, bool) {
 		}
 		s.advance()
 	}
+	// Never closed: a file being edited, or a scan that lost its place. Rewind
+	// to just past the opening parenthesis so one unreadable call costs one
+	// call rather than every call after it in the file.
+	s.pos, s.line, s.depth = openedAt+1, openedLine, opened
 	return nil, false
 }
 
