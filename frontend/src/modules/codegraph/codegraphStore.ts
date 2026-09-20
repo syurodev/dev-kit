@@ -61,6 +61,9 @@ export type FileBuffer = {
   revealToken: number;
 };
 
+/** One task on a plan node, narrowed to what a chip draws. */
+export type PlanTaskChip = { id: string; key: string; title: string; status: string };
+
 type CodeGraphState = {
   projectPath: string;
   endpoints: CodeGraphEndpoint[];
@@ -104,6 +107,14 @@ type CodeGraphState = {
   commentsPlanNodeId: string | null;
   /** Thread length per plan node, for the node badge. */
   commentCounts: Record<string, number>;
+  /**
+   * The tasks implementing each plan node, for the chips on the canvas.
+   *
+   * Code Graph does not own this and does not store it: the link lives on the
+   * task, and this is the answer to one bounded query, refreshed with the
+   * plan. An empty record is the normal state — most projects have no board.
+   */
+  planTasks: Record<string, PlanTaskChip[]>;
   planError: string;
   files: CodeGraphFileEntry[];
 
@@ -170,6 +181,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   selectedPlanNodeId: null,
   commentsPlanNodeId: null,
   commentCounts: {},
+  planTasks: {},
   planError: "",
   files: [],
   query: "",

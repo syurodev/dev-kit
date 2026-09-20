@@ -94,6 +94,7 @@ registerIntent("api.fromEndpoint", (ref: EntityRef) => …);   // apiclient
 registerIntent("agent.attach", (refs: EntityRef[], prompt?: string) => …); // agenthub
 registerIntent("task.create", (seed: { title: string; refs: EntityRef[] }) => …); // tasks
 registerIntent("codegraph.reveal", (ref: EntityRef) => …);    // codegraph
+registerIntent("tasks.reveal", (ref: EntityRef) => …);        // tasks — mở một task từ bất kỳ đâu
 registerIntent("git.reveal", (ref: EntityRef) => …);          // git — diff của file / commit
 registerIntent("git.commitTurn", (ref: EntityRef) => …);      // git — checkpoint một lượt → commit
 registerIntent("accounts.pick", (need: { host?: string; env?: string }) => …); // accounts — peek, không đổi tab
@@ -122,6 +123,7 @@ cùng hiện; *Reveal in Code Graph* từ một task mở `replace`.
 | Code Graph → Agent Hub | **Ask agent about this flow** (`⌘L`); banner lỗi index: **Ask agent** | `agent.attach([endpoint, planNode…])` | Agent Hub (session); Code Graph trả flow khi agent gọi tool |
 | Code Graph → Tasks | **New task from endpoint** (`⌘T`); plan đã duyệt: **Create tasks from plan** | `task.create`, `tasks.createFromPlan` | Tasks; link hai chiều `plan_node_id` ↔ `task_id` |
 | Tasks → Code Graph | Chip plan node / endpoint trong task detail | `codegraph.reveal` | Chỉ điều hướng |
+| Code Graph → Tasks | **Chip task trên từng node của canvas Plan**; click mở task `beside` | `tasks.reveal` | Tasks sở hữu link (`plan_node_id`); Code Graph hỏi ngược bằng `TasksByPlanNode`, không lưu gì |
 | API Client → Code Graph | Chip nguồn trên request: **View flow** | `codegraph.reveal` | Chỉ điều hướng |
 | API Client → Agent Hub | Response: **Attach to agent** | `agent.attach([request])` | Agent Hub; response đã cắt + che secret |
 | API Client → Tasks | Response: **Add to task** | `tasks.comment.add` với ref request | Tasks (comment) |

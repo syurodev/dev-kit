@@ -440,6 +440,10 @@ export async function loadPlan() {
       countCodeGraphPlanNodeComments(),
     ]);
     if (current()) set({ plan, planEdges, commentCounts });
+    // Separate and after: the plan must draw whether or not a board exists,
+    // and asking Tasks first would make a module most projects do not use a
+    // prerequisite for seeing the canvas at all.
+    void loadPlanTasks();
   } catch (e) {
     if (!current()) return;
     // Having no plan is the normal state for most projects, not a failure —
@@ -669,4 +673,33 @@ export function askAgent(text: string) {
     agents.setPrompt(id, draft ? `${draft}\n\n${text}` : text);
   }
   agents.setChatOpen(true);
+}
+
+/**
+ * Loads the task chips for the open project's plan.
+ *
+ * Deliberately quiet. A project with no board is the common case and produces
+ * no chips and no error; a Tasks module that fails is not allowed to take the
+ * plan down with it, since the canvas is about code and the chips are a
+ * convenience on top.
+ */
+export async function loadPlanTasks() {
+  const root = useCodeGraphStore.getState().projectPath;
+  if (!root) {
+    set({ planTasks: {} });
+    return;
+  }
+  try {
+    const { listBoards, tasksByPlanNode } = await import("@/bridge/tasks");
+    const { boardForProject, chipsByPlanNode } = await import("./planTasks");
+    const board = boardForProject(await listBoards(), root);
+    if (!board) {
+      set({ planTasks: {} });
+      return;
+    }
+    set({ planTasks: chipsByPlanNode(await tasksByPlanNode(board.id)) });
+  } catch {
+    // No chips rather than a broken plan.
+    set({ planTasks: {} });
+  }
 }
