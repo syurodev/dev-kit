@@ -249,6 +249,13 @@ ngay từ v1.
 
 - Body skeleton chỉ một cấp field; DTO lồng nhau hiện `{}`.
 - Body skeleton chỉ có với Java và TypeScript; endpoint Lua cho method + path.
+- Kiểu body phải nằm trong source của chính project **và** tên phải duy nhất:
+  hai class trùng tên, hay một DTO của thư viện, cho body rỗng kèm câu giải
+  thích thay vì một skeleton đoán bừa.
+- `@RequestParam("x")` với hằng số thay vì string literal không đọc được tên
+  trên dây — tên sai còn tệ hơn không có tên.
+- TypeScript chỉ đọc field của DTO khai bằng `class`; `interface` và `type`
+  alias chưa nằm trong index dưới dạng class.
 - Không chạy cả collection; không có runner/lịch.
 - Collection từ Code Graph chỉ có khi project đang mở trong Code Graph.
 - Auth chỉ các dạng account hỗ trợ (Bearer, Basic, API key header). Chữ ký

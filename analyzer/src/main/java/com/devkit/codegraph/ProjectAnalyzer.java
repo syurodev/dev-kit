@@ -176,6 +176,9 @@ public class ProjectAnalyzer {
         for (ParsedFile file : files) {
             collectDeclarations(file, annotations, index, scopes, result);
         }
+        for (PendingBody pending : pendingBodies) {
+            pending.param().fields = bodyFields(pending.declared(), index);
+        }
         linkSupertypes(index);
         Dispatch dispatch = linkOverrides(index, result);
         extractEndpoints(index, dispatch, annotations, constants, result);
@@ -272,7 +275,8 @@ public class ProjectAnalyzer {
             List<String> constructorIds = new ArrayList<>();
             List<String> initializingConstructorIds = new ArrayList<>();
             for (ConstructorDeclaration ctor : classDecl.getConstructors()) {
-                MethodInfo info = addMethodNode(ctor, type, layer, file.relativePath(), index, result);
+                MethodInfo info = addMethodNode(ctor, type, layer, file.relativePath(), index,
+                        annotations, result);
                 constructorIds.add(info.id());
                 scopes.add(new CallScope(ctor, List.of(info.id()), type));
                 // A constructor that starts with this(...) hands off to another
@@ -285,7 +289,8 @@ public class ProjectAnalyzer {
                 }
             }
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
-                MethodInfo info = addMethodNode(methodDecl, type, layer, file.relativePath(), index, result);
+                MethodInfo info = addMethodNode(methodDecl, type, layer, file.relativePath(), index,
+                        annotations, result);
                 type.methods.add(info);
                 scopes.add(new CallScope(methodDecl, List.of(info.id()), type));
             }
@@ -307,8 +312,60 @@ public class ProjectAnalyzer {
         }
     }
 
+    /** A @RequestBody parameter whose type cannot be looked up until pass 1 ends. */
+    private record PendingBody(Param param, com.github.javaparser.ast.body.Parameter declared) {}
+
+    private final List<PendingBody> pendingBodies = new ArrayList<>();
+
+    /**
+     * The fields of a @RequestBody parameter's type, when that type is in this
+     * project's own source.
+     *
+     * Resolution is tried first because it is the right answer. When the
+     * classpath cannot supply the type — which is the ordinary case for a
+     * project analyzed without its dependencies — the simple name is looked up
+     * in the index, and ONLY an unambiguous match counts. Two classes named
+     * RefundRequest is exactly when a guess sends a draft with the wrong
+     * fields, and an empty body the UI can explain is better than a confident
+     * wrong one.
+     */
+    private List<Field> bodyFields(com.github.javaparser.ast.body.Parameter p, Index index) {
+        String qualified = null;
+        try {
+            qualified = p.getType().resolve().asReferenceType().getQualifiedName();
+        } catch (RuntimeException | StackOverflowError e) {
+            // No classpath for this type; fall through to the index.
+        }
+        TypeInfo found = null;
+        if (qualified != null) {
+            found = index.oneByQualifiedName(qualified);
+        }
+        if (found == null) {
+            found = index.oneBySimpleName(simpleTypeName(p.getType().asString()));
+        }
+        return found == null ? null : emptyToNull(ParamBinding.fieldsOf(found.decl));
+    }
+
+    private static List<Field> emptyToNull(List<Field> fields) {
+        return fields.isEmpty() ? null : fields;
+    }
+
+    /** "java.util.List<Refund>" -> "Refund"; "RefundRequest" -> "RefundRequest". */
+    private static String simpleTypeName(String written) {
+        String name = written;
+        int generic = name.indexOf('<');
+        if (generic >= 0) {
+            name = name.substring(0, generic);
+        }
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0) {
+            name = name.substring(dot + 1);
+        }
+        return name.trim();
+    }
+
     private MethodInfo addMethodNode(CallableDeclaration<?> decl, TypeInfo type, String layer, String relativePath,
-                                     Index index, AnalysisResult result) {
+                                     Index index, Annotations annotations, AnalysisResult result) {
         String signature;
         try {
             ResolvedMethodLikeDeclaration resolved = decl instanceof MethodDeclaration m ? m.resolve()
@@ -338,7 +395,21 @@ public class ProjectAnalyzer {
                 .map(j -> j.getDescription().toText().trim())
                 .orElse("");
         for (com.github.javaparser.ast.body.Parameter p : decl.getParameters()) {
-            node.params.add(new Param(p.getNameAsString(), p.getType().asString()));
+            Param param = new Param(p.getNameAsString(), p.getType().asString());
+            // Only a controller's methods carry wire bindings. Reading them
+            // everywhere would resolve a DTO for every parameter of every
+            // service in the project to answer a question nothing asks.
+            if ("controller".equals(layer)) {
+                ParamBinding.describe(param, p, annotations);
+                if ("body".equals(param.source)) {
+                    // Resolved after every file is declared, not here: the
+                    // DTO may live in a file this pass has not reached, and
+                    // looking now would find nothing for half the project
+                    // depending on the order the directory was walked.
+                    pendingBodies.add(new PendingBody(param, p));
+                }
+            }
+            node.params.add(param);
         }
         Range range = decl.getRange().orElse(null);
         if (range != null) {
@@ -1155,6 +1226,20 @@ public class ProjectAnalyzer {
             }
             String prefix = enclosing == null ? "" : enclosing.id + ".";
             return prefix + member + "$" + decl.getNameAsString();
+        }
+
+        /** The one type with this qualified name, or null when none or many. */
+        TypeInfo oneByQualifiedName(String name) {
+            return only(byQualifiedName.get(name));
+        }
+
+        /** The one type with this simple name, or null when none or many. */
+        TypeInfo oneBySimpleName(String name) {
+            return only(bySimpleName.get(name));
+        }
+
+        private static TypeInfo only(List<TypeInfo> candidates) {
+            return candidates != null && candidates.size() == 1 ? candidates.get(0) : null;
         }
 
         /**

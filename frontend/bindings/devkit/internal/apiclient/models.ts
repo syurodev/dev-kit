@@ -46,6 +46,49 @@ export interface Collection {
 }
 
 /**
+ * EndpointDraft is a request drafted from a Code Graph endpoint.
+ * 
+ * It is not saved: a draft becomes a request only when the person saves it,
+ * and an agent that asked for one gets what a person sees rather than a row
+ * appearing in their sidebar.
+ * 
+ * The type lives here because it is a request; the function that builds one
+ * lives in the composition root, because building it means reading the Code
+ * Graph index and this package must not depend on that.
+ */
+export interface EndpointDraft {
+    "id": string;
+    "collectionId": string;
+    "name": string;
+    "method": string;
+    "url": string;
+    "query"?: { [_ in string]?: string } | null;
+    "headers"?: { [_ in string]?: string } | null;
+    "body"?: string;
+    "auth": Auth;
+
+    /**
+     * OriginRef points back at the Code Graph endpoint this was drafted from.
+     */
+    "originRef"?: string;
+    "createdAt": string;
+    "updatedAt": string;
+
+    /**
+     * BodyInferred says the body skeleton came from the handler's own declared
+     * type. False is not a failure — a Lua endpoint declares no body at all —
+     * which is why Note carries the reason.
+     */
+    "bodyInferred": boolean;
+
+    /**
+     * Note is the one sentence to show about the body. Empty when the skeleton
+     * was read from the code.
+     */
+    "note": string;
+}
+
+/**
  * Environment is a set of variables and the env tag they run under.
  */
 export interface Environment {

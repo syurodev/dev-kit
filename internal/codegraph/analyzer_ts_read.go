@@ -114,14 +114,26 @@ func tsParseParam(text string) (Param, bool) {
 	}
 
 	// Decorators first: they are prefixes, and each may carry arguments.
+	// They are also where the parameter says what part of the request it is,
+	// so the name and the first argument are kept rather than stepped over.
+	var source, wire string
 	for strings.HasPrefix(text, "@") {
 		scan := newTSScanner(text)
 		scan.advance()
-		scan.readIdentifier()
+		name := scan.readIdentifier()
 		scan.skipSpace()
+		var args []string
 		if !scan.done() && scan.peek() == '(' {
-			if _, ok := scan.readArgs(); !ok {
+			read, ok := scan.readArgs()
+			if !ok {
 				break
+			}
+			args = read
+		}
+		if bound, ok := tsParamSources[name]; ok && source == "" {
+			source = bound
+			if len(args) > 0 {
+				wire = tsStringLiteral(args[0])
 			}
 		}
 		text = strings.TrimSpace(text[scan.pos:])
@@ -142,10 +154,89 @@ func tsParseParam(text string) (Param, bool) {
 	if name == "" {
 		return Param{}, false
 	}
-	if !found {
-		return Param{Name: name}, true
+	param := Param{Name: name, Source: source}
+	if found {
+		param.Type = strings.TrimSpace(typeName)
 	}
-	return Param{Name: name, Type: strings.TrimSpace(typeName)}, true
+	if wire != "" && wire != name {
+		param.WireName = wire
+	}
+	return param, true
+}
+
+// tsParamSources is NestJS's parameter decorators, which are the same shapes
+// Spring's annotations are.
+//
+// Only the ones that name a part of the request are here. `@Req`, `@Res`,
+// `@Ip`, `@Session` and the file decorators are the framework handing the
+// handler something that is not a value on the wire, so they read as `other`
+// and a draft leaves them alone. A decorator that is not in this table at all
+// — a project's own `@CurrentUser`, an `@Inject` on a constructor — leaves the
+// source EMPTY, which says "this analyzer cannot tell" rather than "this is
+// not part of the request".
+var tsParamSources = map[string]string{
+	"Body":          ParamSourceBody,
+	"Param":         ParamSourcePath,
+	"Query":         ParamSourceQuery,
+	"Headers":       ParamSourceHeader,
+	"Header":        ParamSourceHeader,
+	"Req":           ParamSourceOther,
+	"Request":       ParamSourceOther,
+	"Res":           ParamSourceOther,
+	"Response":      ParamSourceOther,
+	"Next":          ParamSourceOther,
+	"Ip":            ParamSourceOther,
+	"Session":       ParamSourceOther,
+	"HostParam":     ParamSourceOther,
+	"UploadedFile":  ParamSourceOther,
+	"UploadedFiles": ParamSourceOther,
+}
+
+// tsReadProperties reads a class's own fields, with their types, for a body
+// skeleton.
+//
+// Bounded text work like everything else in this file: the server has already
+// said where the class starts and ends, and a property is a line inside it
+// that declares a name and a type and is not a method. Anything with a
+// parenthesis before the colon is a method or a constructor and is skipped —
+// a skeleton made of a DTO's methods is worse than an empty one.
+func tsReadProperties(lines []string, line, endLine int) []Field {
+	if line < 1 || endLine > len(lines) || line > endLine {
+		return nil
+	}
+	var fields []Field
+	for _, raw := range lines[line:min(endLine, len(lines))] {
+		text := strings.TrimSpace(raw)
+		if text == "" || strings.HasPrefix(text, "//") || strings.HasPrefix(text, "*") ||
+			strings.HasPrefix(text, "/*") || strings.HasPrefix(text, "@") {
+			continue
+		}
+		for _, modifier := range []string{"public ", "private ", "protected ", "readonly ", "static ", "declare "} {
+			for strings.HasPrefix(text, modifier) {
+				text = strings.TrimSpace(strings.TrimPrefix(text, modifier))
+			}
+		}
+		name, typeName, found := tsCutTopLevel(text, ':')
+		if !found {
+			continue
+		}
+		name = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(name), "?"))
+		name = strings.TrimSuffix(name, "!")
+		if name == "" || strings.ContainsAny(name, "()[]{}<>=,;\"'` ") {
+			continue
+		}
+		typeName = strings.TrimSpace(typeName)
+		if cut, _, ok := tsCutTopLevel(typeName, '='); ok {
+			typeName = strings.TrimSpace(cut)
+		}
+		typeName = strings.TrimSuffix(strings.TrimSpace(typeName), ";")
+		typeName = strings.TrimSpace(typeName)
+		if typeName == "" {
+			continue
+		}
+		fields = append(fields, Field{Name: name, Type: typeName})
+	}
+	return fields
 }
 
 // tsReadDoc is the JSDoc block immediately above a declaration — the same

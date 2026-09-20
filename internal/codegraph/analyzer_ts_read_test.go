@@ -2,6 +2,7 @@
 package codegraph
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -73,15 +74,17 @@ func TestReadsParametersWithTypes(t *testing.T) {
 	lines := linesOf(`  async create(@Body() dto: CreateUserDto, @Param('id') id: string, flag = true) {`)
 	params := tsReadParams(lines, lsp.Position{Line: 0, Character: 8})
 	want := []Param{
-		{Name: "dto", Type: "CreateUserDto"},
-		{Name: "id", Type: "string"},
+		{Name: "dto", Type: "CreateUserDto", Source: ParamSourceBody},
+		{Name: "id", Type: "string", Source: ParamSourcePath},
+		// No decorator at all: the source stays empty, which says this
+		// analyzer cannot tell rather than "not part of the request".
 		{Name: "flag"},
 	}
 	if len(params) != len(want) {
 		t.Fatalf("params = %+v, want %+v", params, want)
 	}
 	for i := range want {
-		if params[i] != want[i] {
+		if !reflect.DeepEqual(params[i], want[i]) {
 			t.Errorf("param %d = %+v, want %+v", i, params[i], want[i])
 		}
 	}
@@ -149,5 +152,87 @@ const x = require('legacy');`
 	line := linesOf(source)[0]
 	if got := line[imports[0].SpecChar : imports[0].SpecChar+len("@nestjs/common")]; got != "@nestjs/common" {
 		t.Errorf("specifier position points at %q", got)
+	}
+}
+
+// Where a handler parameter's value comes from, which is what a drafted
+// request is built out of. NestJS's decorators are the same shapes Spring's
+// annotations are, and they are read the same way.
+func TestReadsWhereEachParameterComesFromOnTheWire(t *testing.T) {
+	lines := linesOf("  create(@Body() dto: CreateUserDto, @Param('id') id: string, " +
+		"@Query('page_size') pageSize: number, @Headers('x-tenant') tenant: string, " +
+		"@Req() request: Request, @CurrentUser() user: User) {")
+	params := tsReadParams(lines, lsp.Position{Line: 0, Character: 2})
+	want := []Param{
+		{Name: "dto", Type: "CreateUserDto", Source: ParamSourceBody},
+		{Name: "id", Type: "string", Source: ParamSourcePath},
+		// The decorator renames it, so the wire name is not the parameter's.
+		{Name: "pageSize", Type: "number", Source: ParamSourceQuery, WireName: "page_size"},
+		{Name: "tenant", Type: "string", Source: ParamSourceHeader, WireName: "x-tenant"},
+		// The framework handing the handler something that is not a value on
+		// the wire.
+		{Name: "request", Type: "Request", Source: ParamSourceOther},
+		// A project's own decorator is not in the table, so the answer is "I
+		// cannot tell" rather than "not part of the request".
+		{Name: "user", Type: "User"},
+	}
+	if len(params) != len(want) {
+		t.Fatalf("params = %+v, want %+v", params, want)
+	}
+	for i := range want {
+		if !reflect.DeepEqual(params[i], want[i]) {
+			t.Errorf("param %d = %+v, want %+v", i, params[i], want[i])
+		}
+	}
+}
+
+// A decorator whose argument names the same thing the parameter is called
+// carries no wire name: it would be noise on every draft.
+func TestAWireNameThatMatchesTheParameterIsNotRecorded(t *testing.T) {
+	lines := linesOf("  get(@Param('id') id: string) {")
+	params := tsReadParams(lines, lsp.Position{Line: 0, Character: 2})
+	if len(params) != 1 || params[0].WireName != "" {
+		t.Fatalf("params = %+v", params)
+	}
+}
+
+// The fields a body skeleton is built from. A DTO's methods are not fields,
+// and a skeleton made of them is worse than an empty one.
+func TestReadsAClassesOwnFieldsAndNotItsMethods(t *testing.T) {
+	lines := linesOf(`export class CreateUserDto {
+  @IsString()
+  readonly email: string;
+  age?: number;
+  tags: string[] = [];
+  private secret!: string;
+  static KIND = 'user';
+  greet(name: string): string {
+    return name;
+  }
+}`)
+	fields := tsReadProperties(lines, 1, 11)
+	want := []Field{
+		{Name: "email", Type: "string"},
+		{Name: "age", Type: "number"},
+		// The default value is not part of the shape.
+		{Name: "tags", Type: "string[]"},
+		{Name: "secret", Type: "string"},
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields = %+v, want %+v", fields, want)
+	}
+}
+
+func TestBareTypeNameStripsWhatALookupCannotUse(t *testing.T) {
+	for written, want := range map[string]string{
+		"CreateUserDto":             "CreateUserDto",
+		"CreateUserDto[]":           "CreateUserDto",
+		"Array<CreateUserDto>":      "Array",
+		"dto.CreateUserDto":         "CreateUserDto",
+		"CreateUserDto | undefined": "CreateUserDto",
+	} {
+		if got := tsBareTypeName(written); got != want {
+			t.Errorf("tsBareTypeName(%q) = %q, want %q", written, got, want)
+		}
 	}
 }

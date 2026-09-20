@@ -137,24 +137,19 @@ export function resolveUrl(template: string, vars: Record<string, string>): stri
 }
 
 /**
- * Turns a Code Graph endpoint into a draft. Path parameters become
- * {{variables}}; the body is left to the caller, because only Java and
- * TypeScript can say what shape it is — a Kong or Lapis endpoint declares no
- * body at all, and showing an empty {} would read as "the DTO is empty".
+ * A request drafted from a Code Graph endpoint, not saved.
+ *
+ * `bodyInferred` false is not a failure: a Lua endpoint declares no body at
+ * all, and a Java handler may take one whose type is outside this project.
+ * `note` says which, because an empty `{}` for every case would read as "the
+ * DTO is empty" — the one thing none of them means.
  */
-export function draftFromEndpoint(endpoint: {
-  httpMethod: string;
-  path: string;
-  id: string;
-}): Partial<ApiRequest> & { name: string; method: string; url: string } {
-  const url = "{{baseUrl}}" + endpoint.path.replace(/\{(\w+)\}/g, "{{$1}}");
-  return {
-    name: `${endpoint.httpMethod} ${endpoint.path}`,
-    method: endpoint.httpMethod,
-    url,
-    auth: { kind: "", accountId: "" },
-    originRef: `devkit://codegraph/endpoint/${encodeURIComponent(endpoint.id)}`,
-  };
+export type ApiDraft = ApiRequest & { bodyInferred: boolean; note: string };
+
+export function draftFromEndpoint(endpointId: string): Promise<ApiDraft> {
+  return callBridge(
+    async () => (await AppService.ApiDraftFromEndpoint(endpointId)) as ApiDraft,
+  );
 }
 
 /** A folder of requests. */

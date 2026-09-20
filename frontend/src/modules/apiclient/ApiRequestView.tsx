@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Folder, Send, Terminal } from "lucide-react";
+import { Folder, Save, Send, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
   curlFor,
+  draftFromEndpoint,
   listCollections,
   listEnvironments,
   listRequests,
@@ -12,6 +13,7 @@ import {
   saveRequest,
   sendRequest,
   type ApiCollection,
+  type ApiDraft,
   type ApiEnvironment,
   type ApiRequest,
   type ApiResponse,
@@ -26,7 +28,11 @@ import { byFolderThenName, folderPath, foldersByPath, requestLabel } from "./col
  * an account id, the value is resolved in Go at send time, and this view never
  * holds a credential — which is also why Copy as cURL is safe to paste.
  */
-export function ApiRequestView() {
+export function ApiRequestView({ params }: { params?: Record<string, unknown> } = {}) {
+  // An endpoint id rather than a draft: a tab reopened after a restart asks
+  // for a draft of the CURRENT index, not one built against an index that has
+  // since changed.
+  const endpointID = typeof params?.endpointId === "string" ? params.endpointId : "";
   const [requests, setRequests] = useState<ApiRequest[] | null>(null);
   // null until loaded: the environment picker showing "No environment"
   // alone before the list arrives reads as "you have none".
@@ -35,6 +41,9 @@ export function ApiRequestView() {
   // that has not arrived look the same in a picker and mean different things.
   const [collections, setCollections] = useState<ApiCollection[] | null>(null);
   const [foldersOpen, setFoldersOpen] = useState(false);
+  // The unsaved draft this tab was opened on. A draft becomes a request only
+  // when somebody saves it, so nothing here writes until they do.
+  const [draft, setDraft] = useState<ApiDraft | null>(null);
   const [requestID, setRequestID] = useState("");
   const [environmentID, setEnvironmentID] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
@@ -62,11 +71,31 @@ export function ApiRequestView() {
 
   useEffect(reload, [reload]);
 
+  useEffect(() => {
+    if (!endpointID) return;
+    draftFromEndpoint(endpointID)
+      .then(setDraft)
+      .catch((e: Error) => setError(e.message));
+  }, [endpointID]);
+
   if (error && !requests) {
     return <EmptyState icon={Send} title="API Client is unavailable" body={error} />;
   }
   if (!requests || !environments || !collections) {
     return null;
+  }
+  if (draft) {
+    return (
+      <DraftView
+        draft={draft}
+        environments={environments}
+        onSaved={(saved) => {
+          setDraft(null);
+          setRequestID(saved.id);
+          reload();
+        }}
+      />
+    );
   }
   if (requests.length === 0) {
     return (
@@ -220,5 +249,100 @@ export function ApiRequestView() {
         onChanged={reload}
       />
     </div>
+  );
+}
+
+
+/**
+ * A draft from a Code Graph endpoint, before it is a request.
+ *
+ * It is read-only except for Save. FR-7 is explicit that a draft becomes a
+ * request only when the person saves it, and offering Send on something that
+ * exists nowhere would leave them with a response and no record of what
+ * produced it.
+ *
+ * The note is shown whenever the body was not read from the code. Showing an
+ * empty `{}` instead would say the DTO is empty, which is the one thing none
+ * of the three reasons means.
+ */
+function DraftView({
+  draft,
+  environments,
+  onSaved,
+}: {
+  draft: ApiDraft;
+  environments: ApiEnvironment[];
+  onSaved: (saved: ApiRequest) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const vars = environments[0]?.vars ?? {};
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
+        <span className="text-sm font-medium">{draft.method}</span>
+        <code className="min-w-0 flex-1 truncate text-xs">{draft.url}</code>
+        <span className="shrink-0 text-xs text-fg-muted">draft · not saved</span>
+        <Button
+          size="sm"
+          disabled={saving}
+          onClick={() => {
+            setSaving(true);
+            setError("");
+            saveRequest(draft)
+              .then(onSaved)
+              .catch((e: Error) => setError(e.message))
+              .finally(() => setSaving(false));
+          }}
+        >
+          <Save className="size-4" aria-hidden />
+          Save request
+        </Button>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-auto p-3 text-xs">
+        {error ? <p className="pb-2 text-red-500">{error}</p> : null}
+        {missingVars(draft.url, vars).length > 0 ? (
+          <p className="pb-2 text-amber-500">
+            Not set in this environment: {missingVars(draft.url, vars).join(", ")}
+          </p>
+        ) : null}
+
+        <DraftSection title="Query" pairs={draft.query} />
+        <DraftSection title="Headers" pairs={draft.headers} />
+
+        <section className="pt-3">
+          <h3 className="pb-1 font-medium text-fg-muted">Body</h3>
+          {draft.bodyInferred ? (
+            <pre className="whitespace-pre-wrap font-mono">{draft.body}</pre>
+          ) : (
+            <p className="text-fg-muted">{draft.note}</p>
+          )}
+        </section>
+
+        <p className="pt-4 text-fg-muted">
+          Drafted from a Code Graph endpoint. Save it to send it — a draft is not a
+          request until you keep it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DraftSection({ title, pairs }: { title: string; pairs?: Record<string, string> | null }) {
+  const entries = Object.entries(pairs ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <section className="pt-3">
+      <h3 className="pb-1 font-medium text-fg-muted">{title}</h3>
+      <ul className="font-mono">
+        {entries.map(([key, value]) => (
+          <li key={key}>
+            {key}: {value}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

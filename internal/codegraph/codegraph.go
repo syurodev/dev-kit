@@ -61,6 +61,27 @@ var (
 	ErrProjectChanged = errors.New("codegraph: the active project changed")
 )
 
+// Where a handler parameter's value comes from on the wire. An analyzer that
+// cannot tell leaves it empty, which is not the same as ParamSourceOther: one
+// means "this language does not say", the other means "this is not part of the
+// request".
+const (
+	ParamSourceBody   = "body"
+	ParamSourcePath   = "path"
+	ParamSourceQuery  = "query"
+	ParamSourceHeader = "header"
+	ParamSourceOther  = "other"
+)
+
+// Field is one field of a body type, e.g. {Name: "amount", Type: "BigDecimal"}.
+// One level deep only: a nested DTO is a field with a type and no fields of its
+// own, because a skeleton that guessed two levels would be guessing about
+// serialization it cannot see.
+type Field struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // Param is one method parameter's name and type, e.g. {Name: "request", Type:
 // "RefundRequest"}. Populated by the analyzer for method nodes; always empty
 // for class nodes and for any node the analyzer hasn't resolved a signature
@@ -68,6 +89,26 @@ var (
 type Param struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+	// Source is one of the ParamSource constants, or empty when the analyzer
+	// cannot say. Lua leaves it empty for every parameter and that is the
+	// honest answer: a Kong phase or a Lapis route declares no types and no
+	// body, so there is nothing to read rather than nothing there.
+	Source string `json:"source,omitempty"`
+	// WireName is the name on the wire when the declaration renames it —
+	// @RequestParam("page_size") int pageSize. Empty means it is Name.
+	WireName string `json:"wireName,omitempty"`
+	// Fields are the body type's own fields, for a Source of body. Empty for
+	// a type the analyzer could not resolve to project source, which is why
+	// the draft says "could not read this type" rather than showing {}.
+	Fields []Field `json:"fields,omitempty"`
+}
+
+// Wire is the name this parameter travels under.
+func (p Param) Wire() string {
+	if p.WireName != "" {
+		return p.WireName
+	}
+	return p.Name
 }
 
 // Node is a class or method discovered during indexing.

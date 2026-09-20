@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -352,7 +353,8 @@ func TestStoreGetNodePersistsSummaryAndParams(t *testing.T) {
 	if got.Summary != "Creates a new order for the given request." {
 		t.Fatalf("Summary = %q", got.Summary)
 	}
-	if len(got.Params) != 2 || got.Params[0] != (Param{Name: "request", Type: "OrderRequest"}) || got.Params[1] != (Param{Name: "userId", Type: "String"}) {
+	if len(got.Params) != 2 || !reflect.DeepEqual(got.Params[0], Param{Name: "request", Type: "OrderRequest"}) ||
+		!reflect.DeepEqual(got.Params[1], Param{Name: "userId", Type: "String"}) {
 		t.Fatalf("Params = %+v", got.Params)
 	}
 

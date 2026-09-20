@@ -10,6 +10,7 @@ export type {
     DetectedProject,
     Edge,
     Endpoint,
+    Field,
     FieldRef,
     FileEntry,
     FlowStep,

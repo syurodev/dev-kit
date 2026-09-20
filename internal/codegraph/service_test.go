@@ -1191,7 +1191,7 @@ func TestServiceGetApiFlowCarriesSummaryAndParams(t *testing.T) {
 	if step.Summary != "Handles order creation requests." {
 		t.Fatalf("Summary = %q", step.Summary)
 	}
-	if len(step.Params) != 1 || step.Params[0] != (Param{Name: "request", Type: "CreateOrderRequest"}) {
+	if len(step.Params) != 1 || !reflect.DeepEqual(step.Params[0], Param{Name: "request", Type: "CreateOrderRequest"}) {
 		t.Fatalf("Params = %+v", step.Params)
 	}
 }
@@ -1222,7 +1222,7 @@ func TestServiceGetNeighborsCarriesSummaryAndParams(t *testing.T) {
 	if sub.Nodes[0].Summary != "Processes a validated order." {
 		t.Fatalf("Summary = %q", sub.Nodes[0].Summary)
 	}
-	if len(sub.Nodes[0].Params) != 1 || sub.Nodes[0].Params[0] != (Param{Name: "order", Type: "Order"}) {
+	if len(sub.Nodes[0].Params) != 1 || !reflect.DeepEqual(sub.Nodes[0].Params[0], Param{Name: "order", Type: "Order"}) {
 		t.Fatalf("Params = %+v", sub.Nodes[0].Params)
 	}
 }
