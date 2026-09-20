@@ -363,3 +363,33 @@ func TestScopedAccountCannotCarryAnEnvRestriction(t *testing.T) {
 		t.Fatal("a scoped account took an env restriction; the connection already carries one")
 	}
 }
+
+// Replacing a scoped credential must keep the row's id, because the envelope
+// is sealed with that id in its AAD. Minting a fresh one sealed the new secret
+// against an id the row never carried, and the next read failed
+// authentication — a rotation that destroyed what it was rotating.
+func TestReplacingAScopedSecretKeepsItReadable(t *testing.T) {
+	svc, _ := newService(t)
+	first, err := svc.Create(CreateInput{
+		Provider: ProviderDatabase, Kind: KindSecret, Label: "staging",
+		Secret: "old", ScopeOwner: "profile-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PutForOwner("profile-1", ProviderDatabase, "staging", "", "new"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, secret, found, err := svc.SecretForOwner("profile-1")
+	if err != nil || !found || secret != "new" {
+		t.Fatalf("secret after replace = %q, found=%v, %v", secret, found, err)
+	}
+	after, err := svc.ForOwner("profile-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != first.ID {
+		t.Fatalf("the row's id changed from %s to %s", first.ID, after.ID)
+	}
+}

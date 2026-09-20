@@ -5,7 +5,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   deleteAccount,
   listAccounts,
+  migrateProfileCredentials,
   promoteAccount,
+  stopSyncingProfileSecrets,
   verifyAccount,
   type Account,
 } from "@/bridge/accounts";
@@ -112,6 +114,9 @@ function AccountRow({
 export function AccountsView() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [error, setError] = useState("");
+  // A migration that copied nothing and one that copied twelve both succeed;
+  // saying which is the whole value of reporting it.
+  const [notice, setNotice] = useState("");
 
   const reload = useCallback(() => {
     listAccounts()
@@ -153,10 +158,50 @@ export function AccountsView() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
         <h2 className="text-sm font-medium">Accounts</h2>
+        <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Copy database, SSH and Kafka passwords into Accounts. Safe to run on every device — nothing is removed."
+          onClick={() => {
+            migrateProfileCredentials()
+              .then((report) => {
+                setNotice(
+                  report.copied === 0
+                    ? "Every connection password is already here."
+                    : `Copied ${report.copied} connection password(s) into Accounts. They are still synced until you stop that below.`,
+                );
+                reload();
+              })
+              .catch((e: Error) => setError(e.message));
+          }}
+        >
+          Import connection passwords
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Connection passwords stop syncing. Your other devices will ask for them again."
+          onClick={() => {
+            stopSyncingProfileSecrets()
+              .then((report) => {
+                setNotice(
+                  report.cleared === 0
+                    ? "Nothing to stop syncing yet — import them first."
+                    : `${report.cleared} connection password(s) now stay on this machine. Your other devices will ask for them again.`,
+                );
+                reload();
+              })
+              .catch((e: Error) => setError(e.message));
+          }}
+        >
+          Stop syncing them
+        </Button>
         <Button variant="ghost" size="icon" aria-label="Reload" onClick={reload}>
           <RefreshCw className="size-4" aria-hidden />
         </Button>
       </div>
+      {notice ? <p className="px-3 py-1 text-xs text-fg-muted">{notice}</p> : null}
       <div className="min-h-0 flex-1 overflow-auto">
         <ul>
           {shared.map((account) => (

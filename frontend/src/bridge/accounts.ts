@@ -105,6 +105,38 @@ export function accountUsedBy(id: string): Promise<string[]> {
   return callBridge(async () => (await AppService.AccountsUsedBy(id)) ?? []);
 }
 
+/** What a migration pass did, so the UI can report it rather than claim success. */
+export type MigrationReport = {
+  copied: number;
+  alreadyThere: number;
+  cleared: number;
+};
+
+/**
+ * Copies database, SSH and Kafka secrets out of their profile payloads into
+ * Accounts, leaving the payloads alone.
+ *
+ * Copying is what makes it safe to run on every device in any order: a payload
+ * syncs and a scoped account does not, so emptying one here would leave the
+ * others holding a profile they cannot use.
+ */
+export function migrateProfileCredentials(): Promise<MigrationReport> {
+  return callBridge(
+    async () => (await AppService.AccountsMigrateProfiles()) as MigrationReport,
+  );
+}
+
+/**
+ * Empties the profile payloads whose secret is already here. This is the
+ * moment connection passwords stop syncing — every other device will ask for
+ * them again — which is why it is a separate, deliberate action.
+ */
+export function stopSyncingProfileSecrets(): Promise<MigrationReport> {
+  return callBridge(
+    async () => (await AppService.AccountsStopSyncingProfileSecrets()) as MigrationReport,
+  );
+}
+
 /** What the badge counts: anything that is not simply valid. */
 export function needsAttention(accounts: Account[]): number {
   return accounts.filter((account) => account.state !== "valid").length;

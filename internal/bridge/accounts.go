@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"devkit/internal/accounts"
+	"devkit/internal/app"
 )
 
 // Accounts crosses the bridge as metadata only. There is no method here that
@@ -141,4 +142,40 @@ func (s *AppService) AccountsVerify(id string) (accounts.Account, error) {
 		return accounts.Account{}, err
 	}
 	return result.(accounts.Account), nil
+}
+
+// AccountsMigrateProfiles copies database, SSH and Kafka secrets out of their
+// profile payloads and into Accounts, leaving the payloads alone.
+//
+// Copying is what makes it safe to run anywhere, in any order: a payload syncs
+// and a scoped account does not, so emptying one here would leave every other
+// device holding a profile it cannot use. Clearing is a second, explicit call.
+func (s *AppService) AccountsMigrateProfiles() (app.MigrationReport, error) {
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:new", map[string]any{
+		"action": "migrate_profiles",
+	}, func(context.Context) (any, error) {
+		return app.MigrateLegacyCredentials(s.container)
+	})
+	if err != nil {
+		return app.MigrationReport{}, err
+	}
+	return result.(app.MigrationReport), nil
+}
+
+// AccountsStopSyncingProfileSecrets empties the profile payloads whose secret
+// is already in Accounts.
+//
+// This is the moment connection passwords stop syncing, and every other device
+// will ask for them again. Nothing calls it automatically, and a profile with
+// no local copy is skipped rather than emptied.
+func (s *AppService) AccountsStopSyncingProfileSecrets() (app.MigrationReport, error) {
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:*", map[string]any{
+		"action": "stop_syncing_profile_secrets",
+	}, func(context.Context) (any, error) {
+		return app.ClearLegacyCredentialPayloads(s.container)
+	})
+	if err != nil {
+		return app.MigrationReport{}, err
+	}
+	return result.(app.MigrationReport), nil
 }

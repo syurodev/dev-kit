@@ -34,7 +34,16 @@ func (s *Service) storeKeyPassphrase(profileID, passphrase string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.store.Create(passphraseItemType, passphraseKeyID, meta, []byte(passphrase))
+	// A key passphrase is a credential belonging to one key — the same shape
+	// as a connection's password, and it moves the same way.
+	payload := []byte(passphrase)
+	if s.credentials != nil {
+		payload = []byte{}
+	}
+	record, err := s.store.Create(passphraseItemType, passphraseKeyID, meta, payload)
+	if err == nil && s.credentials != nil {
+		err = s.credentials.PutForOwner(record.ID, ProviderID, "SSH key passphrase", "", passphrase)
+	}
 	return err
 }
 
@@ -64,7 +73,7 @@ func (s *Service) loadKeyPassphrase(profileID string) string {
 	if !ok {
 		return ""
 	}
-	secret, err := s.store.OpenPayload(record, passphraseKeyID)
+	secret, err := s.secretFor(record, passphraseKeyID)
 	if err != nil {
 		return ""
 	}
