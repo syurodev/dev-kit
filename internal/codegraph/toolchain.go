@@ -772,7 +772,6 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 // look for the runtime by bare name, and on the machine this discovery exists
 // for (everything inside an IDE, nothing on PATH) they would not find it.
 func (t Toolchain) environ(byProgram map[string]Requirement) []string {
-	env := os.Environ()
 	var pathPrefix []string
 	for _, req := range byProgram {
 		if req.Path != "" {
@@ -783,20 +782,47 @@ func (t Toolchain) environ(byProgram map[string]Requirement) []string {
 	// wins; sort so the same machine builds the same way twice.
 	sort.Strings(pathPrefix)
 
+	// Every *_HOME this toolchain names is DECIDED here, which means deciding
+	// it is absent counts. Leaving an inherited one in place was the bug the
+	// comment below was written to prevent and did not: a probe that settled
+	// on a runtime with no install root — a macOS shim, or a newer JDK than
+	// the one JAVA_HOME points at — handed the build the user's stale
+	// variable, so the environment described a toolchain nobody resolved.
+	roots := make(map[string]string, len(t.HomeEnv))
 	for variable, program := range t.HomeEnv {
 		req, ok := byProgram[program]
 		if !ok {
+			// Nothing was resolved for this program, so there is nothing to
+			// say about it; whatever the user set is theirs.
 			continue
 		}
-		// Skipped rather than guessed when the program has no install root of
-		// its own: an absent JAVA_HOME leaves the runtime to work it out, while
-		// a wrong one is what hangs it. See Requirement.homeRoot.
-		root := req.installRoot()
-		if root == "" {
-			continue
-		}
-		env = append(env, variable+"="+root)
+		// Unset rather than guessed when the program has no install root of
+		// its own: an absent JAVA_HOME leaves the runtime to work it out,
+		// while a wrong one is what hangs it. See Requirement.homeRoot.
+		roots[variable] = req.installRoot()
 	}
+
+	inherited := os.Environ()
+	env := make([]string, 0, len(inherited)+len(roots)+1)
+	for _, entry := range inherited {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, decided := roots[name]; decided {
+			continue
+		}
+		env = append(env, entry)
+	}
+	// Sorted, so two runs on one machine produce the same environment.
+	variables := make([]string, 0, len(roots))
+	for variable := range roots {
+		variables = append(variables, variable)
+	}
+	sort.Strings(variables)
+	for _, variable := range variables {
+		if root := roots[variable]; root != "" {
+			env = append(env, variable+"="+root)
+		}
+	}
+
 	if len(pathPrefix) > 0 {
 		env = append(env, "PATH="+strings.Join(append(pathPrefix, os.Getenv("PATH")), string(os.PathListSeparator)))
 	}

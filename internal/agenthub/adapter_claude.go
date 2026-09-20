@@ -32,6 +32,14 @@ type SandboxRunner interface {
 // cannot open a session at all.
 const handshakeTimeout = 60 * time.Second
 
+// serveExitGrace is how long a failed handshake call waits to find out whether
+// the vendor process died, before concluding it is alive but unresponsive.
+//
+// Short because it is only closing a race between two notifications of the
+// same event, not waiting for anything to happen: the write already failed,
+// and the serve loop is either about to return or is not going to.
+const serveExitGrace = 250 * time.Millisecond
+
 // ClaudeOptions configures the Claude ACP vendor adapter.
 type ClaudeOptions struct {
 	// Command is an absolute agent binary that overrides the managed runtime —
@@ -639,14 +647,23 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		if isAuthRequired(err) {
 			return fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err)
 		}
+		// A grace period rather than a peek. A vendor that died mid-handshake
+		// fails this call two ways at once — the write hits a closed pipe, and
+		// the serve loop notices EOF — and which arrives first is a race the
+		// scheduler decides. Checking serveDone instantaneously lost that race
+		// often enough to report "write |1: broken pipe", which tells the user
+		// nothing about their agent binary having exited. The two are the same
+		// event microseconds apart, so waiting briefly for the one that can
+		// explain itself costs nothing on a path that has already failed.
 		select {
 		case <-rt.serveDone:
 			reason := stderrReason(proc)
 			logStderrTail("claude "+stage, proc)
 			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
-		default:
+		case <-time.After(serveExitGrace):
 			// The process is still alive: this is handshakeTimeout firing on a
-			// vendor that started but never answered. Whatever it wrote to
+			// vendor that started but never answered, or a failure that is
+			// genuinely not about the process at all. Whatever it wrote to
 			// stderr before going silent — a keyring/D-Bus error, a missing
 			// path inside the jail — is otherwise lost the moment cleanup()
 			// kills it below, and "starting" forever with no further log line

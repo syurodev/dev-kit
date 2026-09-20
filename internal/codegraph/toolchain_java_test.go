@@ -175,3 +175,43 @@ func TestJavaCandidatesSearchPathLast(t *testing.T) {
 		}
 	}
 }
+
+// The other half of the same rule: an inherited variable is not a reason to
+// skip deciding. A machine with JAVA_HOME already set — which is most machines
+// with a JDK — used to have it handed straight to the build even when the
+// probe had settled on a different runtime entirely.
+func TestEnvironRemovesAnInheritedHomeForARuntimeWithNoRoot(t *testing.T) {
+	t.Setenv("JAVA_HOME", "/somewhere/stale")
+
+	toolchain := Toolchain{HomeEnv: map[string]string{"JAVA_HOME": "java"}}
+	shim := Requirement{
+		Program:  "java",
+		Path:     "/usr/bin/java",
+		homeRoot: func(string) string { return "" },
+	}
+
+	for _, entry := range toolchain.environ(map[string]Requirement{"java": shim}) {
+		if strings.HasPrefix(entry, "JAVA_HOME=") {
+			t.Fatalf("a stale JAVA_HOME must not survive, got %q", entry)
+		}
+	}
+}
+
+// And a resolved root replaces whatever was inherited rather than joining it.
+func TestEnvironReplacesAnInheritedHome(t *testing.T) {
+	t.Setenv("JAVA_HOME", "/somewhere/stale")
+
+	root, java := fakeJavaBin(t)
+	toolchain := Toolchain{HomeEnv: map[string]string{"JAVA_HOME": "java"}}
+	resolved := Requirement{Program: "java", Path: java}
+
+	var homes []string
+	for _, entry := range toolchain.environ(map[string]Requirement{"java": resolved}) {
+		if strings.HasPrefix(entry, "JAVA_HOME=") {
+			homes = append(homes, entry)
+		}
+	}
+	if len(homes) != 1 || homes[0] != "JAVA_HOME="+root {
+		t.Fatalf("JAVA_HOME entries = %v, want exactly [JAVA_HOME=%s]", homes, root)
+	}
+}
