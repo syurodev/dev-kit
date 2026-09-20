@@ -658,7 +658,10 @@ func main() {
 	// Accounts, Tasks, Git and the API client need the database, the vault and
 	// this hub — none of which an ephemeral container has. Wired in one place
 	// so main does not have to know which module needs which collaborator.
-	app.WireCredentialsAndWork(container, db, container.Vault)
+	app.WireCredentialsAndWork(container, db, container.Vault, app.Tables{
+		AccountSecrets: storage.TableAccountSecrets,
+		TaskVerifyRuns: storage.TableTaskVerifyRuns,
+	})
 	// The board asks the hub whether a session is still alive before letting
 	// another take over its claim. Separate because the hub is built above,
 	// after the vendor registry and the sandbox runner.

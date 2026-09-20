@@ -11,10 +11,22 @@ import (
 	gitservice "devkit/internal/git"
 	"devkit/internal/interaction"
 	"devkit/internal/notify"
-	"devkit/internal/storage"
 	"devkit/internal/tasks"
 	"devkit/internal/vault"
 )
+
+// Tables names the two local SQL tables this wiring hands to the modules that
+// own rows in them.
+//
+// They are passed in rather than read from internal/storage because app sits
+// above the persistence kernel and must not import it (internal/arch pins
+// that). Which table a module writes to stays a composition-root decision,
+// which is the same reason accounts and tasks take a name rather than a
+// package.
+type Tables struct {
+	AccountSecrets string
+	TaskVerifyRuns string
+}
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an
 // ephemeral container can build to the ones that need a database, a vault and
@@ -22,12 +34,12 @@ import (
 //
 // It exists so main.go does not have to know which module needs which
 // collaborator, and so the wiring is testable without a Wails application.
-func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Service) {
+func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Service, tables Tables) {
 	// Accounts, with its local table: without a *sql.DB it can only hold
 	// shared accounts, and the scoped ones are exactly the credentials that
 	// must not sync.
 	c.Accounts = accounts.NewService(
-		c.Items, db, storage.TableAccountSecrets, vaultService,
+		c.Items, db, tables.AccountSecrets, vaultService,
 		accounts.NewRegistry(accounts.DefaultProviders()), c.Environments,
 	)
 
@@ -49,9 +61,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 
 	// The close gate. Without the notifier a run that lands while the user is
 	// elsewhere would be silent, which is the worst case for a durable queue.
-	gate := tasks.NewGate(db, storage.TableTaskVerifyRuns, nil, nil)
+	gate := tasks.NewGate(db, tables.TaskVerifyRuns, nil, nil)
 	if c.Interaction != nil {
-		gate = tasks.NewGate(db, storage.TableTaskVerifyRuns,
+		gate = tasks.NewGate(db, tables.TaskVerifyRuns,
 			hubConfirmer{hub: c.Interaction, kind: interaction.KindTask},
 			taskNotifier{notifier: c.AgentNotifications})
 	}
