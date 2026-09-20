@@ -1,6 +1,6 @@
 ---
 title: API Client
-description: Gọi thử HTTP API kiểu Postman ngay trong DevKit — request sinh từ endpoint của Code Graph, environment dùng chung env tag, secret nằm trong vault, agent gọi được qua MCP.
+description: Gọi thử HTTP API kiểu Postman ngay trong DevKit — request sinh từ endpoint của Code Graph, environment dùng chung env tag, credential lấy từ Tài khoản, agent gọi được qua MCP.
 ---
 
 # API Client
@@ -10,7 +10,8 @@ Postman/Insomnia thu gọn). Khác biệt với một Postman nhúng: request **
 phải gõ tay từ đầu** — endpoint mà [Code Graph](/dev-kit/codegraph) đã index
 trở thành request dựng sẵn (method, path, path param, body skeleton từ kiểu
 `@RequestBody`), environment dùng chung [env tag](/dev-kit/environments) với
-Database/SSH/Kafka, secret nằm trong vault, và agent trong
+Database/SSH/Kafka, credential lấy từ [Tài khoản](/dev-kit/accounts) thay vì
+dán tay, và agent trong
 [Agent Hub](/dev-kit/agent-hub) gọi được API qua MCP với cùng luật xác nhận
 như query database trên `prod`.
 
@@ -22,6 +23,8 @@ Chưa có runtime: chưa có `internal/apiclient`, chưa có module
 `internal/vaultitem/schema.go`. Thiết kế UI:
 [Figma page 20 · API Client](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1197-2).
 Luật liên module (entity ref, intent) ở [Liên module](/dev-kit/cross-module).
+FR-14…16 phụ thuộc [Tài khoản](/dev-kit/accounts) — cũng chưa có runtime; chưa
+có Accounts thì auth quay về header tự do, phần còn lại không đổi.
 </Callout>
 
 ```mermaid
@@ -35,6 +38,7 @@ flowchart TD
   SVC --> HTTP["net/http executor (Go, không phải fetch của webview)"]
   SVC --> ENV["internal/environments - requiresConfirmation"]
   SVC --> GATE["internal/interaction - gate khi env yêu cầu"]
+  SVC --> ACC["internal/accounts - Resolve credential lúc gửi"]
   SVC --> STORE["vaultItem.Store - collection, request, environment"]
   SVC --> HIST[("SQLite local - history, không sync")]
   SVC -.->|"đọc endpoint + param, không ghi"| CG["internal/codegraph"]
@@ -72,10 +76,10 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 
 | ID | Requirement |
 |---|---|
-| FR-1 | Soạn request: method, URL (có biến `{{name}}`), query params, headers, body (JSON / form / raw / none), auth (Bearer, Basic, API key header). |
+| FR-1 | Soạn request: method, URL (có biến `{{name}}`), query params, headers, body (JSON / form / raw / none). |
 | FR-2 | Gửi request từ **Go** (`net/http`), không từ `fetch` của webview: không vướng CORS, cùng proxy/TLS của hệ thống, timeout + cancel được. |
 | FR-3 | Response: status, thời gian, kích thước, headers, body pretty-print (JSON/XML/text), cắt ở giới hạn kích thước (NFR-4). |
-| FR-4 | **Environment**: mỗi environment gắn **một env tag** (bắt buộc, validate qua `EnvLookup.Exists` như DB profile) và một bảng biến; biến đánh dấu *secret* nằm trong payload mã hoá. |
+| FR-4 | **Environment**: mỗi environment gắn **một env tag** (bắt buộc, validate qua `EnvLookup.Exists` như DB profile) và một bảng biến (`baseUrl`, `tenantId`…). Biến đánh dấu *secret* nằm trong payload mã hoá — nhưng thứ dùng lại ở nhiều nơi (token, API key) thuộc về [Tài khoản](/dev-kit/accounts), xem FR-14. |
 | FR-5 | Đổi environment đổi toàn bộ `{{biến}}`; env tag có `requiresConfirmation` ⇒ **mỗi lần** Send đều hỏi, cho cả người lẫn agent — không có "don't ask again" (env thắng, giống [MCP confirmation](/dev-kit/mcp-agent)). |
 | FR-6 | **Collection từ Code Graph**: project đang mở trong Code Graph hiện thành một collection *derived* ở sidebar (nhóm service → controller → endpoint). Không lưu — dựng lại từ index mỗi lần index đổi. |
 | FR-7 | `Try in API Client` trên một endpoint ⇒ tạo **request nháp** đã điền method, path (`{id}` → `{{id}}`), query param, body skeleton từ kiểu `@RequestBody`. Nháp chỉ thành request thật khi user Save. |
@@ -85,13 +89,16 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 | FR-11 | Response có hành động liên module: *Attach to agent* (gửi request + response dạng ref vào composer), *Add to task* (comment vào task đang link), *Save as example*. |
 | FR-12 | Agent gọi được qua MCP: `api.listRequests`, `api.getRequest`, `api.send`, `api.sendAdhoc`, `api.fromEndpoint`. `api.send` luôn đi qua gate env (FR-5). |
 | FR-13 | Copy / import **cURL**. |
+| FR-14 | **Auth là binding tới một account**, không phải một chuỗi dán vào request: request lưu `account_id`, `apiclient.Service` gọi `accounts.Resolve` ngay trước khi gửi và dựng header (Bearer / Basic / API key) trong Go. Giá trị không bao giờ nằm trong request đã lưu, trong export cURL, hay qua bridge. Vẫn cho phép header tự do cho trường hợp lạ. |
+| FR-15 | **Chọn account sẵn theo host**: account đã verify có `Provider.Hosts` khớp host của URL (hoặc account dùng lần cuối cho env đó) được chọn mặc định. Không có account phù hợp / account hết hạn ⇒ peek `accounts.pick` ngay trong tab request, không chuyển module. |
+| FR-16 | Account giới hạn env (Accounts FR-6) không bind được vào environment khác tag — từ chối ở service, không chỉ ẩn trong UI. |
 
 ### Non-functional requirements
 
 | ID | Requirement |
 |---|---|
 | NFR-1 | Mọi call — UI lẫn MCP — qua `AppService.call` + Capability Gateway. `api:send` là capability riêng, tách khỏi `api:read`/`api:write`. |
-| NFR-2 | Secret không bao giờ nằm trong metadata plaintext, log, audit hay history. Audit ghi method + host + path + status, **không** ghi header/body. |
+| NFR-2 | Secret không bao giờ nằm trong metadata plaintext, log, audit hay history. Audit ghi method + host + path + status + **account đã dùng (theo ID)**, không ghi header/body. Copy as cURL xuất ra placeholder cho phần auth, không xuất giá trị. |
 | NFR-3 | Gate fail closed: headless / không ai trả lời trong 60s ⇒ không gửi (`interaction.DefaultTimeout`, như Agent Hub). |
 | NFR-4 | Body response cắt ở 5 MB khi hiển thị và 256 KB khi trả cho agent (kèm `truncated: true`); không treo UI với response lớn. |
 | NFR-5 | Timeout mặc định 30s, cancel được từ UI và từ ctx của MCP call. |
@@ -116,6 +123,10 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
   ngay, không gửi.
 - Biến secret `{{token}}` → không xuất hiện plaintext trong history, audit,
   hay kết quả `api.getRequest`.
+- Request bind tới account GitHub → Copy as cURL cho ra `-H "Authorization:
+  Bearer $GITHUB_TOKEN"`, không phải giá trị thật.
+- Token của account bị thu hồi → Send báo lỗi nêu tên account và mời xoay vòng,
+  không phải một 401 trần.
 - Endpoint bị xoá khỏi code → sau re-index, request đã lưu vẫn còn, chip nguồn
   hiện *stale*.
 
@@ -173,12 +184,18 @@ Ba record type mới (thêm vào hai switch `IsSupportedItemType` và
 | Type | Metadata (plaintext) | Payload (mã hoá) |
 |---|---|---|
 | `api-collection` | `name`, `parent_id` (folder), `order` | — |
-| `api-request` | `collection_id`, `name`, `method`, `url_template`, `origin_ref` (optional) | headers, query, body, auth |
+| `api-request` | `collection_id`, `name`, `method`, `url_template`, `account_id` (optional), `origin_ref` (optional) | headers, query, body |
 | `api-environment` | `name`, `env` (env tag, bắt buộc), tên các biến không secret + giá trị | giá trị biến secret |
 
 Mẫu là `db-profile`: metadata đủ để liệt kê/lọc mà không cần giải mã; thứ nhạy
 cảm nằm trong payload. `env` validate qua `EnvLookup.Exists`, và `DeleteTag`
 phải tính cả `api-environment` trong `ProfileEnvUsage`.
+
+`account_id` là metadata plaintext vì nó là một **ID, không phải secret** — đó
+là điểm mấu chốt: xoay vòng token trong [Tài khoản](/dev-kit/accounts) thì mọi
+request đang bind chạy tiếp mà không sửa gì ở đây. Đổi lại, Accounts phải tính
+`api-request` trong usage index của nó (Accounts FR-10) để không xoá mất một
+account đang được dùng.
 
 History **không** là vault item: bảng `api_history` trong SQLite local
 (derived/operational, như session của Agent Hub), giữ N bản ghi gần nhất.
@@ -189,7 +206,7 @@ History **không** là vault item: bảng `api_history` trong SQLite local
 |---|---|
 | `api:read` | list/get collection, request, environment (không kèm giá trị secret) |
 | `api:write` | tạo/sửa/xoá collection, request, environment |
-| `api:send` | gửi request — luôn qua gate env |
+| `api:send` | gửi request — luôn qua gate env; resolve account bên trong Go |
 
 ### MCP tool surface
 
@@ -201,24 +218,38 @@ History **không** là vault item: bảng `api_history` trong SQLite local
 | `api.send` | `api:send` | request đã lưu + `environmentId`; gate env |
 | `api.sendAdhoc` | `api:send` | request tự do; bắt buộc `environmentId` để gate có env mà đọc |
 
-Không expose MCP cho sửa/xoá environment — thứ đó quyết định agent được bắn vào đâu.
+Không expose MCP cho sửa/xoá environment — thứ đó quyết định agent được bắn
+vào đâu. Tương tự, agent **chọn** account bằng `accountId` nhưng không đọc được
+giá trị: `api.getRequest` trả `account_id` và nhãn, không trả credential.
 
 ### Phụ thuộc: analyzer phải hiểu tham số của handler
 
-Hôm nay `Param` của Code Graph chỉ có `name` + `type`; analyzer **chưa** đọc
-`@RequestBody`, `@PathVariable`, `@RequestParam`, `@RequestHeader`, và chưa có
-field của DTO. FR-7 cần:
+Code Graph nay có **ba** analyzer, và FR-7 rơi vào ba mức khác nhau. Cái chung
+cần thêm vào model là:
 
 - `Param.source` ∈ `body` \| `path` \| `query` \| `header` \| `other` (+ tên thật
-  nếu annotation đổi tên, vd `@RequestParam("page_size")`).
-- Field của kiểu `@RequestBody` (tên, kiểu, `@JsonProperty`), một cấp, để dựng
-  body skeleton.
+  khi khai báo đổi tên, vd `@RequestParam("page_size")`).
+- Field của kiểu body (tên, kiểu), một cấp, để dựng skeleton.
 
-Chưa có hai thứ đó thì `Try in API Client` vẫn chạy, chỉ là body rỗng và query
-param phải điền tay.
+Mức sẵn sàng của từng analyzer:
+
+| Analyzer | Hôm nay | Cần thêm cho FR-7 |
+|---|---|---|
+| **Java** | `Param` chỉ có `name` + `type`; `ProjectAnalyzer` chưa đọc `@RequestBody` / `@PathVariable` / `@RequestParam` | Đọc annotation vào `Param.source`; giải kiểu `@RequestBody` ra field (JavaSymbolSolver đã có sẵn type solver) |
+| **TypeScript** | Gần nhất. `analyzer_ts_model.go` đã mang decorator kèm argument, và `analyzer_ts_read.go` đã đọc danh sách tham số từ source | `@Body()` / `@Param()` / `@Query()` của NestJS đúng hình dạng `@RequestBody` của Spring — map sang `Param.source` là một lượt đọc decorator. Field của DTO cần một câu hỏi LSP nữa (`textDocument/definition` trên kiểu tham số) |
+| **Lua** | Endpoint là Kong phase, Kong Admin route table, hoặc Lapis route — **không có kiểu, không có body khai báo** | Không có gì để đọc. `Try in API Client` cho method + path và dừng ở đó |
+
+Điều đó nghĩa là FR-7 **không đồng đều theo ngôn ngữ, và phải nói ra trong
+UI**: request nháp sinh từ endpoint Lua hiện rõ "không suy được body từ code",
+chứ không hiện một `{}` trống khiến người dùng tưởng DTO rỗng. Với cả ba, phần
+method + path + path param luôn có, nên `Try in API Client` vẫn có giá trị
+ngay từ v1.
 
 ## Known ceiling (v1)
 
 - Body skeleton chỉ một cấp field; DTO lồng nhau hiện `{}`.
+- Body skeleton chỉ có với Java và TypeScript; endpoint Lua cho method + path.
 - Không chạy cả collection; không có runner/lịch.
 - Collection từ Code Graph chỉ có khi project đang mở trong Code Graph.
+- Auth chỉ các dạng account hỗ trợ (Bearer, Basic, API key header). Chữ ký
+  request kiểu AWS SigV4 hay HMAC theo body chưa nằm trong phạm vi.

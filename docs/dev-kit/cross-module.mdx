@@ -1,6 +1,6 @@
 ---
 title: Liên module
-description: Cách Code Graph, Agent Hub, Tasks và API Client nói chuyện với nhau — một kiểu tham chiếu thực thể dùng chung, một cơ chế intent, và luật "ai sở hữu fact nào".
+description: Cách Code Graph, Agent Hub, Tasks, API Client, Git và Tài khoản nói chuyện với nhau — một kiểu tham chiếu thực thể dùng chung, một cơ chế intent, và luật "ai sở hữu fact nào".
 ---
 
 # Liên module
@@ -8,9 +8,10 @@ description: Cách Code Graph, Agent Hub, Tasks và API Client nói chuyện v�
 Các module của DevKit được thiết kế riêng lẻ, nhưng người dùng làm việc **xuyên
 qua** chúng: đọc flow `POST /refunds` trong [Code Graph](/dev-kit/codegraph),
 gọi thử nó trong [API Client](/dev-kit/api-client), nhờ agent trong
-[Agent Hub](/dev-kit/agent-hub) sửa, theo dõi việc đó trong
-[Tasks](/dev-kit/tasks). Trang này định nghĩa **hai primitive** để các bước đó
-liền mạch mà không module nào phải import ruột của module khác.
+[Agent Hub](/dev-kit/agent-hub) sửa, commit việc đó trong
+[Git](/dev-kit/git), theo dõi trong [Tasks](/dev-kit/tasks). Trang này định
+nghĩa **hai primitive** để các bước đó liền mạch mà không module nào phải
+import ruột của module khác.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
@@ -32,13 +33,20 @@ companion và Agent Hub mở file qua nó thay cho import `openFileInProject`
    áp dụng cho mọi cặp.
 2. **Ai sở hữu fact thì chỉ người đó ghi.** Code Graph sở hữu "code có tồn
    tại / có khớp plan", Tasks sở hữu "việc đang ở bước nào", API Client sở hữu
-   "request gửi đi và response". Cần thêm dữ liệu thì thêm vào bên sở hữu.
+   "request gửi đi và response", Git sở hữu "cái gì đã đổi và đã commit chưa",
+   Tài khoản sở hữu "tôi là ai trên dịch vụ này". Cần thêm dữ liệu thì thêm vào
+   bên sở hữu.
 3. **Ở lại module đang đứng khi có thể.** Hỏi agent mở **rail** trên module
    hiện tại thay vì chuyển sang Agent Hub; tạo task mở **peek** thay vì rời
    Code Graph. Chỉ chuyển tab khi đích là một công cụ làm việc (API Client).
 4. **Một cửa cho agent.** Mọi thứ người làm được bằng chip/menu, agent làm
    được bằng MCP tool của module sở hữu, qua cùng Capability Gateway và cùng
    gate env — không có đường tắt vì "đây là agent gọi từ module khác".
+5. **Credential đi theo ID, không đi theo giá trị.** Module tham chiếu một
+   account bằng `account_id`; giá trị chỉ được giải trong Go ngay trước khi
+   dùng. Hệ quả: không có tool MCP nào — của bất kỳ module nào — trả về một
+   credential, và xoay vòng token không phải sửa module nào. Xem
+   [Tài khoản](/dev-kit/accounts).
 
 ## Primitive 1 — `EntityRef`
 
@@ -46,8 +54,8 @@ Một giá trị nhỏ, serialize được, mô tả "cái đó ở module nào"
 
 ```ts
 type EntityRef = {
-  module: "codegraph" | "tasks" | "apiclient" | "agenthub" | "notes" | "database";
-  kind: string;      // "endpoint" | "planNode" | "node" | "file" | "task" | "request" | "session" | …
+  module: "codegraph" | "tasks" | "apiclient" | "agenthub" | "git" | "accounts" | "notes" | "database";
+  kind: string;      // "endpoint" | "planNode" | "node" | "file" | "task" | "request" | "session" | "commit" | "diff" | "account" | …
   id: string;        // ID ổn định do module sở hữu cấp
   label: string;     // hiển thị khi module sở hữu chưa trả lời (offline, chưa index)
   project?: string;  // root project khi thực thể thuộc về một project
@@ -79,6 +87,9 @@ registerIntent("api.fromEndpoint", (ref: EntityRef) => …);   // apiclient
 registerIntent("agent.attach", (refs: EntityRef[], prompt?: string) => …); // agenthub
 registerIntent("task.create", (seed: { title: string; refs: EntityRef[] }) => …); // tasks
 registerIntent("codegraph.reveal", (ref: EntityRef) => …);    // codegraph
+registerIntent("git.reveal", (ref: EntityRef) => …);          // git — diff của file / commit
+registerIntent("git.commitTurn", (ref: EntityRef) => …);      // git — checkpoint một lượt → commit
+registerIntent("accounts.pick", (need: { host?: string; env?: string }) => …); // accounts — peek, không đổi tab
 
 dispatchIntent("api.fromEndpoint", ref, { placement: "beside" });
 ```
@@ -107,7 +118,13 @@ cùng hiện; *Reveal in Code Graph* từ một task mở `replace`.
 | API Client → Code Graph | Chip nguồn trên request: **View flow** | `codegraph.reveal` | Chỉ điều hướng |
 | API Client → Agent Hub | Response: **Attach to agent** | `agent.attach([request])` | Agent Hub; response đã cắt + che secret |
 | API Client → Tasks | Response: **Add to task** | `tasks.comment.add` với ref request | Tasks (comment) |
-| Agent Hub → mọi module | Agent tự gọi `codegraph.*`, `tasks.*`, `api.*` qua MCP | tool của module sở hữu | Module sở hữu, qua Gateway + gate env |
+| Agent Hub → Git | Bất kỳ lượt nào: **Commit lượt này** | `git.commitTurn` | Git sở hữu commit; Agent Hub chỉ cung cấp tập file của lượt |
+| Git → Agent Hub | Diff / commit: **Attach to agent** | `agent.attach([commit \| diff])` | Agent Hub; diff đã cắt theo giới hạn |
+| Git → Code Graph | Dòng commit: **Blast radius**; checkout branch ⇒ re-index | `codegraph.reveal`, `codegraph.reindex` | Code Graph trả phạm vi ảnh hưởng; Git chỉ nói file nào đổi |
+| Code Graph → Git | Marker `M`/`A` ở tab Files; tab file: **View diff** | `git.reveal` | **Git sở hữu trạng thái git**; `codegraph.GitStatus` chuyển sang đọc từ Git |
+| API Client / Git → Accounts | Thiếu account hoặc account hết hạn: peek ngay tại chỗ | `accounts.pick` | Accounts; bên gọi chỉ nhận lại `account_id` |
+| Accounts → mọi module | Account detail liệt kê ai đang dùng nó | usage index (như `ProfileEnvUsage`) | Module sở hữu binding trả lời |
+| Agent Hub → mọi module | Agent tự gọi `codegraph.*`, `tasks.*`, `api.*`, `git.*`, `accounts.*` qua MCP | tool của module sở hữu | Module sở hữu, qua Gateway + gate env |
 | Mọi module → Agent Hub | Rail companion mở trên module hiện tại; permission hiện trong rail/toast | — | Agent Hub |
 
 ## Code Graph là trạm trung tâm
@@ -133,6 +150,7 @@ Code Graph biết cấu trúc code nên là nơi phát ra nhiều ref nhất. Si
 | `⌘L` | Đưa thực thể đang chọn vào composer của agent |
 | `⌘T` | Tạo task từ thực thể đang chọn |
 | `⌘K` rồi `@` | Tìm symbol / thực thể xuyên module |
+| `⌘⇧K` | Commit thay đổi đang chọn (file trong Code Graph, lượt trong Agent Hub) |
 
 ## Thứ tự triển khai gợi ý
 
@@ -142,3 +160,21 @@ Code Graph biết cấu trúc code nên là nơi phát ra nhiều ref nhất. Si
 3. API Client v1 với `api.fromEndpoint` (cần analyzer đọc `@RequestBody` /
    `@PathVariable` — xem [API Client § Phụ thuộc](/dev-kit/api-client#phụ-thuộc-analyzer-phải-hiểu-tham-số-của-handler)).
 4. Tasks v1 — resolver `task` và `tasks.createFromPlan` cắm vào tab Plan.
+
+Ba module mới thêm vào thứ tự đó như sau. Điểm đáng chú ý: **[Tài khoản](/dev-kit/accounts)
+đi trước**, vì nó nhỏ nhất và hai module kia đều phải đợi nó, còn nếu làm sau
+thì API Client và Git đều phải viết lại phần auth.
+
+5. **Tài khoản v1** — record type `account`, provider registry với `github` +
+   `generic`, verify, `Resolve` cho module khác. Chưa có module nào dùng thì nó
+   vẫn có giá trị một mình: một danh sách "tôi đăng nhập gì, cái nào sắp hết hạn".
+6. **`internal/gitparse`** — tách parser porcelain/diff ra leaf dùng chung.
+   Thuần refactor, không đổi hành vi, và là thứ để `checkpoint` và `codegraph`
+   thôi giữ hai bản.
+7. **Git v1** — status + diff + stage/commit + branch, với `git.commitTurn` cắm
+   vào Agent Hub ngay từ đầu (đó là lý do module này tồn tại). Push đến sau,
+   cùng lúc với binding `git-remote` → account.
+8. **API Client v1** — `api.fromEndpoint` + auth bằng account binding. Cần
+   analyzer đọc tham số handler; xem bảng ba analyzer ở
+   [API Client § Phụ thuộc](/dev-kit/api-client#phụ-thuộc-analyzer-phải-hiểu-tham-số-của-handler)
+   — TypeScript gần sẵn sàng nhất, Lua thì không có gì để đọc.

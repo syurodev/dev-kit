@@ -36,6 +36,8 @@
     "agent-hub",
     "tasks",
     "api-client",
+    "git",
+    "accounts",
     "cross-module",
     "sandbox",
     "workspace",
