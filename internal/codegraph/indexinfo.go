@@ -2,12 +2,12 @@
 package codegraph
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os/exec"
-	"path"
 	"strings"
+
+	"devkit/internal/gitparse"
 )
 
 // IndexInfo is what the sidebar says about the index under the project name:
@@ -62,12 +62,45 @@ func (s *Service) IndexInfo(ctx context.Context) (IndexInfo, error) {
 	return info, err
 }
 
+// WorkTreeStatus is the Git module's status, as this package needs it. It is
+// declared locally so codegraph does not import internal/git — the dependency
+// runs the other way, and the composition root decides what satisfies this.
+type WorkTreeStatus interface {
+	// Changes maps a project-relative path to a one-letter state.
+	Changes(ctx context.Context) (map[string]string, error)
+}
+
+// SetWorkTreeStatus installs the Git module as the source of what changed.
+//
+// It exists so there is ONE answer to that question. Before it, the file tree
+// markers here and the Git module's own status ran two separate `git status`
+// calls against the same work tree, which is two answers that can disagree and
+// two processes where one would do. Nil keeps the built-in reader, so an
+// ephemeral container and a build without the Git module still draw markers.
+func (s *Service) SetWorkTreeStatus(status WorkTreeStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workTree = status
+}
+
 // GitStatus maps each changed file in the active project, by path relative to
 // the project root with forward slashes, to a one-letter state: M modified,
 // A added (staged or untracked), D deleted, R renamed. A project outside a git
 // work tree, or a machine without git, has no changes to report — an empty map,
 // not an error: this decorates the file tree and must never break it.
 func (s *Service) GitStatus(ctx context.Context) (map[string]string, error) {
+	s.mu.RLock()
+	workTree := s.workTree
+	s.mu.RUnlock()
+	if workTree != nil {
+		changes, err := workTree.Changes(ctx)
+		if err != nil {
+			// The Git module having nothing to say — no repository, no git —
+			// must not stop the file tree drawing.
+			return map[string]string{}, nil
+		}
+		return changes, nil
+	}
 	root, err := s.projectFiles()
 	if err != nil {
 		return nil, err
@@ -84,45 +117,5 @@ func (s *Service) GitStatus(ctx context.Context) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	return parsePorcelain(out, strings.TrimSpace(string(prefixOut))), nil
-}
-
-// parsePorcelain reads `git status --porcelain=v1 -z`. Paths come relative to
-// the repository root; prefix (from rev-parse --show-prefix) is where the
-// project sits inside it, and is cut off so the keys match ListFiles.
-func parsePorcelain(out []byte, prefix string) map[string]string {
-	changes := map[string]string{}
-	fields := bytes.Split(out, []byte{0})
-	for i := 0; i < len(fields); i++ {
-		entry := string(fields[i])
-		if len(entry) < 4 {
-			continue
-		}
-		xy, file := entry[:2], entry[3:]
-		// A rename or copy carries its source as the next field.
-		if xy[0] == 'R' || xy[0] == 'C' {
-			i++
-		}
-		if prefix != "" {
-			if !strings.HasPrefix(file, prefix) {
-				continue
-			}
-			file = strings.TrimPrefix(file, prefix)
-		}
-		changes[path.Clean(file)] = gitState(xy)
-	}
-	return changes
-}
-
-func gitState(xy string) string {
-	switch {
-	case xy == "??" || strings.ContainsRune(xy, 'A'):
-		return "A"
-	case strings.ContainsRune(xy, 'D'):
-		return "D"
-	case strings.ContainsRune(xy, 'R'):
-		return "R"
-	default:
-		return "M"
-	}
+	return gitparse.Porcelain(out, strings.TrimSpace(string(prefixOut))), nil
 }

@@ -21,7 +21,7 @@ export interface CodeSnippet {
     "source": string;
 
     /**
-     * "java" | "json" | "yaml" | "markdown" | "" (unknown extension)
+     * "java" | "lua" | "typescript" | "javascript" | "json" | "yaml" | "markdown" | "" (unknown extension)
      */
     "language": string;
 
@@ -285,7 +285,7 @@ export interface Node {
     "endLine": number;
 
     /**
-     * Javadoc summary text, empty if none/not a doc comment
+     * doc comment summary (Javadoc, or the LDoc block above a Lua function); empty if none
      */
     "summary": string;
 

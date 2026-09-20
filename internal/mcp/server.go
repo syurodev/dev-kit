@@ -155,8 +155,16 @@ type Deps struct {
 	DB        DatabaseAPI
 	Kafka     KafkaAPI
 	CodeGraph CodeGraphAPI
-	AgentHub  AgentHubAPI      // optional nil until wired from main
-	Hub       *interaction.Hub // optional nil → headless
+	Tasks     TasksAPI     // optional nil until wired from main
+	Git       GitAPI       // optional nil until wired from main
+	Accounts  AccountsAPI  // optional nil until wired from main
+	API       APIClientAPI // optional nil until wired from main
+	// TaskBranches answers which branches an agent session may push. Nil
+	// means an agent may commit but never push — a permission that outlives
+	// the session because it lives on the task, not in it.
+	TaskBranches TaskBranches
+	AgentHub     AgentHubAPI      // optional nil until wired from main
+	Hub          *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -190,6 +198,10 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerAgentHub(ms)
 	s.registerCodeGraph(ms)
 	s.registerCodeGraphPlan(ms)
+	s.registerTasks(ms)
+	s.registerGit(ms)
+	s.registerAccounts(ms)
+	s.registerAPIClient(ms)
 	return ms
 }
 

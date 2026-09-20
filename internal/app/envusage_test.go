@@ -90,3 +90,77 @@ func TestDeleteTagBlockedWhenSSHProfileReferencesTag(t *testing.T) {
 		t.Fatal("tag qa must remain after rejected delete")
 	}
 }
+
+// An API environment names a tag the same way a profile does, and the tag is
+// what decides whether a send asks first — deleting it would leave a send
+// nothing could gate.
+func TestVaultItemEnvUsageDetectsAPIEnvironments(t *testing.T) {
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("master-password"); err != nil {
+		t.Fatal(err)
+	}
+	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	usage := newVaultItemEnvUsage(store)
+
+	meta, err := json.Marshal(map[string]any{"name": "Prod", "env": "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(vaultitem.ItemTypeAPIEnvironment, "api-environment", meta, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+
+	inUse, err := usage.EnvInUse("prod")
+	if err != nil || !inUse {
+		t.Fatalf("EnvInUse(prod) = %v, %v; an API environment holds it", inUse, err)
+	}
+	if inUse, err := usage.EnvInUse("dev"); err != nil || inUse {
+		t.Fatalf("EnvInUse(dev) = %v, %v", inUse, err)
+	}
+}
+
+// An account's env is a LIST — it may be restricted to several tags, or to
+// none — so the scan cannot assume the single-string shape every profile uses.
+func TestVaultItemEnvUsageDetectsAccountsWithAListOfTags(t *testing.T) {
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("master-password"); err != nil {
+		t.Fatal(err)
+	}
+	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	usage := newVaultItemEnvUsage(store)
+
+	meta, err := json.Marshal(map[string]any{
+		"provider": "github", "kind": "token", "label": "deploy",
+		"state": "valid", "env": []string{"stg", "prod"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(vaultitem.ItemTypeAccount, "account-secret", meta, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tag := range []string{"stg", "prod"} {
+		inUse, err := usage.EnvInUse(tag)
+		if err != nil || !inUse {
+			t.Fatalf("EnvInUse(%s) = %v, %v; the account is restricted to it", tag, inUse, err)
+		}
+	}
+	if inUse, err := usage.EnvInUse("dev"); err != nil || inUse {
+		t.Fatalf("EnvInUse(dev) = %v, %v", inUse, err)
+	}
+
+	// An unrestricted account holds no tag at all, so it must not pin one.
+	free, err := json.Marshal(map[string]any{
+		"provider": "github", "kind": "token", "label": "personal", "state": "valid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(vaultitem.ItemTypeAccount, "account-secret", free, []byte("y")); err != nil {
+		t.Fatal(err)
+	}
+	if inUse, err := usage.EnvInUse("dev"); err != nil || inUse {
+		t.Fatalf("an account with no restriction pinned dev: %v, %v", inUse, err)
+	}
+}

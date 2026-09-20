@@ -10,6 +10,21 @@ export enum Kind {
     KindSSH = "ssh",
     KindDatabase = "database",
     KindKafka = "kafka",
+
+    /**
+     * KindGit is a commit on a guarded branch or a push to a tagged remote.
+     */
+    KindGit = "git",
+
+    /**
+     * KindAPI is an HTTP request going out on a gated environment.
+     */
+    KindAPI = "api",
+
+    /**
+     * KindTask is an agent closing a task on a board with no verify command.
+     */
+    KindTask = "task",
 };
 
 export interface Pending {

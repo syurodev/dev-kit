@@ -26,8 +26,8 @@ func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
 	moduleList := service.ListModules()
 
-	if len(moduleList) != 9 {
-		t.Fatalf("len(modules) = %d, want 9", len(moduleList))
+	if len(moduleList) != 13 {
+		t.Fatalf("len(modules) = %d, want 13", len(moduleList))
 	}
 	wantCapabilities := map[string][]string{
 		// tools:util joins tools:hash rather than replacing it — tools.mdx
@@ -42,6 +42,15 @@ func TestAppServiceListsModules(t *testing.T) {
 		"settings":  {"env:read", "env:write", "preferences:read", "preferences:write"},
 		"agenthub":  {"agenthub:read", "agenthub:execute"},
 		"codegraph": {"codegraph:index", "codegraph:read", "codegraph:toolchain"},
+		// accounts:reveal is declared but never granted to the MCP subject —
+		// the manifest says the capability exists, container.go decides who
+		// holds it.
+		"accounts": {"accounts:read", "accounts:write", "accounts:reveal", "accounts:use"},
+		"tasks":    {"tasks:read", "tasks:write", "tasks:admin"},
+		// git:push is its own capability because it leaves the machine, and
+		// there is no git:push:force anywhere.
+		"git":       {"git:read", "git:write", "git:push"},
+		"apiclient": {"api:read", "api:write", "api:send"},
 	}
 	found := map[string]bool{}
 	for _, m := range moduleList {

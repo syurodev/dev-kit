@@ -23,6 +23,28 @@ const (
 	// deliberately not a vault item: everything in vault_items is sync-bound
 	// by construction, and history must never leave the device.
 	ItemTypeDatabaseQuery = "db-query"
+	// ItemTypeAccount covers *shared* accounts only — an identity reused in
+	// several places, which is exactly what should follow the user between
+	// devices. A scoped account (one connection's password) is deliberately
+	// not a vault item: everything here is sync-bound by construction, so a
+	// credential that must stay on one machine cannot live here at all. It
+	// goes to storage.TableAccountSecrets, the same separation query history
+	// keeps from saved queries.
+	ItemTypeAccount = "account"
+
+	// The Tasks module's three. A task's title and status are plaintext
+	// metadata for the same reason a note's title is: the board must render,
+	// filter and sort while the vault is locked, and only the description
+	// needs the DEK.
+	ItemTypeTaskBoard   = "task-board"
+	ItemTypeTask        = "task"
+	ItemTypeTaskComment = "task-comment"
+
+	// The API Client's three. History is deliberately absent: a response can
+	// carry anything the server sent, and vault_items replicates.
+	ItemTypeAPICollection  = "api-collection"
+	ItemTypeAPIRequest     = "api-request"
+	ItemTypeAPIEnvironment = "api-environment"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -36,7 +58,9 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
-		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery:
+		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount,
+		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment,
+		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment:
 		return true
 	default:
 		return false
@@ -132,6 +156,116 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 		}
 		expectedKeyID = "db-query-body"
 
+	case ItemTypeAPICollection:
+		var value struct {
+			Name     string `json:"name"`
+			ParentID string `json:"parent_id"`
+			Order    int    `json:"order"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-collection"
+
+	case ItemTypeAPIRequest:
+		var value struct {
+			CollectionID string `json:"collection_id"`
+			Name         string `json:"name"`
+			Method       string `json:"method"`
+			URLTemplate  string `json:"url_template"`
+			// AccountID is plaintext because it is an ID, not a secret — and
+			// that is the point: rotating the account leaves every request
+			// bound to it working, with nothing here to edit.
+			AccountID string `json:"account_id"`
+			OriginRef string `json:"origin_ref"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" ||
+			value.Method == "" || value.URLTemplate == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-request"
+
+	case ItemTypeAPIEnvironment:
+		var value struct {
+			Name string            `json:"name"`
+			Env  string            `json:"env"`
+			Vars map[string]string `json:"vars"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Env == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-environment"
+
+	case ItemTypeTaskBoard:
+		var value struct {
+			Name           string          `json:"name"`
+			KeyPrefix      string          `json:"key_prefix"`
+			Color          string          `json:"color"`
+			Workflow       json.RawMessage `json:"workflow"`
+			Verify         json.RawMessage `json:"verify"`
+			BranchTemplate string          `json:"branch_template"`
+			ProjectPath    string          `json:"project_path"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" ||
+			value.KeyPrefix == "" || len(value.Workflow) == 0 {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-board"
+
+	case ItemTypeTask:
+		var value struct {
+			BoardID    string          `json:"board_id"`
+			Key        string          `json:"key"`
+			Title      string          `json:"title"`
+			Status     string          `json:"status"`
+			Priority   string          `json:"priority"`
+			Labels     []string        `json:"labels"`
+			Assignee   string          `json:"assignee"`
+			ParentID   string          `json:"parent_id"`
+			BlockedBy  []string        `json:"blocked_by"`
+			PlanNodeID string          `json:"plan_node_id"`
+			SessionID  string          `json:"session_id"`
+			Branch     string          `json:"branch"`
+			ArchivedAt string          `json:"archived_at"`
+			History    json.RawMessage `json:"history"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.BoardID == "" ||
+			value.Key == "" || value.Title == "" || value.Status == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-body"
+
+	case ItemTypeTaskComment:
+		var value struct {
+			TaskID string `json:"task_id"`
+			Author string `json:"author"`
+			Kind   string `json:"kind"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.TaskID == "" ||
+			value.Author == "" || !validCommentKind(value.Kind) {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-comment-body"
+
+	case ItemTypeAccount:
+		var value struct {
+			Provider   string   `json:"provider"`
+			Kind       string   `json:"kind"`
+			Label      string   `json:"label"`
+			Subject    string   `json:"subject"`
+			Scopes     []string `json:"scopes"`
+			Env        []string `json:"env"`
+			State      string   `json:"state"`
+			ExpiresAt  string   `json:"expires_at"`
+			VerifiedAt string   `json:"verified_at"`
+			Ref        string   `json:"ref"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Provider == "" ||
+			value.Label == "" || !validAccountKind(value.Kind) || !validAccountState(value.State) {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "account-secret"
+
 	case ItemTypeSSH:
 		var value struct {
 			Name               string `json:"name"`
@@ -210,4 +344,37 @@ func decodeMetadataObject(metadata json.RawMessage, destination any) error {
 		return ErrInvalidRecordSchema
 	}
 	return nil
+}
+
+// validAccountKind mirrors accounts.Kind. It is duplicated rather than
+// imported because vaultitem is the substrate every module builds on and must
+// not depend on any of them — the same reason the note and profile shapes are
+// restated here instead of imported.
+//
+// "scoped" is absent on purpose: a scoped account is never a vault item, so a
+// record claiming to be one is a record that must not enter the ledger.
+func validAccountKind(kind string) bool {
+	switch kind {
+	case "token", "basic", "oauth", "secret", "external":
+		return true
+	}
+	return false
+}
+
+func validAccountState(state string) bool {
+	switch state {
+	case "valid", "expiring", "expired", "revoked", "unverified":
+		return true
+	}
+	return false
+}
+
+// validCommentKind mirrors tasks.CommentKind. A system comment is written by
+// the service, never by a caller claiming to be one.
+func validCommentKind(kind string) bool {
+	switch kind {
+	case "human", "agent", "system":
+		return true
+	}
+	return false
 }

@@ -65,7 +65,39 @@ func TestLayering(t *testing.T) {
 		// central design decision behind their locally-declared EnvLookup
 		// interfaces ("accept interfaces, return structs"), not just a
 		// preference, so it is pinned the same way vaultitem's boundary is.
-		pkg("ssh"):      {pkg("environments"), pkg("mcp")},
+		pkg("ssh"): {pkg("environments"), pkg("mcp")},
+		// accounts is the credential substrate: modules depend on it, never the
+		// reverse, and it declares EnvLookup locally like ssh/database/kafka.
+		// It takes a *sql.DB and a table name rather than importing storage,
+		// so the scoped-secret table stays the composition root's decision.
+		// apiclient sends HTTP from Go. It declares Credentials, EnvLookup and
+		// Confirmer locally: it must not reach into accounts, environments or
+		// interaction, which is what keeps the credential resolution a
+		// composition-root decision rather than a package dependency.
+		pkg("apiclient"): {
+			pkg("accounts"), pkg("environments"), pkg("interaction"), pkg("codegraph"),
+			pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+		},
+		// tasks is a thin adapter on vaultitem like notes. It declares
+		// Confirmer, Notifier and SessionLiveness locally rather than
+		// importing interaction, notify or agenthub — the board must not
+		// depend on the agent runtime to exist.
+		pkg("tasks"): {
+			pkg("interaction"), pkg("notify"), pkg("agenthub"), pkg("git"),
+			pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+		},
+		// git runs against the project's own work tree. It may use checkpoint
+		// (for Locate) and gitparse, both leaves below it, but never accounts,
+		// environments or interaction directly — it declares those as local
+		// interfaces so the composition root decides what satisfies them.
+		pkg("git"): {
+			pkg("accounts"), pkg("environments"), pkg("interaction"), pkg("vaultitem"),
+			pkg("mcp"), pkg("bridge"), pkg("app"), pkg("storage"),
+		},
+		pkg("accounts"): {
+			pkg("environments"), pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+			pkg("ssh"), pkg("database"), pkg("kafka"), pkg("notes"), pkg("agenthub"),
+		},
 		pkg("database"): {pkg("environments"), pkg("mcp")},
 		pkg("kafka"):    {pkg("environments"), pkg("mcp")},
 		// notes must not depend upward on the MCP host.
@@ -103,11 +135,32 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: sandbox must not import %s", short(imp))
 	}
 
-	// checkpoint is a leaf too: it runs git against a project directory and
-	// knows nothing about sessions, transcripts or storage. agenthub consumes
-	// it through a locally-declared interface, never the reverse — the same
-	// boundary ssh/database keep from environments.
+	// gitparse is a leaf: it reads what git printed, which does not depend on
+	// which git directory printed it. checkpoint (shadow repo) and the Git
+	// module (the project's own repo) both consume it.
+	for _, imp := range graph[pkg("gitparse")] {
+		t.Errorf("layering violation: gitparse must not import %s", short(imp))
+	}
+
+	// notify is a leaf: it raises OS notifications for any module and must not
+	// know what a module is. That is why its Target is three strings of its
+	// own rather than the workbench's EntityRef — see internal/notify.
+	for _, imp := range graph[pkg("notify")] {
+		t.Errorf("layering violation: notify must not import %s", short(imp))
+	}
+
+	// checkpoint runs git against a project directory and knows nothing about
+	// sessions, transcripts or storage. agenthub consumes it through a
+	// locally-declared interface, never the reverse — the same boundary
+	// ssh/database keep from environments.
+	//
+	// gitparse is the one import allowed: it is itself a leaf, it sits below
+	// checkpoint rather than above it, and the alternative is a second copy of
+	// the diff parsers in internal/git.
 	for _, imp := range graph[pkg("checkpoint")] {
+		if imp == pkg("gitparse") {
+			continue
+		}
 		t.Errorf("layering violation: checkpoint must not import %s", short(imp))
 	}
 

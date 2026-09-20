@@ -25,6 +25,12 @@ const (
 	KindSSH      Kind = "ssh"
 	KindDatabase Kind = "database"
 	KindKafka    Kind = "kafka"
+	// KindGit is a commit on a guarded branch or a push to a tagged remote.
+	KindGit Kind = "git"
+	// KindAPI is an HTTP request going out on a gated environment.
+	KindAPI Kind = "api"
+	// KindTask is an agent closing a task on a board with no verify command.
+	KindTask Kind = "task"
 )
 
 // Prompter notifies the UI that a human decision is needed.

@@ -5,8 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
+	"devkit/internal/apiclient"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/capabilities"
@@ -14,15 +16,18 @@ import (
 	"devkit/internal/commands"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	gitservice "devkit/internal/git"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/modules"
 	"devkit/internal/notes"
+	"devkit/internal/notify"
 	"devkit/internal/permissions"
 	"devkit/internal/preferences"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
+	"devkit/internal/tasks"
 	"devkit/internal/terminal"
 	"devkit/internal/tools"
 	"devkit/internal/uistate"
@@ -87,8 +92,20 @@ type Container struct {
 	// NewContainer/NewContainerWithStores — callers that need a real path
 	// (e.g. CodeGraph's per-project SQLite index) must handle that case,
 	// since not every test wants a real filesystem dependency.
-	ConfigDir    string
-	Kafka        *kafka.Service
+	ConfigDir string
+	Kafka     *kafka.Service
+	// Accounts is the credential store. Built without a *sql.DB in ephemeral
+	// containers, which leaves only shared accounts — scoped ones need the
+	// local table that exists precisely because they must not sync.
+	Accounts *accounts.Service
+	// Tasks is the board. Its close gate is wired from main, which owns the
+	// SQLite handle the verify queue lives in.
+	Tasks *tasks.Service
+	// Git is the project's own repository. Probing for a usable git is done
+	// once here; a machine without one still gets a Service that reports why.
+	Git *gitservice.Service
+	// APIClient sends HTTP requests with credentials resolved from Accounts.
+	APIClient    *apiclient.Service
 	Sync         SyncService
 	SyncConflict SyncConflictService
 	// Interaction is the shared MCP/UI hub for selection and confirmation
@@ -106,7 +123,7 @@ type Container struct {
 	AgentHubElicitations *agenthub.ElicitationWaiter
 	// AgentNotifications raises Agent Hub's OS notifications. Nil in server
 	// mode and in tests that do not set it.
-	AgentNotifications *agenthub.Notifier
+	AgentNotifications *notify.Notifier
 	// AgentRuntimes installs and resolves the ACP adapters Agent Hub runs.
 	// Nil in ephemeral tests; main roots it at <dataDir>/runtimes.
 	AgentRuntimes *agentruntime.Manager
@@ -119,6 +136,10 @@ type Container struct {
 	// auth and syncBlocked are mutable after startup: the cloudconfig refresh
 	// goroutine rewrites them while bridge call handlers read them, so every
 	// access goes through the mutex-guarded accessors below.
+	// recoverErr is the verify queue recovery failure, if any. Kept rather
+	// than fatal: tasks simply stay where they were, which is the safe end.
+	recoverErr error
+
 	mu          sync.Mutex
 	auth        AuthService
 	syncBlocked error
@@ -290,6 +311,40 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_notifications"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_notifications"},
+		// Accounts: read and write are the module's; reveal is a capability the
+		// MCP subject is never granted, which is how "an agent cannot read a
+		// credential" is enforced rather than merely intended.
+		{SubjectID: "builtin.accounts", Capability: "accounts:read", Scope: "account:list"},
+		{SubjectID: "builtin.accounts", Capability: "accounts:read", Scope: "account:*"},
+		{SubjectID: "builtin.accounts", Capability: "accounts:write", Scope: "account:new"},
+		{SubjectID: "builtin.accounts", Capability: "accounts:write", Scope: "account:*"},
+		{SubjectID: "builtin.accounts", Capability: "accounts:reveal", Scope: "account:*"},
+		{SubjectID: "builtin.accounts", Capability: "accounts:use", Scope: "account:*"},
+		// Tasks: admin is board and workflow, deliberately separate so an
+		// agent can hold read+write and never change the rule that binds it.
+		{SubjectID: "builtin.tasks", Capability: "tasks:read", Scope: "board:list"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:read", Scope: "task:list"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:read", Scope: "task:search"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:read", Scope: "task:*"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:write", Scope: "task:new"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:write", Scope: "task:*"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "board:new"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "board:*"},
+		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "task:*"},
+		// Git: push is its own capability because it leaves the machine.
+		// git:push:force has no grant here and no code path at all.
+		{SubjectID: "builtin.git", Capability: "git:read", Scope: "repo:status"},
+		{SubjectID: "builtin.git", Capability: "git:read", Scope: "repo:*"},
+		{SubjectID: "builtin.git", Capability: "git:write", Scope: "repo:*"},
+		{SubjectID: "builtin.git", Capability: "git:push", Scope: "remote:*"},
+		// API client: sending is separate from reading or editing a request.
+		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "request:list"},
+		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "request:*"},
+		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "environment:list"},
+		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "request:new"},
+		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "request:*"},
+		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "environment:*"},
+		{SubjectID: "builtin.apiclient", Capability: "api:send", Scope: "request:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
 	}...))
@@ -325,5 +380,11 @@ func NewContainerWithStores(
 		SSH:          sshService,
 		CodeGraph:    codegraph.NewService(codegraph.NewNilStore(), codegraph.NewSubprocessAnalyzer()),
 		Kafka:        kafka.NewService(itemStore, envService, nil),
+		// No *sql.DB here: an ephemeral container has no local table, so it
+		// holds shared accounts only. main rebuilds this with the real handle.
+		Accounts:  accounts.NewService(itemStore, nil, "", vaultService, accounts.NewRegistry(accounts.DefaultProviders()), envService),
+		Tasks:     tasks.NewService(itemStore),
+		Git:       gitservice.NewService(context.Background()),
+		APIClient: apiclient.NewService(itemStore, envService),
 	}
 }

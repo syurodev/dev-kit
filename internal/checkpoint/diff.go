@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"devkit/internal/gitparse"
 )
 
 // Comparing two trees.
@@ -15,32 +17,21 @@ import (
 // (previous after → this before), and what a restore would have to do
 // (expected → target).
 
-// ChangeKind is what happened to one path between two trees.
-type ChangeKind string
-
-const (
-	ChangeAdded      ChangeKind = "added"
-	ChangeModified   ChangeKind = "modified"
-	ChangeDeleted    ChangeKind = "deleted"
-	ChangeTypeChange ChangeKind = "typechange"
+// Change, ChangeKind and the kind constants are gitparse's: parsing what git
+// printed does not depend on which git directory printed it, and internal/git
+// needs the same values. Aliased rather than wrapped so every existing
+// checkpoint.Change in agenthub and the bridge keeps working unchanged.
+type (
+	ChangeKind = gitparse.ChangeKind
+	Change     = gitparse.Change
 )
 
-// Change is one path's difference between two trees.
-type Change struct {
-	Path string     `json:"path"`
-	Kind ChangeKind `json:"kind"`
-	// Added and Removed are line counts, or -1 each when git called the file
-	// binary.
-	Added   int `json:"added"`
-	Removed int `json:"removed"`
-	// Mode is the path's git mode in the "to" tree (100644, 100755, 120000), or
-	// its mode in the "from" tree when it was deleted. It is what tells the UI
-	// a symlink from a file and what a restore puts back.
-	Mode string `json:"mode"`
-}
-
-// Binary reports whether git declined to count lines for this path.
-func (c Change) Binary() bool { return c.Added < 0 }
+const (
+	ChangeAdded      = gitparse.ChangeAdded
+	ChangeModified   = gitparse.ChangeModified
+	ChangeDeleted    = gitparse.ChangeDeleted
+	ChangeTypeChange = gitparse.ChangeTypeChange
+)
 
 // Diff reports how the "to" tree differs from the "from" tree.
 //
@@ -75,7 +66,7 @@ func (r *Repo) diffLocked(ctx context.Context, from, to string) ([]Change, error
 	if err != nil {
 		return nil, err
 	}
-	changes, order, err := parseRaw(rawOut)
+	changes, order, err := gitparse.Raw(rawOut)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +74,7 @@ func (r *Repo) diffLocked(ctx context.Context, from, to string) ([]Change, error
 	if err != nil {
 		return nil, err
 	}
-	if err := applyNumstat(statOut, changes); err != nil {
+	if err := gitparse.Numstat(statOut, changes); err != nil {
 		return nil, err
 	}
 	out := make([]Change, 0, len(order))
@@ -91,73 +82,6 @@ func (r *Repo) diffLocked(ctx context.Context, from, to string) ([]Change, error
 		out = append(out, *changes[path])
 	}
 	return out, nil
-}
-
-// parseRaw reads `diff-tree -r -z --raw`, whose records are
-// ":<srcmode> <dstmode> <srcsha> <dstsha> <status>\0<path>\0".
-func parseRaw(raw []byte) (map[string]*Change, []string, error) {
-	fields := strings.Split(string(raw), "\x00")
-	changes := map[string]*Change{}
-	var order []string
-	for i := 0; i+1 < len(fields); i += 2 {
-		meta := fields[i]
-		path := fields[i+1]
-		if meta == "" || path == "" {
-			continue
-		}
-		parts := strings.Fields(strings.TrimPrefix(meta, ":"))
-		if len(parts) < 5 {
-			return nil, nil, fmt.Errorf("checkpoint: unreadable diff record %q", meta)
-		}
-		srcMode, dstMode, status := parts[0], parts[1], parts[4]
-		change := &Change{Path: path, Mode: dstMode, Added: -1, Removed: -1}
-		switch status[0] {
-		case 'A':
-			change.Kind = ChangeAdded
-		case 'D':
-			change.Kind = ChangeDeleted
-			change.Mode = srcMode
-		case 'T':
-			change.Kind = ChangeTypeChange
-		default:
-			change.Kind = ChangeModified
-		}
-		changes[path] = change
-		order = append(order, path)
-	}
-	return changes, order, nil
-}
-
-// applyNumstat reads `diff-tree -r -z --numstat`, whose records are
-// "<added>\t<removed>\t<path>\0" once renames are off. "-" in either count is
-// git saying the file is binary.
-func applyNumstat(raw []byte, changes map[string]*Change) error {
-	for _, record := range strings.Split(string(raw), "\x00") {
-		if record == "" {
-			continue
-		}
-		parts := strings.SplitN(record, "\t", 3)
-		if len(parts) != 3 {
-			return fmt.Errorf("checkpoint: unreadable numstat record %q", record)
-		}
-		change, ok := changes[parts[2]]
-		if !ok {
-			continue
-		}
-		if parts[0] == "-" || parts[1] == "-" {
-			continue // stays at the -1/-1 the raw pass set: binary
-		}
-		added, err := strconv.Atoi(parts[0])
-		if err != nil {
-			return fmt.Errorf("checkpoint: unreadable numstat record %q", record)
-		}
-		removed, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return fmt.Errorf("checkpoint: unreadable numstat record %q", record)
-		}
-		change.Added, change.Removed = added, removed
-	}
-	return nil
 }
 
 // FileContent returns one path's bytes out of a tree, for the diff drawer.

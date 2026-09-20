@@ -4,31 +4,41 @@ import (
 	"context"
 	"testing"
 
-	"devkit/internal/agenthub"
+	"devkit/internal/notify"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
-// One notification per session, and a click opens that session: the OS hands
+// One notification per target, and a click opens that target: the OS hands
 // Data back as UserInfo.
-func TestAgentNotificationIsKeyedBySessionAndOpensIt(t *testing.T) {
-	a := agentNotificationOptions(agenthub.DesktopNotification{SessionID: "s1", Title: "Permission needed", Body: "x"})
-	b := agentNotificationOptions(agenthub.DesktopNotification{SessionID: "s1", Title: "Answer ready", Body: "y"})
-	other := agentNotificationOptions(agenthub.DesktopNotification{SessionID: "s2", Title: "Answer ready", Body: "y"})
+func TestNotificationIsKeyedByTargetAndOpensIt(t *testing.T) {
+	a := notificationOptions(notify.Notification{Target: agentTarget("s1"), Title: "Permission needed", Body: "x"})
+	b := notificationOptions(notify.Notification{Target: agentTarget("s1"), Title: "Answer ready", Body: "y"})
+	other := notificationOptions(notify.Notification{Target: agentTarget("s2"), Title: "Answer ready", Body: "y"})
 	if a.ID != b.ID || a.ThreadID != b.ThreadID {
-		t.Fatalf("one session's notifications differ in ID/thread: %q/%q vs %q/%q", a.ID, a.ThreadID, b.ID, b.ThreadID)
+		t.Fatalf("one target's notifications differ in ID/thread: %q/%q vs %q/%q", a.ID, a.ThreadID, b.ID, b.ThreadID)
 	}
 	if a.ID == other.ID || a.ThreadID == other.ThreadID {
-		t.Fatalf("two sessions share notification %q", a.ID)
+		t.Fatalf("two targets share notification %q", a.ID)
 	}
 
-	got, ok := notificationSessionID(notifications.NotificationResponse{UserInfo: a.Data})
-	if !ok || got != "s1" {
-		t.Fatalf("clicked notification opens %q (ok=%v), want s1", got, ok)
+	got, ok := notificationTarget(notifications.NotificationResponse{UserInfo: a.Data})
+	if !ok || got != agentTarget("s1") {
+		t.Fatalf("clicked notification opens %+v (ok=%v), want the s1 session", got, ok)
 	}
-	if _, ok := notificationSessionID(notifications.NotificationResponse{}); ok {
-		t.Fatal("a notification without a session opened one")
+	if _, ok := notificationTarget(notifications.NotificationResponse{}); ok {
+		t.Fatal("a notification without a target opened one")
+	}
+}
+
+// Two modules reusing an id are two notifications, not one thread. The
+// session-only key could not say this at all.
+func TestNotificationKeyIncludesTheModule(t *testing.T) {
+	agent := notificationOptions(notify.Notification{Target: notify.Target{Module: "agenthub", Kind: "session", ID: "x"}})
+	task := notificationOptions(notify.Notification{Target: notify.Target{Module: "tasks", Kind: "task", ID: "x"}})
+	if agent.ID == task.ID || agent.ThreadID == task.ThreadID {
+		t.Fatalf("two modules sharing id %q collided on %q", "x", agent.ID)
 	}
 }
 

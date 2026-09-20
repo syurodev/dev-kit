@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"devkit/internal/agenthub"
 	"devkit/internal/app"
+	"devkit/internal/notify"
 	"devkit/internal/preferences"
 )
 
@@ -104,12 +104,12 @@ func (d *countingDesktop) RequestAuthorization() (bool, error) {
 	d.requests.Add(1)
 	return true, nil
 }
-func (*countingDesktop) Send(agenthub.DesktopNotification, bool) error { return nil }
+func (*countingDesktop) Send(notify.Notification, bool) error { return nil }
 
 func TestPreferencesAgentNotificationsDefaultOnAndTurningOnAsksTheOS(t *testing.T) {
 	container := app.NewContainer()
 	desktop := &countingDesktop{}
-	container.AgentNotifications = &agenthub.Notifier{Desktop: desktop, Enabled: func() bool {
+	container.AgentNotifications = &notify.Notifier{Desktop: desktop, Enabled: func() bool {
 		on, err := container.Preferences.AgentNotifications()
 		return err == nil && on
 	}}
