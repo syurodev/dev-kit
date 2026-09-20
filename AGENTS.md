@@ -204,7 +204,10 @@ Three languages, three shapes, and `Toolchain` is the thing they differ in.
   noted alongside the JRE gap in syurodev/dev-kit#28.
 - `task dev` and `task build` deliberately do NOT build the analyzer: a contributor
   without a JDK can still work on everything else and gets the setup panel, which is what
-  it is for. Only the packaging targets require the toolchain.
+  it is for. Only the packaging targets require the toolchain. Build one by hand with
+  `task build:analyzer:ts` (TypeScript) or `task build:analyzer` (Java) — thin root-level
+  wrappers over the `common:` tasks above, for opening a real project in `task dev`/
+  `task run:server` without going through packaging.
 - **A JRE is still required to RUN the analyzer, on every path.** Shipping the jar removes
   Maven and the build, not Java: `Toolchain.Run` is `java -jar …`. `Ready` therefore means
   artifact AND runtime, and `HasArtifact` separates the two failures so the panel can say
@@ -347,10 +350,11 @@ almost all of it building the program; a re-index is ~320ms, because `sync` tell
 server only about files whose content hash changed. The file watcher re-indexes on every
 save, so a one-shot subprocess would pay the cold cost every time.
 
-Tests skip unless the analyzer has been built:
+Tests skip unless the analyzer has been built (`task build:analyzer:ts`, or directly:
+`cd analyzer-ts && go build -o bin/tsgo github.com/microsoft/typescript-go/cmd/tsgo`):
 
 ```bash
-cd analyzer-ts && go build -o bin/tsgo github.com/microsoft/typescript-go/cmd/tsgo
+task build:analyzer:ts
 go test ./internal/lsp/ ./internal/codegraph/ -count=1
 ```
 
