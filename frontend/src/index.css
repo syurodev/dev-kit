@@ -135,7 +135,6 @@
     --space-group: 16px;
     --space-section: 24px;
     --space-page: 32px;
-    --space-sidebar-edge: var(--space-micro);
 
     /* Reading and UI typography; code keeps its independent density. */
     --type-body-size: 14px;
