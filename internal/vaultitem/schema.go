@@ -39,6 +39,12 @@ const (
 	ItemTypeTaskBoard   = "task-board"
 	ItemTypeTask        = "task"
 	ItemTypeTaskComment = "task-comment"
+
+	// The API Client's three. History is deliberately absent: a response can
+	// carry anything the server sent, and vault_items replicates.
+	ItemTypeAPICollection  = "api-collection"
+	ItemTypeAPIRequest     = "api-request"
+	ItemTypeAPIEnvironment = "api-environment"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -53,7 +59,8 @@ func IsSupportedItemType(itemType string) bool {
 	switch itemType {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
 		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount,
-		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment:
+		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment,
+		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment:
 		return true
 	default:
 		return false
@@ -148,6 +155,46 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "db-query-body"
+
+	case ItemTypeAPICollection:
+		var value struct {
+			Name     string `json:"name"`
+			ParentID string `json:"parent_id"`
+			Order    int    `json:"order"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-collection"
+
+	case ItemTypeAPIRequest:
+		var value struct {
+			CollectionID string `json:"collection_id"`
+			Name         string `json:"name"`
+			Method       string `json:"method"`
+			URLTemplate  string `json:"url_template"`
+			// AccountID is plaintext because it is an ID, not a secret — and
+			// that is the point: rotating the account leaves every request
+			// bound to it working, with nothing here to edit.
+			AccountID string `json:"account_id"`
+			OriginRef string `json:"origin_ref"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" ||
+			value.Method == "" || value.URLTemplate == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-request"
+
+	case ItemTypeAPIEnvironment:
+		var value struct {
+			Name string            `json:"name"`
+			Env  string            `json:"env"`
+			Vars map[string]string `json:"vars"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Env == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-environment"
 
 	case ItemTypeTaskBoard:
 		var value struct {

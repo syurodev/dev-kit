@@ -70,6 +70,14 @@ func TestLayering(t *testing.T) {
 		// reverse, and it declares EnvLookup locally like ssh/database/kafka.
 		// It takes a *sql.DB and a table name rather than importing storage,
 		// so the scoped-secret table stays the composition root's decision.
+		// apiclient sends HTTP from Go. It declares Credentials, EnvLookup and
+		// Confirmer locally: it must not reach into accounts, environments or
+		// interaction, which is what keeps the credential resolution a
+		// composition-root decision rather than a package dependency.
+		pkg("apiclient"): {
+			pkg("accounts"), pkg("environments"), pkg("interaction"), pkg("codegraph"),
+			pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+		},
 		// tasks is a thin adapter on vaultitem like notes. It declares
 		// Confirmer, Notifier and SessionLiveness locally rather than
 		// importing interaction, notify or agenthub — the board must not
