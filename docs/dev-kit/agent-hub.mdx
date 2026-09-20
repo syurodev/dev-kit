@@ -723,14 +723,78 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
     lưu — đúng lý do `api_request_history` seal URL: DevKit không viết ra
     chúng, cả hai đều có thể mang secret. UI: Settings → Agents → "Codex
     (observed)", chỉ xem transcript, không gửi được prompt từ đó.
-  - **Lớp 2 (chạy trong Agent Hub) — Design.** Cần một `VendorAdapter` thật,
-    và đường vào chưa chốt: `@zed-industries/codex-acp` (launcher npm quanh
-    Codex core viết Rust, im lặng từ 2026-06-08 dù `@openai/codex` vẫn ship
-    hằng ngày — rủi ro chính) so với app-server JSON-RPC của chính Codex
-    (`thread/start`/`turn/start`/`ExecApprovalRequest`/`RequestUserInput` —
-    IDE extension của OpenAI dùng cái này, có versioning thật qua
-    `experimentalApi`). Phase 0 (đo app-server thật) chưa chạy — cần máy có
-    login Codex, việc `agentruntime`/CI trong môi trường này không có.
+  - **Lớp 2 (chạy trong Agent Hub) — Design, Phase 0 đã đo một phần
+    (2026-09-20).** Cần một `VendorAdapter` thật, và đường vào giờ nghiêng hẳn
+    về app-server JSON-RPC của chính Codex thay vì `@zed-industries/codex-acp`
+    — package đó không release gì từ 2026-06-08 trong khi `@openai/codex` vẫn
+    ship hằng ngày, và giờ có thêm lý do kỹ thuật, không chỉ lý do bus-factor.
+
+    **Đo được, không cần login** — `npm install @openai/codex`, spawn
+    `codex app-server` thật (cả ngoài jail lẫn trong `sandbox.DefaultRunner().StartPiped`
+    y hệt `adapter_claude.go` dùng cho Claude), gửi JSON-RPC tay qua stdio:
+
+    - **Không phải ACP.** `v1` chỉ có đúng một method: `initialize` — không
+      có `agentCapabilities` trả về như ACP, chỉ có `codexHome`/`platformOs`/
+      `userAgent`. Toàn bộ bề mặt thật nằm ở `v2`: 90+ request method
+      (`thread/start`, `thread/resume`, `thread/fork`, `turn/start`,
+      `turn/interrupt`, `hooks/list`, `mcpServer/toolCall`, `fs/*`, …) và 70+
+      notification (`thread/started`, `turn/started`, `item/started`,
+      `item/completed`, `agentMessage/delta`, `turn/completed`, …). Framing
+      là newline-delimited JSON như ACP, nhưng **không có field `"jsonrpc"`**
+      trên dây — không phải JSON-RPC 2.0 chuẩn dù hình dạng giống.
+    - **`initialize` và `thread/start` không cần auth** — đo trên máy hoàn
+      toàn chưa `codex login` (`codex doctor` báo `auth ✗`), cả hai vẫn trả
+      kết quả đầy đủ. `thread/start` trả về sandbox mặc định
+      `{"type":"readOnly","networkAccess":false}`, `approvalPolicy:"on-request"`.
+      `turn/start` cũng không chặn đồng bộ theo auth — trả `status:"inProgress"`
+      ngay, việc thật chảy qua notification sau đó.
+    - **Chỗ dừng thật của Phase 0**: `turn/start` gọi tới
+      `wss://api.openai.com/v1/responses` bị proxy của chính môi trường build
+      này chặn (`HTTP CONNECT 403` — allowlist không có domain OpenAI), nên
+      **chưa đo được một turn hoàn chỉnh, chưa thấy hình dạng lỗi auth thật,
+      chưa đi hết một vòng approval**. Quan sát được trước khi treo:
+      `error` notification có `willRetry:true` + đếm lần retry, rồi
+      `warning` báo fallback WebSocket→HTTPS, rồi tiếp tục retry vô thời hạn
+      — một `VendorAdapter` thật phải coi `error{willRetry:true}` là tạm
+      thời, không phải lỗi cuối cùng của turn.
+    - **Tìm được đúng cái ADR-009 cần**: `SandboxPolicy` (dùng trong cả
+      `thread/start` lẫn `turn/start`) có biến thể `"externalSandbox"` bên
+      cạnh `readOnly`/`workspaceWrite`/`dangerFullAccess` — chính là cách nói
+      với Codex "đã có tiến trình ngoài cô lập bạn rồi, đừng tự sandbox nữa".
+      Đây là chỗ Codex làm tốt hơn `claude-agent-acp`: Claude không có field
+      nào tương đương, DevKit phải tắt `/sandbox` của Claude qua kênh riêng
+      `_meta.claudeCode.options.settings.hooks.PreToolUse` không thuộc spec.
+    - **Chạy được trong đúng jail DevKit dùng cho Claude, không cần sửa
+      gì**: `sandbox.DefaultRunner().StartPiped` với private tmpfs home,
+      node + entry tuyệt đối (giống `agentruntime.Resolved`) — `codexHome`
+      trong response resolve đúng vào home riêng của jail, không rò ra
+      `~/.codex` thật. `platformOs` báo `"unknown"` thay vì `"linux"` khi ở
+      trong jail — vô hại, chỉ là Codex tự dò platform kém chính xác hơn khi
+      môi trường bị hạn chế.
+    - **Trùng lặp cần thiết kế tránh**: app-server tự phát `hookPrompt`
+      ThreadItem và `hook/started`/`hook/completed` notification cho cùng hệ
+      thống hook mà Lớp 1 đã nghe qua `mcp_tool`. Một `VendorAdapter` thật
+      chạy Codex qua app-server sẽ thấy hoạt động hook **hai lần** — một lần
+      qua notification app-server, một lần qua chính `codex.hookEvent` Lớp 1
+      đăng ký — nên khi Lớp 2 build phải chọn một nguồn, tắt đường kia cho
+      session do Agent Hub tự mở (`hooks/list` đã cho danh sách hook đang có,
+      dùng để phát hiện đè lẫn nhau nếu cần).
+    - Approval là hai RPC tách biệt, không phải một: `ApplyPatchApprovalParams`
+      (đổi file, có `fileChanges`/`grantRoot`) và
+      `PermissionsRequestApprovalParams` (permission chung, có `itemId`/
+      `permissions`) — ánh xạ tới đúng việc `PermissionWaiter` đã làm cho
+      Claude qua `session/request_permission`.
+    - `InitializeCapabilities.experimentalApi` mô tả là "opt vào method/field
+      thử nghiệm", nhưng `thread/start`/`turn/start`/`hooks/list` chạy được
+      **không cần bật cờ này** trong lần đo — nghĩa là cờ đó gate hẹp hơn
+      toàn bộ `v2`, chưa rõ đúng phần nào. Chưa chốt được vì chưa cần đến
+      method nào đòi cờ.
+
+    **Còn thiếu để chốt hẳn**: một turn chạy trọn vẹn với auth thật (cần máy
+    có `codex login`, môi trường build này không cho phép — proxy chặn domain
+    OpenAI), hình dạng lỗi auth thật khi không có credential nhưng network
+    thông, và một vòng approval thật (chưa kích hoạt được vì chưa có turn nào
+    chạy tới bước cần duyệt). Việc còn lại này giao cho máy có login Codex.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.
 - Claude adapter chưa được claim production-verified trong CI với Claude Code thật.
@@ -854,14 +918,19 @@ T0 trước vì nó rẻ và nó quyết định `fs/*` có đáng làm không. 
 - Session data (transcript, cost) có nên cho phép opt-in sync không, hay tuyệt đối local-only như NFR-5 đề ra? (liên quan tới câu hỏi sync đã có ở [Open questions](/dev-kit/open-questions))
 - ~~Vendor thứ 2 nên ưu tiên viết adapter là Codex hay Gemini CLI — cần biết
   cả hai có ACP-compatible adapter chính thức/community ở mức trưởng thành
-  tương đương `claude-agent-acp` không trước khi cam kết.~~ **Một phần đã
-  trả lời (2026-09-20):** Codex đi trước, nhưng không qua `codex-acp` —
-  package đó im lặng ba tháng trong khi Codex CLI ship hằng ngày. Lớp 1 (quan
-  sát qua hooks) không cần adapter nào cả và đã xong. Lớp 2 (spawn trong
-  Agent Hub) vẫn mở: chọn giữa `codex-acp` bất chấp rủi ro, hay tự viết
-  `VendorAdapter` cho app-server JSON-RPC của chính Codex — quyết định này
-  cần Phase 0 đo app-server thật trước, chưa làm được vì môi trường build
-  hiện tại không có login Codex.
+  tương đương `claude-agent-acp` không trước khi cam kết.~~ **Đã trả lời phần
+  Lớp 1 (2026-09-06), Lớp 2 nghiêng hẳn về app-server sau Phase 0
+  (2026-09-20):** Codex đi trước Gemini. Lớp 1 (quan sát qua hooks) không cần
+  adapter nào cả và đã xong. Lớp 2 (spawn trong Agent Hub) không còn cân nhắc
+  `codex-acp` nghiêm túc nữa — ngoài việc im lặng ba tháng, tự viết
+  `VendorAdapter` cho app-server còn được một chỗ `codex-acp` không có:
+  `SandboxPolicy.externalSandbox`, đúng thứ ADR-009 cần mà `claude-agent-acp`
+  phải lách qua kênh riêng. Phase 0 đo được `initialize`/`thread/start`/
+  `hooks/list` thật không cần login, và chạy được trong đúng
+  `sandbox.StartPiped` jail — xem mục Lớp 2 dưới **Known ceiling (v1)** ở
+  trên. Còn thiếu: một turn hoàn chỉnh với auth thật và một vòng approval
+  thật, chặn bởi domain OpenAI không nằm trong allowlist proxy của môi
+  trường build này — cần máy có `codex login`.
 - `fs/*` và `terminal/*` có thực sự được `claude-agent-acp` gọi không, hay chỉ là plumbing chưa dùng? Quyết định cả việc Capability Gateway có mediate được file access của agent hay không — đo bằng T0 trước khi cam kết.
 - ~~Ai chịu trách nhiệm theo dõi version bump từ `agentclientprotocol` org theo thời gian?~~ **Đã chốt (2026-09-13):** DevKit khoá `TestedVersion`; bản mới nhất của registry chỉ hiện như cập nhật chưa kiểm thử, và nâng mặc định theo [quy trình Nâng `TestedVersion`](#nâng-testedversion). Guard CI (`agent-acp-guard.yml`) vẫn chạy latest để báo trước release làm hỏng kênh `_meta`.
 
