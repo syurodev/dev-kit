@@ -53,6 +53,7 @@ import { AgentHubContent } from "./surfaces";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
+import { useModuleFolder } from "../../stores/workFolder";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -149,6 +150,8 @@ export async function renameAgentSession(
 }
 
 export function AgentHubView() {
+  // Where the app is working, for a new draft to start in.
+  const { folder: workFolder } = useModuleFolder("agenthub");
   const visible = useModuleVisibility();
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
@@ -345,19 +348,20 @@ export function AgentHubView() {
 
   /**
    * Starts a draft straight away, from "+ New", ⌘N and the empty state. The
-   * folder is the last one used, else where Code Graph is looking, else none;
-   * the draft's project picker changes it before the first message.
+   * folder is the one the app is working in, else the last one used, else where
+   * Code Graph is looking, else none; the draft's project picker changes it
+   * before the first message.
    */
   async function startNewDraft() {
     const recent = useAgentPinsStore.getState().recentProjects[0];
-    const cwd = recent ?? (await codeGraphProjectRoot().catch(() => ""));
+    const cwd = workFolder || recent || (await codeGraphProjectRoot().catch(() => ""));
     startDraft(cwd, null);
   }
 
   /** "New project…" in the draft's picker: the native folder dialog. */
   async function chooseFolderForDraft() {
-    // Opens where the draft already points, else where Code Graph is looking.
-    const start = draft?.cwd || (await codeGraphProjectRoot().catch(() => ""));
+    // Opens where the draft already points, else the folder the app is working in.
+    const start = draft?.cwd || workFolder || (await codeGraphProjectRoot().catch(() => ""));
     try {
       const picked = await agentHubChooseDirectory(start);
       // "" is a cancelled picker: the draft keeps the folder it had.

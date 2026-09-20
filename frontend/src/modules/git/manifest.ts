@@ -1,5 +1,6 @@
 import { GitBranch } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { withGitFolder } from "./GitFolderGate";
 
 export const gitModule: ModuleManifest = {
   id: "git",
@@ -21,28 +22,28 @@ export const gitModule: ModuleManifest = {
       id: "git.changes",
       title: "Changes",
       ...lazyModuleView(() =>
-        import("./GitChangesView").then(({ GitChangesView }) => ({ default: GitChangesView })),
+        import("./GitChangesView").then(({ GitChangesView }) => ({ default: withGitFolder(GitChangesView) })),
       ),
     },
     {
       id: "git.diff",
       title: "Diff",
       ...lazyModuleView(() =>
-        import("./GitDiffView").then(({ GitDiffView }) => ({ default: GitDiffView })),
+        import("./GitDiffView").then(({ GitDiffView }) => ({ default: withGitFolder(GitDiffView) })),
       ),
     },
     {
       id: "git.remotes",
       title: "Remotes",
       ...lazyModuleView(() =>
-        import("./GitRemotesView").then(({ GitRemotesView }) => ({ default: GitRemotesView })),
+        import("./GitRemotesView").then(({ GitRemotesView }) => ({ default: withGitFolder(GitRemotesView) })),
       ),
     },
     {
       id: "git.history",
       title: "History",
       ...lazyModuleView(() =>
-        import("./GitHistoryView").then(({ GitHistoryView }) => ({ default: GitHistoryView })),
+        import("./GitHistoryView").then(({ GitHistoryView }) => ({ default: withGitFolder(GitHistoryView) })),
       ),
     },
   ],
