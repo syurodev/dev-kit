@@ -21,7 +21,7 @@ export const codegraphModule: ModuleManifest = {
   commands: [
     {
       id: "codegraph.open_project",
-      title: "Open Java project",
+      title: "Open project…",
       run: () => void import("./codegraphActions").then((actions) => actions.pickAndOpenProject()),
     },
     {
