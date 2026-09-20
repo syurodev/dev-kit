@@ -50,6 +50,7 @@ type Service struct {
 	envs    EnvLookup
 	creds   Credentials
 	confirm Confirmer
+	history *historyStore
 	client  *http.Client
 }
 
@@ -295,6 +296,28 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 		return Response{}, err
 	}
 
+	// Query parameters are folded in here, before the gate rather than after,
+	// only so that the URL history records is the one that would actually go
+	// out. The gate reads the host and the path, which this does not touch.
+	query := parsed.Query()
+	for key, value := range in.Request.Query {
+		query.Set(Interpolate(key, vars), Interpolate(value, vars))
+	}
+	parsed.RawQuery = query.Encode()
+
+	// From here the URL is known, so every outcome gets a line — including the
+	// two where nothing leaves. A history that lists only what succeeded
+	// cannot answer "did I actually send that".
+	sentAt := time.Now()
+	note := func(status, bytes int, duration int64, failure string) {
+		s.record(HistoryEntry{
+			RequestID: in.Request.ID, EnvironmentID: in.EnvironmentID,
+			Method: strings.ToUpper(in.Request.Method), URL: parsed.String(),
+			Status: status, Bytes: bytes, DurationMS: duration,
+			Failure: failure, SentAt: sentAt,
+		})
+	}
+
 	// The gate comes before anything leaves: env wins, every time, with no
 	// allow-always — the same rule the MCP confirmation policy already keeps.
 	if s.envs != nil && s.envs.RequiresConfirmation(envMeta.Env) {
@@ -308,15 +331,10 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 			return Response{}, err
 		}
 		if !allowed {
+			note(0, 0, 0, "refused at the confirmation")
 			return Response{}, ErrNotAllowed
 		}
 	}
-
-	query := parsed.Query()
-	for key, value := range in.Request.Query {
-		query.Set(Interpolate(key, vars), Interpolate(value, vars))
-	}
-	parsed.RawQuery = query.Encode()
 
 	body := Interpolate(in.Request.Body, vars)
 	var reader io.Reader
@@ -337,6 +355,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 	started := time.Now()
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
+		note(0, 0, time.Since(started).Milliseconds(), err.Error())
 		return Response{}, err
 	}
 	defer resp.Body.Close()
@@ -359,10 +378,12 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 	for key := range resp.Header {
 		headers[key] = resp.Header.Get(key)
 	}
+	duration := time.Since(started).Milliseconds()
+	note(resp.StatusCode, len(raw), duration, "")
 	return Response{
 		Status: resp.StatusCode, StatusText: resp.Status, Headers: headers,
 		Body: string(raw), Truncated: truncated, Bytes: len(raw),
-		DurationMS: time.Since(started).Milliseconds(),
+		DurationMS: duration,
 	}, nil
 }
 

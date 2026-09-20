@@ -121,6 +121,22 @@ export function missingVars(template: string, vars: Record<string, string>): str
 }
 
 /**
+ * Fills {{name}} placeholders from an environment, for working out which host
+ * a request actually goes to.
+ *
+ * It is not the sender — the backend substitutes for real, including the
+ * secret variables this never sees. It exists so the UI can ask "which account
+ * covers this host" against the server the request would reach rather than
+ * against the template, and it leaves an unfillable placeholder in place so a
+ * caller can tell the URL is not resolved yet.
+ */
+export function resolveUrl(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (whole, name: string) =>
+    name in vars ? vars[name] : whole,
+  );
+}
+
+/**
  * Turns a Code Graph endpoint into a draft. Path parameters become
  * {{variables}}; the body is left to the caller, because only Java and
  * TypeScript can say what shape it is — a Kong or Lapis endpoint declares no
@@ -139,4 +155,72 @@ export function draftFromEndpoint(endpoint: {
     auth: { kind: "", accountId: "" },
     originRef: `devkit://codegraph/endpoint/${encodeURIComponent(endpoint.id)}`,
   };
+}
+
+/** A folder of requests. */
+export type ApiCollection = {
+  id: string;
+  name: string;
+  parentId?: string;
+  order: number;
+};
+
+export function listCollections(): Promise<ApiCollection[]> {
+  return callBridge(async () => ((await AppService.ApiCollections()) ?? []) as ApiCollection[]);
+}
+
+export function saveCollection(
+  collection: Partial<ApiCollection> & { name: string },
+): Promise<ApiCollection> {
+  return callBridge(
+    async () =>
+      (await AppService.ApiSaveCollection(
+        collection.id ?? "",
+        collection.name,
+        collection.parentId ?? "",
+        collection.order ?? 0,
+      )) as ApiCollection,
+  );
+}
+
+/**
+ * Removes an empty folder. A folder still holding anything is refused, and the
+ * error names what is inside — tidying is not the same action as losing every
+ * saved request in it, and a vault item has no undo.
+ */
+export function deleteCollection(id: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.ApiDeleteCollection(id);
+  });
+}
+
+/**
+ * One send. There is no body and no headers here on purpose: either side can
+ * carry a token, a body can be megabytes, and re-sending is one click.
+ */
+export type ApiHistoryEntry = {
+  id: string;
+  requestId: string;
+  environmentId: string;
+  method: string;
+  /** Sealed at rest; empty when the vault is locked, which is not an error. */
+  url: string;
+  status: number;
+  durationMs: number;
+  bytes: number;
+  /** Why nothing came back. Empty when there is a status. */
+  failure: string;
+  sentAt: string;
+};
+
+export function requestHistory(requestId: string, limit = 0): Promise<ApiHistoryEntry[]> {
+  return callBridge(
+    async () => ((await AppService.ApiHistory(requestId, limit)) ?? []) as ApiHistoryEntry[],
+  );
+}
+
+export function clearRequestHistory(requestId: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.ApiClearHistory(requestId);
+  });
 }

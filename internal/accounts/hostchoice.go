@@ -1,0 +1,174 @@
+package accounts
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"sort"
+	"strings"
+	"time"
+)
+
+// choiceStore remembers which account answered "which of these" for a host on
+// an environment. Local and non-syncing: see storage.TableAccountHostChoices.
+type choiceStore struct {
+	db    *sql.DB
+	table string
+}
+
+func (c *choiceStore) get(host, env string) (string, error) {
+	var id string
+	err := c.db.QueryRowContext(context.Background(),
+		"SELECT account_id FROM "+c.table+" WHERE host = ? AND env = ?", host, env).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+func (c *choiceStore) put(host, env, accountID string) error {
+	_, err := c.db.ExecContext(context.Background(),
+		`INSERT INTO `+c.table+` (host, env, account_id, chosen_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(host, env) DO UPDATE SET account_id = excluded.account_id, chosen_at = excluded.chosen_at`,
+		host, env, accountID, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (c *choiceStore) forget(host, env string) error {
+	_, err := c.db.ExecContext(context.Background(),
+		"DELETE FROM "+c.table+" WHERE host = ? AND env = ?", host, env)
+	return err
+}
+
+// SetHostChoices wires the table that remembers a host's answer.
+//
+// It is optional on purpose: without it ForHost still decides correctly, it
+// simply asks every time. A missing memory is an inconvenience; a wrong
+// automatic answer is a request sent as the wrong identity.
+func (s *Service) SetHostChoices(db *sql.DB, table string) {
+	if db != nil && table != "" {
+		s.choices = &choiceStore{db: db, table: table}
+	}
+}
+
+// HostMatch is what the accounts for a host come to.
+type HostMatch struct {
+	// Decided is true when there is nothing to ask: exactly one account
+	// matches, or a previous answer for this pair still does.
+	Decided bool `json:"decided"`
+	// Account is the one to use when Decided. Zero otherwise.
+	Account Account `json:"account"`
+	// Options is every match, for the caller to offer when Decided is false.
+	// It is also filled when Decided is true by a remembered answer, so the UI
+	// can show that there was a choice and offer to change it.
+	Options []Account `json:"options"`
+	// Remembered says Decided came from a stored answer rather than from
+	// there being only one candidate.
+	Remembered bool `json:"remembered"`
+}
+
+// ForHost answers which account authenticates to a host on an environment.
+//
+// One match is chosen and nothing is remembered — remembering a forced answer
+// is noise, and it would go stale the moment a second account is added.
+//
+// Two or more is a question, never a guess. Two GitHub accounts are usually a
+// personal one and a company one, and firing a request as the wrong identity
+// is worse than asking once. There is deliberately no "the one you used last"
+// heuristic: that is a guess wearing a memory's clothes.
+func (s *Service) ForHost(host, env string) (HostMatch, error) {
+	host = normalizeHost(host)
+	if host == "" {
+		return HostMatch{}, nil
+	}
+	providers := s.providers.ProvidersForHost(host)
+	if len(providers) == 0 {
+		return HostMatch{}, nil
+	}
+	wanted := map[string]bool{}
+	for _, id := range providers {
+		wanted[id] = true
+	}
+
+	all, err := s.List()
+	if err != nil {
+		return HostMatch{}, err
+	}
+	var options []Account
+	for _, account := range all {
+		// A scoped account belongs to one connection profile, never to a host;
+		// an external one has nothing to authenticate with.
+		if account.ScopeOwner != "" || account.Kind == KindExternal {
+			continue
+		}
+		if !wanted[account.Provider] || !account.AllowsEnv(env) {
+			continue
+		}
+		options = append(options, account)
+	}
+	sort.SliceStable(options, func(i, j int) bool { return options[i].Label < options[j].Label })
+
+	switch len(options) {
+	case 0:
+		return HostMatch{}, nil
+	case 1:
+		return HostMatch{Decided: true, Account: options[0], Options: options}, nil
+	}
+
+	if s.choices != nil {
+		id, err := s.choices.get(host, env)
+		if err != nil {
+			return HostMatch{}, err
+		}
+		for _, option := range options {
+			if option.ID == id {
+				return HostMatch{Decided: true, Account: option, Options: options, Remembered: true}, nil
+			}
+		}
+		if id != "" {
+			// The remembered account is gone, or no longer matches this host
+			// or this environment. Keeping the row would make the same stale
+			// answer be ignored on every call for ever.
+			if err := s.choices.forget(host, env); err != nil {
+				return HostMatch{}, err
+			}
+		}
+	}
+	return HostMatch{Options: options}, nil
+}
+
+// ChooseForHost records the answer for a pair.
+//
+// The account has to be one ForHost would actually offer. Without that check
+// any caller could pin an arbitrary account to a host, which is the same
+// credential-misdirection this whole rule exists to prevent — just written
+// down rather than guessed.
+func (s *Service) ChooseForHost(host, env, accountID string) error {
+	if s.choices == nil {
+		return nil
+	}
+	match, err := s.ForHost(host, env)
+	if err != nil {
+		return err
+	}
+	for _, option := range match.Options {
+		if option.ID == accountID {
+			return s.choices.put(normalizeHost(host), env, accountID)
+		}
+	}
+	return ErrInvalid
+}
+
+// ForgetHostChoice drops a remembered answer, so the next call asks again.
+func (s *Service) ForgetHostChoice(host, env string) error {
+	if s.choices == nil {
+		return nil
+	}
+	return s.choices.forget(normalizeHost(host), env)
+}
+
+// normalizeHost matches what the provider registry does, so a choice is stored
+// under the same key the lookup uses.
+func normalizeHost(host string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+}

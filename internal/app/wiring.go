@@ -24,8 +24,10 @@ import (
 // which is the same reason accounts and tasks take a name rather than a
 // package.
 type Tables struct {
-	AccountSecrets string
-	TaskVerifyRuns string
+	AccountSecrets     string
+	AccountHostChoices string
+	APIRequestHistory  string
+	TaskVerifyRuns     string
 }
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an
@@ -42,10 +44,16 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 		c.Items, db, tables.AccountSecrets, vaultService,
 		accounts.NewRegistry(accounts.DefaultProviders()), c.Environments,
 	)
+	// Without this the host rule still decides correctly and simply asks every
+	// time; with it, once per (host, env).
+	c.Accounts.SetHostChoices(db, tables.AccountHostChoices)
 
 	// The API client resolves its credentials through Accounts and asks the
 	// interaction hub before sending on a gated environment. A nil hub is
 	// headless, and the service already treats that as a refusal.
+	// Without this a send still goes out and records nothing: history is a
+	// convenience, not a precondition.
+	c.APIClient.SetHistory(db, tables.APIRequestHistory, vaultService)
 	c.APIClient.SetCredentials(accountResolver{accounts: c.Accounts})
 	if c.Interaction != nil {
 		c.APIClient.SetConfirmer(hubConfirmer{hub: c.Interaction, kind: interaction.KindAPI})

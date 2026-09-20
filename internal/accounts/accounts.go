@@ -75,6 +75,9 @@ var (
 	ErrAmbiguous = errors.New("accounts.ambiguous")
 	// ErrScopedCannotSync guards the one invariant that cannot be relaxed.
 	ErrScopedCannotSync = errors.New("accounts.scopedCannotSync")
+	// ErrNothingToReveal is an external account: DevKit recorded that the
+	// identity exists and how to sign in again, and holds no value at all.
+	ErrNothingToReveal = errors.New("accounts.nothingToReveal")
 )
 
 // Account is one credential, without its value. Nothing here is secret, which

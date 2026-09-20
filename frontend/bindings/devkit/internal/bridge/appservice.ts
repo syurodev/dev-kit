@@ -62,6 +62,13 @@ import * as json$0 from "../../../encoding/json/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AccountsChooseForHost records the answer, so the pair is asked once.
+ */
+export function AccountsChooseForHost(host: string, env: string, accountID: string): $CancellablePromise<void> {
+    return $Call.ByID(853298104, host, env, accountID);
+}
+
+/**
  * AccountsCreate stores a credential. The value arrives once, here, and is
  * never handed back by any method on this service.
  */
@@ -71,6 +78,22 @@ export function AccountsCreate(provider: string, kind: string, label: string, us
 
 export function AccountsDelete(id: string): $CancellablePromise<void> {
     return $Call.ByID(1933082933, id);
+}
+
+/**
+ * AccountsForHost answers which account authenticates to a host, and says when
+ * it cannot answer. Two accounts matching one host is a question, never a
+ * guess: two GitHub accounts are usually a personal one and a company one.
+ */
+export function AccountsForHost(host: string, env: string): $CancellablePromise<accounts$0.HostMatch> {
+    return $Call.ByID(3600339219, host, env);
+}
+
+/**
+ * AccountsForgetHostChoice puts the question back.
+ */
+export function AccountsForgetHostChoice(host: string, env: string): $CancellablePromise<void> {
+    return $Call.ByID(520314806, host, env);
 }
 
 export function AccountsGet(id: string): $CancellablePromise<accounts$0.Account> {
@@ -102,11 +125,39 @@ export function AccountsProviders(): $CancellablePromise<accounts$0.Provider[] |
 }
 
 /**
+ * AccountsReveal shows one account's value.
+ * 
+ * The Master Password is re-checked here when the preference says so, and
+ * checking it is not unlocking: VerifyMasterPassword derives, compares and
+ * throws the key away, so a mistyped answer in this dialog cannot lock a vault
+ * that is open.
+ * 
+ * The audit line carries the provider and the subject and never the value —
+ * an audit trail that records what it was guarding is not a guard.
+ */
+export function AccountsReveal(id: string, masterPassword: string): $CancellablePromise<$models.RevealedCredential> {
+    return $Call.ByID(3591833327, id, masterPassword);
+}
+
+/**
+ * AccountsRevealRequiresPassword reports whether revealing asks for the Master
+ * Password again. It is read under accounts:read rather than a preferences
+ * capability because the answer changes what the reveal dialog must collect.
+ */
+export function AccountsRevealRequiresPassword(): $CancellablePromise<boolean> {
+    return $Call.ByID(712556234);
+}
+
+/**
  * AccountsRotate replaces a value in place, which is why every binding holds
  * an id: nothing bound to this account needs editing afterwards.
  */
 export function AccountsRotate(id: string, user: string, secret: string): $CancellablePromise<void> {
     return $Call.ByID(2823647049, id, user, secret);
+}
+
+export function AccountsSetRevealRequiresPassword(required: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1261199274, required);
 }
 
 /**
@@ -489,6 +540,18 @@ export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentrunt
 }
 
 /**
+ * ApiClearHistory forgets one request's sends, or every request's when the id
+ * is empty.
+ */
+export function ApiClearHistory(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(34666617, requestID);
+}
+
+export function ApiCollections(): $CancellablePromise<apiclient$0.Collection[] | null> {
+    return $Call.ByID(3365323303);
+}
+
+/**
  * ApiCreateEnvironment takes the secret variables once. They are sealed and
  * never returned by any method here — Environments lists their names only.
  */
@@ -504,6 +567,14 @@ export function ApiCurl(id: string, vars: { [_ in string]?: string } | null): $C
     return $Call.ByID(3986395368, id, vars);
 }
 
+/**
+ * ApiDeleteCollection removes an empty folder and refuses a full one, naming
+ * what is inside.
+ */
+export function ApiDeleteCollection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3684999301, id);
+}
+
 export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
     return $Call.ByID(3006789638, id);
 }
@@ -512,12 +583,28 @@ export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[]
     return $Call.ByID(3503140704);
 }
 
+/**
+ * ApiHistory lists what this machine sent for one request. The URL is sealed
+ * at rest and opened here; a locked vault gives the row back without it.
+ */
+export function ApiHistory(requestID: string, limit: number): $CancellablePromise<apiclient$0.HistoryEntry[] | null> {
+    return $Call.ByID(3212882078, requestID, limit);
+}
+
 export function ApiRequest(id: string): $CancellablePromise<apiclient$0.Request> {
     return $Call.ByID(1869710267, id);
 }
 
 export function ApiRequests(): $CancellablePromise<apiclient$0.Request[] | null> {
     return $Call.ByID(934441944);
+}
+
+/**
+ * ApiSaveCollection creates or renames a folder. It takes the fields the
+ * window has rather than the struct, for the same reason ApiSaveRequest does.
+ */
+export function ApiSaveCollection(id: string, name: string, parentID: string, order: number): $CancellablePromise<apiclient$0.Collection> {
+    return $Call.ByID(4075892011, id, name, parentID, order);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { BadgeCheck, Eye, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -11,6 +11,7 @@ import {
   verifyAccount,
   type Account,
 } from "@/bridge/accounts";
+import { RevealDialog } from "./RevealDialog";
 
 const STATE_LABEL: Record<Account["state"], string> = {
   valid: "Valid",
@@ -33,9 +34,11 @@ const STATE_TONE: Record<Account["state"], string> = {
 function AccountRow({
   account,
   onChanged,
+  onReveal,
 }: {
   account: Account;
   onChanged: () => void;
+  onReveal: () => void;
 }) {
   const [error, setError] = useState("");
 
@@ -72,6 +75,19 @@ function AccountRow({
           }}
         >
           <BadgeCheck className="size-4" aria-hidden />
+        </Button>
+      ) : null}
+      {/* An external account records that an identity exists somewhere DevKit
+          does not hold it, so there is nothing to show. */}
+      {account.kind !== "external" && account.state !== "needs_local_secret" ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Show the value for ${account.label}`}
+          title="Show the stored value"
+          onClick={onReveal}
+        >
+          <Eye className="size-4" aria-hidden />
         </Button>
       ) : null}
       {account.scopeOwner ? (
@@ -117,6 +133,8 @@ export function AccountsView() {
   // A migration that copied nothing and one that copied twelve both succeed;
   // saying which is the whole value of reporting it.
   const [notice, setNotice] = useState("");
+  // The account whose value is on screen, or null. One at a time, always.
+  const [revealing, setRevealing] = useState<Account | null>(null);
 
   const reload = useCallback(() => {
     listAccounts()
@@ -205,7 +223,12 @@ export function AccountsView() {
       <div className="min-h-0 flex-1 overflow-auto">
         <ul>
           {shared.map((account) => (
-            <AccountRow key={account.id} account={account} onChanged={reload} />
+            <AccountRow
+              key={account.id}
+              account={account}
+              onChanged={reload}
+              onReveal={() => setRevealing(account)}
+            />
           ))}
         </ul>
         {scoped.length > 0 ? (
@@ -216,12 +239,18 @@ export function AccountsView() {
             </summary>
             <ul>
               {scoped.map((account) => (
-                <AccountRow key={account.id} account={account} onChanged={reload} />
+                <AccountRow
+                  key={account.id}
+                  account={account}
+                  onChanged={reload}
+                  onReveal={() => setRevealing(account)}
+                />
               ))}
             </ul>
           </details>
         ) : null}
       </div>
+      <RevealDialog account={revealing} onClose={() => setRevealing(null)} />
     </div>
   );
 }

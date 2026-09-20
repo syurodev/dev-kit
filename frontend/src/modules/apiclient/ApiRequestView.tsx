@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import { Send, Terminal } from "lucide-react";
+import { Folder, Send, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
   curlFor,
+  listCollections,
   listEnvironments,
   listRequests,
   missingVars,
+  saveRequest,
   sendRequest,
+  type ApiCollection,
   type ApiEnvironment,
   type ApiRequest,
   type ApiResponse,
 } from "@/bridge/apiclient";
+import { ApiAuthPicker } from "./ApiAuthPicker";
+import { CollectionsDialog } from "./CollectionsDialog";
+import { RequestHistory } from "./RequestHistory";
+import { byFolderThenName, folderPath, foldersByPath, requestLabel } from "./collections";
 
 /**
  * Compose and send. Auth is not a field here on purpose: the request carries
@@ -24,6 +31,10 @@ export function ApiRequestView() {
   // null until loaded: the environment picker showing "No environment"
   // alone before the list arrives reads as "you have none".
   const [environments, setEnvironments] = useState<ApiEnvironment[] | null>(null);
+  // null until loaded, like the environments: an empty folder list and one
+  // that has not arrived look the same in a picker and mean different things.
+  const [collections, setCollections] = useState<ApiCollection[] | null>(null);
+  const [foldersOpen, setFoldersOpen] = useState(false);
   const [requestID, setRequestID] = useState("");
   const [environmentID, setEnvironmentID] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
@@ -44,6 +55,9 @@ export function ApiRequestView() {
         setEnvironmentID((current) => current || next[0]?.id || "");
       })
       .catch(() => setEnvironments([]));
+    listCollections()
+      .then(setCollections)
+      .catch(() => setCollections([]));
   }, []);
 
   useEffect(reload, [reload]);
@@ -51,7 +65,7 @@ export function ApiRequestView() {
   if (error && !requests) {
     return <EmptyState icon={Send} title="API Client is unavailable" body={error} />;
   }
-  if (!requests || !environments) {
+  if (!requests || !environments || !collections) {
     return null;
   }
   if (requests.length === 0) {
@@ -82,12 +96,40 @@ export function ApiRequestView() {
             setCurl("");
           }}
         >
-          {requests.map((candidate) => (
+          {byFolderThenName(collections, requests).map((candidate) => (
             <option key={candidate.id} value={candidate.id}>
-              {candidate.method} {candidate.name}
+              {candidate.method} {requestLabel(collections, candidate)}
             </option>
           ))}
         </select>
+        {/* Filing the open request, rather than a tree in a sidebar: the
+            folder is one fact about a request, and this is where a request is
+            already being looked at. */}
+        <select
+          className="bg-transparent text-sm"
+          value={request.collectionId ?? ""}
+          aria-label="Folder"
+          onChange={(event) => {
+            saveRequest({ ...request, collectionId: event.target.value })
+              .then(reload)
+              .catch((e: Error) => setError(e.message));
+          }}
+        >
+          <option value="">No folder</option>
+          {foldersByPath(collections).map((folder) => (
+            <option key={folder.id} value={folder.id}>
+              {folderPath(collections, folder.id)}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Manage folders"
+          onClick={() => setFoldersOpen(true)}
+        >
+          <Folder className="size-4" aria-hidden />
+        </Button>
         <div className="flex-1" />
         <select
           className="bg-transparent text-sm"
@@ -113,11 +155,12 @@ export function ApiRequestView() {
             Not set in this environment: {missing.join(", ")}
           </p>
         ) : null}
-        {request.auth.accountId ? (
-          <p className="pt-1 text-xs text-fg-muted">
-            Authenticates with a saved account ({request.auth.kind})
-          </p>
-        ) : null}
+        <ApiAuthPicker
+          request={request}
+          env={environment?.env ?? ""}
+          vars={vars}
+          onSaved={reload}
+        />
       </div>
 
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
@@ -167,7 +210,15 @@ export function ApiRequestView() {
             <pre className="whitespace-pre-wrap pt-2 font-mono text-xs">{response.body}</pre>
           </section>
         ) : null}
+        {/* Keyed on the request so switching requests remounts it: a list of
+            sends left over from the previous one is worse than none. */}
+        <RequestHistory key={request.id} requestID={request.id} />
       </div>
+      <CollectionsDialog
+        open={foldersOpen}
+        onClose={() => setFoldersOpen(false)}
+        onChanged={reload}
+      />
     </div>
   );
 }

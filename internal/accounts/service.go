@@ -41,6 +41,7 @@ type Usage interface {
 type Service struct {
 	items     ItemStore
 	scoped    *scopedStore
+	choices   *choiceStore
 	providers *Registry
 	env       EnvLookup
 	usage     []Usage
@@ -317,6 +318,47 @@ func (a Account) AllowsEnv(env string) bool {
 		}
 	}
 	return false
+}
+
+// Reveal returns an account's value, for showing it to the person who owns it.
+//
+// It is the ONE method in this package whose result is meant to cross the
+// bridge, and it exists because the alternative is worse: somebody who cannot
+// read back the token they saved keeps a second copy of it somewhere DevKit
+// did not seal. Every guard around it lives above — the capability the MCP
+// subject is never granted, the Master Password re-check, the audit line —
+// because those are decisions about WHO is asking, and this package is not
+// where that is known.
+//
+// It deliberately does not take the env restriction into account: revealing is
+// not using, and an account limited to prod is still the user's to read.
+func (s *Service) Reveal(id string) (Credential, error) {
+	record, err := s.items.Get(id)
+	if err == nil {
+		account, decodeErr := decodeMetadata(record)
+		if decodeErr != nil {
+			return Credential{}, decodeErr
+		}
+		if account.Kind == KindExternal {
+			return Credential{}, ErrNothingToReveal
+		}
+		plaintext, openErr := s.items.OpenPayload(record, KeyID)
+		if openErr != nil {
+			return Credential{}, openErr
+		}
+		user, secret := splitCredential(string(plaintext))
+		return Credential{Kind: account.Kind, User: user, Secret: secret}, nil
+	}
+	if s.scoped != nil {
+		if row, scopedErr := s.scoped.byID(id); scopedErr == nil {
+			secret, openErr := s.scoped.open(row)
+			if openErr != nil {
+				return Credential{}, openErr
+			}
+			return Credential{Kind: row.Kind, User: row.Username, Secret: secret}, nil
+		}
+	}
+	return Credential{}, ErrNotFound
 }
 
 // Rotate replaces an account's value in place, so every binding keeps working.

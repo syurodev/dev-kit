@@ -13,6 +13,7 @@ export type {
     ExecuteCommandRequest,
     GitAvailability,
     ModuleDTO,
+    RevealedCredential,
     SyncConflictDTO,
     SyncConflictDetailDTO,
     SyncDeviceDTO,
