@@ -382,6 +382,63 @@ without it was worse.
   convention is not something the code can check, so the index records which project it
   describes (`index_meta`). An index written before that table simply re-indexes once.
 
+### Credentials, work and the repository (`accounts`, `tasks`, `git`, `apiclient`)
+Four modules added together; the design lives in `docs/dev-kit/{accounts,tasks,git,api-client}.mdx`
+and the cross-module rules in `docs/dev-kit/cross-module.mdx`.
+
+```bash
+go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apiclient/ ./internal/gitparse/ ./internal/notify/ -count=1
+```
+
+- **`internal/accounts` keeps two stores behind one service.** A *shared*
+  account is a vault item and syncs; a *scoped* one (a single connection's
+  password) goes to the local `account_secrets` table and does not. That is not
+  a policy choice — `db_query_history` already wrote down why: everything in
+  `vault_items` is sync-bound by construction, so a credential that must stay
+  on one machine cannot live there. It is still sealed with the DEK. The link
+  from a profile is `scope_owner`, deliberately **not** a stored `account_id`:
+  an id pointing at a row that does not sync dangles on the next device, and
+  writing a replacement back makes two devices overwrite each other forever.
+- **No method anywhere returns a credential to an agent.** `AccountsAPI` has
+  two read-only methods and no Resolve; `accounts:reveal` is granted to the
+  accounts subject only. Modules resolve inside Go at the point of use.
+- **`internal/git` is not `internal/checkpoint`.** checkpoint overrides
+  `$GIT_DIR/info/attributes` to disable the project's `.gitattributes` so bytes
+  round-trip untouched — right for a snapshot, silently wrong for a commit
+  (`* text=auto`, `*.bin filter=lfs`). Never commit the user's work through it.
+  What is shared is `Locate` and `internal/gitparse`.
+- **Push is gated, commit is not — unless a `git-guard` says so.** Push leaves
+  the machine; commit is local and reversible. A guard binds an env tag to a
+  branch *pattern*, so it also covers branches that do not exist yet. There is
+  no force push: no flag, no parameter, no code path.
+- **An agent may push only to a branch recorded on a task it holds**
+  (`task.branch`). A list living in the session dies with it; the task does not.
+- **Closing a task is the one gate.** A board may declare a `verify` command;
+  DevKit runs it and the exit code decides. An agent's own claim that tests
+  passed is a sentence with nothing behind it — DevKit cannot see the tools it
+  ran. A red result refuses and does **not** fall back to asking. Boards are
+  `tasks:admin` and UI-only, so an agent can trigger the command and never
+  choose it. Runs are background, one per project (they share a work tree),
+  queued durably in `task_verify_runs`; `Recover` puts an interrupted run back
+  to `queued` and never infers a result, and a request older than 24h goes
+  stale rather than grading code it was never made against.
+- **Every rule in `tasks` reads a status's `category`, never its name** — there
+  is a test with a board whose terminal column is called "Đã ship".
+- **Auth in `apiclient` is an account binding, not a string.** Rotation is a
+  one-place edit and Copy as cURL emits `$DEVKIT_TOKEN`. The redirect policy
+  compares the whole **origin**: comparing hostnames passed under httptest,
+  where both servers are 127.0.0.1, and the test caught the credential
+  following a cross-service redirect.
+- **`internal/notify` and `internal/gitparse` are leaves** pinned by
+  `internal/arch`, extracted as their own commits before the modules that
+  needed them. `notify.Target` is three strings and deliberately not the
+  frontend's `EntityRef`.
+- **Regenerating bindings**: `wails3` may not be on PATH. Install it into a
+  throwaway module (`go install github.com/wailsapp/wails/v3/cmd/wails3@<the
+  version in go.mod>` from a temp dir) rather than into this one, then
+  `wails3 generate bindings -clean=true -ts -i` — the `-ts` matters, the
+  default output is `.js` and this repo commits `.ts`.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
