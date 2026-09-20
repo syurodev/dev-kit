@@ -1731,6 +1731,19 @@ export function TasksArchive(id: string): $CancellablePromise<tasks$0.Task> {
     return $Call.ByID(1362818522, id);
 }
 
+/**
+ * TasksBoardChooseProject opens the native folder picker for a board's project
+ * path, which is where its verify command runs.
+ * 
+ * It is tasks:admin rather than a call into the Agent Hub's picker: asking
+ * another module for its capability to open a dialog would hand this one
+ * everything else that capability covers. Cancelling returns "" and is not an
+ * error — the settings dialog stays as it was.
+ */
+export function TasksBoardChooseProject(startIn: string): $CancellablePromise<string> {
+    return $Call.ByID(2312716230, startIn);
+}
+
 export function TasksBoardCreate(name: string, keyPrefix: string, color: string): $CancellablePromise<tasks$0.Board> {
     return $Call.ByID(4166159416, name, keyPrefix, color);
 }

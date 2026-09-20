@@ -35,6 +35,29 @@ func (s *AppService) TasksBoardCreate(name, keyPrefix, color string) (tasks.Boar
 	return result.(tasks.Board), nil
 }
 
+// TasksBoardChooseProject opens the native folder picker for a board's project
+// path, which is where its verify command runs.
+//
+// It is tasks:admin rather than a call into the Agent Hub's picker: asking
+// another module for its capability to open a dialog would hand this one
+// everything else that capability covers. Cancelling returns "" and is not an
+// error — the settings dialog stays as it was.
+func (s *AppService) TasksBoardChooseProject(startIn string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:project", map[string]any{
+		"action": "choose_project",
+	}, func(context.Context) (any, error) {
+		dialog := s.openDirDialog
+		if dialog == nil {
+			dialog = defaultOpenDirectoryDialog
+		}
+		return dialog("Where the verify command runs", startIn)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
 // TasksBoardSetVerify sets the command that closes tasks on this board.
 //
 // tasks:admin and UI-only, deliberately: changing it is changing the rule that

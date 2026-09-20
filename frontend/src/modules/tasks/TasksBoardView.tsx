@@ -9,10 +9,12 @@ import {
   listBoards,
   listTasks,
   progressOf,
+  setBoardVerify,
   transitionTask,
   type Board,
   type Task,
 } from "@/bridge/tasks";
+import { BoardVerifyDialog } from "./BoardVerifyDialog";
 
 function TaskCard({
   task,
@@ -79,6 +81,8 @@ function TaskCard({
 export function TasksBoardView() {
   const [boards, setBoards] = useState<Board[] | null>(null);
   const [boardID, setBoardID] = useState("");
+  // The board whose close rule is being edited, or null.
+  const [editingVerify, setEditingVerify] = useState<Board | null>(null);
   // null until the first load answers: an empty array here cannot tell
   // "not loaded yet" from "this board is empty", and the columns would
   // flash zero counts on every open.
@@ -152,13 +156,26 @@ export function TasksBoardView() {
             </option>
           ))}
         </select>
-        {board.verify ? (
-          <span className="text-xs text-fg-muted" title={board.verify.command}>
-            closes on `{board.verify.command}`
-          </span>
-        ) : (
-          <span className="text-xs text-fg-muted">closing asks every time</span>
-        )}
+        {/* tasks:admin and UI-only: an agent can trigger the command and can
+            never choose it. With no UI at all it was unreachable rather than
+            protected, which is not the same thing. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-fg-muted"
+          title={
+            board.verify
+              ? `DevKit runs ${board.verify.command} and the exit code decides`
+              : "Choose a command to close tasks with"
+          }
+          onClick={() => setEditingVerify(board)}
+        >
+          {board.verify ? (
+            <span className="max-w-64 truncate font-mono">closes on {board.verify.command}</span>
+          ) : (
+            "closing asks every time"
+          )}
+        </Button>
         <div className="flex-1" />
         {/* Only offered for a board that names a project: the plan belongs to
             the project Code Graph has open, and a board pointed somewhere else
@@ -203,6 +220,18 @@ export function TasksBoardView() {
           <RefreshCw className="size-4" aria-hidden />
         </Button>
       </header>
+      <BoardVerifyDialog
+        board={editingVerify}
+        onClose={() => setEditingVerify(null)}
+        onSave={(command, timeoutSec, projectPath) => {
+          setBoardVerify(editingVerify?.id ?? "", command, timeoutSec, projectPath)
+            .then(() => {
+              setEditingVerify(null);
+              reloadBoards();
+            })
+            .catch((e: Error) => setError(e.message));
+        }}
+      />
       {error ? <p className="px-3 py-1 text-xs text-red-500">{error}</p> : null}
       <div className="flex min-h-0 flex-1 gap-3 overflow-auto p-3">
         {board.workflow.statuses.map((status) => {
