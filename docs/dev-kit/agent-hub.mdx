@@ -699,10 +699,38 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 ### Known ceiling (v1)
 
 - Chỉ target ACP protocol version 1; agent nào chỉ hỗ trợ v2 chưa dùng được.
-- Adapter shipped: **Claude** (spawn qua `sandbox.StartPiped`). Mock adapter chỉ là
-  test double cho test `agenthub`/`bridge` — không đăng ký trong app, không có trong
-  bộ chọn agent.
-  Codex/Gemini vẫn Design — thêm theo cùng `VendorAdapter`, không rework core.
+- Adapter shipped **trong Agent Hub** (spawn, ACP, `VendorAdapter`): **Claude**
+  (qua `sandbox.StartPiped`). Mock adapter chỉ là test double cho test
+  `agenthub`/`bridge` — không đăng ký trong app, không có trong bộ chọn agent.
+  Gemini vẫn Design — thêm theo cùng `VendorAdapter`, không rework core.
+- **Codex — hai lớp tách rời, không phải một adapter còn thiếu.** DevKit không
+  spawn Codex và không cần `VendorAdapter` để *thấy* nó:
+
+  - **Lớp 1 (quan sát) — Implemented.** Codex chạy trong terminal của người
+    dùng, ngoài DevKit hoàn toàn. `internal/codexhook` là hợp đồng đọc thẳng
+    từ nguồn `codex-rs/hooks/` (12 lifecycle hook Codex có, DevKit đăng ký 6:
+    `SessionStart`/`UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`Stop`/`SessionEnd`).
+    `task mcp:install AGENT=codex` ghi một `mcp_tool` handler cho mỗi event vào
+    `[hooks]` trong `config.toml`, trỏ về tool `codex.hookEvent` mà DevKit tự host
+    — đúng server MCP mà install đã ghi vào `mcp_servers` từ trước. Codex gọi lại
+    tool đó ở mỗi lifecycle event; DevKit ghi vào `internal/codexsessions`
+    (bảng `codex_hook_events`, local, không sync) và luôn trả lời "tiếp tục" —
+    không có build nào chặn được một turn của Codex.
+    **Cố ý không đăng ký `PermissionRequest`**: trả lời câu hỏi permission là
+    thay cửa duyệt của Codex bằng của DevKit, và DevKit chưa có UI để quyết —
+    mọi câu trả lời tự động sẽ là "allow". Xem package doc của `codexhook` cho
+    lý do đầy đủ. Prompt text và tool input/output **seal bằng DEK** trước khi
+    lưu — đúng lý do `api_request_history` seal URL: DevKit không viết ra
+    chúng, cả hai đều có thể mang secret. UI: Settings → Agents → "Codex
+    (observed)", chỉ xem transcript, không gửi được prompt từ đó.
+  - **Lớp 2 (chạy trong Agent Hub) — Design.** Cần một `VendorAdapter` thật,
+    và đường vào chưa chốt: `@zed-industries/codex-acp` (launcher npm quanh
+    Codex core viết Rust, im lặng từ 2026-06-08 dù `@openai/codex` vẫn ship
+    hằng ngày — rủi ro chính) so với app-server JSON-RPC của chính Codex
+    (`thread/start`/`turn/start`/`ExecApprovalRequest`/`RequestUserInput` —
+    IDE extension của OpenAI dùng cái này, có versioning thật qua
+    `experimentalApi`). Phase 0 (đo app-server thật) chưa chạy — cần máy có
+    login Codex, việc `agentruntime`/CI trong môi trường này không có.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.
 - Claude adapter chưa được claim production-verified trong CI với Claude Code thật.
@@ -824,7 +852,16 @@ T0 trước vì nó rẻ và nó quyết định `fs/*` có đáng làm không. 
 
 - Chuẩn hóa Go struct bằng codegen từ JSON schema chính thức (`schema/v1`) hay viết tay? Codegen giảm rủi ro lệch field khi upstream cập nhật, nhưng thêm bước build phụ thuộc vào việc theo dõi release của `agentclientprotocol` org.
 - Session data (transcript, cost) có nên cho phép opt-in sync không, hay tuyệt đối local-only như NFR-5 đề ra? (liên quan tới câu hỏi sync đã có ở [Open questions](/dev-kit/open-questions))
-- Vendor thứ 2 nên ưu tiên viết adapter là Codex hay Gemini CLI — cần biết cả hai có ACP-compatible adapter chính thức/community ở mức trưởng thành tương đương `claude-agent-acp` không trước khi cam kết.
+- ~~Vendor thứ 2 nên ưu tiên viết adapter là Codex hay Gemini CLI — cần biết
+  cả hai có ACP-compatible adapter chính thức/community ở mức trưởng thành
+  tương đương `claude-agent-acp` không trước khi cam kết.~~ **Một phần đã
+  trả lời (2026-09-20):** Codex đi trước, nhưng không qua `codex-acp` —
+  package đó im lặng ba tháng trong khi Codex CLI ship hằng ngày. Lớp 1 (quan
+  sát qua hooks) không cần adapter nào cả và đã xong. Lớp 2 (spawn trong
+  Agent Hub) vẫn mở: chọn giữa `codex-acp` bất chấp rủi ro, hay tự viết
+  `VendorAdapter` cho app-server JSON-RPC của chính Codex — quyết định này
+  cần Phase 0 đo app-server thật trước, chưa làm được vì môi trường build
+  hiện tại không có login Codex.
 - `fs/*` và `terminal/*` có thực sự được `claude-agent-acp` gọi không, hay chỉ là plumbing chưa dùng? Quyết định cả việc Capability Gateway có mediate được file access của agent hay không — đo bằng T0 trước khi cam kết.
 - ~~Ai chịu trách nhiệm theo dõi version bump từ `agentclientprotocol` org theo thời gian?~~ **Đã chốt (2026-09-13):** DevKit khoá `TestedVersion`; bản mới nhất của registry chỉ hiện như cập nhật chưa kiểm thử, và nâng mặc định theo [quy trình Nâng `TestedVersion`](#nâng-testedversion). Guard CI (`agent-acp-guard.yml`) vẫn chạy latest để báo trước release làm hỏng kênh `_meta`.
 
