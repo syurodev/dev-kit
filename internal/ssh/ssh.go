@@ -90,6 +90,7 @@ type CommandResult struct {
 
 type Service struct {
 	store         Store
+	credentials   CredentialStore
 	envs          EnvLookup
 	mu            sync.Mutex
 	agentActiveID string
@@ -155,9 +156,24 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	record, err := s.store.Create(itemType, secretKeyID, meta, []byte(input.Secret))
+	// The secret goes to the credential store when there is one; the profile
+	// keeps an empty payload so its metadata syncs and the secret does not.
+	payload := []byte(input.Secret)
+	if s.credentials != nil {
+		payload = []byte{}
+	}
+	record, err := s.store.Create(itemType, secretKeyID, meta, payload)
 	if err != nil {
 		return ProfileSummary{}, err
+	}
+	if s.credentials != nil {
+		// The profile exists but has no usable credential until this lands, so
+		// a failure here deletes it rather than leaving one that cannot
+		// connect and gives no reason why.
+		if err := s.credentials.PutForOwner(record.ID, ProviderID, input.Name, input.Username, input.Secret); err != nil {
+			_ = s.store.Delete(record.ID)
+			return ProfileSummary{}, err
+		}
 	}
 	if input.AuthMethod == AuthKey && input.KeyPassphrase != "" {
 		if err := s.storeKeyPassphrase(record.ID, input.KeyPassphrase); err != nil {
@@ -322,7 +338,7 @@ func (s *Service) dial(ctx context.Context, id string, passphrase string) (*goss
 	if err != nil {
 		return nil, err
 	}
-	secret, err := s.store.OpenPayload(record, secretKeyID)
+	secret, err := s.secretFor(record, secretKeyID)
 	if err != nil {
 		return nil, err
 	}

@@ -256,6 +256,26 @@ hành động tường minh. Phải nói rõ trong release note của bản đ�
 Accounts, nếu không nó sẽ đọc như một bug.
 </Callout>
 
+### Migration làm hai bước, không phải một
+
+Khi implement mới lộ ra một mối nguy doc chưa tính: **một migration "dọn nhà"
+sẽ phá thiết bị khác.** Payload của profile thì sync, account scoped thì
+không. Nếu migration trên máy A xoá payload, máy B nhận về một profile không
+còn secret — mà B **không kịp tự trích** bản của mình trước, vì trích cần vault
+mở còn sync thì không đợi ai.
+
+Nên migration tách đôi:
+
+| Bước | Làm gì | An toàn vì |
+|---|---|---|
+| **Import** (`MigrateLegacyCredentials`) | **Copy** payload sang account scoped, **giữ nguyên payload** | Copy không phá gì. Chạy được trên mọi máy, theo thứ tự bất kỳ. Idempotent: profile đã có account scoped thì bỏ qua, nên chạy lại không ghi đè password vừa đổi bằng payload cũ |
+| **Stop syncing** (`ClearLegacyCredentialPayloads`) | Xoá payload của những profile **đã** có bản local | Tường minh, do người dùng bấm — đó mới là lúc chấp nhận "máy khác sẽ hỏi lại". Profile chưa có bản local thì **bỏ qua**, vì xoá nó là huỷ bản duy nhất máy này có |
+
+Profile tạo **sau** thay đổi này đi thẳng đường mới: metadata vào
+`vault_items`, secret vào bảng local, payload rỗng. Payload chỉ còn là đường
+fallback cho profile cũ — **không có gì ghi cả hai**, nên nó là di sản chứ
+không phải nguồn sự thật thứ hai.
+
 <Callout type="info" title="Migration">
 Ba record type hiện có (`db-profile`, `ssh-key-passphrase`, `kafka-profile`)
 đổi hình dạng: payload rỗng đi, metadata thêm `account_id`. App đang greenfield

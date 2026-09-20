@@ -138,7 +138,7 @@ func (s *Service) buildConnConfig(id string) (ConnConfig, error) {
 	if err := validateCleartextTransportSecurity(meta.BootstrapServers, meta.SecurityProtocol); err != nil {
 		return ConnConfig{}, err
 	}
-	secret, err := s.store.OpenPayload(record, secretKeyID)
+	secret, err := s.secretFor(record)
 	if err != nil {
 		return ConnConfig{}, err
 	}

@@ -68,6 +68,17 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	c.Accounts.RegisterUsage(apiUsage{api: c.APIClient})
 	c.Accounts.RegisterUsage(c.GitBindings)
 
+	// One store for every credential DevKit holds. From here a new database,
+	// SSH or Kafka profile keeps its metadata in vault_items — where it syncs
+	// — and its secret in the local scoped table, where it does not. Profiles
+	// written before this keep working on their payload until the migration
+	// copies them across.
+	if credentials := NewProfileCredentials(c.Accounts); credentials != nil {
+		c.Database.SetCredentialStore(credentials)
+		c.SSH.SetCredentialStore(credentials)
+		c.Kafka.SetCredentialStore(credentials)
+	}
+
 	// One answer to "what changed": Code Graph's file-tree markers now read
 	// the Git module rather than running a second `git status` of their own.
 	if c.CodeGraph != nil {

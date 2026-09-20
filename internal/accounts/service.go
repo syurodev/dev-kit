@@ -114,9 +114,25 @@ func (s *Service) createScoped(in CreateInput) (Account, error) {
 		// drift apart.
 		return Account{}, ErrInvalid
 	}
-	id, err := vaultitem.NewID()
-	if err != nil {
+	// Reuse the existing row's id when this owner already has one.
+	//
+	// The upsert keys on scope_owner and leaves the id alone, but the envelope
+	// is sealed with the id as part of its AAD. Minting a fresh id here sealed
+	// the new secret against an id the row would never carry, so the next read
+	// failed authentication — a rotation that silently destroyed the
+	// credential it was rotating.
+	id := ""
+	if existing, err := s.scoped.byOwner(in.ScopeOwner); err == nil {
+		id = existing.ID
+	} else if !errors.Is(err, ErrNotFound) {
 		return Account{}, err
+	}
+	if id == "" {
+		fresh, err := vaultitem.NewID()
+		if err != nil {
+			return Account{}, err
+		}
+		id = fresh
 	}
 	row := scopedRow{
 		ID: id, ScopeOwner: in.ScopeOwner, Provider: in.Provider,
@@ -451,4 +467,48 @@ func metadataOf(a Account) metadata {
 		State: string(a.State), ExpiresAt: formatTime(a.ExpiresAt),
 		VerifiedAt: formatTime(a.VerifiedAt), Ref: a.Ref,
 	}
+}
+
+// PutForOwner stores a connection's credential as that profile's scoped
+// account, replacing whatever was there.
+//
+// It is the write half of moving a connection secret out of its profile's
+// payload: the profile keeps its metadata and syncs, the secret stays on this
+// machine. The upsert is by owner, so calling it twice for one profile
+// replaces rather than accumulates.
+func (s *Service) PutForOwner(ownerID, provider, label, user, secret string) error {
+	if ownerID == "" || provider == "" {
+		return ErrInvalid
+	}
+	if s.scoped == nil {
+		return ErrNotFound
+	}
+	kind := KindSecret
+	if user != "" {
+		kind = KindBasic
+	}
+	_, err := s.Create(CreateInput{
+		Provider: provider, Kind: kind, Label: label,
+		User: user, Secret: secret, ScopeOwner: ownerID,
+	})
+	return err
+}
+
+// SecretForOwner reads a profile's scoped credential.
+//
+// found is false when this machine simply does not have it — a profile synced
+// from another device before its secret was entered here. That is a sentence
+// the caller can show, not an error.
+func (s *Service) SecretForOwner(ownerID string) (user, secret string, found bool, err error) {
+	if s.scoped == nil || ownerID == "" {
+		return "", "", false, nil
+	}
+	credential, err := s.Resolve(ResolveInput{ScopeOwner: ownerID, By: "profile"})
+	if errors.Is(err, ErrNotFound) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return credential.User, credential.Secret, true, nil
 }

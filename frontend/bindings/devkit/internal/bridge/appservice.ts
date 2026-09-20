@@ -81,6 +81,18 @@ export function AccountsList(): $CancellablePromise<accounts$0.Account[] | null>
     return $Call.ByID(4033894790);
 }
 
+/**
+ * AccountsMigrateProfiles copies database, SSH and Kafka secrets out of their
+ * profile payloads and into Accounts, leaving the payloads alone.
+ * 
+ * Copying is what makes it safe to run anywhere, in any order: a payload syncs
+ * and a scoped account does not, so emptying one here would leave every other
+ * device holding a profile it cannot use. Clearing is a second, explicit call.
+ */
+export function AccountsMigrateProfiles(): $CancellablePromise<app$0.MigrationReport> {
+    return $Call.ByID(646299269);
+}
+
 export function AccountsPromote(id: string, label: string): $CancellablePromise<accounts$0.Account> {
     return $Call.ByID(267954766, id, label);
 }
@@ -95,6 +107,18 @@ export function AccountsProviders(): $CancellablePromise<accounts$0.Provider[] |
  */
 export function AccountsRotate(id: string, user: string, secret: string): $CancellablePromise<void> {
     return $Call.ByID(2823647049, id, user, secret);
+}
+
+/**
+ * AccountsStopSyncingProfileSecrets empties the profile payloads whose secret
+ * is already in Accounts.
+ * 
+ * This is the moment connection passwords stop syncing, and every other device
+ * will ask for them again. Nothing calls it automatically, and a profile with
+ * no local copy is skipped rather than emptied.
+ */
+export function AccountsStopSyncingProfileSecrets(): $CancellablePromise<app$0.MigrationReport> {
+    return $Call.ByID(1579087333);
 }
 
 /**

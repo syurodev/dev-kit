@@ -183,6 +183,7 @@ type metadata struct {
 
 type Service struct {
 	store         Store
+	credentials   CredentialStore
 	envs          EnvLookup
 	mu            sync.Mutex
 	agentActiveID string
@@ -329,9 +330,24 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	record, err := s.store.Create(itemType, passwordKeyID, meta, []byte(input.Password))
+	// The password goes to the credential store when there is one, and the
+	// profile keeps an empty payload: metadata syncs, the secret does not.
+	payload := []byte(input.Password)
+	if s.credentials != nil {
+		payload = []byte{}
+	}
+	record, err := s.store.Create(itemType, passwordKeyID, meta, payload)
 	if err != nil {
 		return ProfileSummary{}, err
+	}
+	if s.credentials != nil {
+		// The profile exists but has no usable credential until this lands, so
+		// a failure here deletes it rather than leaving one that cannot
+		// connect and gives no reason why.
+		if err := s.credentials.PutForOwner(record.ID, ProviderID, input.Name, input.Username, input.Password); err != nil {
+			_ = s.store.Delete(record.ID)
+			return ProfileSummary{}, err
+		}
 	}
 	return summaryFromRecord(record)
 }
@@ -690,7 +706,7 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	if err != nil {
 		return connectionTarget{}, err
 	}
-	password, err := s.store.OpenPayload(record, passwordKeyID)
+	password, err := s.secretFor(record)
 	if err != nil {
 		return connectionTarget{}, err
 	}
