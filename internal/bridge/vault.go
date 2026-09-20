@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 
+	"devkit/internal/app"
 	"devkit/internal/audit"
 	"devkit/internal/vault"
 )
@@ -61,6 +62,7 @@ func (s *AppService) UnlockVault(masterPassword string) error {
 	})
 	if err == nil {
 		s.auditVaultLifecycle("unlock")
+		s.sweepOrphanedCredentials()
 	}
 	return err
 }
@@ -73,8 +75,21 @@ func (s *AppService) UnlockVaultWithRecovery(recoveryKey string) error {
 	})
 	if err == nil {
 		s.auditVaultLifecycle("recovery_unlock")
+		s.sweepOrphanedCredentials()
 	}
 	return err
+}
+
+// sweepOrphanedCredentials runs after an unlock and never before: the sweep
+// reads the profile list to decide what is an orphan, and that list is only
+// trustworthy once the vault is open.
+//
+// The result is dropped on purpose. Nothing is broken when it fails — a few
+// unreachable rows survive until the next unlock — and turning a successful
+// unlock into an error would report the one thing the person did do as the
+// thing that went wrong.
+func (s *AppService) sweepOrphanedCredentials() {
+	_, _ = app.SweepOrphanedCredentials(s.container)
 }
 
 func (s *AppService) LockVault() error {

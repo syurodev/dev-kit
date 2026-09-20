@@ -188,3 +188,66 @@ func mustGet(t *testing.T, c *Container, id string) vaultitem.Record {
 	}
 	return record
 }
+
+// A profile deleted on another device arrives here as a deletion; its scoped
+// credential stayed behind, sealed and unreachable, because nothing ever
+// called the sweep.
+func TestSweepRemovesACredentialWhoseProfileIsGone(t *testing.T) {
+	c := credentialContainer(t)
+	kept := writeLegacyProfile(t, c, vaultitem.ItemTypeDatabase, "db-password", "staging", "hunter2")
+	gone := writeLegacyProfile(t, c, vaultitem.ItemTypeSSH, "ssh-secret", "bastion", "s3cret")
+	for _, record := range []vaultitem.Record{kept, gone} {
+		if err := c.Accounts.PutForOwner(record.ID, accounts.ProviderDatabase, "x", "", "v"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Items.Delete(gone.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := SweepOrphanedCredentials(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+	if _, _, found, err := c.Accounts.SecretForOwner(kept.ID); err != nil || !found {
+		t.Fatalf("the live profile's credential was swept: found=%v err=%v", found, err)
+	}
+	if _, _, found, err := c.Accounts.SecretForOwner(gone.ID); err != nil || found {
+		t.Fatalf("the orphan survived: found=%v err=%v", found, err)
+	}
+}
+
+// The destructive edge. A scoped credential is local-only: deleting one cannot
+// be undone from any other device, so an owner list that comes back empty is
+// treated as a failed read rather than as "every profile is gone".
+func TestSweepRefusesWhenThereIsNoProfileAtAll(t *testing.T) {
+	c := credentialContainer(t)
+	record := writeLegacyProfile(t, c, vaultitem.ItemTypeDatabase, "db-password", "staging", "hunter2")
+	if err := c.Accounts.PutForOwner(record.ID, accounts.ProviderDatabase, "x", "", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Items.Delete(record.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := SweepOrphanedCredentials(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 {
+		t.Fatalf("swept %d rows with no profile to compare against", removed)
+	}
+	if _, _, found, err := c.Accounts.SecretForOwner(record.ID); err != nil || !found {
+		t.Fatalf("a credential was destroyed on an empty owner list: found=%v err=%v", found, err)
+	}
+}
+
+// Nothing wired is not a reason to sweep everything.
+func TestSweepDoesNothingWithoutAccountsOrItems(t *testing.T) {
+	if removed, err := SweepOrphanedCredentials(NewContainer()); err != nil || removed != 0 {
+		t.Fatalf("SweepOrphanedCredentials on a bare container = %d, %v", removed, err)
+	}
+}

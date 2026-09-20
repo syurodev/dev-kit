@@ -83,6 +83,14 @@ export function createBoard(name: string, keyPrefix: string, color: string): Pro
   );
 }
 
+/**
+ * The native folder picker for a board's project. Cancelling returns "" and is
+ * not an error — the dialog stays open with the field untouched.
+ */
+export function chooseBoardProject(startIn = ""): Promise<string> {
+  return callBridge(async () => await AppService.TasksBoardChooseProject(startIn));
+}
+
 export function setBoardVerify(
   boardId: string,
   command: string,

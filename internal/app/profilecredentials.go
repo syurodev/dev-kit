@@ -173,3 +173,41 @@ func ClearLegacyCredentialPayloads(c *Container) (MigrationReport, error) {
 	}
 	return report, nil
 }
+
+// SweepOrphanedCredentials deletes local scoped credentials whose owning
+// profile no longer exists — usually deleted on another device and synced
+// here. Without it they accumulate forever, sealed and unreachable, and the
+// method that removes them had no caller at all.
+//
+// It runs after an unlock rather than at process start because the owner list
+// has to be READ, and a read that comes back empty when it should not is the
+// one way this can do harm: a scoped credential is local-only, so deleting one
+// cannot be recovered from any other device.
+//
+// That is also why an empty owner list refuses rather than sweeps. A vault
+// holding no profile of any kind has nothing that could have left an orphan
+// behind either, so an empty list is far likelier to be a failed read than a
+// real answer. Refusing costs a few hundred bytes of dead rows until the next
+// sweep finds a profile; trusting it costs every local credential on the
+// machine.
+func SweepOrphanedCredentials(c *Container) (int, error) {
+	if c == nil || c.Accounts == nil || c.Items == nil {
+		return 0, nil
+	}
+	var owners []string
+	for _, kind := range legacyKinds() {
+		records, err := c.Items.ListByType(kind.itemType)
+		if err != nil {
+			// Sweeping on a partial list would delete the credentials of every
+			// profile the failed read would have named.
+			return 0, fmt.Errorf("app: list %s: %w", kind.itemType, err)
+		}
+		for _, record := range records {
+			owners = append(owners, record.ID)
+		}
+	}
+	if len(owners) == 0 {
+		return 0, nil
+	}
+	return c.Accounts.SweepOrphans(owners)
+}
