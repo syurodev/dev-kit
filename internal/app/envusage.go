@@ -6,16 +6,29 @@ import (
 	"devkit/internal/vaultitem"
 )
 
-// profileTypesWithEnv are vaultitem record types that store metadata.env and
-// must block Environments.DeleteTag while any profile still references the tag.
-var profileTypesWithEnv = []string{"ssh-profile", "db-profile", "kafka-profile"}
+// profileTypesWithEnv are record types storing metadata.env as ONE tag name.
+// Each must block Environments.DeleteTag while it still names the tag.
+var profileTypesWithEnv = []string{
+	vaultitem.ItemTypeSSH,
+	vaultitem.ItemTypeDatabase,
+	vaultitem.ItemTypeKafka,
+	// An API environment is a tag plus variables, and the tag is what decides
+	// whether sending asks first. Deleting it out from under one would leave a
+	// send that nothing could gate.
+	vaultitem.ItemTypeAPIEnvironment,
+}
+
+// listEnvTypes store metadata.env as a LIST: an account may be restricted to
+// several tags, or to none at all.
+var listEnvTypes = []string{vaultitem.ItemTypeAccount}
 
 type itemLister interface {
 	ListByType(itemType string) ([]vaultitem.Record, error)
 }
 
 // vaultItemEnvUsage satisfies environments.ProfileEnvUsage by scanning
-// plaintext profile metadata for a matching env name.
+// plaintext metadata for a matching env name. Plaintext is the point: this
+// answers while the vault is locked, as deleting a tag must.
 type vaultItemEnvUsage struct {
 	items itemLister
 }
@@ -42,6 +55,25 @@ func (u vaultItemEnvUsage) EnvInUse(name string) (bool, error) {
 			}
 			if meta.Env == name {
 				return true, nil
+			}
+		}
+	}
+	for _, typ := range listEnvTypes {
+		recs, err := u.items.ListByType(typ)
+		if err != nil {
+			return false, err
+		}
+		for _, rec := range recs {
+			var meta struct {
+				Env []string `json:"env"`
+			}
+			if err := json.Unmarshal(rec.Metadata, &meta); err != nil {
+				return false, err
+			}
+			for _, tag := range meta.Env {
+				if tag == name {
+					return true, nil
+				}
 			}
 		}
 	}

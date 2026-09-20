@@ -27,6 +27,11 @@ import (
 //     ReplaceIndex after a newer one's. It is not mu: queries keep reading the
 //     previous snapshot while a write is in flight.
 type Service struct {
+	// workTree is the Git module, when one is wired: the single source of
+	// what changed in the project. Nil falls back to this package's own
+	// reader — see SetWorkTreeStatus.
+	workTree WorkTreeStatus
+
 	openMu  sync.Mutex
 	mu      sync.RWMutex
 	writeMu sync.Mutex

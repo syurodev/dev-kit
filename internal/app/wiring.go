@@ -60,6 +60,12 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// Accounts refuses to delete one something still binds, which needs each
 	// module that binds to answer for itself.
 	c.Accounts.RegisterUsage(apiUsage{api: c.APIClient})
+
+	// One answer to "what changed": Code Graph's file-tree markers now read
+	// the Git module rather than running a second `git status` of their own.
+	if c.CodeGraph != nil {
+		c.CodeGraph.SetWorkTreeStatus(gitWorkTree{git: c.Git, roots: c.CodeGraph})
+	}
 }
 
 // accountResolver adapts Accounts to the narrow interfaces git and apiclient
@@ -176,17 +182,36 @@ func (t *TaskBranches) BranchesForSession(sessionID string) []string {
 	return branches
 }
 
-// GitProjectOpener points the Git module at whatever project Code Graph
-// opened, so the two never disagree about which repository is in front.
-func GitProjectOpener(c *Container) func(ctx context.Context, projectPath string) {
-	return func(ctx context.Context, projectPath string) {
-		if c.Git == nil || projectPath == "" {
-			return
-		}
-		// A project that is not a work tree is not an error here: the module
-		// shows a panel saying so and everything else carries on.
-		_ = c.Git.Open(ctx, projectPath)
-	}
+// gitWorkTree adapts the Git module to the status source codegraph declares,
+// so there is one answer to "what changed" rather than two git processes
+// disagreeing about the same work tree.
+//
+// It also keeps the two pointed at the same repository. Opening a project is
+// Code Graph's event, and rather than adding a callback for the Git module to
+// subscribe to — a second thing to remember on every path that opens a
+// project — this notices the root has changed and follows it. A directory that
+// is not a work tree is not an error: Status then reports nothing and the file
+// tree simply draws no markers.
+type gitWorkTree struct {
+	git   *gitservice.Service
+	roots projectRoot
 }
 
-var _ = gitservice.ErrNoRepository
+// projectRoot is the one thing this needs from Code Graph: where the open
+// project is.
+type projectRoot interface{ ProjectRoot() string }
+
+func (g gitWorkTree) Changes(ctx context.Context) (map[string]string, error) {
+	if g.roots != nil {
+		if root := g.roots.ProjectRoot(); root != "" && root != g.git.Project() {
+			if err := g.git.Open(ctx, root); err != nil {
+				return map[string]string{}, nil
+			}
+		}
+	}
+	status, err := g.git.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return status.Files, nil
+}
