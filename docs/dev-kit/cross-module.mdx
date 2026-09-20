@@ -73,6 +73,13 @@ Dạng chuỗi (để dán, để agent đọc): `devkit://codegraph/endpoint/PO
 - Kéo-thả chip giữa module là thao tác hợp lệ: thả chip endpoint vào composer
   = attach; thả vào task description = link.
 
+`EntityRef` sống ở **frontend**. Phía Go có một kiểu song song và nhỏ hơn —
+`notify.Target{Module, Kind, ID}` — vì `internal/notify` là leaf và không được
+import gì trong `devkit/internal`, chứ đừng nói tới một khái niệm của
+workbench. Bridge dịch giữa hai bên. **Đừng gộp chúng lại**: chúng mô tả cùng
+một thứ từ hai phía của một ranh giới tầng, và `EntityRef` mang thêm `label`,
+`project` cùng cả một registry resolver mà một leaf không có việc gì phải biết.
+
 Agent nhận `EntityRef` như **context có cấu trúc**, không phải text dán vào:
 chip endpoint trong composer trở thành một attachment mà agent resolve qua
 `codegraph.getApiFlow` — agent đọc flow mới nhất, không phải bản chụp lúc gửi.

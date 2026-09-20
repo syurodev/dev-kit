@@ -618,10 +618,41 @@ Nhưng nó ở trong `agenthub` và khoá theo `SessionID`. Tasks import vào l�
 layering. Nên đây là **tách leaf, không phải viết lại**:
 
 - `internal/notify` — `Notifier`, `DesktopNotifications`, `NotificationGate`
-  chuyển nguyên sang, đổi `SessionID` thành một **target** chung (module + id)
-  để cú click mở đúng thứ; `NotificationGate` vốn đã gộp theo session, giờ gộp
-  theo target.
+  chuyển nguyên sang, đổi `SessionID` thành một **target** chung.
 - `agenthub` thành consumer đầu tiên (hành vi không đổi), Tasks là thứ hai.
+
+Target là **kiểu của riêng `notify`**, ba chuỗi, không phải `EntityRef`:
+
+```go
+// Package notify raises OS notifications. It is a leaf: it must not import
+// any devkit/internal package.
+type Target struct{ Module, Kind, ID string }
+
+type Notification struct {
+    Target Target
+    Title  string
+    Body   string
+}
+```
+
+`EntityRef` là khái niệm của **workbench ở frontend**
+(`frontend/src/workbench/intents.ts`): nó mang `label`, `project`, và cả một
+registry resolver/intent đi kèm. Bắt một leaf Go biết tới nó là kéo ngược tầng
+— cùng luật `internal/identity` đã tự ghi cho mình: *"It is a leaf: it must not
+import any devkit/internal package"*, và `internal/arch` sẽ bắt nếu ai đó quên.
+
+Bridge dịch `Target` sang `EntityRef` khi đẩy ra UI, nên cú click vẫn mở bằng
+intent registry đã có. Hai kiểu trông giống nhau vì chúng mô tả cùng một thứ
+từ hai phía; đó là bình thường, không phải trùng lặp cần gộp.
+
+Một cái lợi rơi ra: `Target` là struct so sánh được, nên `NotificationGate`
+chuyển thẳng từ `map[string]struct{}` sang `map[Target]struct{}` — không phải
+bịa ra khoá dạng `"tasks:task:abc"` và không phải lo hai module đụng ID nhau.
+
+| Consumer | Target |
+|---|---|
+| Agent Hub | `{Module: "agenthub", Kind: "session", ID: sessionID}` |
+| Tasks | `{Module: "tasks", Kind: "task", ID: taskID}` |
 
 Cùng hình dạng với `internal/gitparse` ở [Git](/dev-kit/git): thứ đã đúng rồi
 thì kéo xuống leaf cho người thứ hai dùng, không viết bản thứ hai.
@@ -953,6 +984,7 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 | Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
 | `verify` chạy đồng bộ hay chạy nền? | **Chạy nền** (FR-8c). Kết quả rơi vào **task** chứ không vào call, nên agent bỏ đi giữa chừng cũng không mất gì. Đổi lại: một lượt một project (FR-8d), vì work tree là thứ bị tranh chấp |
 | Lượt `verify` xong thì báo thế nào? | **Notification hệ điều hành** khi người dùng không nhìn app (FR-8g) — nhưng phải **tách `internal/notify`** ra leaf trước, vì `Notifier` đang khoá theo `SessionID` của Agent Hub |
+| Target của `notify` có phải `EntityRef` không? | **Không** — `Target{Module, Kind, ID}`, ba chuỗi, của riêng leaf. `EntityRef` là khái niệm của workbench ở frontend; bridge dịch giữa hai bên |
 | Tách `internal/notify` cùng lúc với Tasks hay trước? | **Trước, thành một thay đổi thuần refactor** ([Liên module § Thứ tự](/dev-kit/cross-module#thứ-tự-triển-khai-gợi-ý), bước 3). Lúc tách, `agenthub` vẫn là consumer duy nhất và hành vi không đổi — nên CI đỏ ở bước đó chỉ có thể là do lần tách |
 | Hàng đợi `verify` có lưu không? | **Có, SQLite** (FR-8e). Lượt đang chạy khi thoát thì **quay lại hàng đợi**, không bao giờ suy ra kết quả; quá hạn thì `stale` chứ không chạy lén (FR-8f) |
 | "Thêm sub task" nghĩa là gì? | **Lớp UI**: checklist trong detail, bộ đếm trên card, kéo-thả gán cha (FR-15b). Giữ một cấp, giữ `parent_id`, không thêm tool MCP nào |
@@ -965,12 +997,6 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
   tránh cướp nhầm một agent đang reconnect?
 - Ngưỡng `stale` mặc định 24h (FR-8f). Nên cho board khai lại, hay một con số
   cứng là đủ và khai được chỉ thêm một nút để chỉnh sai?
-- Sau khi tách, `agenthub` gọi `notify` với target kind `session`. Tasks dùng
-  kind `task`. Target nên chính là `EntityRef` của
-  [Liên module](/dev-kit/cross-module#primitive-1--entityref) — đã có sẵn
-  `module` + `kind` + `id` và cú click đã biết cách mở — hay một kiểu nhỏ hơn
-  của riêng `notify`, để một leaf không phải biết tới khái niệm của workbench?
-
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />
   <Card title="Code Graph" href="/dev-kit/codegraph" description="Plan-first flow — plan đã duyệt sinh backlog, auto-diff đẩy task sang review" />
