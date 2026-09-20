@@ -25,6 +25,9 @@ import * as app$0 from "../app/models.js";
 import * as codegraph$0 from "../codegraph/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as codexsessions$0 from "../codexsessions/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -876,6 +879,29 @@ export function CodeGraphWaitForIndexReady(): $CancellablePromise<number> {
  */
 export function CodeGraphWriteFile(relativePath: string, content: string, expectedRoot: string): $CancellablePromise<void> {
     return $Call.ByID(3478134130, relativePath, content, expectedRoot);
+}
+
+/**
+ * CodexSessionEvents returns one session's transcript, oldest first. limit
+ * <= 0 means every event the session has, up to codexsessions.EventLimit.
+ */
+export function CodexSessionEvents(sessionID: string, limit: number): $CancellablePromise<codexsessions$0.Event[] | null> {
+    return $Call.ByID(45765138, sessionID, limit);
+}
+
+/**
+ * CodexSessionsClear forgets every session this machine has observed.
+ */
+export function CodexSessionsClear(): $CancellablePromise<void> {
+    return $Call.ByID(2167785409);
+}
+
+export function CodexSessionsClearSession(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(2609145315, sessionID);
+}
+
+export function CodexSessionsList(): $CancellablePromise<codexsessions$0.Session[] | null> {
+    return $Call.ByID(960950164);
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

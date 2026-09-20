@@ -5,6 +5,7 @@ import (
 
 	"devkit/internal/capabilities"
 	"devkit/internal/codegraph"
+	"devkit/internal/codexhook"
 	"devkit/internal/database"
 	"devkit/internal/environments"
 	"devkit/internal/identity"
@@ -27,6 +28,12 @@ type Caller interface {
 		metadata map[string]any,
 		handler capabilities.Handler,
 	) (any, error)
+}
+
+// CodexHookAPI is the write side of an external Codex CLI session's
+// lifecycle hooks — the only method a hook call needs.
+type CodexHookAPI interface {
+	Record(call codexhook.Call) error
 }
 
 // NotesAPI is the notes domain surface MCP tools invoke (duck-typed).
@@ -159,6 +166,11 @@ type Deps struct {
 	Git       GitAPI       // optional nil until wired from main
 	Accounts  AccountsAPI  // optional nil until wired from main
 	API       APIClientAPI // optional nil until wired from main
+	// CodexHook records a lifecycle hook call from an external Codex CLI
+	// session — a session DevKit did not spawn. Optional nil until wired
+	// from main; codexsessions.Service is itself nil-safe, so a nil here
+	// only means the tool answers every hook without recording anything.
+	CodexHook CodexHookAPI
 	// PlanBacklog joins Tasks and Code Graph. Nil leaves tasks.createFromPlan
 	// unregistered. Anything assigned here must be a real value: a nil
 	// pointer in this interface is not a nil interface, and the check below
@@ -207,6 +219,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerGit(ms)
 	s.registerAccounts(ms)
 	s.registerAPIClient(ms)
+	s.registerCodexHook(ms)
 	return ms
 }
 

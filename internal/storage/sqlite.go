@@ -67,8 +67,17 @@ const (
 	// SEALED rather than stored in plaintext: an interpolated URL can carry a
 	// secret variable, and a local file is still at rest.
 	TableAPIRequestHistory = "api_request_history"
-	TableAppPreferences    = "app_preferences"
-	TableUIState           = "ui_state"
+
+	// TableCodexHookEvents is what an external Codex CLI session reported
+	// through its lifecycle hooks (internal/codexhook). Local-only, like
+	// api_request_history: it says what this machine observed, not what the
+	// project is. Prompt text and tool input/output are SEALED — a prompt can
+	// as easily carry a secret as a URL query string can, and DevKit did not
+	// write either.
+	TableCodexHookEvents = "codex_hook_events"
+
+	TableAppPreferences = "app_preferences"
+	TableUIState        = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
@@ -923,7 +932,38 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26})
+	m27 := Migration{
+		Version: 27,
+		Name:    "codex hook events",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					session_id TEXT NOT NULL,
+					event TEXT NOT NULL,
+					cwd TEXT NOT NULL DEFAULT '',
+					turn_id TEXT NOT NULL DEFAULT '',
+					model TEXT NOT NULL DEFAULT '',
+					permission_mode TEXT NOT NULL DEFAULT '',
+					tool_name TEXT NOT NULL DEFAULT '',
+					summary TEXT NOT NULL DEFAULT '',
+					detail_envelope TEXT NOT NULL DEFAULT '',
+					occurred_at TEXT NOT NULL
+				)`, TableCodexHookEvents,
+			)); err != nil {
+				return err
+			}
+			// The transcript for one session, and the "which sessions exist"
+			// list, both read newest-first off this same pair.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_codex_hook_events_session ON %s (session_id, occurred_at)`,
+				TableCodexHookEvents,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27})
 	if err != nil {
 		return err
 	}

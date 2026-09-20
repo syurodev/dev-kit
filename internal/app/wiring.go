@@ -8,6 +8,7 @@ import (
 	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/apiclient"
+	"devkit/internal/codexsessions"
 	gitservice "devkit/internal/git"
 	"devkit/internal/interaction"
 	"devkit/internal/notify"
@@ -27,6 +28,7 @@ type Tables struct {
 	AccountSecrets     string
 	AccountHostChoices string
 	APIRequestHistory  string
+	CodexHookEvents    string
 	TaskVerifyRuns     string
 }
 
@@ -54,6 +56,12 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// Without this a send still goes out and records nothing: history is a
 	// convenience, not a precondition.
 	c.APIClient.SetHistory(db, tables.APIRequestHistory, vaultService)
+	// Prompt text and tool input/output are sealed the same way the URL in
+	// api_request_history is: DevKit did not write either, and both can carry
+	// a secret. Without this the MCP tool that receives Codex's hooks still
+	// answers them — see codexsessions.Service's nil methods — it simply
+	// records nothing.
+	c.CodexSessions = codexsessions.NewService(db, tables.CodexHookEvents, vaultService)
 	c.APIClient.SetCredentials(accountResolver{accounts: c.Accounts})
 	if c.Interaction != nil {
 		c.APIClient.SetConfirmer(hubConfirmer{hub: c.Interaction, kind: interaction.KindAPI})

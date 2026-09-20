@@ -13,6 +13,7 @@ import (
 	"devkit/internal/auth"
 	"devkit/internal/capabilities"
 	"devkit/internal/codegraph"
+	"devkit/internal/codexsessions"
 	"devkit/internal/commands"
 	"devkit/internal/database"
 	"devkit/internal/environments"
@@ -111,6 +112,12 @@ type Container struct {
 	APIClient    *apiclient.Service
 	Sync         SyncService
 	SyncConflict SyncConflictService
+	// CodexSessions stores what an external Codex CLI session reported through
+	// its lifecycle hooks — a session DevKit did not spawn and does not run.
+	// Nil in ephemeral containers, which leaves it read-only-empty: the MCP
+	// tool that writes to it treats a nil service as "log nothing" rather
+	// than panicking, and an app without SQLite simply shows no history.
+	CodexSessions *codexsessions.Service
 	// Interaction is the shared MCP/UI hub for selection and confirmation
 	// dialogs. Set from main before NewAppService so bridge and MCP share one
 	// instance. Nil in ephemeral tests that do not exercise interaction.
@@ -351,6 +358,16 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.apiclient", Capability: "api:send", Scope: "request:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
+		// codexhook:report is the MCP tool an external Codex CLI's own hooks
+		// call; codex:read/write are the UI's read-only view onto what was
+		// recorded. Two different capabilities for one feature because they
+		// answer to two different callers — Codex over the shared socket,
+		// the person over the bridge — and a Codex process should never be
+		// able to clear its own history.
+		{SubjectID: "builtin.codexhook", Capability: "codexhook:report", Scope: "event"},
+		{SubjectID: "builtin.codexhook", Capability: "codex:read", Scope: "session:list"},
+		{SubjectID: "builtin.codexhook", Capability: "codex:read", Scope: "session:*"},
+		{SubjectID: "builtin.codexhook", Capability: "codex:write", Scope: "session:*"},
 	}...))
 
 	vaultService := vault.NewService(keyringStore)

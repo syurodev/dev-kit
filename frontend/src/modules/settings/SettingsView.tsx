@@ -35,6 +35,7 @@ import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
+import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import {
@@ -797,6 +798,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>NOTIFICATIONS</GroupLabel>
         <AgentNotificationSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>CODEX (OBSERVED)</GroupLabel>
+        <CodexSessionsSetting />
       </div>
     </TabColumn>
   );

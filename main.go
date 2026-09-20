@@ -662,6 +662,7 @@ func main() {
 		AccountSecrets:     storage.TableAccountSecrets,
 		AccountHostChoices: storage.TableAccountHostChoices,
 		APIRequestHistory:  storage.TableAPIRequestHistory,
+		CodexHookEvents:    storage.TableCodexHookEvents,
 		TaskVerifyRuns:     storage.TableTaskVerifyRuns,
 	})
 	// The board asks the hub whether a session is still alive before letting
@@ -694,6 +695,14 @@ func main() {
 		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
 		// not import app, and apiclient must not import codegraph.
 		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),
+		// The write side of an external Codex CLI session's lifecycle hooks.
+		// container.CodexSessions is set by WireCredentialsAndWork above, which
+		// must run first: a nil *codexsessions.Service assigned into this
+		// interface field would be the typed-nil trap — an interface that is
+		// NOT == nil, so registerCodexHook's own nil check would not catch it,
+		// and every hook call would panic on a nil db instead of the tool
+		// simply never registering.
+		CodexHook: container.CodexSessions,
 		// Which branches an agent may push: the ones written on tasks it
 		// holds, so the permission survives the session that created them.
 		TaskBranches: app.NewTaskBranches(container.Tasks),
