@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ArrowRight, ChevronDown, ChevronRight, GitBranch, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffLineRow } from "@/components/ui/diff";
@@ -12,18 +13,12 @@ import {
   gitCommit,
   gitFetch,
   gitFilePatch,
-  gitGuards,
   gitPull,
   gitPush,
-  gitRemotes,
   gitStage,
   gitStageHunk,
-  gitStatus,
   gitUnstage,
   seedMessage,
-  type GitStatus,
-  type Guard,
-  type Remote,
 } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { useModuleFolder } from "@/stores/workFolder";
@@ -35,7 +30,7 @@ import { HeadingAction, RowAction, StatusMark } from "./GitParts";
 import { focusGitPath, useGitFocus } from "./gitFocus";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { markKind, splitPath, syncText, type MarkKind } from "./rail";
-import { recallSnapshot, rememberSnapshot } from "./gitSnapshot";
+import { refreshGitRepo, useGitRepo } from "./gitRepo";
 import { remoteFor } from "./remotes";
 
 /** Long hunks are shown to their first this-many lines and then counted. */
@@ -142,20 +137,32 @@ function HunkCard({ hunk, busy, onStage }: { hunk: Hunk; busy: boolean; onStage:
   );
 }
 
+/** A list this long is cut, and the rest is one click away: a work tree with a build folder untracked can hold thousands. */
+const SECTION_ROWS = 200;
+
 /** One list of files under a heading, in a card — Staged, Changes, Untracked. */
 function ChangeSection({
   title,
   count,
   tone = "default",
   actions,
+  limit,
+  onMore,
   children,
 }: {
   title: string;
   count: number;
   tone?: "default" | "warning";
   actions?: ReactNode;
+  /** How many of `count` rows `children` holds; fewer means there is more to show. */
+  limit?: number;
+  onMore?: () => void;
   children: ReactNode;
 }) {
+  // Rows that come and go — a file staged, a hunk done — slide instead of
+  // cutting; the same 180 ms as every other list in the app.
+  const [list] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const hidden = limit !== undefined && count > limit ? count - limit : 0;
   return (
     <section>
       <header className="flex items-center justify-between gap-2 px-1 pb-1.5">
@@ -166,11 +173,24 @@ function ChangeSection({
           )}
         >
           {title}
-          <span className="text-code-11 opacity-70">{count}</span>
+          <span className="text-code-11 tabular-nums opacity-70">{count}</span>
         </h3>
         {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
       </header>
-      <ul className="flex flex-col rounded-lg border border-border-subtle bg-surface-well p-1">{children}</ul>
+      <ul ref={list} className="flex flex-col rounded-lg border border-border-subtle bg-surface-well p-1">
+        {children}
+        {hidden > 0 ? (
+          <li>
+            <button
+              type="button"
+              onClick={onMore}
+              className="h-9 w-full rounded-md text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-state-soft hover:text-text-primary"
+            >
+              <span className="tabular-nums">{hidden}</span> more — show {Math.min(hidden, SECTION_ROWS)}
+            </button>
+          </li>
+        ) : null}
+      </ul>
     </section>
   );
 }
@@ -218,7 +238,7 @@ function ChangeRow({
   );
   return (
     <li className={cn("rounded-md", unfolded && "bg-state-soft")}>
-      <div className="flex items-center gap-2.5 py-1.5 pr-3 pl-3">
+      <div className="flex h-9 items-center gap-2.5 pr-3 pl-3">
         {onToggle ? (
           <button
             type="button"
@@ -249,26 +269,19 @@ function ChangeRow({
  * staging one would commit the markers, and the backend refuses a commit while
  * any remain.
  *
- * Every change made here — and by the rail, which stages too — goes through
- * bumpGitRevision(), and this view reads again when the revision moves. There
- * is no other way it learns the repository changed underneath it.
+ * What is shown is what Git last read (gitRepo), shared with the rail: every
+ * change made here — and by the rail, which stages too — goes through
+ * bumpGitRevision(), and this view asks for a read when the revision moves. The
+ * commit message is not state of this component: typing in it must not redraw
+ * the file lists (see Composer).
  */
 export function GitChangesView() {
   const revision = useGitRevision((state) => state.revision);
   const expanded = useGitFocus((state) => state.path);
   const { folder } = useModuleFolder("git");
-  // Painted from what this folder last showed, if anything, while the first
-  // read is on its way; see gitSnapshot.
-  const [remembered] = useState(() => recallSnapshot(folder));
-  const [status, setStatus] = useState<GitStatus | null>(remembered?.status ?? null);
-  // null until loaded: "no guard" and "not asked yet" are different answers,
-  // and one of them means committing will not ask.
-  const [guards, setGuards] = useState<Guard[] | null>(remembered?.guards ?? null);
-  // null until asked: fetch, pull and push stay disabled until then, and no
-  // remote is the answer only when git has said so.
-  const [remotes, setRemotes] = useState<Remote[] | null>(remembered?.remotes ?? null);
+  const entry = useGitRepo(folder);
+  const snapshot = entry?.snapshot ?? null;
   const [unavailable, setUnavailable] = useState("");
-  const [message, setMessage] = useState("");
   // The unmerged path being resolved. The panel takes the whole view while it
   // is open: a three-pane merge does not fit beside a file list, and nothing
   // else here can be done until the merge is finished or thrown away.
@@ -277,7 +290,10 @@ export function GitChangesView() {
   // push is a race over the same branch.
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
+  // What an action here failed with. A failed read is the entry's own error.
+  const [actionError, setActionError] = useState("");
+  // How many rows each section shows, when it has been asked for more.
+  const [limits, setLimits] = useState<Record<string, number>>({});
 
   // Asked alongside the first read, not before it: a missing git makes the read
   // fail as well, and this is what says why.
@@ -292,42 +308,21 @@ export function GitChangesView() {
   }, []);
 
   useEffect(() => {
-    let live = true;
-    gitStatus()
-      .then((next) => {
-        if (!live) return;
-        setStatus(next);
-        setError("");
-      })
-      .catch((e: Error) => live && setError(e.message));
-    gitGuards()
-      .then((next) => live && setGuards(next))
-      .catch(() => live && setGuards([]));
-    gitRemotes()
-      .then((next) => live && setRemotes(next))
-      .catch(() => live && setRemotes([]));
-    return () => {
-      live = false;
-    };
-    // revision is not read: it is the reason to read again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision]);
+    void refreshGitRepo(folder, String(revision));
+  }, [folder, revision]);
 
-  useEffect(() => {
-    if (status && guards) rememberSnapshot(folder, { status, guards, remotes });
-  }, [folder, status, guards, remotes]);
-
-  const fail = useCallback((e: Error) => setError(e.message), []);
+  const fail = (e: Error) => setActionError(e.message);
 
   /** Runs a change to the repository, then has everything that shows it read again. */
   function change(work: Promise<unknown>) {
+    setActionError("");
     work.then(bumpGitRevision).catch(fail);
   }
 
   function network(key: string, work: Promise<void>, done: string) {
     setBusy(key);
     setNotice("");
-    setError("");
+    setActionError("");
     work
       .then(() => {
         setNotice(done);
@@ -340,10 +335,10 @@ export function GitChangesView() {
   if (unavailable) {
     return <EmptyState icon={GitBranch} title="Git is not available" body={unavailable} />;
   }
-  if (error && !status) {
-    return <EmptyState icon={GitBranch} title="Nothing to show" body={error} />;
+  if (!snapshot && entry?.error) {
+    return <EmptyState icon={GitBranch} title="Nothing to show" body={entry.error} />;
   }
-  if (!status || !guards) {
+  if (!snapshot) {
     // Nothing read yet and nothing remembered: hold the bar's place so the
     // view does not open on an empty pane and then shift down.
     return (
@@ -357,7 +352,7 @@ export function GitChangesView() {
     return (
       <GitConflictPanel
         path={resolving}
-        branch={status.branch}
+        branch={snapshot.status.branch}
         onClose={() => setResolving("")}
         onResolved={() => {
           setResolving("");
@@ -367,12 +362,13 @@ export function GitChangesView() {
     );
   }
 
+  const { status, guards, remotes } = snapshot;
   // The guard covering the branch you are on, if any. Its absence is the
   // default and is not a problem to report — committing simply does not ask.
   const guard = guards.find((candidate) => matchesBranch(candidate.pattern, status.branch));
   const remote = remoteFor(
     status.upstream,
-    (remotes ?? []).map((r) => r.name),
+    remotes.map((r) => r.name),
   );
 
   const staged = status.staged ?? [];
@@ -382,6 +378,9 @@ export function GitChangesView() {
   const clean = staged.length + unstaged.length + untracked.length + conflicted.length === 0;
   const sync = syncText(status);
   const toggle = (path: string) => focusGitPath(expanded === path ? "" : path);
+  const limitOf = (key: string) => limits[key] ?? SECTION_ROWS;
+  const more = (key: string) => () => setLimits((current) => ({ ...current, [key]: limitOf(key) + SECTION_ROWS }));
+  const problem = actionError || entry?.error || "";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -392,16 +391,16 @@ export function GitChangesView() {
             branch={status.branch}
             dirty={staged.length + unstaged.length + conflicted.length > 0}
             onChanged={bumpGitRevision}
-            onError={(m) => setError(m)}
+            onError={setActionError}
           />
-          {sync ? <span className="text-code-11 text-text-tertiary">{sync}</span> : null}
+          {sync ? <span className="text-code-11 tabular-nums text-text-tertiary">{sync}</span> : null}
           {guard ? (
             <button
               type="button"
               aria-label={`Stop asking before commits on ${guard.pattern}`}
               title={`Committing on ${guard.pattern} asks first (${guard.env}). Click to stop asking.`}
               onClick={() => change(deleteGuard(guard.id))}
-              className="inline-flex items-center gap-1.5 rounded-md bg-action-primary/12 px-2 py-0.75 text-caption-11 text-text-secondary hover:bg-action-primary/20"
+              className="inline-flex items-center gap-1.5 rounded-md bg-action-primary/12 px-2 py-0.75 text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-action-primary/20"
             >
               <ShieldCheck className="size-(--icon-12) shrink-0" aria-hidden />
               {guard.pattern} · asks before committing
@@ -456,7 +455,7 @@ export function GitChangesView() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 pb-3">
+      <div className="scrollbar-gutter-stable flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 pb-3">
         {clean ? <EmptyState icon={GitBranch} title="Nothing changed" body="The work tree is clean." /> : null}
 
         {conflicted.length > 0 ? (
@@ -464,6 +463,8 @@ export function GitChangesView() {
             title="Conflicts · resolve before committing"
             count={conflicted.length}
             tone="warning"
+            limit={limitOf("conflicted")}
+            onMore={more("conflicted")}
             actions={
               <HeadingAction
                 title="Throw the whole merge away and go back to before it started"
@@ -473,7 +474,7 @@ export function GitChangesView() {
               </HeadingAction>
             }
           >
-            {conflicted.map((path) => (
+            {conflicted.slice(0, limitOf("conflicted")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
@@ -489,9 +490,11 @@ export function GitChangesView() {
           <ChangeSection
             title="Staged"
             count={staged.length}
+            limit={limitOf("staged")}
+            onMore={more("staged")}
             actions={<HeadingAction onClick={() => change(gitUnstage(staged))}>Unstage all</HeadingAction>}
           >
-            {staged.map((path) => (
+            {staged.slice(0, limitOf("staged")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
@@ -507,9 +510,11 @@ export function GitChangesView() {
           <ChangeSection
             title="Changes"
             count={unstaged.length}
+            limit={limitOf("unstaged")}
+            onMore={more("unstaged")}
             actions={<HeadingAction onClick={() => change(gitStage(unstaged))}>Stage all</HeadingAction>}
           >
-            {unstaged.map((path) => (
+            {unstaged.slice(0, limitOf("unstaged")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
@@ -519,7 +524,7 @@ export function GitChangesView() {
                 open={expanded === path}
                 onToggle={() => toggle(path)}
               >
-                <HunkList path={path} onStaged={bumpGitRevision} onError={(m) => setError(m)} />
+                <HunkList path={path} onStaged={bumpGitRevision} onError={setActionError} />
               </ChangeRow>
             ))}
           </ChangeSection>
@@ -529,9 +534,11 @@ export function GitChangesView() {
           <ChangeSection
             title="Untracked"
             count={untracked.length}
+            limit={limitOf("untracked")}
+            onMore={more("untracked")}
             actions={<HeadingAction onClick={() => change(gitStage(untracked))}>Stage all</HeadingAction>}
           >
-            {untracked.map((path) => (
+            {untracked.slice(0, limitOf("untracked")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
@@ -545,56 +552,96 @@ export function GitChangesView() {
       </div>
 
       <footer className="flex shrink-0 flex-col gap-2 px-4 pt-2 pb-4">
-        {error ? (
-          <p className="text-caption-11 text-status-danger" role="alert">
-            {error}
-          </p>
-        ) : notice ? (
-          <p className="text-caption-11 text-text-tertiary" role="status">
-            {notice}
-          </p>
-        ) : null}
-        <Textarea
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder="Commit message"
-          rows={3}
-          aria-label="Commit message"
-          className="min-h-17 rounded-lg border-0 bg-state-soft px-3 py-2.5 text-body-13 dark:bg-state-soft"
+        {/* One line is always here, so a message arriving does not push the
+            composer down and shrink the list above it. */}
+        <p
+          className={cn("min-h-4 text-caption-11", problem ? "text-status-danger" : "text-text-tertiary")}
+          role={problem ? "alert" : "status"}
+        >
+          {problem || notice}
+        </p>
+        <Composer
+          staged={staged}
+          branch={status.branch}
+          blocked={conflicted.length > 0}
+          onCommit={(message) => {
+            setActionError("");
+            return gitCommit(message)
+              .then(() => bumpGitRevision())
+              .catch((e: Error) => {
+                fail(e);
+                // The message is kept: a refused commit is not a lost one.
+                throw e;
+              });
+          }}
         />
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            disabled={staged.length === 0}
-            // The seeded body is the list of paths — a statement of fact. The
-            // subject line stays the person's to write.
-            onClick={() => setMessage((current) => current + seedMessage(staged))}
-            className="text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:text-text-primary disabled:pointer-events-none disabled:opacity-38"
-          >
-            Seed from staged
-          </button>
-          <span className="min-w-0 flex-1" />
-          <span className="text-caption-11 text-text-tertiary">
-            {staged.length === 0
-              ? "Nothing staged"
-              : `${staged.length} staged · will commit on ${status.branch || "a detached HEAD"}`}
-          </span>
-          <Button
-            disabled={staged.length === 0 || message.trim() === "" || conflicted.length > 0}
-            onClick={() =>
-              change(
-                gitCommit(message).then(() => {
-                  setMessage("");
-                }),
-              )
-            }
-          >
-            Commit
-            <ArrowRight aria-hidden />
-          </Button>
-        </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * The commit message and the button that commits it. The message is state of
+ * this component and no other: it changes with every keystroke, and if the view
+ * held it the lists of files above would be redrawn for each one.
+ */
+function Composer({
+  staged,
+  branch,
+  blocked,
+  onCommit,
+}: {
+  staged: string[];
+  branch: string;
+  /** Unmerged files: the backend refuses a commit while any remain. */
+  blocked: boolean;
+  /** Rejects when the commit fails, so the message is kept. */
+  onCommit: (message: string) => Promise<void>;
+}) {
+  const [message, setMessage] = useState("");
+  return (
+    <>
+      <Textarea
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Commit message"
+        rows={3}
+        aria-label="Commit message"
+        className="min-h-17 rounded-lg border-0 bg-state-soft px-3 py-2.5 text-body-13 dark:bg-state-soft"
+      />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={staged.length === 0}
+          // The seeded body is the list of paths — a statement of fact. The
+          // subject line stays the person's to write.
+          onClick={() => setMessage((current) => current + seedMessage(staged))}
+          className="text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:text-text-primary disabled:pointer-events-none disabled:opacity-38"
+        >
+          Seed from staged
+        </button>
+        <span className="min-w-0 flex-1" />
+        <span className="text-caption-11 text-text-tertiary">
+          {staged.length === 0 ? (
+            "Nothing staged"
+          ) : (
+            <>
+              <span className="tabular-nums">{staged.length}</span> staged · will commit on{" "}
+              {branch || "a detached HEAD"}
+            </>
+          )}
+        </span>
+        <Button
+          disabled={staged.length === 0 || message.trim() === "" || blocked}
+          onClick={() => {
+            onCommit(message).then(() => setMessage(""), () => undefined);
+          }}
+        >
+          Commit
+          <ArrowRight aria-hidden />
+        </Button>
+      </div>
+    </>
   );
 }
 

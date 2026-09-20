@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { FileDiff, GitCommitHorizontal, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffSplitPanes } from "@/components/ui/diff";
@@ -10,6 +10,11 @@ import { StatePill, StatusMark } from "./GitParts";
 import { changeSummary, commitBody, patchLines } from "./commitView";
 import { parsePatch, type FilePatch } from "./hunks";
 import { changeMarkKind, splitPath } from "./rail";
+
+/** A commit can touch thousands of files; the list shows this many and offers the rest by the page. */
+const FILE_ROWS = 200;
+/** Lines of one file's diff drawn at once. The panes have fixed-height rows and no windowing, so a generated file changing wholesale would be a wall of DOM. */
+const DIFF_LINES = 1500;
 
 const KIND_MARK: Record<Change["kind"], string> = {
   added: "A",
@@ -83,12 +88,14 @@ function CommitView({ rev }: { rev: string }) {
   const [changes, setChanges] = useState<Change[] | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
+  const [shownFiles, setShownFiles] = useState(FILE_ROWS);
 
   useEffect(() => {
     let live = true;
     setCommit(null);
     setChanges(null);
     setSelected("");
+    setShownFiles(FILE_ROWS);
     Promise.all([gitCommitInfo(rev), gitDiff(rev, false)])
       .then(([info, files]) => {
         if (!live) return;
@@ -136,14 +143,14 @@ function CommitView({ rev }: { rev: string }) {
       </div>
 
       {text ? <p className="text-body-13 whitespace-pre-line text-text-secondary">{text}</p> : null}
-      <p className="text-caption-11 text-text-tertiary">{changeSummary(changes)}</p>
+      <p className="text-caption-11 tabular-nums text-text-tertiary">{changeSummary(changes)}</p>
 
       {changes.length === 0 ? (
         <EmptyState icon={FileDiff} title="No file changes" body="This commit changes no files, or only merges." />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3.5">
-          <ul className="flex w-75 shrink-0 flex-col overflow-auto rounded-lg border border-border-subtle bg-surface-well">
-            {changes.map((change) => (
+          <ul className="scrollbar-gutter-stable flex w-75 shrink-0 flex-col overflow-auto rounded-lg border border-border-subtle bg-surface-well">
+            {changes.slice(0, shownFiles).map((change) => (
               <FileRow
                 key={change.path}
                 change={change}
@@ -151,6 +158,18 @@ function CommitView({ rev }: { rev: string }) {
                 onSelect={() => setSelected(change.path)}
               />
             ))}
+            {changes.length > shownFiles ? (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setShownFiles((count) => count + FILE_ROWS)}
+                  className="h-9 w-full text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-state-soft hover:text-text-primary"
+                >
+                  <span className="tabular-nums">{changes.length - shownFiles}</span> more — show{" "}
+                  {Math.min(changes.length - shownFiles, FILE_ROWS)}
+                </button>
+              </li>
+            ) : null}
           </ul>
           <div className="min-w-0 flex-1 overflow-auto">
             <FileDiffPanes rev={rev} path={selected} after={commit.short} before={commit.parent} />
@@ -171,6 +190,8 @@ function CopyShaButton({ sha }: { sha: string }) {
   return (
     <Button
       variant="outline"
+      // "Copied" and "Copy SHA" are different widths; the button keeps one.
+      className="min-w-24"
       onClick={() => {
         // A refusal (no permission, no secure context) is not worth a message:
         // the hash is on screen and can be selected.
@@ -195,7 +216,7 @@ function FileRow({ change, selected, onSelect }: { change: Change; selected: boo
         aria-current={selected ? "true" : undefined}
         title={change.path}
         className={cn(
-          "flex w-full items-center gap-2 px-2.5 py-1.75 text-left",
+          "flex h-12 w-full items-center gap-2 px-2.5 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
           selected ? "bg-state-soft" : "hover:bg-state-soft",
         )}
       >
@@ -208,9 +229,9 @@ function FileRow({ change, selected, onSelect }: { change: Change; selected: boo
           <span className="shrink-0 text-code-11 text-text-tertiary">binary</span>
         ) : (
           <>
-            {change.added > 0 ? <span className="shrink-0 text-code-11 text-status-success">+{change.added}</span> : null}
+            {change.added > 0 ? <span className="shrink-0 text-code-11 tabular-nums text-status-success">+{change.added}</span> : null}
             {change.removed > 0 ? (
-              <span className="shrink-0 text-code-11 text-status-danger">−{change.removed}</span>
+              <span className="shrink-0 text-code-11 tabular-nums text-status-danger">−{change.removed}</span>
             ) : null}
           </>
         )}
@@ -236,10 +257,14 @@ function FileDiffPanes({ rev, path, before, after }: { rev: string; path: string
     };
   }, [rev, path]);
 
-  const current = patch?.path === path ? patch.value : null;
-  const lines = useMemo(() => (current ? patchLines(current) : []), [current]);
-  const pairs = useMemo(() => splitPairs(lines), [lines]);
-  const runs = useMemo(() => changedRuns(pairs), [pairs]);
+  // The previous file's diff stays, dimmed, until the chosen one's lands: an
+  // empty pane between two files is a flicker for a read that takes a frame.
+  const current = patch?.value ?? null;
+  const carried = patch !== null && patch.path !== path;
+  const all = current ? patchLines(current) : [];
+  const lines = all.length > DIFF_LINES ? all.slice(0, DIFF_LINES) : all;
+  const pairs = splitPairs(lines);
+  const runs = changedRuns(pairs);
 
   if (error) {
     return <p className="text-caption-11 text-status-danger">{error}</p>;
@@ -257,11 +282,22 @@ function FileDiffPanes({ rev, path, before, after }: { rev: string; path: string
     );
   }
   return (
-    <DiffSplitPanes
-      pairs={pairs}
-      runs={runs}
-      leftLabel={`BEFORE · ${before || "none"}`}
-      rightLabel={`AFTER · ${after}`}
-    />
+    <div
+      aria-busy={carried}
+      className={cn("flex flex-col gap-2 transition-opacity duration-(--motion-fast)", carried && "pointer-events-none opacity-60")}
+    >
+      <DiffSplitPanes
+        pairs={pairs}
+        runs={runs}
+        leftLabel={`BEFORE · ${before || "none"}`}
+        rightLabel={`AFTER · ${after}`}
+      />
+      {all.length > lines.length ? (
+        <p className="text-caption-11 text-text-tertiary">
+          Showing the first <span className="tabular-nums">{lines.length}</span> of{" "}
+          <span className="tabular-nums">{all.length}</span> lines of this file's diff.
+        </p>
+      ) : null}
+    </div>
   );
 }

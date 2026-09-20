@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, FolderGit2, GitBranch, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { gitProject, gitRepositories, type Repository } from "@/bridge/git";
+import { gitProject, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { StatePill } from "./GitParts";
+import { gitRepo, refreshRepositories } from "./gitRepo";
 import { describeRepository } from "./repositories";
 
 /**
@@ -12,26 +13,25 @@ import { describeRepository } from "./repositories";
  *
  * Read on demand rather than watched: a change count is stale the moment it is
  * drawn, and the places it is shown — a list, a menu just opened — are exactly
- * where it is cheap to ask again. `repos` is null until this root has been
- * read, so a list for the previous folder is never shown under the new one.
+ * where it is cheap to ask again. The scan is shared (gitRepo): the rail and the
+ * folder list ask for the same root and it is walked once. `repos` is null until
+ * this root has been read, and after that the last read stays while the next is
+ * on its way, so a list for the previous folder is never shown under the new one
+ * and a list is never blanked to be redrawn.
  */
 export function useRepositories(root: string) {
-  const [read, setRead] = useState<{ root: string; repos: Repository[]; error: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const entry = gitRepo.useStore((state) => state.reposByRoot[root]);
+  const loading = gitRepo.useStore((state) => state.scanning[root] === true);
 
-  const reload = useCallback(() => {
-    if (!root) return;
-    setLoading(true);
-    gitRepositories(root)
-      .then((repos) => setRead({ root, repos, error: "" }))
-      .catch((e: Error) => setRead({ root, repos: [], error: e.message }))
-      .finally(() => setLoading(false));
+  useEffect(() => {
+    void refreshRepositories(root);
   }, [root]);
 
-  useEffect(reload, [reload]);
+  const reload = useCallback(() => {
+    void refreshRepositories(root, true);
+  }, [root]);
 
-  const current = read?.root === root ? read : null;
-  return { repos: current?.repos ?? null, error: current?.error ?? "", loading, reload };
+  return { repos: entry?.repos ?? null, error: entry?.error ?? "", loading, reload };
 }
 
 /**
@@ -97,7 +97,7 @@ export function RepositoryList({
 }) {
   const folderName = root.split("/").filter(Boolean).pop() ?? root;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto px-4 pt-4 pb-4">
+    <div className="scrollbar-gutter-stable flex h-full min-h-0 flex-col gap-3 overflow-auto px-4 pt-4 pb-4">
       <div className="flex items-center gap-2.5">
         <FolderGit2 className="size-4 shrink-0 text-text-secondary" aria-hidden />
         <h2 className="min-w-0 flex-1 truncate text-title-14 text-text-primary">
@@ -120,7 +120,7 @@ export function RepositoryList({
               <button
                 type="button"
                 onClick={() => onChoose(repo)}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-state-soft"
+                className="flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-state-soft"
               >
                 <FolderGit2 className="size-(--icon-14) shrink-0 text-text-secondary" aria-hidden />
                 <span className="min-w-0 truncate text-body-13 text-text-primary">{repo.name}</span>

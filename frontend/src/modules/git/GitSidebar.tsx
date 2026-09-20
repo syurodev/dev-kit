@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, FolderGit2, GitBranch, GitCommitHorizontal, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,21 +9,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
-import { SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
-import {
-  gitLog,
-  gitStage,
-  gitStatus,
-  gitUnstage,
-  type Commit,
-  type GitStatus,
-  type Repository,
-} from "@/bridge/git";
+import { SIDEBAR_ROW_HEIGHT, SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
+import { gitStage, gitUnstage, type Commit, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useModuleFolder } from "@/stores/workFolder";
 import { RepositoryRow, useGitProject, useRepositories } from "./GitRepositories";
 import { HeadingAction, StatusMark } from "./GitParts";
+import { refreshGitRepo, useGitRepo, useLatestGitRepo } from "./gitRepo";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { focusGitPath, useGitFocus } from "./gitFocus";
 import { branchMeta, capRows, changeGroups, markKind, splitPath, type ChangeGroup } from "./rail";
@@ -31,7 +24,6 @@ import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./re
 
 /** How many rows a list may put in the rail before it says how many it left out. */
 const FILE_ROWS = 40;
-const COMMIT_ROWS = 20;
 
 /** What a group's heading offers to do to every file under it. Conflicts offer nothing: staging one commits the markers. */
 const GROUP_ACTION: Record<ChangeGroup["key"], { label: string; run: (paths: string[]) => Promise<void> } | null> = {
@@ -58,37 +50,31 @@ export function GitSidebar() {
   const { repos, reload: reloadRepos, loading: reposLoading } = useRepositories(root);
   const revision = useGitRevision((state) => state.revision);
   const focused = useGitFocus((state) => state.path);
-  const [focusTick, setFocusTick] = useState(0);
-  const [read, setRead] = useState<{ project: string; status: GitStatus; commits: Commit[] } | null>(null);
+  // What Git last read in this folder — shared with the Changes view, so a
+  // change read once serves both. It stays while the next read is on its way.
+  const own = useGitRepo(folder);
+  const latest = useLatestGitRepo();
   const [error, setError] = useState("");
 
+  // Read again when the folder or the repository changes, and when anything has
+  // changed it (the revision). The view beside this asks with the same stamp, and
+  // the two share one read.
   useEffect(() => {
-    const onFocus = () => setFocusTick((tick) => tick + 1);
+    if (project) void refreshGitRepo(folder, String(revision));
+  }, [folder, project, revision]);
+
+  // git is also changed from a terminal, and the window coming back into focus
+  // is when that shows. Nothing is rendered unless the read finds a difference.
+  useEffect(() => {
+    if (!project) return;
+    const onFocus = () => void refreshGitRepo(folder, `focus:${Date.now()}`);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, []);
-
-  const load = useCallback(() => {
-    if (!project) return;
-    let live = true;
-    Promise.all([gitStatus(), gitLog(COMMIT_ROWS)])
-      .then(([status, commits]) => {
-        if (!live) return;
-        setRead({ project, status, commits });
-        setError("");
-      })
-      .catch((e: Error) => live && setError(e.message));
-    return () => {
-      live = false;
-    };
-    // revision and focusTick are not read: they are the reasons to read again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, revision, focusTick]);
-  useEffect(load, [load]);
+  }, [folder, project]);
 
   function refresh() {
     reloadRepos();
-    setFocusTick((tick) => tick + 1);
+    if (project) void refreshGitRepo(folder, `refresh:${Date.now()}`);
   }
 
   async function chooseRepository(repo: Repository) {
@@ -126,28 +112,27 @@ export function GitSidebar() {
   // null is Go not having answered, and a folder that turns out to be one
   // repository must not flash a list of it in the meantime.
   const showRepos = repos !== null && (repos.length > 1 || (project === "" && repos.length > 0));
-  // What was read is kept while the next repository is read, so choosing one is
-  // a list that changes and not a list that vanishes and comes back. It is
-  // shown dimmed and inert until its own read lands; a folder that is no
-  // repository at all has nothing to keep.
-  const settled = read !== null && read.project === project;
-  const shown = project === "" ? null : read;
-  const stale = shown !== null && !settled;
-  const status = shown?.status ?? null;
-  const commits = shown?.commits ?? null;
+  // What was read is kept while the next read is on its way, so choosing a
+  // repository is a list that changes and not one that vanishes and comes back.
+  // Until this repository's own first read lands the last one read is shown,
+  // dimmed and inert; a folder that is no repository has nothing to show.
+  const snapshot = project === "" ? null : (own?.snapshot ?? latest?.snapshot ?? null);
+  const carried = project !== "" && !own?.snapshot && snapshot !== null;
+  const status = snapshot?.status ?? null;
+  const commits = snapshot?.commits ?? null;
   const groups = status ? changeGroups(status) : [];
   // The header does not wait for the read: the repository list already knows
   // each repository's branch and how far it is from its upstream.
-  const entry = repos?.find((repo) => repo.path === folder);
+  const listed = repos?.find((repo) => repo.path === folder);
   const meta =
     project === ""
       ? repos
         ? `${repos.length} repositories`
         : ""
-      : settled && status
-        ? branchMeta(status)
-        : entry && !entry.error
-          ? branchMeta(entry)
+      : own?.snapshot
+        ? branchMeta(own.snapshot.status)
+        : listed && !listed.error
+          ? branchMeta(listed)
           : "";
   const standing = folderStatus({ folder, current, pinned, project, repos });
 
@@ -201,7 +186,7 @@ export function GitSidebar() {
         ) : null}
 
         {project !== "" && status ? (
-          <div aria-busy={stale} className={cn("transition-opacity duration-(--motion-fast)", stale && "pointer-events-none opacity-50")}>
+          <div aria-busy={carried} className={cn("transition-opacity duration-(--motion-fast)", carried && "pointer-events-none opacity-50")}>
             {groups.length === 0 ? (
               <div className="px-3 py-1 text-body-13 text-text-tertiary">The work tree is clean.</div>
             ) : (
@@ -318,7 +303,8 @@ function RepositoryHeader({
       <FolderGit2 className="size-4 shrink-0 text-text-secondary" aria-hidden />
       <span className="flex min-w-0 flex-1 flex-col text-left">
         <span className="truncate text-title-13 text-text-primary">{name}</span>
-        {meta ? <span className="truncate text-code-11 text-text-tertiary">{meta}</span> : null}
+        {/* Always there, so the card is the same height before the branch is known. */}
+        <span className="min-h-4 truncate text-code-11 text-text-tertiary">{meta}</span>
       </span>
     </>
   );
@@ -364,7 +350,8 @@ function RepositoryItem({ repo, active, onChoose }: { repo: Repository; active: 
       onClick={onChoose}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left",
+        "flex w-full items-center gap-2 rounded-md px-3 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
+        SIDEBAR_ROW_HEIGHT.card,
         active ? "bg-surface-raised text-text-primary" : "text-text-secondary hover:bg-state-soft hover:text-text-primary",
       )}
     >
@@ -405,7 +392,7 @@ function FileItem({
       aria-current={selected ? "true" : undefined}
       title={path}
       className={cn(
-        "flex h-7 w-full items-center gap-2 rounded-md px-3 text-left",
+        "flex h-7 w-full items-center gap-2 rounded-md px-3 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
         selected ? "bg-surface-raised" : "hover:bg-state-soft",
       )}
     >
