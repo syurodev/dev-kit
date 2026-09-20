@@ -159,6 +159,11 @@ type Deps struct {
 	Git       GitAPI       // optional nil until wired from main
 	Accounts  AccountsAPI  // optional nil until wired from main
 	API       APIClientAPI // optional nil until wired from main
+	// PlanBacklog joins Tasks and Code Graph. Nil leaves tasks.createFromPlan
+	// unregistered. Anything assigned here must be a real value: a nil
+	// pointer in this interface is not a nil interface, and the check below
+	// would pass.
+	PlanBacklog PlanBacklog
 	// TaskBranches answers which branches an agent session may push. Nil
 	// means an agent may commit but never push — a permission that outlives
 	// the session because it lives on the task, not in it.

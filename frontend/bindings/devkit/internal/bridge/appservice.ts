@@ -1622,6 +1622,14 @@ export function TasksBoardSetVerify(boardID: string, command: string, timeoutSec
     return $Call.ByID(4245920665, boardID, command, timeoutSec, projectPath);
 }
 
+/**
+ * TasksByPlanNode groups a board's tasks by the plan node they implement, for
+ * the chips on the plan canvas.
+ */
+export function TasksByPlanNode(boardID: string): $CancellablePromise<{ [_ in string]?: tasks$0.Task[] | null } | null> {
+    return $Call.ByID(2244053450, boardID);
+}
+
 export function TasksCommentAdd(taskID: string, body: string): $CancellablePromise<tasks$0.Comment> {
     return $Call.ByID(3205203560, taskID, body);
 }
@@ -1635,6 +1643,14 @@ export function TasksCreate(boardID: string, title: string, description: string,
 }
 
 /**
+ * TasksCreateFromPlan turns an approved plan into a backlog. A draft is
+ * refused: it is a proposal under discussion, not agreed work.
+ */
+export function TasksCreateFromPlan(boardID: string): $CancellablePromise<tasks$0.Task[] | null> {
+    return $Call.ByID(1384392019, boardID);
+}
+
+/**
  * TasksDelete is UI-only and tasks:admin: it destroys a record of the project.
  */
 export function TasksDelete(id: string): $CancellablePromise<void> {
@@ -1643,6 +1659,17 @@ export function TasksDelete(id: string): $CancellablePromise<void> {
 
 export function TasksGet(id: string): $CancellablePromise<tasks$0.Task> {
     return $Call.ByID(4202583712, id);
+}
+
+/**
+ * TasksLinkPlanNode points a task at a Code Graph plan node, or clears it.
+ * 
+ * The link is stored here and only here. `plan_nodes` is rewritten wholesale
+ * on every proposal, so a back-reference there would be wiped each time an
+ * agent re-proposed a plan while this one survived.
+ */
+export function TasksLinkPlanNode(id: string, planNodeID: string): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(1416194535, id, planNodeID);
 }
 
 export function TasksList(boardID: string, status: string, assignee: string, label: string, includeArchived: boolean, limit: number): $CancellablePromise<tasks$0.Task[] | null> {
@@ -1655,6 +1682,16 @@ export function TasksList(boardID: string, status: string, assignee: string, lab
  */
 export function TasksProgress(parentID: string): $CancellablePromise<tasks$0.Progress> {
     return $Call.ByID(3304126799, parentID);
+}
+
+/**
+ * TasksSearch finds tasks by key, title or label.
+ * 
+ * Not by description: that is the encrypted half, and searching it would mean
+ * decrypting every task on the board to answer one query.
+ */
+export function TasksSearch(boardID: string, query: string): $CancellablePromise<tasks$0.Task[] | null> {
+    return $Call.ByID(328212920, boardID, query);
 }
 
 /**

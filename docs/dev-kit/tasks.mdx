@@ -715,14 +715,22 @@ Hai module giữ hai loại sự thật khác nhau, **không copy của nhau**:
 | Code đã tồn tại chưa, có khớp plan không (`not_implemented` / `implemented_matching` / `implemented_diverged`) | Code Graph | Auto-diff sau incremental re-index — dữ liệu **suy ra từ index**, không ai ghi tay |
 | Việc này đang ở bước nào trong quy trình (`todo` / `in_progress` / `review` / `done`) | Tasks | Người hoặc agent chuyển tường minh |
 
-Liên kết là **hai ID trỏ nhau**, không phải foreign key (`plan_nodes` sống
-trong SQLite index của Code Graph, `task` sống trong `vault_items` — hai
-storage, đúng như backend sync cũng không dùng FK):
+Liên kết **chỉ lưu một phía** — trên task. Thiết kế ban đầu chốt hai ID trỏ
+nhau; khi implement thì vế thứ hai hoá ra không giữ được:
 
 ```
-task.metadata.plan_node_id  ─────►  plan_nodes.id
-plan_nodes.task_id          ◄─────  task.id
+task.metadata.plan_node_id  ─────►  plan_nodes.plan_node_id
 ```
+
+<Callout type="warn" title="Vì sao bỏ `plan_nodes.task_id`">
+`SavePlan` **xoá sạch bảng `plan_nodes` rồi insert lại** ở mỗi lần đề xuất
+plan, chỉ giữ comment thread của node có `(id, fqn)` không đổi. Một cột
+`task_id` ở đó sẽ bị xoá **mỗi lần agent đề xuất lại plan** — việc hoàn toàn
+bình thường — trong khi `plan_node_id` phía task vẫn còn: hai bản sao của một
+sự thật, một bản bị huỷ định kỳ. Canvas hỏi ngược bằng `TasksByPlanNode`, một
+truy vấn bounded. Luật "Tasks không bao giờ ghi vào `plan_nodes`" nhờ thế còn
+chặt hơn: giờ Tasks **không ghi gì** vào đó cả.
+</Callout>
 
 Hai đường tự động chạy qua cầu này:
 
@@ -734,9 +742,16 @@ Hai đường tự động chạy qua cầu này:
    - `not_implemented` → `implemented_matching`: task sang **`review`**
      (`category = active` ⇒ không cần xác nhận). **Không** sang `done` —
      "code đã tồn tại và khớp tên" không có nghĩa là "việc đã xong đúng ý".
-   - `→ implemented_diverged`: task quay lại `in_progress` + comment
-     `kind=system` nêu FQN đang lệch.
+   - `→ implemented_diverged`: task quay lại status `active` đầu tiên + comment
+     `kind=system` giải thích.
    - Task không link plan node thì không có gì tự động xảy ra.
+   - **Task đã đóng thì không bị mở lại.** Ai đó đã quyết định nó xong; một
+     diff của index không có thẩm quyền lật quyết định đó.
+
+   Chạy sau mỗi lần re-index có thay đổi, qua `OnIndexUpdated` — nối chuỗi chứ
+   không thay thế listener đang có, và chạy trên goroutine riêng vì hợp đồng
+   của field đó là non-blocking. Board nào khai `project_path` trùng project
+   đang mở thì reconcile; còn lại không.
 
 Chiều ngược lại (task → plan) chỉ là **điều hướng**: mở task detail có nút
 nhảy tới đúng node trên canvas Code Graph. Tasks không bao giờ ghi vào

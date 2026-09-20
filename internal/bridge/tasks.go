@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 
+	"devkit/internal/app"
 	"devkit/internal/tasks"
 )
 
@@ -270,4 +271,70 @@ func (s *AppService) TasksVerifyCancel(runID string) error {
 		return nil, gate.Cancel(runID)
 	})
 	return err
+}
+
+// TasksSearch finds tasks by key, title or label.
+//
+// Not by description: that is the encrypted half, and searching it would mean
+// decrypting every task on the board to answer one query.
+func (s *AppService) TasksSearch(boardID, query string) ([]tasks.Task, error) {
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:read", "task:search", map[string]any{
+		"action":   "search",
+		"board_id": recordID(boardID),
+	}, func(context.Context) (any, error) {
+		return s.container.Tasks.Search(boardID, query)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]tasks.Task), nil
+}
+
+// TasksLinkPlanNode points a task at a Code Graph plan node, or clears it.
+//
+// The link is stored here and only here. `plan_nodes` is rewritten wholesale
+// on every proposal, so a back-reference there would be wiped each time an
+// agent re-proposed a plan while this one survived.
+func (s *AppService) TasksLinkPlanNode(id, planNodeID string) (tasks.Task, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:write", "task:"+opaqueID, map[string]any{
+		"action":  "link_plan_node",
+		"task_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Tasks.LinkPlanNode(id, planNodeID)
+	})
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return result.(tasks.Task), nil
+}
+
+// TasksByPlanNode groups a board's tasks by the plan node they implement, for
+// the chips on the plan canvas.
+func (s *AppService) TasksByPlanNode(boardID string) (map[string][]tasks.Task, error) {
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:read", "task:list", map[string]any{
+		"action":   "by_plan_node",
+		"board_id": recordID(boardID),
+	}, func(context.Context) (any, error) {
+		return s.container.Tasks.ByPlanNode(boardID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string][]tasks.Task), nil
+}
+
+// TasksCreateFromPlan turns an approved plan into a backlog. A draft is
+// refused: it is a proposal under discussion, not agreed work.
+func (s *AppService) TasksCreateFromPlan(boardID string) ([]tasks.Task, error) {
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:write", "task:new", map[string]any{
+		"action":   "create_from_plan",
+		"board_id": recordID(boardID),
+	}, func(ctx context.Context) (any, error) {
+		return app.CreateTasksFromPlan(ctx, s.container, boardID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]tasks.Task), nil
 }
