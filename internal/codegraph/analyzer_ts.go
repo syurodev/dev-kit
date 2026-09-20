@@ -152,6 +152,7 @@ func (a *tsAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisR
 		return AnalysisResult{}, err
 	}
 	tsAssignIDs(project)
+	tsPlaceCalls(project)
 	if err := tsResolveImports(ctx, conn, project); err != nil {
 		return AnalysisResult{}, err
 	}
@@ -435,6 +436,7 @@ func tsDeclareAll(ctx context.Context, conn *lsp.Conn, p *tsProject) error {
 		}
 		inImport, imports := tsImportLines(file.lines)
 		file.imports = imports
+		file.calls = tsReadCalls(file.source)
 		tsCollect(file, symbols, nil, inImport)
 		return nil
 	})
@@ -553,6 +555,32 @@ func tsAssignIDs(p *tsProject) {
 			decl.nodeID = unique(decl.label + "(" + strings.Join(names, ",") + ")")
 		}
 	}
+}
+
+// tsPlaceCalls says which declaration each call sits in.
+//
+// Innermost wins: a call inside a route handler inside a registration function
+// belongs to the handler, which is the node a flow should start from.
+func tsPlaceCalls(p *tsProject) {
+	for _, file := range p.files {
+		for i := range file.calls {
+			file.calls[i].Enclosing = tsInnermostAt(file, file.calls[i].Line)
+		}
+	}
+}
+
+// tsInnermostAt is the smallest declaration covering a zero-based line.
+func tsInnermostAt(f *tsFile, line int) *tsDecl {
+	var found *tsDecl
+	for _, decl := range f.decls {
+		if decl.line-1 > line || decl.endLine-1 < line {
+			continue
+		}
+		if found == nil || (decl.endLine-decl.line) <= (found.endLine-found.line) {
+			found = decl
+		}
+	}
+	return found
 }
 
 // tsResolveImports asks the server where each import points.

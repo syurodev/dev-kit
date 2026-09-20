@@ -27,6 +27,8 @@ type tsProject struct {
 	// byPath indexes files by absolute path, for turning a server's answer
 	// back into one of ours.
 	byPath map[string]*tsFile
+	// memo is where a framework keeps an index it builds once; see tsMemo.
+	memo map[string]any
 }
 
 // dependsOn reports whether the project declares any of these packages.
@@ -52,6 +54,72 @@ type tsFile struct {
 	module  string
 	decls   []*tsDecl
 	imports []tsImport
+	// calls are the call expressions this file makes, as written. A
+	// language-level fact, not a framework one: a call has a receiver, a name
+	// and arguments in every framework and in none.
+	//
+	// The graph's call EDGES come from the checker, not from here — these are
+	// for the calls whose meaning is in their arguments rather than in what
+	// they resolve to. `app.get('/users', handler)` declares a route and
+	// `client.send({ cmd: 'divide' })` names a handler in another service;
+	// the checker resolves both to a library method and is right to.
+	calls []tsCall
+}
+
+// tsCall is one call expression.
+type tsCall struct {
+	// Receiver is the dotted path the call was made on — "this.client" for
+	// this.client.send(...), "app" for app.get(...) — and "" for a bare call.
+	Receiver string
+	Method   string
+	Args     []string
+	// Line and EndLine are zero-based, matching the language server's.
+	Line    int
+	EndLine int
+	// Enclosing is the declaration the call sits in, nil at module level.
+	Enclosing *tsDecl
+}
+
+// StringArg is the i-th argument when it is a string literal, "" otherwise.
+func (c tsCall) StringArg(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	return tsStringLiteral(c.Args[i])
+}
+
+// StringArgOrObject is the i-th argument as written, for a caller that will
+// normalise it itself — a message pattern is a string as often as an object.
+func (c tsCall) StringArgOrObject(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	return c.Args[i]
+}
+
+// Identifier is the i-th argument when it is a bare name — the handler in
+// `app.get('/users', listUsers)` — and "" for anything else.
+func (c tsCall) Identifier(i int) string {
+	if i >= len(c.Args) {
+		return ""
+	}
+	name := strings.TrimSpace(c.Args[i])
+	if name == "" || !isTSIdentifier(name) {
+		return ""
+	}
+	return name
+}
+
+func isTSIdentifier(text string) bool {
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		letter := c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		if letter || (i > 0 && c >= '0' && c <= '9') {
+			continue
+		}
+		return false
+	}
+	return text != ""
 }
 
 // tsDecl is one declaration: a class, an interface, an enum, or something

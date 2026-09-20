@@ -232,3 +232,123 @@ export class HelperService {
 		t.Errorf("a provider declares no routes, got %v", tsRoutes(result))
 	}
 }
+
+// The edge no checker can produce, and the one that makes a microservice graph
+// a map rather than a pile of unrelated services.
+func TestNestLinksAClientSendToItsHandler(t *testing.T) {
+	result := analyzeTS(t, map[string]string{
+		"tsconfig.json": tsconfig(),
+		"package.json":  `{"name":"svc","dependencies":{"@nestjs/common":"^10.0.0","@nestjs/microservices":"^10.0.0"}}`,
+		"src/math/math.controller.ts": `
+import { Controller } from '@nestjs/common';
+import { MessagePattern, EventPattern } from '@nestjs/microservices';
+
+@Controller()
+export class MathController {
+  @MessagePattern({ cmd: 'divide' })
+  divide(data: number[]) { return data[0] / data[1]; }
+
+  @EventPattern('order.placed')
+  onOrderPlaced(data: unknown) {}
+
+  // Keys in the other order: Nest matches on content, not on typing.
+  @MessagePattern({ role: 'admin', cmd: 'purge' })
+  purge() {}
+}
+`,
+		"src/orders/orders.service.ts": `
+import { Inject, Injectable } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
+
+@Injectable()
+export class OrdersService {
+  constructor(@Inject('MATH_SERVICE') private readonly client: ClientProxy) {}
+
+  split(a: number, b: number) {
+    return this.client.send({ cmd: 'divide' }, [a, b]);
+  }
+
+  place(id: string) {
+    return this.client.emit('order.placed', { id });
+  }
+
+  purgeAll() {
+    return this.client.send({ cmd: 'purge', role: 'admin' }, {});
+  }
+
+  unknownPattern() {
+    return this.client.send('nobody.handles.this', {});
+  }
+}
+`,
+	})
+
+	for _, edge := range [][2]string{
+		{"src/orders/orders.service.OrdersService.split", "src/math/math.controller.MathController.divide"},
+		{"src/orders/orders.service.OrdersService.place", "src/math/math.controller.MathController.onOrderPlaced"},
+		// Object keys are sorted into a canonical form on both sides.
+		{"src/orders/orders.service.OrdersService.purgeAll", "src/math/math.controller.MathController.purge"},
+	} {
+		if !tsHasEdge(result, edge[0], edge[1], "call") {
+			t.Errorf("expected %s to reach %s across the service boundary", edge[0], edge[1])
+		}
+	}
+
+	// A pattern nobody handles reaches nothing, rather than reaching whatever
+	// was closest.
+	byID := map[string]string{}
+	for _, node := range result.Nodes {
+		byID[node.ID] = node.Label
+	}
+	for _, edge := range result.Edges {
+		if byID[edge.From] == "src/orders/orders.service.OrdersService.unknownPattern" {
+			t.Errorf("an unhandled pattern produced an edge to %s", byID[edge.To])
+		}
+	}
+}
+
+// Two handlers for one pattern is a project that would not start; pointing at
+// either of them is worse than pointing at none.
+func TestNestRefusesAnAmbiguousPattern(t *testing.T) {
+	result := analyzeTS(t, map[string]string{
+		"tsconfig.json": tsconfig(),
+		"package.json":  `{"name":"svc","dependencies":{"@nestjs/common":"^10.0.0","@nestjs/microservices":"^10.0.0"}}`,
+		"src/a.controller.ts": `
+import { Controller } from '@nestjs/common';
+import { MessagePattern } from '@nestjs/microservices';
+@Controller()
+export class AController {
+  @MessagePattern('shared')
+  handle() {}
+}
+`,
+		"src/b.controller.ts": `
+import { Controller } from '@nestjs/common';
+import { MessagePattern } from '@nestjs/microservices';
+@Controller()
+export class BController {
+  @MessagePattern('shared')
+  handle() {}
+}
+`,
+		"src/caller.service.ts": `
+import { Inject, Injectable } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
+@Injectable()
+export class CallerService {
+  constructor(@Inject('X') private readonly client: ClientProxy) {}
+  go() { return this.client.send('shared', {}); }
+}
+`,
+	})
+
+	byID := map[string]string{}
+	for _, node := range result.Nodes {
+		byID[node.ID] = node.Label
+	}
+	for _, edge := range result.Edges {
+		if byID[edge.From] == "src/caller.service.CallerService.go" && edge.Kind == "call" {
+			t.Errorf("an ambiguous pattern produced an edge to %s", byID[edge.To])
+		}
+	}
+}
