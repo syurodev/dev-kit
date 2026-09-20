@@ -78,7 +78,7 @@ export function GitBranchMenu({
             <ChevronDown className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-80 w-72">
+        <DropdownMenuContent align="start" className="max-h-80 w-96 max-w-[90vw]">
           <DropdownMenuLabel>{dirty ? "Commit or stash to switch" : "Switch branch"}</DropdownMenuLabel>
           {branches === null ? (
             <DropdownMenuItem disabled>Reading branches…</DropdownMenuItem>
@@ -87,11 +87,15 @@ export function GitBranchMenu({
               <DropdownMenuItem
                 key={candidate.name}
                 icon={candidate.current ? <Check /> : undefined}
-                detail={candidate.upstream || undefined}
-                disabled={dirty || candidate.current}
-                onSelect={() => switchTo(candidate.name)}
+                // The branch you are on is not dimmed: it is the one thing in
+                // the list that is true. Only the others wait on a clean tree.
+                disabled={dirty && !candidate.current}
+                title={candidate.upstream ? `${candidate.name} → ${candidate.upstream}` : candidate.name}
+                onSelect={() => {
+                  if (!candidate.current) switchTo(candidate.name);
+                }}
               >
-                <span className="truncate font-mono text-code-12">{candidate.name}</span>
+                <span className="font-mono text-code-12">{candidate.name}</span>
               </DropdownMenuItem>
             ))
           )}

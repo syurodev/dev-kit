@@ -57,9 +57,13 @@ export function MenuTrailing({ shortcut, detail }: { shortcut?: string; detail?:
   if (shortcut) return <Kbd className="ml-4">{shortcut}</Kbd>
   // Truncates: the trailing slot is one line at the end of a fixed-height row,
   // and a caller that puts a sentence in it used to overflow the row and draw
-  // over its neighbours. Half the row at most, so the label keeps its own.
+  // over its neighbours. Capped in absolute terms, not as a share of the row:
+  // the slot is an `auto` grid column, a percentage of it is worked out against
+  // the width the text itself asked for, and so it cut the text in half while
+  // the column kept the whole width — the label was squeezed out by a detail it
+  // could not even show. 10rem is what a state or a time needs.
   if (detail)
-    return <span className="ml-4 max-w-1/2 min-w-0 truncate text-body-12 text-text-tertiary">{detail}</span>
+    return <span className="ml-4 max-w-40 min-w-0 truncate text-body-12 text-text-tertiary">{detail}</span>
   return null
 }
 

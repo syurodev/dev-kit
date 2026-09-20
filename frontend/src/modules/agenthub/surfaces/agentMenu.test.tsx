@@ -10,7 +10,11 @@ describe("a menu row's trailing detail", () => {
     // description there — overflowed the row and drew over its neighbours.
     const html = renderToString(<MenuTrailing detail="a sentence that is much too long for one row" />);
     expect(html).toContain("truncate");
-    expect(html).toContain("max-w-1/2");
+    // An absolute cap, not a share of the row: the slot is an auto column, and a
+    // percentage of it is taken of the width the text asked for, which halved
+    // the text and left the column — and the label's squeeze — at full width.
+    expect(html).toContain("max-w-40");
+    expect(html).not.toContain("max-w-1/2");
   });
 
   it("prefers a shortcut when a row has both", () => {

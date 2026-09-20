@@ -88,6 +88,9 @@ export function ProjectHeader({
                   icon={current ? <Check /> : <FolderGit2 />}
                   detail={relativeTime(p.openedAt, now)}
                   disabled={busy}
+                  // Two lines, a name over its folder: taller than the menu's
+                  // one-line row, which would draw them over each other.
+                  className="h-auto min-h-11 py-1.5"
                   onSelect={() => !current && onOpenProject(p.path)}
                 >
                   <span className="flex min-w-0 flex-col">
