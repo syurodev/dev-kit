@@ -32,6 +32,13 @@ export const gitModule: ModuleManifest = {
       ),
     },
     {
+      id: "git.remotes",
+      title: "Remotes",
+      ...lazyModuleView(() =>
+        import("./GitRemotesView").then(({ GitRemotesView }) => ({ default: GitRemotesView })),
+      ),
+    },
+    {
       id: "git.history",
       title: "History",
       ...lazyModuleView(() =>
