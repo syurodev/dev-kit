@@ -119,6 +119,70 @@ func (d tsDecorator) StringArg(i int) string {
 	return tsStringLiteral(d.Args[i])
 }
 
+// StringArgs is the i-th argument's string literals: one for a plain literal,
+// several for an array of them, none for anything else.
+//
+// The array form is not exotic — `@Controller(['legacy', 'v2'])` and
+// `@Get(['a', 'b'])` are how one handler serves several paths, and reading
+// only the first (or, worse, none) reports a route the service does not
+// serve.
+func (d tsDecorator) StringArgs(i int) []string {
+	if i >= len(d.Args) {
+		return nil
+	}
+	return tsStringLiterals(d.Args[i])
+}
+
+// tsStringLiterals reads one argument as a list of strings: a plain literal is
+// a list of one, an array literal is its string elements, and anything else is
+// no list at all.
+func tsStringLiterals(text string) []string {
+	text = strings.TrimSpace(text)
+	if literal := tsStringLiteral(text); literal != "" {
+		return []string{literal}
+	}
+	if !strings.HasPrefix(text, "[") || !strings.HasSuffix(text, "]") {
+		return nil
+	}
+	var found []string
+	for _, element := range tsSplitTopLevel(text[1:len(text)-1], ',') {
+		if literal := tsStringLiteral(element); literal != "" {
+			found = append(found, literal)
+		}
+	}
+	return found
+}
+
+// tsObjectSummary turns an object literal into something a sidebar can show:
+// `{ cmd: 'divide' }` becomes "cmd: divide".
+//
+// A message pattern is as often an object as a string — `@MessagePattern({ cmd
+// 'divide' })` is the idiom for a request/response handler — and the handler's
+// own name is a poor substitute for the pattern a caller has to send.
+func tsObjectSummary(text string) string {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "{") || !strings.HasSuffix(text, "}") {
+		return ""
+	}
+	var parts []string
+	for _, field := range tsSplitTopLevel(text[1:len(text)-1], ',') {
+		key, value, found := tsCutTopLevel(field, ':')
+		if !found {
+			continue
+		}
+		key = strings.Trim(strings.TrimSpace(key), `'"`+"`")
+		value = strings.TrimSpace(value)
+		if literal := tsStringLiteral(value); literal != "" {
+			value = literal
+		}
+		if key == "" || value == "" {
+			continue
+		}
+		parts = append(parts, key+": "+value)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // tsImport is one module this file pulls in.
 type tsImport struct {
 	// Spec is the specifier as written: "./users.service", "@nestjs/common".

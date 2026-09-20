@@ -272,6 +272,27 @@ func tsSpecifierOn(line string, keywords ...string) (string, int, bool) {
 	return "", 0, false
 }
 
+// tsSplitTopLevel splits on every separator that is not inside a bracket, a
+// string or a template — what an array or object literal's elements need.
+func tsSplitTopLevel(text string, sep byte) []string {
+	var parts []string
+	scan := newTSScanner(text)
+	start := 0
+	for !scan.done() {
+		if scan.peek() == sep && scan.depth == 0 {
+			parts = append(parts, text[start:scan.pos])
+			scan.advance()
+			start = scan.pos
+			continue
+		}
+		scan.advance()
+	}
+	if rest := strings.TrimSpace(text[start:]); rest != "" {
+		parts = append(parts, text[start:])
+	}
+	return parts
+}
+
 // tsCutTopLevel splits on the first occurrence of sep that is not inside a
 // bracket, a string or a template — which is what keeps `Map<string, number>`
 // one type and `{ a, b }: Options` one parameter.
