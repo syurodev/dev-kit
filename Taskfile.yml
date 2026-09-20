@@ -65,6 +65,16 @@ tasks:
     cmds:
       - task: common:run:docker
 
+  build:analyzer:ts:
+    summary: Builds the TypeScript analyzer (tsgo) — needed to open a TypeScript/NestJS project
+    cmds:
+      - task: common:build:analyzer:ts
+
+  build:analyzer:
+    summary: Builds the Java CodeGraph analyzer — needed to open a Java project
+    cmds:
+      - task: common:build:analyzer
+
   mcp:
     desc: Stdio MCP proxy (requires running DevKit desktop with vault unlocked)
     cmds:
