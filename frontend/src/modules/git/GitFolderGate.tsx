@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType, type ReactNode } from "react";
 import { FolderGit2, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -114,7 +114,8 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
     </Button>
   );
 
-  let body;
+  const lastBody = useRef<ReactNode>(null);
+  let body: ReactNode;
   if (!loaded) {
     body = null;
   } else if (!folder) {
@@ -128,7 +129,10 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
       </EmptyState>
     );
   } else if (project === null) {
-    body = null;
+    // Go has not said yet what is in this folder. What was on screen stays: the
+    // answer is a round trip away, and a blank pane for that long is the flicker
+    // of choosing a repository.
+    body = lastBody.current;
   } else if (!project) {
     // A folder of repositories is not one itself, but is not nothing either:
     // list what is in it. Until it has been read, show nothing rather than
@@ -148,6 +152,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
   } else {
     body = <View key={folder} />;
   }
+  if (project !== null) lastBody.current = body;
 
   const problem = error || (showBar ? "" : pickError);
   return (

@@ -26,13 +26,16 @@ import {
   type Remote,
 } from "@/bridge/git";
 import { cn } from "@/lib/utils";
+import { useModuleFolder } from "@/stores/workFolder";
 import { buildPatch, parsePatch, type FilePatch, type Hunk } from "./hunks";
+import { GitBranchMenu } from "./GitBranchMenu";
 import { GitConflictPanel } from "./GitConflictPanel";
 import { GitFolderBar } from "./GitFolderGate";
 import { HeadingAction, RowAction, StatusMark } from "./GitParts";
 import { focusGitPath, useGitFocus } from "./gitFocus";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { markKind, splitPath, syncText, type MarkKind } from "./rail";
+import { recallSnapshot, rememberSnapshot } from "./gitSnapshot";
 import { remoteFor } from "./remotes";
 
 /** Long hunks are shown to their first this-many lines and then counted. */
@@ -253,15 +256,18 @@ function ChangeRow({
 export function GitChangesView() {
   const revision = useGitRevision((state) => state.revision);
   const expanded = useGitFocus((state) => state.path);
-  const [status, setStatus] = useState<GitStatus | null>(null);
+  const { folder } = useModuleFolder("git");
+  // Painted from what this folder last showed, if anything, while the first
+  // read is on its way; see gitSnapshot.
+  const [remembered] = useState(() => recallSnapshot(folder));
+  const [status, setStatus] = useState<GitStatus | null>(remembered?.status ?? null);
   // null until loaded: "no guard" and "not asked yet" are different answers,
   // and one of them means committing will not ask.
-  const [guards, setGuards] = useState<Guard[] | null>(null);
+  const [guards, setGuards] = useState<Guard[] | null>(remembered?.guards ?? null);
   // null until asked: fetch, pull and push stay disabled until then, and no
   // remote is the answer only when git has said so.
-  const [remotes, setRemotes] = useState<Remote[] | null>(null);
+  const [remotes, setRemotes] = useState<Remote[] | null>(remembered?.remotes ?? null);
   const [unavailable, setUnavailable] = useState("");
-  const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   // The unmerged path being resolved. The panel takes the whole view while it
   // is open: a three-pane merge does not fit beside a file list, and nothing
@@ -273,20 +279,19 @@ export function GitChangesView() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
+  // Asked alongside the first read, not before it: a missing git makes the read
+  // fail as well, and this is what says why.
   useEffect(() => {
     gitAvailability()
       .then((availability) => {
         if (!availability.ok) {
           setUnavailable(availability.reason || "No usable git was found on this machine.");
-          return;
         }
-        setReady(true);
       })
       .catch((e: Error) => setUnavailable(e.message));
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
     let live = true;
     gitStatus()
       .then((next) => {
@@ -306,7 +311,11 @@ export function GitChangesView() {
     };
     // revision is not read: it is the reason to read again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, revision]);
+  }, [revision]);
+
+  useEffect(() => {
+    if (status && guards) rememberSnapshot(folder, { status, guards, remotes });
+  }, [folder, status, guards, remotes]);
 
   const fail = useCallback((e: Error) => setError(e.message), []);
 
@@ -335,7 +344,13 @@ export function GitChangesView() {
     return <EmptyState icon={GitBranch} title="Nothing to show" body={error} />;
   }
   if (!status || !guards) {
-    return null;
+    // Nothing read yet and nothing remembered: hold the bar's place so the
+    // view does not open on an empty pane and then shift down.
+    return (
+      <div className="flex h-full min-h-0 flex-col px-4 pt-4">
+        <GitFolderBar />
+      </div>
+    );
   }
 
   if (resolving) {
@@ -373,8 +388,12 @@ export function GitChangesView() {
       <div className="flex shrink-0 flex-col gap-3.5 px-4 pt-4 pb-3">
         <GitFolderBar />
         <div className="flex items-center gap-2.5">
-          <GitBranch className="size-4 shrink-0 text-text-secondary" aria-hidden />
-          <span className="text-title-14 text-text-primary">{status.branch || "(detached)"}</span>
+          <GitBranchMenu
+            branch={status.branch}
+            dirty={staged.length + unstaged.length + conflicted.length > 0}
+            onChanged={bumpGitRevision}
+            onError={(m) => setError(m)}
+          />
           {sync ? <span className="text-code-11 text-text-tertiary">{sync}</span> : null}
           {guard ? (
             <button

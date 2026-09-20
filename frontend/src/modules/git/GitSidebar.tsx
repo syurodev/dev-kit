@@ -122,11 +122,33 @@ export function GitSidebar() {
   }
 
   // Shown when there is something to choose between: a folder of repositories,
-  // whether or not Git is in one of them yet.
-  const showRepos = repos !== null && (repos.length > 1 || (!project && repos.length > 0));
-  const status = read?.project === project ? read.status : null;
-  const commits = read?.project === project ? read.commits : null;
+  // whether or not Git is in one of them yet. "Not in one" is Go's answer, ""; a
+  // null is Go not having answered, and a folder that turns out to be one
+  // repository must not flash a list of it in the meantime.
+  const showRepos = repos !== null && (repos.length > 1 || (project === "" && repos.length > 0));
+  // What was read is kept while the next repository is read, so choosing one is
+  // a list that changes and not a list that vanishes and comes back. It is
+  // shown dimmed and inert until its own read lands; a folder that is no
+  // repository at all has nothing to keep.
+  const settled = read !== null && read.project === project;
+  const shown = project === "" ? null : read;
+  const stale = shown !== null && !settled;
+  const status = shown?.status ?? null;
+  const commits = shown?.commits ?? null;
   const groups = status ? changeGroups(status) : [];
+  // The header does not wait for the read: the repository list already knows
+  // each repository's branch and how far it is from its upstream.
+  const entry = repos?.find((repo) => repo.path === folder);
+  const meta =
+    project === ""
+      ? repos
+        ? `${repos.length} repositories`
+        : ""
+      : settled && status
+        ? branchMeta(status)
+        : entry && !entry.error
+          ? branchMeta(entry)
+          : "";
   const standing = folderStatus({ folder, current, pinned, project, repos });
 
   return (
@@ -134,7 +156,7 @@ export function GitSidebar() {
       <div className="flex flex-col gap-1.5">
         <RepositoryHeader
           name={pathTail(folder, 1)}
-          meta={project ? (status ? branchMeta(status) : "") : repos ? `${repos.length} repositories` : ""}
+          meta={meta}
           folder={folder}
           repos={showRepos ? repos : null}
           refreshing={reposLoading}
@@ -178,8 +200,8 @@ export function GitSidebar() {
           </>
         ) : null}
 
-        {project && status ? (
-          <>
+        {project !== "" && status ? (
+          <div aria-busy={stale} className={cn("transition-opacity duration-(--motion-fast)", stale && "pointer-events-none opacity-50")}>
             {groups.length === 0 ? (
               <div className="px-3 py-1 text-body-13 text-text-tertiary">The work tree is clean.</div>
             ) : (
@@ -234,7 +256,7 @@ export function GitSidebar() {
                 ))}
               </>
             ) : null}
-          </>
+          </div>
         ) : null}
 
         {project === "" && repos !== null && repos.length === 0 ? (
