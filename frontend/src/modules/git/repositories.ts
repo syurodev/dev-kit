@@ -35,3 +35,37 @@ export function describeRepository(repo: Repository): RepositoryLine {
 export function repositoryRoot(current: string, folder: string): string {
   return current || folder;
 }
+
+/** The last `n` segments of a path, for a name that says where a folder is without the whole way there. */
+export function pathTail(path: string, n: number): string {
+  return path.split("/").filter(Boolean).slice(-n).join("/");
+}
+
+export type FolderStatus = { tone: "success" | "info" | "warning"; text: string };
+
+/**
+ * How Git stands to the app's work folder, as the line under the rail's header
+ * and the pill on the folder bar say it. Three answers, and each is a fact the
+ * person could otherwise only work out from the path: Git is following Code
+ * Graph, or it is pinned and Code Graph is somewhere else, or the folder it is
+ * in is not a repository at all.
+ */
+export function folderStatus(input: {
+  folder: string;
+  current: string;
+  pinned: boolean;
+  /** What Go says Git is reading in `folder`; "" when it is in no repository. */
+  project: string | null;
+  repos: Repository[] | null;
+}): FolderStatus {
+  const { folder, current, pinned, project, repos } = input;
+  if (pinned) {
+    if (!current) return { tone: "info", text: "Pinned · Code Graph has no project open" };
+    const name = pathTail(current, 1);
+    return repos?.some((repo) => repo.path === current)
+      ? { tone: "info", text: `Pinned · Code Graph is in ${name}` }
+      : { tone: "info", text: `Pinned · ${name} is not a repository` };
+  }
+  if (project === "") return { tone: "warning", text: "Not a repository · following Code Graph" };
+  return { tone: "success", text: `Following Code Graph · ${pathTail(folder, 2)}` };
+}

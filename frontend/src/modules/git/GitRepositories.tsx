@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, GitBranch, RotateCw } from "lucide-react";
+import { ChevronRight, FolderGit2, GitBranch, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { gitProject, gitRepositories, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
+import { StatePill } from "./GitParts";
 import { describeRepository } from "./repositories";
 
 /**
@@ -84,9 +78,9 @@ export function RepositoryRow({ repo }: { repo: Repository }) {
 }
 
 /**
- * Shown in place of a view when the folder Git is in holds repositories and is
- * not one itself — a folder of services. Choosing one points Git at it, and
- * nothing else moves.
+ * Figma `Git / Repositories Content`: shown in place of a view when the folder
+ * Git is in holds repositories and is not one itself — a folder of services.
+ * Choosing one points Git at it, and nothing else moves.
  */
 export function RepositoryList({
   root,
@@ -94,82 +88,68 @@ export function RepositoryList({
   loading,
   onReload,
   onChoose,
-  action,
 }: {
   root: string;
   repos: Repository[];
   loading: boolean;
   onReload: () => void;
   onChoose: (repo: Repository) => void;
-  /** Where else to go, beside choosing: the folder picker. */
-  action: React.ReactNode;
 }) {
   const folderName = root.split("/").filter(Boolean).pop() ?? root;
   return (
-    <div className="h-full overflow-auto p-4">
-      <div className="mx-auto flex max-w-2xl flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <GitBranch className="size-4 shrink-0 text-fg-muted" aria-hidden />
-          <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
-            {repos.length} repositories in {folderName}
-          </h2>
-          <Button variant="ghost" size="sm" onClick={onReload} disabled={loading} aria-label="Read the repositories again">
-            <RotateCw className={cn(loading && "animate-spin")} aria-hidden />
-          </Button>
-          {action}
-        </div>
-        <p className="text-xs text-fg-muted">
-          This folder is not a repository itself. Pick one to work in — Code Graph stays where it is.
-        </p>
-        <ul className="flex flex-col">
-          {repos.map((repo) => (
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto px-4 pt-4 pb-4">
+      <div className="flex items-center gap-2.5">
+        <FolderGit2 className="size-4 shrink-0 text-text-secondary" aria-hidden />
+        <h2 className="min-w-0 flex-1 truncate text-title-14 text-text-primary">
+          {repos.length} repositories in {folderName}
+        </h2>
+        <Button variant="ghost" onClick={onReload} disabled={loading} aria-label="Read the repositories again">
+          <RotateCw className={cn("size-(--icon-14)", loading && "animate-spin")} aria-hidden />
+          Refresh
+        </Button>
+      </div>
+      <p className="text-body-13 text-text-secondary">
+        This folder is not a repository itself. Pick one to work in — Code Graph stays where it is, so nothing is
+        re-indexed.
+      </p>
+      <ul className="flex flex-col rounded-lg border border-border-subtle bg-surface-well p-1">
+        {repos.map((repo) => {
+          const line = describeRepository(repo);
+          return (
             <li key={repo.path}>
               <button
                 type="button"
                 onClick={() => onChoose(repo)}
-                className="flex w-full items-center rounded-md px-3 py-2 text-left hover:bg-state-soft"
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-state-soft"
               >
-                <RepositoryRow repo={repo} />
+                <FolderGit2 className="size-(--icon-14) shrink-0 text-text-secondary" aria-hidden />
+                <span className="min-w-0 truncate text-body-13 text-text-primary">{repo.name}</span>
+                {line.branch ? (
+                  <StatePill
+                    className="max-w-[24rem] min-w-0 font-mono"
+                    title={line.branch}
+                    icon={<GitBranch className="size-(--icon-12) shrink-0" aria-hidden />}
+                  >
+                    <span className="truncate">{line.branch}</span>
+                  </StatePill>
+                ) : null}
+                <span className="min-w-0 flex-1" />
+                {line.sync ? <span className="shrink-0 text-code-11 text-text-tertiary">{line.sync}</span> : null}
+                <span
+                  className={cn(
+                    "shrink-0 text-code-11",
+                    line.attention ? "text-status-danger" : repo.changed > 0 ? "text-text-secondary" : "text-text-tertiary",
+                  )}
+                >
+                  {line.state}
+                </span>
+                <ChevronRight className="size-(--icon-12) shrink-0 text-text-tertiary" aria-hidden />
               </button>
             </li>
-          ))}
-        </ul>
-      </div>
+          );
+        })}
+      </ul>
     </div>
-  );
-}
-
-/** The bar's repository: which one Git is in, and the others in the same folder. */
-export function RepositorySwitcher({
-  folder,
-  repos,
-  onOpen,
-  onChoose,
-}: {
-  folder: string;
-  repos: Repository[];
-  /** The menu is about to show change counts; read them afresh. */
-  onOpen: () => void;
-  onChoose: (repo: Repository) => void;
-}) {
-  const here = repos.find((repo) => repo.path === folder);
-  return (
-    <DropdownMenu onOpenChange={(open) => open && onOpen()}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="min-w-0 max-w-full font-mono text-xs" title={folder}>
-          <span className="truncate">{here?.name ?? folder}</span>
-          <ChevronDown aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[28rem] max-w-[90vw]">
-        <DropdownMenuLabel>{repos.length} repositories</DropdownMenuLabel>
-        {repos.map((repo) => (
-          <DropdownMenuItem key={repo.path} onSelect={() => onChoose(repo)}>
-            <RepositoryRow repo={repo} />
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

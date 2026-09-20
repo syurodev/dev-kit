@@ -60,8 +60,10 @@ type Status struct {
 
 // Commit is one entry of the log.
 type Commit struct {
-	SHA     string `json:"sha"`
-	Short   string `json:"short"`
+	SHA   string `json:"sha"`
+	Short string `json:"short"`
+	// Parent is the first parent's short hash, empty for a root commit.
+	Parent  string `json:"parent"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 	Author  string `json:"author"`

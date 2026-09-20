@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,6 +147,36 @@ func (s *Service) Diff(ctx context.Context, rev string, staged bool) ([]gitparse
 	return out, nil
 }
 
+// commitFormat is the log's per-commit format. %x00 between fields and %x01
+// between commits: a subject may contain anything, including whatever
+// separator seemed safe. The body is last so a stray field boundary in it
+// cannot shift the others.
+const commitFormat = "--pretty=format:%H%x00%h%x00%an%x00%aI%x00%p%x00%s%x00%b%x01"
+
+// parseCommits reads what commitFormat printed.
+func parseCommits(out []byte) []Commit {
+	var commits []Commit
+	for _, record := range strings.Split(string(out), "\x01") {
+		record = strings.TrimLeft(record, "\n")
+		if record == "" {
+			continue
+		}
+		fields := strings.Split(record, "\x00")
+		if len(fields) < 7 {
+			continue
+		}
+		parent := ""
+		if parents := strings.Fields(fields[4]); len(parents) > 0 {
+			parent = parents[0]
+		}
+		commits = append(commits, Commit{
+			SHA: fields[0], Short: fields[1], Author: fields[2], Date: fields[3],
+			Parent: parent, Subject: fields[5], Body: strings.TrimRight(fields[6], "\n"),
+		})
+	}
+	return commits
+}
+
 // Log is the current branch's history, newest first and bounded.
 func (s *Service) Log(ctx context.Context, limit int) ([]Commit, error) {
 	r, err := s.active()
@@ -155,10 +186,7 @@ func (s *Service) Log(ctx context.Context, limit int) ([]Commit, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	// %x00 between fields and %x01 between commits: a subject may contain
-	// anything, including whatever separator seemed safe.
-	out, err := r.run(ctx, nil, "log", "-n", strconv.Itoa(limit),
-		"--pretty=format:%H%x00%h%x00%an%x00%aI%x00%s%x00%b%x01")
+	out, err := r.run(ctx, nil, "log", "-n", strconv.Itoa(limit), commitFormat)
 	if err != nil {
 		// A repository with no commits yet is empty, not broken.
 		if strings.Contains(err.Error(), "does not have any commits") {
@@ -166,22 +194,49 @@ func (s *Service) Log(ctx context.Context, limit int) ([]Commit, error) {
 		}
 		return nil, err
 	}
-	var commits []Commit
-	for _, record := range strings.Split(string(out), "\x01") {
-		record = strings.TrimLeft(record, "\n")
-		if record == "" {
-			continue
-		}
-		fields := strings.Split(record, "\x00")
-		if len(fields) < 6 {
-			continue
-		}
-		commits = append(commits, Commit{
-			SHA: fields[0], Short: fields[1], Author: fields[2],
-			Date: fields[3], Subject: fields[4], Body: strings.TrimRight(fields[5], "\n"),
-		})
+	return parseCommits(out), nil
+}
+
+// revPattern is what a commit view may ask about: a hash, and nothing git
+// could read as an option or a range.
+var revPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+
+// Show is one commit — the log's entry for it, with its parent.
+func (s *Service) Show(ctx context.Context, rev string) (Commit, error) {
+	r, err := s.active()
+	if err != nil {
+		return Commit{}, err
 	}
-	return commits, nil
+	if !revPattern.MatchString(rev) {
+		return Commit{}, ErrNotAllowed
+	}
+	out, err := r.run(ctx, nil, "show", "-s", commitFormat, rev)
+	if err != nil {
+		return Commit{}, err
+	}
+	commits := parseCommits(out)
+	if len(commits) == 0 {
+		return Commit{}, ErrNotAllowed
+	}
+	return commits[0], nil
+}
+
+// RevPatch is one file's unified diff in one commit, against its parent —
+// what a commit view draws as before and after. A binary file has no hunks.
+func (s *Service) RevPatch(ctx context.Context, rev, path string) (string, error) {
+	r, err := s.active()
+	if err != nil {
+		return "", err
+	}
+	if !revPattern.MatchString(rev) || path == "" {
+		return "", ErrNotAllowed
+	}
+	out, err := r.run(ctx, nil,
+		"show", "--no-color", "--no-ext-diff", "--no-renames", "-U3", "--format=", rev, "--", path)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // CommitsForTask finds the commits carrying a task's key in a trailer.
