@@ -6,7 +6,7 @@
  * that: a button rendering ⌘ on Windows is simply wrong, and this app ships
  * there too.
  */
-function isMac(): boolean {
+export function isMac(): boolean {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform);
 }
 
@@ -53,7 +53,7 @@ const MAC_KEYS: Record<string, string> = { Enter: "↵", Escape: "esc", Backspac
 export function chordLabel(chord: Chord, mac: boolean = isMac()): string {
   const key = chord.key.length === 1 ? chord.key.toUpperCase() : chord.key;
   if (!mac) {
-    return [chord.mod ? "Ctrl" : "", chord.alt ? "Alt" : "", chord.shift ? "Shift" : "", key]
+    return [chord.mod ? "Ctrl" : "", chord.alt ? "Alt" : "", chord.shift ? "Shift" : "", key === "Escape" ? "Esc" : key]
       .filter(Boolean)
       .join("+");
   }

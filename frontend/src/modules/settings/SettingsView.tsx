@@ -61,14 +61,17 @@ import {
   LockKeyhole,
   Database,
   Bot,
+  Command,
   Trash2,
   X,
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { chordLabel } from "@/lib/shortcut";
+import { KeyboardTab } from "./KeyboardTab";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
-export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents";
+export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents" | "keyboard";
 
 export interface SettingsModalProps {
   open: boolean;
@@ -176,6 +179,12 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
                 label="Agents"
                 onClick={() => setActiveTab("agents")}
               />
+              <NavItem
+                active={activeTab === "keyboard"}
+                icon={Command}
+                label="Keyboard"
+                onClick={() => setActiveTab("keyboard")}
+              />
             </div>
 
             {/* Content Panel Area */}
@@ -186,6 +195,16 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
               {activeTab === "agents" && <AgentsTab />}
+              {activeTab === "keyboard" && (
+                <KeyboardTab
+                  intro={
+                    <SectionHeader
+                      title="Keyboard"
+                      description={`Every shortcut in DevKit. The module you are in is listed first. Press ${chordLabel({ mod: true, key: "/" })} anywhere for a quick reference.`}
+                    />
+                  }
+                />
+              )}
             </div>
           </div>
           </div>

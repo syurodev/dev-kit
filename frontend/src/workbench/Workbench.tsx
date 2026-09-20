@@ -18,7 +18,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
-import { onSettingsRequested } from "./settingsRequest";
+import { onSettingsRequested, requestSettings } from "./settingsRequest";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
@@ -402,6 +402,20 @@ export function Workbench() {
           event.preventDefault();
           state.splitTab(group.activeTabId);
         }
+        return;
+      }
+      // ⌘/ / Ctrl+/: the keyboard reference — Settings on its Keyboard section.
+      // Not from a text field: CodeMirror binds ⌘/ to comment a line, and the
+      // editor's own binding must win where the caret is.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key === "/" &&
+        !editsText(event.target)
+      ) {
+        event.preventDefault();
+        requestSettings("keyboard");
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
