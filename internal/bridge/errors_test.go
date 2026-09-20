@@ -4,6 +4,7 @@ import (
 	"devkit/internal/codegraph"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -70,5 +71,21 @@ func TestPublicErrorMapsCodeGraphFileInputs(t *testing.T) {
 		if !strings.HasPrefix(got.Error(), "validation_failed:") {
 			t.Fatalf("%v: %v", cause, got)
 		}
+	}
+}
+
+// A missing file used to surface as one fixed sentence, so a failed index gave
+// no hint whether the analyzer, its runtime or the project folder was gone.
+func TestPublicErrorNamesTheMissingCodeGraphPath(t *testing.T) {
+	launch := fmt.Errorf("codegraph: analyze %q: %w", "/work/app", &fs.PathError{Op: "fork/exec", Path: "/opt/jdk/bin/java", Err: fs.ErrNotExist})
+	got := publicError("builtin.codegraph", launch)
+	want := "validation_failed: CodeGraph file or directory not found: /opt/jdk/bin/java (fork/exec)."
+	if got.Error() != want {
+		t.Fatalf("error = %q, want %q", got.Error(), want)
+	}
+
+	bare := publicError("builtin.codegraph", fmt.Errorf("read: %w", os.ErrNotExist))
+	if bare.Error() != "validation_failed: CodeGraph file or directory not found." {
+		t.Fatalf("error without a path = %q", bare.Error())
 	}
 }
