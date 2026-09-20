@@ -174,3 +174,37 @@ func TestVaultConcurrentSetupSucceedsExactlyOnce(t *testing.T) {
 		t.Fatal("vault should be unlocked after the winning Setup")
 	}
 }
+
+// Verifying re-authenticates an action inside an open session. It is not an
+// unlock and not a lock: neither answer may move the vault's state, or a
+// mistyped password in a reveal dialog would lock the app.
+func TestVerifyMasterPasswordLeavesTheVaultWhereItWas(t *testing.T) {
+	svc := NewService(NewMemoryKeyringStore())
+	if _, err := svc.Setup("correct-horse"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Unlock("correct-horse"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.VerifyMasterPassword("correct-horse"); err != nil {
+		t.Fatalf("the right password did not verify: %v", err)
+	}
+	if svc.IsLocked() {
+		t.Fatal("verifying locked an open vault")
+	}
+	if err := svc.VerifyMasterPassword("wrong"); err == nil {
+		t.Fatal("the wrong password verified")
+	}
+	if svc.IsLocked() {
+		t.Fatal("a wrong answer locked an open vault")
+	}
+
+	svc.Lock()
+	if err := svc.VerifyMasterPassword("correct-horse"); err != nil {
+		t.Fatalf("verify on a locked vault: %v", err)
+	}
+	if !svc.IsLocked() {
+		t.Fatal("verifying unlocked a locked vault")
+	}
+}

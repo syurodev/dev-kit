@@ -62,6 +62,22 @@ export interface ModuleDTO {
 }
 
 /**
+ * RevealedCredential is the one credential shape that crosses this bridge.
+ * 
+ * Every other path resolves inside Go at the moment of use. This one exists
+ * because the alternative is worse: somebody who cannot read back the token
+ * they saved keeps a second copy of it in a note somewhere DevKit did not
+ * seal. It is reachable only from the UI — accounts:reveal is a capability the
+ * MCP subject is never granted, so an agent cannot get here because there is
+ * no door, not because a check says no.
+ */
+export interface RevealedCredential {
+    "user": string;
+    "secret": string;
+    "kind": string;
+}
+
+/**
  * SyncConflictDTO is non-secret conflict metadata for the UI. No record payload
  * or plaintext secret crosses the boundary.
  */

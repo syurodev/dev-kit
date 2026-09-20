@@ -141,3 +141,83 @@ export function stopSyncingProfileSecrets(): Promise<MigrationReport> {
 export function needsAttention(accounts: Account[]): number {
   return accounts.filter((account) => account.state !== "valid").length;
 }
+
+/**
+ * The one credential shape that crosses this bridge.
+ *
+ * Every other path resolves inside Go at the moment of use. This one exists
+ * because the alternative is worse: somebody who cannot read back the token
+ * they saved keeps a second copy of it in a note somewhere DevKit did not
+ * seal. `accounts:reveal` is a capability the MCP subject is never granted, so
+ * an agent cannot reach this — there is no door, rather than a check saying no.
+ */
+export type RevealedCredential = { user: string; secret: string; kind: string };
+
+/** Whether revealing asks for the Master Password again. Defaults to on. */
+export function revealRequiresPassword(): Promise<boolean> {
+  return callBridge(async () => await AppService.AccountsRevealRequiresPassword());
+}
+
+export function setRevealRequiresPassword(required: boolean): Promise<void> {
+  return callBridge(async () => {
+    await AppService.AccountsSetRevealRequiresPassword(required);
+  });
+}
+
+/**
+ * Shows one account's value. Pass "" for the password when the preference is
+ * off; the backend is what decides, not this argument.
+ */
+export function revealAccount(id: string, masterPassword: string): Promise<RevealedCredential> {
+  return callBridge(
+    async () => (await AppService.AccountsReveal(id, masterPassword)) as RevealedCredential,
+  );
+}
+
+/**
+ * Which account authenticates to a host on an environment.
+ *
+ * `decided` false with two or more options is a question, never a guess: two
+ * GitHub accounts are usually a personal one and a company one, and sending a
+ * request as the wrong identity is worse than asking once.
+ */
+export type HostMatch = {
+  decided: boolean;
+  account: Account;
+  options: Account[] | null;
+  /** The decision came from a stored answer rather than from being the only one. */
+  remembered: boolean;
+};
+
+export function accountsForHost(host: string, env: string): Promise<HostMatch> {
+  return callBridge(async () => (await AppService.AccountsForHost(host, env)) as HostMatch);
+}
+
+export function chooseAccountForHost(host: string, env: string, accountId: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.AccountsChooseForHost(host, env, accountId);
+  });
+}
+
+export function forgetHostChoice(host: string, env: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.AccountsForgetHostChoice(host, env);
+  });
+}
+
+/**
+ * The host a request URL authenticates to, for asking which account covers it.
+ *
+ * A URL still holding unfilled `{{variables}}` has no host to ask about yet,
+ * and guessing one would match an account to a template rather than to a
+ * server. Returns "" rather than throwing: not knowing yet is the normal state
+ * while someone is typing.
+ */
+export function hostOf(url: string): string {
+  if (!url || url.includes("{{")) return "";
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}

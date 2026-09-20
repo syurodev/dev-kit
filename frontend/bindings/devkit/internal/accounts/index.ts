@@ -8,6 +8,7 @@ export {
 
 export type {
     Account,
+    HostMatch,
     Provider,
     VerifySpec
 } from "./models.js";

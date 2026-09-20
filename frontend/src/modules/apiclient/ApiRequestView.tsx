@@ -13,6 +13,7 @@ import {
   type ApiRequest,
   type ApiResponse,
 } from "@/bridge/apiclient";
+import { ApiAuthPicker } from "./ApiAuthPicker";
 
 /**
  * Compose and send. Auth is not a field here on purpose: the request carries
@@ -113,11 +114,12 @@ export function ApiRequestView() {
             Not set in this environment: {missing.join(", ")}
           </p>
         ) : null}
-        {request.auth.accountId ? (
-          <p className="pt-1 text-xs text-fg-muted">
-            Authenticates with a saved account ({request.auth.kind})
-          </p>
-        ) : null}
+        <ApiAuthPicker
+          request={request}
+          env={environment?.env ?? ""}
+          vars={vars}
+          onSaved={reload}
+        />
       </div>
 
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">

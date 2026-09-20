@@ -12,7 +12,36 @@ const (
 	themeFamilyKey        = "theme_family"
 	agentNotificationsKey = "agent_notifications"
 	agentCheckpointsKey   = "agent_checkpoints"
+	revealPasswordKey     = "accounts_reveal_requires_password"
 )
+
+// GetRevealRequiresPassword treats a value it cannot read as unset, so the
+// default applies. The default is ON, which is the safe direction for an
+// unreadable row: the worst case is one extra prompt, not a credential shown
+// without one.
+func (r *SQLRepository) GetRevealRequiresPassword() (bool, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", revealPasswordKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	required, parseErr := strconv.ParseBool(value)
+	if parseErr != nil {
+		return false, false, nil
+	}
+	return required, true, nil
+}
+
+func (r *SQLRepository) SetRevealRequiresPassword(required bool) error {
+	_, err := r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, revealPasswordKey, strconv.FormatBool(required))
+	return err
+}
 
 // GetAgentNotifications treats a value it cannot read as unset, so the default
 // applies rather than the setting becoming unreadable.

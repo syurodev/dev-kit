@@ -393,3 +393,75 @@ func TestReplacingAScopedSecretKeepsItReadable(t *testing.T) {
 		t.Fatalf("the row's id changed from %s to %s", first.ID, after.ID)
 	}
 }
+
+// Reveal is the one method here whose result is meant to cross the bridge. It
+// exists because the alternative is worse: somebody who cannot read back the
+// token they saved keeps a second copy somewhere DevKit did not seal.
+func TestRevealReturnsTheValueForBothKindsOfAccount(t *testing.T) {
+	svc, _ := newService(t)
+	shared, err := svc.Create(CreateInput{
+		Provider: "github", Kind: KindToken, Label: "GitHub", User: "octocat", Secret: "ghp_x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := svc.Reveal(shared.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.Secret != "ghp_x" || credential.User != "octocat" {
+		t.Fatalf("revealed = %+v", credential)
+	}
+
+	if err := svc.PutForOwner("owner-1", ProviderDatabase, "staging", "postgres", "hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := svc.ForOwner("owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential, err = svc.Reveal(scoped.ID); err != nil {
+		t.Fatal(err)
+	}
+	if credential.Secret != "hunter2" {
+		t.Fatalf("a scoped account did not reveal: %+v", credential)
+	}
+}
+
+// An external account records that an identity exists somewhere DevKit does
+// not hold it. There is nothing to reveal, and saying so is not an error about
+// the account being missing.
+func TestRevealRefusesAnExternalAccount(t *testing.T) {
+	svc, _ := newService(t)
+	external, err := svc.Create(CreateInput{
+		Provider: "anthropic", Kind: KindExternal, Label: "Claude", Ref: "claude login",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Reveal(external.ID); !errors.Is(err, ErrNothingToReveal) {
+		t.Fatalf("Reveal on an external account = %v, want ErrNothingToReveal", err)
+	}
+}
+
+// Revealing is not using. An account limited to prod is still the user's to
+// read, so the env restriction — which guards Resolve — must not guard this.
+func TestRevealIgnoresTheEnvironmentRestriction(t *testing.T) {
+	svc, _ := newService(t)
+	restricted, err := svc.Create(CreateInput{
+		Provider: "github", Kind: KindToken, Label: "Prod only", Secret: "ghp_p", Env: []string{"prod"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Resolve(ResolveInput{AccountID: restricted.ID, Env: "dev", By: "test"}); !errors.Is(err, ErrEnvNotAllowed) {
+		t.Fatalf("resolving on the wrong env = %v, want ErrEnvNotAllowed", err)
+	}
+	credential, err := svc.Reveal(restricted.ID)
+	if err != nil {
+		t.Fatalf("reveal was blocked by an env restriction: %v", err)
+	}
+	if credential.Secret != "ghp_p" {
+		t.Fatalf("revealed = %+v", credential)
+	}
+}

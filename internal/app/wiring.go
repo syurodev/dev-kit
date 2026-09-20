@@ -24,8 +24,9 @@ import (
 // which is the same reason accounts and tasks take a name rather than a
 // package.
 type Tables struct {
-	AccountSecrets string
-	TaskVerifyRuns string
+	AccountSecrets     string
+	AccountHostChoices string
+	TaskVerifyRuns     string
 }
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an
@@ -42,6 +43,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 		c.Items, db, tables.AccountSecrets, vaultService,
 		accounts.NewRegistry(accounts.DefaultProviders()), c.Environments,
 	)
+	// Without this the host rule still decides correctly and simply asks every
+	// time; with it, once per (host, env).
+	c.Accounts.SetHostChoices(db, tables.AccountHostChoices)
 
 	// The API client resolves its credentials through Accounts and asks the
 	// interaction hub before sending on a gated environment. A nil hub is
