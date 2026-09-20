@@ -661,6 +661,7 @@ func main() {
 	app.WireCredentialsAndWork(container, db, container.Vault, app.Tables{
 		AccountSecrets:     storage.TableAccountSecrets,
 		AccountHostChoices: storage.TableAccountHostChoices,
+		APIRequestHistory:  storage.TableAPIRequestHistory,
 		TaskVerifyRuns:     storage.TableTaskVerifyRuns,
 	})
 	// The board asks the hub whether a session is still alive before letting
