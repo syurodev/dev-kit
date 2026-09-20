@@ -124,14 +124,14 @@ export function CodeGraphSidebar() {
 
   if (!projectPath) {
     return (
-      <div className="flex h-full flex-col py-4">
+      <div className="flex h-full flex-col select-none">
         <EmptyProject busy={busy} onPickProject={pickAndOpenProject} onOpenProject={onOpenProject} />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 py-4">
+    <div className="flex h-full flex-col gap-3 select-none">
       <ProjectHeader
         projectPath={projectPath}
         indexInfo={indexInfo}
