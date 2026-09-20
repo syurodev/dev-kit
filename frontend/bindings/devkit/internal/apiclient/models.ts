@@ -36,6 +36,16 @@ export enum AuthKind {
 };
 
 /**
+ * Collection groups requests.
+ */
+export interface Collection {
+    "id": string;
+    "name": string;
+    "parentId"?: string;
+    "order": number;
+}
+
+/**
  * Environment is a set of variables and the env tag they run under.
  */
 export interface Environment {
@@ -59,6 +69,36 @@ export interface Environment {
      * returned.
      */
     "secretVars": string[] | null;
+}
+
+/**
+ * HistoryEntry is one send. There is no body and no headers on purpose: either
+ * side can carry a token, a body can be megabytes, and re-sending is one
+ * click — so what would be bought by keeping them is small and what is risked
+ * is not.
+ */
+export interface HistoryEntry {
+    "id": string;
+    "requestId": string;
+    "environmentId": string;
+    "method": string;
+
+    /**
+     * URL is the interpolated URL, sealed at rest and opened for this list.
+     * Empty when the vault cannot open it, which is a locked vault rather
+     * than a broken row.
+     */
+    "url": string;
+    "status": number;
+    "durationMs": number;
+    "bytes": number;
+
+    /**
+     * Failure is why nothing came back: a DNS failure, a refused confirmation,
+     * a timeout. Empty when there is a status.
+     */
+    "failure": string;
+    "sentAt": string;
 }
 
 /**

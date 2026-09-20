@@ -540,6 +540,18 @@ export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentrunt
 }
 
 /**
+ * ApiClearHistory forgets one request's sends, or every request's when the id
+ * is empty.
+ */
+export function ApiClearHistory(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(34666617, requestID);
+}
+
+export function ApiCollections(): $CancellablePromise<apiclient$0.Collection[] | null> {
+    return $Call.ByID(3365323303);
+}
+
+/**
  * ApiCreateEnvironment takes the secret variables once. They are sealed and
  * never returned by any method here — Environments lists their names only.
  */
@@ -555,6 +567,14 @@ export function ApiCurl(id: string, vars: { [_ in string]?: string } | null): $C
     return $Call.ByID(3986395368, id, vars);
 }
 
+/**
+ * ApiDeleteCollection removes an empty folder and refuses a full one, naming
+ * what is inside.
+ */
+export function ApiDeleteCollection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3684999301, id);
+}
+
 export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
     return $Call.ByID(3006789638, id);
 }
@@ -563,12 +583,28 @@ export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[]
     return $Call.ByID(3503140704);
 }
 
+/**
+ * ApiHistory lists what this machine sent for one request. The URL is sealed
+ * at rest and opened here; a locked vault gives the row back without it.
+ */
+export function ApiHistory(requestID: string, limit: number): $CancellablePromise<apiclient$0.HistoryEntry[] | null> {
+    return $Call.ByID(3212882078, requestID, limit);
+}
+
 export function ApiRequest(id: string): $CancellablePromise<apiclient$0.Request> {
     return $Call.ByID(1869710267, id);
 }
 
 export function ApiRequests(): $CancellablePromise<apiclient$0.Request[] | null> {
     return $Call.ByID(934441944);
+}
+
+/**
+ * ApiSaveCollection creates or renames a folder. It takes the fields the
+ * window has rather than the struct, for the same reason ApiSaveRequest does.
+ */
+export function ApiSaveCollection(id: string, name: string, parentID: string, order: number): $CancellablePromise<apiclient$0.Collection> {
+    return $Call.ByID(4075892011, id, name, parentID, order);
 }
 
 /**

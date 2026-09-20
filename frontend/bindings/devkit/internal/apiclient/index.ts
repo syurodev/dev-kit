@@ -7,7 +7,9 @@ export {
 
 export type {
     Auth,
+    Collection,
     Environment,
+    HistoryEntry,
     Request,
     Response
 } from "./models.js";

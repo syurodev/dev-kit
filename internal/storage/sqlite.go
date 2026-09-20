@@ -60,8 +60,15 @@ const (
 	// again in one click, and making it sync would buy a record type, a schema
 	// and a conflict rule for a preference whose worst failure is one dialog.
 	TableAccountHostChoices = "account_host_choices"
-	TableAppPreferences     = "app_preferences"
-	TableUIState            = "ui_state"
+
+	// TableAPIRequestHistory is what this machine sent and what came back. It
+	// never syncs — it says what this device did, not what the project is —
+	// and it is the same call db_query_history already made. The URL is
+	// SEALED rather than stored in plaintext: an interpolated URL can carry a
+	// secret variable, and a local file is still at rest.
+	TableAPIRequestHistory = "api_request_history"
+	TableAppPreferences    = "app_preferences"
+	TableUIState           = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
@@ -883,7 +890,40 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25})
+	m26 := Migration{
+		Version: 26,
+		Name:    "api request history",
+		Up: func(ctx context.Context) error {
+			// No body and no headers, deliberately: a response body can be
+			// megabytes and either side can hold a token, while re-sending is
+			// one click. What is here is what a person scans a list for.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					request_id TEXT NOT NULL,
+					environment_id TEXT NOT NULL DEFAULT '',
+					method TEXT NOT NULL,
+					url_envelope TEXT NOT NULL,
+					status INTEGER NOT NULL DEFAULT 0,
+					duration_ms INTEGER NOT NULL DEFAULT 0,
+					bytes INTEGER NOT NULL DEFAULT 0,
+					failure TEXT NOT NULL DEFAULT '',
+					sent_at TEXT NOT NULL
+				)`, TableAPIRequestHistory,
+			)); err != nil {
+				return err
+			}
+			// The list is always "this request, newest first", and the trim
+			// that keeps it bounded asks the same question.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_api_request_history_request ON %s (request_id, sent_at DESC)`,
+				TableAPIRequestHistory,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26})
 	if err != nil {
 		return err
 	}

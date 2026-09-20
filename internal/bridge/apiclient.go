@@ -149,3 +149,71 @@ func (s *AppService) ApiCurl(id string, vars map[string]string) (string, error) 
 	}
 	return result.(string), nil
 }
+
+// ---- collections -----------------------------------------------------
+
+func (s *AppService) ApiCollections() ([]apiclient.Collection, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "collections",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.Collections()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]apiclient.Collection), nil
+}
+
+// ApiSaveCollection creates or renames a folder. It takes the fields the
+// window has rather than the struct, for the same reason ApiSaveRequest does.
+func (s *AppService) ApiSaveCollection(id, name, parentID string, order int) (apiclient.Collection, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:*", map[string]any{
+		"action": "save_collection",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.SaveCollection(apiclient.Collection{
+			ID: id, Name: name, ParentID: parentID, Order: order,
+		})
+	})
+	if err != nil {
+		return apiclient.Collection{}, err
+	}
+	return result.(apiclient.Collection), nil
+}
+
+// ApiDeleteCollection removes an empty folder and refuses a full one, naming
+// what is inside.
+func (s *AppService) ApiDeleteCollection(id string) error {
+	_, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:*", map[string]any{
+		"action": "delete_collection",
+	}, func(context.Context) (any, error) {
+		return nil, s.container.APIClient.DeleteCollection(id)
+	})
+	return err
+}
+
+// ---- history ---------------------------------------------------------
+
+// ApiHistory lists what this machine sent for one request. The URL is sealed
+// at rest and opened here; a locked vault gives the row back without it.
+func (s *AppService) ApiHistory(requestID string, limit int) ([]apiclient.HistoryEntry, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "history",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.History(requestID, limit)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]apiclient.HistoryEntry), nil
+}
+
+// ApiClearHistory forgets one request's sends, or every request's when the id
+// is empty.
+func (s *AppService) ApiClearHistory(requestID string) error {
+	_, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:*", map[string]any{
+		"action": "clear_history",
+	}, func(context.Context) (any, error) {
+		return nil, s.container.APIClient.ClearHistory(requestID)
+	})
+	return err
+}

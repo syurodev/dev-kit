@@ -26,6 +26,7 @@ import (
 type Tables struct {
 	AccountSecrets     string
 	AccountHostChoices string
+	APIRequestHistory  string
 	TaskVerifyRuns     string
 }
 
@@ -50,6 +51,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// The API client resolves its credentials through Accounts and asks the
 	// interaction hub before sending on a gated environment. A nil hub is
 	// headless, and the service already treats that as a refusal.
+	// Without this a send still goes out and records nothing: history is a
+	// convenience, not a precondition.
+	c.APIClient.SetHistory(db, tables.APIRequestHistory, vaultService)
 	c.APIClient.SetCredentials(accountResolver{accounts: c.Accounts})
 	if c.Interaction != nil {
 		c.APIClient.SetConfirmer(hubConfirmer{hub: c.Interaction, kind: interaction.KindAPI})

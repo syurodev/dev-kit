@@ -156,3 +156,71 @@ export function draftFromEndpoint(endpoint: {
     originRef: `devkit://codegraph/endpoint/${encodeURIComponent(endpoint.id)}`,
   };
 }
+
+/** A folder of requests. */
+export type ApiCollection = {
+  id: string;
+  name: string;
+  parentId?: string;
+  order: number;
+};
+
+export function listCollections(): Promise<ApiCollection[]> {
+  return callBridge(async () => ((await AppService.ApiCollections()) ?? []) as ApiCollection[]);
+}
+
+export function saveCollection(
+  collection: Partial<ApiCollection> & { name: string },
+): Promise<ApiCollection> {
+  return callBridge(
+    async () =>
+      (await AppService.ApiSaveCollection(
+        collection.id ?? "",
+        collection.name,
+        collection.parentId ?? "",
+        collection.order ?? 0,
+      )) as ApiCollection,
+  );
+}
+
+/**
+ * Removes an empty folder. A folder still holding anything is refused, and the
+ * error names what is inside — tidying is not the same action as losing every
+ * saved request in it, and a vault item has no undo.
+ */
+export function deleteCollection(id: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.ApiDeleteCollection(id);
+  });
+}
+
+/**
+ * One send. There is no body and no headers here on purpose: either side can
+ * carry a token, a body can be megabytes, and re-sending is one click.
+ */
+export type ApiHistoryEntry = {
+  id: string;
+  requestId: string;
+  environmentId: string;
+  method: string;
+  /** Sealed at rest; empty when the vault is locked, which is not an error. */
+  url: string;
+  status: number;
+  durationMs: number;
+  bytes: number;
+  /** Why nothing came back. Empty when there is a status. */
+  failure: string;
+  sentAt: string;
+};
+
+export function requestHistory(requestId: string, limit = 0): Promise<ApiHistoryEntry[]> {
+  return callBridge(
+    async () => ((await AppService.ApiHistory(requestId, limit)) ?? []) as ApiHistoryEntry[],
+  );
+}
+
+export function clearRequestHistory(requestId: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.ApiClearHistory(requestId);
+  });
+}

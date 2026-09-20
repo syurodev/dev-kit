@@ -27,6 +27,10 @@ var (
 	ErrInvalid       = errors.New("apiclient.invalid")
 	ErrNotAllowed    = errors.New("apiclient.notAllowed")
 	ErrSchemeInvalid = errors.New("apiclient.schemeInvalid")
+	// ErrCollectionNotEmpty refuses to take a folder's requests with it.
+	// Tidying is not the same action as losing saved work, and a vault item
+	// has no undo.
+	ErrCollectionNotEmpty = errors.New("apiclient.collectionNotEmpty")
 	// ErrRedirectHost is a redirect leaving the host the request was aimed
 	// at. Following it would send the credential somewhere else.
 	ErrRedirectHost = errors.New("apiclient.redirectHost")
