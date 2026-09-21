@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { applySessionUpdate, createInitialTranscriptModel } from "./transcript";
 import { AgentSessionFailure } from "./surfaces/AgentSessionFailure";
-import { rateLimitDetail, rateLimitLabel } from "./surfaces/AgentContextMeter";
+import { rateLimitDetail, rateLimitFailure, rateLimitLabel } from "./surfaces/AgentContextMeter";
 import { failureKey } from "./AgentHubView";
 
 const render = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
@@ -82,6 +82,23 @@ describe("the subscription's rate limit", () => {
 
     // Nothing to say is better than a made-up number.
     expect(rateLimitDetail({ status: "allowed" }, now)).toBe("no detail");
+  });
+
+  it("reads a rejection as a session failure, the same banner a vendor-reported one gets", () => {
+    const rejected = rateLimitFailure({ used: 0, size: 0, amount: 0, rateLimit: { status: "rejected", resetsAt: 1234, utilization: 100 } });
+    expect(rejected?.severity).toBe("error");
+    expect(rejected?.title).toBe("Usage limit reached");
+    // Stable across the same window: a status update every turn while still
+    // rejected must not read as a new failure and reopen a dismissed banner.
+    expect(rejected?.revision).toBe(1234);
+  });
+
+  it("stays out of the session banner before a turn is actually refused", () => {
+    // A turn still goes through at allowed_warning; only rejected stops one.
+    expect(rateLimitFailure({ used: 0, size: 0, amount: 0, rateLimit: { status: "allowed_warning" } })).toBeNull();
+    expect(rateLimitFailure({ used: 0, size: 0, amount: 0, rateLimit: { status: "allowed" } })).toBeNull();
+    expect(rateLimitFailure({ used: 0, size: 0, amount: 0 })).toBeNull();
+    expect(rateLimitFailure(null)).toBeNull();
   });
 });
 

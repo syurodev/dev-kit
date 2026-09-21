@@ -8,6 +8,8 @@ import {
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
+import { rateLimitFailure } from "@/modules/agenthub/surfaces/AgentContextMeter";
+import { failureKey } from "@/modules/agenthub/AgentHubView";
 import { useAgentTranscript } from "@/modules/agenthub/transcript";
 import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
@@ -43,6 +45,11 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // A vendor failure (or a rejected rate limit, read the same way) the user
+  // waved off. Keyed by id and revision, same as AgentHubView: a rate-limit
+  // failure's revision is its resetsAt, so dismissing it holds until a new
+  // window makes it news again.
+  const [dismissedFailure, setDismissedFailure] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [images, setImages] = useState<AgentImageAttachment[]>([]);
   const [imageError, setImageError] = useState("");
@@ -64,6 +71,10 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   // Live transcript stream for the active session in rail
   const transcriptModel = useAgentTranscript(session?.id ?? "", { enabled: visible });
+  // The vendor's own failure wins when there is one; a rejected rate limit is
+  // read the same way, since Claude never reports that through the vendor's
+  // failure channel (see AgentContextMeter's rateLimitFailure).
+  const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
 
   useEffect(() => {
     if (!visible || !session) return;
@@ -225,6 +236,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onRespondElicitation={respondQuestion}
       elicitationBusy={questionBusy}
       elicitationError={questionError}
+      failure={activeFailure && failureKey(activeFailure) !== dismissedFailure ? activeFailure : null}
+      onDismissFailure={() => setDismissedFailure(activeFailure ? failureKey(activeFailure) : "")}
       errorMessage={error}
       sendDisabled={false}
     />

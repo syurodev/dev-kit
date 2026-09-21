@@ -51,6 +51,7 @@ import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
+import { rateLimitFailure } from "./surfaces/AgentContextMeter";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleFolder } from "../../stores/workFolder";
@@ -827,6 +828,12 @@ export function AgentHubView() {
     onCopy: (text) => void copyText(text),
   });
 
+  // The vendor's own failure wins when there is one; Claude never reports a
+  // rate-limit rejection through that channel (only through usage_update's
+  // rateLimit), so without this a rejected turn had no banner at all — just
+  // the composer's context-meter popover, which nobody opens unprompted.
+  const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
+
   return (
     <div
       data-testid="agenthub-view"
@@ -885,14 +892,11 @@ export function AgentHubView() {
             onCancel={() => void handleCancel()}
             onCopy={(text) => void copyText(text)}
             failure={
-              transcriptModel.failure &&
-              failureKey(transcriptModel.failure) !== dismissedFailure
-                ? transcriptModel.failure
-                : null
+              activeFailure && failureKey(activeFailure) !== dismissedFailure ? activeFailure : null
             }
             onFailureAction={handleFailureAction}
             onDismissFailure={() =>
-              setDismissedFailure(transcriptModel.failure ? failureKey(transcriptModel.failure) : "")
+              setDismissedFailure(activeFailure ? failureKey(activeFailure) : "")
             }
             goal={transcriptModel.goal}
             onSetGoal={(objective) => void handleSetGoal(objective)}

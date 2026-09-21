@@ -147,7 +147,12 @@ function Block({ block }: { block: MarkdownBlock }) {
       );
 
     case "code":
-      return <AgentCodeBlock code={block.code} language={block.language} />;
+      // wrap only a single-line fence: multi-line code keeps its own line
+      // breaks (AgentCodeBlock's own reasoning), but one line has no
+      // structure to lose, and a token or URL long enough to fill it read as
+      // "the message ended" with everything past the fold behind a
+      // horizontal scrollbar nothing hinted was there.
+      return <AgentCodeBlock code={block.code} language={block.language} wrap={!block.code.includes("\n")} />;
 
     case "table":
       // A table is scanned along its rows and down its first column, and both
