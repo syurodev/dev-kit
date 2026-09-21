@@ -297,6 +297,7 @@ export function AgentRail({
               vendor={vendor}
               checkpoints={checkpoints}
               loadFileDiff={loadCheckpointFileDiff}
+              streaming={streaming}
               onCopy={onCopy}
               onEditPrompt={onPromptChange}
               onRewind={(promptMessageId, editAfter) => setRewinding({ promptMessageId, editAfter })}
