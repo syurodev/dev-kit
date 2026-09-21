@@ -72,7 +72,12 @@ export function EndpointsTab({
       id: ep.id,
       label: (
         <>
-          <span className={cn(METHOD_CHIP, "mr-2 w-12 align-middle", methodChipClass(ep.httpMethod))}>{ep.httpMethod}</span>
+          {/* min-w, not w: a Kong phase name (BODY_FILTER, HEADER_FILTER) is
+              longer than an HTTP method and needs to grow past the 48px an
+              HTTP method chip sizes to, or its own text overflows the box
+              uncontained (no overflow-hidden on the chip) and bleeds into the
+              row's truncate boundary and the label beside it. */}
+          <span className={cn(METHOD_CHIP, "mr-2 min-w-12 align-middle", methodChipClass(ep.httpMethod))}>{ep.httpMethod}</span>
           {ep.path}
         </>
       ),
