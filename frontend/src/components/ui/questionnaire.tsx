@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils"
 
 /** A choice row: the whole row is the hit target (the real input covers it). */
 export const QUESTIONNAIRE_CHOICE = cn(
-  "group/questionnaire-choice relative flex min-h-(--control-height-lg) cursor-pointer items-start gap-2.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
+  "group/questionnaire-choice relative flex min-h-(--control-height-lg) min-w-0 cursor-pointer items-start gap-2.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
   "hover:bg-state-soft",
   "has-[>input:focus-visible]:border-(length:--stroke-1-5) has-[>input:focus-visible]:border-status-info",
   "data-checked:border-status-info data-checked:bg-state-soft",
@@ -167,7 +167,7 @@ function QuestionnaireChoice({
       </span>
       <QuestionnairePrimitive.ChoiceLabel
         data-slot="questionnaire-choice-label"
-        className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 text-pretty break-words leading-snug"
       >
         {children}
       </QuestionnairePrimitive.ChoiceLabel>
@@ -186,7 +186,11 @@ function QuestionnaireChoiceDescription({
   return (
     <span
       data-slot="questionnaire-choice-description"
-      className={cn("text-body-12 text-text-tertiary", className)}
+      // break-words: a description quoting a URL or path (no spaces to wrap
+      // at) otherwise sets the choice row's min-content width to the whole
+      // string, pushing it past the rail and clipping the rest under
+      // overflow-hidden instead of wrapping.
+      className={cn("text-body-12 text-pretty break-words text-text-tertiary", className)}
       {...props}
     />
   )
