@@ -7,7 +7,8 @@ import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleSwitcher } from "./ModuleSwitcher";
-import { editsText, isPaletteShortcut, moduleIndexFromEvent } from "./moduleShortcuts";
+import { buildSwitcherItems, slotModuleIds, slotTarget } from "./switcherItems";
+import { editsText, inRichTextEditor, isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -17,7 +18,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
-import { onSettingsRequested } from "./settingsRequest";
+import { onSettingsRequested, requestSettings } from "./settingsRequest";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
@@ -52,6 +53,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { ModuleVisibilityProvider } from "@/components/ui/module-visibility";
 import { useModuleActionsStore } from "../stores/moduleActions";
+import { useModuleGroupsStore } from "../stores/moduleGroups";
+import { useSwitcherPeekStore } from "../stores/switcherPeek";
 import {
   allOpenTabs,
   moduleTabs,
@@ -351,10 +354,30 @@ export function Workbench() {
       // listener is registered once (empty deps) and must never see a
       // stale module list — same reason stores/moduleActions.ts reads
       // onClick through a ref inside its long-lived registration.
+      // ⌘⌥1–⌘⌥9: open that slot's peek, to pick from with the arrow keys. A slot
+      // whose module has nothing to peek at ignores it and leaves the chord alone.
+      const peekIndex = peekIndexFromEvent(event, {
+        editsText: editsText(event.target),
+        richText: inRichTextEditor(event.target),
+      });
+      if (peekIndex !== null) {
+        const item = switcherItemsRef.current[peekIndex];
+        const module = item?.kind === "module" ? getModule(item.module.id) : undefined;
+        const peeks = item?.kind === "group" || Boolean(module?.peek || module?.tabs);
+        if (peeks) {
+          event.preventDefault();
+          useSwitcherPeekStore.getState().toggle(peekIndex);
+        }
+        return;
+      }
       const moduleIndex = moduleIndexFromEvent(event);
       if (moduleIndex !== null) {
-        const target = switcherModulesRef.current[moduleIndex];
-        if (target && !target.unavailable) {
+        // A slot is a module, or a group — which opens the member used last, and
+        // the next one when pressed again from inside it (switcherItems).
+        const item = switcherItemsRef.current[moduleIndex];
+        const lastUsed = item?.kind === "group" ? useModuleGroupsStore.getState().lastUsed[item.group.id] : undefined;
+        const target = slotTarget(item, lastUsed, activeModuleIdRef.current);
+        if (target) {
           event.preventDefault();
           focusModuleRef.current(target.id);
         }
@@ -379,6 +402,20 @@ export function Workbench() {
           event.preventDefault();
           state.splitTab(group.activeTabId);
         }
+        return;
+      }
+      // ⌘/ / Ctrl+/: the keyboard reference — Settings on its Keyboard section.
+      // Not from a text field: CodeMirror binds ⌘/ to comment a line, and the
+      // editor's own binding must win where the caret is.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key === "/" &&
+        !editsText(event.target)
+      ) {
+        event.preventDefault();
+        requestSettings("keyboard");
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
@@ -521,8 +558,12 @@ export function Workbench() {
       })),
     [modules, unavailableModuleIds],
   );
-  const switcherModules = useMemo(
-    () => activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
+  const switcherItems = useMemo(
+    () =>
+      buildSwitcherItems(
+        activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
+        (moduleId) => getModule(moduleId)?.group,
+      ),
     [activityModules],
   );
   const activeModule =
@@ -560,8 +601,10 @@ export function Workbench() {
 
   // Mirrors for the mount-once keydown listener above, which must not close
   // over the first render's values. Declared here, after both definitions.
-  const switcherModulesRef = useRef(switcherModules);
-  switcherModulesRef.current = switcherModules;
+  const switcherItemsRef = useRef(switcherItems);
+  switcherItemsRef.current = switcherItems;
+  const activeModuleIdRef = useRef(activeModule?.id ?? "");
+  activeModuleIdRef.current = activeModule?.id ?? "";
   const focusModuleRef = useRef(focusModule);
   focusModuleRef.current = focusModule;
 
@@ -591,7 +634,17 @@ export function Workbench() {
     }
   }, [activeModuleId, openTab, pendingAgentHubCommand, tabModules]);
 
-  const switcherModuleIds = useMemo(() => switcherModules.map((module) => module.id), [switcherModules]);
+  // What the palette calls a module's digit: its slot, and none for a member of
+  // a group (whose slot opens whichever member was used last).
+  const switcherModuleIds = useMemo(() => slotModuleIds(switcherItems), [switcherItems]);
+  // A group's button opens the member used last, so what is on screen is what
+  // it must remember.
+  const activeGroupId = activeModule ? getModule(activeModule.id)?.group?.id : undefined;
+  const activeModuleKey = activeModule?.id;
+  const setLastUsed = useModuleGroupsStore((state) => state.setLastUsed);
+  useEffect(() => {
+    if (activeGroupId && activeModuleKey) setLastUsed(activeGroupId, activeModuleKey);
+  }, [activeGroupId, activeModuleKey, setLastUsed]);
   // Stable: the palette's sections are memoized on it, and focusModule is a
   // new function every render.
   const focusModuleFromPalette = useCallback((moduleId: string) => focusModuleRef.current(moduleId), []);
@@ -676,7 +729,7 @@ export function Workbench() {
           >
             <ModuleSwitcher
               activeModuleId={activeModule?.id ?? ""}
-              modules={switcherModules}
+              items={switcherItems}
               onSelectModule={focusModule}
             />
           </div>

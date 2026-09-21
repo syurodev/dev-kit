@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Columns2, Plus, SquareArrowOutUpRight, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,14 +14,18 @@ import { MENU_ROW, MenuRow } from "@/components/ui/menu-row";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { modKey, shortcut } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
+import type { ModuleGroup } from "@/modules/groups";
 import { getModule, viewIcon, type ModulePeekProps } from "@/modules/registry";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { MAX_GROUPS } from "@/stores/documentGroups";
+import { useModuleGroupsStore } from "@/stores/moduleGroups";
+import { useSwitcherPeekStore } from "@/stores/switcherPeek";
+import { representative, type SwitcherItem, type SwitcherModule } from "./switcherItems";
 
-export type SwitcherModule = { id: string; title: string; unavailable?: boolean };
+export type { SwitcherModule };
 
 type ModuleSwitcherProps = {
-  modules: SwitcherModule[];
+  items: SwitcherItem[];
   activeModuleId: string;
   /** `beside`: ⌥-click, open the module in a new group beside the focused one. */
   onSelectModule: (moduleId: string, opts?: { beside?: boolean }) => void;
@@ -35,35 +39,287 @@ type ModuleSwitcherProps = {
  * Each module owns what its button carries: its icon, a `badge`, and a `peek`
  * that opens on hover. See ModuleManifest.
  */
-export function ModuleSwitcher({ modules, activeModuleId, onSelectModule }: ModuleSwitcherProps) {
+export function ModuleSwitcher({ items, activeModuleId, onSelectModule }: ModuleSwitcherProps) {
   return (
     <nav aria-label="Modules" className="flex shrink-0 items-center gap-0.5">
-      {modules.map((module, index) => (
-        <ModuleButton
-          key={module.id}
-          module={module}
-          // There is no ⌘10. The handler is in Workbench.tsx.
-          digit={index < 9 ? String(index + 1) : null}
-          active={module.id === activeModuleId}
-          onSelect={(beside) => onSelectModule(module.id, { beside })}
-        />
-      ))}
+      {items.map((item, index) => {
+        // There is no ⌘10. The handler is in Workbench.tsx.
+        const digit = index < 9 ? String(index + 1) : null;
+        return item.kind === "module" ? (
+          <ModuleButton
+            key={item.module.id}
+            module={item.module}
+            slot={index}
+            digit={digit}
+            active={item.module.id === activeModuleId}
+            onSelect={(beside) => onSelectModule(item.module.id, { beside })}
+          />
+        ) : (
+          <GroupButton
+            key={item.group.id}
+            group={item.group}
+            members={item.members}
+            slot={index}
+            digit={digit}
+            activeModuleId={activeModuleId}
+            onSelect={(moduleId, beside) => onSelectModule(moduleId, { beside })}
+          />
+        );
+      })}
     </nav>
+  );
+}
+
+/**
+ * Figma `Titlebar / Module Group`: several modules on one button. It shows the
+ * member on screen — or, with none, the one used last — and a click opens that
+ * one, so what you do every day stays one click away; the corner notch says
+ * there are more, and hovering lists them (`Titlebar / Group Peek`).
+ *
+ * The members are still modules: right-click and ⌥-click act on the one the
+ * button stands for, exactly as they would on its own button.
+ */
+function GroupButton({
+  group,
+  members,
+  slot,
+  digit,
+  activeModuleId,
+  onSelect,
+}: {
+  group: ModuleGroup;
+  members: SwitcherModule[];
+  /** Its place in the bar, which is what ⌘⌥digit names. */
+  slot: number;
+  digit: string | null;
+  activeModuleId: string;
+  onSelect: (moduleId: string, beside?: boolean) => void;
+}) {
+  const [peekOpen, setPeekOpen] = useState(false);
+  const keyboardOpen = useSwitcherPeekStore((state) => state.slot === slot);
+  const closeKeyboardPeek = useSwitcherPeekStore((state) => state.close);
+  const lastUsed = useModuleGroupsStore((state) => state.lastUsed[group.id]);
+  const shown = representative(members, lastUsed, activeModuleId, group.primary);
+  const active = members.some((member) => member.id === activeModuleId);
+  const Icon = (shown ? getModule(shown.id)?.icon : undefined) ?? Wrench;
+
+  const label = (
+    <>
+      {group.title}
+      {digit ? <Kbd className="ml-1.5">{shortcut(digit)}</Kbd> : null}
+    </>
+  );
+
+  const button = (
+    <Button
+      variant="titlebar"
+      size="icon-sm"
+      disabled={!shown}
+      aria-label={group.title}
+      aria-current={active ? "page" : undefined}
+      aria-haspopup="dialog"
+      aria-keyshortcuts={digit ? `${modKey() === "⌘" ? "Meta" : "Control"}+${digit}` : undefined}
+      className={cn("relative", active && "bg-accent text-foreground")}
+      onPointerEnter={() => {
+        void (shown ? getModule(shown.id)?.views[0]?.preload?.() : undefined)?.catch(() => undefined);
+      }}
+      onClick={(event) => {
+        setPeekOpen(false);
+        if (shown) onSelect(shown.id, event.altKey);
+      }}
+    >
+      <Icon className="size-4" />
+      {/* The notch: a corner of the button folded over, the way a toolbar marks
+          a button that hides others. Its colour follows the button's state. */}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute right-1 bottom-1 size-1.25 bg-current [clip-path:polygon(100%_0,100%_100%,0_100%)] transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
+          active ? "text-text-primary" : "text-text-tertiary group-hover/button:text-text-secondary",
+        )}
+      />
+    </Button>
+  );
+
+  return (
+    <HoverCard
+      open={peekOpen || keyboardOpen}
+      onOpenChange={(open) => {
+        setPeekOpen(open);
+        if (!open) closeKeyboardPeek();
+      }}
+      openDelay={250}
+      closeDelay={120}
+    >
+      {/* The peek gives way to the menu: both would open from the one button. */}
+      <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
+        <HoverCardTrigger asChild>
+          <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+        </HoverCardTrigger>
+        {shown ? (
+          <ModuleContextMenu
+            moduleId={shown.id}
+            digit={digit}
+            onSelect={(beside) => onSelect(shown.id, beside)}
+          />
+        ) : null}
+      </ContextMenu>
+      <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
+        <PeekKeyboard active={keyboardOpen} onEscape={closeKeyboardPeek}>
+          <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
+            {label}
+          </div>
+          {members.map((member) => (
+            <GroupPeekRow
+              key={member.id}
+              member={member}
+              current={member.id === shown?.id}
+              onSelect={() => {
+                setPeekOpen(false);
+                closeKeyboardPeek();
+                onSelect(member.id);
+              }}
+            />
+          ))}
+          {shown ? (
+            <p className="mt-0.5 border-t border-border-subtle px-2 pt-1.5 pb-1 text-caption-11 text-text-tertiary">
+              Click opens {shown.title}, the one you used last.
+            </p>
+          ) : null}
+        </PeekKeyboard>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/**
+ * What makes a peek usable without the pointer. When ⌘⌥digit opened it, focus
+ * moves to its current row (else its first), ↑ ↓ Home End move between the
+ * rows, Enter or Space picks — they are buttons — and Esc closes it and puts
+ * focus back where it was. A peek opened by hovering is left as it always was:
+ * nothing here runs, and the rows are still reached with the mouse.
+ *
+ * Generic over the peek's content on purpose: a module's own peek (Agent Hub
+ * lists its sessions) is any set of buttons, and gets the same keys.
+ */
+function PeekKeyboard({
+  active,
+  onEscape,
+  children,
+}: {
+  active: boolean;
+  onEscape: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const restore = useRef<HTMLElement | null>(null);
+  const escaped = useRef(false);
+
+  useEffect(() => {
+    if (!active) return;
+    restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    escaped.current = false;
+    // After the card has been placed: the content mounts a frame after the request.
+    const frame = requestAnimationFrame(() => {
+      const root = ref.current;
+      (root?.querySelector<HTMLElement>("button[aria-current]:not(:disabled)") ??
+        root?.querySelector<HTMLElement>("button:not(:disabled)"))?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      // Only Esc puts focus back; picking a row moves on to somewhere else.
+      if (escaped.current) restore.current?.focus();
+    };
+  }, [active]);
+
+  return (
+    <div
+      ref={ref}
+      className="contents"
+      onKeyDown={(event) => {
+        if (!active) return;
+        if (event.key === "Escape") {
+          escaped.current = true;
+          onEscape();
+          return;
+        }
+        const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+        if (!keys.includes(event.key)) return;
+        const rows = [...(ref.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+        if (rows.length === 0) return;
+        event.preventDefault();
+        const at = rows.indexOf(document.activeElement as HTMLElement);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? rows.length - 1
+              : event.key === "ArrowDown"
+                ? (at + 1) % rows.length
+                : (at - 1 + rows.length) % rows.length;
+        rows[next].focus();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Figma `Titlebar / Group Peek Row`: a member, what it has open, and a dot on the one the button stands for. */
+function GroupPeekRow({
+  member,
+  current,
+  onSelect,
+}: {
+  member: SwitcherModule;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = getModule(member.id)?.icon ?? Wrench;
+  const open = useWorkbenchTabsStore((state) => moduleTabs(state.modules, member.id).openTabs.length);
+  return (
+    <button
+      type="button"
+      disabled={member.unavailable}
+      aria-current={current ? "true" : undefined}
+      className={cn(MENU_ROW, "min-w-0 text-left", current && "bg-state-soft")}
+      onClick={onSelect}
+    >
+      <MenuRow
+        icon={<Icon />}
+        trailing={
+          <span className="flex items-center gap-2">
+            <span className="text-body-12 tabular-nums text-text-tertiary">
+              {open === 0 ? "Nothing open" : `${open} open`}
+            </span>
+            {/* Always drawn, so the counts line up whether or not this row has it. */}
+            <span className={cn("size-1.5 rounded-full", current ? "bg-action-primary" : "bg-transparent")} />
+          </span>
+        }
+      >
+        {member.title}
+      </MenuRow>
+    </button>
   );
 }
 
 function ModuleButton({
   module,
+  slot,
   digit,
   active,
   onSelect,
 }: {
   module: SwitcherModule;
+  /** Its place in the bar, which is what ⌘⌥digit names. */
+  slot: number;
   digit: string | null;
   active: boolean;
   onSelect: (beside?: boolean) => void;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
+  const keyboardOpen = useSwitcherPeekStore((state) => state.slot === slot);
+  const closeKeyboardPeek = useSwitcherPeekStore((state) => state.close);
   const manifest = getModule(module.id);
   const Icon = manifest?.icon ?? Wrench;
   const Badge = manifest?.badge;
@@ -126,11 +382,20 @@ function ModuleButton({
 
   function focusFromPeek() {
     setPeekOpen(false);
+    closeKeyboardPeek();
     onSelect();
   }
 
   return (
-    <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
+    <HoverCard
+      open={peekOpen || keyboardOpen}
+      onOpenChange={(open) => {
+        setPeekOpen(open);
+        if (!open) closeKeyboardPeek();
+      }}
+      openDelay={250}
+      closeDelay={120}
+    >
       {/* The peek gives way to the menu: both would open from the one button. */}
       <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
         <HoverCardTrigger asChild>
@@ -139,14 +404,16 @@ function ModuleButton({
         {menu}
       </ContextMenu>
       <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
-        <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
-          {label}
-        </div>
-        {Peek ? (
-          <Peek focusModule={focusFromPeek} />
-        ) : (
-          <ModuleTabsPeek moduleId={module.id} focusModule={focusFromPeek} />
-        )}
+        <PeekKeyboard active={keyboardOpen} onEscape={closeKeyboardPeek}>
+          <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
+            {label}
+          </div>
+          {Peek ? (
+            <Peek focusModule={focusFromPeek} />
+          ) : (
+            <ModuleTabsPeek moduleId={module.id} focusModule={focusFromPeek} />
+          )}
+        </PeekKeyboard>
       </HoverCardContent>
     </HoverCard>
   );

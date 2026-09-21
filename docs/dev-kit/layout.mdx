@@ -174,6 +174,40 @@ canvas Code Graph.
 Mỗi group hiện **icon + tên module** ở đầu tab strip khi có hơn một module trên
 màn hình — người dùng luôn biết sidebar đang nói về group nào.
 
+### Nhóm module trên titlebar
+
+Module switcher không có một nút cho mỗi module: các module hay đi cùng nhau
+dùng chung một nút (`frontend/src/modules/groups.ts`).
+
+| Nhóm | Module | Mặc định mở |
+|---|---|---|
+| Infra | Database, Kafka, SSH | Database |
+| Plan | Notes, Tasks | Notes |
+| Utilities | API Client, Accounts, Tools | API Client |
+
+- Nút nhóm hiện icon của module đang mở, hoặc module dùng gần nhất (nhớ qua các
+  lần mở app). **Click** mở đúng module đó; **hover** 250 ms hiện danh sách các
+  thành viên kèm số tab đang mở; ⌥-click và chuột phải tác động lên module đó
+  như trên nút riêng.
+- Nhóm chỉ là cách vẽ: mỗi thành viên vẫn là một module đầy đủ — tab, sidebar,
+  pin work folder và palette theo id của chính nó. Backend không biết nhóm tồn tại.
+- Một nhóm là **một slot**: `⌘1`–`⌘9` đếm slot, và nhấn lại phím của nhóm khi
+  đang ở trong nó thì chuyển sang thành viên kế tiếp. Vị trí của nhóm theo id của
+  nhóm (`infra` nằm giữa `git` và `plan`); `utilities` cuối cùng vì ít dùng nhất.
+- Một module vào nhóm bằng cách khai `group` trong manifest.
+- **Bàn phím:** `⌘⌥1`–`⌘⌥9` (`Ctrl+Alt+1`–`9` ngoài macOS) mở peek của slot đó,
+  cho cả module thường (danh sách tab đang mở) lẫn nhóm (danh sách thành viên).
+  Focus vào hàng hiện tại, `↑` `↓` `Home` `End` di chuyển, `Enter` chọn, `Esc`
+  đóng và trả focus về chỗ cũ. Phím đọc từ phím vật lý (`event.code`) vì `⌥` đổi
+  ký tự của hàng số trên macOS. Chord **nhường** khi con trỏ ở trong editor của
+  Notes (nơi `⌘⌥1`–`⌘⌥6` là heading), và — với `Ctrl+Alt`, vốn là AltGr trên
+  Windows/Linux — khi đang gõ trong ô nhập hoặc khi hệ điều hành báo AltGraph.
+- **Tất cả phím tắt** nằm ở *Settings ▸ Keyboard* (mở nhanh bằng `⌘/`, trừ khi
+  con trỏ đang ở trong ô nhập: CodeMirror dùng `⌘/` để comment). Danh sách dựng từ
+  `modules/settings/keyboard.ts`: phím của shell khai ở đó cùng handler, còn
+  command có `shortcut` trong manifest thì đọc thẳng từ manifest nên không lệch
+  với menu bar và palette. Module đang mở luôn ở đầu danh sách.
+
 ### Mở một group
 
 - `⌘\` hoặc *Split right* trên tab: group mới cùng module, tab chuyển sang đó.

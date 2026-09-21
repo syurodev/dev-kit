@@ -1,4 +1,5 @@
 import { KeyRound } from "lucide-react";
+import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const accountsModule: ModuleManifest = {
@@ -7,6 +8,7 @@ export const accountsModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: KeyRound,
+  group: UTILITIES_GROUP,
   padded: false,
   // accounts:reveal is declared because the capability exists; the grant that
   // matters lives in the container, and MCP never receives it.

@@ -1,4 +1,5 @@
 import { Send } from "lucide-react";
+import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 
@@ -8,6 +9,7 @@ export const apiclientModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Send,
+  group: UTILITIES_GROUP,
   padded: false,
   tabs: true,
   // api:send is separate from api:read and api:write: reading a request and

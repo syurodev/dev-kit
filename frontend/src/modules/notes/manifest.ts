@@ -1,5 +1,6 @@
 import { lazy } from "react";
 import { FileText } from "lucide-react";
+import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const notesModule: ModuleManifest = {
@@ -8,6 +9,7 @@ export const notesModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: FileText,
+  group: PLAN_GROUP,
   // A tab per note (NotesView opens one per card, NoteEditor pins it on the
   // first edit) — the one module today with several items open at once.
   tabs: true,
