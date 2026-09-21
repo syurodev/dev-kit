@@ -35,11 +35,17 @@ static void devkit_on_zoom_level_changed(GObject *object, GParamSpec *pspec, gpo
 	devkitZoomLevelChanged(WEBKIT_WEB_VIEW(object));
 }
 
-static void devkit_lock_zoom_level(GtkWidget *root) {
+// Returns 1 once the watch is attached, 0 if no WebKitWebView was found under
+// root — the caller logs either outcome, since a silent failure here is
+// indistinguishable from the watch working and the gesture just not being
+// zoom-level after all.
+static int devkit_lock_zoom_level(GtkWidget *root) {
 	WebKitWebView *view = devkit_find_web_view(root);
-	if (view != NULL) {
-		g_signal_connect(view, "notify::zoom-level", G_CALLBACK(devkit_on_zoom_level_changed), NULL);
+	if (view == NULL) {
+		return 0;
 	}
+	g_signal_connect(view, "notify::zoom-level", G_CALLBACK(devkit_on_zoom_level_changed), NULL);
+	return 1;
 }
 */
 import "C"
@@ -174,20 +180,29 @@ func applyWindowTitle(window application.Window, title string) {
 // watch fires again on the reset, sees 1.0, and stops.
 func lockWebviewZoom(window application.Window) {
 	if window == nil {
+		log.Printf("webview: lockWebviewZoom given a nil window")
 		return
 	}
 	handle := window.NativeWindow()
 	if handle == nil {
+		log.Printf("webview: lockWebviewZoom got no native window handle")
 		return
 	}
 	application.InvokeSync(func() {
-		C.devkit_lock_zoom_level((*C.GtkWidget)(handle))
+		if C.devkit_lock_zoom_level((*C.GtkWidget)(handle)) == 0 {
+			log.Printf("webview: no WebKitWebView found under the native window; zoom-level is not being watched")
+			return
+		}
+		log.Printf("webview: watching WebKitWebView zoom-level, will reset to 1.0 on any other value")
 	})
 }
 
 //export devkitZoomLevelChanged
 func devkitZoomLevelChanged(view *C.WebKitWebView) {
-	if C.webkit_web_view_get_zoom_level(view) != C.gdouble(1.0) {
-		C.webkit_web_view_set_zoom_level(view, C.gdouble(1.0))
+	level := float64(C.webkit_web_view_get_zoom_level(view))
+	if level == 1.0 {
+		return
 	}
+	log.Printf("webview: zoom-level changed to %v, resetting to 1.0", level)
+	C.webkit_web_view_set_zoom_level(view, C.gdouble(1.0))
 }
