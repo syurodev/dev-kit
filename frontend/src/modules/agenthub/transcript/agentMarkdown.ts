@@ -16,6 +16,7 @@
 export type InlineToken =
   | { type: "text"; value: string }
   | { type: "code"; value: string }
+  | { type: "secret"; value: string }
   | { type: "strong"; value: string }
   | { type: "em"; value: string }
   | { type: "link"; value: string; href: string };
@@ -267,6 +268,33 @@ export function parseMarkdownIncremental(
 const INLINE =
   /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(\*[^*]+\*|(?<!\w)_[^_]+_(?!\w))/g;
 
+/**
+ * A JSON Web Token, wherever it shows up in an agent's own words — pasted as
+ * a sample, quoted from a header, read back out of a config. "eyJ" is the
+ * base64 of `{"`, which every JWT header starts with (`{"alg":...,"typ":...}`
+ * always begins with `{"`), so it is a near-zero-false-positive anchor; three
+ * base64url segments joined by dots is the rest of the shape. Segments keep
+ * their own minimum length so "eyJ" alone, mid-sentence, is not one.
+ */
+const JWT_SOURCE = String.raw`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b`;
+const JWT = new RegExp(JWT_SOURCE, "g");
+const JWT_WHOLE = new RegExp(`^${JWT_SOURCE}$`);
+
+/** A run of plain text, split around any JWT it carries. */
+function splitSecrets(value: string): InlineToken[] {
+  const parts: InlineToken[] = [];
+  let last = 0;
+  for (const match of value.matchAll(JWT)) {
+    const start = match.index ?? 0;
+    if (start > last) parts.push({ type: "text", value: value.slice(last, start) });
+    parts.push({ type: "secret", value: match[0] });
+    last = start + match[0].length;
+  }
+  if (parts.length === 0) return [{ type: "text", value }];
+  if (last < value.length) parts.push({ type: "text", value: value.slice(last) });
+  return parts;
+}
+
 export function parseInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   let last = 0;
@@ -294,5 +322,15 @@ export function parseInline(text: string): InlineToken[] {
   }
 
   if (last < text.length) tokens.push({ type: "text", value: text.slice(last) });
-  return tokens;
+
+  // A JWT reads as a secret whether it landed in plain prose or alone inside
+  // a backtick span — `parseInline`'s own caller draws either the same way,
+  // so this is the one place both need to pass through the mask.
+  const expanded: InlineToken[] = [];
+  for (const token of tokens) {
+    if (token.type === "text") expanded.push(...splitSecrets(token.value));
+    else if (token.type === "code" && JWT_WHOLE.test(token.value)) expanded.push({ type: "secret", value: token.value });
+    else expanded.push(token);
+  }
+  return expanded;
 }
