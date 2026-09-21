@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { gitCommitInfo, gitDiff, gitRevPatch, type Change, type Commit } from "@/bridge/git";
 import { StatePill, StatusMark } from "./GitParts";
 import { changeSummary, commitBody, patchLines } from "./commitView";
+import { usePatchHighlight } from "./gitSyntax";
 import { parsePatch, type FilePatch } from "./hunks";
 import { changeMarkKind, splitPath } from "./rail";
 
@@ -265,6 +266,7 @@ function FileDiffPanes({ rev, path, before, after }: { rev: string; path: string
   const lines = all.length > DIFF_LINES ? all.slice(0, DIFF_LINES) : all;
   const pairs = splitPairs(lines);
   const runs = changedRuns(pairs);
+  const highlight = usePatchHighlight(current, path);
 
   if (error) {
     return <p className="text-caption-11 text-status-danger">{error}</p>;
@@ -291,6 +293,7 @@ function FileDiffPanes({ rev, path, before, after }: { rev: string; path: string
         runs={runs}
         leftLabel={`BEFORE · ${before || "none"}`}
         rightLabel={`AFTER · ${after}`}
+        segmentsFor={(line, side) => (side === "left" ? highlight?.before.get(line.before) : highlight?.after.get(line.after))}
       />
       {all.length > lines.length ? (
         <p className="text-caption-11 text-text-tertiary">

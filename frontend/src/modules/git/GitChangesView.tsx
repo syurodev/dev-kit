@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ArrowRight, ChevronDown, ChevronRight, GitBranch, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ import {
 } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { useModuleFolder } from "@/stores/workFolder";
+import { patchLines } from "./commitView";
+import { usePatchHighlight } from "./gitSyntax";
 import { buildPatch, parsePatch, type FilePatch, type Hunk } from "./hunks";
 import { GitBranchMenu } from "./GitBranchMenu";
 import { GitConflictPanel } from "./GitConflictPanel";
@@ -35,17 +37,6 @@ import { remoteFor } from "./remotes";
 
 /** Long hunks are shown to their first this-many lines and then counted. */
 const PREVIEW_LINES = 40;
-
-/** A hunk line is its diff prefix and then the text; the shared Diff / Line draws the prefix itself. */
-function hunkRow(line: string): { kind: "same" | "added" | "removed"; text: string } {
-  const text = line.replace(/\n$/, "");
-  if (line.startsWith("+")) return { kind: "added", text: text.slice(1) };
-  if (line.startsWith("-")) return { kind: "removed", text: text.slice(1) };
-  // A "\ No newline at end of file" line is git talking, not the file: it is
-  // kept whole so it reads as what it is.
-  if (line.startsWith("\\")) return { kind: "same", text };
-  return { kind: "same", text: text.slice(1) };
-}
 
 /**
  * The hunks of one changed file, each with its own button to stage just that
@@ -106,13 +97,25 @@ function HunkList({
   return (
     <div className="flex flex-col gap-2 px-3 pb-3">
       {patch.hunks.map((hunk, index) => (
-        <HunkCard key={`${index}:${hunk.header}`} hunk={hunk} busy={busy} onStage={() => stage(index)} />
+        <HunkCard key={`${index}:${hunk.header}`} path={path} hunk={hunk} busy={busy} onStage={() => stage(index)} />
       ))}
     </div>
   );
 }
 
-function HunkCard({ hunk, busy, onStage }: { hunk: Hunk; busy: boolean; onStage: () => void }) {
+/** One hunk, standing in for the single-hunk patch usePatchHighlight expects. */
+function soloPatch(hunk: Hunk): FilePatch {
+  return { head: [], hunks: [hunk], binary: false };
+}
+
+function HunkCard({ path, hunk, busy, onStage }: { path: string; hunk: Hunk; busy: boolean; onStage: () => void }) {
+  // Memoized on hunk, not recreated per render: usePatchHighlight's effect
+  // keys off this object's identity, and a fresh one every render would never
+  // let the effect settle — each highlight landing would trigger another
+  // object, another effect run, another highlight, forever.
+  const patch = useMemo(() => soloPatch(hunk), [hunk]);
+  const highlight = usePatchHighlight(patch, path);
+  const rows = useMemo(() => patchLines(patch), [patch]);
   return (
     <div className="overflow-clip rounded-lg border border-border-subtle bg-surface-well">
       <div className="flex items-center gap-2 py-1.5 pr-2 pl-3">
@@ -124,12 +127,16 @@ function HunkCard({ hunk, busy, onStage }: { hunk: Hunk; busy: boolean; onStage:
         </RowAction>
       </div>
       <div className="overflow-x-auto pb-1">
-        {hunk.lines.slice(0, PREVIEW_LINES).map((line, index) => (
-          <DiffLineRow key={index} row={hunkRow(line)} />
+        {rows.slice(0, PREVIEW_LINES).map((row, index) => (
+          <DiffLineRow
+            key={index}
+            row={row}
+            segments={row.kind === "removed" ? highlight?.before.get(row.before) : highlight?.after.get(row.after)}
+          />
         ))}
-        {hunk.lines.length > PREVIEW_LINES ? (
+        {rows.length > PREVIEW_LINES ? (
           <div className="px-3 py-1 text-code-11 text-text-tertiary">
-            …{hunk.lines.length - PREVIEW_LINES} more lines
+            …{rows.length - PREVIEW_LINES} more lines
           </div>
         ) : null}
       </div>

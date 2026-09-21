@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CodeGraphPlanNode } from "@/bridge/codegraphPlan";
+import { PlanNodeGitChanges } from "./PlanNodeGitChanges";
 import { PLAN_BADGE, PLAN_STATUS } from "./planStatus";
 
 /**
@@ -84,6 +85,8 @@ export function PlanNodeDetail({
           </>
         )}
       </div>
+
+      <PlanNodeGitChanges realNodeId={node.realNodeId} />
     </div>
   );
 }
