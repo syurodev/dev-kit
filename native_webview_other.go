@@ -19,3 +19,9 @@ const framelessWindow = false
 // Every other platform lets Wails set the window title itself; only a frameless
 // Linux window loses it. See applyWindowTitle in native_webview_linux.go.
 func applyWindowTitle(application.Window, string) {}
+
+// WKWebView and WebView2 turn an OS-level trackpad pinch into a synthetic
+// `wheel` event with `ctrlKey` set, which installNativeZoomGuard already
+// intercepts in JS. Only WebKitGTK drives its own zoom level natively,
+// outside the DOM. See lockWebviewZoom in native_webview_linux.go.
+func lockWebviewZoom(application.Window) {}
