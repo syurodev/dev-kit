@@ -187,7 +187,13 @@ export function PlanCommentsPopover({
                     </span>
                     <span className="text-text-tertiary normal-case">{ago(c.createdAt)}</span>
                   </span>
-                  <span className="whitespace-pre-wrap text-body-12 text-text-secondary">{c.body}</span>
+                  {/* break-words: a comment quotes code — a Liquibase
+                      changeset id, a Redis key pattern — with no spaces to
+                      wrap at, and the thread is fixed to the node's own
+                      width. */}
+                  <span className="text-pretty break-words whitespace-pre-wrap text-body-12 text-text-secondary">
+                    {c.body}
+                  </span>
                 </span>
               </li>
             );

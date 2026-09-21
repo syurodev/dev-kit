@@ -11,6 +11,13 @@ import type { PlanTaskChip } from "../codegraphStore";
 export type PlanNodeData = {
   title: string;
   fqn: string;
+  /**
+   * What the agent called this node when it proposed the flow (entity,
+   * migration, dto, provider…) — not codegraph's own "class"/"method". Shown
+   * only where inferPlanLayer has nothing better: two nodes that both land on
+   * "unknown" still need to read as different kinds of thing.
+   */
+  kind?: string;
   status: PlanNodeStatus;
   commentCount: number;
   /**
@@ -28,10 +35,17 @@ export type PlanNodeData = {
  * from an annotation that does not exist yet.
  */
 export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData }) {
-  const visual = LAYERS[inferPlanLayer(data.fqn)];
+  const layer = inferPlanLayer(data.fqn);
+  const visual = LAYERS[layer];
   const Icon = visual.icon;
   const accent = `var(${visual.cssVar})`;
   const status = PLAN_STATUS[data.status];
+  // inferPlanLayer only recognises Spring's own architectural roles — an
+  // entity, an enum, a migration all land on "unknown" alongside each other.
+  // The agent's own word for the node is what tells them apart; only worth
+  // showing where the layer guess found nothing, so a real Controller/Service
+  // match is never second-guessed by a stale or looser kind.
+  const layerLabel = layer === "unknown" && data.kind ? data.kind.toUpperCase() : visual.label;
 
   return (
     <div
@@ -64,7 +78,7 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-label-11-caps" style={{ color: accent }}>
-            {visual.label}
+            {layerLabel}
           </span>
           <span title={data.fqn} className="truncate text-title-14 text-text-primary">
             {data.title}

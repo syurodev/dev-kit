@@ -101,6 +101,12 @@ export function PlanDocument() {
       return {
         title,
         fqn: p?.fqn ?? "",
+        // What the agent called this node when it proposed the flow — an
+        // entity, a migration, a dto — not the "class"/"method" structural
+        // kind CodeGraphNode.kind carries. inferPlanLayer only recognises
+        // Spring's own architectural roles, so this is what a reader has
+        // instead of "unknown" for everything else the plan touches.
+        kind: p?.kind ?? "",
         status,
         commentCount: comments,
         tasks,

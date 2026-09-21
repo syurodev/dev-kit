@@ -48,7 +48,7 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
             className="nodrag nopan pointer-events-none absolute"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
-            <EdgeLabelPill kind={dashed ? "di" : "call"}>
+            <EdgeLabelPill kind={dashed ? "di" : "call"} title={label}>
               {label ?? (dashed ? "injects" : "calls")}
             </EdgeLabelPill>
           </div>
@@ -62,12 +62,26 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
  * The DI variant stacks a tint over an opaque base rather than using one
  * low-opacity fill: the canvas has a dot grid behind it, and a translucent chip
  * lets the dots read straight through the label.
+ *
+ * A plan edge's condition is a written sentence ("rotate credential → xoá
+ * cache platform client id"), not a word like "calls" — unbounded, that
+ * stretches the pill into an oversized capsule that overlaps whatever else
+ * shares the canvas. Capped and truncated, with the full text as a tooltip.
  */
-export function EdgeLabelPill({ kind, children }: { kind: "call" | "di"; children: string }) {
+export function EdgeLabelPill({
+  kind,
+  title,
+  children,
+}: {
+  kind: "call" | "di";
+  title?: string;
+  children: string;
+}) {
   const info = "var(--status-info)";
   return (
     <span
-      className="rounded-full border px-2.25 py-1 text-code-11 shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+      title={title}
+      className="block max-w-52 truncate rounded-full border px-2.25 py-1 text-code-11 shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
       style={
         kind === "di"
           ? {
