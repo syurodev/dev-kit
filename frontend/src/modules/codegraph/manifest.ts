@@ -1,7 +1,9 @@
-import { lazy } from "react";
+import { lazy, Suspense, createElement } from "react";
 import { Code, FileCode2, ListChecks, Workflow } from "lucide-react";
 import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { parseApiFlow } from "./apiFlowResult";
 
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
@@ -92,4 +94,24 @@ registerIntent("codegraph.reveal", async (ref, { placement }) => {
       return;
     }
   }
+});
+
+/**
+ * ToolResultView for `codegraph.getApiFlow` (docs/dev-kit/tool-result-view.mdx).
+ * The shape is checked synchronously, with no React involved, before the
+ * card component is ever imported — a bad or truncated rawOutput returns
+ * null (falls back to the transcript's plain JSON) without paying for the
+ * lazy chunk.
+ */
+const LazyApiFlowResultCard = lazy(() =>
+  import("./ApiFlowResultCard").then(({ ApiFlowResultCard }) => ({ default: ApiFlowResultCard })),
+);
+registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
+  const parsed = parseApiFlow(rawOutput);
+  if (!parsed) return null;
+  return createElement(
+    Suspense,
+    { fallback: null },
+    createElement(LazyApiFlowResultCard, { flow: parsed.flow, endpointId: parsed.endpointId }),
+  );
 });

@@ -1,7 +1,10 @@
+import { lazy, Suspense, createElement } from "react";
 import { Send } from "lucide-react";
 import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
+import { parseEndpointDraft } from "./endpointDraftResult";
 
 export const apiclientModule: ModuleManifest = {
   id: "apiclient",
@@ -44,3 +47,21 @@ registerIntent(
   },
   "beside",
 );
+
+/**
+ * ToolResultView for `api.fromEndpoint` (docs/dev-kit/tool-result-view.mdx).
+ * Shape checked synchronously before the card component loads — a bad
+ * rawOutput, or a rawInput missing endpointId, falls back to plain JSON.
+ */
+const LazyEndpointDraftResultCard = lazy(() =>
+  import("./EndpointDraftResultCard").then(({ EndpointDraftResultCard }) => ({ default: EndpointDraftResultCard })),
+);
+registerToolResultView("api.fromEndpoint", ({ rawInput, rawOutput }) => {
+  const parsed = parseEndpointDraft(rawInput, rawOutput);
+  if (!parsed) return null;
+  return createElement(
+    Suspense,
+    { fallback: null },
+    createElement(LazyEndpointDraftResultCard, { draft: parsed.draft, endpointId: parsed.endpointId }),
+  );
+});

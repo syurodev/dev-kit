@@ -7,11 +7,15 @@ description: Cơ chế cho phép mỗi module đăng ký cách hiển thị riê
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Để sau">
-Phạm vi triển khai trước mắt chỉ gồm `ToolResultView` tĩnh (card trong
-transcript) + nút "Open beside" qua `Intent` đã có. Mục **"Theo dõi
-real-time"** ở cuối trang chưa thiết kế, cố tình treo lại để thảo luận riêng
-sau.
+<Callout type="info" title="Đã triển khai (một phần)">
+Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, `ToolResultCard`, nối
+vào `AgentToolCall.tsx`) và 3 renderer đầu tiên đã có:
+`codegraph.getApiFlow`, `api.fromEndpoint`, và `tasks.create` /
+`tasks.get` / `tasks.update` / `tasks.transition` (dùng chung một card).
+Chưa có: renderer cho `notes.*`, `git.*`, `api.send`, `codegraph.searchSymbol`
+— cần thêm intent `notes.reveal`/`git.reveal`/`api.reveal` trước (xem cuối
+mục "Ví dụ cụ thể"). Mục **"Theo dõi real-time"** ở cuối trang vẫn chưa thiết
+kế, cố tình treo lại để thảo luận riêng sau.
 </Callout>
 
 ## Mục đích sinh ra
@@ -61,6 +65,17 @@ Hai cơ chế bổ sung cho nhau: `agent.attach` đưa ngữ cảnh vào cho age
    tool thật (có sẵn từ 0.77, xem `internal/agenthub/update.go`) và là thứ
    duy nhất DevKit kiểm soát được — vì chính DevKit đặt tên tool khi đăng ký
    với MCP server (`codegraph.getApiFlow`, `api.send`...).
+
+   Trên transcript thật, `Name` không đến nguyên dạng: Claude báo nó dưới
+   dạng `mcp__devkit__codegraph_getApiFlow` — tiền tố `mcp__devkit__` cộng
+   mọi dấu `.` đổi thành `_`. Phép biến đổi này **chỉ đi xuôi**: registry
+   (`registerToolResultView`) tự tính trước dạng dây từ đúng tên Go mà module
+   truyền vào, rồi lưu vào một map để so khớp `call.name` — không đoán ngược
+   từ chuỗi trên transcript, vì nhiều tên có nhiều dấu chấm
+   (`tasks.board.list`) hoặc tự có sẵn `_` (`notes.set_organization`), đoán
+   ngược sẽ mơ hồ. `internal/mcp/tool_names_test.go` khoá điều kiện duy nhất
+   phép biến đổi này cần: không có hai tên tool Go nào biến đổi ra cùng một
+   dạng dây.
 4. **Không thay thế 3 content type cố định của ACP** (`content`/`diff`/`terminal`
    — do vendor quyết định khi báo tool call). ToolResultView là một lớp phủ
    THÊM lên trên nhánh `content`/rawOutput hiện có, không đổi wire format
@@ -68,21 +83,40 @@ Hai cơ chế bổ sung cho nhau: `agent.attach` đưa ngữ cảnh vào cho age
 5. **Đúng ranh giới `internal/arch`.** Renderer là code frontend thuần (không
    đụng Go); phần Go duy nhất liên quan là `ToolCall.Name`/`RawOutput` vốn đã
    tồn tại — không thêm import chéo, không thêm field mới ở backend cho việc
-   này.
+   này. Ngoại lệ duy nhất: `internal/mcp/tool_names_test.go` — một test đọc
+   nguồn `tools_*.go` bằng regex (không import gì mới, không chạm layering)
+   để khoá điều kiện mà phép biến đổi tên ở rule 3 cần đúng mãi mãi: không có
+   hai tên tool nào biến đổi ra cùng dạng dây.
 6. **Ai sở hữu tool, người đó đăng ký renderer** — không có renderer "dùng
    chung" cho nhiều module đoán ý nhau. Xem mục Cách tương tác.
 
 ## Cách tương tác
 
 Một registry nhỏ, cùng mẫu với `registerAttachIntent`/`registerIntent` đã có
-trong `frontend/src/workbench/intents.ts`:
+trong `frontend/src/workbench/intents.ts` — sống ở
+`frontend/src/workbench/toolResultViews.ts`:
 
 ```ts
-type ToolResultRenderer = (call: ToolCall) => React.ReactNode | null;
+// Không phải ToolCall của Agent Hub (frontend/src/modules/agenthub/types.ts):
+// một kiểu trung lập riêng, chỉ ba trường renderer được phép đọc (rule 2) —
+// để module sở hữu tool không phải import type từ module Agent Hub.
+type ToolResultInput = { name: string; rawInput: unknown; rawOutput: unknown };
+type ToolResultRenderer = (input: ToolResultInput) => React.ReactNode | null;
 
-registerToolResultView("codegraph.getApiFlow", (call) => <ApiFlowCard rawOutput={call.rawOutput} />);
-registerToolResultView("api.send", (call) => <RequestResultCard rawOutput={call.rawOutput} rawInput={call.rawInput} />);
+registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
+  const parsed = parseApiFlow(rawOutput); // guard thuần, không React — trả null nếu rawOutput hỏng/bị cắt
+  return parsed ? <ApiFlowResultCard flow={parsed.flow} endpointId={parsed.endpointId} /> : null;
+});
 ```
+
+`parseToolOutput` (cùng file) lo hai việc renderer nào cũng cần: bóc lớp
+`{"result": …}` mà `structured()` (`internal/mcp/result.go`) bọc quanh một
+kết quả không phải object/struct (slice, string, number), và parse trường
+hợp `rawOutput` đến dưới dạng chuỗi JSON thay vì object đã parse sẵn (tool
+riêng của vendor, hoặc một preview bị cắt được `previewRaw`
+(`internal/agenthub/service.go`) mã hoá lại thành chuỗi). Trả `null` khi
+không parse được — kể cả khi bị cắt giữa chừng bởi `ToolRawPreviewLimit`
+(8KB) — để renderer rơi về JSON thay vì hiện một tài liệu nửa vời.
 
 - **Đăng ký ở module sở hữu tool**, trong file `manifest.ts` của module đó —
   giống hệt vị trí `agent.attach` được đăng ký trong `agenthub/manifest.ts`.
@@ -97,9 +131,10 @@ registerToolResultView("api.send", (call) => <RequestResultCard rawOutput={call.
   card (gửi request, mở file...) vẫn phải đi qua bridge + Capability Gateway
   của module đó, y hệt như khi người dùng bấm từ UI chính của module —
   renderer không phải đường tắt quyền.
-- **Tool chưa có renderer**: `hasToolResultView(name)` trả `false`,
+- **Tool chưa có renderer, hoặc renderer trả về `null`** (rawOutput hỏng hay
+  bị cắt giữa chừng mà nó không dựng nổi): `renderToolResult` trả `null`,
   `AgentToolCall` rơi về nhánh `ToolOutput` JSON như hiện tại — không vỡ UI,
-  không cần sửa gì ở nơi gọi.
+  không có card rỗng, không cần sửa gì ở nơi gọi.
 
 ### Mở beside từ card (một hành động, không phải cơ chế mới)
 
@@ -136,24 +171,41 @@ cần thảo luận thêm trước khi build.**
 
 ## Cách thể hiện trên UI
 
-**Vị trí:** trong `AgentToolCall.tsx`, ngay trước nhánh `content.map(...)`
-hiện tại (nơi đang rẽ theo `item.type === "diff" | "terminal"`). Thêm một
-điều kiện: nếu `hasToolResultView(call.name)` thì render component đăng ký
-thay cho `ToolOutput`; không thì giữ nguyên đường cũ.
+**Vị trí:** trong `AgentToolCall.tsx`, thay cho nhánh `content.map(...)` +
+"Show full output" hiện tại (nơi đang rẽ theo `item.type === "diff" |
+"terminal"`) — hai bên loại trừ nhau, không hiện cả hai cùng lúc. Chỉ tính
+khi `state === "done"` (một call đang chạy chưa có `rawOutput` để render).
+Card nằm trong cùng khối thu gọn/mở rộng như `ToolOutput` trước đây — không
+tự mở, giống mọi hàng khác trong transcript. Nếu `call.truncated` và card
+rơi về JSON vì `rawOutput` bị cắt, bấm "Show full output" tải nguyên hàng rồi
+tự nâng cấp lên card mà không cần refresh.
 
-**Ví dụ cụ thể:**
+**Ví dụ cụ thể (đã triển khai):**
 
 | Tool | Card | Hành động trên card |
 | --- | --- | --- |
-| `codegraph.getApiFlow` | Sơ đồ Controller → Service → Repository, rút gọn từ `rawOutput` | "Reveal in Code Graph" (`codegraph.reveal`) |
-| `api.send` / `api.fromEndpoint` | Method + URL + status code, thu gọn body | "Try in API Client" (`dispatchIntent("api.fromEndpoint", ...)`) |
-| `git.diff` | Đổi tên file + số dòng đổi (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | "View diff" (`git.reveal`) |
+| `codegraph.getApiFlow` | Danh sách bước Controller → Service → Repository, rút gọn từ `rawOutput` | "Reveal in Code Graph" (`codegraph.reveal`, kind `endpoint`) |
+| `api.fromEndpoint` | Method + URL của bản nháp, ghi chú về body (không hiện body — có thể chứa dữ liệu thật) | "Try in API Client" (`api.fromEndpoint` intent đã có sẵn) |
+| `tasks.create` / `tasks.get` / `tasks.update` / `tasks.transition` | Key + title + status (một card dùng chung cho cả 4, vì cả 4 đều trả về `Task`) | "Open" (`tasks.reveal`) |
+
+**Chưa triển khai — cần thêm intent trước khi viết renderer:**
+
+| Tool | Card dự kiến | Intent còn thiếu |
+| --- | --- | --- |
+| `api.send` | Status code + thời gian + kích thước + cờ `truncated` (không hiện body — request đã lưu, không phải bản nháp) | `api.reveal` (mở request đã lưu) |
+| `notes.create` / `notes.update` | Tiêu đề + preview | `notes.reveal` |
+| `git.diff` / `git.commit` | Tên file đổi + số dòng (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | `git.reveal` |
+| `codegraph.searchSymbol` / `codegraph.listEndpoints` | Danh sách hit, mỗi dòng bấm được | dùng lại `codegraph.reveal` |
 
 **Nhất quán với cái đã có:** cùng ngôn ngữ hình họa với
 `AgentFileChip`/`AgentRefChip` — nền `bg-(--state-soft)`, bo `rounded-sm`,
 icon 12px mờ. Không phải "Shared / Entity Chip" theo Figma (vẫn chưa được
 thiết kế riêng cho từng kind) — chỉ là card giản lược, giống vai trò tạm thời
-của `AgentRefChip` với `agent.attach`.
+của `AgentRefChip` với `agent.attach`. Khung dùng chung là
+`ToolResultCard`, ở `frontend/src/components/ui/tool-result-card.tsx` — vùng
+dùng chung mọi module đã import (`Shimmer`, `AnimatedCollapse`...), không
+phải trong `modules/agenthub`, để một renderer module khác đăng ký không
+phải import ngược vào Agent Hub chỉ để dùng khung card.
 
 **Trạng thái:** card kế thừa `state` (running/done/failed) từ `ToolCall`
 giống hàng generic — đang chạy thì không có `rawOutput` để render nên vẫn
