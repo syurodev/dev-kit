@@ -1,7 +1,10 @@
-import { lazy } from "react";
+import { lazy, Suspense, createElement } from "react";
 import { FileText } from "lucide-react";
 import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
+import { parseNoteResult } from "./noteResult";
 
 export const notesModule: ModuleManifest = {
   id: "notes",
@@ -48,3 +51,40 @@ export const notesModule: ModuleManifest = {
     search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
   },
 };
+
+/**
+ * `notes.reveal` (docs/dev-kit/cross-module.mdx): open a note from anywhere —
+ * a ToolResultView card for `notes.create`/`notes.update` — without the
+ * caller importing this module's documents helper. Registered with the
+ * manifest, which is eager; `./documents` loads on the first dispatch.
+ */
+registerIntent(
+  "notes.reveal",
+  async (ref, { placement }) => {
+    if (ref.kind !== "note") return;
+    const { openNoteTab } = await import("./documents");
+    openNoteTab({ id: ref.id, title: ref.label }, false, placement === "beside");
+  },
+  "beside",
+);
+
+/**
+ * ToolResultView shared by notes.create and notes.update
+ * (docs/dev-kit/tool-result-view.mdx) — one card component, one
+ * registration per tool since the registry keys on the tool, not the shape.
+ */
+const LazyNoteResultCard = lazy(() =>
+  import("./NoteResultCard").then(({ NoteResultCard }) => ({ default: NoteResultCard })),
+);
+
+function registerNoteResultView(toolName: string): void {
+  registerToolResultView(toolName, ({ rawOutput }) => {
+    const note = parseNoteResult(rawOutput);
+    if (!note) return null;
+    return createElement(Suspense, { fallback: null }, createElement(LazyNoteResultCard, { note }));
+  });
+}
+
+for (const toolName of ["notes.create", "notes.update"]) {
+  registerNoteResultView(toolName);
+}
