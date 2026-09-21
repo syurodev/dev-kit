@@ -28,15 +28,18 @@ function changeCounts(rows: ReturnType<typeof patchLines>): string {
  * review, asked from two angles — without this, answering the second meant
  * leaving Plan for the Git module and finding the file again by hand.
  *
- * Only for a node that resolved to real code: realNodeId is empty for
- * not_implemented, and there is nothing on disk yet to diff. The lookup is a
- * neighbor query at depth 0 — CodeGraphGetNeighbors' own contract for
- * "just this node" — since a plan node carries an FQN and a realNodeId, never
- * the file path itself.
+ * Always renders the row, in one state or another, rather than only once
+ * there is a diff to show: a row that appears only sometimes reads as absent
+ * everywhere else, and a not_implemented node — most of a fresh plan — used to
+ * render nothing at all, which is indistinguishable from the feature not
+ * existing. Only the FQN/relink row above it is conditional on that.
  *
- * Reads the work tree via the same gitFilePatch the Git module's own hunk
- * list uses, on whichever repository work-folder sync currently has current —
- * the one Code Graph itself set when this project was opened.
+ * The lookup is a neighbor query at depth 0 — CodeGraphGetNeighbors' own
+ * contract for "just this node" — since a plan node carries an FQN and a
+ * realNodeId, never the file path itself. Reads the work tree via the same
+ * gitFilePatch the Git module's own hunk list uses, on whichever repository
+ * work-folder sync currently has current — the one Code Graph itself set
+ * when this project was opened.
  */
 export function PlanNodeGitChanges({ realNodeId }: { realNodeId: string }) {
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -74,36 +77,43 @@ export function PlanNodeGitChanges({ realNodeId }: { realNodeId: string }) {
   }, [filePath]);
 
   const highlight = usePatchHighlight(patch, filePath ?? "");
+  const rows = patch ? patchLines(patch) : [];
+  const expandable = rows.length > 0;
 
-  if (!realNodeId) return null;
-  if (error) {
-    return <p className="text-caption-11 text-status-danger">{error}</p>;
-  }
-  // Quiet until there is something to say: still resolving the file, or
-  // waiting on its patch.
-  if (!patch) return null;
-
-  const rows = patchLines(patch);
-  if (rows.length === 0) {
-    return <p className="text-caption-11 text-text-tertiary">No uncommitted changes to this file.</p>;
-  }
+  const status = !realNodeId
+    ? "not implemented yet"
+    : error
+      ? error
+      : !patch
+        ? "checking…"
+        : rows.length === 0
+          ? "up to date"
+          : changeCounts(rows);
 
   return (
-    <div>
+    <div className="border-t border-border-subtle pt-1.5">
       <button
         type="button"
+        disabled={!expandable}
         onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-caption-11 text-text-tertiary hover:text-text-secondary"
+        aria-expanded={expandable ? open : undefined}
+        className={cn(
+          "flex w-full min-w-0 items-center gap-2 text-left text-caption-11 text-text-tertiary",
+          expandable ? "cursor-pointer hover:text-text-secondary" : "cursor-default",
+        )}
       >
         <ChevronRight
           aria-hidden="true"
-          className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
+          className={cn(
+            "size-3.5 shrink-0 transition-transform duration-(--motion-fast)",
+            !expandable && "opacity-0",
+            expandable && open && "rotate-90",
+          )}
         />
         <span className="min-w-0 flex-1 truncate">Git changes</span>
-        <span className="shrink-0 tabular-nums">{changeCounts(rows)}</span>
+        <span className={cn("shrink-0 tabular-nums", error && "text-status-danger")}>{status}</span>
       </button>
-      {open ? (
+      {open && expandable ? (
         <div className="mt-2 overflow-x-auto rounded-lg border border-border-subtle bg-surface-well pb-1">
           {rows.slice(0, PREVIEW_LINES).map((row, index) => (
             <DiffLineRow
