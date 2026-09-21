@@ -144,4 +144,21 @@ describe("agentMarkdown", () => {
       { type: "strong", value: "now" },
     ]);
   });
+
+  it("leaves a snake_case identifier alone rather than reading it as emphasis", () => {
+    // CommonMark disallows intraword underscore emphasis for exactly this
+    // reason. Without that rule, program_config_auth read as `program`,
+    // <em>config</em>, `auth` — its own underscores eaten as markup.
+    expect(parseInline("column platform_client_id on program_config_auth")).toEqual([
+      { type: "text", value: "column platform_client_id on program_config_auth" },
+    ]);
+  });
+
+  it("still reads underscore emphasis at a word boundary", () => {
+    expect(parseInline("that is _not_ optional")).toEqual([
+      { type: "text", value: "that is " },
+      { type: "em", value: "not" },
+      { type: "text", value: " optional" },
+    ]);
+  });
 });

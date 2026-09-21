@@ -10,6 +10,7 @@ import {
   type CodeGraphPlanComment,
 } from "@/bridge/codegraphPlan";
 import { errorMessage } from "@/bridge/errors";
+import { Inline } from "@/modules/agenthub/transcript/AgentMessageRich";
 import { DOCK_TOP_RESERVE, placeInspector } from "../inspector/placeInspector";
 import { codeGraphRequests } from "../codegraphStore";
 
@@ -187,12 +188,19 @@ export function PlanCommentsPopover({
                     </span>
                     <span className="text-text-tertiary normal-case">{ago(c.createdAt)}</span>
                   </span>
-                  {/* break-words: a comment quotes code — a Liquibase
+                  {/* Inline, not the block-level parser AgentProse uses for a
+                      turn's answer: these comments quote code without fencing
+                      it, and the block parser joins a paragraph's lines with
+                      spaces, which would flatten an unfenced snippet onto one
+                      line. Inline only styles inline code, bold, italic and
+                      links, and leaves every line break exactly where the
+                      agent put it.
+                      break-words: a comment quotes code — a Liquibase
                       changeset id, a Redis key pattern — with no spaces to
                       wrap at, and the thread is fixed to the node's own
                       width. */}
                   <span className="text-pretty break-words whitespace-pre-wrap text-body-12 text-text-secondary">
-                    {c.body}
+                    <Inline text={c.body} />
                   </span>
                 </span>
               </li>

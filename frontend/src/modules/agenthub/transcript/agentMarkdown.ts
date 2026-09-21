@@ -259,8 +259,13 @@ export function parseMarkdownIncremental(
   };
 }
 
+// Underscore emphasis excludes intraword underscores (CommonMark's own rule,
+// for exactly this reason): without the lookaround, `program_config_auth` —
+// ordinary in a comment about a database column — reads as `program`,
+// <em>config</em>, `auth`, its two underscores silently eaten. `*asterisks*`
+// carry no such requirement; identifiers do not use them for word joints.
 const INLINE =
-  /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(\*[^*]+\*|_[^_]+_)/g;
+  /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(\*[^*]+\*|(?<!\w)_[^_]+_(?!\w))/g;
 
 export function parseInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
