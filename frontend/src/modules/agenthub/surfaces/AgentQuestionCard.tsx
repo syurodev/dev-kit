@@ -257,7 +257,7 @@ function QuestionField({ field, form }: { field: ElicitationField; form: Elicita
       )}
 
       {preview ? (
-        <pre className="max-h-40 overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap text-text-secondary">
+        <pre className="max-h-40 max-w-full overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap break-words text-text-secondary">
           {preview}
         </pre>
       ) : null}
