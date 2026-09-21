@@ -5,6 +5,7 @@ import type {
   TranscriptModel,
   TranscriptPaging,
 } from "../modules/agenthub/types";
+import type { EntityRef } from "../workbench/intents";
 import { useShallow } from "zustand/react/shallow";
 
 export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
@@ -26,7 +27,17 @@ export type QueuedAgentPrompt = {
   text: string;
   attachments: string[];
   images: AgentImageAttachment[];
+  refs: EntityRef[];
 };
+
+/**
+ * A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive 2)
+ * lands here rather than calling into a mounted component directly: the
+ * composer that should pick it up — AgentHubView's or the companion's — is
+ * whichever one happens to be mounted, and a manifest handler (not a React
+ * component) has no reference to either. Mirrors pendingAgentHubCommand.
+ */
+export type PendingAgentAttach = { refs: EntityRef[]; prompt?: string };
 
 /**
  * The subagent end states that mean "stopped", not "finished".
@@ -92,6 +103,7 @@ type AgentSessionsState = {
   /** Whether the shell is showing the conversation in the companion slot. */
   chatOpen: boolean;
   pendingAgentHubCommand: AgentHubCommand | null;
+  pendingAgentAttach: PendingAgentAttach | null;
   unreadCompletedBySession: Record<string, boolean>;
   /** Prompts waiting for their turn. One whose turn has started is not here. */
   queuedPromptsBySession: Record<string, QueuedAgentPrompt[]>;
@@ -134,6 +146,8 @@ type AgentSessionsState = {
   setChatOpen: (open: boolean) => void;
   requestAgentHubCommand: (command: AgentHubCommand) => void;
   consumeAgentHubCommand: (command: AgentHubCommand) => void;
+  requestAgentAttach: (refs: EntityRef[], prompt?: string) => void;
+  consumeAgentAttach: () => void;
   markCompletedUnread: (sessionId: string) => void;
   markCompletedRead: (sessionId: string) => void;
   enqueuePrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
@@ -171,6 +185,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   elicitationQueue: [],
   chatOpen: false,
   pendingAgentHubCommand: null,
+  pendingAgentAttach: null,
   unreadCompletedBySession: {},
   queuedPromptsBySession: {},
   turnInFlightBySession: {},
@@ -304,6 +319,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     set((state) =>
       state.pendingAgentHubCommand === command ? { pendingAgentHubCommand: null } : state,
     ),
+  requestAgentAttach: (refs, prompt) => set({ pendingAgentAttach: { refs, prompt }, chatOpen: true }),
+  consumeAgentAttach: () => set({ pendingAgentAttach: null }),
   markCompletedUnread: (sessionId) =>
     set((state) =>
       state.unreadCompletedBySession[sessionId]

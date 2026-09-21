@@ -47,7 +47,14 @@ type InvokeInput struct {
 	Attachments []string
 	// Images are transient pasted/drop images. Data is base64 and is never
 	// persisted in the session transcript or credential store.
-	Images          []ImageAttachment
+	Images []ImageAttachment
+	// Refs are devkit:// EntityRef URIs (attachedref.go) — cross-module
+	// references such as a Code Graph endpoint or a Git commit. Unlike
+	// Attachments, DevKit never reads what one points at: it names the MCP
+	// tool that resolves it and lets the agent call that tool itself, so the
+	// agent always reads live data rather than a snapshot taken at attach
+	// time (docs/dev-kit/cross-module.mdx § Primitive 1).
+	Refs            []string
 	CallerSessionID string // optional; used for CheckCycle on cross-session invoke
 }
 
@@ -920,7 +927,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// the frontend, which puts a refused prompt back in the queue, showed it
 	// twice once it was sent again.
 	invoker, _ := identity.FromContext(ctx)
-	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, sess.ProjectPath, callerIsAgent(invoker))
+	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, in.Refs, sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1277,7 +1284,8 @@ func userEchoUpdate(text, messageID string, attachments []PromptAttachment) json
 
 // promptAttachments names what a prompt carried besides text, in the order it
 // was given: files by their base name, images by the name they were pasted or
-// dropped with. The content is never kept.
+// dropped with, refs by their devkit:// URI. The content is never kept — a
+// ref never had any to begin with.
 func promptAttachments(in InvokeInput) []PromptAttachment {
 	var out []PromptAttachment
 	for _, path := range in.Attachments {
@@ -1289,6 +1297,16 @@ func promptAttachments(in InvokeInput) []PromptAttachment {
 			name = "image"
 		}
 		out = append(out, PromptAttachment{Name: name, Kind: "image"})
+	}
+	for _, raw := range in.Refs {
+		name := raw
+		if ref, err := parseAttachedRef(raw); err == nil {
+			name = ref.Label
+			if name == "" {
+				name = ref.ID
+			}
+		}
+		out = append(out, PromptAttachment{Name: name, Kind: "ref", URI: raw})
 	}
 	return out
 }

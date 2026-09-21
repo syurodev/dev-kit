@@ -10,6 +10,8 @@ import { isAgentAuthRequiredError, isAgentNotInstalledError, isRuntimeRequiremen
 import { toAppError } from "../bridge/errors";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
+import { encodeEntityRef } from "./entityRef";
+import type { EntityRef } from "./intents";
 
 export type TurnBridge = {
   invoke: (input: InvokeSessionInput) => Promise<InvokeResult>;
@@ -18,12 +20,18 @@ export type TurnBridge = {
 
 const agentBridge: TurnBridge = { invoke: agentHubInvoke, getStatus: agentHubGetStatus };
 
-export function queuedPrompt(text: string, attachments: string[], images: AgentImageAttachment[]): QueuedAgentPrompt {
+export function queuedPrompt(
+  text: string,
+  attachments: string[],
+  images: AgentImageAttachment[],
+  refs: EntityRef[] = [],
+): QueuedAgentPrompt {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
     text,
     attachments,
     images,
+    refs,
   };
 }
 
@@ -155,6 +163,7 @@ async function runTurn(
       prompt: prompt.text,
       attachments: prompt.attachments,
       images: prompt.images,
+      refs: prompt.refs.map(encodeEntityRef),
     });
   } catch (error) {
     const busy = isBusy(error);

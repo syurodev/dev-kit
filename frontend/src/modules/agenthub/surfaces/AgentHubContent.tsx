@@ -12,6 +12,7 @@ import {
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
+import type { EntityRef } from "@/workbench/intents";
 import type {
   AvailableCommand,
   ConfigOption,
@@ -73,6 +74,9 @@ export type AgentHubContentProps = {
   onRemoveAttachment?: (path: string) => void;
   imageAttachments?: AgentImageAttachment[];
   onRemoveImage?: (id: string) => void;
+  /** Cross-module refs an `agent.attach` intent handed this turn. */
+  refs?: EntityRef[];
+  onRemoveRef?: (ref: EntityRef) => void;
   onPasteImage?: (file: File) => void;
   onDropImage?: (file: File) => void;
   imageError?: string;
@@ -211,6 +215,8 @@ export function AgentHubContent({
   onRemoveAttachment,
   imageAttachments = [],
   onRemoveImage,
+  refs = [],
+  onRemoveRef,
   onPasteImage,
   onDropImage,
   imageError,
@@ -256,6 +262,7 @@ export function AgentHubContent({
     pendingElicitation = null;
     queuedPrompts = [];
     attachments = [];
+    refs = [];
     items = [];
     usage = null;
     commands = [];
@@ -570,6 +577,8 @@ export function AgentHubContent({
               onRemoveAttachment={onRemoveAttachment}
               imageAttachments={imageAttachments}
               onRemoveImage={onRemoveImage}
+              refs={refs}
+              onRemoveRef={onRemoveRef}
               onPasteImage={onPasteImage}
               onDropImage={onDropImage}
               imageError={imageError}

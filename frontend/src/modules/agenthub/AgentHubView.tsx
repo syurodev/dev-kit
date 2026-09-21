@@ -37,7 +37,7 @@ import {
   type AgentImageAttachment,
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
-import { dispatchIntent } from "@/workbench/intents";
+import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
@@ -84,7 +84,13 @@ type CreateParams = {
   attachments?: string[];
   images?: AgentImageAttachment[];
 };
-type TurnInput = { sessionId: string; text: string; attachments: string[]; images: AgentImageAttachment[] };
+type TurnInput = {
+  sessionId: string;
+  text: string;
+  attachments: string[];
+  images: AgentImageAttachment[];
+  refs: EntityRef[];
+};
 /** The action that failed on sign-in, retried once a login exits 0. */
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
@@ -118,6 +124,7 @@ export function shouldSteer(input: {
   text: string;
   attachments: number;
   images: number;
+  refs?: number;
   busy: boolean;
   retrying: boolean;
 }): boolean {
@@ -127,6 +134,7 @@ export function shouldSteer(input: {
     input.text.length > 0 &&
     input.attachments === 0 &&
     input.images === 0 &&
+    (input.refs ?? 0) === 0 &&
     input.status === "running"
   );
 }
@@ -237,6 +245,10 @@ export function AgentHubView() {
   // switching tabs must not carry someone else's files into your prompt.
   const [attachments, setAttachments] = useState<Record<string, string[]>>({});
   const [images, setImages] = useState<Record<string, AgentImageAttachment[]>>({});
+  // Cross-module refs an `agent.attach` intent handed this session — see the
+  // pendingAgentAttach effect below. Per session for the same reason as
+  // attachments: switching tabs must not carry someone else's refs along.
+  const [refs, setRefs] = useState<Record<string, EntityRef[]>>({});
   const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Record<string, AgentContextFile[]>>({});
 
@@ -249,6 +261,27 @@ export function AgentHubView() {
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
     [sessions, activeSessionId],
   );
+
+  // A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive
+  // 2) leaves its refs here rather than reaching into this component
+  // directly, since the caller — a manifest handler — has no reference to
+  // whichever composer is actually mounted (this view's, or the companion's;
+  // AgentCompanion.tsx has the matching effect). Applied to whichever session
+  // is active when it lands, same as askAgent does for plain text.
+  const pendingAgentAttach = useAgentSessionsStore((state) => state.pendingAgentAttach);
+  useEffect(() => {
+    if (!pendingAgentAttach || !activeSession) return;
+    const { refs: attachedRefs, prompt } = pendingAgentAttach;
+    setRefs((prev) => ({
+      ...prev,
+      [activeSession.id]: [...(prev[activeSession.id] ?? []), ...attachedRefs],
+    }));
+    if (prompt) {
+      const draft = useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "";
+      setPrompt(activeSession.id, draft ? `${draft}\n\n${prompt}` : prompt);
+    }
+    useAgentSessionsStore.getState().consumeAgentAttach();
+  }, [pendingAgentAttach, activeSession, setPrompt]);
 
   const activePrompt = useAgentSessionsStore(
     (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
@@ -401,7 +434,13 @@ export function AgentHubView() {
         // it was created. Passed the session itself: the list this closure
         // sees was read before the session was added to it.
         await handleSend(
-          { sessionId: session.id, text: params.prompt ?? "", attachments: params.attachments ?? [], images: params.images ?? [] },
+          {
+            sessionId: session.id,
+            text: params.prompt ?? "",
+            attachments: params.attachments ?? [],
+            images: params.images ?? [],
+            refs: [],
+          },
           session,
         );
       }
@@ -486,11 +525,28 @@ export function AgentHubView() {
     }
   }
 
-  function queuePrompt(session: AgentSession, text: string, attached: string[], attachedImages: AgentImageAttachment[]) {
-    enqueuePrompt(session.id, queuedPrompt(text, attached, attachedImages));
+  function handleRemoveRef(ref: EntityRef) {
+    if (!activeSession) return;
+    setRefs((prev) => ({
+      ...prev,
+      [activeSession.id]: (prev[activeSession.id] ?? []).filter(
+        (r) => !(r.module === ref.module && r.kind === ref.kind && r.id === ref.id),
+      ),
+    }));
+  }
+
+  function queuePrompt(
+    session: AgentSession,
+    text: string,
+    attached: string[],
+    attachedImages: AgentImageAttachment[],
+    attachedRefs: EntityRef[],
+  ) {
+    enqueuePrompt(session.id, queuedPrompt(text, attached, attachedImages, attachedRefs));
     setPrompt(session.id, "");
     setAttachments((prev) => ({ ...prev, [session.id]: [] }));
     setImages((prev) => ({ ...prev, [session.id]: [] }));
+    setRefs((prev) => ({ ...prev, [session.id]: [] }));
   }
 
   function editQueuedPrompt(queued: QueuedAgentPrompt) {
@@ -498,6 +554,7 @@ export function AgentHubView() {
     setPrompt(activeSession.id, queued.text);
     setAttachments((prev) => ({ ...prev, [activeSession.id]: queued.attachments }));
     setImages((prev) => ({ ...prev, [activeSession.id]: queued.images }));
+    setRefs((prev) => ({ ...prev, [activeSession.id]: queued.refs }));
     removeQueuedPrompt(activeSession.id, queued.id);
   }
 
@@ -544,7 +601,7 @@ export function AgentHubView() {
     // half-typed name that opened the list is taken out here, and only it: a
     // message already in the box is not ours to throw away.
     setPrompt(activeSession.id, promptWithoutCommand(current));
-    void handleSend({ sessionId: activeSession.id, text: commandName(name), attachments: [], images: [] });
+    void handleSend({ sessionId: activeSession.id, text: commandName(name), attachments: [], images: [], refs: [] });
   }
 
   async function handleSetMode(nextMode: string) {
@@ -571,9 +628,10 @@ export function AgentHubView() {
     if (!session) return;
     const attached = retry ? retry.attachments : attachments[session.id] ?? [];
     const attachedImages = retry ? retry.images : images[session.id] ?? [];
+    const attachedRefs = retry ? retry.refs : refs[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
     // A prompt with attachments and no words is a turn: "look at these".
-    if (!text && attached.length === 0 && attachedImages.length === 0) return;
+    if (!text && attached.length === 0 && attachedImages.length === 0 && attachedRefs.length === 0) return;
     // While the agent is working, a message goes INTO the turn rather than
     // behind it — the vendors' own apps read what you type mid-turn, and so
     // does this. Text only: steering carries content blocks, and the files
@@ -585,6 +643,7 @@ export function AgentHubView() {
         text,
         attachments: attached.length,
         images: attachedImages.length,
+        refs: attachedRefs.length,
         busy,
         retrying: Boolean(known),
       })
@@ -595,12 +654,12 @@ export function AgentHubView() {
       }
     }
     if (!known && (busy || session.status === "running" || session.status === "awaiting_permission")) {
-      queuePrompt(session, text, attached, attachedImages);
+      queuePrompt(session, text, attached, attachedImages, attachedRefs);
       return;
     }
     if (busy) return;
     if (!retry) setPrompt(session.id, "");
-    const turn = { sessionId: session.id, text, attachments: attached, images: attachedImages };
+    const turn = { sessionId: session.id, text, attachments: attached, images: attachedImages, refs: attachedRefs };
     lastTurn.current = turn;
     setBusy(true);
     setError("");
@@ -608,11 +667,12 @@ export function AgentHubView() {
     try {
       // Resolves without a result when the backend was busy and the prompt was
       // queued instead; its files went into the queue with it.
-      await sendAgentTurn(session.id, queuedPrompt(text, attached, attachedImages));
+      await sendAgentTurn(session.id, queuedPrompt(text, attached, attachedImages, attachedRefs));
       // Cleared only once the turn was accepted: a failed send should leave the
       // files where the user put them rather than make them pick again.
       setAttachments((prev) => ({ ...prev, [session.id]: [] }));
       setImages((prev) => ({ ...prev, [session.id]: [] }));
+      setRefs((prev) => ({ ...prev, [session.id]: [] }));
     } catch (e) {
       reportError(e);
       if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
@@ -908,7 +968,7 @@ export function AgentHubView() {
               // like any other: it shows, it can fail, it can be retried. Not
               // through the draft, which may hold something half-written.
               if (activeSession) {
-                void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [], images: [] });
+                void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [], images: [], refs: [] });
               }
             }}
             streaming={busy || activeSession?.status === "running"}
@@ -931,6 +991,8 @@ export function AgentHubView() {
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
             imageAttachments={draft ? draft.images : activeSession ? images[activeSession.id] ?? [] : []}
             onRemoveImage={handleRemoveImage}
+            refs={activeSession ? refs[activeSession.id] ?? [] : []}
+            onRemoveRef={handleRemoveRef}
             onPasteImage={(file) => void handleAddImage(file)}
             onDropImage={(file) => void handleAddImage(file)}
             imageError={imageError}

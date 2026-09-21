@@ -76,14 +76,14 @@ func TestPastedImageUsesTheImageBlockAndLimitsInput(t *testing.T) {
 	data := base64.StdEncoding.EncodeToString([]byte("png bytes"))
 	blocks, err := buildPromptWithImages("see this", nil, []ImageAttachment{{
 		Name: "paste.png", MimeType: "image/png", Data: data,
-	}}, t.TempDir(), false)
+	}}, nil, t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("buildPromptWithImages: %v", err)
 	}
 	if len(blocks) != 2 || blocks[1].Type != "image" || blocks[1].Data != data {
 		t.Fatalf("blocks = %+v, want text and pasted image", blocks)
 	}
-	if _, err := buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: data}}, t.TempDir(), false); err == nil {
+	if _, err := buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: data}}, nil, t.TempDir(), false); err == nil {
 		t.Fatal("unsupported pasted image type was accepted")
 	}
 }
@@ -99,22 +99,22 @@ func TestPastedImageSizeIsCheckedOnItsBase64BeforeDecoding(t *testing.T) {
 
 	// Over the limit and not even base64: only a check that runs before the
 	// decode can say it is the size that is wrong.
-	_, err := buildPromptWithImages("x", nil, image(strings.Repeat("!", maxImageBase64Bytes+1)), dir, false)
+	_, err := buildPromptWithImages("x", nil, image(strings.Repeat("!", maxImageBase64Bytes+1)), nil, dir, false)
 	if !errors.Is(err, ErrInvalidPrompt) || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("oversized paste err = %v, want the size limit before any decode", err)
 	}
 
 	atLimit := base64.StdEncoding.EncodeToString(make([]byte, maxImageBase64Bytes/4*3))
-	if _, err := buildPromptWithImages("x", nil, image(atLimit), dir, false); err != nil {
+	if _, err := buildPromptWithImages("x", nil, image(atLimit), nil, dir, false); err != nil {
 		t.Fatalf("an image of exactly %d base64 bytes was refused: %v", len(atLimit), err)
 	}
 	// Under the old decoded limit, over Claude's encoded one.
 	over := base64.StdEncoding.EncodeToString(make([]byte, maxImageBase64Bytes/4*3+1))
-	if _, err := buildPromptWithImages("x", nil, image(over), dir, false); !errors.Is(err, ErrInvalidPrompt) {
+	if _, err := buildPromptWithImages("x", nil, image(over), nil, dir, false); !errors.Is(err, ErrInvalidPrompt) {
 		t.Fatalf("image of %d base64 bytes err = %v, want refused", len(over), err)
 	}
 
-	_, err = buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: "AA=="}}, dir, false)
+	_, err = buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: "AA=="}}, nil, dir, false)
 	if !errors.Is(err, ErrInvalidPrompt) || errors.Is(err, ErrInvalidCwd) {
 		t.Fatalf("unsupported image err = %v, want a prompt error, not a cwd error", err)
 	}

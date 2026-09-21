@@ -15,6 +15,7 @@ import {
   viewFlow,
   viewSymbol,
 } from "./codegraphActions";
+import { dispatchAttachIntent } from "@/workbench/intents";
 import { MODULE, describeDocument } from "./documents";
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { EmptyProject } from "./sidebar/EmptyProject";
@@ -49,8 +50,20 @@ const onToggleGroup = (key: string) => {
   const { collapsedGroups } = snapshot();
   set({ collapsedGroups: collapsedGroups.includes(key) ? collapsedGroups.filter((k) => k !== key) : [...collapsedGroups, key] });
 };
+// Structured, not pasted text: the ref rides to the agent as a devkit://
+// URI it resolves itself through codegraph.getApiFlow when it needs the
+// call chain, rather than a sentence frozen at the moment this was clicked
+// (docs/dev-kit/cross-module.mdx § Primitive 1).
 const onAskAboutEndpoint = (ep: CodeGraphEndpoint) =>
-  askAgent(`About the endpoint ${ep.httpMethod} ${ep.path} (handled by ${ep.entryNode}) in Code Graph: `);
+  void dispatchAttachIntent("agent.attach", [
+    {
+      module: "codegraph",
+      kind: "endpoint",
+      id: ep.id,
+      label: `${ep.httpMethod} ${ep.path}`,
+      project: snapshot().projectPath,
+    },
+  ]);
 const onPreviewEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep);
 const onKeepEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false });
 const onEndpointBeside = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false, beside: true });

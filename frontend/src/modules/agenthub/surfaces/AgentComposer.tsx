@@ -36,11 +36,13 @@ import { commandName, commandQuery, filterCommands } from "../slashCommands";
 import { VendorIcon } from "./VendorIcon";
 import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
+import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
+import type { EntityRef } from "@/workbench/intents";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -239,6 +241,9 @@ export type AgentComposerProps = {
   onRemoveAttachment?: (path: string) => void;
   imageAttachments?: AgentImageAttachment[];
   onRemoveImage?: (id: string) => void;
+  /** Cross-module refs an `agent.attach` intent handed this turn. */
+  refs?: EntityRef[];
+  onRemoveRef?: (ref: EntityRef) => void;
   onPasteImage?: (file: File) => void;
   onDropImage?: (file: File) => void;
   imageError?: string;
@@ -336,6 +341,8 @@ export function AgentComposer({
   onRemoveAttachment,
   imageAttachments = [],
   onRemoveImage,
+  refs = [],
+  onRemoveRef,
   onPasteImage,
   onDropImage,
   imageError,
@@ -428,7 +435,12 @@ export function AgentComposer({
 
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
-    state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
+    state ??
+    (isStreaming
+      ? "streaming"
+      : attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0
+        ? "attached"
+        : "idle");
   const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions, availableModes);
   // Advertised modes are named by the agent; a mode config option's values
   // stay shown as they were.
@@ -485,8 +497,15 @@ export function AgentComposer({
           className,
         )}
       >
-        {attachedFiles.length > 0 || imageAttachments.length > 0 ? (
+        {attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0 ? (
           <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
+            {refs.map((ref) => (
+              <AgentRefChip
+                key={`${ref.module}/${ref.kind}/${ref.id}`}
+                entityRef={ref}
+                onRemove={onRemoveRef ? () => onRemoveRef(ref) : undefined}
+              />
+            ))}
             {attachedFiles.map((path) => (
               // Removed by a named button, like an image: the whole 24px chip
               // as the control removed the file on a click that said nothing.

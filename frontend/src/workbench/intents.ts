@@ -63,3 +63,36 @@ export async function dispatchIntent(
   await entry.handler(ref, { placement: options.placement ?? entry.placement });
   return "ok";
 }
+
+/**
+ * `agent.attach` is shaped differently from a navigation intent: several refs
+ * at once, plus optional prompt text, and there is nothing to place (it does
+ * not open a document — see docs/dev-kit/cross-module.mdx § Ma trận điểm nối,
+ * "Agent Hub"). A separate registry rather than widening Handler, so the three
+ * navigation intents above keep their single-ref shape.
+ */
+type AttachHandler = (refs: EntityRef[], prompt?: string) => void | Promise<void>;
+
+const attachHandlers = new Map<string, AttachHandler>();
+
+export function registerAttachIntent(name: string, handler: AttachHandler): () => void {
+  attachHandlers.set(name, handler);
+  return () => {
+    if (attachHandlers.get(name) === handler) attachHandlers.delete(name);
+  };
+}
+
+export function hasAttachIntent(name: string): boolean {
+  return attachHandlers.has(name);
+}
+
+export async function dispatchAttachIntent(
+  name: string,
+  refs: EntityRef[],
+  prompt?: string,
+): Promise<"ok" | "unavailable"> {
+  const handler = attachHandlers.get(name);
+  if (!handler) return "unavailable";
+  await handler(refs, prompt);
+  return "ok";
+}

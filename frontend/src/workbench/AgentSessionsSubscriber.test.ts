@@ -85,7 +85,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
       getStatus: async (id) => useAgentSessionsStore.getState().sessionsById[id],
     };
 
-    const turn = sendAgentTurn("s1", { id: "p", text: "go", attachments: [], images: [] }, bridge);
+    const turn = sendAgentTurn("s1", { id: "p", text: "go", attachments: [], images: [], refs: [] }, bridge);
     handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
     expect(tabStatus()).toBe("running");
     finish({ status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" });
