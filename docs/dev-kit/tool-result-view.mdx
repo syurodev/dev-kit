@@ -1,0 +1,161 @@
+---
+title: ToolResultView
+description: Cơ chế cho phép mỗi module đăng ký cách hiển thị riêng cho kết quả MCP tool của mình trong transcript Agent Hub, thay vì JSON thô — đi ngược chiều với agent.attach.
+---
+
+# ToolResultView
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Để sau">
+Phạm vi triển khai trước mắt chỉ gồm `ToolResultView` tĩnh (card trong
+transcript) + nút "Open beside" qua `Intent` đã có. Mục **"Theo dõi
+real-time"** ở cuối trang chưa thiết kế, cố tình treo lại để thảo luận riêng
+sau.
+</Callout>
+
+## Mục đích sinh ra
+
+Hiện tại, kết quả mọi tool call trong transcript của Agent Hub — dù agent gọi
+`codegraph.getApiFlow`, `api.send`, `git.diff` hay bất kỳ MCP tool nào — đều
+render theo cùng một đường: icon chọn theo từ khóa chung chung trong `kind`
+(read/edit/exec/search/fetch), nội dung hiển thị dưới dạng JSON/text thô
+(`AgentToolCall.tsx`, `formatToolOutput`). Không có gì phân biệt "đây là dữ
+liệu từ Code Graph" với "đây là dữ liệu từ API Client".
+
+Hệ quả: khi agent build một request qua `api.send` hoặc đọc call chain qua
+`codegraph.getApiFlow`, người dùng chỉ thấy một khối JSON — không bấm mở lại
+được trong API Client, không xem nhanh được flow trong Code Graph. Muốn dùng
+tiếp thông tin đó, người dùng phải tự chuyển sang module kia và tra lại thủ
+công.
+
+**ToolResultView** là cơ chế cho phép mỗi module đăng ký cách hiển thị riêng
+cho kết quả của (các) MCP tool nó sở hữu, để những kết quả đó xuất hiện ngay
+trong transcript dưới dạng card có thể tương tác được, thay vì JSON tĩnh.
+
+Nó đi **ngược chiều** với [`agent.attach`](/dev-kit/cross-module) (đã triển
+khai — xem [syurodev/dev-kit#122](https://github.com/syurodev/dev-kit/pull/122)):
+
+| | Chiều dữ liệu | Thời điểm |
+| --- | --- | --- |
+| `agent.attach` | Ref từ module khác → vào composer | Trước khi gửi turn |
+| `ToolResultView` | Kết quả tool call → hiện trong transcript | Sau khi agent nhận kết quả |
+
+Hai cơ chế bổ sung cho nhau: `agent.attach` đưa ngữ cảnh vào cho agent đọc;
+`ToolResultView` đưa kết quả agent tạo ra trở lại cho người dùng dùng tiếp.
+
+## Quy tắc và giới hạn
+
+1. **Không renderer → fallback JSON generic, không bịa.** Một tool chưa có ai
+   đăng ký renderer thì vẫn hiện đúng như hôm nay (`ToolOutput` /
+   `formatToolOutput`). Không có đường đoán-format-theo-cấu-trúc — giống
+   nguyên tắc của `refResolutionHint` bên `agent.attach`: không có thì nói
+   thẳng là chưa có, không tự bịa ra cách hiển thị sai.
+2. **Renderer chỉ đọc `RawInput`/`RawOutput`/`Content` đã có sẵn trong
+   `ToolCall`.** Không gọi thêm API, không fetch thêm dữ liệu ngoài những gì
+   tool đã trả về — nếu cần dữ liệu mới hơn, đó là việc của agent (gọi lại
+   tool), không phải của UI.
+3. **Keyed theo `ToolCall.Name`, không phải `kind`.** `kind`
+   (read/edit/exec/search/fetch/think) là phân loại chung của ACP cho mọi
+   tool (kể cả tool riêng của Claude như Read/Edit/Bash); `Name` mới là tên
+   tool thật (có sẵn từ 0.77, xem `internal/agenthub/update.go`) và là thứ
+   duy nhất DevKit kiểm soát được — vì chính DevKit đặt tên tool khi đăng ký
+   với MCP server (`codegraph.getApiFlow`, `api.send`...).
+4. **Không thay thế 3 content type cố định của ACP** (`content`/`diff`/`terminal`
+   — do vendor quyết định khi báo tool call). ToolResultView là một lớp phủ
+   THÊM lên trên nhánh `content`/rawOutput hiện có, không đổi wire format
+   ACP, không cần vendor hợp tác gì thêm.
+5. **Đúng ranh giới `internal/arch`.** Renderer là code frontend thuần (không
+   đụng Go); phần Go duy nhất liên quan là `ToolCall.Name`/`RawOutput` vốn đã
+   tồn tại — không thêm import chéo, không thêm field mới ở backend cho việc
+   này.
+6. **Ai sở hữu tool, người đó đăng ký renderer** — không có renderer "dùng
+   chung" cho nhiều module đoán ý nhau. Xem mục Cách tương tác.
+
+## Cách tương tác
+
+Một registry nhỏ, cùng mẫu với `registerAttachIntent`/`registerIntent` đã có
+trong `frontend/src/workbench/intents.ts`:
+
+```ts
+type ToolResultRenderer = (call: ToolCall) => React.ReactNode | null;
+
+registerToolResultView("codegraph.getApiFlow", (call) => <ApiFlowCard rawOutput={call.rawOutput} />);
+registerToolResultView("api.send", (call) => <RequestResultCard rawOutput={call.rawOutput} rawInput={call.rawInput} />);
+```
+
+- **Đăng ký ở module sở hữu tool**, trong file `manifest.ts` của module đó —
+  giống hệt vị trí `agent.attach` được đăng ký trong `agenthub/manifest.ts`.
+  Module Code Graph tự viết renderer cho `codegraph.getApiFlow`, không phải
+  Agent Hub viết hộ nó.
+- **Renderer trả về node**, không gọi side-effect ngay khi render. Hành động
+  (nút "Try in API Client", "Reveal in Code Graph"...) chỉ được thực hiện qua
+  `dispatchIntent`/`dispatchAttachIntent` đã có — không import thẳng
+  bridge/action của module khác, đúng nguyên tắc "không import ruột module
+  khác" của `cross-module.mdx`.
+- **Không có ghi dữ liệu nào từ renderer.** Mọi thao tác người dùng bấm từ
+  card (gửi request, mở file...) vẫn phải đi qua bridge + Capability Gateway
+  của module đó, y hệt như khi người dùng bấm từ UI chính của module —
+  renderer không phải đường tắt quyền.
+- **Tool chưa có renderer**: `hasToolResultView(name)` trả `false`,
+  `AgentToolCall` rơi về nhánh `ToolOutput` JSON như hiện tại — không vỡ UI,
+  không cần sửa gì ở nơi gọi.
+
+### Mở beside từ card (một hành động, không phải cơ chế mới)
+
+Card có thể thêm nút "Open" dùng đúng `dispatchIntent(name, ref, {placement:
+"beside"})` đã có (Primitive 2 của `cross-module.mdx`) — không cần thêm
+registry hay kiểu dữ liệu mới. Ví dụ: agent gọi `notes.create`, card nhận
+`noteId` từ `rawOutput`, nút "Open" dispatch `notes.reveal` với `placement:
+"beside"` — mở note đó cạnh conversation, y hệt luồng "Tasks → Code Graph" đã
+mô tả trong ma trận điểm nối của `cross-module.mdx`. Mở 1 lần theo yêu cầu
+của người dùng, không tự động.
+
+## Theo dõi real-time (chưa quyết)
+
+Khác với "mở beside" ở trên: thay vì mở 1 lần theo yêu cầu, module đích tự mở
+và **tự cập nhật** khi agent còn đang thao tác tiếp trong cùng turn — ví dụ
+note đang được agent viết thêm thì split view cập nhật theo thời gian thực,
+không phải đợi xong rồi bấm Open.
+
+**Vì sao tách riêng, chưa đưa vào thiết kế chính:**
+
+- `Intent` hiện tại là điều hướng **1 lần** (`dispatchIntent` gọi xong là
+  hết), không phải subscription sống — cần một cơ chế khác (vd module đích
+  tự re-fetch khi biết dữ liệu vừa đổi), chưa có sẵn trong repo.
+- **Tự động mở dễ đi ngược nguyên tắc #3 của `cross-module.mdx`** ("ở lại
+  module đang đứng khi có thể"): agent làm nhiều việc liên tiếp trong 1 turn
+  có thể liên tục bật split view mới, phá layout người dùng đang xem.
+- **Chỉ hợp với tool có 1 đích rõ ràng** (1 note, 1 file) — tool đổi nhiều
+  thứ cùng lúc (vd `git.commit` đổi nhiều file) không rõ nên mở cái nào.
+
+Câu hỏi còn mở: tự động mở hay phải người dùng bật "theo dõi" trước; module
+đích cần gì để biết "re-render ngay vì agent vừa sửa" (so sánh với cơ chế
+re-index-on-save của Code Graph — có tái dùng được không). **Chưa thiết kế —
+cần thảo luận thêm trước khi build.**
+
+## Cách thể hiện trên UI
+
+**Vị trí:** trong `AgentToolCall.tsx`, ngay trước nhánh `content.map(...)`
+hiện tại (nơi đang rẽ theo `item.type === "diff" | "terminal"`). Thêm một
+điều kiện: nếu `hasToolResultView(call.name)` thì render component đăng ký
+thay cho `ToolOutput`; không thì giữ nguyên đường cũ.
+
+**Ví dụ cụ thể:**
+
+| Tool | Card | Hành động trên card |
+| --- | --- | --- |
+| `codegraph.getApiFlow` | Sơ đồ Controller → Service → Repository, rút gọn từ `rawOutput` | "Reveal in Code Graph" (`codegraph.reveal`) |
+| `api.send` / `api.fromEndpoint` | Method + URL + status code, thu gọn body | "Try in API Client" (`dispatchIntent("api.fromEndpoint", ...)`) |
+| `git.diff` | Đổi tên file + số dòng đổi (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | "View diff" (`git.reveal`) |
+
+**Nhất quán với cái đã có:** cùng ngôn ngữ hình họa với
+`AgentFileChip`/`AgentRefChip` — nền `bg-(--state-soft)`, bo `rounded-sm`,
+icon 12px mờ. Không phải "Shared / Entity Chip" theo Figma (vẫn chưa được
+thiết kế riêng cho từng kind) — chỉ là card giản lược, giống vai trò tạm thời
+của `AgentRefChip` với `agent.attach`.
+
+**Trạng thái:** card kế thừa `state` (running/done/failed) từ `ToolCall`
+giống hàng generic — đang chạy thì không có `rawOutput` để render nên vẫn
+hiện shimmer "running…" như hôm nay; thất bại thì vẫn hiện `reason` inline
+giống hàng generic, không cần renderer riêng xử lý lỗi.
