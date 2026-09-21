@@ -14,6 +14,52 @@ import { Inline } from "@/modules/agenthub/transcript/AgentMessageRich";
 import { DOCK_TOP_RESERVE, placeInspector } from "../inspector/placeInspector";
 import { codeGraphRequests } from "../codegraphStore";
 
+/**
+ * Whether a paragraph is markup quoted without fencing it in backticks — the
+ * agent writing these comments reaches for a raw Liquibase changeset or an
+ * XML snippet mid-sentence, never ``` ```. A single line mentioning a tag in
+ * passing ("Phải thêm <include .../> vào changelog-main.xml") is still prose;
+ * what marks an actual snippet is that EVERY line of the paragraph, not just
+ * one clause of it, opens with a tag.
+ */
+export function isMarkupParagraph(paragraph: string): boolean {
+  const lines = paragraph
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length > 1 && lines.every((line) => line.startsWith("<"));
+}
+
+/**
+ * A comment's body, paragraph by paragraph: an unfenced markup snippet reads
+ * as code (monospace, its own line breaks kept exactly), everything else as
+ * prose with Inline's backtick/bold/italic/link styling.
+ */
+function CommentBody({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).filter((paragraph) => paragraph.length > 0);
+  return (
+    <div className="flex flex-col gap-2 text-pretty text-body-12 text-text-secondary">
+      {paragraphs.map((paragraph, index) =>
+        isMarkupParagraph(paragraph) ? (
+          <pre
+            key={index}
+            className="overflow-x-auto rounded-md bg-surface-base p-2 font-mono text-code-11 whitespace-pre text-text-primary"
+          >
+            {paragraph}
+          </pre>
+        ) : (
+          // break-words: a comment quotes code inline too — a Liquibase
+          // changeset id, a Redis key pattern — with no spaces to wrap at,
+          // and the thread is fixed to the node's own width.
+          <p key={index} className="whitespace-pre-wrap break-words">
+            <Inline text={paragraph} />
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
 /** "14m ago" — the thread is short-lived, so an absolute time says less. */
 function ago(unixSeconds: number): string {
   const s = Math.max(0, Math.round(Date.now() / 1000 - unixSeconds));
@@ -188,20 +234,7 @@ export function PlanCommentsPopover({
                     </span>
                     <span className="text-text-tertiary normal-case">{ago(c.createdAt)}</span>
                   </span>
-                  {/* Inline, not the block-level parser AgentProse uses for a
-                      turn's answer: these comments quote code without fencing
-                      it, and the block parser joins a paragraph's lines with
-                      spaces, which would flatten an unfenced snippet onto one
-                      line. Inline only styles inline code, bold, italic and
-                      links, and leaves every line break exactly where the
-                      agent put it.
-                      break-words: a comment quotes code — a Liquibase
-                      changeset id, a Redis key pattern — with no spaces to
-                      wrap at, and the thread is fixed to the node's own
-                      width. */}
-                  <span className="text-pretty break-words whitespace-pre-wrap text-body-12 text-text-secondary">
-                    <Inline text={c.body} />
-                  </span>
+                  <CommentBody text={c.body} />
                 </span>
               </li>
             );
