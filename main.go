@@ -950,6 +950,9 @@ func main() {
 			// Frameless windows never get their Title applied; put it back
 			// once the native window exists. No-op off Linux.
 			applyWindowTitle(mainWindow, windowOptions.Title)
+			// A trackpad pinch on Linux zooms WebKitGTK's own page scale
+			// before any JS ever sees it. No-op off Linux.
+			lockWebviewZoom(mainWindow)
 			if enableNativeHighRefreshRate(mainWindow) {
 				log.Printf("WKWebView native refresh rate enabled (private WebKit API)")
 			} else if runtime.GOOS == "darwin" {

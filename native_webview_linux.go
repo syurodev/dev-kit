@@ -3,9 +3,44 @@
 package main
 
 /*
-#cgo pkg-config: gtk4
+#cgo pkg-config: gtk4 webkitgtk-6.0
 #include <stdlib.h>
 #include <gtk/gtk.h>
+#include <webkit/webkit.h>
+
+// Depth-first search for the WebKitWebView inside a widget tree. GTK4 dropped
+// gtk_container_get_children in favour of a sibling-linked child list, so this
+// is the only way to reach a descendant without already knowing its widget
+// path — and Wails hands back nothing more specific than the GtkWindow.
+static WebKitWebView *devkit_find_web_view(GtkWidget *widget) {
+	if (widget == NULL) {
+		return NULL;
+	}
+	if (WEBKIT_IS_WEB_VIEW(widget)) {
+		return WEBKIT_WEB_VIEW(widget);
+	}
+	for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL;
+	     child = gtk_widget_get_next_sibling(child)) {
+		WebKitWebView *found = devkit_find_web_view(child);
+		if (found != NULL) {
+			return found;
+		}
+	}
+	return NULL;
+}
+
+extern void devkitZoomLevelChanged(WebKitWebView *view);
+
+static void devkit_on_zoom_level_changed(GObject *object, GParamSpec *pspec, gpointer data) {
+	devkitZoomLevelChanged(WEBKIT_WEB_VIEW(object));
+}
+
+static void devkit_lock_zoom_level(GtkWidget *root) {
+	WebKitWebView *view = devkit_find_web_view(root);
+	if (view != NULL) {
+		g_signal_connect(view, "notify::zoom-level", G_CALLBACK(devkit_on_zoom_level_changed), NULL);
+	}
+}
 */
 import "C"
 
@@ -120,4 +155,39 @@ func applyWindowTitle(window application.Window, title string) {
 	application.InvokeSync(func() {
 		C.gtk_window_set_title((*C.GtkWindow)(handle), cTitle)
 	})
+}
+
+// lockWebviewZoom stops a trackpad pinch from scaling the whole app.
+//
+// The DOM never sees it. macOS and Windows turn an OS-level pinch into a
+// synthetic `wheel` event with `ctrlKey` set — the convention
+// installNativeZoomGuard (frontend/src/lib/nativeZoom.ts) relies on — but
+// WebKitGTK recognises the touchpad gesture itself and drives the page's
+// `zoom-level` directly, entirely inside the UI process. No amount of
+// `preventDefault` in JS reaches it, because no `wheel` event is ever fired.
+//
+// DevKit never sets WebviewWindowOptions.Zoom and ships no menu on Linux
+// (setsApplicationMenu in app_menu.go), so 1.0 is not a default being
+// preserved against some other feature — it is the only zoom level DevKit
+// ever intends. Watching `notify::zoom-level` and snapping any other value
+// straight back needs no gesture recogniser of its own and cannot drift: the
+// watch fires again on the reset, sees 1.0, and stops.
+func lockWebviewZoom(window application.Window) {
+	if window == nil {
+		return
+	}
+	handle := window.NativeWindow()
+	if handle == nil {
+		return
+	}
+	application.InvokeSync(func() {
+		C.devkit_lock_zoom_level((*C.GtkWidget)(handle))
+	})
+}
+
+//export devkitZoomLevelChanged
+func devkitZoomLevelChanged(view *C.WebKitWebView) {
+	if C.webkit_web_view_get_zoom_level(view) != C.gdouble(1.0) {
+		C.webkit_web_view_set_zoom_level(view, C.gdouble(1.0))
+	}
 }

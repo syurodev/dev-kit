@@ -11,6 +11,12 @@
  * otherwise zoom the window. Preventing does not stop propagation, so the
  * canvas still gets the event and still zooms — only the host's own
  * interpretation is suppressed.
+ *
+ * This covers macOS and Windows, where the OS turns a trackpad pinch into
+ * exactly that synthetic `wheel`+`ctrlKey` event. WebKitGTK on Linux instead
+ * drives its own page zoom natively, without ever firing a `wheel` event —
+ * nothing here sees it, let alone prevents it. See lockWebviewZoom in
+ * native_webview_linux.go for that platform's guard.
  */
 
 /**
