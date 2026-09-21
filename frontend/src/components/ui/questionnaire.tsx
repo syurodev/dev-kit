@@ -167,7 +167,7 @@ function QuestionnaireChoice({
       </span>
       <QuestionnairePrimitive.ChoiceLabel
         data-slot="questionnaire-choice-label"
-        className="flex min-w-0 flex-1 flex-col gap-0.5 text-pretty break-words leading-snug"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 text-pretty wrap-anywhere leading-snug"
       >
         {children}
       </QuestionnairePrimitive.ChoiceLabel>
@@ -186,11 +186,13 @@ function QuestionnaireChoiceDescription({
   return (
     <span
       data-slot="questionnaire-choice-description"
-      // break-words: a description quoting a URL or path (no spaces to wrap
-      // at) otherwise sets the choice row's min-content width to the whole
-      // string, pushing it past the rail and clipping the rest under
-      // overflow-hidden instead of wrapping.
-      className={cn("text-body-12 text-pretty break-words text-text-tertiary", className)}
+      // wrap-anywhere, not break-words: a description quoting a URL or path
+      // (no spaces to wrap at) otherwise sets the choice row's min-content
+      // width to the whole string, pushing it past the rail and clipping the
+      // rest under overflow-hidden instead of wrapping — break-word is
+      // excluded from that min-content calculation by spec, so it alone
+      // never actually stopped the row from being sized that way.
+      className={cn("text-body-12 text-pretty wrap-anywhere text-text-tertiary", className)}
       {...props}
     />
   )

@@ -97,6 +97,28 @@ describe("Agent Hub Transcript Leaves", () => {
     });
   });
 
+  describe("AgentProse long unbroken runs (inline code, links, prose)", () => {
+    // overflow-wrap: break-word (break-words) is excluded from the browser's
+    // min-content calculation by spec; overflow-wrap: anywhere (wrap-anywhere)
+    // is not. A flex ancestor without its own min-w-0 still sizes off the
+    // unbroken run under break-words alone, so every leaf that can carry a
+    // pasted token or URL needs wrap-anywhere, not break-words.
+    it("gives inline code and a bare link wrap-anywhere, not break-words", () => {
+      const token = "x".repeat(300);
+      const html = renderToString(<AgentProse text={`see \`${token}\` at https://example.com/${token}`} />);
+      expect(html).toContain("wrap-anywhere");
+      expect(html).not.toContain("break-words");
+    });
+
+    it("gives a heading and a blockquote wrap-anywhere too", () => {
+      const token = "y".repeat(300);
+      const heading = renderToString(<AgentProse text={`## ${token}`} />);
+      expect(heading).toContain("wrap-anywhere");
+      const quote = renderToString(<AgentProse text={`> ${token}`} />);
+      expect(quote).toContain("wrap-anywhere");
+    });
+  });
+
   describe("AgentMessage avatars", () => {
     it("marks the agent with its vendor and you with your initial", () => {
       // An initial on both sides read as two people, and an untitled session
