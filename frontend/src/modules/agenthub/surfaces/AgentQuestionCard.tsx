@@ -47,6 +47,18 @@ export type AgentQuestionCardProps = {
 const ALL_AT_ONCE_MAX = 2;
 
 /**
+ * The row of Skip/Previous/Next/Submit buttons, pinned to the bottom of
+ * whichever ancestor scrolls this card (both AgentHubContent and AgentRail
+ * cap it at max-h-[60vh] and scroll). A long description otherwise fills
+ * that box on its own, and the card reads as if it ended with no way to
+ * answer — sticky plus the card's own background keeps the way out on
+ * screen while the question above it scrolls underneath. The negative
+ * margin/matching padding cancel out to the card's own edges (p-3 on rail,
+ * px-3 py-3 on wide) so the bar's seam lines up with the card's border.
+ */
+const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 border-t border-border-subtle bg-surface-raised px-3 pt-2 pb-3";
+
+/**
  * Agent / Question — a question the agent is waiting on (AskUserQuestion, an
  * MCP server's form, the refusal-fallback prompt), asked in the conversation it
  * came out of, the way a permission is.
@@ -125,7 +137,7 @@ export function AgentQuestionCard({
       ) : null}
 
       {form.fields.length === 0 ? (
-        <div className="flex items-center justify-end gap-2">
+        <div className={cn(ACTIONS_BAR, "flex items-center justify-end gap-2")}>
           {skipAll("Skip")}
           <Button type="button" size="sm" disabled={busy} data-testid="question-submit" onClick={submit}>
             Continue
@@ -145,19 +157,26 @@ export function AgentQuestionCard({
           {form.fields.map((field) => (
             <QuestionField key={field.key} field={field} form={form} />
           ))}
-          {/* With one question, skipping it and skipping them all are the same
-              click; only the one that declines is kept. */}
-          <QuestionnaireActions>
-            <QuestionnairePrevious disabled={busy} />
-            {form.fields.length > 1 ? (
-              <QuestionnaireSkip disabled={busy} />
-            ) : (
-              <div className="col-start-2 row-start-1 justify-self-end">{skipAll("Skip")}</div>
-            )}
-            <QuestionnaireNext disabled={busy} />
-            <QuestionnaireSubmit disabled={busy} data-testid="question-submit" />
-          </QuestionnaireActions>
-          {form.fields.length > 1 ? <div className="-mt-1 flex">{skipAll("Skip all")}</div> : null}
+          {/* Sticky to the scroll container the card is shown in (rail and
+              wide both cap it at max-h-[60vh] and scroll): a description long
+              enough to fill that box otherwise pushes Previous/Skip/Next below
+              the fold with nothing to say they exist — the card just looks
+              like it ended without them. */}
+          <div className={cn(ACTIONS_BAR, "flex flex-col gap-2")}>
+            {/* With one question, skipping it and skipping them all are the
+                same click; only the one that declines is kept. */}
+            <QuestionnaireActions>
+              <QuestionnairePrevious disabled={busy} />
+              {form.fields.length > 1 ? (
+                <QuestionnaireSkip disabled={busy} />
+              ) : (
+                <div className="col-start-2 row-start-1 justify-self-end">{skipAll("Skip")}</div>
+              )}
+              <QuestionnaireNext disabled={busy} />
+              <QuestionnaireSubmit disabled={busy} data-testid="question-submit" />
+            </QuestionnaireActions>
+            {form.fields.length > 1 ? <div className="-mt-1 flex">{skipAll("Skip all")}</div> : null}
+          </div>
         </Questionnaire>
       ) : (
         <>
@@ -176,7 +195,7 @@ export function AgentQuestionCard({
               <QuestionField field={field} form={form} />
             </Questionnaire>
           ))}
-          <div className="flex items-center justify-end gap-2">
+          <div className={cn(ACTIONS_BAR, "flex items-center justify-end gap-2")}>
             {skipAll("Skip")}
             <Button type="button" size="sm" disabled={busy} data-testid="question-submit" onClick={submit}>
               Submit
