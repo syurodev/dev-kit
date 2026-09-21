@@ -8,6 +8,7 @@ import { renderToString as renderRaw } from "react-dom/server";
 import {
   AgentMessage,
   AgentCodeBlock,
+  AgentProse,
   AgentThinking,
   AgentToolCall,
   AgentToolDiff,
@@ -77,6 +78,22 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain("bg-surface-raised");
       expect(html).toContain("bg-surface-base");
       expect(html).toContain("Copy");
+    });
+  });
+
+  describe("AgentProse fenced code blocks", () => {
+    it("wraps a single-line fence: a bare token has no lines of its own to lose", () => {
+      const token = "x".repeat(20) + "." + "y".repeat(20) + "." + "z".repeat(20);
+      const html = renderToString(<AgentProse text={"```\n" + token + "\n```"} />);
+      expect(html).toContain("whitespace-pre-wrap");
+      expect(html).toContain("wrap-anywhere");
+      expect(html).not.toContain("overflow-x-auto");
+    });
+
+    it("keeps real multi-line code unwrapped, scrolling instead", () => {
+      const html = renderToString(<AgentProse text={'```ts\nconst a = 1;\nconst b = 2;\n```'} />);
+      expect(html).toContain("overflow-x-auto");
+      expect(html).not.toContain("whitespace-pre-wrap");
     });
   });
 
