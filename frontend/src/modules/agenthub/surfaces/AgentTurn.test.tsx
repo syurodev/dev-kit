@@ -34,6 +34,22 @@ describe("AgentTurn", () => {
     expect(html).not.toContain('data-testid="agent-message"');
   });
 
+  it("carries a pasted token past the bubble's own max-width, not just break-words", () => {
+    // overflow-wrap: break-word (Tailwind's break-words) is excluded from
+    // the browser's min-content calculation by spec — a flex ancestor
+    // without its own min-w-0 still sizes off the unbroken run and forces
+    // the bubble open sideways even with break-words set on it. wrap-anywhere
+    // (overflow-wrap: anywhere) counts toward min-content, so it actually
+    // holds regardless of the ancestor chain.
+    const token = "eyJ" + "a".repeat(400) + "." + "b".repeat(200);
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: `token mẫu là ${token}`, createdAt: "2026-09-14T10:00:00Z" },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(html).toContain("wrap-anywhere");
+    expect(html).not.toContain("break-words");
+  });
+
   it("follows a live turn's current step beside the orb", () => {
     const [live] = groupTurns(items.slice(0, 3));
     const html = renderToString(<AgentTurn turn={live} live latest />);

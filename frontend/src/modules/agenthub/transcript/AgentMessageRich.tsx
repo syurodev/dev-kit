@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentCodeBlock } from "./AgentCodeBlock";
@@ -8,6 +9,36 @@ import {
   type IncrementalMarkdownState,
   type MarkdownBlock,
 } from "./agentMarkdown";
+
+/** A masked token reads out this many dots at most — enough to fill the
+ *  several lines a real JWT does, without an adversarial one turning into an
+ *  unbounded wall of characters. */
+const MASK_VISIBLE_CAP = 240;
+
+/**
+ * A JWT, hidden by default and shown on click — the same shape Claude
+ * Desktop's own masking takes. Nothing is redacted from the transcript
+ * itself: this is a render-time toggle, so Copy on the message still copies
+ * the real value, and a reload starts masked again rather than remembering
+ * that this one reader chose to look.
+ */
+function MaskedSecret({ value }: { value: string }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const Icon = revealed ? EyeOff : Eye;
+  return (
+    <button
+      type="button"
+      onClick={() => setRevealed((current) => !current)}
+      data-testid="masked-secret"
+      aria-pressed={revealed}
+      title={revealed ? "Click to hide" : "Click to reveal"}
+      className="inline-flex max-w-full cursor-pointer items-baseline gap-1 rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-left align-baseline font-mono text-code-12 whitespace-pre-wrap wrap-anywhere text-text-primary"
+    >
+      <Icon aria-hidden="true" className="size-3 shrink-0 translate-y-0.5 text-text-tertiary" />
+      {revealed ? value : "•".repeat(Math.min(value.length, MASK_VISIBLE_CAP))}
+    </button>
+  );
+}
 
 export type AgentMessageRichProps = {
   /** Markdown as the agent sent it. */
@@ -55,11 +86,21 @@ export function Inline({ text }: { text: string }) {
               // so `git` in a sentence was only a font change.
               <code
                 key={idx}
-                className="whitespace-pre-wrap rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary"
+                // wrap-anywhere, not break-words: a filename or a path has no
+                // spaces to wrap at, and break-word/break-words is excluded
+                // from the browser's min-content calculation by spec — an
+                // ancestor that sizes off min-content (any flex item without
+                // its own min-w-0) still opens the line, and the ScrollArea
+                // it sits in, sideways, even with break-words set right here.
+                // wrap-anywhere counts toward min-content, so it actually
+                // holds regardless of what the ancestor chain does.
+                className="whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary"
               >
                 {token.value}
               </code>
             );
+          case "secret":
+            return <MaskedSecret key={idx} value={token.value} />;
           case "link":
             return (
               <a
@@ -67,7 +108,9 @@ export function Inline({ text }: { text: string }) {
                 href={token.href}
                 target="_blank"
                 rel="noreferrer"
-                className="text-status-info underline"
+                // A long URL is exactly the same unbroken-run case as inline
+                // code, and had no wrap protection of its own at all.
+                className="wrap-anywhere text-status-info underline"
               >
                 {token.value}
               </a>
@@ -100,7 +143,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       return (
         <p
           className={cn(
-            "w-full text-text-primary",
+            "w-full wrap-anywhere text-text-primary",
             // Keep headings at least as large as prose; weight marks deeper levels.
             block.level <= 2 ? "text-title-16" : "text-title-14",
           )}
@@ -120,7 +163,7 @@ function Block({ block }: { block: MarkdownBlock }) {
               >
                 {block.ordered ? `${idx + 1}.` : "•"}
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0 flex-1 wrap-anywhere">
                 <Inline text={item} />
               </span>
             </div>
@@ -135,14 +178,19 @@ function Block({ block }: { block: MarkdownBlock }) {
             aria-hidden="true"
             className="w-0.5 shrink-0 self-stretch bg-border-default"
           />
-          <p className="min-w-0 flex-1 text-body-14 leading-(--type-prose-leading) text-text-secondary">
+          <p className="min-w-0 flex-1 wrap-anywhere text-body-14 leading-(--type-prose-leading) text-text-secondary">
             <Inline text={block.text} />
           </p>
         </div>
       );
 
     case "code":
-      return <AgentCodeBlock code={block.code} language={block.language} />;
+      // wrap only a single-line fence: multi-line code keeps its own line
+      // breaks (AgentCodeBlock's own reasoning), but one line has no
+      // structure to lose, and a token or URL long enough to fill it read as
+      // "the message ended" with everything past the fold behind a
+      // horizontal scrollbar nothing hinted was there.
+      return <AgentCodeBlock code={block.code} language={block.language} wrap={!block.code.includes("\n")} />;
 
     case "table":
       // A table is scanned along its rows and down its first column, and both
@@ -202,7 +250,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     default:
       return (
-        <p className="w-full text-body-14 leading-(--type-prose-leading) break-words text-text-primary">
+        <p className="w-full text-body-14 leading-(--type-prose-leading) wrap-anywhere text-text-primary">
           <Inline text={block.text} />
         </p>
       );

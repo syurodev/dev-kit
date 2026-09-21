@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
-import type { RateLimit, Usage } from "../types";
+import type { RateLimit, SessionFailure, Usage } from "../types";
 
 export type AgentContextMeterProps = {
   usage?: Usage | null;
@@ -77,6 +77,36 @@ export function rateLimitDetail(limit: RateLimit, now = Date.now()): string {
     parts.push(minutes >= 90 ? `resets in ${Math.round(minutes / 60)}h` : `resets in ${minutes}m`);
   }
   return parts.join(" · ") || "no detail";
+}
+
+/**
+ * A rejected rate limit, read as the same session-scoped problem a vendor's
+ * own sessionFailure is — so it gets the same banner instead of only the
+ * composer's context-meter popover, which nobody opens unprompted. Claude
+ * only ever reports this on a usage_update's _claude/rateLimit, never through
+ * the air extension's sessionFailure the rest of that banner exists for, so
+ * without this a rejected turn had nothing on screen to say why: the turn
+ * just stopped, same as the "user is left to guess" AgentSessionFailure was
+ * built to end.
+ *
+ * "allowed_warning" stays in the popover only — the turn still went through,
+ * so it is not yet a problem the session-level banner should interrupt with.
+ *
+ * revision is resetsAt, not a counter: the same window keeps re-arriving on
+ * every usage_update while still rejected, and a dismissed banner must not
+ * reopen until a new window (a new resetsAt) makes it news again.
+ */
+export function rateLimitFailure(usage: Usage | null | undefined): SessionFailure | null {
+  const limit = usage?.rateLimit;
+  if (!limit || limit.status !== "rejected") return null;
+  return {
+    id: "rate-limit",
+    revision: limit.resetsAt ?? 0,
+    category: "usage_limit",
+    severity: "error",
+    title: rateLimitLabel(limit.status),
+    details: rateLimitDetail(limit),
+  };
 }
 
 export function AgentContextMeter({

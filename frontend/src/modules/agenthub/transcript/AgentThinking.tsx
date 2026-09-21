@@ -71,7 +71,7 @@ export function AgentThinking({
           />
         </button>
         <AnimatedCollapse open={isExpanded} className="pt-2">
-          <p className="w-full pl-5.5 text-body-13 whitespace-pre-wrap break-words text-text-tertiary select-text">
+          <p className="w-full pl-5.5 text-body-13 whitespace-pre-wrap wrap-anywhere text-text-tertiary select-text">
             {text}
           </p>
         </AnimatedCollapse>

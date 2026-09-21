@@ -78,7 +78,7 @@ export function AgentPlan({ entries, className }: AgentPlanProps) {
               aria-hidden="true"
               className={cn("size-1.5 shrink-0 rounded-full", step.mark)}
             />
-            <span className={cn("min-w-0 flex-1 break-words", step.label)}>
+            <span className={cn("min-w-0 flex-1 wrap-anywhere", step.label)}>
               {entry.content}
             </span>
             <span className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">

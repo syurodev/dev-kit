@@ -8,6 +8,7 @@ import { renderToString as renderRaw } from "react-dom/server";
 import {
   AgentMessage,
   AgentCodeBlock,
+  AgentProse,
   AgentThinking,
   AgentToolCall,
   AgentToolDiff,
@@ -77,6 +78,60 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain("bg-surface-raised");
       expect(html).toContain("bg-surface-base");
       expect(html).toContain("Copy");
+    });
+  });
+
+  describe("AgentProse fenced code blocks", () => {
+    it("wraps a single-line fence: a bare token has no lines of its own to lose", () => {
+      const token = "x".repeat(20) + "." + "y".repeat(20) + "." + "z".repeat(20);
+      const html = renderToString(<AgentProse text={"```\n" + token + "\n```"} />);
+      expect(html).toContain("whitespace-pre-wrap");
+      expect(html).toContain("wrap-anywhere");
+      expect(html).not.toContain("overflow-x-auto");
+    });
+
+    it("keeps real multi-line code unwrapped, scrolling instead", () => {
+      const html = renderToString(<AgentProse text={'```ts\nconst a = 1;\nconst b = 2;\n```'} />);
+      expect(html).toContain("overflow-x-auto");
+      expect(html).not.toContain("whitespace-pre-wrap");
+    });
+  });
+
+  describe("AgentProse masks a JWT until clicked", () => {
+    const jwt =
+      "eyJhbGciOiJSUzI1NiIsImtpZCI6ImdhbGF4eS1nLXVzZXItYXNzZXJ0aW9uIn0" +
+      ".eyJpc3MiOiJnYWxheHktZyIsInN1YiI6Ik0wMDEifQ" +
+      ".RZbWj7P-qiOsKBu7cKfiAYWw8ANxz6esebuuSWdmmrw";
+
+    it("never puts the raw token in the initial render", () => {
+      const html = renderToString(<AgentProse text={`token mẫu là ${jwt}`} />);
+      expect(html).toContain('data-testid="masked-secret"');
+      expect(html).not.toContain(jwt);
+      // Masked with dots, not left blank or as a placeholder word: a reader
+      // still sees roughly how much text is there.
+      expect(html).toContain("•".repeat(jwt.length));
+    });
+  });
+
+  describe("AgentProse long unbroken runs (inline code, links, prose)", () => {
+    // overflow-wrap: break-word (break-words) is excluded from the browser's
+    // min-content calculation by spec; overflow-wrap: anywhere (wrap-anywhere)
+    // is not. A flex ancestor without its own min-w-0 still sizes off the
+    // unbroken run under break-words alone, so every leaf that can carry a
+    // pasted token or URL needs wrap-anywhere, not break-words.
+    it("gives inline code and a bare link wrap-anywhere, not break-words", () => {
+      const token = "x".repeat(300);
+      const html = renderToString(<AgentProse text={`see \`${token}\` at https://example.com/${token}`} />);
+      expect(html).toContain("wrap-anywhere");
+      expect(html).not.toContain("break-words");
+    });
+
+    it("gives a heading and a blockquote wrap-anywhere too", () => {
+      const token = "y".repeat(300);
+      const heading = renderToString(<AgentProse text={`## ${token}`} />);
+      expect(heading).toContain("wrap-anywhere");
+      const quote = renderToString(<AgentProse text={`> ${token}`} />);
+      expect(quote).toContain("wrap-anywhere");
     });
   });
 

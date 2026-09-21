@@ -10,7 +10,7 @@ import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPerm
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { EntityRef } from "@/workbench/intents";
-import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, SessionFailure, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
@@ -19,6 +19,7 @@ import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
 import { AgentQuestionCard } from "./AgentQuestionCard";
+import { AgentSessionFailure } from "./AgentSessionFailure";
 import { PermissionPresence } from "./permissionCard";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { AgentSwarmStrip } from "./AgentSwarmStrip";
@@ -79,6 +80,14 @@ export type AgentRailProps = {
   onRespondElicitation?: (response: ElicitationResponse) => void | Promise<void>;
   elicitationBusy?: boolean;
   elicitationError?: string;
+  /**
+   * A problem the vendor reports about the session as a whole (or a rejected
+   * rate limit, read the same way — see rateLimitFailure): the Agent Hub tab
+   * shows this above its composer, and the rail had no such slot at all, so a
+   * session watched only from here never learned why a turn stopped.
+   */
+  failure?: SessionFailure | null;
+  onDismissFailure?: () => void;
   errorMessage?: string;
   sendDisabled?: boolean;
   className?: string;
@@ -162,6 +171,8 @@ export function AgentRail({
   onRespondElicitation,
   elicitationBusy = false,
   elicitationError,
+  failure,
+  onDismissFailure,
   errorMessage,
   sendDisabled = false,
   className,
@@ -328,6 +339,26 @@ export function AgentRail({
               if (editAfter && result.promptText) onPromptChange(result.promptText);
             }}
           />
+
+          {/* Same slot Agent Hub gives a vendor failure, just above the
+              composer: the rail is the same session by another route, and
+              had no such card at all — a turn that stopped for a reason the
+              vendor gave (or a rejected rate limit, read the same way) said
+              nothing here even when it did in the Hub tab.
+              No onAction wired: the only failure the rail feeds in today is
+              the synthetic rate-limit one, which carries no actions — a
+              vendor failure with a real action (sign-in, retry) needs the
+              Hub's own flows for those, not yet threaded through the rail. */}
+          {failure ? (
+            <div className="px-4 pb-1">
+              <AgentSessionFailure
+                failure={failure}
+                onAction={() => {}}
+                onDismiss={onDismissFailure}
+                className="max-w-none"
+              />
+            </div>
+          ) : null}
 
           {errorMessage ? (
             <p className="px-6 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>
