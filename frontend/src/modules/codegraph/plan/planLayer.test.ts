@@ -30,4 +30,19 @@ describe("inferPlanLayer", () => {
   it("handles a nested class without tripping on the outer name", () => {
     expect(inferPlanLayer("com.a.Outer.InnerRepository")).toBe("repository");
   });
+
+  it("strips a method's parameter types before reading the class name", () => {
+    // A plan node's fqn is a full signature — java.lang.String's own dots, and
+    // a second parameter's whole package, land after the class name and must
+    // not become the "last capitalised segment" the classifier reads.
+    expect(inferPlanLayer("com.a.OrderController.get(java.lang.String)")).toBe("controller");
+    expect(
+      inferPlanLayer("com.a.OrderService.save(java.lang.String, com.a.dto.SaveRequest)"),
+    ).toBe("service");
+  });
+
+  it("reads an Impl class by the interface suffix it implements", () => {
+    expect(inferPlanLayer("com.a.impl.OrderServiceImpl.process(java.lang.String)")).toBe("service");
+    expect(inferPlanLayer("com.a.impl.OrderRepositoryImpl")).toBe("repository");
+  });
 });
