@@ -12,13 +12,13 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SIDEBAR_ROW_HEIGHT, SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
 import { gitStage, gitUnstage, type Commit, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useModuleFolder } from "@/stores/workFolder";
 import { RepositoryRow, useGitProject, useRepositories } from "./GitRepositories";
 import { HeadingAction, StatusMark } from "./GitParts";
 import { refreshGitRepo, useGitRepo, useLatestGitRepo } from "./gitRepo";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { focusGitPath, useGitFocus } from "./gitFocus";
+import { openChanges, openCommitDiff } from "./documents";
 import { branchMeta, capRows, changeGroups, markKind, splitPath, type ChangeGroup } from "./rail";
 import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./repositories";
 
@@ -410,14 +410,9 @@ function openChange(path: string, group: ChangeGroup["key"]) {
   // Only a changed file has hunks to unfold; a staged or untracked one has
   // none to pick, so it must not leave the previous choice standing.
   focusGitPath(group === "unstaged" ? path : "");
-  useWorkbenchTabsStore.getState().openTab({ moduleId: "git", viewId: "git.changes", title: "Changes" });
+  openChanges();
 }
 
 function openCommit(commit: Commit) {
-  useWorkbenchTabsStore.getState().openTab({
-    moduleId: "git",
-    viewId: "git.diff",
-    title: commit.short,
-    params: { rev: commit.sha },
-  });
+  openCommitDiff(commit.sha, commit.short);
 }
