@@ -55,7 +55,12 @@ export function Inline({ text }: { text: string }) {
               // so `git` in a sentence was only a font change.
               <code
                 key={idx}
-                className="whitespace-pre-wrap rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary"
+                // break-words: a filename or a path has no spaces to wrap
+                // at — an ancestor paragraph's own break-words does not
+                // reliably reach an inline element's own unbreakable run,
+                // and an unwrapped code span forces the line, and the
+                // ScrollArea it sits in, open sideways.
+                className="whitespace-pre-wrap break-words rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary"
               >
                 {token.value}
               </code>
@@ -100,7 +105,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       return (
         <p
           className={cn(
-            "w-full text-text-primary",
+            "w-full break-words text-text-primary",
             // Keep headings at least as large as prose; weight marks deeper levels.
             block.level <= 2 ? "text-title-16" : "text-title-14",
           )}
@@ -120,7 +125,7 @@ function Block({ block }: { block: MarkdownBlock }) {
               >
                 {block.ordered ? `${idx + 1}.` : "•"}
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0 flex-1 break-words">
                 <Inline text={item} />
               </span>
             </div>
@@ -135,7 +140,7 @@ function Block({ block }: { block: MarkdownBlock }) {
             aria-hidden="true"
             className="w-0.5 shrink-0 self-stretch bg-border-default"
           />
-          <p className="min-w-0 flex-1 text-body-14 leading-(--type-prose-leading) text-text-secondary">
+          <p className="min-w-0 flex-1 break-words text-body-14 leading-(--type-prose-leading) text-text-secondary">
             <Inline text={block.text} />
           </p>
         </div>
