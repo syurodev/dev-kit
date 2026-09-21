@@ -194,7 +194,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
             previewUrl: "data:image/png;base64,aW1hZ2U=",
             size: 5,
           }]}
-          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [], refs: [] }]}
           onCancelQueued={() => {}}
           onEditQueued={() => {}}
         />,
@@ -225,7 +225,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
             size: 5,
           }]}
           onRemoveImage={() => {}}
-          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [], refs: [] }]}
           onCancelQueued={() => {}}
           onEditQueued={() => {}}
         />,
@@ -249,7 +249,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
             onChange={() => {}}
             onSend={() => {}}
             onCancel={() => {}}
-            queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+            queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [], refs: [] }]}
             queuePaused={queuePaused}
             onResumeQueued={() => {}}
           />,

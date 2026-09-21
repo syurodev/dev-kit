@@ -308,6 +308,16 @@ export interface InvokeInput {
     "Images": ImageAttachment[] | null;
 
     /**
+     * Refs are devkit:// EntityRef URIs (attachedref.go) — cross-module
+     * references such as a Code Graph endpoint or a Git commit. Unlike
+     * Attachments, DevKit never reads what one points at: it names the MCP
+     * tool that resolves it and lets the agent call that tool itself, so the
+     * agent always reads live data rather than a snapshot taken at attach
+     * time (docs/dev-kit/cross-module.mdx § Primitive 1).
+     */
+    "Refs": string[] | null;
+
+    /**
      * optional; used for CheckCycle on cross-session invoke
      */
     "CallerSessionID": string;

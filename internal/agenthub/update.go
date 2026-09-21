@@ -308,13 +308,16 @@ type SessionUpdate struct {
 	Raw      json.RawMessage `json:"raw,omitempty"`
 }
 
-// PromptAttachment is one file or image a prompt carried: its name only. The
-// content was sent to the agent and is not kept — images are transient by
-// design (InvokeInput.Images), and a file is still on disk under its path.
+// PromptAttachment is one file, image or ref a prompt carried: its name only.
+// The content was sent to the agent and is not kept — images are transient by
+// design (InvokeInput.Images), a file is still on disk under its path, and a
+// ref never had content DevKit held in the first place (InvokeInput.Refs).
 type PromptAttachment struct {
 	Name string `json:"name"`
-	// Kind is "file" or "image".
+	// Kind is "file", "image" or "ref".
 	Kind string `json:"kind"`
+	// URI is the devkit:// EntityRef URI, set only when Kind is "ref".
+	URI string `json:"uri,omitempty"`
 }
 
 // DevKitWireKey is where DevKit annotates an update in transit: the adapter

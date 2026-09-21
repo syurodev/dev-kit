@@ -49,7 +49,7 @@ describe("confirming a bypass picked in a menu", () => {
 });
 
 describe("a paused queue", () => {
-  const queued = [{ id: "q1", text: "next", images: [], attachments: [] }];
+  const queued = [{ id: "q1", text: "next", images: [], attachments: [], refs: [] }];
 
   it("says why it paused when the refusal said", () => {
     const html = renderToString(

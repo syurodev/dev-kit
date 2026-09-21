@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
+import type { EntityRef } from "@/workbench/intents";
 import type { AvailableCommand, ConfigOption, SessionFailure, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
@@ -46,6 +47,9 @@ export type AgentRailProps = {
   onRemoveAttachment?: (path: string) => void;
   imageAttachments?: AgentImageAttachment[];
   onRemoveImage?: (id: string) => void;
+  /** Cross-module refs an `agent.attach` intent handed this turn. */
+  refs?: EntityRef[];
+  onRemoveRef?: (ref: EntityRef) => void;
   onPasteImage?: (file: File) => void;
   onDropImage?: (file: File) => void;
   imageError?: string;
@@ -137,6 +141,8 @@ export function AgentRail({
   onRemoveAttachment,
   imageAttachments = [],
   onRemoveImage,
+  refs = [],
+  onRemoveRef,
   onPasteImage,
   onDropImage,
   imageError,
@@ -379,6 +385,8 @@ export function AgentRail({
               onRemoveAttachment={onRemoveAttachment}
               imageAttachments={imageAttachments}
               onRemoveImage={onRemoveImage}
+              refs={refs}
+              onRemoveRef={onRemoveRef}
               onPasteImage={onPasteImage}
               onDropImage={onDropImage}
               imageError={imageError}

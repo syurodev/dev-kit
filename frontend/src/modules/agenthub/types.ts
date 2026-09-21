@@ -188,10 +188,12 @@ export type SessionUpdate = {
   raw?: unknown;
 };
 
-/** One file or image a prompt carried, by name. Mirrors update.go: PromptAttachment. */
+/** One file, image or ref a prompt carried, by name. Mirrors update.go: PromptAttachment. */
 export type PromptAttachment = {
   name: string;
-  kind: "file" | "image" | string;
+  kind: "file" | "image" | "ref" | string;
+  /** The devkit:// EntityRef URI, set only when kind is "ref". */
+  uri?: string;
 };
 
 /**

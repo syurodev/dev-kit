@@ -15,7 +15,7 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
-import { dispatchIntent } from "@/workbench/intents";
+import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
@@ -52,8 +52,11 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const [dismissedFailure, setDismissedFailure] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [images, setImages] = useState<AgentImageAttachment[]>([]);
+  const [refs, setRefs] = useState<EntityRef[]>([]);
   const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Awaited<ReturnType<typeof agentHubListContextFiles>>>([]);
+  const pendingAgentAttach = useAgentSessionsStore((s) => s.pendingAgentAttach);
+  const consumeAgentAttach = useAgentSessionsStore((s) => s.consumeAgentAttach);
 
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
   const elicitationQueue = useAgentSessionsStore((s) => s.elicitationQueue);
@@ -85,17 +88,32 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     return () => { mounted = false; };
   }, [session?.id, visible]);
 
+  // A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive
+  // 2) lands here the same way it lands in AgentHubView's matching effect —
+  // whichever of the two is actually on screen picks it up.
+  useEffect(() => {
+    if (!visible || !pendingAgentAttach || !session) return;
+    const { refs: attachedRefs, prompt: attachedPrompt } = pendingAgentAttach;
+    setRefs((current) => [...current, ...attachedRefs]);
+    if (attachedPrompt) {
+      const draft = useAgentSessionsStore.getState().promptBySession[session.id] ?? "";
+      setPrompt(session.id, draft ? `${draft}\n\n${attachedPrompt}` : attachedPrompt);
+    }
+    consumeAgentAttach();
+  }, [visible, pendingAgentAttach, session, setPrompt, consumeAgentAttach]);
+
 
   async function handleSend(inputText?: string) {
     if (!session) return;
     const text = inputText ?? prompt.trim();
-    if (!text && attachments.length === 0 && images.length === 0) return;
-    const turn = queuedPrompt(text, attachments, images);
+    if (!text && attachments.length === 0 && images.length === 0 && refs.length === 0) return;
+    const turn = queuedPrompt(text, attachments, images, refs);
     setPrompt(session.id, "");
     if (busy || session.status === "running" || session.status === "awaiting_permission") {
       enqueuePrompt(session.id, turn);
       setAttachments([]);
       setImages([]);
+      setRefs([]);
       return;
     }
     setBusy(true);
@@ -106,6 +124,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       // the files where the user put them.
       setAttachments([]);
       setImages([]);
+      setRefs([]);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -128,6 +147,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     setPrompt(session.id, queued.text);
     setAttachments(queued.attachments);
     setImages(queued.images);
+    setRefs(queued.refs);
     removeQueuedPrompt(session.id, queued.id);
   }
 
@@ -203,6 +223,10 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
       imageAttachments={images}
       onRemoveImage={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+      refs={refs}
+      onRemoveRef={(ref) =>
+        setRefs((current) => current.filter((r) => !(r.module === ref.module && r.kind === ref.kind && r.id === ref.id)))
+      }
       onPasteImage={(file) => void addImage(file)}
       onDropImage={(file) => void addImage(file)}
       imageError={imageError}

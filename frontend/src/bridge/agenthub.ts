@@ -69,6 +69,13 @@ export type InvokeSessionInput = {
   /** Absolute paths DevKit reads and sends with the prompt. */
   attachments?: string[];
   images?: AgentImageAttachment[];
+  /**
+   * devkit:// EntityRef URIs (workbench/entityRef.ts) — cross-module
+   * references such as a Code Graph endpoint. DevKit never resolves these
+   * itself; the agent reads each one fresh through its owning module's MCP
+   * tool (docs/dev-kit/cross-module.mdx § Primitive 1).
+   */
+  refs?: string[];
   callerSessionId?: string;
 };
 
@@ -280,6 +287,7 @@ export function agentHubInvoke(
       Prompt: input.prompt,
       Attachments: input.attachments ?? [],
       Images: (input.images ?? []).map(({ name, mimeType, data }) => ({ name, mimeType, data })),
+      Refs: input.refs ?? [],
       CallerSessionID: input.callerSessionId ?? "",
     });
     return toInvokeResult(result);

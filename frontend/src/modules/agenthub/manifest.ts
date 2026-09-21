@@ -2,6 +2,7 @@ import { Bot } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { AgentHubBadge, AgentHubPeek } from "./AgentHubSwitcher";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
+import { registerAttachIntent } from "@/workbench/intents";
 
 function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
   useAgentSessionsStore.getState().requestAgentHubCommand(command);
@@ -55,3 +56,18 @@ export const agenthubModule: ModuleManifest = {
     search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
   },
 };
+
+/**
+ * `agent.attach` (docs/dev-kit/cross-module.mdx): hands the active session's
+ * composer a cross-module EntityRef as structured context, without the
+ * caller importing Agent Hub's views. The session reads each ref fresh
+ * through its owning module's MCP tool when it needs to (see
+ * internal/agenthub/attachedref.go) — DevKit never resolves it here.
+ *
+ * Only queues the request; AgentHubView and AgentCompanion both drain
+ * pendingAgentAttach into whichever composer is actually mounted, the same
+ * way requestAgentHubCommand reaches whichever surface is showing.
+ */
+registerAttachIntent("agent.attach", (refs, prompt) => {
+  useAgentSessionsStore.getState().requestAgentAttach(refs, prompt);
+});

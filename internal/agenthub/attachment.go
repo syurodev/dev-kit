@@ -38,11 +38,16 @@ const maxImageBase64Bytes = 5 << 20
 // serve. Images go as image blocks because that is what the vendor asked for;
 // everything else goes as an embedded resource with its text.
 func buildPrompt(text string, attachments []string, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
-	return buildPromptWithImages(text, attachments, nil, allowedRoot, callerIsAgent)
+	return buildPromptWithImages(text, attachments, nil, nil, allowedRoot, callerIsAgent)
 }
 
-func buildPromptWithImages(text string, attachments []string, images []ImageAttachment, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
-	blocks := make([]acp.ContentBlock, 0, len(attachments)+len(images)+1)
+// buildPromptWithImages also takes refs — devkit:// EntityRef URIs
+// (attachedref.go) — which never turn into their own content block: they are
+// not files DevKit read, so they ride as one line each inside a text block
+// that names the MCP tool that resolves them, appended after the prompt's own
+// text rather than mixed into it.
+func buildPromptWithImages(text string, attachments []string, images []ImageAttachment, refs []string, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
+	blocks := make([]acp.ContentBlock, 0, len(attachments)+len(images)+2)
 	if strings.TrimSpace(text) != "" {
 		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: text})
 	}
@@ -60,6 +65,17 @@ func buildPromptWithImages(text string, attachments []string, images []ImageAtta
 			return nil, err
 		}
 		blocks = append(blocks, block)
+	}
+	if len(refs) > 0 {
+		parsed := make([]AttachedRef, 0, len(refs))
+		for _, raw := range refs {
+			ref, err := parseAttachedRef(raw)
+			if err != nil {
+				return nil, err
+			}
+			parsed = append(parsed, ref)
+		}
+		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: refsBlock(parsed)})
 	}
 
 	if len(blocks) == 0 {

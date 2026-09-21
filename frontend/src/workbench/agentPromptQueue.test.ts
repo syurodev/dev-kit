@@ -6,7 +6,7 @@ import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSe
 import type { AgentSession, InvokeResult, InvokeSessionInput } from "../bridge/agenthub";
 import { AppError } from "../bridge/errors";
 
-const queued = (id: string): QueuedAgentPrompt => ({ id, text: id, attachments: [], images: [] });
+const queued = (id: string): QueuedAgentPrompt => ({ id, text: id, attachments: [], images: [], refs: [] });
 const completed: InvokeResult = { status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" };
 const session = (id: string, status: AgentSession["status"] = "idle"): AgentSession => ({
   id,
@@ -214,7 +214,7 @@ describe("one send path for every turn", () => {
     const b = backend();
 
     b.statusAfter("running");
-    const manual = sendAgentTurn("s1", { id: "typed", text: "hello", attachments: [], images: [] }, b.bridge);
+    const manual = sendAgentTurn("s1", { id: "typed", text: "hello", attachments: [], images: [], refs: [] }, b.bridge);
     b.turns[0].reject(busy());
     expect(await manual).toBeNull();
     await settle();
