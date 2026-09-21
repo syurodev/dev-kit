@@ -161,4 +161,33 @@ describe("agentMarkdown", () => {
       { type: "text", value: " optional" },
     ]);
   });
+
+  describe("JWTs read as a secret to mask, not text to print", () => {
+    // A real sample header/payload/signature, shortened at each segment —
+    // long enough to clear the shape's own minimum segment lengths.
+    const jwt =
+      "eyJhbGciOiJSUzI1NiIsImtpZCI6ImdhbGF4eS1nLXVzZXItYXNzZXJ0aW9uIn0" +
+      ".eyJpc3MiOiJnYWxheHktZyIsInN1YiI6Ik0wMDEifQ" +
+      ".RZbWj7P-qiOsKBu7cKfiAYWw8ANxz6esebuuSWdmmrw";
+
+    it("pulls a bare token out of plain prose", () => {
+      expect(parseInline(`token mẫu là ${jwt}`)).toEqual([
+        { type: "text", value: "token mẫu là " },
+        { type: "secret", value: jwt },
+      ]);
+    });
+
+    it("reads a backtick-quoted token as a secret too, not as code", () => {
+      expect(parseInline(`Authorization: \`${jwt}\``)).toEqual([
+        { type: "text", value: "Authorization: " },
+        { type: "secret", value: jwt },
+      ]);
+    });
+
+    it("leaves a short, unrelated eyJ-looking word as plain text", () => {
+      // The anchor is "eyJ" plus the three-segment shape — "eyJust" alone,
+      // with no dots, must never trip the mask.
+      expect(parseInline("eyJust checking in")).toEqual([{ type: "text", value: "eyJust checking in" }]);
+    });
+  });
 });

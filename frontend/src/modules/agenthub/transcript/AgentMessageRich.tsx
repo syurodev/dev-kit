@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentCodeBlock } from "./AgentCodeBlock";
@@ -8,6 +9,36 @@ import {
   type IncrementalMarkdownState,
   type MarkdownBlock,
 } from "./agentMarkdown";
+
+/** A masked token reads out this many dots at most — enough to fill the
+ *  several lines a real JWT does, without an adversarial one turning into an
+ *  unbounded wall of characters. */
+const MASK_VISIBLE_CAP = 240;
+
+/**
+ * A JWT, hidden by default and shown on click — the same shape Claude
+ * Desktop's own masking takes. Nothing is redacted from the transcript
+ * itself: this is a render-time toggle, so Copy on the message still copies
+ * the real value, and a reload starts masked again rather than remembering
+ * that this one reader chose to look.
+ */
+function MaskedSecret({ value }: { value: string }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const Icon = revealed ? EyeOff : Eye;
+  return (
+    <button
+      type="button"
+      onClick={() => setRevealed((current) => !current)}
+      data-testid="masked-secret"
+      aria-pressed={revealed}
+      title={revealed ? "Click to hide" : "Click to reveal"}
+      className="inline-flex max-w-full cursor-pointer items-baseline gap-1 rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-left align-baseline font-mono text-code-12 whitespace-pre-wrap wrap-anywhere text-text-primary"
+    >
+      <Icon aria-hidden="true" className="size-3 shrink-0 translate-y-0.5 text-text-tertiary" />
+      {revealed ? value : "•".repeat(Math.min(value.length, MASK_VISIBLE_CAP))}
+    </button>
+  );
+}
 
 export type AgentMessageRichProps = {
   /** Markdown as the agent sent it. */
@@ -68,6 +99,8 @@ export function Inline({ text }: { text: string }) {
                 {token.value}
               </code>
             );
+          case "secret":
+            return <MaskedSecret key={idx} value={token.value} />;
           case "link":
             return (
               <a

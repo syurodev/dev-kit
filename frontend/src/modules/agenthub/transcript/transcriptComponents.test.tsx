@@ -97,6 +97,22 @@ describe("Agent Hub Transcript Leaves", () => {
     });
   });
 
+  describe("AgentProse masks a JWT until clicked", () => {
+    const jwt =
+      "eyJhbGciOiJSUzI1NiIsImtpZCI6ImdhbGF4eS1nLXVzZXItYXNzZXJ0aW9uIn0" +
+      ".eyJpc3MiOiJnYWxheHktZyIsInN1YiI6Ik0wMDEifQ" +
+      ".RZbWj7P-qiOsKBu7cKfiAYWw8ANxz6esebuuSWdmmrw";
+
+    it("never puts the raw token in the initial render", () => {
+      const html = renderToString(<AgentProse text={`token mẫu là ${jwt}`} />);
+      expect(html).toContain('data-testid="masked-secret"');
+      expect(html).not.toContain(jwt);
+      // Masked with dots, not left blank or as a placeholder word: a reader
+      // still sees roughly how much text is there.
+      expect(html).toContain("•".repeat(jwt.length));
+    });
+  });
+
   describe("AgentProse long unbroken runs (inline code, links, prose)", () => {
     // overflow-wrap: break-word (break-words) is excluded from the browser's
     // min-content calculation by spec; overflow-wrap: anywhere (wrap-anywhere)
