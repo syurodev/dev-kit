@@ -2,7 +2,10 @@ import type { Change } from "@/bridge/git";
 import type { SourcedDiffLine } from "@/lib/diffHunks";
 import type { FilePatch } from "./hunks";
 
-const HUNK_START = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+/** A hunk header's two start lines — shared with gitSyntax, which tokenizes
+ *  each hunk on its own and needs the same absolute numbering to place the
+ *  result back onto patchLines' rows. */
+export const HUNK_START = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
 /**
  * A file's patch as the lines of a two-pane diff: each one numbered in the file

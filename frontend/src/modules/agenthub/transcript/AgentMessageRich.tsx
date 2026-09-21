@@ -38,7 +38,11 @@ export type AgentMessageRichProps = {
  * status/info, and the blockquote marked by a 2px border/default rule rather
  * than by an indent alone.
  */
-function Inline({ text }: { text: string }) {
+/** Exported for callers that want backtick/bold/italic/link styling without
+ *  the block-level parser's paragraph-joining — a plan node's comment thread
+ *  keeps its own line breaks (PlanCommentsPopover) rather than reflowing text
+ *  that was never fenced as a code block into one run-on line. */
+export function Inline({ text }: { text: string }) {
   return (
     <>
       {parseInline(text).map((token, idx) => {
