@@ -39,6 +39,7 @@
     "git",
     "accounts",
     "cross-module",
+    "tool-result-view",
     "sandbox",
     "workspace",
     "plugins",
