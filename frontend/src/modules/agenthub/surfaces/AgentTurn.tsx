@@ -165,7 +165,15 @@ export const AgentTurn = React.memo(function AgentTurn({
               {turn.prompt.text?.trim() ? (
                 <p
                   data-testid="turn-prompt"
-                  className="rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
+                  // wrap-anywhere, not break-words: a pasted token or URL with
+                  // no spaces is still "unbreakable" to the browser's
+                  // min-content calculation under break-words (the CSS spec
+                  // excludes it there on purpose) — an ancestor sizing itself
+                  // off that min-content still forces the bubble open
+                  // sideways even though break-words looks like it should
+                  // have wrapped it. wrap-anywhere counts toward min-content,
+                  // so the bubble's own max-w-[80%] actually holds.
+                  className="rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap wrap-anywhere text-text-primary select-text"
                 >
                   {turn.prompt.text}
                 </p>

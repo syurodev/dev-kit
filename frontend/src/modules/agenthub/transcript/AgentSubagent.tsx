@@ -83,7 +83,7 @@ export function AgentSubagent({ subagent, variant = "card", className }: AgentSu
       {subagent.task ? (
         // What it was actually told to do. Without this the row says a
         // subagent existed and nothing about why, which is not worth a row.
-        <p className="w-full text-caption-11 break-words text-text-tertiary">
+        <p className="w-full text-caption-11 wrap-anywhere text-text-tertiary">
           {subagent.task}
         </p>
       ) : null}

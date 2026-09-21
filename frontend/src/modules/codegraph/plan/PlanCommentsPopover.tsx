@@ -48,10 +48,13 @@ function CommentBody({ text }: { text: string }) {
             {paragraph}
           </pre>
         ) : (
-          // break-words: a comment quotes code inline too — a Liquibase
-          // changeset id, a Redis key pattern — with no spaces to wrap at,
-          // and the thread is fixed to the node's own width.
-          <p key={index} className="whitespace-pre-wrap break-words">
+          // wrap-anywhere, not break-words: a comment quotes code inline too
+          // — a Liquibase changeset id, a Redis key pattern — with no spaces
+          // to wrap at, and break-word is excluded from the browser's
+          // min-content calculation by spec, so a flex ancestor sizing off
+          // that (any flex item without its own min-w-0) still opens the
+          // thread past the node's own width even with break-words set here.
+          <p key={index} className="whitespace-pre-wrap wrap-anywhere">
             <Inline text={paragraph} />
           </p>
         ),
