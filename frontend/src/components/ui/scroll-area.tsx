@@ -16,7 +16,14 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        // Radix wraps children in its own `display: table` div so it can
+        // scroll sideways too — as a table, that wrapper sizes to its
+        // widest line and drags the whole viewport open with it, silently
+        // disabling wrap/break-words on everything inside and clipping text
+        // with no scrollbar to reveal it (there is none for a ScrollArea
+        // with no horizontal ScrollBar). Forcing it back to block keeps
+        // width bound to the viewport, the way every caller actually wants.
+        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:block!"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
