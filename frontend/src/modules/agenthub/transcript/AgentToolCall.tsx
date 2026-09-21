@@ -13,6 +13,7 @@ import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage, parseListing } from "./syntax";
+import { renderToolResult } from "@/workbench/toolResultViews";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -220,9 +221,23 @@ export function AgentToolCall({
 
   const locations = call.locations ?? [];
   const content = fullCall?.content ?? call.content ?? [];
+  // ToolResultView (docs/dev-kit/tool-result-view.mdx): the module that owns
+  // this tool gets first say over how its result looks, in place of the
+  // JSON below. Reads from fullCall when "Show full output" has loaded it,
+  // so a card that bailed on a truncated preview (rawOutput cut mid-document
+  // by ToolRawPreviewLimit) upgrades once the whole row is in. Only once the
+  // call is actually done — a running call has no rawOutput yet to render.
+  const toolResultNode =
+    state === "done"
+      ? renderToolResult({
+          name: call.name ?? "",
+          rawInput: (fullCall ?? call).rawInput,
+          rawOutput: (fullCall ?? call).rawOutput,
+        })
+      : null;
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
-  const hasBody = locations.length > 0 || content.length > 0 || canLoadFull;
+  const hasBody = locations.length > 0 || content.length > 0 || canLoadFull || Boolean(toolResultNode);
   // rawOutput is `unknown` off the wire — an object stringifies to
   // "[object Object]", which is worse than saying nothing.
   const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
@@ -293,30 +308,36 @@ export function AgentToolCall({
         </div>
       ) : null}
 
-      {content.map((item, idx) => {
-          if (item.type === "diff") {
-            return (
-              <AgentToolDiff
-                key={idx}
-                path={item.path}
-                oldText={item.oldText}
-                newText={item.newText}
-                truncated={item.truncated}
-              />
-            );
-          }
-          if (item.type === "terminal") {
-            return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
-          }
-          if (item.content?.text) {
-            return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
-          }
-          return null;
-        })}
+      {toolResultNode ? (
+        <div data-testid="tool-call-result-view">{toolResultNode}</div>
+      ) : (
+        <>
+          {content.map((item, idx) => {
+            if (item.type === "diff") {
+              return (
+                <AgentToolDiff
+                  key={idx}
+                  path={item.path}
+                  oldText={item.oldText}
+                  newText={item.newText}
+                  truncated={item.truncated}
+                />
+              );
+            }
+            if (item.type === "terminal") {
+              return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
+            }
+            if (item.content?.text) {
+              return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
+            }
+            return null;
+          })}
 
-      {fullOutput ? (
-        <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
-      ) : null}
+          {fullOutput ? (
+            <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
+          ) : null}
+        </>
+      )}
       {fullCall === null && canLoadFull ? (
         <button
           type="button"

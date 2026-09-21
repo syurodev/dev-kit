@@ -1,7 +1,10 @@
+import { lazy, Suspense, createElement } from "react";
 import { KanbanSquare } from "lucide-react";
 import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
+import { parseTaskResult } from "./taskResult";
 
 export const tasksModule: ModuleManifest = {
   id: "tasks",
@@ -52,3 +55,24 @@ registerIntent(
   },
   "beside",
 );
+
+/**
+ * ToolResultView for the four task tools that answer with a full Task
+ * (docs/dev-kit/tool-result-view.mdx) — one card component, one registration
+ * per tool name since the registry keys on the tool, not the shape.
+ */
+const LazyTaskResultCard = lazy(() =>
+  import("./TaskResultCard").then(({ TaskResultCard }) => ({ default: TaskResultCard })),
+);
+
+function registerTaskResultView(toolName: string): void {
+  registerToolResultView(toolName, ({ rawOutput }) => {
+    const task = parseTaskResult(rawOutput);
+    if (!task) return null;
+    return createElement(Suspense, { fallback: null }, createElement(LazyTaskResultCard, { task }));
+  });
+}
+
+for (const toolName of ["tasks.create", "tasks.get", "tasks.update", "tasks.transition"]) {
+  registerTaskResultView(toolName);
+}

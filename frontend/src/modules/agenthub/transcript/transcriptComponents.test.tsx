@@ -20,6 +20,7 @@ import {
 } from "./index";
 import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { registerToolResultView } from "@/workbench/toolResultViews";
 
 // The provider is mounted once in App.tsx; these leaves carry tooltips of
 // their own (the diff's "review the whole file"), so the harness supplies it.
@@ -415,6 +416,76 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toMatch(/aria-hidden="true"[^>]*>1\n2\n3</);
       expect(html).toContain("public final class ArbitrationPolicy {}");
       expect(html).toContain(">java<");
+    });
+
+    it("renders a registered ToolResultView instead of the JSON block", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
+        <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              rawOutput: { endpointId: "e1", steps: [] },
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).toContain('data-testid="fake-flow-card"');
+        expect(html).toContain("flow for e1");
+        expect(html).toContain('data-testid="tool-call-result-view"');
+      } finally {
+        unregister();
+      }
+    });
+
+    it("falls back to the JSON block when the registered renderer declines", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => null);
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-bad",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: "./deploy" } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain('data-testid="tool-call-result-view"');
+        expect(html).toContain("./deploy");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("does not offer a ToolResultView while the call is still running", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => (
+        <div data-testid="fake-flow-card">should not appear</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-running",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "in_progress",
+              rawOutput: { endpointId: "e1", steps: [] },
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain('data-testid="fake-flow-card"');
+      } finally {
+        unregister();
+      }
     });
   });
 
