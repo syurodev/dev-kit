@@ -7,15 +7,14 @@ description: Cơ chế cho phép mỗi module đăng ký cách hiển thị riê
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info" title="Đã triển khai (một phần)">
+<Callout type="info" title="Đã triển khai">
 Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, `ToolResultCard`, nối
-vào `AgentToolCall.tsx`) và 3 renderer đầu tiên đã có:
-`codegraph.getApiFlow`, `api.fromEndpoint`, và `tasks.create` /
-`tasks.get` / `tasks.update` / `tasks.transition` (dùng chung một card).
-Chưa có: renderer cho `notes.*`, `git.*`, `api.send`, `codegraph.searchSymbol`
-— cần thêm intent `notes.reveal`/`git.reveal`/`api.reveal` trước (xem cuối
-mục "Ví dụ cụ thể"). Mục **"Theo dõi real-time"** ở cuối trang vẫn chưa thiết
-kế, cố tình treo lại để thảo luận riêng sau.
+vào `AgentToolCall.tsx`) cộng renderer cho mọi tool ở bảng "Ví dụ cụ thể" bên
+dưới — bao gồm 3 intent thêm mới cho vòng này: `notes.reveal`, `git.reveal`,
+`api.reveal`. Mục **"Theo dõi real-time"** ở cuối trang vẫn chưa thiết kế, cố
+tình treo lại để thảo luận riêng sau. Kết quả dạng bảng lớn (`db.query`,
+`kafka.peekMessages`, `codegraph.getBlastRadius`) cố tình chưa làm — dữ liệu
+lớn dễ vướng `ToolRawPreviewLimit` và có thể nhạy cảm, cần bàn phạm vi riêng.
 </Callout>
 
 ## Mục đích sinh ra
@@ -140,11 +139,11 @@ không parse được — kể cả khi bị cắt giữa chừng bởi `ToolRaw
 
 Card có thể thêm nút "Open" dùng đúng `dispatchIntent(name, ref, {placement:
 "beside"})` đã có (Primitive 2 của `cross-module.mdx`) — không cần thêm
-registry hay kiểu dữ liệu mới. Ví dụ: agent gọi `notes.create`, card nhận
-`noteId` từ `rawOutput`, nút "Open" dispatch `notes.reveal` với `placement:
-"beside"` — mở note đó cạnh conversation, y hệt luồng "Tasks → Code Graph" đã
-mô tả trong ma trận điểm nối của `cross-module.mdx`. Mở 1 lần theo yêu cầu
-của người dùng, không tự động.
+registry hay kiểu dữ liệu mới. Ví dụ thật: agent gọi `notes.create`, card
+đọc `id`/`title` từ `rawOutput`, nút "Open" dispatch `notes.reveal` với
+`placement: "beside"` — mở note đó cạnh conversation, y hệt luồng
+"Tasks → Code Graph" đã mô tả trong ma trận điểm nối của `cross-module.mdx`.
+Mở 1 lần theo yêu cầu của người dùng, không tự động.
 
 ## Theo dõi real-time (chưa quyết)
 
@@ -185,17 +184,20 @@ tự nâng cấp lên card mà không cần refresh.
 | Tool | Card | Hành động trên card |
 | --- | --- | --- |
 | `codegraph.getApiFlow` | Danh sách bước Controller → Service → Repository, rút gọn từ `rawOutput` | "Reveal in Code Graph" (`codegraph.reveal`, kind `endpoint`) |
+| `codegraph.searchSymbol` | Danh sách symbol match, mỗi dòng tự bấm được | `codegraph.reveal` (kind `node`) trên từng dòng — không đăng ký gì mới |
+| `codegraph.listEndpoints` | Danh sách endpoint, mỗi dòng tự bấm được | `codegraph.reveal` (kind `endpoint`) trên từng dòng |
 | `api.fromEndpoint` | Method + URL của bản nháp, ghi chú về body (không hiện body — có thể chứa dữ liệu thật) | "Try in API Client" (`api.fromEndpoint` intent đã có sẵn) |
+| `api.send` | Status code + thời gian + kích thước + cờ `truncated` (không hiện body — request đã gửi thật, khác bản nháp) | "Open" (`api.reveal`, mở request đã lưu) |
 | `tasks.create` / `tasks.get` / `tasks.update` / `tasks.transition` | Key + title + status (một card dùng chung cho cả 4, vì cả 4 đều trả về `Task`) | "Open" (`tasks.reveal`) |
+| `notes.create` / `notes.update` | Chỉ tiêu đề — không hiện `preview`/`body`, dữ liệu đã giải mã của note (ít lộ hơn cả JSON thô hôm nay, vốn đang hiện nguyên) | "Open" (`notes.reveal`) |
+| `git.commit` | Short SHA + subject | "View diff" (`git.reveal`, kind `commit`, bằng SHA đầy đủ) |
+| `git.diff` | Tên file đổi + số dòng (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | "View diff" — chỉ hiện khi `rawInput.rev` khác rỗng; diff work tree không có view riêng để mở lại đúng những gì tool đã thấy (xem `git.reveal` trong `manifest.ts`) |
 
-**Chưa triển khai — cần thêm intent trước khi viết renderer:**
-
-| Tool | Card dự kiến | Intent còn thiếu |
-| --- | --- | --- |
-| `api.send` | Status code + thời gian + kích thước + cờ `truncated` (không hiện body — request đã lưu, không phải bản nháp) | `api.reveal` (mở request đã lưu) |
-| `notes.create` / `notes.update` | Tiêu đề + preview | `notes.reveal` |
-| `git.diff` / `git.commit` | Tên file đổi + số dòng (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | `git.reveal` |
-| `codegraph.searchSymbol` / `codegraph.listEndpoints` | Danh sách hit, mỗi dòng bấm được | dùng lại `codegraph.reveal` |
+**Cố tình chưa làm — dữ liệu lớn hoặc nhạy cảm, cần bàn phạm vi riêng:**
+`db.query`, `kafka.peekMessages`, `codegraph.getBlastRadius` (kết quả dạng
+bảng, dễ vướng `ToolRawPreviewLimit`); `vault.*`, `accounts.*` (nhạy cảm);
+tool ghi/phá hủy như `notes.delete`, `git.push`, `kafka.publishMessage` (giữ
+JSON thô để thấy đúng agent đã làm gì, không tô vẽ).
 
 **Nhất quán với cái đã có:** cùng ngôn ngữ hình họa với
 `AgentFileChip`/`AgentRefChip` — nền `bg-(--state-soft)`, bo `rounded-sm`,

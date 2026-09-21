@@ -33,6 +33,11 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
   // for a draft of the CURRENT index, not one built against an index that has
   // since changed.
   const endpointID = typeof params?.endpointId === "string" ? params.endpointId : "";
+  // A saved request this tab was asked to open on — `api.reveal`
+  // (docs/dev-kit/cross-module.mdx), a ToolResultView card's "Try in API
+  // Client" for `api.send`. Only a starting point: the picker below still
+  // owns which request is showing once the tab is open.
+  const requestIDParam = typeof params?.requestId === "string" ? params.requestId : "";
   const [requests, setRequests] = useState<ApiRequest[] | null>(null);
   // null until loaded: the environment picker showing "No environment"
   // alone before the list arrives reads as "you have none".
@@ -55,7 +60,7 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
     listRequests()
       .then((next) => {
         setRequests(next);
-        setRequestID((current) => current || next[0]?.id || "");
+        setRequestID((current) => current || requestIDParam || next[0]?.id || "");
       })
       .catch((e: Error) => setError(e.message));
     listEnvironments()
@@ -67,7 +72,7 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
     listCollections()
       .then(setCollections)
       .catch(() => setCollections([]));
-  }, []);
+  }, [requestIDParam]);
 
   useEffect(reload, [reload]);
 

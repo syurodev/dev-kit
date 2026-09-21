@@ -4,6 +4,7 @@ import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { parseApiFlow } from "./apiFlowResult";
+import { parseEndpointMatches, parseSymbolMatches } from "./searchResult";
 
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
@@ -114,4 +115,27 @@ registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
     { fallback: null },
     createElement(LazyApiFlowResultCard, { flow: parsed.flow, endpointId: parsed.endpointId }),
   );
+});
+
+/**
+ * ToolResultView for `codegraph.searchSymbol` and `codegraph.listEndpoints`
+ * (docs/dev-kit/tool-result-view.mdx) — both reuse the existing
+ * `codegraph.reveal` intent per row, no new registry.
+ */
+const LazySymbolMatchResultCard = lazy(() =>
+  import("./SymbolMatchResultCard").then(({ SymbolMatchResultCard }) => ({ default: SymbolMatchResultCard })),
+);
+registerToolResultView("codegraph.searchSymbol", ({ rawOutput }) => {
+  const matches = parseSymbolMatches(rawOutput);
+  if (!matches) return null;
+  return createElement(Suspense, { fallback: null }, createElement(LazySymbolMatchResultCard, { matches }));
+});
+
+const LazyEndpointListResultCard = lazy(() =>
+  import("./EndpointListResultCard").then(({ EndpointListResultCard }) => ({ default: EndpointListResultCard })),
+);
+registerToolResultView("codegraph.listEndpoints", ({ rawOutput }) => {
+  const endpoints = parseEndpointMatches(rawOutput);
+  if (!endpoints) return null;
+  return createElement(Suspense, { fallback: null }, createElement(LazyEndpointListResultCard, { endpoints }));
 });

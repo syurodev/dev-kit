@@ -5,6 +5,7 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { parseEndpointDraft } from "./endpointDraftResult";
+import { parseSendResult } from "./sendResult";
 
 export const apiclientModule: ModuleManifest = {
   id: "apiclient",
@@ -63,5 +64,40 @@ registerToolResultView("api.fromEndpoint", ({ rawInput, rawOutput }) => {
     Suspense,
     { fallback: null },
     createElement(LazyEndpointDraftResultCard, { draft: parsed.draft, endpointId: parsed.endpointId }),
+  );
+});
+
+/**
+ * `api.reveal` (docs/dev-kit/cross-module.mdx): open one saved request from
+ * anywhere — a ToolResultView card for `api.send` — without the caller
+ * importing this module's documents helper. `kind: "request"` matches
+ * internal/agenthub/attachedref.go's own ref kind for a saved request.
+ */
+registerIntent(
+  "api.reveal",
+  async (ref, { placement }) => {
+    if (ref.kind !== "request") return;
+    const { openRequest } = await import("./documents");
+    openRequest(ref.id, ref.label || ref.id, { beside: placement === "beside" });
+  },
+  "beside",
+);
+
+/**
+ * ToolResultView for `api.send` (docs/dev-kit/tool-result-view.mdx). Shape
+ * checked synchronously before the card component loads — a rawInput
+ * missing requestId, or a rawOutput that doesn't look like a Response,
+ * falls back to plain JSON.
+ */
+const LazySendResultCard = lazy(() =>
+  import("./SendResultCard").then(({ SendResultCard }) => ({ default: SendResultCard })),
+);
+registerToolResultView("api.send", ({ rawInput, rawOutput }) => {
+  const parsed = parseSendResult(rawInput, rawOutput);
+  if (!parsed) return null;
+  return createElement(
+    Suspense,
+    { fallback: null },
+    createElement(LazySendResultCard, { response: parsed.response, requestId: parsed.requestId }),
   );
 });
