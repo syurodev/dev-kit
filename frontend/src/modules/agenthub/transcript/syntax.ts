@@ -52,6 +52,7 @@ const LOADERS: Record<string, () => Promise<CodeParser>> = {
   properties: legacy(() => import("@codemirror/legacy-modes/mode/properties").then((m) => m.properties)),
   diff: legacy(() => import("@codemirror/legacy-modes/mode/diff").then((m) => m.diff)),
   xml: legacy(() => import("@codemirror/legacy-modes/mode/xml").then((m) => m.xml)),
+  lua: legacy(() => import("@codemirror/legacy-modes/mode/lua").then((m) => m.lua)),
 };
 
 /** Every grammar name the transcript can colour. */
@@ -106,6 +107,7 @@ const ALIASES: Record<string, string> = {
   xml: "xml",
   svg: "xml",
   plist: "xml",
+  lua: "lua",
 };
 
 /** A fence's info string as a grammar name, or undefined if there is none. */
