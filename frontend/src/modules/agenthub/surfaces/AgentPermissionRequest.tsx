@@ -129,7 +129,7 @@ export function AgentPermissionRequest({
         // the app's ordinary raised surface. A tinted panel beside a tinted
         // composer was one colour too many, and it was the wrong one — warning
         // over a transcript reads as an error that already happened.
-        wide ? "gap-2 px-3 py-2.5" : "max-w-68 gap-3 p-3",
+        wide ? "gap-2 px-3 py-2.5" : "gap-3 p-3",
         className,
       )}
     >
