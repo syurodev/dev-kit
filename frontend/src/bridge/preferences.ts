@@ -38,7 +38,15 @@ export function saveThemePreference(theme: ThemePreference): Promise<void> {
  * rather than a set of values, which is why it is the default and why it has
  * no token map on the frontend either.
  */
-export const themeFamilies = ["devkit", "catppuccin", "dracula", "ayu", "github"] as const;
+export const themeFamilies = [
+  "devkit",
+  "catppuccin",
+  "dracula",
+  "ayu",
+  "github",
+  "rosepine",
+  "lotus",
+] as const;
 
 export type ThemeFamilyPreference = (typeof themeFamilies)[number];
 
@@ -60,6 +68,8 @@ export function saveThemeFamily(family: ThemeFamilyPreference): Promise<void> {
     dracula: NativeThemeFamily.ThemeFamilyDracula,
     ayu: NativeThemeFamily.ThemeFamilyAyu,
     github: NativeThemeFamily.ThemeFamilyGitHub,
+    rosepine: NativeThemeFamily.ThemeFamilyRosePine,
+    lotus: NativeThemeFamily.ThemeFamilyLotus,
   }[family];
   return callBridge(() => AppService.PreferencesSetThemeFamily(native));
 }

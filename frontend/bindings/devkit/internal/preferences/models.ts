@@ -72,6 +72,8 @@ export enum ThemeFamily {
     ThemeFamilyDracula = "dracula",
     ThemeFamilyAyu = "ayu",
     ThemeFamilyGitHub = "github",
+    ThemeFamilyRosePine = "rosepine",
+    ThemeFamilyLotus = "lotus",
 
     DefaultThemeFamily = "devkit",
 };

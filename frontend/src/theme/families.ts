@@ -365,6 +365,133 @@ const GITHUB: ThemeFamilyDefinition = {
 };
 
 /**
+ * Rosé Pine — the main variant for dark, Dawn for light.
+ *
+ * The palette only names three surface stops (base, surface, overlay) against
+ * the five this contract wants, so the gap is filled from its own
+ * `highlight{Low,Med,High}` tokens — published for exactly this, a table row
+ * or a selected line sitting a shade off the base. `--surface-base` doubling
+ * as `--background-canvas` in dark mirrors what GitHub's own `canvas.default`
+ * already does twice in this file.
+ *
+ * Every one of the six accent hues (love, gold, rose, pine, foam, iris) is
+ * used exactly once, so the family spends the whole palette rather than
+ * leaving half of it on the table.
+ */
+const ROSE_PINE: ThemeFamilyDefinition = {
+  id: "rosepine",
+  label: "Rosé Pine",
+  dark: {
+    "--tint-veil": "#ffffff",
+    "--tint-border": "#6e6a86", // muted
+    "--background-app": "#191724", // base
+    "--background-canvas": "#1f1d2e", // surface
+    "--surface-base": "#1f1d2e", // surface
+    "--surface-raised": "#26233a", // overlay
+    "--surface-tinted": "#403d52", // highlightMed
+    "--text-primary": "#e0def4", // text
+    "--text-secondary": "#c3c1dd", // subtle, lifted to clear 5.5:1 on the lightest surface
+    "--text-tertiary": "#9490b3", // muted, lifted to clear 4.5:1
+    "--icon-secondary": "#c3c1dd",
+    "--action-primary": "#c4a7e7", // iris
+    "--action-primary-foreground": "#191724",
+    ...states("#c4a7e7", "dark"),
+    "--brand-text": "#c4a7e7",
+    "--status-info": "#9ccfd8", // foam
+    "--status-success": "#6bb9c9", // pine, lightened off its editor value to clear 4.5:1 on --surface-tinted
+    "--status-warning": "#f6c177", // gold
+    "--status-recovery": "#ebbcba", // rose
+    "--status-danger": "#eb6f92", // love
+    "--border-focus": "#c4a7e7",
+  },
+  light: {
+    "--tint-veil": "#575279",
+    "--tint-border": "#9893a5", // muted
+    "--background-app": "#f2e9e1", // overlay
+    "--background-canvas": "#faf4ed", // base
+    "--surface-base": "#fffaf3", // surface
+    "--surface-raised": "#f4ede8", // highlightLow
+    "--surface-tinted": "#dfdad9", // highlightMed
+    "--text-primary": "#4d496c", // text, deepened to clear 7:1
+    "--text-secondary": "#5c587c", // subtle, deepened to clear 5.5:1
+    "--text-tertiary": "#6c6681", // muted, deepened to clear 4.5:1
+    "--icon-secondary": "#5c587c",
+    "--action-primary": "#907aa9", // iris
+    "--action-primary-foreground": "#fffaf3",
+    ...states("#907aa9", "light"),
+    "--brand-text": "#796090", // iris, deepened for text use — the fill can stay lighter, text cannot
+    "--status-info": "#286a83", // foam, deepened for white — the published value is a fill, not text
+    "--status-success": "#286983", // pine
+    "--status-warning": "#9e5909", // gold, deepened for white
+    "--status-recovery": "#a24f69", // rose, deepened for white
+    "--status-danger": "#995468", // love, deepened for white
+    "--border-focus": "#907aa9",
+  },
+};
+
+/**
+ * Lotus, paired with Wave — Kanagawa's own dark counterpart.
+ *
+ * Kanagawa ships three variants and Lotus is only ever the light one, so it
+ * takes a sibling the same way Alucard needs Dracula: Wave is the classic,
+ * best-known Kanagawa dark, kept here under the Lotus label so the family
+ * still guarantees both modes.
+ *
+ * The signature colour is oniViolet / lotusViolet4 — Kanagawa's own accent
+ * for keywords — carried to the UI accent the way Dracula's purple was.
+ */
+const LOTUS: ThemeFamilyDefinition = {
+  id: "lotus",
+  label: "Lotus",
+  dark: {
+    "--tint-veil": "#ffffff",
+    "--tint-border": "#54546d", // sumiInk6
+    "--background-app": "#16161d", // sumiInk0
+    "--background-canvas": "#181820", // sumiInk1
+    "--surface-base": "#1f1f28", // sumiInk3
+    "--surface-raised": "#2a2a37", // sumiInk4
+    "--surface-tinted": "#363646", // sumiInk5
+    "--text-primary": "#dcd7ba", // fujiWhite
+    "--text-secondary": "#c8c093", // oldWhite
+    "--text-tertiary": "#9c9b93", // fujiGray, lifted to clear 4.5:1
+    "--icon-secondary": "#c8c093",
+    "--action-primary": "#957fb8", // oniViolet
+    "--action-primary-foreground": "#16161d",
+    ...states("#957fb8", "dark"),
+    "--brand-text": "#9f8bbe", // oniViolet, lightened for text use — the fill can stay darker, text cannot
+    "--status-info": "#7e9cd8", // crystalBlue
+    "--status-success": "#98bb6c", // springGreen
+    "--status-warning": "#ff9e3b", // roninYellow
+    "--status-recovery": "#d27e99", // sakuraPink
+    "--status-danger": "#ef6868", // samuraiRed, lightened off its editor value to clear 4.5:1
+    "--border-focus": "#7e9cd8",
+  },
+  light: {
+    "--tint-veil": "#545464",
+    "--tint-border": "#716e61", // lotusGray2
+    "--background-app": "#d5cea3", // lotusWhite0
+    "--background-canvas": "#dcd5ac", // lotusWhite1
+    "--surface-base": "#f2ecbc", // lotusWhite3
+    "--surface-raised": "#e7dba0", // lotusWhite4
+    "--surface-tinted": "#e4d794", // lotusWhite5
+    "--text-primary": "#3a3a45", // lotusInk1, deepened to clear 7:1
+    "--text-secondary": "#4f4a3e", // lotusGray2, deepened to clear 5.5:1
+    "--text-tertiary": "#5b5743", // lotusGray3, deepened to clear 4.5:1
+    "--icon-secondary": "#4f4a3e",
+    "--action-primary": "#624c83", // lotusViolet4
+    "--action-primary-foreground": "#f2ecbc",
+    ...states("#624c83", "light"),
+    "--brand-text": "#624c83",
+    "--status-info": "#3c5b68", // lotusTeal3, deepened for white
+    "--status-success": "#4a5d34", // lotusGreen, deepened for white
+    "--status-warning": "#7e4c00", // lotusOrange2, deepened for white
+    "--status-recovery": "#85415a", // lotusPink, deepened for white
+    "--status-danger": "#a82227", // lotusRed3, deepened for white
+    "--border-focus": "#3c5b68",
+  },
+};
+
+/**
  * Every family the app can paint with.
  *
  * Note-folder colours are deliberately absent from all four. They are nine
@@ -379,6 +506,8 @@ export const FAMILIES: Record<ThemeFamilyPreference, ThemeFamilyDefinition> = {
   dracula: DRACULA,
   ayu: AYU,
   github: GITHUB,
+  rosepine: ROSE_PINE,
+  lotus: LOTUS,
 };
 
 /** The family to paint with, falling back to the base for an unknown id. */
