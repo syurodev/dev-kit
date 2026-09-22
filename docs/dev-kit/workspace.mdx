@@ -22,10 +22,13 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Design — chưa implement">
 Toàn bộ trang này là thiết kế. Runtime hiện tại: `internal/codegraph/service.go`
-chỉ giữ **một** project active (`activeProject`, `SetProjectPath`), đúng FR-1 của
-[CodeGraph](/dev-kit/codegraph). `internal/agenthub/adapter_claude.go` set
+chỉ giữ **một** project active (`activeProject`, `SetProjectPath`), đúng FR-1 gốc
+của [CodeGraph](/dev-kit/codegraph). `internal/agenthub/adapter_claude.go` set
 `WorkDir` = project path cho mọi agent, nên nhiều agent trên cùng project dùng
-chung một thư mục ghi. Workspace là lớp đứng trên, **không** sửa hai thứ đó.
+chung một thư mục ghi — điều đó Workspace không đụng tới. FR-1 chính nó thì có:
+§ [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn) dưới đây thay nó
+bằng N project active có giới hạn, xây trên đúng `workspace_services.path` của
+trang này thay vì một khái niệm id mới.
 </Callout>
 
 ```mermaid
@@ -34,7 +37,7 @@ flowchart TD
   MAN[Manual override] --> WS
 
   WS --> SB[internal/sandbox.Policy]
-  WS --> CG[ProjectDBPath → index/service]
+  WS --> CG[ProjectDBPath → Registry<br/>N full-index Service, giới hạn]
   WS --> JOIN[Cross-service join]
 
   CG --> MF[(Service manifest<br/>in + out edges)]
@@ -112,9 +115,9 @@ cần có thể lấy được mà **không trả một đồng nào cho solver*
 | | Manifest tier | Full index tier |
 |---|---|---|
 | Cần symbol solver | Không | Có (walk `~/.m2`) |
-| Phạm vi | Mọi service trong workspace | Chỉ project đang active |
+| Phạm vi | Mọi service trong workspace | Tối đa `limit` service, mở tay (§ Registry) |
 | Nội dung | Inbound endpoint + outbound HTTP call | Node, edge, call site, field access |
-| Kích hoạt | Khi mở workspace, khi rescan | `OpenProject` — không đổi |
+| Kích hoạt | Khi mở workspace, khi rescan | Bấm vào service trong panel → `Registry.Open` |
 | Đơn vị cache | Từng file, theo `mtime` + `size` | Cả project |
 
 Manifest chạy như một mode phụ của chính analyzer jar (cờ dòng lệnh), bỏ qua
@@ -123,9 +126,68 @@ byte tìm các chuỗi mốc (`@RestController`, `@RequestMapping`, `@FeignClien
 `RestTemplate`, `WebClient`); chỉ file trúng mới được parse. Ở một service
 điển hình đó là vài phần trăm số file.
 
-FR-1 "chỉ 1 project active" **không đổi**. Manifest không phải index — nó
-không có node, không tra cứu được, không hiện trong graph. Nó chỉ là hai danh
-sách cạnh biên.
+Manifest tier không phải index, bất kể full index giờ mở được cho nhiều
+service hay không (§ dưới) — nó không có node, không tra cứu được, không hiện
+trong graph. Nó chỉ là hai danh sách cạnh biên, và luôn chạy cho **mọi**
+service trong workspace bất kể service đó có đang mở full index hay không —
+đây là phần rẻ, không đổi.
+
+## Registry: từ 1 project active sang N có giới hạn
+
+FR-1 gốc của [CodeGraph](/dev-kit/codegraph) — đúng một `Store`/`lease`/
+`analyzer` sống trong `Service`, `beginOpen` cancel bản trước khi mở bản sau —
+giải đúng bài toán CodeGraph được thiết kế ban đầu cho: một cửa sổ, một
+project. Nó không giải bài toán workspace: sửa service A mà cần xem blast
+radius, go-to-definition hay data flow trong service B mà A gọi nghĩa là full
+index cho **cả hai cùng lúc**, không phải manifest tier — manifest chỉ đủ cho
+join (§ trên), không tra được implementation hay lần theo một field bên trong
+B.
+
+`Service` không đổi bên trong. Nó đã tự dọn sạch vòng đời của chính nó —
+`beginOpen` cancel `projectCtx`, dừng watcher, reset index trước khi mở bản
+kế; `Close()` làm y hệt cộng `CancelAnalyzerBuild` và đóng mọi analyzer đang
+giữ. Đó chính xác là thao tác cần để evict một service khỏi cache mà không rò
+process — Registry chỉ gọi lại nó cho N instance thay vì 1.
+
+```go
+// internal/codegraph
+type Registry struct {
+    mu       sync.Mutex
+    limit    int                 // JVM/tsgo đồng thời — mặc định nhỏ, xem dưới
+    services map[string]*Service // key = workspace_services.path
+    lru      []string            // most-recently-used ở cuối
+}
+
+func (r *Registry) Open(ctx context.Context, servicePath string) (*Service, error)
+func (r *Registry) Close(servicePath string) error
+func (r *Registry) evictLRU() error // gọi Service.Close() sẵn có, không đổi gì trong nó
+```
+
+**Lazy, không eager.** Mở một workspace không mở full index cho mọi
+`workspace_services` — chỉ manifest tier chạy ngay, đúng bảng ở § trên. Full
+index của một service chỉ mở khi người dùng thật sự bấm vào nó trong Workspace
+panel, đúng cách `OpenProject` hoạt động hôm nay; khác duy nhất là không còn
+cancel bản đang mở nếu Registry vẫn còn slot trong `limit`.
+
+**`limit` là câu trả lời trực tiếp cho một ceiling trang này đã nêu từ trước**
+("`analyzer_subprocess.go` cũng chưa giới hạn số JVM chạy song song" — mục
+Known ceiling): trước đây đúng vì chỉ có 1 slot nên câu hỏi chưa từng đặt ra.
+Có N slot thì bắt buộc có trần. Mỗi Java service full-index là một JVM walk
+trọn `~/.m2`/`~/.gradle` (554 jar đo được ở máy này) — N=2–3 là mức hợp lý
+trước khi RAM/CPU máy dev bắt đầu đau; đầy `limit` thì UI phải nói rõ đang
+evict service nào, không âm thầm.
+
+**Watcher không còn nghĩa "chỉ project active mới có freshness".** Mỗi
+`Service` trong Registry giữ watcher riêng — service bị evict mất watcher
+(đúng ý, nó không còn mở), service còn nằm trong `limit` vẫn tự re-index khi
+file đổi như hôm nay, không còn phân biệt "active" hay không theo nghĩa cũ.
+
+Bridge (`internal/bridge/codegraph.go`, 23 method) và `codegraphStore.ts` phía
+frontend hiện đều ngầm định "project đang active" — không method nào nhận id.
+Thread `servicePath` — đúng field `workspace_services.path` đã có ở data model
+trên, không phải khái niệm mới — qua từng method là phần cơ học của việc này,
+không phải thiết kế lại; frontend rekey state hiện có (documents, plan, flow
+docs) theo `servicePath` thay vì global.
 
 ## Outbound edge — phần analyzer còn thiếu
 
@@ -226,12 +288,18 @@ trên tên service chứ không trên path.
   `external` của một cạnh.
 - **Solver setup vẫn walk toàn bộ `~/.m2` mỗi lần analyze.** Manifest tier né
   được nó, full index thì không — và worktree **nhân** nó lên theo số agent.
-  `analyzer_subprocess.go` cũng chưa giới hạn số JVM chạy song song; watcher
-  trong `codegraph/service.go` là singleton nên chỉ project active có freshness.
+  `analyzer_subprocess.go` tự nó chưa giới hạn số JVM một service worktree có
+  thể mở; § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn) chặn
+  trần ở tầng service (giữa các service khác nhau trong workspace) qua
+  `limit`, nhưng chưa chặn trần ở tầng worktree (N agent cùng service, N
+  worktree, N JVM) — hai trần khác nhau, chỉ cái đầu có thiết kế.
 
 ## Non-goals (v1)
 
-- Nhiều project active cùng lúc trong CodeGraph — FR-1 giữ nguyên
+- Tự động mở full index cho mọi service khi mở workspace — vẫn phải bấm tay
+  từng service; mở hết ngay lập tức trả giá JVM cho service chưa ai nhìn tới
+- Registry không giới hạn — `limit` luôn có trần, đầy thì evict LRU chứ không
+  cho mở thêm âm thầm
 - Sync workspace giữa các máy — path là machine-local
 - Watcher trên thư mục `root`
 - Suy ra topology từ service mesh / discovery server đang chạy
