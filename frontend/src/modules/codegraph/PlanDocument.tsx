@@ -172,6 +172,7 @@ export function PlanDocument() {
                 <PlanCommentsPopover
                   planNodeId={commentsPlanNodeId}
                   label={planById.get(commentsPlanNodeId)?.fqn ?? commentsPlanNodeId}
+                  description={planById.get(commentsPlanNodeId)?.description ?? ""}
                   onClose={closeComments}
                   onCountChange={setPlanCommentCount}
                 />

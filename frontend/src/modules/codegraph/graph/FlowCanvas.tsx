@@ -398,9 +398,13 @@ function Canvas({
           onNodesChange={onNodesChange}
           nodeTypes={types}
           edgeTypes={edgeTypes}
-          // Read-only view: positions come from the layout, and nobody authors
-          // edges by hand, so both editing affordances are off.
-          nodesDraggable={false}
+          // Auto-layout places every node, but a reader still wants to drag
+          // one clear of a crowded spot without losing that placement — the
+          // sync effect above already keeps an existing node's position
+          // untouched on a data-only refresh, so a drag survives until the
+          // graph's own topology changes (a new node or edge) triggers a
+          // fresh layout. Edges stay uneditable: nobody authors one by hand.
+          nodesDraggable
           nodesConnectable={false}
           // Off while placing: a node outside the viewport is not rendered,
           // so it is never measured, and place() would wait for it forever.

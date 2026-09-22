@@ -93,11 +93,20 @@ function ago(unixSeconds: number): string {
 export function PlanCommentsPopover({
   planNodeId,
   label,
+  description,
   onClose,
   onCountChange,
 }: {
   planNodeId: string;
   label: string;
+  /**
+   * The plan node's own description — what the agent intends for this node,
+   * not a comment. Read here in full rather than clamped on the canvas card:
+   * the card is sized for a title and an FQN, and a description that runs a
+   * paragraph made the card the tallest thing on screen for the one node
+   * that had one. This box already scrolls and already has room.
+   */
+  description?: string;
   onClose: () => void;
   /** Named by node: a count must land on the node it was counted for. */
   onCountChange?: (planNodeId: string, n: number) => void;
@@ -221,6 +230,19 @@ export function PlanCommentsPopover({
       <div className="h-px shrink-0 bg-border-subtle" />
 
       <ScrollArea className="min-h-0 flex-1">
+        {description?.trim() ? (
+          <>
+            {/* The plan's own intent for this node — read-only, and visually
+                its own thing rather than the first entry in the thread: a
+                description is not a comment, it is what the comments are
+                about. */}
+            <div className="flex flex-col gap-1.5 px-5 pt-4 pb-3">
+              <span className="text-label-11-caps text-text-tertiary">Plan</span>
+              <CommentBody text={description} />
+            </div>
+            <div className="h-px shrink-0 bg-border-subtle" />
+          </>
+        ) : null}
         <ul className="flex flex-col gap-4.5 px-5 py-4">
           {thread?.map((c) => {
             const agent = c.author === "agent";
