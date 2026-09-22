@@ -57,6 +57,7 @@ func TestThemeFamilyRoundTrips(t *testing.T) {
 	service := NewService(NewMemoryRepository())
 	for _, want := range []ThemeFamily{
 		ThemeFamilyDevKit, ThemeFamilyCatppuccin, ThemeFamilyDracula, ThemeFamilyAyu, ThemeFamilyGitHub,
+		ThemeFamilyRosePine, ThemeFamilyLotus,
 	} {
 		if err := service.SetThemeFamily(want); err != nil {
 			t.Fatalf("SetThemeFamily(%q): %v", want, err)
