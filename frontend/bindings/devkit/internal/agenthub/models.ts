@@ -248,6 +248,13 @@ export interface CreateInput {
      */
     "ParentSessionID": string;
     "Title": string | null;
+
+    /**
+     * ExtraReadWritePaths widen the jail beyond Cwd — see OpenSpec. Only the
+     * bridge (UI) path sets this; the MCP tool's own input struct has no such
+     * field, so an agent-created session never gets one.
+     */
+    "ExtraReadWritePaths": string[] | null;
 }
 
 /**

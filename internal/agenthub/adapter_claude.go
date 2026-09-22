@@ -163,7 +163,7 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		Network:        sandbox.NetworkHost,
 		Env:            env,
 		ReadOnlyPaths:  uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths: claudeCredentialPaths(env["HOME"]),
+		ReadWritePaths: uniqueAbsPaths(append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)...),
 		// Subscription login keeps the OAuth token in the macOS keychain
 		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
 		AllowKeychain:    true,
