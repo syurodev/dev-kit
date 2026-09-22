@@ -257,7 +257,7 @@ func definitionsByName(ctx context.Context, store Store, filePath string, line i
 	for _, n := range matched {
 		d := definitionFromNode(n)
 		all = append(all, d)
-		if !(n.FilePath == filePath && n.Line == line) {
+		if n.FilePath != filePath || n.Line != line {
 			withoutSelf = append(withoutSelf, d)
 		}
 	}

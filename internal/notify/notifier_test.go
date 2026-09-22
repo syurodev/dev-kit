@@ -76,15 +76,6 @@ func eventually(t *testing.T, what string, ok func() bool) {
 	}
 }
 
-func authorizedNotifier(t *testing.T, desktop *fakeDesktop, focused *atomic.Bool) *notify.Notifier {
-	t.Helper()
-	desktop.authorized = true
-	n := &notify.Notifier{Desktop: desktop, Focused: focused.Load}
-	n.Authorize()
-	eventually(t, "authorization", func() bool { return desktop.requests.Load() == 1 })
-	return n
-}
-
 // Neither a hung authorization dialog nor a hung delivery may hold the caller:
 // Notify runs on the permission path and in Invoke's deferred turn end.
 func TestNotifierNeverBlocksItsCaller(t *testing.T) {

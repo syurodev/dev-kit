@@ -1,0 +1,25 @@
+version: "2"
+
+# Complements internal/arch/arch_test.go rather than replacing it: arch_test.go
+# pins package *layering* (who may import whom); golangci-lint here catches
+# what layering can't — dead code and staticcheck's correctness findings.
+#
+# CI (.github/workflows/ci.yml) runs this with golangci-lint-action's
+# only-new-issues: true, i.e. only lines a PR actually touches are gated. The
+# repo was clean (govet/staticcheck/unused/ineffassign, 0 issues) as of
+# 2026-09-22 — only-new-issues stays on so a future full-repo sweep (a new
+# linter, a stricter setting) doesn't have to land as one enormous PR either.
+#
+# errcheck is deliberately off: this codebase's own convention (measured
+# 2026-09-22) is a deferred cleanup Close/Remove is not checked — ~50 sites
+# across internal/*, all the same shape as internal/storage/sqlite.go's
+# `defer rows.Close()`. errcheck's exclude-functions matches by exact concrete
+# type (`(*database/sql.Rows).Close`, `(*os.File).Close`, …), which does not
+# generalize across the acp/sandbox/terminal/sync types this pattern actually
+# appears on — turning it on would mean either an unmaintainable per-type
+# allowlist or a genuine, separate pass to check every Close error, not
+# something this gate should force by proxy.
+linters:
+  default: standard
+  disable:
+    - errcheck

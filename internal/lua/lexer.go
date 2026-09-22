@@ -223,16 +223,16 @@ func (l *lexer) scanQuoted(startLine int) token {
 	var b strings.Builder
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
-		switch {
-		case c == quote:
+		switch c {
+		case quote:
 			l.pos++
 			return token{kind: tokString, value: b.String(), line: startLine, endLine: l.line}
-		case c == '\n':
+		case '\n':
 			// A raw newline ends a quoted string in Lua. Report it and hand
 			// back what there was; the parser recovers from the statement.
 			l.note(startLine, "unterminated string")
 			return token{kind: tokString, value: b.String(), line: startLine, endLine: l.line}
-		case c == '\\':
+		case '\\':
 			l.pos++
 			l.scanEscape(&b)
 		default:

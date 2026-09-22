@@ -460,6 +460,17 @@ func main() {
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
+	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a
+	// change in Settings applies to the next session without a restart.
+	agentSvc.SandboxExtras = func() preferences.AgentSandboxSettings {
+		settings, err := container.Preferences.AgentSandbox()
+		if err != nil {
+			// Fail closed: a preferences read that errors must not widen the
+			// jail on a guess. The default is fully off, same as unset.
+			return preferences.AgentSandboxSettings{}
+		}
+		return settings
+	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —
 	// without this reset, Invoke refuses the sessions with ErrSessionBusy

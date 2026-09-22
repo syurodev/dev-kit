@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"devkit/internal/acp"
 	"devkit/internal/agenthub"
 	"devkit/internal/identity"
+	"devkit/internal/preferences"
 	"devkit/internal/storage"
 )
 
@@ -79,6 +81,48 @@ func TestCreateSessionOpensEndpointAndPassesSpec(t *testing.T) {
 	}
 	if len(eps.closed) != 1 {
 		t.Fatalf("endpoint must close with the session, closed = %v", eps.closed)
+	}
+}
+
+// SandboxExtras widens every session's OpenSpec, on top of whatever the MCP
+// endpoint already grants — the user's opt-in escape from the default jail
+// (docs/dev-kit/sandbox.mdx), not a replacement for it.
+func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
+	svc, mock, _ := newIdentityService(t)
+	svc.SandboxExtras = func() preferences.AgentSandboxSettings {
+		return preferences.AgentSandboxSettings{
+			DockerSocketPath:   "/var/run/docker.sock",
+			ExtraReadOnlyPaths: []string{"/opt/shared-lib"},
+		}
+	}
+	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
+		t.Fatal(err)
+	}
+	spec := mock.LastSpec()
+	if !slices.Contains(spec.AllowUnixSockets, "/var/run/docker.sock") {
+		t.Fatalf("spec.AllowUnixSockets = %v, want the Docker socket included", spec.AllowUnixSockets)
+	}
+	if !slices.Contains(spec.ReadOnlyPaths, "/opt/shared-lib") {
+		t.Fatalf("spec.ReadOnlyPaths = %v, want the extra path included", spec.ReadOnlyPaths)
+	}
+	// The MCP socket grant from newIdentityService's fakeEndpoints must still be
+	// there too: SandboxExtras adds to the jail, it does not replace a session's
+	// own grants.
+	if len(spec.AllowUnixSockets) != 2 {
+		t.Fatalf("spec.AllowUnixSockets = %v, want both the MCP socket and Docker", spec.AllowUnixSockets)
+	}
+}
+
+// A build that never wires SandboxExtras (nil, the default) must leave the
+// jail exactly as restrictive as it was before this setting existed.
+func TestCreateSessionWithNoSandboxExtrasConfiguredIsUnchanged(t *testing.T) {
+	svc, mock, _ := newIdentityService(t)
+	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
+		t.Fatal(err)
+	}
+	spec := mock.LastSpec()
+	if len(spec.AllowUnixSockets) != 1 || len(spec.ReadOnlyPaths) != 1 {
+		t.Fatalf("spec = %+v, want only the MCP endpoint's own grants", spec)
 	}
 }
 

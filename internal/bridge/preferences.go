@@ -205,6 +205,40 @@ func (s *AppService) AgentHubCheckpointAvailability() (agenthub.CheckpointAvaila
 	return result.(agenthub.CheckpointAvailability), nil
 }
 
+// PreferencesGetAgentSandbox reads how far Agent Hub's vendor jail is widened
+// beyond a session's own grants (Docker socket, extra read-only paths). Off
+// by default.
+func (s *AppService) PreferencesGetAgentSandbox() (preferences.AgentSandboxSettings, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_sandbox", map[string]any{
+		"action": "get_agent_sandbox",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return s.container.Preferences.AgentSandbox()
+	})
+	if err != nil {
+		return preferences.AgentSandboxSettings{}, err
+	}
+	return result.(preferences.AgentSandboxSettings), nil
+}
+
+// PreferencesSetAgentSandbox stores the widened jail settings. Applied on the
+// next session spawn/resume/fork (agenthub.Service.SandboxExtras reads fresh
+// every time), not the running ones — a live vendor process was already
+// started under the narrower jail and cannot be widened in place.
+func (s *AppService) PreferencesSetAgentSandbox(settings preferences.AgentSandboxSettings) error {
+	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "agent_sandbox", map[string]any{
+		"action": "set_agent_sandbox",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return nil, s.container.Preferences.SetAgentSandbox(settings)
+	})
+	return err
+}
+
 func (s *AppService) PreferencesSetThemeFamily(family preferences.ThemeFamily) error {
 	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "theme_family", map[string]any{
 		"action": "set_theme_family",

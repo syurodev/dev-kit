@@ -100,7 +100,7 @@ func previewEdit(item permissionDiffItem, path string, replaceAll bool, readFile
 	if missing || unreadable || old == "" || !strings.Contains(text, old) {
 		diff.Before = old
 		diff.After = item.NewText
-		diff.Stale = !(missing && old == "")
+		diff.Stale = !missing || old != ""
 		diff.BeforeMissing = missing && old == ""
 		return diff
 	}

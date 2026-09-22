@@ -113,7 +113,7 @@ func (r *replyingRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock,
 	// An assistant message with a vendor message id — what a fork point is.
 	if r.handlers.OnUpdate != nil {
 		update := `{"sessionUpdate":"agent_message_chunk","messageId":"msg_` +
-			r.SessionRuntime.ACPSessionID() + `_` + itoa(r.replies) + `","content":{"type":"text","text":"reply"}}`
+			r.ACPSessionID() + `_` + itoa(r.replies) + `","content":{"type":"text","text":"reply"}}`
 		r.handlers.OnUpdate(json.RawMessage(update), nil)
 	}
 	return r.SessionRuntime.Prompt(ctx, prompt, meta)

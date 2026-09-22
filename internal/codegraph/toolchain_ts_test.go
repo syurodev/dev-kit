@@ -8,17 +8,6 @@ import (
 	"testing"
 )
 
-func toolchainFor(t *testing.T, statuses []ToolchainStatus, language string) ToolchainStatus {
-	t.Helper()
-	for _, status := range statuses {
-		if status.Language == language {
-			return status
-		}
-	}
-	t.Fatalf("no %s toolchain in %v", language, statuses)
-	return ToolchainStatus{}
-}
-
 // The third shape a Toolchain takes: the artifact launches itself, so there is
 // no runtime to probe and nothing for the user to install in order to RUN it.
 func TestATypeScriptArtifactIsItsOwnRuntime(t *testing.T) {

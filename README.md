@@ -24,6 +24,8 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 | Deployed sync matrix (opt-in Compose) | `set -a; . .superpowers/sdd/deployed-e2e.env; set +a; go test ./cmd/synce2e/ -count=1 -timeout 15m` |
 | Go format check | `gofmt -l internal main.go` |
 | Go vet | `go vet -tags server ./...` |
+| Go lint (errcheck off; see `.golangci.yml`) | `golangci-lint run` |
+| Frontend tests (incl. module boundary + design-system ratchets) | `cd frontend && bun run test` |
 | Frontend build + typecheck | `cd frontend && bun run build` |
 | Frontend-only dev server (Vite, no Go backend) | `cd frontend && bun run dev` |
 | Regenerate Wails bindings (after Go bridge changes) | `wails3 generate bindings` |

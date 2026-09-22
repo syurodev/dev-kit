@@ -26,7 +26,9 @@ import (
 type luaValueKind int
 
 const (
-	luaUnknownValue luaValueKind = iota
+	// The zero value: an unresolved value, the state of every luaValue that
+	// was never assigned a provenance below.
+	_ luaValueKind = iota
 	// luaModuleValue is a module of this project, reached through require.
 	luaModuleValue
 	// luaLibraryValue is something outside the project: a known global, or a
