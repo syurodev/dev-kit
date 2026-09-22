@@ -114,6 +114,27 @@ func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
 	if len(spec.AllowUnixSockets) != 2 {
 		t.Fatalf("spec.AllowUnixSockets = %v, want both the MCP socket and Docker", spec.AllowUnixSockets)
 	}
+	if spec.PrivateHome != nil {
+		t.Fatalf("spec.PrivateHome = %v, want nil (RelaxedHome unset leaves the adapter default)", spec.PrivateHome)
+	}
+}
+
+// RelaxedHome is the coarser escape from the jail's private HOME: on, it
+// tells the adapter to bind the real $HOME instead of tmpfs-ing it, while
+// sandbox.Policy's own deny list still applies underneath regardless
+// (docs/dev-kit/sandbox.mdx § "RelaxedHome").
+func TestCreateSessionAppliesSandboxExtrasRelaxedHome(t *testing.T) {
+	svc, mock, _ := newIdentityService(t)
+	svc.SandboxExtras = func() preferences.AgentSandboxSettings {
+		return preferences.AgentSandboxSettings{RelaxedHome: true}
+	}
+	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
+		t.Fatal(err)
+	}
+	spec := mock.LastSpec()
+	if spec.PrivateHome == nil || *spec.PrivateHome != false {
+		t.Fatalf("spec.PrivateHome = %v, want a pointer to false", spec.PrivateHome)
+	}
 }
 
 // A build that never wires SandboxExtras (nil, the default) must leave the

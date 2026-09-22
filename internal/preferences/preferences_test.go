@@ -198,7 +198,7 @@ func TestAgentSandboxDefaultsToOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 {
+	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 || settings.RelaxedHome {
 		t.Fatalf("settings = %+v, want the zero value", settings)
 	}
 }
@@ -208,6 +208,7 @@ func TestAgentSandboxRoundTrips(t *testing.T) {
 	want := AgentSandboxSettings{
 		DockerSocketPath:   "/var/run/docker.sock",
 		ExtraReadOnlyPaths: []string{"/opt/shared-lib", "/mnt/data"},
+		RelaxedHome:        true,
 	}
 	if err := service.SetAgentSandbox(want); err != nil {
 		t.Fatal(err)
@@ -216,7 +217,7 @@ func TestAgentSandboxRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 2 {
+	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 2 || got.RelaxedHome != true {
 		t.Fatalf("settings = %+v, want %+v", got, want)
 	}
 }

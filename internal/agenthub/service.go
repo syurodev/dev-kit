@@ -61,6 +61,10 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 	if len(extras.ExtraReadOnlyPaths) > 0 {
 		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, extras.ExtraReadOnlyPaths...)
 	}
+	if extras.RelaxedHome {
+		relaxed := false
+		spec.PrivateHome = &relaxed
+	}
 }
 
 // InvokeInput is a blocking prompt against an existing hub session.
