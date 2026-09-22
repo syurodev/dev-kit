@@ -18,6 +18,7 @@ import (
 
 	"devkit/internal/acp"
 	"devkit/internal/identity"
+	"devkit/internal/preferences"
 
 	"github.com/google/uuid"
 )
@@ -32,6 +33,24 @@ type CreateInput struct {
 	Cwd             string
 	ParentSessionID string // empty = root session
 	Title           *string
+}
+
+// applySandboxExtras widens spec with the user's opt-in jail grants, if any
+// are configured. Called at every place an OpenSpec is built — CreateSession,
+// the two resume paths, and rewind — so a resumed or forked session runs
+// under the same widened jail an open would give it, not a narrower one that
+// happens to be easier to reach from that call site.
+func (s *Service) applySandboxExtras(spec *OpenSpec) {
+	if s.SandboxExtras == nil {
+		return
+	}
+	extras := s.SandboxExtras()
+	if extras.DockerSocketPath != "" {
+		spec.AllowUnixSockets = append(spec.AllowUnixSockets, extras.DockerSocketPath)
+	}
+	if len(extras.ExtraReadOnlyPaths) > 0 {
+		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, extras.ExtraReadOnlyPaths...)
+	}
 }
 
 // InvokeInput is a blocking prompt against an existing hub session.
@@ -115,6 +134,13 @@ type Service struct {
 	PermissionTimeout         time.Duration // 0 = no deadline: wait for the user
 	// MCPEndpoints opens the per-session MCP socket before the vendor spawns.
 	MCPEndpoints MCPEndpoints
+	// SandboxExtras reads the user's opt-in widening of the vendor jail — an
+	// extra unix socket (Docker) and extra read-only directories — beyond what
+	// a session grants on its own. Read fresh on every spawn, resume and fork,
+	// so a change in Settings applies to the next session without a restart.
+	// nil (the default wiring for tests and any build that never sets it up)
+	// behaves exactly like the zero value: no widening at all.
+	SandboxExtras func() preferences.AgentSandboxSettings
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
 	// OnTurnFinished fires after the turn's final transcript flush, including
@@ -306,6 +332,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
+	s.applySandboxExtras(&spec)
 
 	rt, err := adapter.Open(ctx, spec)
 	if err != nil {
@@ -1466,6 +1493,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
+	s.applySandboxExtras(&spec)
 
 	rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
 	if err != nil {

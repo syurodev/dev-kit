@@ -12,6 +12,7 @@ const (
 	themeFamilyKey        = "theme_family"
 	agentNotificationsKey = "agent_notifications"
 	agentCheckpointsKey   = "agent_checkpoints"
+	agentSandboxKey       = "agent_sandbox"
 	revealPasswordKey     = "accounts_reveal_requires_password"
 )
 
@@ -106,6 +107,36 @@ func (r *SQLRepository) SetAgentCheckpoints(settings AgentCheckpointSettings) er
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentCheckpointsKey, string(body))
+	return err
+}
+
+// GetAgentSandbox treats anything it cannot parse as unset, so the default —
+// fully off — applies rather than the setting becoming unreadable.
+func (r *SQLRepository) GetAgentSandbox() (AgentSandboxSettings, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentSandboxKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentSandboxSettings{}, false, nil
+	}
+	if err != nil {
+		return AgentSandboxSettings{}, false, err
+	}
+	var settings AgentSandboxSettings
+	if jsonErr := json.Unmarshal([]byte(value), &settings); jsonErr != nil {
+		return AgentSandboxSettings{}, false, nil
+	}
+	return settings.Normalized(), true, nil
+}
+
+func (r *SQLRepository) SetAgentSandbox(settings AgentSandboxSettings) error {
+	body, err := json.Marshal(settings.Normalized())
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentSandboxKey, string(body))
 	return err
 }
 

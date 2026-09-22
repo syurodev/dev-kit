@@ -13,6 +13,8 @@ type MemoryRepository struct {
 	hasAgentNotifications bool
 	agentCheckpoints      AgentCheckpointSettings
 	hasAgentCheckpoints   bool
+	agentSandbox          AgentSandboxSettings
+	hasAgentSandbox       bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -49,6 +51,20 @@ func (r *MemoryRepository) SetAgentCheckpoints(settings AgentCheckpointSettings)
 	defer r.mu.Unlock()
 	r.agentCheckpoints = settings
 	r.hasAgentCheckpoints = true
+	return nil
+}
+
+func (r *MemoryRepository) GetAgentSandbox() (AgentSandboxSettings, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.agentSandbox, r.hasAgentSandbox, nil
+}
+
+func (r *MemoryRepository) SetAgentSandbox(settings AgentSandboxSettings) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.agentSandbox = settings
+	r.hasAgentSandbox = true
 	return nil
 }
 

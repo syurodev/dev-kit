@@ -109,6 +109,45 @@ func TestSQLRepositoryRoundTripsCheckpointSettings(t *testing.T) {
 	}
 }
 
+func TestSQLRepositoryRoundTripsAgentSandboxSettings(t *testing.T) {
+	repo, _ := checkpointRepo(t)
+	want := preferences.AgentSandboxSettings{
+		DockerSocketPath:   "/var/run/docker.sock",
+		ExtraReadOnlyPaths: []string{"/opt/shared-lib"},
+	}
+	if err := repo.SetAgentSandbox(want); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := repo.GetAgentSandbox()
+	if err != nil || !found {
+		t.Fatalf("GetAgentSandbox = %+v, %v, %v", got, found, err)
+	}
+	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 1 {
+		t.Fatalf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+// A machine that has never touched this setting must behave exactly as it
+// did before the setting existed: no Docker socket, no extra reads.
+func TestSQLRepositoryAgentSandboxDefaultsToOff(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	service := preferences.NewService(preferences.NewSQLRepository(db))
+	settings, err := service.AgentSandbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 {
+		t.Fatalf("settings = %+v, want the zero value", settings)
+	}
+}
+
 // A value nothing can parse is unset, so the defaults apply rather than the
 // setting becoming unreadable.
 func TestSQLRepositoryTreatsAnUnreadableCheckpointRowAsUnset(t *testing.T) {

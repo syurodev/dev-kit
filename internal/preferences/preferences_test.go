@@ -190,6 +190,62 @@ func TestAgentCheckpointsReadsTheOlderBooleanValue(t *testing.T) {
 	}
 }
 
+// Unset must read as fully off — a machine that never touched this setting
+// behaves exactly as it did before the setting existed.
+func TestAgentSandboxDefaultsToOff(t *testing.T) {
+	service := NewService(NewMemoryRepository())
+	settings, err := service.AgentSandbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 {
+		t.Fatalf("settings = %+v, want the zero value", settings)
+	}
+}
+
+func TestAgentSandboxRoundTrips(t *testing.T) {
+	service := NewService(NewMemoryRepository())
+	want := AgentSandboxSettings{
+		DockerSocketPath:   "/var/run/docker.sock",
+		ExtraReadOnlyPaths: []string{"/opt/shared-lib", "/mnt/data"},
+	}
+	if err := service.SetAgentSandbox(want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.AgentSandbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 2 {
+		t.Fatalf("settings = %+v, want %+v", got, want)
+	}
+}
+
+// Blank and duplicate entries are a typo, not a widening of the jail: kept as
+// entered they would make the list look wider than it is, not actually widen
+// anything, since sandbox.Policy skips paths that do not exist anyway.
+func TestAgentSandboxPathsAreTrimmedDedupedAndCapped(t *testing.T) {
+	got := AgentSandboxSettings{
+		DockerSocketPath:   "  /var/run/docker.sock  ",
+		ExtraReadOnlyPaths: []string{"  /opt/a  ", "", "   ", "/opt/a", "/opt/b"},
+	}.Normalized()
+	if got.DockerSocketPath != "/var/run/docker.sock" {
+		t.Fatalf("DockerSocketPath = %q", got.DockerSocketPath)
+	}
+	if len(got.ExtraReadOnlyPaths) != 2 || got.ExtraReadOnlyPaths[0] != "/opt/a" || got.ExtraReadOnlyPaths[1] != "/opt/b" {
+		t.Fatalf("ExtraReadOnlyPaths = %q, want [/opt/a /opt/b]", got.ExtraReadOnlyPaths)
+	}
+
+	many := make([]string, 0, maxSandboxExtraReadOnlyPaths+10)
+	for i := 0; i < maxSandboxExtraReadOnlyPaths+10; i++ {
+		many = append(many, "/opt/path"+string(rune('a'+i%26))+string(rune(i)))
+	}
+	capped := AgentSandboxSettings{ExtraReadOnlyPaths: many}.Normalized()
+	if len(capped.ExtraReadOnlyPaths) != maxSandboxExtraReadOnlyPaths {
+		t.Fatalf("len(ExtraReadOnlyPaths) = %d, want the cap %d", len(capped.ExtraReadOnlyPaths), maxSandboxExtraReadOnlyPaths)
+	}
+}
+
 // Unset means on. The person who has not thought about this yet is the one
 // the prompt exists for.
 func TestRevealRequiresPasswordDefaultsOn(t *testing.T) {
