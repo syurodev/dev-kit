@@ -263,9 +263,9 @@ holds two fields, both empty/off by default so a machine that never touches
 Settings behaves exactly as it did before this existed:
 
 - `DockerSocketPath` — a single absolute unix socket path (normally
-  `/var/run/docker.sock`) merged into `Policy.AllowUnixSockets` the same way
-  the per-session devkit-mcp socket already is: one literal path, not a
-  network-outbound blanket grant.
+  `/var/run/docker.sock`, or Docker Desktop's own `~/.docker/desktop/docker.sock`)
+  merged into `Policy.AllowUnixSockets` the same way the per-session devkit-mcp
+  socket already is: one literal path, not a network-outbound blanket grant.
 - `ExtraReadOnlyPaths` — extra directories/files outside `WorkDir`, merged
   into `Policy.ReadOnlyPaths`.
 
@@ -275,7 +275,20 @@ resume paths, and `rewind.go`'s fork — via `Service.applySandboxExtras`, so a
 Settings change applies to the next session without a restart, and a resumed
 or forked session runs under the same widened jail an `Open` would give it.
 `main.go` wires it to `container.Preferences.AgentSandbox`, failing closed
-(returns the zero value) on a read error rather than guessing.
+(returns the zero value) on a read error rather than guessing. It does **not**
+apply to a session already running — a live vendor process was already
+spawned under the narrower jail, so widening it means closing and reopening
+(or resuming/forking) the session, not editing it in place.
+
+The bind alone does not make `docker` work inside the jail: `EffectivePrivateHome`
+(on by default) replaces `$HOME` with an empty tmpfs, which hides the host's
+real `~/.docker` — the docker CLI's own context config (`~/.docker/config.json`,
+which says *which* socket to use) is gone even though the socket file itself is
+correctly bound at its configured path. So `applySandboxExtras` also sets
+`DOCKER_HOST=unix://<DockerSocketPath>` in the jail's env (`OpenSpec.ExtraEnv`,
+merged into `sandbox.Policy.Env` by `adapter_claude.go`'s `sandboxFor`) —
+bypassing context resolution entirely, so it works for any configured path,
+not only the compiled-in default `/var/run/docker.sock`.
 
 Both fields still go through `sandbox.Policy.Validate` / `validateBindPaths`
 like any other grant: a path that resolves under `~/.ssh`, `~/.gnupg`,

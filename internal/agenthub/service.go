@@ -47,6 +47,16 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 	extras := s.SandboxExtras()
 	if extras.DockerSocketPath != "" {
 		spec.AllowUnixSockets = append(spec.AllowUnixSockets, extras.DockerSocketPath)
+		// The bind alone is not enough: the jail's private HOME hides the
+		// host's ~/.docker, so a docker CLI inside it has no context config
+		// pointing at this socket and falls back to its own compiled-in
+		// default (/var/run/docker.sock), which is not there unless that
+		// happens to be the configured path. DOCKER_HOST bypasses context
+		// resolution entirely and works for any path.
+		if spec.ExtraEnv == nil {
+			spec.ExtraEnv = map[string]string{}
+		}
+		spec.ExtraEnv["DOCKER_HOST"] = "unix://" + extras.DockerSocketPath
 	}
 	if len(extras.ExtraReadOnlyPaths) > 0 {
 		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, extras.ExtraReadOnlyPaths...)

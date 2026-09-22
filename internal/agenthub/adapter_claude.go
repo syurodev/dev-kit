@@ -155,6 +155,9 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 	for key, value := range l.env {
 		env[key] = value
 	}
+	for key, value := range spec.ExtraEnv {
+		env[key] = value
+	}
 	pol := sandbox.Policy{
 		WorkDir:        workDir,
 		Network:        sandbox.NetworkHost,

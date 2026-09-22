@@ -105,6 +105,9 @@ func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
 	if !slices.Contains(spec.ReadOnlyPaths, "/opt/shared-lib") {
 		t.Fatalf("spec.ReadOnlyPaths = %v, want the extra path included", spec.ReadOnlyPaths)
 	}
+	if got := spec.ExtraEnv["DOCKER_HOST"]; got != "unix:///var/run/docker.sock" {
+		t.Fatalf("spec.ExtraEnv[DOCKER_HOST] = %q, want the configured socket as a unix:// URL", got)
+	}
 	// The MCP socket grant from newIdentityService's fakeEndpoints must still be
 	// there too: SandboxExtras adds to the jail, it does not replace a session's
 	// own grants.
@@ -123,6 +126,9 @@ func TestCreateSessionWithNoSandboxExtrasConfiguredIsUnchanged(t *testing.T) {
 	spec := mock.LastSpec()
 	if len(spec.AllowUnixSockets) != 1 || len(spec.ReadOnlyPaths) != 1 {
 		t.Fatalf("spec = %+v, want only the MCP endpoint's own grants", spec)
+	}
+	if len(spec.ExtraEnv) != 0 {
+		t.Fatalf("spec.ExtraEnv = %v, want none", spec.ExtraEnv)
 	}
 }
 
