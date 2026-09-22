@@ -43,7 +43,21 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev \
             libwebkitgtk-6.0-dev \
-            pkg-config
+            pkg-config \
+            bubblewrap
+
+      # internal/sandbox's bwrap backend needs --unshare-user +
+      # --unshare-net, which on Ubuntu 24.04 runs into AppArmor's
+      # unprivileged-userns restriction (on by default on the ubuntu-24.04
+      # runner image) — bwrap gets partway through and then fails setting up
+      # the loopback interface with "Operation not permitted". Same fix
+      # every other bwrap/Chromium-sandbox-on-CI report uses. The runner is
+      # thrown away after the job, so loosening this here costs nothing.
+      - name: Allow unprivileged user namespaces for bubblewrap
+        # `|| true`: a runner image without this sysctl key at all (a future
+        # image, a non-Ubuntu one) has nothing to loosen — that is not the
+        # same failure as the key existing and the write being refused.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       # main.go's `//go:embed all:frontend/dist` needs the directory to exist
       # and hold at least one file. A real UI is not needed to compile or run
@@ -100,9 +114,16 @@ jobs:
           mkdir -p frontend/dist
           echo '<!doctype html><title>stub</title>' > frontend/dist/index.html
 
+      # install-mode: goinstall builds golangci-lint with the Go toolchain
+      # setup-go just installed (go.mod's `go 1.27.1`) instead of downloading
+      # a prebuilt binary — the binary release lagged behind (v1.64.8, built
+      # with go1.24) and refused to run at all ("the Go language version
+      # ... is lower than the targeted Go version"). Building from source
+      # means the two can never skew.
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.5.0
+          install-mode: goinstall
           only-new-issues: true
 
   frontend:
