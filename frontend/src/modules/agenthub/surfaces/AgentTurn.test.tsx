@@ -19,15 +19,18 @@ const items: TranscriptItem[] = [
 ];
 
 describe("AgentTurn", () => {
-  it("draws the question, one line for the work, then the answer", () => {
+  it("draws the question, the account of the work, then the answer", () => {
     const [turn] = groupTurns(items);
     const html = renderToString(<AgentTurn turn={turn} />);
 
     expect(html).toContain('data-testid="turn-prompt"');
     expect(html).toContain("Worked for 4m 7s");
-    // Folded: neither the call nor the narration before it is on screen.
-    expect(html).not.toContain("find . -type d");
-    expect(html).not.toContain("exploring the tree");
+    // What the agent said between steps was said to you: it is never folded,
+    // even though it happened before the last tool call.
+    expect(html).toContain("exploring the tree");
+    // A lone step needs no fold either — its own row is already one line.
+    expect(html).toContain("find . -type d");
+    expect(html).not.toContain('data-testid="step-group"');
     // The answer on the page's own ground: prose, no bubble, no name over it.
     expect(html).toContain('data-testid="agent-prose"');
     expect(html).toContain("Gradle");
@@ -48,6 +51,31 @@ describe("AgentTurn", () => {
     const html = renderToString(<AgentTurn turn={turn} />);
     expect(html).toContain("wrap-anywhere");
     expect(html).not.toContain("break-words");
+  });
+
+  it("keeps a run of several steps folded, even with words on both sides of it", () => {
+    const read = (id: string, title: string): TranscriptItem => ({
+      id,
+      kind: "tool_call",
+      toolCall: { id, kind: "read", title, status: "completed" },
+    });
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "explain the repo" },
+      { id: "n1", kind: "agent_message_chunk", text: "Looking at a few files first." },
+      read("a", "Read go.mod"),
+      read("b", "Read main.go"),
+      { id: "n2", kind: "agent_message_chunk", text: "It is a Go module." },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+
+    // Both sentences are on the page — neither is narration hidden by a fold.
+    expect(html).toContain("Looking at a few files first.");
+    expect(html).toContain("It is a Go module.");
+    // The run between them is still behind its own fold, closed until asked for.
+    expect(html).toContain('data-testid="step-group"');
+    expect(html).toContain('data-state="collapsed"');
+    expect(html).not.toContain("go.mod");
+    expect(html).not.toContain("main.go");
   });
 
   it("follows a live turn's current step beside the orb", () => {
@@ -73,7 +101,7 @@ describe("StepGroup", () => {
     toolCall: { id, kind: "read", title, status: "completed" },
   });
 
-  it("gathers a run of steps under what kind of work it was, as plain rows", () => {
+  it("is closed by default — nothing above it hides the steps anymore", () => {
     const html = renderToString(
       <StepGroup
         items={[
@@ -83,6 +111,23 @@ describe("StepGroup", () => {
       />,
     );
     expect(html).toContain('data-testid="step-group"');
+    expect(html).toContain('data-state="collapsed"');
+    expect(html).toContain("Read files, ran commands");
+    expect(html).not.toContain("hook.go");
+  });
+
+  it("gathers a run of steps under what kind of work it was, as plain rows", () => {
+    const html = renderToString(
+      <StepGroup
+        defaultOpen
+        items={[
+          read("a", "Read internal/agenthub/hook.go"),
+          { id: "b", kind: "tool_call", toolCall: { id: "b", kind: "execute", title: "go test ./...", status: "completed" } },
+        ]}
+      />,
+    );
+    expect(html).toContain('data-testid="step-group"');
+    expect(html).toContain('data-state="expanded"');
     expect(html).toContain("Read files, ran commands");
     // Rows, not cards: a verb and what it acted on.
     expect(html).toContain('data-variant="row"');

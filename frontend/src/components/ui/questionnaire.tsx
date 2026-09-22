@@ -21,9 +21,19 @@ import { cn } from "@/lib/utils"
  * through the CSS variables, not a class.
  */
 
-/** A choice row: the whole row is the hit target (the real input covers it). */
+/**
+ * A choice row: the whole row is the hit target (the real input covers it).
+ *
+ * Grid, not flex: the indicator (col 1) and shortcut badge (col 3) only ever
+ * occupy the row's first line, but a flex row would reserve their width on
+ * every wrapped line of the label — the description would be squeezed to a
+ * column dozens of pixels narrower than the row for its whole height, wrapping
+ * early and leaving the rest of the row empty beside it. Grid rows let the
+ * description (row 2) span columns 2 and 3, reclaiming the width the shortcut
+ * only uses on row 1.
+ */
 export const QUESTIONNAIRE_CHOICE = cn(
-  "group/questionnaire-choice relative flex min-h-(--control-height-lg) min-w-0 cursor-pointer items-start gap-2.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
+  "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-x-2.5 gap-y-0.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
   "hover:bg-state-soft",
   "has-[>input:focus-visible]:border-(length:--stroke-1-5) has-[>input:focus-visible]:border-status-info",
   "data-checked:border-status-info data-checked:bg-state-soft",
@@ -33,7 +43,7 @@ export const QUESTIONNAIRE_CHOICE = cn(
 
 /** The radio dot or checkbox tick, sharing Checkbox's checked fill. */
 export const QUESTIONNAIRE_INDICATOR = cn(
-  "pointer-events-none relative flex size-4 shrink-0 translate-y-px items-center justify-center rounded-xs border border-status-info/16 bg-white/6",
+  "pointer-events-none relative col-start-1 row-start-1 flex size-4 shrink-0 translate-y-px items-center justify-center rounded-xs border border-status-info/16 bg-white/6",
   "group-has-data-[slot=questionnaire-choice-description]/questionnaire-choice:translate-y-0.5",
   "group-data-[type=radio]/questionnaire-choice:rounded-full",
   "group-data-checked/questionnaire-choice:border-action-primary group-data-checked/questionnaire-choice:bg-action-primary group-data-checked/questionnaire-choice:text-action-primary-foreground"
@@ -41,7 +51,7 @@ export const QUESTIONNAIRE_INDICATOR = cn(
 
 /** The shortcut key cap at the end of a choice, in Kbd's quiet tone. */
 export const QUESTIONNAIRE_SHORTCUT = cn(
-  "pointer-events-none ms-auto hidden size-5 shrink-0 translate-y-px items-center justify-center rounded-sm border border-border bg-surface-base font-mono text-code-11 text-text-tertiary",
+  "pointer-events-none col-start-3 row-start-1 hidden size-5 shrink-0 translate-y-px items-center justify-center justify-self-end rounded-sm border border-border bg-surface-base font-mono text-code-11 text-text-tertiary",
   "group-has-data-[slot=questionnaire-choice-description]/questionnaire-choice:translate-y-0.5",
   "group-data-[shortcut]/questionnaire-choice:inline-flex"
 )
@@ -141,6 +151,14 @@ function QuestionnaireChoice({
   className,
   ...props
 }: React.ComponentProps<typeof QuestionnairePrimitive.Choice>) {
+  // The description is pulled out of the label so it can sit on its own grid
+  // row, spanning the label *and* shortcut columns — see QUESTIONNAIRE_CHOICE.
+  const items = React.Children.toArray(children)
+  const description = items.find(
+    (child) => React.isValidElement(child) && child.type === QuestionnaireChoiceDescription
+  )
+  const label = description ? items.filter((child) => child !== description) : items
+
   return (
     <QuestionnairePrimitive.Choice
       data-slot="questionnaire-choice"
@@ -167,14 +185,15 @@ function QuestionnaireChoice({
       </span>
       <QuestionnairePrimitive.ChoiceLabel
         data-slot="questionnaire-choice-label"
-        className="flex min-w-0 flex-1 flex-col gap-0.5 text-pretty wrap-anywhere leading-snug"
+        className="col-start-2 row-start-1 min-w-0 text-pretty wrap-anywhere leading-snug"
       >
-        {children}
+        {label}
       </QuestionnairePrimitive.ChoiceLabel>
       <QuestionnairePrimitive.ChoiceShortcut
         data-slot="questionnaire-choice-shortcut"
         className={QUESTIONNAIRE_SHORTCUT}
       />
+      {description}
     </QuestionnairePrimitive.Choice>
   )
 }
@@ -186,13 +205,22 @@ function QuestionnaireChoiceDescription({
   return (
     <span
       data-slot="questionnaire-choice-description"
+      // col-span-2, row-start-2: QuestionnaireChoice renders this as a
+      // sibling of the label (not nested inside it) so it can reclaim the
+      // shortcut badge's column below the first line — see
+      // QUESTIONNAIRE_CHOICE for why that has to be a grid row rather than
+      // part of the label's own flex column.
+      //
       // wrap-anywhere, not break-words: a description quoting a URL or path
       // (no spaces to wrap at) otherwise sets the choice row's min-content
       // width to the whole string, pushing it past the rail and clipping the
       // rest under overflow-hidden instead of wrapping — break-word is
       // excluded from that min-content calculation by spec, so it alone
       // never actually stopped the row from being sized that way.
-      className={cn("text-body-12 text-pretty wrap-anywhere text-text-tertiary", className)}
+      className={cn(
+        "col-start-2 col-span-2 row-start-2 min-w-0 text-body-12 text-pretty wrap-anywhere text-text-tertiary",
+        className
+      )}
       {...props}
     />
   )
