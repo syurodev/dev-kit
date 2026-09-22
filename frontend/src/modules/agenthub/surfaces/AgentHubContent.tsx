@@ -124,13 +124,16 @@ export type AgentHubContentProps = {
    * picked in the composer; nothing exists on the backend until the first
    * message is sent. Takes precedence over `session`.
    */
-  draft?: { projectPath: string; parentName?: string } | null;
+  draft?: { projectPath: string; parentName?: string; workspaceSelected?: boolean } | null;
   /** Projects the draft's picker offers, most recent first. */
   projects?: string[];
   /** Sets the draft's folder; "" is no project. */
   onProjectChange?: (path: string) => void;
   /** Opens the native folder picker for a project not in the list. */
   onChooseProject?: () => void;
+  /** The current workspace, offered as "grant every service" in the picker. */
+  workspace?: { name: string; paths: string[] } | null;
+  onChooseWorkspace?: (paths: string[]) => void;
   agents?: string[];
   agent?: string;
   onAgentChange?: (agent: string) => void;
@@ -245,6 +248,8 @@ export function AgentHubContent({
   projects = [],
   onProjectChange,
   onChooseProject,
+  workspace = null,
+  onChooseWorkspace,
   agents = [],
   agent = "claude",
   onAgentChange,
@@ -525,6 +530,9 @@ export function AgentHubContent({
                 projects={projects}
                 onChange={onProjectChange}
                 onChooseFolder={onChooseProject}
+                workspace={workspace}
+                onChooseWorkspace={onChooseWorkspace}
+                workspaceSelected={Boolean(draft.workspaceSelected)}
                 disabled={Boolean(draft.parentName)}
               />
             </div>

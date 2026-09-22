@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { uiStateStorage } from "@/bridge/uistate";
-import { listWorkspaceServices, type WorkspaceService } from "@/bridge/workspace";
+import { listWorkspaces, listWorkspaceServices, type Workspace, type WorkspaceService } from "@/bridge/workspace";
 
 type WorkspaceSwitcherState = {
   /**
@@ -32,30 +32,45 @@ export const useWorkspaceSwitcherStore = create<WorkspaceSwitcherState>()(
 );
 
 /**
- * The current workspace's services — what Code Graph's and Git's project
- * switchers list instead of an arbitrary "open a folder" picker. Re-fetches
- * whenever the current workspace changes; `loaded` starts false so callers
- * can tell "no workspace yet" apart from "still asking Go."
+ * The current workspace and its services — what Code Graph's and Git's
+ * project switchers list instead of an arbitrary "open a folder" picker, and
+ * what Agent Hub's draft picker offers as "grant every service" (workspace
+ * name included, for that item's label). Re-fetches whenever the current
+ * workspace changes; `loaded` starts false so callers can tell "no workspace
+ * yet" apart from "still asking Go."
  */
-export function useCurrentWorkspaceServices(): { services: WorkspaceService[]; loaded: boolean } {
+export function useCurrentWorkspaceServices(): {
+  workspace: Workspace | null;
+  services: WorkspaceService[];
+  loaded: boolean;
+} {
   const workspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [services, setServices] = useState<WorkspaceService[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!workspaceId) {
+      setWorkspace(null);
       setServices([]);
       setLoaded(true);
       return;
     }
     let cancelled = false;
     setLoaded(false);
-    listWorkspaceServices(workspaceId)
-      .then((list) => {
-        if (!cancelled) setServices(list);
+    // listWorkspaces() rather than a get-by-id bridge method: there isn't
+    // one, and the list is small (this machine's own registry).
+    Promise.all([listWorkspaces(), listWorkspaceServices(workspaceId)])
+      .then(([workspaces, list]) => {
+        if (cancelled) return;
+        setWorkspace(workspaces.find((w) => w.id === workspaceId) ?? null);
+        setServices(list);
       })
       .catch(() => {
-        if (!cancelled) setServices([]);
+        if (!cancelled) {
+          setWorkspace(null);
+          setServices([]);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -65,5 +80,5 @@ export function useCurrentWorkspaceServices(): { services: WorkspaceService[]; l
     };
   }, [workspaceId]);
 
-  return { services, loaded };
+  return { workspace, services, loaded };
 }

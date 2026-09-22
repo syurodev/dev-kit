@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
-import { Check, ChevronDown, Folder, FolderX, Plus, Search, X } from "lucide-react";
+import { Boxes, Check, ChevronDown, Folder, FolderX, Plus, Search, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -32,6 +32,9 @@ export function ProjectPicker({
   projects,
   onChange,
   onChooseFolder,
+  workspace = null,
+  onChooseWorkspace,
+  workspaceSelected = false,
   disabled = false,
 }: {
   value: string;
@@ -40,6 +43,16 @@ export function ProjectPicker({
   onChange: (path: string) => void;
   /** Opens the native folder picker; the view sets the draft's folder from it. */
   onChooseFolder: () => void;
+  /**
+   * The current workspace (docs/dev-kit/workspace.mdx), if one is selected —
+   * offered as a single item that grants every one of its services rather
+   * than picking one. A workspace's services do not necessarily share a root
+   * `value` could cover, so this is not the same thing as picking `paths[0]`.
+   */
+  workspace?: { name: string; paths: string[] } | null;
+  onChooseWorkspace?: (paths: string[]) => void;
+  /** True while the draft holds the whole workspace rather than one folder. */
+  workspaceSelected?: boolean;
   disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -69,12 +82,20 @@ export function ProjectPicker({
             "disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-state-soft",
           )}
         >
-          {value ? (
+          {workspaceSelected ? (
+            <Boxes aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : value ? (
             <Folder aria-hidden="true" className="size-3.5 shrink-0" />
           ) : (
             <FolderX aria-hidden="true" className="size-3.5 shrink-0" />
           )}
-          <span className="min-w-0 truncate">{value ? projectLabel(value) : "No project"}</span>
+          <span className="min-w-0 truncate">
+            {workspaceSelected && workspace
+              ? `${workspace.name} (${workspace.paths.length})`
+              : value
+                ? projectLabel(value)
+                : "No project"}
+          </span>
           <ChevronDown aria-hidden="true" className="size-3 shrink-0 text-text-tertiary" />
         </button>
       </PopoverTrigger>
@@ -99,6 +120,24 @@ export function ProjectPicker({
             <CommandPrimitive.Empty className="px-2 py-3 text-body-13 text-text-tertiary">
               No matching project
             </CommandPrimitive.Empty>
+            {/* Above the individual services, on purpose: it is the more
+                deliberate choice of the two, and a workspace with many
+                services would otherwise bury it under them. */}
+            {workspace && onChooseWorkspace ? (
+              <CommandPrimitive.Item
+                value={`${workspace.name} workspace all folders`}
+                data-testid="draft-project-workspace"
+                onSelect={() => pick(() => onChooseWorkspace(workspace.paths))}
+                className={itemClass}
+              >
+                <Boxes aria-hidden="true" className="size-3.5 shrink-0 text-icon-secondary" />
+                <span className="shrink-0 text-text-primary">{workspace.name}</span>
+                <span className="min-w-0 flex-1 truncate text-text-tertiary">
+                  all {workspace.paths.length} folders
+                </span>
+                {workspaceSelected ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+              </CommandPrimitive.Item>
+            ) : null}
             {projects.map((path) => (
               <CommandPrimitive.Item
                 key={path}
@@ -110,7 +149,7 @@ export function ProjectPicker({
                 <Folder aria-hidden="true" className="size-3.5 shrink-0 text-icon-secondary" />
                 <span className="shrink-0 text-text-primary">{projectLabel(path)}</span>
                 <span className="min-w-0 flex-1 truncate text-text-tertiary">{projectParent(path)}</span>
-                {path === value ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+                {!workspaceSelected && path === value ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
               </CommandPrimitive.Item>
             ))}
           </CommandPrimitive.List>
