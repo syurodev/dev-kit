@@ -29,7 +29,6 @@ import { errorMessage, toAppError } from "@/bridge/errors";
 import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } from "./codegraphStore";
 import { isNoPlanError, isProjectChangedError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
-import { rememberProject } from "./recentProjects";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import type { Placement } from "@/workbench/intents";
@@ -218,7 +217,6 @@ export async function reindex(path: string) {
     await loadFiles();
     if (!current()) return;
     set({ status: indexedStatus(detected.modules.length, list.length) });
-    rememberProject(path);
     // The flows still open were drawn from the index just replaced.
     if (sameProject) void refreshOpenFlows();
   } catch (e) {
@@ -319,7 +317,6 @@ async function restoreProject() {
   await refreshAfterReindex();
   if (snapshot().projectPath === root) {
     set({ status: "" });
-    rememberProject(root);
   }
 }
 

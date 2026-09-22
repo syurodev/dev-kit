@@ -1,10 +1,16 @@
-import { useRef, useState, type ComponentType, type ReactNode } from "react";
+import { useState, type ComponentType, type ReactNode, useRef } from "react";
 import { FolderGit2, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { agentHubChooseDirectory } from "@/bridge/agenthub";
 import type { Repository } from "@/bridge/git";
 import { useModuleFolder } from "@/stores/workFolder";
+import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
 import { StatePill } from "./GitParts";
 import { NoRepositories, RepositoryList, useGitProject, useRepositories } from "./GitRepositories";
 import { repositoryRoot } from "./repositories";
@@ -28,31 +34,67 @@ export function withGitFolder(View: ComponentType, options: { bar?: boolean } = 
   };
 }
 
-/** Choosing a folder for Git alone. A cancelled dialog is "", and Git keeps the folder it had. */
-function useFolderPicker() {
-  const { folder, pin } = useModuleFolder("git");
-  const [error, setError] = useState("");
-  async function openFolder() {
-    setError("");
-    try {
-      const picked = await agentHubChooseDirectory(folder);
-      if (picked) await pin(picked);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-  return { openFolder, error };
+/**
+ * Pointing Git at one of the current workspace's services — the folder
+ * picker this used to open (agentHubChooseDirectory) is gone: a folder Git
+ * could work in is a service somewhere in a workspace now, and adding one
+ * not yet registered is the title bar workspace switcher's job.
+ */
+function WorkspaceServicePicker({
+  onPick,
+  disabled,
+}: {
+  onPick: (path: string) => void;
+  disabled?: boolean;
+}) {
+  const { services } = useCurrentWorkspaceServices();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" disabled={disabled}>
+          Choose service…
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        {services.length === 0 ? (
+          <DropdownMenuItem disabled>No workspace selected</DropdownMenuItem>
+        ) : (
+          services.map((svc) => (
+            <DropdownMenuItem
+              key={svc.id}
+              icon={<FolderGit2 />}
+              className="h-auto min-h-11 py-1.5"
+              onSelect={() => onPick(svc.path)}
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{svc.name}</span>
+                <span className="truncate text-code-11 text-text-tertiary">{svc.path}</span>
+              </span>
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 /**
  * Figma `Git / Folder Bar`: the folder Git is in, whether it is following Code
- * Graph or pinned, and the two ways out of either.
+ * Graph or pinned, and the way out of either.
  */
 export function GitFolderBar() {
-  const { folder, current, pinned, follow } = useModuleFolder("git");
-  const { openFolder, error: pickError } = useFolderPicker();
+  const { folder, current, pinned, follow, pin } = useModuleFolder("git");
+  const [pinError, setPinError] = useState("");
   const [followError, setFollowError] = useState("");
-  const error = pickError || followError;
+  const error = pinError || followError;
+  async function choose(path: string) {
+    setPinError("");
+    try {
+      await pin(path);
+    } catch (e) {
+      setPinError((e as Error).message);
+    }
+  }
   return (
     <div className="flex items-center gap-2.5">
       <FolderGit2 className="size-(--icon-14) shrink-0 text-text-secondary" aria-hidden />
@@ -77,9 +119,7 @@ export function GitFolderBar() {
           {current ? "Follow open project" : "Follow"}
         </Button>
       ) : null}
-      <Button variant="outline" onClick={openFolder}>
-        Open folder…
-      </Button>
+      <WorkspaceServicePicker onPick={choose} />
     </div>
   );
 }
@@ -87,7 +127,6 @@ export function GitFolderBar() {
 function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
   const { loaded, folder, current, pin, follow } = useModuleFolder("git");
   const [error, setError] = useState("");
-  const { openFolder, error: pickError } = useFolderPicker();
   // The repositories in the folder the app has open, so Git can offer its
   // neighbours while it is pinned to one of them.
   const { repos, loading, reload } = useRepositories(repositoryRoot(current, folder));
@@ -106,13 +145,18 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
     }
   }
 
+  async function choosePath(path: string) {
+    setError("");
+    try {
+      await pin(path);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   const showBar = loaded && !!folder && (bar || project === "");
-  // With the bar up, its own button is the way to another folder.
-  const openButton = showBar ? null : (
-    <Button variant="outline" onClick={openFolder}>
-      Open folder…
-    </Button>
-  );
+  // With the bar up, its own picker is the way to another service.
+  const openButton = showBar ? null : <WorkspaceServicePicker onPick={choosePath} />;
 
   const lastBody = useRef<ReactNode>(null);
   let body: ReactNode;
@@ -123,7 +167,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
       <EmptyState
         icon={GitBranch}
         title="No folder open"
-        body="Git works in the folder Code Graph has open. Open a project there, or pick a folder for Git alone."
+        body="Git works in the folder Code Graph has open. Open a project there, or pick a workspace service for Git alone."
       >
         {openButton}
       </EmptyState>
@@ -154,7 +198,6 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
   }
   if (project !== null) lastBody.current = body;
 
-  const problem = error || (showBar ? "" : pickError);
   return (
     <div className="flex h-full min-h-0 flex-col">
       {showBar ? (
@@ -162,9 +205,9 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
           <GitFolderBar />
         </div>
       ) : null}
-      {problem ? (
+      {error ? (
         <p className="shrink-0 px-4 pt-3 text-caption-11 text-status-danger" role="alert">
-          {problem}
+          {error}
         </p>
       ) : null}
       <div className="min-h-0 flex-1">{body}</div>

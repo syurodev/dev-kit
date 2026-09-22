@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, FolderGit2, FolderOpen, RotateCw } from "lucide-react";
+import { Check, ChevronDown, FolderGit2, RotateCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { CodeGraphIndexInfo } from "@/bridge/codegraph";
-import { useRecentProjectsStore } from "../recentProjects";
-import { indexStatusLine, projectLabel, relativeTime, type IndexTone } from "./sidebarModel";
+import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
+import { indexStatusLine, projectLabel, type IndexTone } from "./sidebarModel";
 
 /** Re-renders every `ms`, for "2m ago" to keep counting. */
 export function useNow(ms = 30_000): number {
@@ -42,7 +41,6 @@ export function ProjectHeader({
   counts,
   busy,
   onReindex,
-  onPickProject,
   onOpenProject,
 }: {
   projectPath: string;
@@ -50,11 +48,10 @@ export function ProjectHeader({
   counts: { endpoints: number; services: number };
   busy: boolean;
   onReindex: () => void;
-  onPickProject: () => void;
   onOpenProject: (path: string) => void;
 }) {
   const now = useNow();
-  const recent = useRecentProjectsStore((s) => s.projects);
+  const { services } = useCurrentWorkspaceServices();
   const { name, where } = projectLabel(projectPath);
   const branch = indexInfo?.branch;
   const status = indexStatusLine(busy && indexInfo ? { ...indexInfo, indexing: true } : indexInfo, counts, now);
@@ -78,32 +75,30 @@ export function ProjectHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-72">
-            {recent.length > 0 ? <DropdownMenuLabel>Recent projects</DropdownMenuLabel> : null}
-            {recent.map((p) => {
-              const label = projectLabel(p.path);
-              const current = p.path === projectPath;
+            {services.length === 0 ? (
+              <DropdownMenuItem disabled>No workspace selected</DropdownMenuItem>
+            ) : (
+              <DropdownMenuLabel>Workspace services</DropdownMenuLabel>
+            )}
+            {services.map((svc) => {
+              const current = svc.path === projectPath;
               return (
                 <DropdownMenuItem
-                  key={p.path}
+                  key={svc.id}
                   icon={current ? <Check /> : <FolderGit2 />}
-                  detail={relativeTime(p.openedAt, now)}
                   disabled={busy}
                   // Two lines, a name over its folder: taller than the menu's
                   // one-line row, which would draw them over each other.
                   className="h-auto min-h-11 py-1.5"
-                  onSelect={() => !current && onOpenProject(p.path)}
+                  onSelect={() => !current && onOpenProject(svc.path)}
                 >
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{label.name}</span>
-                    <span className="truncate text-code-11 text-text-tertiary">{label.where}</span>
+                    <span className="truncate">{svc.name}</span>
+                    <span className="truncate text-code-11 text-text-tertiary">{svc.path}</span>
                   </span>
                 </DropdownMenuItem>
               );
             })}
-            {recent.length > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem icon={<FolderOpen />} disabled={busy} onSelect={onPickProject}>
-              Open project…
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip>
