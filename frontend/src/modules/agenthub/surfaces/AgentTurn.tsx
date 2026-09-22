@@ -205,14 +205,6 @@ export const AgentTurn = React.memo(function AgentTurn({
         </div>
       ) : null}
 
-      {/* What the project looks like after, beside what the agent said it did.
-          Outside the work fold on purpose: the fold is the account of the work,
-          and this is the result — a turn whose only visible act was one shell
-          command can still have changed twenty files. */}
-      {checkpoint ? (
-        <AgentTurnChanges checkpoint={checkpoint} loadDiff={loadFileDiff} />
-      ) : null}
-
       {answer.map((item) => (
         <MessageActions
           key={item.id}
@@ -234,6 +226,14 @@ export const AgentTurn = React.memo(function AgentTurn({
           </div>
         </MessageActions>
       ))}
+
+      {/* What the project looks like after, beside what the agent said it did.
+          Last, not up front with the work: the fold above is the account of
+          the work and this is its result, but the result of the answer you
+          just read, so it reads after that answer rather than before it. */}
+      {checkpoint ? (
+        <AgentTurnChanges checkpoint={checkpoint} loadDiff={loadFileDiff} />
+      ) : null}
 
       {activity ? (
         <div
