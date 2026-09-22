@@ -90,6 +90,13 @@ const (
 	TableNoteLinks = "note_links"
 
 	TableAuditEvents = "audit_events"
+
+	// TableWorkspaces and TableWorkspaceServices are the multi-repo registry
+	// (docs/dev-kit/workspace.mdx): a name and a root, and the (name, path)
+	// pairs auto-discovery resolved under it. Machine-local like env_tags —
+	// a path is only ever correct on the machine that resolved it.
+	TableWorkspaces        = "workspaces"
+	TableWorkspaceServices = "workspace_services"
 )
 
 var chmodFile = os.Chmod
@@ -963,7 +970,40 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27})
+	m28 := Migration{
+		Version: 28,
+		Name:    "create workspaces and workspace_services",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					root TEXT NOT NULL
+				)`, TableWorkspaces,
+			)); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					path TEXT NOT NULL,
+					name_source TEXT NOT NULL
+				)`, TableWorkspaceServices,
+			)); err != nil {
+				return err
+			}
+			// Listing a workspace's services is the read this table exists for.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_workspace_services_workspace ON %s (workspace_id)`,
+				TableWorkspaceServices,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28})
 	if err != nil {
 		return err
 	}

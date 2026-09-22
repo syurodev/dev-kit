@@ -35,6 +35,7 @@ import (
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 	"devkit/internal/workfolder"
+	"devkit/internal/workspace"
 )
 
 // SyncService is the narrow runtime contract exposed to the bridge. Keeping it
@@ -116,6 +117,11 @@ type Container struct {
 	APIClient    *apiclient.Service
 	Sync         SyncService
 	SyncConflict SyncConflictService
+	// Workspace is the multi-repo registry (docs/dev-kit/workspace.mdx).
+	// Built with an in-memory repository here; main.go overrides it with a
+	// SQL-backed one once the real database is open, same as Preferences
+	// and UIState below.
+	Workspace *workspace.Service
 	// CodexSessions stores what an external Codex CLI session reported through
 	// its lifecycle hooks — a session DevKit did not spawn and does not run.
 	// Nil in ephemeral containers, which leaves it read-only-empty: the MCP
@@ -228,6 +234,14 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},
+		// Workspace: choosing the folder and adding it are UI-only today (no
+		// MCP tool reads or writes the registry yet), same split as ws:read
+		// vs ws:write below.
+		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "workspace:list"},
+		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "service:*"},
+		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:new"},
+		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:*"},
+		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "folder:choose"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:active"},
@@ -417,5 +431,6 @@ func NewContainerWithStores(
 		WorkFolder:  workfolder.NewService(),
 		GitBindings: NewGitBindings(itemStore),
 		APIClient:   apiclient.NewService(itemStore, envService),
+		Workspace:   workspace.NewService(workspace.NewMemoryRepository()),
 	}
 }
