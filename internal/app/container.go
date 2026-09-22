@@ -325,6 +325,10 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_notifications"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_notifications"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_checkpoints"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_checkpoints"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_sandbox"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_sandbox"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "accounts_reveal"},
 		// Accounts: read and write are the module's; reveal is a capability the
 		// MCP subject is never granted, which is how "an agent cannot read a
