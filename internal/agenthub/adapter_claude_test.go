@@ -236,6 +236,38 @@ func TestClaudeSandboxPolicyCarriesSpec(t *testing.T) {
 	}
 }
 
+// OpenSpec.PrivateHome, set by applySandboxExtras from RelaxedHome, must
+// reach sandbox.Policy.PrivateHome unchanged — nil leaves the adapter's own
+// default (private home on), a pointer to false turns it off.
+func TestClaudeSandboxPolicyCarriesPrivateHome(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir()
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin})
+
+	pol, _, err := a.buildSandbox(OpenSpec{Cwd: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol.PrivateHome != nil {
+		t.Fatalf("pol.PrivateHome = %v, want nil when the spec carries none", pol.PrivateHome)
+	}
+
+	relaxed := false
+	pol, _, err = a.buildSandbox(OpenSpec{Cwd: proj, PrivateHome: &relaxed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol.PrivateHome == nil || *pol.PrivateHome != false {
+		t.Fatalf("pol.PrivateHome = %v, want a pointer to false", pol.PrivateHome)
+	}
+	if pol.EffectivePrivateHome() {
+		t.Fatal("EffectivePrivateHome() = true, want false with RelaxedHome carried through")
+	}
+}
+
 // DOCKER_HOST must reach the jail's env: the socket bind alone is not
 // enough, since the jail's private HOME hides the docker CLI's own context
 // config that would otherwise say which socket to use.

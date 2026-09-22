@@ -26,6 +26,14 @@ type OpenSpec struct {
 	// telling it which socket to use, even though the socket itself is bound
 	// in), and DOCKER_HOST is the one env var that tells it directly.
 	ExtraEnv map[string]string
+	// PrivateHome overrides sandbox.Policy.PrivateHome when non-nil. Nil keeps
+	// the adapter's own default (private home on). Set to a pointer to false
+	// by applySandboxExtras when the user opted into
+	// preferences.AgentSandboxSettings.RelaxedHome — the jail then binds the
+	// real $HOME instead of tmpfs-ing it, while sandbox.Policy's own deny list
+	// (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud) still applies unconditionally
+	// on top, the same as it does with private home on.
+	PrivateHome *bool
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).

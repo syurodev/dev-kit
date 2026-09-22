@@ -40,17 +40,18 @@ export interface AgentCheckpointSettings {
 /**
  * AgentSandboxSettings widens the jail Agent Hub's vendor processes run under,
  * beyond what a session grants on its own (the devkit-mcp socket, the vendor's
- * own credential paths). Both fields are opt-in escapes from the default-deny
- * policy documented in docs/dev-kit/sandbox.mdx, so the zero value — off,
- * empty — must leave the jail exactly as restrictive as it is today.
- * 
- * Neither field is validated against the filesystem here: a path that does not
- * exist yet (a Docker socket before the daemon starts) is not a typo, and
- * sandbox.Policy already skips binds for paths that are not there. What IS
- * still enforced, unconditionally, is sandbox.Policy's own deny list
- * (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud): a path resolving under one of
- * those is rejected at session-open time, not accepted here and silently
- * dropped later.
+ * own credential paths). All three fields are opt-in escapes from the
+ * default-deny policy documented in docs/dev-kit/sandbox.mdx, so the zero
+ * value — off, empty — must leave the jail exactly as restrictive as it is
+ * today.
+ *
+ * The two path fields are not validated against the filesystem here: a path
+ * that does not exist yet (a Docker socket before the daemon starts) is not a
+ * typo, and sandbox.Policy already skips binds for paths that are not there.
+ * What IS still enforced, unconditionally and regardless of RelaxedHome, is
+ * sandbox.Policy's own deny list (~/.ssh, ~/.gnupg, ~/.aws,
+ * ~/.config/gcloud): a path resolving under one of those is rejected at
+ * session-open time, not accepted here and silently dropped later.
  */
 export interface AgentSandboxSettings {
     /**
@@ -70,6 +71,21 @@ export interface AgentSandboxSettings {
      * see — not a substitute for widening WorkDir itself.
      */
     "extraReadOnlyPaths"?: string[] | null;
+
+    /**
+     * RelaxedHome turns off the jail's private HOME (sandbox.Policy.PrivateHome)
+     * so a session sees the real $HOME instead of an empty tmpfs, for whatever
+     * under it the two fields above were not asked to enumerate one path at a
+     * time (Docker's ~/.docker/config.json needed its own DOCKER_HOST workaround
+     * above; the next tool that reads a home-rooted config would need its own
+     * fix again). It does NOT touch sandbox.Policy's own deny list: ~/.ssh,
+     * ~/.gnupg, ~/.aws and ~/.config/gcloud stay hidden by a kernel-level
+     * tmpfs/null-bind (EffectiveDenyRead), same as with PrivateHome on, and a
+     * path resolving under one of those is still rejected at session-open time
+     * regardless of this flag. False (off) by default: the jail keeps hiding
+     * all of $HOME except what a session explicitly grants.
+     */
+    "relaxedHome"?: boolean;
 }
 
 export enum Theme {

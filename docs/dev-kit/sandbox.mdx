@@ -298,15 +298,49 @@ else. Widening the jail this way still cannot open a hole into the sensitive
 deny list.
 
 **Wired to the desktop UI.** Settings → Agents → Sandbox
-(`frontend/src/modules/settings/AgentSandboxSetting.tsx`) edits both fields
-through `getAgentSandbox`/`saveAgentSandbox`
+(`frontend/src/modules/settings/AgentSandboxSetting.tsx`) edits all three
+fields through `getAgentSandbox`/`saveAgentSandbox`
 (`frontend/src/bridge/preferences.ts`), which call the
 `PreferencesGetAgentSandbox` / `PreferencesSetAgentSandbox` bridge methods
 above. The Docker socket is a single text field (no picker — a unix socket is
 not reliably selectable through a native file dialog); extra read-only paths
 are a list, added by the native folder picker or by typing a path and
-pressing Enter. One save writes both fields together, since
+pressing Enter. One save writes all fields together, since
 `PreferencesSetAgentSandbox` takes the whole struct.
+
+### `RelaxedHome` (Implemented)
+
+The two fields above widen the jail one exact path at a time — which is
+correct for a specific escape (Docker's socket) but means every tool that
+reads something under `$HOME` (a `kubeconfig`, `.npmrc`, a language's own
+config dir, next month's tool nobody has asked about yet) needs its own
+research-and-fix cycle the way Docker did (socket bind *and* `DOCKER_HOST`,
+because `PrivateHome` had already hidden `~/.docker/config.json`).
+`AgentSandboxSettings.RelaxedHome` is the coarser escape hatch for that: when
+on, `agenthub.Service.applySandboxExtras` sets `OpenSpec.PrivateHome` to a
+pointer to `false`, which `ClaudeAdapter.sandboxFor` forwards straight to
+`sandbox.Policy.PrivateHome`. `EffectivePrivateHome()` then reports false, so
+neither backend tmpfs-hides `$HOME` any more — the jail binds the real thing,
+same as `WorkDir` always has been.
+
+**This does not touch the deny list.** `sandbox.Policy.EffectiveDenyRead()` —
+`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`, plus whatever
+`DenyReadPaths`/`ExtraReadOnlyPaths` validation already rejects — is applied
+unconditionally in both `buildBwrapArgs` and `buildSeatbeltProfile`, whether
+or not `PrivateHome` is on. bwrap's tmpfs/null-bind denies and Seatbelt's
+`(deny …)` rules are emitted from the same `denyPaths` regardless of this
+flag, so turning `RelaxedHome` on trades "agent cannot see `$HOME` at all"
+for "agent sees `$HOME` except the same fixed set of credential
+directories" — it does not turn the sandbox into a blacklist model for the
+rest of the filesystem (root, other users, everything bwrap already
+`--unshare`s away is untouched) and it does not relax `Network`,
+`AllowUnixSockets`, or anything else in `Policy`.
+
+Real widening, same as any grant here: the agent can now read cookie
+stores, shell history, and any other project checked out under `$HOME`, not
+just the config file it needed. Off by default; a machine that never opens
+Settings → Agents → Sandbox keeps the private, tmpfs'd home it always had.
+Does not apply to a session already running, same as the other two fields.
 
 ## Ops / tests
 
