@@ -19,6 +19,13 @@ type OpenSpec struct {
 	McpServers []acp.McpServerStdio
 	// ReadOnlyPaths are extra RO binds — the devkit-mcp proxy binary.
 	ReadOnlyPaths []string
+	// ExtraEnv is merged into the vendor's sandbox environment, winning over
+	// the base allowlist and the vendor's own launch env. Exists for
+	// applySandboxExtras's Docker widening: the jail's private HOME hides the
+	// host's real ~/.docker (so a docker CLI inside it has no context config
+	// telling it which socket to use, even though the socket itself is bound
+	// in), and DOCKER_HOST is the one env var that tells it directly.
+	ExtraEnv map[string]string
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).
