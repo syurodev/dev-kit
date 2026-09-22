@@ -38,6 +38,7 @@ import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
+import { AgentSandboxSetting } from "./AgentSandboxSetting";
 import {
   Select,
   SelectContent,
@@ -821,6 +822,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>CODEX (OBSERVED)</GroupLabel>
         <CodexSessionsSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>SANDBOX</GroupLabel>
+        <AgentSandboxSetting />
       </div>
     </TabColumn>
   );

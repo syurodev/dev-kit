@@ -1641,6 +1641,15 @@ export function PreferencesGetAgentNotifications(): $CancellablePromise<boolean>
     return $Call.ByID(2656868863);
 }
 
+/**
+ * PreferencesGetAgentSandbox reads how far Agent Hub's vendor jail is widened
+ * beyond a session's own grants (Docker socket, extra read-only paths). Off
+ * by default.
+ */
+export function PreferencesGetAgentSandbox(): $CancellablePromise<preferences$0.AgentSandboxSettings> {
+    return $Call.ByID(197792724);
+}
+
 export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> {
     return $Call.ByID(1151267161);
 }
@@ -1678,6 +1687,16 @@ export function PreferencesSetAgentCheckpoints(settings: preferences$0.AgentChec
  */
 export function PreferencesSetAgentNotifications(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(3283860843, enabled);
+}
+
+/**
+ * PreferencesSetAgentSandbox stores the widened jail settings. Applied on the
+ * next session spawn/resume/fork (agenthub.Service.SandboxExtras reads fresh
+ * every time), not the running ones — a live vendor process was already
+ * started under the narrower jail and cannot be widened in place.
+ */
+export function PreferencesSetAgentSandbox(settings: preferences$0.AgentSandboxSettings): $CancellablePromise<void> {
+    return $Call.ByID(3347387056, settings);
 }
 
 export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePromise<void> {

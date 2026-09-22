@@ -37,6 +37,41 @@ export interface AgentCheckpointSettings {
     "extraExcludes"?: string[] | null;
 }
 
+/**
+ * AgentSandboxSettings widens the jail Agent Hub's vendor processes run under,
+ * beyond what a session grants on its own (the devkit-mcp socket, the vendor's
+ * own credential paths). Both fields are opt-in escapes from the default-deny
+ * policy documented in docs/dev-kit/sandbox.mdx, so the zero value — off,
+ * empty — must leave the jail exactly as restrictive as it is today.
+ * 
+ * Neither field is validated against the filesystem here: a path that does not
+ * exist yet (a Docker socket before the daemon starts) is not a typo, and
+ * sandbox.Policy already skips binds for paths that are not there. What IS
+ * still enforced, unconditionally, is sandbox.Policy's own deny list
+ * (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud): a path resolving under one of
+ * those is rejected at session-open time, not accepted here and silently
+ * dropped later.
+ */
+export interface AgentSandboxSettings {
+    /**
+     * DockerSocketPath is a unix socket the jail may connect to — typically
+     * /var/run/docker.sock — granted the same way the per-session devkit-mcp
+     * socket is (an exact literal path, never a wildcard). Empty means the
+     * jail cannot reach Docker, which is the default: an unfiltered
+     * network-outbound grant reaches every unix socket on the host, not just
+     * Docker's, which is exactly what AllowUnixSockets exists to avoid.
+     */
+    "dockerSocketPath"?: string;
+
+    /**
+     * ExtraReadOnlyPaths are additional directories or files, outside the
+     * project's own WorkDir, that every agent session may read. Use for a
+     * shared library or a monorepo sibling the agent legitimately needs to
+     * see — not a substitute for widening WorkDir itself.
+     */
+    "extraReadOnlyPaths"?: string[] | null;
+}
+
 export enum Theme {
     /**
      * The Go zero value for the underlying type of the enum.
