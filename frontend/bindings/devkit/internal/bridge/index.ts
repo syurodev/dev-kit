@@ -20,5 +20,6 @@ export type {
     SyncReportDTO,
     SyncStatusDTO,
     VaultSearchResult,
-    VaultStatusDTO
+    VaultStatusDTO,
+    WorkspaceAddResult
 } from "./models.js";

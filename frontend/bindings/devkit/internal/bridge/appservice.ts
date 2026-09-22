@@ -61,6 +61,9 @@ import * as tasks$0 from "../tasks/models.js";
 import * as workfolder$0 from "../workfolder/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as workspace$0 from "../workspace/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -2010,4 +2013,45 @@ export function WorkFolderPin($module: string, folder: string): $CancellableProm
  */
 export function WorkFolderState(): $CancellablePromise<workfolder$0.State> {
     return $Call.ByID(1076132276);
+}
+
+/**
+ * WorkspaceAdd registers root as a new workspace. name may be empty — see
+ * workspace.Service.AddWorkspace for the folder-name fallback and the
+ * auto-discovery split this runs.
+ */
+export function WorkspaceAdd(name: string, root: string): $CancellablePromise<$models.WorkspaceAddResult> {
+    return $Call.ByID(2326927766, name, root);
+}
+
+/**
+ * WorkspaceChooseFolder opens the native folder picker for a workspace's
+ * root. Same shape as TasksBoardChooseProject: cancelling returns "" and is
+ * not an error, since backing out of a picker is not a failure the user
+ * caused.
+ */
+export function WorkspaceChooseFolder(startIn: string): $CancellablePromise<string> {
+    return $Call.ByID(3899642854, startIn);
+}
+
+/**
+ * WorkspaceDelete removes a workspace and every service under it from the
+ * registry. It never touches the underlying folders.
+ */
+export function WorkspaceDelete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1684357104, id);
+}
+
+/**
+ * WorkspaceList returns every registered workspace.
+ */
+export function WorkspaceList(): $CancellablePromise<workspace$0.Workspace[] | null> {
+    return $Call.ByID(2589303803);
+}
+
+/**
+ * WorkspaceListServices returns every service registered under workspaceID.
+ */
+export function WorkspaceListServices(workspaceID: string): $CancellablePromise<workspace$0.WorkspaceService[] | null> {
+    return $Call.ByID(2130719223, workspaceID);
 }

@@ -13,6 +13,7 @@ import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { DocumentGroups } from "./DocumentGroups";
 import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
@@ -715,6 +716,11 @@ export function Workbench() {
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
           </Tooltip>
+          {/* Also outside the three zones, right after sidebar toggle — the
+              multi-repo registry (workspace.mdx) is a window-wide context,
+              not a module or app action. Breaks the icon-only rule the rest
+              of the bar follows because a workspace's name is the point. */}
+          <WorkspaceSwitcher />
           {/* Its own zone, centred on the WINDOW rather than between its
               neighbours: the two side clusters differ in width per module and
               per platform, and a switcher that drifted with them would not stay
