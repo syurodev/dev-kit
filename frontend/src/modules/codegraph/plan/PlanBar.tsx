@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { Check, Info, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -8,7 +8,10 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { CodeGraphPlanProgress } from "@/bridge/codegraphPlan";
+import { aggregateLabel, PLAN_BADGE } from "./planStatus";
 
 /**
  * What the empty state (PlanDocument's "No plan for this project yet") tells
@@ -76,11 +79,17 @@ export function PlanHeader({ plan }: { plan: CodeGraphPlanProgress }) {
 }
 
 /**
- * The right half: "in_progress · 2/5 · 5 nodes · 4 edges" and the one
+ * The right half: "In progress · 2/5 nodes · 4 edges" and the one
  * human-only action.
  *
  * Approval is deliberately a single decision for the entire plan, not per node
  * — codegraph.mdx § "Bridge & MCP mới". A draft plan is inert until it happens.
+ *
+ * The count folds the done/total fraction and the node total into one
+ * segment ("2/5 nodes" rather than "2/5 · 5 nodes", which said the same 5
+ * twice) and Refresh drops its label — every other canvas control
+ * (CanvasToolbar's search/fit/expand) is already icon-only with a tooltip,
+ * and this is the one row that hadn't caught up.
  */
 export function PlanMeta({
   plan,
@@ -99,20 +108,34 @@ export function PlanMeta({
 
   return (
     <>
-      <span className="text-code-11 text-text-tertiary">
-        {plan.aggregate} · {done}/{plan.nodes.length} · {plan.nodes.length} nodes · {edgeCount}{" "}
-        edges
+      <span className="text-code-11 whitespace-nowrap text-text-tertiary">
+        {aggregateLabel(plan.aggregate)} · {done}/{plan.nodes.length} nodes · {edgeCount} edges
       </span>
       {plan.state === "draft" ? (
         <Button size="xs" disabled={busy} onClick={onApprove}>
           Approve plan
         </Button>
       ) : (
-        <span className="text-code-11 text-text-tertiary">approved</span>
+        <span className={cn(PLAN_BADGE, "gap-1 border-status-success bg-(--feedback-success-soft) text-status-success")}>
+          <Check size={11} />
+          Approved
+        </span>
       )}
-      <Button size="xs" variant="outline" className="bg-surface-raised" disabled={busy} onClick={onRefresh}>
-        Refresh
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant="outline"
+            className="bg-surface-raised"
+            aria-label="Refresh plan"
+            disabled={busy}
+            onClick={onRefresh}
+          >
+            <RotateCcw />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Refresh</TooltipContent>
+      </Tooltip>
     </>
   );
 }

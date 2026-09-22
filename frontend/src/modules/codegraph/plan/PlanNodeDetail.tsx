@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { CodeGraphPlanNode } from "@/bridge/codegraphPlan";
 import { PlanNodeGitChanges } from "./PlanNodeGitChanges";
@@ -36,7 +38,7 @@ export function PlanNodeDetail({
   const changed = draft.trim() !== node.fqn && draft.trim().length > 0;
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-border-subtle px-6 py-2">
+    <div className="flex flex-col gap-1.25 border-b border-border-subtle px-4 py-1.5">
       <div className="flex items-center gap-2">
         <span className={cn(PLAN_BADGE, status.badge)}>{status.label}</span>
         <span className="truncate text-label-12 text-text-primary">{node.label}</span>
@@ -44,7 +46,9 @@ export function PlanNodeDetail({
       </div>
 
       {node.description && (
-        <p className="text-caption-11 text-text-secondary">{node.description}</p>
+        <p className="line-clamp-2 text-caption-11 text-text-secondary" title={node.description}>
+          {node.description}
+        </p>
       )}
 
       <div className="flex items-center gap-1.5">
@@ -79,9 +83,20 @@ export function PlanNodeDetail({
             >
               {node.fqn}
             </span>
-            <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => setEditing(true)}>
-              Relink…
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  className="bg-surface-raised"
+                  aria-label="Relink to a different FQN"
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Relink…</TooltipContent>
+            </Tooltip>
           </>
         )}
       </div>

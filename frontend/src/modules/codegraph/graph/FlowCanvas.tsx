@@ -37,29 +37,33 @@ const edgeTypes = { connector: ConnectorEdge };
 /**
  * What fitView has to keep clear, and why it is measured in pixels.
  *
- * Two glass cards float over the viewport along its bottom edge — the layer
- * legend at bottom-left, the hint at bottom-right — and fitView knows nothing
- * about either. It centres the graph in the whole viewport, so with the
- * inspector open (which puts the canvas under 600px wide) the last node in a
- * vertical chain parks under the legend and has its file chip clipped by it.
+ * Two small glass controls sit over the viewport along its bottom edge — the
+ * legend toggle at bottom-left, the hint at bottom-right — and fitView knows
+ * nothing about either. It centres the graph in the whole viewport, so with
+ * the inspector open (which puts the canvas under 600px wide) the last node
+ * in a vertical chain parks under one and has its file chip clipped by it.
  *
  * A numeric `padding` cannot fix it at any value: it is a fraction of the
  * GRAPH's bounds, not the viewport's, so the taller the graph the smaller the
  * real gap — the case needing the room is the one that loses it. Pixels are the
  * same on every graph.
  *
- * The bottom figure is the legend's own height plus React Flow's 15px panel
- * margin, with a little clearance. It is the taller of the two corners, and
- * the plan canvas stacks a second card on top of it.
+ * The bottom figure is sized for the legend's collapsed trigger (it opens as
+ * a popover on demand, so it no longer needs a card's worth of permanent
+ * room — see LayerLegend) plus React Flow's 15px panel margin and a little
+ * clearance. A generous reservation here was the biggest single reason a
+ * tall, narrow plan graph fit with dead space down both sides: fitView keeps
+ * the whole graph's aspect ratio, so shrinking the tighter (bottom) constraint
+ * lets it zoom in and use the width too.
  */
-function fitPadding(planLegend: boolean | undefined, legend: boolean) {
+function fitPadding(legend: boolean) {
   // `as const` so the values keep their literal types: React Flow's Padding is
   // a template literal (`${number}px`), and a widened `string` does not match.
   return {
-    top: "24px",
-    left: "24px",
-    right: "24px",
-    bottom: !legend ? "24px" : planLegend ? "184px" : "136px",
+    top: "16px",
+    left: "16px",
+    right: "16px",
+    bottom: legend ? "56px" : "16px",
   } as const;
 }
 
@@ -227,8 +231,8 @@ function Canvas({
   }, [desiredNodes, selectedNodeId]);
 
   const fitOptions = useMemo(
-    () => ({ padding: fitPadding(planLegend, legend), duration: 200 }),
-    [planLegend, legend],
+    () => ({ padding: fitPadding(legend), duration: 200 }),
+    [legend],
   );
 
   // The layout is a function of the ranking alone, so it re-runs when the
@@ -362,7 +366,7 @@ function Canvas({
   };
 
   return (
-    <div className="flex size-full flex-col px-6 pt-5">
+    <div className="flex size-full flex-col px-4 pt-3">
       {/* Header lives outside ReactFlow but inside its provider, so the
           toolbar's fitView works and the row never pans with the graph. */}
       <div className="flex shrink-0 items-center justify-between gap-4 pb-1">

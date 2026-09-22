@@ -136,7 +136,7 @@ export function PlanDocument() {
         {/* An approve or relink that failed leaves the plan on screen; the
             error goes above it rather than replacing it. */}
         {planError && (
-          <p role="alert" className="px-6 pt-2 text-body-12 text-status-danger">
+          <p role="alert" className="px-4 pt-2 text-body-12 text-status-danger">
             {planError}
           </p>
         )}
