@@ -7,5 +7,6 @@ export {
 } from "./models.js";
 
 export type {
-    AgentCheckpointSettings
+    AgentCheckpointSettings,
+    AgentSandboxSettings
 } from "./models.js";

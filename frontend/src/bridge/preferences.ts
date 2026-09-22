@@ -3,6 +3,7 @@ import {
   Theme as NativeTheme,
   ThemeFamily as NativeThemeFamily,
   type AgentCheckpointSettings,
+  type AgentSandboxSettings,
 } from "../../bindings/devkit/internal/preferences/models";
 import type { CheckpointAvailability } from "../../bindings/devkit/internal/agenthub/models";
 import { callBridge } from "./client";
@@ -96,6 +97,21 @@ export function getAgentCheckpoints(): Promise<AgentCheckpointSettings> {
 
 export function saveAgentCheckpoints(settings: AgentCheckpointSettings): Promise<void> {
   return callBridge(() => AppService.PreferencesSetAgentCheckpoints(settings) as Promise<void>);
+}
+
+/**
+ * How far Agent Hub's vendor jail is widened beyond a session's own grants —
+ * a Docker socket, extra read-only paths. Off (empty) by default.
+ */
+export function getAgentSandbox(): Promise<AgentSandboxSettings> {
+  return callBridge(async () => {
+    const settings = await AppService.PreferencesGetAgentSandbox();
+    return settings as AgentSandboxSettings;
+  });
+}
+
+export function saveAgentSandbox(settings: AgentSandboxSettings): Promise<void> {
+  return callBridge(() => AppService.PreferencesSetAgentSandbox(settings) as Promise<void>);
 }
 
 /**
