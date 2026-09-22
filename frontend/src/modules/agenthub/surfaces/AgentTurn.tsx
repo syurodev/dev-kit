@@ -60,18 +60,19 @@ export type AgentTurnProps = {
 };
 
 /**
- * One exchange, drawn the way it reads: your message, one line for everything
- * the agent did about it, then its answer.
+ * One exchange, drawn the way it reads: your message, the account of what the
+ * agent did about it, then its answer.
  *
- * The work is folded by default. A turn that runs forty tool calls used to put
- * forty cards between a question and its answer, each with its output open,
- * and the answer was the thing you scrolled to find. Folded, the line still
- * summarises the work and what it came to once done. The live activity sits
- * after the answer so it stays visible while following a long response.
- *
- * Opened, the work reads as an account rather than a log: what the agent said
- * as prose, and each run of steps between two sentences under one summary —
- * "Read files, ran commands, searched the web" — with the steps as plain rows.
+ * The account reads as prose with evidence, not a log: what the agent said
+ * between steps is a sentence on its own ground, always there to read: it was
+ * said to you, not to itself. Only the steps that produced it — thinking, tool
+ * calls, subagents — run together under one summary per run, "Read files, ran
+ * commands, searched the web", closed until asked for. A turn that ran forty
+ * tool calls used to put forty cards between a question and its answer, each
+ * with its output open, and the answer was the thing you scrolled to find;
+ * folding the steps (not the words) keeps that gone without also burying what
+ * the agent actually said. The live activity sits after the answer so it
+ * stays visible while following a long response.
  *
  * No bubble and no name on the agent's side, and no avatar on either. With one
  * person and one agent in the room, the side of the column already says who is
@@ -97,7 +98,6 @@ export const AgentTurn = React.memo(function AgentTurn({
   onOpenFile,
 }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
-  const [open, setOpen] = React.useState(false);
   // The prompt's own message id, when this turn can be rewound at all. Unlike
   // the file half, a conversation rewind needs no checkpoint — the message id
   // is the whole requirement — so this is offered on any prompt DevKit gave an
@@ -107,7 +107,9 @@ export const AgentTurn = React.memo(function AgentTurn({
   const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
   const worked = React.useMemo(() => (live ? "Working" : workedFor(turn)), [live, turn]);
-  const segments = React.useMemo(() => (open ? workSegments(turn.work) : []), [open, turn.work]);
+  // Always computed, never gated behind a fold of its own — see the module
+  // doc: only the "steps" segments inside this fold themselves (StepGroup).
+  const segments = React.useMemo(() => workSegments(turn.work), [turn.work]);
   // Reduce Motion keeps the fade and drops the travel and scale — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
@@ -184,32 +186,22 @@ export const AgentTurn = React.memo(function AgentTurn({
       ) : null}
 
       {turn.work.length > 0 ? (
-        <div data-testid="turn-work" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            aria-expanded={open}
-            className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
-          >
+        <div data-testid="turn-work" className="flex w-full flex-col gap-3">
+          <div className="w-full border-b border-border-subtle pb-2 text-body-13 text-text-tertiary">
             <SwapText text={worked} animate={latest} reduce={reduce} active={false} />
-            <ChevronRight
-              aria-hidden="true"
-              className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
-            />
-          </button>
-          <AnimatedCollapse open={open} className="flex w-full flex-col gap-3 pt-3">
-              {segments.map((segment) => {
-                if (segment.kind === "text") {
-                  // What the agent said between steps is prose like its answer:
-                  // it is the account of the work, and the steps are its evidence.
-                  return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
-                }
-                if (segment.kind === "plan") {
-                  return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
-                }
-                return <StepGroup key={segment.id} items={segment.items} onOpenFile={onOpenFile} />;
-              })}
-          </AnimatedCollapse>
+          </div>
+          {segments.map((segment) => {
+            if (segment.kind === "text") {
+              // What the agent said between steps was said to you, not to
+              // itself: it stands on its own ground like the answer, never
+              // behind the steps' fold.
+              return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
+            }
+            if (segment.kind === "plan") {
+              return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
+            }
+            return <StepGroup key={segment.id} items={segment.items} onOpenFile={onOpenFile} />;
+          })}
         </div>
       ) : null}
 
@@ -267,15 +259,25 @@ export const AgentTurn = React.memo(function AgentTurn({
  * A run of steps between two things the agent said, under one line saying what
  * kind of work it was.
  *
- * Open by default: the turn's own fold is where the work is hidden, and a
- * second fold inside it would make opening "Worked for" show a list of closed
- * lists. A long run scrolls inside a 240px well (max-h-60) and fades at the
- * foot, so one directory crawl cannot push the answer a screen down.
+ * Closed by default: this is the only fold a run of thinking, tool calls or
+ * subagents sits behind now (see AgentTurn — the words around it are never
+ * folded), so nothing above it is hiding the steps for it. A long run scrolls
+ * inside a 240px well (max-h-60) and fades at the foot, so one directory crawl
+ * cannot push the answer a screen down.
  */
 const LONG_RUN = 8;
 
-export function StepGroup({ items, onOpenFile }: { items: TranscriptItem[]; onOpenFile?: (path: string, line?: number) => void }) {
-  const [open, setOpen] = React.useState(true);
+export function StepGroup({
+  items,
+  onOpenFile,
+  defaultOpen = false,
+}: {
+  items: TranscriptItem[];
+  onOpenFile?: (path: string, line?: number) => void;
+  /** Lets a caller (a unit test, mainly) start it expanded. */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
   const long = items.length > LONG_RUN;
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing.

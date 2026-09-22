@@ -1295,7 +1295,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // nothing until it is opened.
     });
 
-    it("folds a turn's tool calls behind one line", () => {
+    it("folds a run of a turn's tool calls behind one line", () => {
       // Every call used to be a card with its output open, and a turn that ran
       // forty of them put forty cards between the question and its answer.
       // The one-line result slot is tested on the leaf, where the row is.
@@ -1309,6 +1309,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
               kind: "tool_call",
               toolCall: { id: "c1", title: "mcp__devkit__db_listProfiles", status: "completed", rawOutput: blob },
             },
+            {
+              id: "t2",
+              kind: "tool_call",
+              toolCall: { id: "c2", title: "mcp__devkit__db_listConnections", status: "completed" },
+            },
           ]}
           promptValue=""
           onPromptChange={() => {}}
@@ -1318,8 +1323,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       );
       expect(html).toContain('data-testid="turn-work"');
       expect(html).toContain('data-state="collapsed"');
-      // Neither the call nor its output is on screen until someone opens it.
+      // Neither call nor its output is on screen until someone opens the run.
       expect(html).not.toContain("mcp__devkit__db_listProfiles");
+      expect(html).not.toContain("mcp__devkit__db_listConnections");
       expect(html).not.toContain("caad65a3dc6457d655a02a64");
     });
 
