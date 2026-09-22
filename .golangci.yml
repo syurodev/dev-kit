@@ -5,9 +5,10 @@ version: "2"
 # what layering can't — dead code and staticcheck's correctness findings.
 #
 # CI (.github/workflows/ci.yml) runs this with golangci-lint-action's
-# only-new-issues: true, i.e. only lines a PR actually touches are gated, so
-# this can stay strict without forcing a repo-wide cleanup in the PR that adds
-# the gate. `golangci-lint run` with no flags still reports everything.
+# only-new-issues: true, i.e. only lines a PR actually touches are gated. The
+# repo was clean (govet/staticcheck/unused/ineffassign, 0 issues) as of
+# 2026-09-22 — only-new-issues stays on so a future full-repo sweep (a new
+# linter, a stricter setting) doesn't have to land as one enormous PR either.
 #
 # errcheck is deliberately off: this codebase's own convention (measured
 # 2026-09-22) is a deferred cleanup Close/Remove is not checked — ~50 sites

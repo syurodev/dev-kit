@@ -66,7 +66,7 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 		// A corrupt cache must never veto launching a local-first app: ignore
 		// it and fall through to a fresh fetch.
 		log.Printf("desktop config: ignoring unreadable cache: %v", err)
-		cachedSnapshot, hadCache, err = Snapshot{}, false, nil
+		cachedSnapshot, hadCache = Snapshot{}, false
 	}
 	cachedIssuer := strings.TrimSpace(cachedSnapshot.OIDCIssuer)
 

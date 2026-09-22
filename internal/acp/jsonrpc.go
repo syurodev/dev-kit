@@ -85,7 +85,7 @@ func ReadMessage(r io.Reader) (Message, error) {
 		br = bufio.NewReader(r)
 	}
 	line, err := br.ReadBytes('\n')
-	if err != nil && !(err == io.EOF && len(line) > 0) {
+	if err != nil && (err != io.EOF || len(line) == 0) {
 		return Message{}, err
 	}
 	line = bytes.TrimSpace(line)

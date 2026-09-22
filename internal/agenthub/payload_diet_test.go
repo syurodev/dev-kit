@@ -149,7 +149,7 @@ func TestTranscriptPagePreviewCutIsValidJSONForAnyText(t *testing.T) {
 		"emoji":       "🙂👍🏽🇻🇳",
 		"box":         "┌─┬─┐│ │└─┴─┘",
 		"html":        "<a href='x'>&amp;</a>",
-		"unprintable": "\x7f \U000E0001",
+		"unprintable": "\x7f\u0085\u2028\U000E0001",
 	}
 	raws := map[string]string{}
 	for name, unit := range units {

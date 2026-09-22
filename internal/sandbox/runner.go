@@ -48,19 +48,3 @@ func (r *Runner) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, error)
 	}
 	return r.b.StartPiped(ctx, p, c)
 }
-
-type unavailableBackend struct{}
-
-func (unavailableBackend) Name() string { return "unavailable" }
-
-func (unavailableBackend) Available(context.Context) error {
-	return ErrUnsupportedPlatform
-}
-
-func (unavailableBackend) Start(context.Context, Policy, Cmd) (*Proc, error) {
-	return nil, ErrUnsupportedPlatform
-}
-
-func (unavailableBackend) StartPiped(context.Context, Policy, Cmd) (*Proc, error) {
-	return nil, ErrUnsupportedPlatform
-}

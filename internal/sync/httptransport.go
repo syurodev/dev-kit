@@ -108,13 +108,7 @@ func (a *HTTPAuthenticator) ListDevices(ctx context.Context, accessToken, localD
 		if err := validateSyncIdentifier("device id", device.DeviceID, 256); err != nil {
 			return nil, TransportError{Reason: FailureInvalidResponse}
 		}
-		devices = append(devices, DeviceInfo{
-			DeviceID:   device.DeviceID,
-			Status:     device.Status,
-			CreatedAt:  device.CreatedAt,
-			LastSeenAt: device.LastSeenAt,
-			Current:    device.Current,
-		})
+		devices = append(devices, DeviceInfo(device))
 	}
 	return devices, nil
 }
@@ -585,12 +579,5 @@ type conflictWire struct {
 }
 
 func (c conflictWire) toConflict() Conflict {
-	return Conflict{
-		ID:              c.ID,
-		RecordID:        c.RecordID,
-		RecordType:      c.RecordType,
-		LocalChangeKey:  c.LocalChangeKey,
-		RemoteChangeKey: c.RemoteChangeKey,
-		DetectedAt:      c.DetectedAt,
-	}
+	return Conflict(c)
 }

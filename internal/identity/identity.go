@@ -40,10 +40,10 @@ func (c Caller) IsAgent() bool { return c.Kind == KindAgent && c.SessionID != ""
 
 // String is the stable audit / allow_always label: "agent:<id>", "user-terminal", "ui".
 func (c Caller) String() string {
-	switch {
-	case c.Kind == KindAgent:
+	switch c.Kind {
+	case KindAgent:
 		return "agent:" + c.SessionID
-	case c.Kind == "":
+	case "":
 		return Unknown
 	default:
 		return string(c.Kind)
