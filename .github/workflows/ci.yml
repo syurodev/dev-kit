@@ -95,6 +95,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # golangci-lint run --new-from-rev below needs the PR's base commit
+          # reachable locally to diff against; the default shallow clone
+          # only has this branch's own history.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -114,17 +119,47 @@ jobs:
           mkdir -p frontend/dist
           echo '<!doctype html><title>stub</title>' > frontend/dist/index.html
 
-      # install-mode: goinstall builds golangci-lint with the Go toolchain
-      # setup-go just installed (go.mod's `go 1.27.1`) instead of downloading
-      # a prebuilt binary — the binary release lagged behind (v1.64.8, built
-      # with go1.24) and refused to run at all ("the Go language version
-      # ... is lower than the targeted Go version"). Building from source
-      # means the two can never skew.
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v2.5.0
-          install-mode: goinstall
-          only-new-issues: true
+      # Installed by hand rather than through golangci-lint-action, and
+      # pinned to a version new enough to matter — three layered problems,
+      # each measured against this exact go.mod:
+      # - A downloaded binary release is built with whatever Go the
+      #   golangci-lint maintainers last used — older than go.mod's
+      #   `go 1.27.1`, which golangci-lint itself then refuses to run
+      #   against ("the Go language version ... is lower than the targeted
+      #   Go version"). Building from source is the fix in principle.
+      # - `go install pkg@version` for a package outside the current module
+      #   ignores this repo's go.mod entirely, so GOTOOLCHAIN=auto builds
+      #   golangci-lint with whatever toolchain ITS OWN go.mod names — which
+      #   for older golangci-lint releases is well under 1.27.1, right back
+      #   to the same refusal. GOTOOLCHAIN pinned to the exact version below
+      #   forces that build itself onto go1.27.1.
+      # - Even built with go1.27.1, golangci-lint v2.5.0 cannot read
+      #   go1.27.1's stdlib export data at all ("export data version 4 is
+      #   greater than maximum supported version 2") — its vendored
+      #   x/tools predates the format. v2.13.2 is the first version
+      #   confirmed (measured locally) to both build clean under go1.27.1
+      #   and type-check successfully against it.
+      # - The action's own install-mode: goinstall hits the second problem
+      #   AND constructs `go install .../golangci-lint/cmd/golangci-lint@…`
+      #   — the v1 module path, missing the `/v2` a Go module needs for a
+      #   major version >= 2 — failing outright regardless ("invalid
+      #   version: unknown revision"). Installing by hand avoids that too.
+      - name: Install golangci-lint
+        run: |
+          # Same version go.mod's `go` line names, not hardcoded here — a
+          # future bump to go.mod is what GOTOOLCHAIN must follow.
+          export GOTOOLCHAIN="go$(go list -m -f '{{.GoVersion}}')"
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+
+      # --new-from-rev replicates only-new-issues: only lines this PR's diff
+      # actually touches are gated; .golangci.yml explains why (existing
+      # debt is real but is not this gate's job to force fixed in one PR).
+      # Scoped to ./internal/... ./cmd/..., same as the go test job and for
+      # the same reason: the bare default (./...) also reaches build/ios and
+      # the root package, both cgo/GTK scaffolding that AGENTS.md already
+      # documents as an expected failure outside a real build.
+      - name: golangci-lint run (new issues only)
+        run: golangci-lint run --new-from-rev=${{ github.event.pull_request.base.sha }} ./internal/... ./cmd/...
 
   frontend:
     name: frontend test + build
