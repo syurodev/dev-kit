@@ -1,0 +1,139 @@
+name: CI
+
+# Runs the same checks the README documents as local dev commands (gofmt,
+# go vet, go test — including internal/arch's layering gate — and the
+# frontend's bun test/build) on every PR, so a layering violation or a
+# ratchet regression fails here instead of only on whoever next happens to
+# run `go test ./internal/arch/` by hand. build-prod.yml stays release-only
+# (tags); nothing there gates a PR today.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # internal/bridge, internal/app and the root `devkit` package import
+      # wails3's cgo webview bindings, so even `go vet`/`go test ./...`
+      # (never mind an actual desktop build) need the headers on PATH —
+      # confirmed against build-prod.yml's Linux matrix leg, which installs
+      # the same two packages for the real package build.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
+      # main.go's `//go:embed all:frontend/dist` needs the directory to exist
+      # and hold at least one file. A real UI is not needed to compile or run
+      # Go tests — only build-prod.yml's release build ships one — so a stub
+      # is enough here and skips a wails3/bun frontend build entirely.
+      - name: Stub frontend/dist for go:embed
+        run: |
+          mkdir -p frontend/dist
+          echo '<!doctype html><title>stub</title>' > frontend/dist/index.html
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l internal main.go)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would reformat:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet -tags server ./...
+
+      # Covers internal/arch (TestLayering, TestNoImportCycles) along with
+      # everything else — internal/arch is not special-cased in the README's
+      # own command either.
+      - name: go test
+        run: go test ./internal/... ./cmd/... -count=1
+
+  go-lint:
+    name: golangci-lint
+    # only-new-issues needs a PR to diff against; existing debt is real
+    # (see .golangci.yml) and would fail a plain push-to-main run today.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
+      - name: Stub frontend/dist for go:embed
+        run: |
+          mkdir -p frontend/dist
+          echo '<!doctype html><title>stub</title>' > frontend/dist/index.html
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          only-new-issues: true
+
+  frontend:
+    name: frontend test + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun store
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('frontend/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - run: bun install --frozen-lockfile
+
+      # Includes moduleBoundaryRatchet.test.ts, designSystemConformance.test.ts,
+      # smoothnessRatchet.test.ts and storeSubscriptionRatchet.test.ts — the
+      # frontend's own version of internal/arch's layering gate.
+      - run: bun run test
+
+      # tsc (typecheck) + vite build + the bundle-size budget script. Needs no
+      # wails3 CLI: frontend/bindings/ is generated output committed to the
+      # repo, not regenerated at build time.
+      - run: bun run build
