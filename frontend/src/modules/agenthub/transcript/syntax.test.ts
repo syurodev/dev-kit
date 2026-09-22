@@ -21,6 +21,7 @@ describe("transcript syntax", () => {
     expect(languageForPath("build.gradle.kts")).toBe("kotlin");
     expect(languageForPath("deploy/Dockerfile")).toBe("dockerfile");
     expect(languageForPath("C:\\work\\tool\\main.py")).toBe("python");
+    expect(languageForPath("fsap/jsonschema.lua")).toBe("lua");
     expect(languageForPath("README")).toBeUndefined();
   });
 
