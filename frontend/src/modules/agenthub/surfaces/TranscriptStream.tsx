@@ -252,6 +252,30 @@ export function TranscriptStream({
     setActiveTick(next);
   }
 
+  // The single source of truth for "are we following", read live off the DOM
+  // rather than trusting whichever frame last wrote isAtBottomRef. The
+  // auto-scroll effect below and this handler both schedule a rAF, and on a
+  // busy stream (a flush per token) those two frames land in either order.
+  // A stale ref would let auto-scroll win the race: it runs first, reads the
+  // *previous* isAtBottomRef (still true), snaps to the bottom, and only then
+  // does handleScroll's frame run — sampling a scrollTop the snap already put
+  // back at the bottom, so it reads "at bottom" and turns following back on,
+  // erasing the scroll-up as if it never happened. Recomputing from the live
+  // element here means whichever frame runs first sees the same answer.
+  function sampleFollowing(el: HTMLDivElement): boolean {
+    const scrollTop = el.scrollTop;
+    const following = keepsFollowing(isAtBottomRef.current, {
+      atBottom: isTranscriptAtBottom(el.scrollHeight, scrollTop, el.clientHeight),
+      scrollTop,
+      previousScrollTop: lastScrollTopRef.current,
+      userScrolled: userScrollRef.current,
+    });
+    lastScrollTopRef.current = scrollTop;
+    userScrollRef.current = false;
+    isAtBottomRef.current = following;
+    return following;
+  }
+
   // Scroll state is sampled once per frame. Reading the three scroll metrics in
   // the event handler made a burst of wheel events compete with layout.
   function handleScroll() {
@@ -260,16 +284,7 @@ export function TranscriptStream({
       scrollFrameRef.current = null;
       const el = scrollRef.current;
       if (!el) return;
-      const scrollTop = el.scrollTop;
-      const following = keepsFollowing(isAtBottomRef.current, {
-        atBottom: isTranscriptAtBottom(el.scrollHeight, scrollTop, el.clientHeight),
-        scrollTop,
-        previousScrollTop: lastScrollTopRef.current,
-        userScrolled: userScrollRef.current,
-      });
-      lastScrollTopRef.current = scrollTop;
-      userScrollRef.current = false;
-      isAtBottomRef.current = following;
+      const following = sampleFollowing(el);
       setShowJump((previous) => (previous === !following ? previous : !following));
       if (following && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
       const anchor = prependAnchorRef.current;
@@ -389,7 +404,10 @@ export function TranscriptStream({
     autoScrollFrameRef.current = scheduleTranscriptFrame(() => {
       autoScrollFrameRef.current = null;
       const el = scrollRef.current;
-      if (!el || !isAtBottomRef.current) return;
+      // Resample rather than trust isAtBottomRef: a wheel/touch/key input
+      // this same frame (see sampleFollowing) must be able to cancel this
+      // snap, not just the next handleScroll frame after it.
+      if (!el || !sampleFollowing(el)) return;
       el.scrollTo({ top: transcriptBottomScrollTop(el.scrollHeight, el.clientHeight), behavior: "instant" });
       lastScrollTopRef.current = el.scrollTop;
       if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);

@@ -45,11 +45,11 @@ export function PlanNodeDetail({
         <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">{status.hint}</span>
       </div>
 
-      {node.description && (
-        <p className="line-clamp-2 text-caption-11 text-text-secondary" title={node.description}>
-          {node.description}
-        </p>
-      )}
+      {/* The description used to run here, clamped to 2 lines — a paragraph
+          made this the tallest thing on screen for the one node that had
+          one. It lives in the Comments popover now (PlanCommentsPopover's
+          "Plan" section), which already scrolls and opens from the same
+          click that opens this bar. */}
 
       <div className="flex items-center gap-1.5">
         {editing ? (

@@ -1879,7 +1879,10 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       );
       expect(html).toContain('data-size="rail"');
       expect(html).toContain('data-layout="stepwise"');
-      expect(html).toContain("max-w-68");
+      // The card fills whatever the rail's own width is — a resizable split
+      // panel wider than the rail's default must not leave it stranded on the
+      // left with dead space on the right.
+      expect(html).not.toContain("max-w-68");
     });
 
     it("keeps Skip when nothing in the schema can be rendered, so the turn is never stuck", () => {

@@ -124,7 +124,7 @@ export function AgentQuestionCard({
       data-flavor={form.flavor}
       className={cn(
         "flex w-full flex-col rounded-control border border-border-subtle bg-surface-raised",
-        wide ? "gap-3 px-3 py-3" : "max-w-68 gap-3 p-3",
+        wide ? "gap-3 px-3 py-3" : "gap-3 p-3",
         className,
       )}
     >
