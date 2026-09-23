@@ -29,14 +29,15 @@ trong analyzer Java và resolve target về service
 workspace cho một session Agent Hub (§ [Agent liên service](#agent-liên-service-grant-cả-workspace)).
 Bind lồng RO/RW trên Linux đã đúng thứ tự (§ [Worktree](#worktree-dùng-chung-registry)).
 
-**Chưa có:** bước 3 của auto-discovery (sửa tay), Rescan, trạng thái index
-(§ [Trạng thái index](#trạng-thái-index-của-một-service)), manifest tier
+Registry (§ [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn),
+bước 1–5): service đang focus + tới 8 service thường trú trên một `Host`,
+`servicePath` qua bridge / MCP / event, và hàng đợi index-khi-thêm với
+trạng thái index của từng service
+(§ [Trạng thái index](#trạng-thái-index-của-một-service)).
+
+**Chưa có:** bước 3 của auto-discovery (sửa tay), Rescan, manifest tier
 (mode chạy riêng của analyzer), lưu outbound call vào index phía Go, join,
-Registry (thiết kế đã sửa sau khi đối chiếu code — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)), và tier worktree.
-`internal/codegraph/service.go` vẫn giữ **một** project active
-(`activeProject`, `SetProjectPath`), đúng FR-1 gốc của
-[CodeGraph](/dev-kit/codegraph) — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)
-là phần thay nó.
+và tier worktree.
 </Callout>
 
 ```mermaid
@@ -452,7 +453,29 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
      cần: UI hôm nay chỉ hiển thị service đang focus, và đổi service là
      `Focus`. Rekey đi cùng view đầu tiên hiển thị hai service cùng lúc
      (join).
-5. Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
+5. ✅ Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
+   - `Registry.Enqueue` (`indexqueue.go`): **một** worker, nên hàng đợi chiếm
+     tối đa một slot của trần job — 89 service không bao giờ giành hết slot
+     của thư mục người dùng đang mở. Mỗi thư mục chạy trên một `Service` tạm
+     (mở, chờ index sẵn sàng — index cũ thì refresh, rồi `Shutdown`), không
+     qua `Open`, nên không chiếm slot thường trú. Thư mục đang mở (focus hoặc
+     thường trú) thì để service của nó lo.
+   - Chuyển trạng thái báo qua `Registry.OnIndexStatus`; `app.WireWorkspaceIndex`
+     ghi `failed` / `unsupported` (+ lý do, + thiếu toolchain hay không) vào
+     `workspace_services` (migration 31), xoá khi chạy lại thành công. Thiếu
+     toolchain (`ErrAnalyzerNotConfigured`, `ErrToolchainIncomplete`) tách
+     khỏi fail thật. App thoát giữa chừng thì run đang chạy bị huỷ và **không**
+     báo gì — không ghi "failed" cho một run chưa xong.
+   - `workspace.Service.OnServicesAdded` (sau `AddWorkspace`) xếp hàng mọi
+     service mới, mọi ngôn ngữ: manifest tier của Java chưa có, nên chưa có
+     gì khác cho join đọc. Khi manifest tier xong, Java có thể bỏ qua hàng đợi.
+   - Khởi động: `app.QueueUnindexedServices` xếp lại service chưa có index
+     trên đĩa (`codegraph.StoredIndex`) và chưa có fail đã lưu — chạy sau
+     `RestoreLastProject`, vì project người dùng để mở là thứ họ đang chờ.
+     Fail đã lưu không tự chạy lại; Retry thì có (`WorkspaceReindexService`).
+   - UI: menu chọn project của Code Graph hiện trạng thái từng service
+     (`WorkspaceIndexStatus` + event `codegraph:indexStatus`) và một mục
+     Retry cho service fail.
 
 ## Thêm service: index một lần, không chờ ai bấm
 

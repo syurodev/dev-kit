@@ -3,6 +3,8 @@ package bridge
 import (
 	"context"
 
+	"devkit/internal/app"
+	"devkit/internal/codegraph"
 	"devkit/internal/workspace"
 )
 
@@ -89,6 +91,49 @@ func (s *AppService) WorkspaceDelete(id string) error {
 		"workspace_id": opaqueID,
 	}, func(context.Context) (any, error) {
 		return nil, s.container.Workspace.DeleteWorkspace(id)
+	})
+	return err
+}
+
+// WorkspaceIndexStatus reports where each service of a workspace stands
+// with its index: pending, indexing, indexed (with when), failed (and
+// whether a missing toolchain is why) or unsupported — the states
+// workspace.mdx § "Trạng thái index" names. Live changes arrive as
+// codegraph:indexStatus events.
+func (s *AppService) WorkspaceIndexStatus(workspaceID string) ([]codegraph.ServiceIndexStatus, error) {
+	opaqueID := recordID(workspaceID)
+	result, err := s.call(context.Background(), "builtin.workspace", "ws:read", "service:"+opaqueID, map[string]any{
+		"action":       "index_status",
+		"workspace_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		services, err := s.container.Workspace.ListServices(workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]codegraph.ServiceIndexStatus, 0, len(services))
+		for _, svc := range services {
+			out = append(out, app.ServiceIndexStatus(s.container, svc))
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.ServiceIndexStatus), nil
+}
+
+// WorkspaceReindexService queues one service for indexing again — Retry on a
+// failed one, or a refresh. Returns at once; the outcome arrives as
+// codegraph:indexStatus events.
+func (s *AppService) WorkspaceReindexService(path string) error {
+	_, err := s.call(context.Background(), "builtin.workspace", "ws:write", "service:reindex", map[string]any{
+		"action": "reindex_service",
+	}, func(context.Context) (any, error) {
+		if s.container.CodeGraphRegistry == nil {
+			return nil, codegraph.ErrNoActiveProject
+		}
+		s.container.CodeGraphRegistry.Enqueue(path)
+		return nil, nil
 	})
 	return err
 }

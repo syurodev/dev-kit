@@ -10,8 +10,9 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { CodeGraphIndexInfo } from "@/bridge/codegraph";
-import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
-import { indexStatusLine, projectLabel, type IndexTone } from "./sidebarModel";
+import { reindexWorkspaceService } from "@/bridge/workspace";
+import { useCurrentWorkspaceServices, useWorkspaceIndexStatus } from "@/stores/workspaceSwitcher";
+import { indexStatusLine, projectLabel, serviceIndexLine, type IndexTone } from "./sidebarModel";
 
 /** Re-renders every `ms`, for "2m ago" to keep counting. */
 export function useNow(ms = 30_000): number {
@@ -52,6 +53,8 @@ export function ProjectHeader({
 }) {
   const now = useNow();
   const { services } = useCurrentWorkspaceServices();
+  const indexStatus = useWorkspaceIndexStatus();
+  const failed = services.filter((svc) => indexStatus[svc.path]?.state === "failed");
   const { name, where } = projectLabel(projectPath);
   const branch = indexInfo?.branch;
   const status = indexStatusLine(busy && indexInfo ? { ...indexInfo, indexing: true } : indexInfo, counts, now);
@@ -92,13 +95,20 @@ export function ProjectHeader({
                   className="h-auto min-h-11 py-1.5"
                   onSelect={() => !current && onOpenProject(svc.path)}
                 >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{svc.name}</span>
-                    <span className="truncate text-code-11 text-text-tertiary">{svc.path}</span>
-                  </span>
+                  <ServiceLine name={svc.name} path={svc.path} line={serviceIndexLine(indexStatus[svc.path], now)} />
                 </DropdownMenuItem>
               );
             })}
+            {failed.length > 0 ? (
+              <DropdownMenuItem
+                icon={<RotateCw />}
+                onSelect={() => {
+                  for (const svc of failed) void reindexWorkspaceService(svc.path);
+                }}
+              >
+                {failed.length === 1 ? "Retry indexing" : `Retry indexing ${failed.length} services`}
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip>
@@ -123,5 +133,33 @@ export function ProjectHeader({
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * A service in the switcher: its name, then its folder and — once the
+ * workspace's index queue has said anything about it — where its index
+ * stands, with the same dot the project's own status line uses.
+ */
+function ServiceLine({
+  name,
+  path,
+  line,
+}: {
+  name: string;
+  path: string;
+  line: { text: string; tone: IndexTone } | null;
+}) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span className="truncate">{name}</span>
+      <span className="truncate text-code-11 text-text-tertiary">{path}</span>
+      {line ? (
+        <span className="flex items-center gap-1.5 text-caption-11 text-text-tertiary">
+          <span className={cn("size-1.5 shrink-0 rounded-full", DOT[line.tone])} aria-hidden />
+          <span className="truncate">{line.text}</span>
+        </span>
+      ) : null}
+    </span>
   );
 }

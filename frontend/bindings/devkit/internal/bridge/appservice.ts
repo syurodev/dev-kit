@@ -2043,6 +2043,17 @@ export function WorkspaceDelete(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * WorkspaceIndexStatus reports where each service of a workspace stands
+ * with its index: pending, indexing, indexed (with when), failed (and
+ * whether a missing toolchain is why) or unsupported — the states
+ * workspace.mdx § "Trạng thái index" names. Live changes arrive as
+ * codegraph:indexStatus events.
+ */
+export function WorkspaceIndexStatus(workspaceID: string): $CancellablePromise<codegraph$0.ServiceIndexStatus[] | null> {
+    return $Call.ByID(3444883691, workspaceID);
+}
+
+/**
  * WorkspaceList returns every registered workspace.
  */
 export function WorkspaceList(): $CancellablePromise<workspace$0.Workspace[] | null> {
@@ -2054,4 +2065,13 @@ export function WorkspaceList(): $CancellablePromise<workspace$0.Workspace[] | n
  */
 export function WorkspaceListServices(workspaceID: string): $CancellablePromise<workspace$0.WorkspaceService[] | null> {
     return $Call.ByID(2130719223, workspaceID);
+}
+
+/**
+ * WorkspaceReindexService queues one service for indexing again — Retry on a
+ * failed one, or a refresh. Returns at once; the outcome arrives as
+ * codegraph:indexStatus events.
+ */
+export function WorkspaceReindexService(path: string): $CancellablePromise<void> {
+    return $Call.ByID(3255175149, path);
 }

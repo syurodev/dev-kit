@@ -49,3 +49,19 @@ func (r *MemoryRepository) ListServices(workspaceID string) ([]WorkspaceService,
 	defer r.mu.Unlock()
 	return append([]WorkspaceService(nil), r.services[workspaceID]...), nil
 }
+
+func (r *MemoryRepository) SetIndexOutcome(path, state, reason string, missingToolchain bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, services := range r.services {
+		for i := range services {
+			if services[i].Path == path {
+				services[i].IndexState = state
+				services[i].IndexError = reason
+				services[i].IndexMissingToolchain = missingToolchain
+			}
+		}
+		r.services[id] = services
+	}
+	return nil
+}

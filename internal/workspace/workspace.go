@@ -41,7 +41,22 @@ type WorkspaceService struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	NameSource  string `json:"name_source"`
+	// IndexState is the index outcome that outlives a restart: "failed" or
+	// "unsupported", else "" (see RecordIndexOutcome). Whether a service is
+	// queued, running or indexed is codegraph.Registry's to say.
+	IndexState string `json:"index_state,omitempty"`
+	// IndexError is why, for IndexState "failed" or "unsupported".
+	IndexError string `json:"index_error,omitempty"`
+	// IndexMissingToolchain: the failure was a missing analyzer toolchain,
+	// which building or installing it fixes — not a failure of the code.
+	IndexMissingToolchain bool `json:"index_missing_toolchain,omitempty"`
 }
+
+// Persisted index outcomes (WorkspaceService.IndexState).
+const (
+	IndexStateFailed      = "failed"
+	IndexStateUnsupported = "unsupported"
+)
 
 // Repository persists workspaces and their services.
 type Repository interface {
@@ -53,11 +68,20 @@ type Repository interface {
 	// DeleteWorkspace removes the workspace and every service under it.
 	DeleteWorkspace(id string) error
 	ListServices(workspaceID string) ([]WorkspaceService, error)
+	// SetIndexOutcome records the index outcome of every service at path
+	// (one folder can be a service of two workspaces): state "" clears it.
+	SetIndexOutcome(path, state, reason string, missingToolchain bool) error
 }
 
 // Service orchestrates the registry on top of a Repository.
 type Service struct {
 	repo Repository
+
+	// OnServicesAdded fires after services are registered — today by
+	// AddWorkspace — so the composition root can queue each for its one
+	// index (workspace.mdx § "Thêm service"). workspace does not import
+	// codegraph; the hook is how the two meet.
+	OnServicesAdded func([]WorkspaceService)
 }
 
 // NewService wires the registry.
@@ -117,6 +141,9 @@ func (s *Service) AddWorkspace(name, root string) (Workspace, []WorkspaceService
 	if err := s.repo.CreateWorkspace(ws, services); err != nil {
 		return Workspace{}, nil, err
 	}
+	if s.OnServicesAdded != nil && len(services) > 0 {
+		s.OnServicesAdded(append([]WorkspaceService(nil), services...))
+	}
 	return ws, services, nil
 }
 
@@ -139,4 +166,34 @@ func serviceName(d DiscoveredService) (name, source string) {
 // own directories are never touched — this only forgets the registry entry.
 func (s *Service) DeleteWorkspace(id string) error {
 	return s.repo.DeleteWorkspace(id)
+}
+
+// AllServices lists every service of every workspace.
+func (s *Service) AllServices() ([]WorkspaceService, error) {
+	workspaces, err := s.repo.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	var out []WorkspaceService
+	for _, ws := range workspaces {
+		services, err := s.repo.ListServices(ws.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, services...)
+	}
+	return out, nil
+}
+
+// RecordIndexOutcome keeps what a service's last index run ended in, when it
+// is worth keeping across a restart: "failed" and "unsupported" are stored,
+// so a run known to fail is not repeated on every start; anything else
+// clears what was stored, since the index itself says when it was built.
+func (s *Service) RecordIndexOutcome(path, state, reason string, missingToolchain bool) error {
+	switch state {
+	case IndexStateFailed, IndexStateUnsupported:
+	default:
+		state, reason, missingToolchain = "", "", false
+	}
+	return s.repo.SetIndexOutcome(filepath.Clean(path), state, reason, missingToolchain)
 }

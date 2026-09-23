@@ -20,4 +20,22 @@ export interface WorkspaceService {
     "name": string;
     "path": string;
     "name_source": string;
+
+    /**
+     * IndexState is the index outcome that outlives a restart: "failed" or
+     * "unsupported", else "" (see RecordIndexOutcome). Whether a service is
+     * queued, running or indexed is codegraph.Registry's to say.
+     */
+    "index_state"?: string;
+
+    /**
+     * IndexError is why, for IndexState "failed" or "unsupported".
+     */
+    "index_error"?: string;
+
+    /**
+     * IndexMissingToolchain: the failure was a missing analyzer toolchain,
+     * which building or installing it fixes — not a failure of the code.
+     */
+    "index_missing_toolchain"?: boolean;
 }

@@ -695,6 +695,20 @@ func main() {
 	if err := container.CodeGraph.RestoreLastProject(context.Background(), container.ConfigDir); err != nil {
 		log.Printf("codegraph: could not restore last project: %v", err)
 	}
+	// Workspace services are indexed once when added, in the background, and
+	// what a restart interrupted is queued again. After the restore above:
+	// the queue shares the analyze slots, and the project the user left open
+	// is the one they are waiting on.
+	app.WireWorkspaceIndex(container, func(st codegraph.ServiceIndexStatus) {
+		emitAppEvent("codegraph:indexStatus", map[string]any{
+			"path":             st.Path,
+			"state":            st.State,
+			"error":            st.Error,
+			"missingToolchain": st.MissingToolchain,
+			"indexedAt":        st.IndexedAt,
+		})
+	})
+	go app.QueueUnindexedServices(container)
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()

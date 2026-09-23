@@ -1,5 +1,6 @@
 import type { CodeGraphEndpoint, CodeGraphIndexInfo, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import type { CodeGraphPlanNode, CodeGraphPlanProgress } from "@/bridge/codegraphPlan";
+import type { ServiceIndexStatus } from "@/bridge/workspace";
 
 /**
  * The Code Graph sidebar's shaping, pure (Figma `CodeGraph / Sidebar`,
@@ -109,6 +110,37 @@ export function filterEndpoints(endpoints: CodeGraphEndpoint[], query: string, m
 }
 
 // ── Index status ────────────────────────────────────────────────────────────
+
+/**
+ * The line a workspace service shows under its name in the project switcher:
+ * where its index stands, the tone of the dot beside it. Nothing to say
+ * (no status yet, or nothing on disk and nothing queued) is null.
+ */
+export function serviceIndexLine(
+  status: ServiceIndexStatus | undefined,
+  now: number,
+): { text: string; tone: IndexTone } | null {
+  switch (status?.state) {
+    case "pending":
+      return { text: "Queued to index", tone: "busy" };
+    case "indexing":
+      return { text: "Indexing…", tone: "busy" };
+    case "indexed":
+      return {
+        text: status.indexedAt ? `Indexed ${relativeTime(status.indexedAt, now)}` : "Indexed",
+        tone: "ok",
+      };
+    case "failed":
+      return {
+        text: status.missingToolchain ? "Not indexed — analyzer missing" : "Index failed",
+        tone: "failed",
+      };
+    case "unsupported":
+      return { text: "No analyzer for this folder", tone: "failed" };
+    default:
+      return null;
+  }
+}
 
 /** "just now", "2m ago", "3h ago", "yesterday", "4d ago". */
 export function relativeTime(at: number, now: number): string {

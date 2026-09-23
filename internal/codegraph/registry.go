@@ -54,6 +54,14 @@ type Registry struct {
 	// the UI can say which one closed rather than have it vanish.
 	OnEvicted func(servicePath string)
 
+	// OnIndexStatus fires on every index-queue transition (Enqueue): queued,
+	// running, and how it ended. The workspace registry persists the failed
+	// and unsupported outcomes; codegraph does not import it. Non-blocking
+	// only — it runs on the queue's worker.
+	OnIndexStatus func(ServiceIndexStatus)
+
+	indexQ *indexQueue
+
 	// analyzer, when set, is installed on every resident Service instead of
 	// the Host's per-language registry — the test seam SetAnalyzer already is
 	// for a single Service.
@@ -200,10 +208,16 @@ func (r *Registry) Resident() []string {
 	return append([]string(nil), r.lru...)
 }
 
-// Shutdown shuts down every resident service. The focused one is left to its
-// owner, which closes it on its own schedule (main.go's deferred Close).
+// Shutdown shuts down every resident service and stops the index queue (its
+// run in flight is cancelled; nothing queued is persisted — queued and
+// running are states of this process, and the next start queues again what
+// has no index). The focused one is left to its owner, which closes it on
+// its own schedule (main.go's deferred Close).
 func (r *Registry) Shutdown() error {
 	r.mu.Lock()
+	if r.indexQ != nil {
+		r.indexQ.cancel()
+	}
 	services := make([]*Service, 0, len(r.services))
 	for _, svc := range r.services {
 		services = append(services, svc)
@@ -225,9 +239,9 @@ func (r *Registry) focusRoot() string {
 	return ProjectKey(root)
 }
 
-// newResident builds a resident Service on the focused one's Host, reporting
-// its re-indexes under its own folder. Caller holds mu.
-func (r *Registry) newResident(key string) *Service {
+// newService builds a Service on the focused one's Host — a resident, or the
+// index queue's throwaway. Caller holds mu.
+func (r *Registry) newService() *Service {
 	var host *Host
 	if r.focus != nil {
 		host = r.focus.Host()
@@ -236,7 +250,13 @@ func (r *Registry) newResident(key string) *Service {
 	if analyzer == nil {
 		analyzer = NewSubprocessAnalyzer()
 	}
-	svc := NewServiceWithHost(host, NewNilStore(), analyzer)
+	return NewServiceWithHost(host, NewNilStore(), analyzer)
+}
+
+// newResident builds a resident Service, reporting its re-indexes under its
+// own folder. Caller holds mu.
+func (r *Registry) newResident(key string) *Service {
+	svc := r.newService()
 	svc.OnIndexUpdated = func(version int) {
 		if notify := r.OnIndexUpdated; notify != nil {
 			notify(key, version)

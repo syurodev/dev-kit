@@ -9,6 +9,7 @@ import {
   planSummary,
   projectLabel,
   relativeTime,
+  serviceIndexLine,
   symbolDisplay,
 } from "./sidebarModel";
 
@@ -124,5 +125,32 @@ describe("plan", () => {
 describe("projects", () => {
   it("names a project by its folder, and says where it is from home", () => {
     expect(projectLabel("/Users/me/dev/acme-refunds-service")).toEqual({ name: "acme-refunds-service", where: "~/dev" });
+  });
+});
+
+describe("serviceIndexLine", () => {
+  const base = { path: "/ws/a", error: "", missingToolchain: false, indexedAt: 0 };
+  const now = 1_000_000_000;
+
+  it("says nothing without a status", () => {
+    expect(serviceIndexLine(undefined, now)).toBeNull();
+    expect(serviceIndexLine({ ...base, state: "" }, now)).toBeNull();
+  });
+
+  it("queued and running are busy", () => {
+    expect(serviceIndexLine({ ...base, state: "pending" }, now)).toEqual({ text: "Queued to index", tone: "busy" });
+    expect(serviceIndexLine({ ...base, state: "indexing" }, now)?.tone).toBe("busy");
+  });
+
+  it("indexed says when", () => {
+    expect(serviceIndexLine({ ...base, state: "indexed", indexedAt: now - 120_000 }, now)?.text).toBe("Indexed 2m ago");
+  });
+
+  it("a missing toolchain is told apart from a failure", () => {
+    expect(serviceIndexLine({ ...base, state: "failed", missingToolchain: true }, now)?.text).toBe(
+      "Not indexed — analyzer missing",
+    );
+    expect(serviceIndexLine({ ...base, state: "failed" }, now)?.text).toBe("Index failed");
+    expect(serviceIndexLine({ ...base, state: "unsupported" }, now)?.tone).toBe("failed");
   });
 });
