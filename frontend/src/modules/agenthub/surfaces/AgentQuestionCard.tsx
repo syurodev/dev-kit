@@ -1,5 +1,6 @@
 import type * as React from "react";
 import { useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -56,7 +57,7 @@ const ALL_AT_ONCE_MAX = 2;
  * margin/matching padding cancel out to the card's own edges (p-3 on rail,
  * px-3 py-3 on wide) so the bar's seam lines up with the card's border.
  */
-const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 border-t border-border-subtle bg-surface-raised px-3 pt-2 pb-3";
+const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 border-t border-border-subtle bg-surface-raised px-3 py-2";
 
 /**
  * Agent / Question — a question the agent is waiting on (AskUserQuestion, an
@@ -88,6 +89,12 @@ export function AgentQuestionCard({
   const forms = useRef<(HTMLFormElement | null)[]>([]);
   const stepwise = size === "rail" || form.fields.length > ALL_AT_ONCE_MAX;
   const wide = size === "wide";
+  // Folded per question, not per card: the next question the agent asks is
+  // new, and arrives open. Folding only hides the form — it stays mounted, so
+  // answers already picked and the step reached are there on unfolding.
+  const [collapsedId, setCollapsedId] = useState<string | null>(null);
+  const collapsed = collapsedId === pending.id;
+  const summary = form.fields[0]?.label || form.message || "Question from the agent";
 
   function submit() {
     if (busy) return;
@@ -128,8 +135,45 @@ export function AgentQuestionCard({
         className,
       )}
     >
-      <PermissionIdentity pending={pending} session={session} env="open" testIdPrefix="question" />
+      <PermissionIdentity
+        pending={pending}
+        session={session}
+        env="open"
+        testIdPrefix="question"
+        trailing={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand question" : "Collapse question"}
+            data-testid="question-collapse"
+            onClick={() => setCollapsedId(collapsed ? null : pending.id)}
+            className="text-text-tertiary hover:text-text-primary"
+          >
+            {collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
+          </Button>
+        }
+      />
 
+      {collapsed ? (
+        // Folded: one line saying what is being asked, and the whole line
+        // unfolds it. The agent is still waiting — folding is not an answer.
+        <button
+          type="button"
+          data-testid="question-collapsed-summary"
+          onClick={() => setCollapsedId(null)}
+          className="-mt-1 flex min-w-0 items-center gap-2 text-left text-caption-11 text-text-tertiary hover:text-text-primary"
+        >
+          <span className="shrink-0">
+            {form.fields.length > 1 ? `${form.fields.length} questions` : "1 question"} waiting
+          </span>
+          <span aria-hidden>·</span>
+          <span className="min-w-0 truncate text-text-secondary">{summary}</span>
+        </button>
+      ) : null}
+
+      <div hidden={collapsed} className="contents">
       {form.message ? (
         <p data-testid="question-message" className="text-body-13 whitespace-pre-wrap text-text-primary">
           {form.message}
@@ -162,20 +206,26 @@ export function AgentQuestionCard({
               enough to fill that box otherwise pushes Previous/Skip/Next below
               the fold with nothing to say they exist — the card just looks
               like it ended without them. */}
-          <div className={cn(ACTIONS_BAR, "flex flex-col gap-2")}>
-            {/* With one question, skipping it and skipping them all are the
+          <div className={ACTIONS_BAR}>
+            {/* One row: Skip all at the far left, the step's own controls at
+                the right. It used to be two — Previous/Skip/Next, then Skip
+                all alone on a second line — which on the first question left
+                an empty Previous column and a whole row for one ghost button.
+                With one question, skipping it and skipping them all are the
                 same click; only the one that declines is kept. */}
-            <QuestionnaireActions>
-              <QuestionnairePrevious disabled={busy} />
+            <QuestionnaireActions className="grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
               {form.fields.length > 1 ? (
-                <QuestionnaireSkip disabled={busy} />
+                <div className="col-start-1 row-start-1 -ml-2 justify-self-start">{skipAll("Skip all")}</div>
+              ) : null}
+              <QuestionnairePrevious disabled={busy} className="col-start-3" />
+              {form.fields.length > 1 ? (
+                <QuestionnaireSkip disabled={busy} className="col-start-4" />
               ) : (
-                <div className="col-start-2 row-start-1 justify-self-end">{skipAll("Skip")}</div>
+                <div className="col-start-4 row-start-1 justify-self-end">{skipAll("Skip")}</div>
               )}
-              <QuestionnaireNext disabled={busy} />
-              <QuestionnaireSubmit disabled={busy} data-testid="question-submit" />
+              <QuestionnaireNext disabled={busy} className="col-start-5" />
+              <QuestionnaireSubmit disabled={busy} data-testid="question-submit" className="col-start-5" />
             </QuestionnaireActions>
-            {form.fields.length > 1 ? <div className="-mt-1 flex">{skipAll("Skip all")}</div> : null}
           </div>
         </Questionnaire>
       ) : (
@@ -204,6 +254,9 @@ export function AgentQuestionCard({
         </>
       )}
 
+      </div>
+
+      {/* Outside the folded part: a failed answer is news even when folded. */}
       {error ? (
         <p role="alert" className="text-caption-11 text-status-danger">
           {error}

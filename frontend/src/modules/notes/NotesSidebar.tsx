@@ -119,14 +119,19 @@ export function NotesSidebar({
         active={scope === "all"}
         onClick={() => onScopeChange("all")}
       />
+      {/* With nothing ungrouped there is nothing to unfold: the row keeps
+          its scope (an empty list is still an answer) but drops the chevron
+          and the "No notes" line it used to open onto. */}
       <SidebarRow
-        icon={<Chevron open={expanded.has("ungrouped")} />}
+        icon={<Chevron open={expanded.has("ungrouped")} hidden={counts.ungrouped === 0} />}
         label="Ungrouped"
         count={counts.ungrouped}
         active={scope === "ungrouped"}
-        onClick={() => selectExpandable("ungrouped", "ungrouped")}
+        onClick={() =>
+          counts.ungrouped === 0 ? onScopeChange("ungrouped") : selectExpandable("ungrouped", "ungrouped")
+        }
       />
-      {expanded.has("ungrouped") ? (
+      {expanded.has("ungrouped") && counts.ungrouped > 0 ? (
         <NoteRows
           notes={notesIn("ungrouped")}
           onOpenNote={onOpenNote}

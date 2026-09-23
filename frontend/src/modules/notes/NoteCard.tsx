@@ -4,6 +4,10 @@ import { noteCardSurface } from "./noteColor";
 import { relativeTime } from "./relativeTime";
 import { tagChipVar } from "./tagColor";
 
+/** Tags shown on a card before "+N": a sixth tag cut in half against the
+ * age read as a typo. The rest are in the "+N" title and the editor. */
+const MAX_CARD_TAGS = 4;
+
 /**
  * Figma `Note Card`, Mode=Normal (798:3178): 348×148, radius/10, p-16,
  * folder-tinted surface and stroke, title row with an overflow glyph, a
@@ -43,12 +47,15 @@ export function NoteCard({
             drawn, not wired, until there is a menu worth opening. */}
         <MoreHorizontal className="size-3.5 shrink-0 text-text-tertiary" aria-hidden />
       </span>
-      <span className="line-clamp-2 flex-1 text-body-13 text-text-secondary">
+      {/* Not flex-1: line-clamp only draws the ellipsis, and a box stretched
+          to fill the card showed the third line under it, running into the
+          footer. The footer takes the slack instead (mt-auto). */}
+      <span className="line-clamp-2 text-body-13 text-text-secondary">
         {note.preview || "No preview"}
       </span>
-      <span className="flex items-center gap-2">
+      <span className="mt-auto flex items-center gap-3">
         <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-          {note.effectiveTags.map((tag) => (
+          {note.effectiveTags.slice(0, MAX_CARD_TAGS).map((tag) => (
             <span
               key={tag.toLowerCase()}
               role="button"
@@ -74,6 +81,14 @@ export function NoteCard({
               {tag}
             </span>
           ))}
+          {note.effectiveTags.length > MAX_CARD_TAGS ? (
+            <span
+              className="shrink-0 text-code-11 text-text-tertiary"
+              title={note.effectiveTags.slice(MAX_CARD_TAGS).join(", ")}
+            >
+              +{note.effectiveTags.length - MAX_CARD_TAGS}
+            </span>
+          ) : null}
         </span>
         <span className="shrink-0 text-code-11 text-text-secondary">
           {relativeTime(note.updatedAt)} ago

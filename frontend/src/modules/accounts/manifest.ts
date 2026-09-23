@@ -5,6 +5,9 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 export const accountsModule: ModuleManifest = {
   id: "accounts",
   title: "Accounts",
+  // The account list is the module; there is nothing to choose before it. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: KeyRound,

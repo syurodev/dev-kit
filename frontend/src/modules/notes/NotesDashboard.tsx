@@ -36,11 +36,11 @@ import {
   searchNotes,
   updateFolder,
   type NoteFolder,
-  listTrashedNotes,
 } from "../../bridge/notes";
 import { noteColorValue } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
 import { useNotesSidebar } from "./useNotesSidebar";
+import { invalidateNotesOnce } from "./railData";
 import { useNotesSidebarStore } from "./notesSidebarStore";
 import { NotesTrash } from "./NotesTrash";
 import { NoteCard } from "./NoteCard";
@@ -195,10 +195,6 @@ export function NotesDashboard({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const scope = useNotesSidebarStore((s) => s.scope) as Scope;
   const setScope = useNotesSidebarStore((s) => s.setScope);
-  // The badge is read from the trash itself rather than derived from the note
-  // list, because List has already filtered trashed notes out by the time it
-  // gets here — counting them from it would always report zero.
-  const setTrashCount = useNotesSidebarStore((s) => s.setTrashCount);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -235,17 +231,10 @@ export function NotesDashboard({
     queryFn: () => listFolders(),
   });
 
-  const { data: trashedNotes = EMPTY_ARRAY } = useQuery({
-    queryKey: ["notes", "trash"],
-    queryFn: () => listTrashedNotes(),
-  });
-
+  // The trash count and the rail's lists are loaded by the rail itself
+  // (railData.ts), which this view mounts through useNotesSidebar.
   useEffect(() => {
-    setTrashCount(trashedNotes.length);
-  }, [trashedNotes.length, setTrashCount]);
-
-  useEffect(() => {
-    void queryClient.invalidateQueries({ queryKey: ["notes"] });
+    invalidateNotesOnce(queryClient, refreshToken);
   }, [refreshToken, queryClient]);
 
   const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
@@ -263,18 +252,6 @@ export function NotesDashboard({
     });
   }, [notes, scope, folderIds, selectedTags]);
 
-  const counts = useMemo(() => {
-    let ungrouped = 0;
-    const byFolder = new Map<string, number>();
-    for (const n of notes) {
-      if (!n.folderId || !folderIds.has(n.folderId)) {
-        ungrouped += 1;
-      } else {
-        byFolder.set(n.folderId, (byFolder.get(n.folderId) ?? 0) + 1);
-      }
-    }
-    return { all: notes.length, ungrouped, byFolder };
-  }, [notes, folderIds]);
 
   // Every tag in play, as toggle chips beside the search (Figma 799:3174 shows
   // the whole set with the active ones lit), not only the selected ones.
@@ -374,13 +351,8 @@ export function NotesDashboard({
     }
   }
 
-  const setSidebarData = useNotesSidebarStore((s) => s.setData);
   const pendingAction = useNotesSidebarStore((s) => s.pendingAction);
   const clearAction = useNotesSidebarStore((s) => s.clearAction);
-
-  useEffect(() => {
-    setSidebarData({ folders, notes, counts });
-  }, [folders, notes, counts, setSidebarData]);
 
   // The dialogs live here, so a folder action raised from the editor's copy of
   // the rail is handed over rather than duplicated.
@@ -410,25 +382,39 @@ export function NotesDashboard({
       <div className="flex h-full min-h-0 w-full">
 
         <section className="flex min-h-0 flex-1 flex-col">
-          {/* Figma `Notes / Dashboard Content` (799:3369): one row — search
-              at 360 wide, the tag set as toggle chips, and the primary
-              "New note" at the far right. No page title: the rail and the tab
-              already say where you are. Cards start 80 down, hence pb-7. */}
-          <div className="flex items-center gap-3 px-6 pt-5 pb-7">
-            <div className="relative w-90 shrink-0">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-text-tertiary" />
-              <Input
-                aria-label="note-search"
-                placeholder="Search notes…"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                }}
-                className="h-8 border-border-subtle bg-surface-well pl-8"
-              />
+          {/* Search and "New note" on one row, the tag filter on its own
+              row under them. Figma (799:3369) draws all three on one row,
+              which holds for four short tags; with more, the chips wrapped
+              into a tall block squeezed between the search box and the
+              button, and the cards started well down the page. No page
+              title: the rail and the tab already say where you are. */}
+          <div className="flex flex-col gap-3 px-6 pt-5 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="relative max-w-120 min-w-0 flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-text-tertiary" />
+                <Input
+                  aria-label="note-search"
+                  placeholder="Search notes…"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                  }}
+                  className="h-8 border-border-subtle bg-surface-well pl-8"
+                />
+              </div>
+              <div className="flex-1" />
+              <Button
+                type="button"
+                size="default"
+                disabled={creating}
+                onClick={() => void onCreateNote()}
+              >
+                <Plus className="size-3.5" />
+                New note
+              </Button>
             </div>
             {allTags.length > 0 ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter by tag">
                 {allTags.map((tag) => {
                   const key = tag.toLowerCase();
                   const active = selectedTags.some((t) => t.toLowerCase() === key);
@@ -439,7 +425,7 @@ export function NotesDashboard({
                       aria-pressed={active}
                       onClick={() => toggleTagFilter(tag)}
                       className={cn(
-                        "flex h-6 items-center gap-1.5 rounded-md border px-2.5 text-code-11 transition-colors",
+                        "flex h-6 items-center gap-1.5 rounded-md border px-2 text-code-11 transition-colors",
                         active
                           ? "border-border bg-state-soft text-text-primary"
                           : "border-border-subtle bg-surface-raised text-text-secondary hover:text-text-primary",
@@ -454,29 +440,24 @@ export function NotesDashboard({
                     </button>
                   );
                 })}
+                {selectedTags.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTags([])}
+                    className="flex h-6 items-center gap-1 rounded-md px-2 text-code-11 text-text-tertiary hover:text-text-primary"
+                  >
+                    <X className="size-3" />
+                    Clear
+                  </button>
+                ) : null}
               </div>
             ) : null}
-            <div className="flex-1" />
-            <Button
-              type="button"
-              size="default"
-              disabled={creating}
-              onClick={() => void onCreateNote()}
-            >
-              <Plus className="size-3.5" />
-              New note
-            </Button>
           </div>
 
           {scope === "trash" ? (
-            <NotesTrash
-              onChanged={() => {
-                onChanged();
-                void listTrashedNotes()
-                  .then((items) => setTrashCount(items.length))
-                  .catch(() => undefined);
-              }}
-            />
+            // onChanged bumps the refresh token, and the rail re-reads the
+            // trash count from that like everything else it lists.
+            <NotesTrash onChanged={onChanged} />
           ) : (
           <ScrollArea className="min-h-0 flex-1">
             {/* 348-wide cards on a 20px gap (Figma draws 22/20 — one step on

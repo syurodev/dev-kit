@@ -14,6 +14,9 @@ const toolsView = lazyModuleView(() =>
 export const toolsModule: ModuleManifest = {
   id: "tools",
   title: "Tools",
+  // The tool list is the module. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Wrench,

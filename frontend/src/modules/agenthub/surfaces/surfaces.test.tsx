@@ -1911,6 +1911,22 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-testid="question-skip-all"');
     });
 
+    // Skip all used to sit alone on a second row under Previous/Skip/Next.
+    it("keeps every step control, Skip all included, on one row", () => {
+      const html = renderToString(<AgentQuestionCard pending={question(3)} session={session} onRespond={() => {}} />);
+      const actions = html.slice(html.indexOf('data-slot="questionnaire-actions"'));
+      const row = actions.slice(0, actions.indexOf("</div></div>") + 1);
+      expect(row).toContain('data-testid="question-skip-all"');
+      expect(row).toContain('data-slot="questionnaire-next"');
+    });
+
+    it("can be folded, and starts open", () => {
+      const html = renderToString(<AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} />);
+      expect(html).toContain('data-testid="question-collapse"');
+      expect(html).toContain('aria-expanded="true"');
+      expect(html).not.toContain('data-testid="question-collapsed-summary"');
+    });
+
     it("is always stepwise in the rail, even for one question", () => {
       const html = renderToString(
         <AgentQuestionCard pending={question(1)} session={session} onRespond={() => {}} size="rail" />,

@@ -4,6 +4,9 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 export const settingsModule: ModuleManifest = {
   id: "settings",
   title: "Settings",
+  // One place to be; an empty Settings asked a question with one answer. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Settings,
