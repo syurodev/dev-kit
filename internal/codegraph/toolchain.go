@@ -252,33 +252,21 @@ func DefaultToolchains(repoRoot string) []Toolchain {
 }
 
 // SetToolchains registers what BuildAnalyzer can build and AnalyzerStatus can
-// report on. A Service with none — every test double, the in-memory container
-// — reports an empty list rather than failing, which is the truth: it has no
-// analyzer to build.
+// report on — on this Service's Host, so every Service sharing it sees them.
+// A Service with none — every test double, the in-memory container — reports
+// an empty list rather than failing, which is the truth: it has no analyzer
+// to build.
 func (s *Service) SetToolchains(toolchains []Toolchain) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.toolchains = toolchains
+	s.host.SetToolchains(toolchains)
 }
 
 func (s *Service) toolchainList() []Toolchain {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.toolchains
+	return s.host.Toolchains()
 }
 
-// AnalyzerStatus probes the machine once per registered toolchain and reports
-// what is ready, what is buildable, and what is missing.
-//
-// Probing shells out to each required program's version flag, so this is not
-// free — call it when the user is looking at the setup panel, not on a timer.
+// AnalyzerStatus reports on the Host's toolchains; see Host.AnalyzerStatus.
 func (s *Service) AnalyzerStatus(ctx context.Context) []ToolchainStatus {
-	toolchains := s.toolchainList()
-	statuses := make([]ToolchainStatus, 0, len(toolchains))
-	for _, tc := range toolchains {
-		statuses = append(statuses, tc.status(ctx))
-	}
-	return statuses
+	return s.host.AnalyzerStatus(ctx)
 }
 
 func (t Toolchain) status(ctx context.Context) ToolchainStatus {
@@ -519,67 +507,14 @@ func versionAtLeast(found, minimum string) bool {
 // the developer's own toolchain, and a build tool needs the network and its
 // own package cache to do its job at all.
 func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
-	var toolchain Toolchain
-	found := false
-	for _, tc := range s.toolchainList() {
-		if tc.Language == language {
-			toolchain, found = tc, true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("%w: %s", ErrUnknownToolchain, language)
-	}
-	if toolchain.Native != nil {
-		return fmt.Errorf("%w: %s", ErrAnalyzerIsBuiltIn, language)
-	}
-
-	if !s.buildMu.TryLock() {
-		return ErrBuildAlreadyRunning
-	}
-	defer s.buildMu.Unlock()
-
-	// Bounded, and cancellable from outside the call: CancelAnalyzerBuild (the
-	// setup panel's Cancel) and Close (quitting the app) both stop it.
-	if _, ok := ctx.Deadline(); !ok {
-		var cancelTimeout context.CancelFunc
-		ctx, cancelTimeout = context.WithTimeout(ctx, buildTimeout)
-		defer cancelTimeout()
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	s.mu.Lock()
-	s.buildCancel = cancel
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		s.buildCancel = nil
-		s.mu.Unlock()
-	}()
-
-	resolved, buildable := toolchain.resolve(ctx)
-	if !buildable {
-		for _, req := range resolved {
-			if !req.Met {
-				return fmt.Errorf("%w: %s", ErrToolchainIncomplete, req.Problem)
-			}
-		}
-	}
-
-	if err := toolchain.run(ctx, resolved, func(line string) {
+	toolchain, err := s.host.BuildAnalyzer(ctx, language, func(line string) {
 		if s.OnAnalyzerBuildOutput != nil {
 			s.OnAnalyzerBuildOutput(language, line)
 		}
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
-	// The build's own output, not whatever the search finds: a build that
-	// silently produced nothing must not read as success because a stale
-	// bundled copy happens to be lying around.
-	if firstExisting([]string{toolchain.Artifact}) == "" {
-		return fmt.Errorf("%w: expected %s", ErrArtifactMissing, toolchain.Artifact)
-	}
-
 	// Only for the language the open project is written in. Before there were
 	// two analyzers this was unconditional and harmless; with two it would
 	// hand a Lua project the Java analyzer because a Java build happened to
@@ -588,26 +523,11 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	return nil
 }
 
-// CancelAnalyzerBuild stops the analyzer build in flight, if there is one —
-// Maven, its JVM and everything they forked. BuildAnalyzer then returns the
-// cancellation. A no-op when nothing is building.
+// CancelAnalyzerBuild stops the Host's analyzer build in flight, if there is
+// one. A no-op when nothing is building.
 func (s *Service) CancelAnalyzerBuild() {
-	s.mu.Lock()
-	cancel := s.buildCancel
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
+	s.host.CancelAnalyzerBuild()
 }
-
-const (
-	// probeTimeout bounds one version probe.
-	probeTimeout = 15 * time.Second
-	// buildTimeout bounds an analyzer build when the caller set no deadline.
-	// A cold Maven cache downloads the analyzer's dependencies, which is
-	// minutes on a slow network; past this it is not downloading any more.
-	buildTimeout = 30 * time.Minute
-)
 
 // Analyzer returns an Analyzer that runs this toolchain's artifact.
 //

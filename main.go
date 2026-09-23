@@ -671,6 +671,9 @@ func main() {
 	defer container.SSH.Close()
 	defer container.Kafka.Close()
 	defer container.CodeGraph.Close()
+	// Runs before CodeGraph.Close (defers unwind in reverse): resident
+	// services share its Host, and each shuts down its own store.
+	defer func() { _ = container.CodeGraphRegistry.Shutdown() }()
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}

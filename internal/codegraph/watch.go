@@ -196,8 +196,8 @@ func (s *Service) restartWatcher(root string) error {
 	s.mu.Lock()
 	s.watchCancel = cancel
 	s.watchDone = done
-	relevant := watchFilter(s.toolchains)
 	s.mu.Unlock()
+	relevant := watchFilter(s.host.Toolchains())
 
 	go s.watchLoop(ctx, w, done, watched, relevant)
 	return nil
@@ -424,7 +424,14 @@ func (s *Service) prepareReindex(ctx context.Context) func() {
 			defer stop()
 		}
 
-		result, err := analyzer.Analyze(ctx, root)
+		// Waits for an analyze slot shared with every other Service on the
+		// Host (host.go); cancelled with the project like the analysis itself.
+		var result AnalysisResult
+		release, err := s.host.acquireJob(ctx)
+		if err == nil {
+			result, err = analyzer.Analyze(ctx, root)
+			release()
+		}
 		if err == nil {
 			err = ctx.Err()
 		}
