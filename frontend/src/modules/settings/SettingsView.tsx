@@ -58,7 +58,6 @@ import {
   Sun,
   Monitor,
   SlidersHorizontal,
-  Laptop,
   LockKeyhole,
   Database,
   Bot,
@@ -159,7 +158,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               <NavItem
                 active={activeTab === "sync"}
                 icon={Monitor}
-                label="Sync & Devices"
+                label="Sync"
                 onClick={() => setActiveTab("sync")}
               />
               <NavItem
@@ -283,6 +282,13 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-label-11-caps text-text-tertiary">{children}</p>;
 }
 
+/** The signed-in line: when the session runs out, if the provider said. */
+function sessionLine(expiresAt: string): string {
+  const at = expiresAt ? new Date(expiresAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return "Session active";
+  return `Session active · until ${at.toLocaleString()}`;
+}
+
 // ----------------------------------------------------------------------
 // 1. Account Tab — Figma `Settings Content / Account` (765:1999)
 // ----------------------------------------------------------------------
@@ -336,15 +342,15 @@ function AccountTab() {
           sign-out as a destructive control on the right. */}
       <div className="flex items-center gap-4 rounded-control border border-border-subtle bg-surface-raised px-4 py-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-well text-code-12-medium text-text-secondary select-none">
-          SY
+          <User className="size-4.5" strokeWidth={1.5} />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-body-14-medium text-text-primary">
-            {auth.authenticated ? "syuro.dev@gmail.com" : "Not signed in"}
+            {auth.authenticated ? "Signed in" : "Not signed in"}
           </span>
           <span className="text-code-12 text-text-tertiary">
-            {auth.authenticated ? "Signed in · session active" : "Offline · local only"}
+            {auth.authenticated ? sessionLine(auth.expiresAt) : "Offline · local only"}
           </span>
         </div>
 
@@ -679,49 +685,15 @@ function AppearanceTab() {
 }
 
 // ----------------------------------------------------------------------
-// 3. Sync & Devices Tab — Figma `Settings Content / Sync & Devices` (765:2019)
+// 3. Sync Tab
 // ----------------------------------------------------------------------
-
-/** device (765:2024): one raised card per device — 18px glyph, the name in
- * Body/14 Medium, the last-seen line in Code/12, and Revoke as a destructive
- * control. This device's Revoke is drawn but disabled at 45%. */
-function DeviceRow({
-  icon: Icon,
-  name,
-  detail,
-  current,
-}: {
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  name: string;
-  detail: string;
-  current?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-control border border-border-subtle bg-surface-raised px-4 py-3">
-      <Icon className="size-4.5 shrink-0 text-text-secondary" strokeWidth={1.5} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-body-14-medium text-text-primary">{name}</span>
-        <span className="text-code-12 text-text-tertiary">{detail}</span>
-      </div>
-      <Button
-        type="button"
-        variant="destructive"
-        size="default"
-        disabled={current}
-        className={cn(current && "opacity-45")}
-      >
-        Revoke
-      </Button>
-    </div>
-  );
-}
 
 function SyncDevicesTab() {
   const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState("");
 
-  useQuery({
+  const { data: status } = useQuery({
     queryKey: ["sync", "status"],
     queryFn: () => syncStatus(),
   });
@@ -743,8 +715,8 @@ function SyncDevicesTab() {
     <TabColumn gap={7}>
       <div className="flex items-start justify-between gap-4">
         <SectionHeader
-          title="Sync & Devices"
-          description="Devices with access to your synced vault. Revoking a device blocks it until it signs in again."
+          title="Sync"
+          description="Where your vault syncs to and which device this is. Items are encrypted here before they leave."
         />
         {/* Not in the Figma section, kept: it is the one way to force a sync
             from here, and dropping a working action to match a mock is a
@@ -762,23 +734,25 @@ function SyncDevicesTab() {
         </Button>
       </div>
 
-      {/* ponytail: three hard-coded devices until GET /v1/sync/devices is
-          wired to the desktop bridge (implementation-status.mdx lists device
-          management UI as still to do). */}
-      <div className="flex flex-col gap-2">
-        <DeviceRow icon={Laptop} name="MacBook Pro" detail="This device · active now" current />
-        <DeviceRow icon={Monitor} name="Mac mini (office)" detail="Last active 2 days ago" />
-        <DeviceRow icon={Monitor} name="Studio setup" detail="Last active 19 days ago" />
+      <div className="flex flex-col gap-2 rounded-control border border-border-subtle bg-surface-raised px-4 py-3">
+        <StatusRow label="Status" value={status?.connected ? "Connected" : "Not connected"} />
+        <StatusRow label="Endpoint" value={status?.endpoint || "—"} />
+        <StatusRow label="This device" value={status?.deviceId || "—"} />
       </div>
 
       {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
-
-      <SecurityNotice
-        type="irreversible"
-        title="A revoked device is blocked immediately"
-        description="It is denylisted right away and must sign in again before it can push or pull."
-      />
     </TabColumn>
+  );
+}
+
+function StatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline gap-4">
+      <span className="w-24 shrink-0 text-body-12 text-text-tertiary">{label}</span>
+      <span className="min-w-0 truncate text-code-12 text-text-secondary" title={value}>
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -826,6 +800,13 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>SANDBOX</GroupLabel>
         <AgentSandboxSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>DEVKIT MCP</GroupLabel>
+        <p className="text-body-12 text-text-tertiary">
+          Register the DevKit MCP proxy in an agent's own config so it can reach your vault and modules.
+        </p>
+        <McpInstallPanel />
       </div>
     </TabColumn>
   );
@@ -978,11 +959,6 @@ function EnvironmentsTab() {
           </form>
         </DialogContent>
       </Dialog>
-
-      {/* MCP Proxy Install section */}
-      <div className="border-t border-border-subtle pt-4">
-        <McpInstallPanel />
-      </div>
     </TabColumn>
   );
 }
