@@ -354,18 +354,19 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             Finder/Notes sidebars sit closest to the desktop. */}
         {/* Keep the shared titlebar background visible through the rail.
 
-            No inset of its own, on any side. A rail starts where the content
-            card starts and runs to the edge of the window on the left; what
-            sits between a rail's rows is the rail's to decide, not the
-            shell's. Every module's list also scrolls inside this wrapper, so an
-            inset on the right would have put each rail's scrollbar that far in
-            from its edge, with the 8px sash beyond it — a scrollbar belongs
-            against the edge it scrolls. */}
+            A 16px inset on both sides (px-4), none top or bottom: the rail's
+            rows start where the content card starts, as before. With no
+            inset, every rail's first control and its selected row ran flush
+            to the window edge while the views beside it sit well in from
+            theirs, and each module would have had to add the same margin on
+            its own. The shell owns it so every rail — and the next one —
+            gets the same. The cost is that a rail's scrollbar sits 16px in
+            from the sash rather than against it. */}
         {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
             beside the focused group rather than in it. Armed on the way down,
             consumed by the openTab that click makes — no rail had to change. */}
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden glass-rail"
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 glass-rail"
           onClickCapture={(e) => {
             if (e.metaKey || e.ctrlKey) armBeside();
           }}
