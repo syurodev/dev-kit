@@ -26,6 +26,13 @@ type Host struct {
 	configDir        string
 	terminalRegistry *terminal.Registry
 
+	// jobs is the analyze semaphore: one token per analysis running anywhere
+	// in the app — an open, a watcher re-index, the workspace's index queue.
+	// A Java analyze is a JVM for its whole length, so this is the ceiling on
+	// JVMs at once; without it a `git checkout` touching several open
+	// services would start one per service at the same moment.
+	jobs chan struct{}
+
 	// buildMu is held for the whole length of a build — minutes on a cold
 	// Maven cache — which mu, taken on every read, could not be. buildCancel
 	// stops that build.
@@ -37,7 +44,40 @@ type Host struct {
 // directory, no terminal registry. What an ephemeral container and every
 // test double start from.
 func NewHost() *Host {
-	return &Host{}
+	return &Host{jobs: make(chan struct{}, DefaultJobLimit)}
+}
+
+// DefaultJobLimit is how many analyses run at once across the app
+// (workspace.mdx § Registry, "Hai trần"). With one project open that is its
+// open and one refresh or re-index — what a single Service could already
+// have in flight — so today's app is not held up by it.
+const DefaultJobLimit = 2
+
+// SetJobLimit changes how many analyses may run at once. Only before any
+// analysis starts: a limit changed under a running one would lose track of
+// its token.
+func (h *Host) SetJobLimit(n int) {
+	if n < 1 {
+		n = 1
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.jobs = make(chan struct{}, n)
+}
+
+// acquireJob waits for an analyze slot, or for ctx to end. release must be
+// called exactly once when the analysis is over.
+func (h *Host) acquireJob(ctx context.Context) (release func(), err error) {
+	h.mu.RLock()
+	jobs := h.jobs
+	h.mu.RUnlock()
+	select {
+	case jobs <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-jobs }) }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // SetToolchains registers what builds can build and AnalyzerStatus reports on.

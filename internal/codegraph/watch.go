@@ -424,7 +424,14 @@ func (s *Service) prepareReindex(ctx context.Context) func() {
 			defer stop()
 		}
 
-		result, err := analyzer.Analyze(ctx, root)
+		// Waits for an analyze slot shared with every other Service on the
+		// Host (host.go); cancelled with the project like the analysis itself.
+		var result AnalysisResult
+		release, err := s.host.acquireJob(ctx)
+		if err == nil {
+			result, err = analyzer.Analyze(ctx, root)
+			release()
+		}
 		if err == nil {
 			err = ctx.Err()
 		}

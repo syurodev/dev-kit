@@ -85,6 +85,11 @@ type Container struct {
 	Database     *database.Service
 	SSH          *sshservice.Service
 	CodeGraph    *codegraph.Service
+	// CodeGraphRegistry keeps other projects' indexes open beside CodeGraph,
+	// which is its focused service (workspace.mdx § Registry). Nothing opens a
+	// resident service yet — the bridge and MCP still name no service, so
+	// they reach CodeGraph exactly as before; step 4 threads servicePath.
+	CodeGraphRegistry *codegraph.Registry
 	// Terminal is nil in ephemeral/test containers built via
 	// NewContainer/NewContainerWithStores — main.go constructs the real one
 	// (it needs a Wails-aware output callback container.go doesn't have
@@ -405,7 +410,7 @@ func NewContainerWithStores(
 	dbService.SetQueryLog(database.NewMemoryQueryHistory(), vaultService)
 	dbService.SetSchemaCache(database.NewMemorySchemaCache())
 
-	return &Container{
+	c := &Container{
 		Commands:     commands.NewRegistry(),
 		Modules:      modules.NewRegistry(),
 		Audit:        auditSink,
@@ -433,4 +438,6 @@ func NewContainerWithStores(
 		APIClient:   apiclient.NewService(itemStore, envService),
 		Workspace:   workspace.NewService(workspace.NewMemoryRepository()),
 	}
+	c.CodeGraphRegistry = codegraph.NewRegistry(c.CodeGraph, -1)
+	return c
 }

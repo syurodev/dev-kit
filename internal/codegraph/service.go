@@ -502,7 +502,12 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 		return s.saveProjectFor(generation, root)
 	}
 
+	release, err := s.host.acquireJob(ctx)
+	if err != nil {
+		return fmt.Errorf("codegraph: analyze %q: %w", root, err)
+	}
 	result, err := analyzer.Analyze(ctx, root)
+	release()
 	if err != nil {
 		return fmt.Errorf("codegraph: analyze %q: %w", root, err)
 	}

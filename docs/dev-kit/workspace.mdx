@@ -344,9 +344,12 @@ service ("không tự làm mới — hết inotify watch"), không nuốt.
 
 ### Khoá của service
 
-Key là `ProjectKey(path)` — đúng hàm chuẩn hoá `ProjectDBPath` dùng (clean,
-resolve symlink, gộp hoa/thường trên macOS/Windows). Hai cách chuẩn hoá khác
-nhau thì cùng một repo thành hai slot trỏ vào hai file index.
+Key là `ProjectKey(path)` — đúng cách chuẩn hoá `ProjectDBPath` dùng, tức
+`filepath.Clean` và không hơn. Hai cách chuẩn hoá khác nhau thì cùng một repo
+thành hai slot trỏ vào hai file index. Resolve symlink hay gộp hoa/thường
+nghe chắc hơn, nhưng làm vậy trong `ProjectKey` mà không làm trong
+`ProjectDBPath` là lệch nhau; làm ở cả hai thì tên file của mọi index đã có
+trên đĩa đổi theo, và chúng mồ côi. Nếu cần, đó là một migration riêng.
 
 ### Bề mặt API: `servicePath` tuỳ chọn, rỗng = đang focus
 
@@ -384,8 +387,27 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
    **không** huỷ build: build là của Host, còn `Close()` (thoát app) thì vẫn
    huỷ. Callback `OnProjectChanged` / `OnIndexUpdated` vẫn trên `Service`;
    bước 2 chuyển chúng lên Registry.
-2. `Registry` với hai trần + service đang focus; method không truyền
+2. ✅ `Registry` với hai trần + service đang focus; method không truyền
    `servicePath` giữ đúng hành vi hôm nay.
+   - **Trần job** là semaphore của `Host` (`DefaultJobLimit` = 2), bọc cả hai
+     chỗ gọi `Analyze`: mở project và re-index. Chờ slot thì huỷ được theo
+     context của project.
+   - **Service đang focus** là `container.CodeGraph` như hôm nay: nó vẫn tự
+     đổi folder tại chỗ, Registry không bao giờ evict hay shutdown nó. `Open`
+     cho đúng folder nó đang mở trả về chính nó. Đổi focus sang một service
+     thường trú (`Focus(path)`) đi cùng bước 4, khi caller bắt đầu nói tên
+     service.
+   - **Service thường trú**: một `Service` mỗi folder trên cùng `Host`, LRU
+     (`DefaultResidentLimit` = 8), evict bằng `Shutdown()` và báo qua
+     `OnEvicted`. Open lỗi thì trả slot, không để lại gì. Trần 0 thì chỉ có
+     service đang focus (`ErrNoResidentSlots`).
+   - **Callback**: re-index của service thường trú báo qua
+     `Registry.OnIndexUpdated(servicePath, version)`. Service đang focus giữ
+     `OnIndexUpdated` / `OnProjectChanged` của nó như cũ — chúng đang lái
+     event cho frontend, và đổi payload là việc của bước 4.
+   - Container dựng `CodeGraphRegistry` quanh `CodeGraph`; `main.go` shutdown
+     các service thường trú khi thoát. Chưa ai mở service thường trú, nên
+     app chạy y như trước.
 3. Mở lại phục vụ index cũ khi analyzer cùng phiên bản.
 4. `servicePath` qua bridge, MCP, event; frontend rekey state theo service.
 5. Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
