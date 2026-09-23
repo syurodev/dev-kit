@@ -32,7 +32,7 @@ Bind lồng RO/RW trên Linux đã đúng thứ tự (§ [Worktree](#worktree-d�
 **Chưa có:** bước 3 của auto-discovery (sửa tay), Rescan, trạng thái index
 (§ [Trạng thái index](#trạng-thái-index-của-một-service)), manifest tier
 (mode chạy riêng của analyzer), lưu outbound call vào index phía Go, join,
-Registry N slot, và tier worktree.
+Registry (thiết kế đã sửa sau khi đối chiếu code — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)), và tier worktree.
 `internal/codegraph/service.go` vẫn giữ **một** project active
 (`activeProject`, `SetProjectPath`), đúng FR-1 gốc của
 [CodeGraph](/dev-kit/codegraph) — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)
@@ -197,7 +197,7 @@ cần có thể lấy được mà **không trả một đồng nào cho solver*
 | | Manifest tier | Full index tier |
 |---|---|---|
 | Cần symbol solver | Không | Có (walk `~/.m2`) |
-| Phạm vi | Mọi service trong workspace | Tối đa `limit` service, mở tay (§ Registry) |
+| Phạm vi | Mọi service trong workspace | Tối đa trần thường trú, mở tay (§ Registry) |
 | Nội dung | Inbound endpoint + outbound HTTP call | Node, edge, call site, field access |
 | Kích hoạt | Khi mở workspace, khi rescan | Bấm vào service trong panel → `Registry.Open` |
 | Đơn vị cache | Từng file, theo `mtime` + `size` | Cả project |
@@ -225,51 +225,157 @@ index cho **cả hai cùng lúc**, không phải manifest tier — manifest ch�
 join (§ trên), không tra được implementation hay lần theo một field bên trong
 B.
 
-`Service` không đổi bên trong. Nó đã tự dọn sạch vòng đời của chính nó —
-`beginOpen` cancel `projectCtx`, dừng watcher, reset index trước khi mở bản
-kế; `Close()` làm y hệt cộng `CancelAnalyzerBuild` và đóng mọi analyzer đang
-giữ. Đó chính xác là thao tác cần để evict một service khỏi cache mà không rò
-process — Registry chỉ gọi lại nó cho N instance thay vì 1.
+<Callout type="warn" title="Bản trước của mục này sai ở câu nền">
+Bản trước viết "`Service` không đổi bên trong, Registry chỉ gọi lại nó cho N
+instance". Đối chiếu với code thì không đứng: `Service` đang giữ cả thứ của
+toàn app, `Close()` không đóng store, và mở lại một project từ index đã lưu
+vẫn chặn truy vấn tới khi re-index xong. Các mục dưới đây là thiết kế đã sửa;
+mỗi vấn đề ghi kèm chỗ trong code.
+</Callout>
+
+### Tách `Service`: phần của một project, phần của cả app
+
+`codegraph.Service` hôm nay là singleton của app (`internal/app/container.go`),
+và giữ lẫn hai loại trạng thái:
+
+| Của một project | Của cả app |
+|---|---|
+| `store` + `lease`, `index` (generation, opening, err) | toolchain registry, `BuildAnalyzer` / `CancelAnalyzerBuild`, `OnAnalyzerBuildOutput` |
+| `projectCtx`, watcher, `detected` | `configDir`, `terminalRegistry`, `workTree` |
+| `analyzers` (một mỗi ngôn ngữ — với TS là một process `tsgo`) | `OnProjectChanged` → đặt **work folder** của cả app (`main.go`), Git đi theo nó |
+| | plan reconcile đọc `ProjectRoot()` duy nhất (`internal/app/plantasks.go`) |
+
+N bản của `Service` y hệt nghĩa là N trạng thái build cho cùng một artifact
+trên đĩa, N lần "project changed", và work folder nhảy theo bản nào mở sau
+cùng. Nên tách:
+
+- **`codegraph.Service`** giữ đúng cột trái — một project, một index.
+- **`codegraph.Registry`** giữ cột phải, cộng khái niệm **service đang focus**.
+  Work folder, plan reconcile và mọi method không nói rõ service nào đi theo
+  service đang focus — đúng hành vi hôm nay khi chỉ có một.
+
+Bước tách này không đổi hành vi: Registry với trần 1 chính là app hôm nay.
+
+### Evict phải đóng store — `Close()` hiện không làm
+
+`Service.Close()` (`internal/codegraph/service.go`) huỷ `projectCtx`, dừng
+build, watcher và analyzer, nhưng **không retire lease** — comment của nó nói
+rõ store là của container. Đúng cho một singleton sống bằng đời app; sai cho
+một instance bị evict: mỗi lần evict để lại một handle SQLite mở. Registry cần
+`Service.Shutdown()`: `Close()` cộng `lease.retire()` (đóng store khi truy vấn
+đang đọc xong, như một lần switch project đã làm).
+
+### Hai trần, không phải một `limit`
+
+Bản trước dùng một `limit` = 2–3 service mở, lý do "mỗi service là một JVM".
+Nhưng analyzer Java là subprocess **chạy một lần mỗi lần analyze**
+(`analyzer_subprocess.go`): một service Java đang mở mà rảnh không giữ JVM
+nào, chỉ một watcher và một handle SQLite. Thứ thường trú là `tsgo`: mỗi
+service TS một process, vì `tsAnalyzer.connect()` giữ đúng một root và đóng
+server khi root đổi (`analyzer_ts.go`). Hai chi phí khác nhau, nên hai trần:
+
+| Trần | Chặn cái gì | Mặc định |
+|---|---|---|
+| **Job analyze đồng thời** | Số analyze chạy cùng lúc trên cả app: mở service, re-index do watcher, hàng đợi index-khi-thêm (§ dưới), service của worktree | 2 |
+| **Service thường trú** (LRU) | Số `Service` mở cùng lúc — áp lực thật là `tsgo` và inotify watch | 8 |
+
+Trần job là thứ thực sự chặn "N JVM cùng lúc". Thiếu nó, một `git checkout`
+chạm vào nhiều repo làm N watcher cùng bắn N JVM. Đầy trần job thì job xếp
+hàng; đầy trần thường trú thì evict service dùng lâu nhất (không bao giờ
+service đang focus), và UI nói service nào bị đóng.
 
 ```go
 // internal/codegraph
 type Registry struct {
-    mu       sync.Mutex
-    limit    int                 // JVM/tsgo đồng thời — mặc định nhỏ, xem dưới
-    services map[string]*Service // key = workspace_services.path
-    lru      []string            // most-recently-used ở cuối
+    mu        sync.Mutex
+    jobs      chan struct{}        // semaphore, cap = trần job
+    resident  int                  // trần thường trú
+    services  map[string]*Service  // key = ProjectKey(path), xem dưới
+    lru       []string             // dùng gần nhất ở cuối
+    focused   string
+
+    // Của cả app — dời từ Service sang
+    toolchains []Toolchain
+    configDir  string
+    terminals  *terminal.Registry
+    OnIndexUpdated   func(servicePath string, version int)
+    OnFocusChanged   func(servicePath string)
 }
 
 func (r *Registry) Open(ctx context.Context, servicePath string) (*Service, error)
-func (r *Registry) Close(servicePath string) error
-func (r *Registry) evictLRU() error // gọi Service.Close() sẵn có, không đổi gì trong nó
+func (r *Registry) Focus(servicePath string) error
+func (r *Registry) Service(servicePath string) (*Service, bool) // "" = focus
+func (r *Registry) IndexOnce(ctx context.Context, servicePath string) error // § Thêm service
+func (r *Registry) Shutdown() error
 ```
 
-**Lazy, không eager.** Mở một workspace không mở full index cho mọi
-`workspace_services` — chỉ manifest tier chạy ngay, đúng bảng ở § trên. Full
-index của một service chỉ mở khi người dùng thật sự bấm vào nó trong Workspace
-panel, đúng cách `OpenProject` hoạt động hôm nay; khác duy nhất là không còn
-cancel bản đang mở nếu Registry vẫn còn slot trong `limit`.
+### Mở lại không được chặn truy vấn
 
-**`limit` là câu trả lời trực tiếp cho một ceiling trang này đã nêu từ trước**
-("`analyzer_subprocess.go` cũng chưa giới hạn số JVM chạy song song" — mục
-Known ceiling): trước đây đúng vì chỉ có 1 slot nên câu hỏi chưa từng đặt ra.
-Có N slot thì bắt buộc có trần. Mỗi Java service full-index là một JVM walk
-trọn `~/.m2`/`~/.gradle` (554 jar đo được ở máy này) — N=2–3 là mức hợp lý
-trước khi RAM/CPU máy dev bắt đầu đau; đầy `limit` thì UI phải nói rõ đang
-evict service nào, không âm thầm.
+`OpenProjectAt` dùng lại index đã lưu nhưng vẫn re-index nền, và **chặn truy
+vấn tới khi lượt đó xong** (comment của nó: "Queries are gated until that
+refresh commits"). Với Java, re-index là full analyze. Một LRU nhỏ khiến mỗi
+lần quay lại một service bị evict = một JVM analyze đầy đủ + màn hình chờ.
+Registry chỉ đáng dùng khi mở lại là rẻ, nên:
 
-**Watcher không còn nghĩa "chỉ project active mới có freshness".** Mỗi
-`Service` trong Registry giữ watcher riêng — service bị evict mất watcher
-(đúng ý, nó không còn mở), service còn nằm trong `limit` vẫn tự re-index khi
-file đổi như hôm nay, không còn phân biệt "active" hay không theo nghĩa cũ.
+- Mở từ index đã lưu thì **phục vụ truy vấn ngay trên index đó**, đánh dấu
+  `stale` cho tới khi refresh xong — cùng tinh thần "hiện `indexed_at` thay vì
+  giả vờ tươi" ở § Join. Cổng chặn hôm nay tồn tại vì "persisted rows alone are
+  not evidence that the current analyzer has run"; giữ ý đó bằng cách chỉ
+  phục vụ index cũ khi `index_meta` ghi đúng project **và** đúng analyzer,
+  còn khác thì vẫn chặn. `index_meta` hôm nay có `version` (bộ đếm lần ghi),
+  `indexed_at` và project root — **chưa có analyzer nào đã ghi nó**, nên bước
+  này thêm một khoá `analyzer` (ngôn ngữ + fingerprint của artifact: hash jar,
+  phiên bản `tsgo`). Index ghi trước khi có khoá thì coi như khác analyzer.
+- Refresh đi qua trần job như mọi analyze khác.
 
-Bridge (`internal/bridge/codegraph.go`, 23 method) và `codegraphStore.ts` phía
-frontend hiện đều ngầm định "project đang active" — không method nào nhận id.
-Thread `servicePath` — đúng field `workspace_services.path` đã có ở data model
-trên, không phải khái niệm mới — qua từng method là phần cơ học của việc này,
-không phải thiết kế lại; frontend rekey state hiện có (documents, plan, flow
-docs) theo `servicePath` thay vì global.
+### Watcher và inotify
+
+`watch.go` thêm một watch cho **mỗi thư mục** dưới root. N service nhân số
+watch lên N; trên Linux `fs.inotify.max_user_watches` cạn là `Add` lỗi. Hôm nay
+lỗi đó chỉ ảnh hưởng một project; với Registry nó có thể làm service mở sau
+mất watcher mà không ai biết. Watcher lỗi phải thành trạng thái thấy được trên
+service ("không tự làm mới — hết inotify watch"), không nuốt.
+
+### Khoá của service
+
+Key là `ProjectKey(path)` — đúng hàm chuẩn hoá `ProjectDBPath` dùng (clean,
+resolve symlink, gộp hoa/thường trên macOS/Windows). Hai cách chuẩn hoá khác
+nhau thì cùng một repo thành hai slot trỏ vào hai file index.
+
+### Bề mặt API: `servicePath` tuỳ chọn, rỗng = đang focus
+
+Không chỉ `internal/bridge/codegraph.go` (23 method) và `codegraphStore.ts`:
+còn 17 tool MCP `codegraph.*` (`internal/mcp/tools_codegraph*.go`), bridge
+của plan, và apiclient cũng gọi CodeGraph. Mọi method nhận `servicePath` **tuỳ
+chọn**; rỗng nghĩa là service đang focus. Nhờ vậy UI và agent hôm nay chạy
+nguyên, và phần thread `servicePath` đi được từng bề mặt một.
+
+Event cũng phải nói service nào: `codegraph:indexUpdated` và
+`codegraph:projectChanged` hôm nay không mang project, nên frontend không biết
+refetch cho service nào. Thêm `servicePath`; `projectChanged` đổi nghĩa thành
+"service đang focus đổi".
+
+### Khởi động
+
+`RestoreLastProject` mở lại đúng một project. Với Registry: khôi phục service
+đang focus như hôm nay, các service thường trú khác **không** mở lại lúc khởi
+động — mở lười khi được hỏi tới. Khởi động không được trả giá N lần mở.
+
+### Lazy, không eager
+
+Mở một workspace không mở full index cho mọi `workspace_services` — chỉ
+manifest tier chạy ngay. Full index của một service mở khi người dùng bấm vào
+nó (hoặc một truy vấn cần nó), đúng cách `OpenProject` hoạt động hôm nay; khác
+duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường trú.
+
+### Thứ tự làm
+
+1. Tách `Service` / phần của cả app, thêm `Shutdown()`. Không đổi hành vi.
+2. `Registry` với hai trần + service đang focus; method không truyền
+   `servicePath` giữ đúng hành vi hôm nay.
+3. Mở lại phục vụ index cũ khi analyzer cùng phiên bản.
+4. `servicePath` qua bridge, MCP, event; frontend rekey state theo service.
+5. Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
 
 ## Thêm service: index một lần, không chờ ai bấm
 
@@ -283,15 +389,20 @@ Giải: khi một service được thêm vào workspace (auto-discovery ở lầ
 kế tiếp, hoặc thêm tay), nó được **xếp hàng index một lần ngay tại đó**,
 không đợi người dùng bấm vào service trong panel. Đây là chi phí một lần,
 không phải chi phí lặp lại mỗi lần mở workspace. Sau đó service có
-`ProjectDBPath` như thể đã từng được mở, và join dùng ngay dữ liệu đó qua flow
-reuse đã có (`OpenProjectAt`, § Registry): mở lại chỉ đọc dữ liệu cũ, rồi
-re-index nền phần đã đổi.
+`ProjectDBPath`, và join đọc dữ liệu đó mà không cần mở service
+(§ [Join](#join-tính-khi-hỏi)).
 
 **Hàng đợi, không phải chờ.** Thêm một workspace 89 thư mục không được biến
 thành 89 lần index nối nhau trong khi người dùng nhìn loading. Việc thêm trả
-về ngay, và index chạy nền, dùng chung trần `limit` với Registry (mỗi job là
-một JVM/`tsgo` như full index). Nhờ vậy thêm workspace lớn không vượt trần
-tiến trình mà § Registry đã đặt ra.
+về ngay, và index chạy nền qua **trần job** của Registry.
+
+**Không đi qua `Registry.Open`.** Index-khi-thêm dùng `Registry.IndexOnce`:
+một `Service` tạm, analyze, ghi `ProjectDBPath`, rồi `Shutdown()` — chiếm một
+slot job nhưng **không** chiếm slot thường trú. Đi qua `Open` thì 89 service
+làm LRU quay vòng và đá văng đúng những service người dùng đang mở. Với TS,
+`Service` tạm có `tsgo` riêng và đóng nó khi xong; dùng chung một analyzer
+cho cả hàng đợi thì `tsAnalyzer.connect()` đóng và khởi động nguội lại server
+ở mỗi service, vì nó chỉ giữ một root.
 
 Vì vậy registry **không** hứa "có tên là đã có index". Giữa hai điểm đó có
 những trạng thái thật (đang chờ, đang chạy, fail, không có analyzer), và
@@ -305,7 +416,7 @@ bảng đó:
 | Trạng thái | Nghĩa | Chuyển tiếp |
 |---|---|---|
 | `pending` | Đã vào registry, đang trong hàng đợi, chưa có dữ liệu | → `indexing` khi có slot |
-| `indexing` | Job đang chạy (một slot trong `limit`) | → `indexed` / `failed` |
+| `indexing` | Job đang chạy (một slot của trần job) | → `indexed` / `failed` |
 | `indexed` | Có dữ liệu, kèm `indexed_at` | → `indexing` khi re-index (vẫn phục vụ dữ liệu cũ trong lúc chạy) |
 | `failed` | Job fail, kèm lý do (toolchain thiếu, parse fail, bị huỷ) | → `pending` khi bấm Retry hoặc khi Rescan |
 | `unsupported` | Không analyzer nào nhận thư mục (`ErrUnsupportedProject`) | → `pending` khi Rescan, nếu từ lần trước đã có analyzer mới |
@@ -321,9 +432,20 @@ bảng đó:
 - Service ngôn ngữ chưa có analyzer vẫn nằm trong registry (sandbox và
   worktree vẫn dùng được), chỉ mang `unsupported`.
 
-Join đọc trạng thái này cho đầu B của mỗi cạnh (§ [Join](#join-tính-khi-hỏi)).
-Đó là lý do nó phải là cột, không phải suy ra từ việc "có file index hay
-không".
+**Lưu ở đâu.** Không phải mọi trạng thái đều cần lưu:
+
+- `pending` / `indexing` là trạng thái lúc chạy, sống trong Registry. Restart
+  thì `indexing` về `pending` anyway, nên lưu chúng chỉ để rồi sửa lại.
+- `indexed_at` đã có trong `index_meta` của DB từng project — nguồn duy nhất.
+  Lưu thêm một bản ở `workspace_services` là hai nơi có thể lệch nhau.
+- Chỉ `failed` / `unsupported` + lý do là cần lưu bền (để không chạy lại một
+  job biết chắc sẽ fail ở mỗi lần mở), trong `workspace_services`.
+
+Tầng: `codegraph` báo kết quả qua callback của Registry, `workspace` ghi. Không
+theo chiều ngược lại — `codegraph` không import `workspace`.
+
+Join đọc trạng thái này cho đầu B của mỗi cạnh (§ [Join](#join-tính-khi-hỏi)),
+không suy ra từ việc "có file index hay không".
 
 ## Outbound edge
 
@@ -429,14 +551,19 @@ nhau. Vì re-index là full analyze chứ không incremental, không có cách n
 hai bên luôn đồng bộ mà không trả giá lag. Hiển thị drift đúng như nó là, rẻ
 hơn và trung thực hơn.
 
-**Dữ liệu ngoài `limit` không tự làm mới — và có thể sai mà không báo.** Một
-service bị evict khỏi Registry (hoặc chưa từng được đưa vào N slot đang sống)
-mất watcher; sửa file trong nó — kể cả agent sửa qua Bash, không qua Edit —
+**Đọc đầu B mà không mở B.** Join cần endpoint của B, không cần B thường trú:
+mở B nghĩa là watcher, re-index, và một slot. Nên join mở store của B
+**read-only** theo `ProjectDBPath`, kiểm tra `index_meta` đúng project, đọc,
+đóng — không qua Registry. B đang thường trú thì dùng luôn store của nó.
+
+**Dữ liệu của service không thường trú không tự làm mới — và có thể sai mà
+không báo.** Một service bị evict khỏi Registry (hoặc chưa từng mở) không có
+watcher; sửa file trong nó — kể cả agent sửa qua Bash, không qua Edit —
 không có gì bắt được. Cạnh join trỏ vào service đó vẫn báo `linked` bình
 thường, không phải `endpoint-gone` (đó là "đã quét, không thấy" — có tín hiệu
 để nghi ngờ) mà là dữ liệu trông hợp lệ nhưng có thể đã lệch thực tế, không
 có gì phân biệt được với dữ liệu tươi. Không giải bằng cách canh mọi service
-(phá lý do có `limit`); giải bằng cách hiện timestamp "index lúc X" trên mỗi
+(phá lý do có trần thường trú); giải bằng cách hiện timestamp "index lúc X" trên mỗi
 service và trên cạnh join dùng nó — trung thực về độ cũ thay vì giả vờ luôn
 tươi, đúng tinh thần `endpoint-gone` ở trên.
 
@@ -523,7 +650,7 @@ trên tên service chứ không trên path.
   giải đúng bài toán "có dữ liệu cho mọi service" bằng cách index TS một lần
   duy nhất lúc thêm vào workspace — dùng lại nguyên `tsgo`/LSP đã có, trả giá
   một lần thay vì mỗi lần mở, không cần AST-only pass hay toolchain mới. Đổi
-  lại là staleness cho service ngoài `limit` của Registry (§
+  lại là staleness cho service không thường trú trong Registry (§
   [Join](#join-tính-khi-hỏi)) — chấp nhận được vì đã có cách hiển thị trung
   thực (timestamp) thay vì che giấu. Service ngôn ngữ khác (kể cả chưa có
   analyzer) vẫn vào registry được — sandbox và worktree dùng bình thường —
@@ -545,22 +672,25 @@ trên tên service chứ không trên path.
   cũng chưa được đọc.
 - **Solver setup vẫn walk toàn bộ `~/.m2` mỗi lần analyze.** Manifest tier né
   được nó, full index thì không — và worktree **nhân** nó lên theo số agent.
-  `analyzer_subprocess.go` tự nó chưa giới hạn số JVM một service worktree có
-  thể mở; § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn) chặn
-  trần ở tầng service (giữa các service khác nhau trong workspace) qua
-  `limit`, nhưng chưa chặn trần ở tầng worktree (N agent cùng service, N
-  worktree, N JVM) — hai trần khác nhau, chỉ cái đầu có thiết kế.
+  Trần job của Registry (§ [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn))
+  giới hạn số analyze chạy cùng lúc trên cả app, kể cả của worktree, nên N
+  worktree không thành N JVM cùng lúc; chúng xếp hàng. Cái giá chuyển thành
+  thời gian chờ, không mất đi.
+- **inotify.** Mỗi service thường trú giữ một watch mỗi thư mục. Trần thường
+  trú giới hạn tổng, nhưng một service rất lớn vẫn có thể tự cạn
+  `max_user_watches`; khi đó service đó báo "không tự làm mới" thay vì im lặng.
 
 ## Non-goals (v1)
 
 - Tự động mở full index cho mọi service **mỗi lần mở workspace** — vẫn phải
-  bấm tay từng service để có full index sống trong `limit`; mở hết ngay lập
+  bấm tay từng service để có full index thường trú; mở hết ngay lập
   tức trả giá JVM/tsgo cho service chưa ai nhìn tới. Khác với index **một
   lần lúc thêm service** (§
   [Thêm service](#thêm-service-index-một-lần-không-chờ-ai-bấm)) — đó là chi
   phí một lần tại thời điểm thêm, không lặp lại mỗi lần mở workspace sau đó
-- Registry không giới hạn — `limit` luôn có trần, đầy thì evict LRU chứ không
-  cho mở thêm âm thầm
+- Registry không giới hạn — cả trần job lẫn trần thường trú luôn có; đầy trần
+  thường trú thì evict LRU (không bao giờ service đang focus) và nói ra, không
+  âm thầm
 - Sync workspace giữa các máy — path là machine-local
 - Watcher trên thư mục `root`
 - Suy ra topology từ service mesh / discovery server đang chạy
