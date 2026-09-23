@@ -228,3 +228,31 @@ func TestAcquireJobGivesUpWithItsContext(t *testing.T) {
 		t.Fatalf("err = %v, want the context's deadline", err)
 	}
 }
+
+// Focus hands a resident's folder to the focused Service: the resident is
+// shut down so the folder is never open twice, and the focused Service now
+// answers for it.
+func TestRegistryFocusTakesTheFolderFromItsResident(t *testing.T) {
+	r, focus := newTestRegistry(t, 4, fakeAnalyzer{result: sampleResult()})
+	a := t.TempDir()
+	if _, err := r.Open(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := r.Focus(t.Context(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != focus || focus.ProjectRoot() != ProjectKey(a) {
+		t.Fatalf("Focus = %p (root %q), want the focused Service on %q", got, focus.ProjectRoot(), a)
+	}
+	if len(r.Resident()) != 0 {
+		t.Fatalf("resident = %v, want the folder taken out", r.Resident())
+	}
+	if svc, _ := r.Open(t.Context(), a); svc != focus {
+		t.Fatal("after Focus the folder must resolve to the focused Service")
+	}
+	if _, err := r.Focus(t.Context(), ""); err == nil {
+		t.Fatal("Focus with no folder must fail")
+	}
+}

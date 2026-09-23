@@ -608,8 +608,26 @@ func main() {
 	// A finished re-index used to tell the frontend nothing, so endpoint lists
 	// and plan statuses silently went stale — see codegraph.mdx on the diff
 	// recomputing itself after every incremental re-index.
+	//
+	// Every re-index names its service (workspace.mdx § "Bề mặt API"), the
+	// focused one included: the frontend refetches only what it shows for
+	// that folder.
 	container.CodeGraph.OnIndexUpdated = func(version int) {
-		emitAppEvent("codegraph:indexUpdated", map[string]any{"version": version})
+		emitAppEvent("codegraph:indexUpdated", map[string]any{
+			"version":     version,
+			"servicePath": container.CodeGraph.ProjectRoot(),
+		})
+	}
+	container.CodeGraphRegistry.OnIndexUpdated = func(servicePath string, version int) {
+		emitAppEvent("codegraph:indexUpdated", map[string]any{
+			"version":     version,
+			"servicePath": servicePath,
+		})
+	}
+	// A resident service shut down to make room says so, rather than the
+	// next call to it quietly paying for a reopen.
+	container.CodeGraphRegistry.OnEvicted = func(servicePath string) {
+		emitAppEvent("codegraph:serviceClosed", map[string]any{"servicePath": servicePath})
 	}
 	// The active project can change without the UI asking — an agent's
 	// codegraph.openProject over MCP, or the restore at startup finishing after
@@ -619,7 +637,10 @@ func main() {
 		// The folder Code Graph opened is the folder the rest of the app works
 		// in until someone points a module elsewhere.
 		container.WorkFolder.SetCurrent(root)
-		emitAppEvent("codegraph:projectChanged", map[string]any{"root": root})
+		// "projectChanged" now means the focused service changed; root and
+		// servicePath are the same folder, servicePath for the one name
+		// every codegraph event carries.
+		emitAppEvent("codegraph:projectChanged", map[string]any{"root": root, "servicePath": root})
 	}
 	// Git follows the work folder. Wired before the announcement below and
 	// before the last project is restored, so neither finds it missing.
@@ -714,20 +735,21 @@ func main() {
 		return applyNativeTheme(mainWindow, theme)
 	})
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
-		Caller:    bridge.NewCaller(appService),
-		Notes:     container.Notes,
-		Vault:     container.Vault,
-		Search:    mcp.NewSearchAPI(container.Items),
-		Tools:     container.HashTools,
-		Envs:      container.Environments,
-		SSH:       container.SSH,
-		DB:        container.Database,
-		Kafka:     container.Kafka,
-		CodeGraph: container.CodeGraph,
-		AgentHub:  container.AgentHub,
-		Tasks:     container.Tasks,
-		Git:       container.Git,
-		Accounts:  container.Accounts,
+		Caller:            bridge.NewCaller(appService),
+		Notes:             container.Notes,
+		Vault:             container.Vault,
+		Search:            mcp.NewSearchAPI(container.Items),
+		Tools:             container.HashTools,
+		Envs:              container.Environments,
+		SSH:               container.SSH,
+		DB:                container.Database,
+		Kafka:             container.Kafka,
+		CodeGraph:         container.CodeGraph,
+		CodeGraphServices: mcp.RegistryServices(container.CodeGraphRegistry),
+		AgentHub:          container.AgentHub,
+		Tasks:             container.Tasks,
+		Git:               container.Git,
+		Accounts:          container.Accounts,
 		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
 		// not import app, and apiclient must not import codegraph.
 		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),

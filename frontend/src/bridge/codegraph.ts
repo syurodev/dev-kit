@@ -44,7 +44,7 @@ export type CodeGraphDetectedProject = {
 export async function openCodeGraphProject(path: string): Promise<CodeGraphDetectedProject> {
   return callBridge(async () => {
     const detected = await AppService.CodeGraphOpenProject(path);
-    await AppService.CodeGraphWaitForIndexReady();
+    await AppService.CodeGraphWaitForIndexReady("");
     return {
       language: detected.language,
       label: detected.label,
@@ -53,9 +53,9 @@ export async function openCodeGraphProject(path: string): Promise<CodeGraphDetec
   });
 }
 
-export async function listCodeGraphEndpoints(): Promise<CodeGraphEndpoint[]> {
+export async function listCodeGraphEndpoints(servicePath = ""): Promise<CodeGraphEndpoint[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphListEndpoints();
+    const list = await AppService.CodeGraphListEndpoints(servicePath);
     return (list ?? []).map((e) => ({
       id: e.id,
       httpMethod: e.httpMethod,
@@ -65,9 +65,9 @@ export async function listCodeGraphEndpoints(): Promise<CodeGraphEndpoint[]> {
   });
 }
 
-export async function getCodeGraphApiFlow(endpointId: string): Promise<CodeGraphApiFlow> {
+export async function getCodeGraphApiFlow(endpointId: string, servicePath = ""): Promise<CodeGraphApiFlow> {
   return callBridge(async () => {
-    const flow = await AppService.CodeGraphGetApiFlow(endpointId);
+    const flow = await AppService.CodeGraphGetApiFlow(endpointId, servicePath);
     return {
       endpointId: flow.endpointId,
       steps: (flow.steps ?? []).map((s) => ({
@@ -79,9 +79,9 @@ export async function getCodeGraphApiFlow(endpointId: string): Promise<CodeGraph
   });
 }
 
-export async function searchCodeGraphSymbol(query: string): Promise<CodeGraphSymbolMatch[]> {
+export async function searchCodeGraphSymbol(query: string, servicePath = ""): Promise<CodeGraphSymbolMatch[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphSearchSymbol(query);
+    const list = await AppService.CodeGraphSearchSymbol(query, servicePath);
     return (list ?? []).map((s) => ({
       nodeId: s.nodeId,
       label: s.label,
@@ -118,9 +118,10 @@ export async function findCodeGraphDefinitions(
   filePath: string,
   line: number,
   identifier: string,
+  servicePath = "",
 ): Promise<CodeGraphDefinition[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphFindDefinitions(filePath, line, identifier);
+    const list = await AppService.CodeGraphFindDefinitions(filePath, line, identifier, servicePath);
     return (list ?? []).map((d) => ({
       nodeId: d.nodeId,
       label: d.label,
@@ -141,9 +142,10 @@ export async function findCodeGraphImplementations(
   filePath: string,
   line: number,
   identifier: string,
+  servicePath = "",
 ): Promise<CodeGraphDefinition[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphFindImplementations(filePath, line, identifier);
+    const list = await AppService.CodeGraphFindImplementations(filePath, line, identifier, servicePath);
     return (list ?? []).map((d) => ({
       nodeId: d.nodeId,
       label: d.label,
@@ -175,9 +177,10 @@ export async function findCodeGraphReferences(
   filePath: string,
   line: number,
   identifier: string,
+  servicePath = "",
 ): Promise<CodeGraphReference[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphFindReferences(filePath, line, identifier);
+    const list = await AppService.CodeGraphFindReferences(filePath, line, identifier, servicePath);
     return (list ?? []).map((r) => ({
       nodeId: r.nodeId,
       label: r.label,
@@ -194,15 +197,15 @@ export type CodeGraphFileEntry = {
   isDir: boolean;
 };
 
-export async function listCodeGraphFiles(): Promise<CodeGraphFileEntry[]> {
+export async function listCodeGraphFiles(servicePath = ""): Promise<CodeGraphFileEntry[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphListFiles();
+    const list = await AppService.CodeGraphListFiles(servicePath);
     return (list ?? []).map((f) => ({ path: f.path, isDir: f.isDir }));
   });
 }
 
-export async function readCodeGraphFile(relativePath: string): Promise<string> {
-  return callBridge(() => AppService.CodeGraphReadFile(relativePath));
+export async function readCodeGraphFile(relativePath: string, servicePath = ""): Promise<string> {
+  return callBridge(() => AppService.CodeGraphReadFile(relativePath, servicePath));
 }
 
 /**
@@ -247,9 +250,10 @@ export async function getCodeGraphNeighbors(
   rootId: string,
   depth: number,
   filter?: { layers?: string[]; continuation?: string },
+  servicePath = "",
 ): Promise<CodeGraphSubgraph> {
   const result = await callBridge(() =>
-    AppService.CodeGraphGetNeighbors(rootId, depth, filter ?? {}),
+    AppService.CodeGraphGetNeighbors(rootId, depth, filter ?? {}, servicePath),
   );
   return {
     nodes: result.nodes ?? [],
@@ -277,8 +281,9 @@ export async function getCodeGraphCodeSnippet(
   filePath: string,
   line: number,
   endLine: number,
+  servicePath = "",
 ): Promise<CodeGraphCodeSnippet> {
-  return callBridge(() => AppService.CodeGraphGetCodeSnippet(filePath, line, endLine));
+  return callBridge(() => AppService.CodeGraphGetCodeSnippet(filePath, line, endLine, servicePath));
 }
 
 /** One event in a data-flow trace: a field read, a field write, or a call the
@@ -309,8 +314,9 @@ export type CodeGraphDataFlowTrace = {
 export async function traceCodeGraphDataFlow(
   symbolId: string,
   fieldName: string,
+  servicePath = "",
 ): Promise<CodeGraphDataFlowTrace> {
-  const trace = await callBridge(() => AppService.CodeGraphTraceDataFlow(symbolId, fieldName));
+  const trace = await callBridge(() => AppService.CodeGraphTraceDataFlow(symbolId, fieldName, servicePath));
   return {
     symbolId: trace.symbolId,
     fieldName: trace.fieldName,
@@ -327,18 +333,18 @@ export type CodeGraphFieldRef = {
   writes: number;
 };
 
-export async function listCodeGraphFields(nodeId: string): Promise<CodeGraphFieldRef[]> {
-  return callBridge(async () => (await AppService.CodeGraphListFields(nodeId)) ?? []);
+export async function listCodeGraphFields(nodeId: string, servicePath = ""): Promise<CodeGraphFieldRef[]> {
+  return callBridge(async () => (await AppService.CodeGraphListFields(nodeId, servicePath)) ?? []);
 }
 
 /** Every file that transitively depends on this one — what a change here can break. */
-export async function getCodeGraphBlastRadius(filePath: string): Promise<string[]> {
-  return callBridge(async () => (await AppService.CodeGraphGetBlastRadius(filePath)) ?? []);
+export async function getCodeGraphBlastRadius(filePath: string, servicePath = ""): Promise<string[]> {
+  return callBridge(async () => (await AppService.CodeGraphGetBlastRadius(filePath, servicePath)) ?? []);
 }
 
 /** Blocks until no re-index is pending, then resolves to the index version. */
-export async function waitForCodeGraphIndexReady(): Promise<number> {
-  return callBridge(() => AppService.CodeGraphWaitForIndexReady());
+export async function waitForCodeGraphIndexReady(servicePath = ""): Promise<number> {
+  return callBridge(() => AppService.CodeGraphWaitForIndexReady(servicePath));
 }
 
 /**
@@ -377,9 +383,9 @@ export type CodeGraphIndexInfo = {
   branch: string;
 };
 
-export function codeGraphIndexInfo(): Promise<CodeGraphIndexInfo> {
+export function codeGraphIndexInfo(servicePath = ""): Promise<CodeGraphIndexInfo> {
   return callBridge(async () => {
-    const info = await AppService.CodeGraphIndexInfo();
+    const info = await AppService.CodeGraphIndexInfo(servicePath);
     return {
       indexedAt: info.indexedAt,
       indexing: info.indexing,
@@ -396,9 +402,9 @@ export function codeGraphIndexInfo(): Promise<CodeGraphIndexInfo> {
 export type CodeGraphGitState = "M" | "A" | "D" | "R";
 
 /** Changed files of the active project, keyed like CodeGraphFileEntry.path. */
-export function codeGraphGitStatus(): Promise<Record<string, CodeGraphGitState>> {
+export function codeGraphGitStatus(servicePath = ""): Promise<Record<string, CodeGraphGitState>> {
   return callBridge(async () => {
-    const map = (await AppService.CodeGraphGitStatus()) ?? {};
+    const map = (await AppService.CodeGraphGitStatus(servicePath)) ?? {};
     return map as Record<string, CodeGraphGitState>;
   });
 }
@@ -407,12 +413,29 @@ const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";
 
 /**
  * Fires after a background re-index actually changed the index — the file
- * watcher's whole point, since it means the UI never has to poll. Returns an
- * unsubscribe function, like the agenthub subscriptions.
+ * watcher's whole point, since it means the UI never has to poll. servicePath
+ * names the folder re-indexed: the focused project's root, or a workspace
+ * service open beside it. Returns an unsubscribe function, like the agenthub
+ * subscriptions.
  */
-export function onCodeGraphIndexUpdated(handler: (version: number) => void): () => void {
+export function onCodeGraphIndexUpdated(
+  handler: (version: number, servicePath: string) => void,
+): () => void {
   return Events.On(INDEX_UPDATED_EVENT, (ev) => {
-    handler(Number(ev.data?.version ?? 0));
+    handler(Number(ev.data?.version ?? 0), String(ev.data?.servicePath ?? ""));
+  });
+}
+
+const SERVICE_CLOSED_EVENT = "codegraph:serviceClosed";
+
+/**
+ * Fires when a workspace service kept open beside the focused project is
+ * shut down to make room (codegraph.Registry's resident limit). Its next call
+ * reopens it; anything cached for it is stale from here.
+ */
+export function onCodeGraphServiceClosed(handler: (servicePath: string) => void): () => void {
+  return Events.On(SERVICE_CLOSED_EVENT, (ev) => {
+    handler(String(ev.data?.servicePath ?? ""));
   });
 }
 

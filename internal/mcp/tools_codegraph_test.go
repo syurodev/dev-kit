@@ -137,7 +137,7 @@ func TestToolCodeGraphListEndpoints(t *testing.T) {
 		CodeGraph: fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "ep1", Path: "/orders"}}},
 	}
 	s := NewServer(deps)
-	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, struct{}{})
+	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{})
 	if err != nil {
 		t.Fatalf("toolCodeGraphListEndpoints: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestToolCodeGraphWaitForIndexReady(t *testing.T) {
 		CodeGraph: fakeCodeGraphAPI{indexVersion: 3},
 	}
 	s := NewServer(deps)
-	_, v, err := s.toolCodeGraphWaitForIndexReady(context.Background(), nil, struct{}{})
+	_, v, err := s.toolCodeGraphWaitForIndexReady(context.Background(), nil, codeGraphServiceInput{})
 	if err != nil {
 		t.Fatalf("toolCodeGraphWaitForIndexReady: %v", err)
 	}
@@ -259,10 +259,70 @@ func (f ctxRecordingCodeGraph) ListEndpoints(ctx context.Context) ([]codegraph.E
 func TestCodeGraphToolsRunOnTheGatewayContext(t *testing.T) {
 	var seen any
 	s := NewServer(Deps{Caller: stampingCaller{}, CodeGraph: ctxRecordingCodeGraph{seen: &seen}})
-	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, struct{}{}); err != nil {
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{}); err != nil {
 		t.Fatal(err)
 	}
 	if seen != "gateway" {
 		t.Fatalf("handler ran on the tool's own ctx, not the gateway's (saw %v)", seen)
+	}
+}
+
+type fakeCodeGraphServices struct {
+	byPath  map[string]CodeGraphAPI
+	focused []string
+}
+
+func (f *fakeCodeGraphServices) Service(_ context.Context, path string) (CodeGraphAPI, error) {
+	svc, ok := f.byPath[path]
+	if !ok {
+		return nil, errors.New("no such service")
+	}
+	return svc, nil
+}
+
+func (f *fakeCodeGraphServices) Focus(_ context.Context, path string) (CodeGraphAPI, error) {
+	f.focused = append(f.focused, path)
+	return fakeCodeGraphAPI{detection: codegraph.DetectedProject{Label: "focused"}}, nil
+}
+
+// servicePath reads a workspace service; empty reads the focused project; a
+// relative path, or one with no Registry wired, is refused.
+func TestToolCodeGraphServicePath(t *testing.T) {
+	services := &fakeCodeGraphServices{byPath: map[string]CodeGraphAPI{
+		"/ws/billing": fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "b", Path: "/refunds"}}},
+	}}
+	s := NewServer(Deps{
+		Caller:            &fakeCaller{},
+		CodeGraph:         fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "o", Path: "/orders"}}},
+		CodeGraphServices: services,
+	})
+	path := func(in codeGraphServiceInput) string {
+		t.Helper()
+		_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return unwrap(v).([]codegraph.Endpoint)[0].Path
+	}
+	if got := path(codeGraphServiceInput{}); got != "/orders" {
+		t.Fatalf("focused = %q", got)
+	}
+	if got := path(codeGraphServiceInput{ServicePath: "/ws/billing"}); got != "/refunds" {
+		t.Fatalf("named = %q", got)
+	}
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{ServicePath: "billing"}); err == nil {
+		t.Fatal("a relative servicePath must be refused")
+	}
+
+	if _, _, err := s.toolCodeGraphOpenProject(context.Background(), nil, codeGraphOpenProjectInput{Path: "/ws/billing"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(services.focused) != 1 || services.focused[0] != "/ws/billing" {
+		t.Fatalf("openProject must focus through the Registry, got %v", services.focused)
+	}
+
+	bare := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	if _, _, err := bare.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{ServicePath: "/ws/billing"}); err == nil {
+		t.Fatal("with no Registry wired a servicePath must be refused")
 	}
 }

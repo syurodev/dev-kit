@@ -422,7 +422,36 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
      giờ khớp, nên giữ đúng hành vi cũ.
    - Chỉ áp cho **lần mở lại**. Re-index do watcher sau khi đã tươi vẫn chặn
      như trước.
-4. `servicePath` qua bridge, MCP, event; frontend rekey state theo service.
+4. ✅ `servicePath` qua bridge, MCP, event.
+   - **Bridge**: 16 method đọc của CodeGraph (endpoint, flow, symbol,
+     definition/reference/implementation, blast radius, neighbors, file,
+     snippet, data flow, field, index info, git status, wait-ready) nhận
+     `servicePath` ở cuối; rỗng là service đang focus
+     (`AppService.codeGraphService`). Tên khác thì `Registry.Open` — mở lười,
+     và một thư mục chưa index bao giờ thì truy vấn đầu tiên chờ index như
+     `CodeGraphOpenProject`. Ghi file, terminal, plan, build analyzer vẫn chỉ
+     đi service đang focus: đó là thao tác trên thứ người dùng đang nhìn.
+   - **MCP**: 11 tool đọc `codegraph.*` nhận `servicePath` (tuyệt đối) tuỳ
+     chọn, qua `Deps.CodeGraphServices` (`mcp.RegistryServices`). Không có
+     Registry thì tên service bị từ chối thay vì trả lời về nhầm thư mục.
+   - **`Focus(path)`**: service đang focus đổi thư mục tại chỗ như trước,
+     không đổi chỗ với service thường trú. Focus chỉ thêm việc **trao thư
+     mục**: service thường trú của thư mục đó shutdown trước, để một thư mục
+     không bao giờ mở hai lần (hai watcher, hai handle trên một file index).
+     Không mất gì: index nằm trên đĩa, và mở lại cùng analyzer phục vụ ngay
+     (bước 3). Thư mục vừa rời focus không thành thường trú — mở lười lại
+     khi có ai hỏi. `CodeGraphOpenProject` và `codegraph.openProject` đi qua
+     `Focus`.
+   - **Event**: `codegraph:indexUpdated` mang `servicePath` cho cả service
+     đang focus lẫn thường trú; `codegraph:projectChanged` mang thêm
+     `servicePath` (= `root`, nghĩa "service đang focus đổi");
+     `codegraph:serviceClosed` báo service thường trú bị evict.
+   - **Frontend**: wrapper trong `bridge/codegraph.ts` nhận `servicePath`
+     tuỳ chọn ở cuối; view chỉ refetch khi re-index là của thư mục nó đang
+     hiển thị (`isFocusedService`). Rekey toàn bộ state theo service chưa
+     cần: UI hôm nay chỉ hiển thị service đang focus, và đổi service là
+     `Focus`. Rekey đi cùng view đầu tiên hiển thị hai service cùng lúc
+     (join).
 5. Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
 
 ## Thêm service: index một lần, không chờ ai bấm

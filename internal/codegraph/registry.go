@@ -70,6 +70,15 @@ func NewRegistry(focus *Service, limit int) *Registry {
 	return &Registry{focus: focus, limit: limit, services: map[string]*Service{}}
 }
 
+// SetAnalyzer installs a on every resident Service opened from now on,
+// instead of the Host's per-language registry — Service.SetAnalyzer's seam,
+// for the Registry. Tests only; production resolves per folder.
+func (r *Registry) SetAnalyzer(a Analyzer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.analyzer = a
+}
+
 // Focused is the Service callers get when they do not name one.
 func (r *Registry) Focused() *Service { return r.focus }
 
@@ -138,6 +147,32 @@ func (r *Registry) Open(ctx context.Context, servicePath string) (*Service, erro
 		return nil, err
 	}
 	return svc, nil
+}
+
+// Focus makes servicePath the focused service's folder — what the UI shows
+// and what callers that name no service get — and returns the focused
+// Service once its index is ready.
+//
+// The focused Service switches folders in place, as it always has; it is not
+// swapped for the resident one. What Focus adds is handing the folder over:
+// a resident service for it is shut down first, so the folder is never open
+// twice (two watchers re-indexing one tree, two handles on one index file).
+// Nothing is lost by that: the index is on disk, and a reopen with the same
+// analyzer serves it at once while it refreshes (Service's stale index). The
+// folder focus leaves is not made resident — it opens again lazily, like any
+// other, the next time something asks for it.
+func (r *Registry) Focus(ctx context.Context, servicePath string) (*Service, error) {
+	if servicePath == "" {
+		return nil, errors.New("codegraph: focus needs a folder")
+	}
+	key := ProjectKey(servicePath)
+	if err := r.Close(key); err != nil {
+		return nil, err
+	}
+	if err := r.focus.OpenProjectDir(ctx, key); err != nil {
+		return nil, err
+	}
+	return r.focus, nil
 }
 
 // Close shuts down one resident service. The focused Service is not the

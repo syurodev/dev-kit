@@ -105,6 +105,13 @@ func (s *Server) toolCodeGraphOpenProject(ctx context.Context, _ *sdk.CallToolRe
 		return nil, nil, fmt.Errorf("codegraph: path must be absolute (got %q) — pass the directory you are working in", in.Path)
 	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:index", "project:new", meta("open_project", map[string]any{"path": in.Path}), func(ctx context.Context) (any, error) {
+		if services := s.deps.CodeGraphServices; services != nil {
+			focus, err := services.Focus(ctx, in.Path)
+			if err != nil {
+				return nil, err
+			}
+			return focus.ActiveDetection(), nil
+		}
 		if err := s.deps.CodeGraph.OpenProjectDir(ctx, in.Path); err != nil {
 			return nil, err
 		}
@@ -116,9 +123,37 @@ func (s *Server) toolCodeGraphOpenProject(ctx context.Context, _ *sdk.CallToolRe
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+// codeGraphServiceInput is the input of a tool that takes nothing but which
+// service to ask.
+type codeGraphServiceInput struct {
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
+}
+
+// codeGraph is the service a tool call names: the focused project for "",
+// else the workspace service at that path, from the Registry
+// (docs/dev-kit/workspace.mdx § "Bề mặt API"). Without a Registry wired only
+// the focused project exists, and naming another is an error rather than a
+// silent answer about the wrong folder.
+func (s *Server) codeGraph(ctx context.Context, servicePath string) (CodeGraphAPI, error) {
+	if servicePath == "" {
+		return s.deps.CodeGraph, nil
+	}
+	if !filepath.IsAbs(servicePath) {
+		return nil, fmt.Errorf("codegraph: servicePath must be absolute (got %q)", servicePath)
+	}
+	if s.deps.CodeGraphServices == nil {
+		return nil, fmt.Errorf("codegraph: servicePath is not supported here")
+	}
+	return s.deps.CodeGraphServices.Service(ctx, servicePath)
+}
+
+func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphServiceInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_endpoints", nil), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.ListEndpoints(ctx)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.ListEndpoints(ctx)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -127,12 +162,17 @@ func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallTool
 }
 
 type codeGraphGetApiFlowInput struct {
-	EndpointID string `json:"endpointId"`
+	EndpointID  string `json:"endpointId"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetApiFlowInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_api_flow", map[string]any{"endpoint_id": in.EndpointID}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.GetApiFlow(ctx, in.EndpointID)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.GetApiFlow(ctx, in.EndpointID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -141,12 +181,17 @@ func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolReq
 }
 
 type codeGraphSearchSymbolInput struct {
-	Query string `json:"query"`
+	Query       string `json:"query"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphSearchSymbolInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.SearchSymbol(ctx, in.Query)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.SearchSymbol(ctx, in.Query)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -154,9 +199,13 @@ func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolR
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphServiceInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", meta("list_files", nil), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.ListFiles(ctx)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.ListFiles(ctx)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -166,11 +215,16 @@ func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequ
 
 type codeGraphReadFileInput struct {
 	RelativePath string `json:"relativePath"`
+	ServicePath  string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphReadFile(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphReadFileInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.RelativePath, meta("read_file", map[string]any{"relative_path": in.RelativePath}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.ReadFile(ctx, in.RelativePath)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.ReadFile(ctx, in.RelativePath)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -179,14 +233,19 @@ func (s *Server) toolCodeGraphReadFile(ctx context.Context, _ *sdk.CallToolReque
 }
 
 type codeGraphGetCodeSnippetInput struct {
-	FilePath string `json:"filePath"`
-	Line     int    `json:"line"`
-	EndLine  int    `json:"endLine"`
+	FilePath    string `json:"filePath"`
+	Line        int    `json:"line"`
+	EndLine     int    `json:"endLine"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetCodeSnippetInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.FilePath, meta("get_code_snippet", map[string]any{"file_path": in.FilePath, "line": in.Line, "end_line": in.EndLine}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -195,12 +254,17 @@ func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToo
 }
 
 type codeGraphGetBlastRadiusInput struct {
-	FilePath string `json:"filePath"`
+	FilePath    string `json:"filePath"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetBlastRadiusInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_blast_radius", map[string]any{"file_path": in.FilePath}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.GetBlastRadius(ctx, in.FilePath)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.GetBlastRadius(ctx, in.FilePath)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -208,9 +272,13 @@ func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToo
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphServiceInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("wait_for_index_ready", nil), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.WaitForIndexReady(ctx)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.WaitForIndexReady(ctx)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -223,12 +291,17 @@ type codeGraphGetNeighborsInput struct {
 	Depth        int      `json:"depth"`
 	Layers       []string `json:"layers,omitempty"`
 	Continuation string   `json:"continuation,omitempty"`
+	ServicePath  string   `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetNeighborsInput) (*sdk.CallToolResult, any, error) {
 	filter := codegraph.NeighborFilter{Layers: in.Layers, Continuation: in.Continuation}
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_neighbors", map[string]any{"root_id": in.RootID, "depth": in.Depth}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.GetNeighbors(ctx, in.RootID, in.Depth, filter)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.GetNeighbors(ctx, in.RootID, in.Depth, filter)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -237,13 +310,18 @@ func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolR
 }
 
 type codeGraphTraceDataFlowInput struct {
-	SymbolID  string `json:"symbolId"`
-	FieldName string `json:"fieldName"`
+	SymbolID    string `json:"symbolId"`
+	FieldName   string `json:"fieldName"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphTraceDataFlowInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("trace_data_flow", map[string]any{"symbol_id": in.SymbolID, "field_name": in.FieldName}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -252,12 +330,17 @@ func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallTool
 }
 
 type codeGraphListFieldsInput struct {
-	NodeID string `json:"nodeId"`
+	NodeID      string `json:"nodeId"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphListFields(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphListFieldsInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_fields", map[string]any{"node_id": in.NodeID}), func(ctx context.Context) (any, error) {
-		return s.deps.CodeGraph.ListFields(ctx, in.NodeID)
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return cg.ListFields(ctx, in.NodeID)
 	})
 	if err != nil {
 		return nil, nil, err

@@ -737,8 +737,8 @@ export function CodeGraphCountPlanNodeComments(): $CancellablePromise<{ [_ in st
  * alone) rather than surfacing a failure to the user for a symbol the index
  * simply has no location for.
  */
-export function CodeGraphFindDefinitions(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Definition[] | null> {
-    return $Call.ByID(3562533088, filePath, line, identifier);
+export function CodeGraphFindDefinitions(filePath: string, line: number, identifier: string, servicePath: string): $CancellablePromise<codegraph$0.Definition[] | null> {
+    return $Call.ByID(3562533088, filePath, line, identifier, servicePath);
 }
 
 /**
@@ -748,8 +748,8 @@ export function CodeGraphFindDefinitions(filePath: string, line: number, identif
  * implement it (asked on an interface/abstract class). Not found is a
  * normal, non-error result (an empty slice).
  */
-export function CodeGraphFindImplementations(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Definition[] | null> {
-    return $Call.ByID(880796049, filePath, line, identifier);
+export function CodeGraphFindImplementations(filePath: string, line: number, identifier: string, servicePath: string): $CancellablePromise<codegraph$0.Definition[] | null> {
+    return $Call.ByID(880796049, filePath, line, identifier, servicePath);
 }
 
 /**
@@ -758,24 +758,24 @@ export function CodeGraphFindImplementations(filePath: string, line: number, ide
  * it. Not found is a normal, non-error result (an empty slice), the same
  * contract as CodeGraphFindDefinitions.
  */
-export function CodeGraphFindReferences(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Reference[] | null> {
-    return $Call.ByID(1051923404, filePath, line, identifier);
+export function CodeGraphFindReferences(filePath: string, line: number, identifier: string, servicePath: string): $CancellablePromise<codegraph$0.Reference[] | null> {
+    return $Call.ByID(1051923404, filePath, line, identifier, servicePath);
 }
 
-export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
-    return $Call.ByID(3432526133, endpointID);
+export function CodeGraphGetApiFlow(endpointID: string, servicePath: string): $CancellablePromise<codegraph$0.ApiFlow> {
+    return $Call.ByID(3432526133, endpointID, servicePath);
 }
 
-export function CodeGraphGetBlastRadius(filePath: string): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2797018901, filePath);
+export function CodeGraphGetBlastRadius(filePath: string, servicePath: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2797018901, filePath, servicePath);
 }
 
-export function CodeGraphGetCodeSnippet(filePath: string, line: number, endLine: number): $CancellablePromise<codegraph$0.CodeSnippet> {
-    return $Call.ByID(3767815479, filePath, line, endLine);
+export function CodeGraphGetCodeSnippet(filePath: string, line: number, endLine: number, servicePath: string): $CancellablePromise<codegraph$0.CodeSnippet> {
+    return $Call.ByID(3767815479, filePath, line, endLine, servicePath);
 }
 
-export function CodeGraphGetNeighbors(rootID: string, depth: number, filter: codegraph$0.NeighborFilter): $CancellablePromise<codegraph$0.Subgraph> {
-    return $Call.ByID(1258187406, rootID, depth, filter);
+export function CodeGraphGetNeighbors(rootID: string, depth: number, filter: codegraph$0.NeighborFilter, servicePath: string): $CancellablePromise<codegraph$0.Subgraph> {
+    return $Call.ByID(1258187406, rootID, depth, filter, servicePath);
 }
 
 export function CodeGraphGetPlanProgress(): $CancellablePromise<codegraph$0.PlanProgress> {
@@ -790,8 +790,8 @@ export function CodeGraphGetPlannedFlow(): $CancellablePromise<codegraph$0.Plan>
  * CodeGraphGitStatus maps changed files in the active project to M/A/D/R, for
  * the Files tab. Empty outside a git work tree.
  */
-export function CodeGraphGitStatus(): $CancellablePromise<{ [_ in string]?: string } | null> {
-    return $Call.ByID(3946330245);
+export function CodeGraphGitStatus(servicePath: string): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(3946330245, servicePath);
 }
 
 /**
@@ -799,20 +799,20 @@ export function CodeGraphGitStatus(): $CancellablePromise<{ [_ in string]?: stri
  * index was built, whether a run is in flight, why the last one failed, and the
  * modules the project was detected with (a restored session knows them too).
  */
-export function CodeGraphIndexInfo(): $CancellablePromise<codegraph$0.IndexInfo> {
-    return $Call.ByID(1381036455);
+export function CodeGraphIndexInfo(servicePath: string): $CancellablePromise<codegraph$0.IndexInfo> {
+    return $Call.ByID(1381036455, servicePath);
 }
 
-export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
-    return $Call.ByID(1712846729);
+export function CodeGraphListEndpoints(servicePath: string): $CancellablePromise<codegraph$0.Endpoint[] | null> {
+    return $Call.ByID(1712846729, servicePath);
 }
 
-export function CodeGraphListFields(nodeID: string): $CancellablePromise<codegraph$0.FieldRef[] | null> {
-    return $Call.ByID(2204147728, nodeID);
+export function CodeGraphListFields(nodeID: string, servicePath: string): $CancellablePromise<codegraph$0.FieldRef[] | null> {
+    return $Call.ByID(2204147728, nodeID, servicePath);
 }
 
-export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[] | null> {
-    return $Call.ByID(1096722516);
+export function CodeGraphListFiles(servicePath: string): $CancellablePromise<codegraph$0.FileEntry[] | null> {
+    return $Call.ByID(1096722516, servicePath);
 }
 
 export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellablePromise<codegraph$0.PlanComment[] | null> {
@@ -852,28 +852,28 @@ export function CodeGraphProposeFlow(plan: codegraph$0.Plan): $CancellablePromis
     return $Call.ByID(2353915709, plan);
 }
 
-export function CodeGraphReadFile(relativePath: string): $CancellablePromise<string> {
-    return $Call.ByID(3854829099, relativePath);
+export function CodeGraphReadFile(relativePath: string, servicePath: string): $CancellablePromise<string> {
+    return $Call.ByID(3854829099, relativePath, servicePath);
 }
 
 export function CodeGraphRelinkPlanNode(planNodeID: string, fqn: string): $CancellablePromise<void> {
     return $Call.ByID(3570264843, planNodeID, fqn);
 }
 
-export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
-    return $Call.ByID(2248851381, query);
+export function CodeGraphSearchSymbol(query: string, servicePath: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
+    return $Call.ByID(2248851381, query, servicePath);
 }
 
 export function CodeGraphStartTerminal(rows: number, cols: number): $CancellablePromise<string> {
     return $Call.ByID(3969464523, rows, cols);
 }
 
-export function CodeGraphTraceDataFlow(symbolID: string, fieldName: string): $CancellablePromise<codegraph$0.DataFlowTrace> {
-    return $Call.ByID(2118159762, symbolID, fieldName);
+export function CodeGraphTraceDataFlow(symbolID: string, fieldName: string, servicePath: string): $CancellablePromise<codegraph$0.DataFlowTrace> {
+    return $Call.ByID(2118159762, symbolID, fieldName, servicePath);
 }
 
-export function CodeGraphWaitForIndexReady(): $CancellablePromise<number> {
-    return $Call.ByID(1296963836);
+export function CodeGraphWaitForIndexReady(servicePath: string): $CancellablePromise<number> {
+    return $Call.ByID(1296963836, servicePath);
 }
 
 /**
