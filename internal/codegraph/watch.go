@@ -42,6 +42,11 @@ type indexState struct {
 	request uint64
 	// version is the persistent index revision last published.
 	version int
+	// stale says queries may read the stored index while the reopen's refresh
+	// runs: it was written by the same analyzer over the same project
+	// (storedAnalyzerMatches). Cleared when that refresh finishes, either
+	// way — after it, readiness is the ordinary rule again.
+	stale bool
 }
 
 // reset starts a new generation with nothing in flight: a project switch or
@@ -52,6 +57,7 @@ func (st *indexState) reset() {
 	st.reindexCount = 0
 	st.pending = false
 	st.err = nil
+	st.stale = false
 }
 
 func (st *indexState) busy() bool {
@@ -60,7 +66,7 @@ func (st *indexState) busy() bool {
 
 // readyErr is nil when queries may read the index.
 func (st *indexState) readyErr() error {
-	if st.busy() || st.err != nil {
+	if st.err != nil || (st.busy() && !st.stale) {
 		return ErrIndexNotReady
 	}
 	return nil
@@ -93,6 +99,7 @@ func (st *indexState) finish(generation, request uint64, published bool, version
 			st.version = version
 		}
 		st.err = err
+		st.stale = false
 	}
 	st.reindexCount--
 }
@@ -442,6 +449,11 @@ func (s *Service) prepareReindex(ctx context.Context) func() {
 				err = errStaleRun
 			} else {
 				version, err = s.writeIndex(ctx, generation, &request, store, result)
+				if err == nil {
+					// Every write stamps who wrote it, a refresh included: a
+					// newer analyzer's refresh rewrites the whole index.
+					_ = store.SetIndexedAnalyzer(ctx, analyzerIdentity(analyzer))
+				}
 				release()
 				published = err == nil
 			}

@@ -61,6 +61,15 @@ describe("index status", () => {
     });
   });
 
+  it("says which index answers while a reopen refreshes it", () => {
+    const refreshing = { indexedAt: now - 3_600_000, indexing: true, error: "", stale: true };
+    expect(indexStatusLine(refreshing, { endpoints: 5, services: 1 }, now)).toEqual({
+      tone: "busy",
+      text: "Refreshing · showing the index from 1h ago",
+    });
+    expect(indexStatusLine({ ...refreshing, stale: false }, { endpoints: 5, services: 1 }, now).text).toBe("Indexing…");
+  });
+
   it("keeps saying which index is on screen when a run failed", () => {
     expect(indexStatusLine({ indexedAt: now - 2 * 3_600_000, indexing: false, error: "x" }, { endpoints: 1, services: 1 }, now).text).toBe(
       "Index failed · showing the index from 2h ago",

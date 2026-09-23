@@ -18,6 +18,10 @@ type IndexInfo struct {
 	IndexedAt int64 `json:"indexedAt"`
 	// Indexing is true while an open or a re-index is running or queued.
 	Indexing bool `json:"indexing"`
+	// Stale is true while a reopened project is served from its stored index
+	// and the refresh has not committed yet: queries answer, but from the
+	// index as of IndexedAt.
+	Stale bool `json:"stale"`
 	// Error is the last run's failure, including the analyzer's output tail;
 	// "" when it succeeded. The stored index, if any, is still the previous one.
 	Error string `json:"error"`
@@ -40,6 +44,7 @@ func (s *Service) IndexInfo(ctx context.Context) (IndexInfo, error) {
 	s.mu.RLock()
 	info := IndexInfo{
 		Indexing: s.index.busy(),
+		Stale:    s.index.stale,
 		Modules:  append([]string(nil), s.detected.Modules...),
 		Language: s.detected.Language,
 	}

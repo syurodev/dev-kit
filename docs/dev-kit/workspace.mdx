@@ -408,7 +408,20 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
    - Container dựng `CodeGraphRegistry` quanh `CodeGraph`; `main.go` shutdown
      các service thường trú khi thoát. Chưa ai mở service thường trú, nên
      app chạy y như trước.
-3. Mở lại phục vụ index cũ khi analyzer cùng phiên bản.
+3. ✅ Mở lại phục vụ index cũ khi analyzer cùng phiên bản.
+   - Danh tính analyzer (`identity.go`): ngôn ngữ + artifact (đường dẫn, kích
+     thước, thời gian sửa của jar / `tsgo`) + bản build DevKit (VCS revision;
+     build dirty hoặc không có VCS thì dùng kích thước/thời gian của chính
+     executable). Analyzer native (Lua) chính là bản build DevKit.
+   - Ghi vào `index_meta.analyzer` sau **mọi** lần ghi index thành công, kể cả
+     re-index: refresh bằng analyzer mới ghi lại toàn bộ index.
+   - Mở lại khớp cả project lẫn danh tính → `indexState.stale`: `readyErr` cho
+     query đi qua dù refresh đang chạy; `stale` xoá khi refresh công bố (hoặc
+     fail — khi đó thôi phục vụ). `WaitForIndexReady` không đổi.
+   - Danh tính rỗng (test double, index ghi trước khi có khoá này) không bao
+     giờ khớp, nên giữ đúng hành vi cũ.
+   - Chỉ áp cho **lần mở lại**. Re-index do watcher sau khi đã tươi vẫn chặn
+     như trước.
 4. `servicePath` qua bridge, MCP, event; frontend rekey state theo service.
 5. Hàng đợi index-khi-thêm và trạng thái index (§ dưới).
 
