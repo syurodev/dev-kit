@@ -9,6 +9,9 @@ import { parseEndpointMatches, parseSymbolMatches } from "./searchResult";
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
   title: "Code Graph",
+  // The explorer shows the open project, or the picker when there is none. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Code,

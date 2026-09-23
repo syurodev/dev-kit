@@ -4,6 +4,9 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 export const syncModule: ModuleManifest = {
   id: "sync",
   title: "Sync",
+  // One view, the sync status. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: RefreshCw,

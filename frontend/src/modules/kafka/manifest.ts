@@ -5,6 +5,9 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 export const kafkaModule: ModuleManifest = {
   id: "kafka",
   title: "Kafka",
+  // One view, the cluster explorer: "nothing open" had nothing else to offer. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Workflow,

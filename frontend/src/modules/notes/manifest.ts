@@ -9,6 +9,9 @@ import { parseNoteResult } from "./noteResult";
 export const notesModule: ModuleManifest = {
   id: "notes",
   title: "Notes",
+  // The dashboard is a list, not a new document — opening it creates nothing. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: FileText,

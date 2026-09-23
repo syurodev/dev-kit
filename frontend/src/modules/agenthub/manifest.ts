@@ -11,6 +11,9 @@ function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
 export const agenthubModule: ModuleManifest = {
   id: "agenthub",
   title: "Agent Hub",
+  // The session list is where every Agent Hub visit starts. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Bot,

@@ -5,6 +5,9 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 export const sshModule: ModuleManifest = {
   id: "ssh",
   title: "SSH",
+  // The connection list is the module. Its home costs nothing to open, so it opens
+  // rather than showing "has nothing open" (ModuleManifest.opensHome).
+  opensHome: true,
   version: "1.0.0",
   apiVersion: "1",
   icon: Terminal,

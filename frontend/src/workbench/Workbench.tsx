@@ -609,12 +609,23 @@ export function Workbench() {
   const focusModuleRef = useRef(focusModule);
   focusModuleRef.current = focusModule;
 
+  const restoredRef = useRef(false);
   useEffect(() => {
     if (availableModules.length === 0) {
       return;
     }
     if (!activeModuleId) {
+      restoredRef.current = true;
       focusModule(availableModules[0].id);
+      return;
+    }
+    // A relaunch restores the active module without going through
+    // focusModule, so a module that opens its home (opensHome) came back as
+    // "has nothing open" when its tabs had been closed. Once, at startup:
+    // after that, an empty module is one the person emptied.
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      openHomeWhenAsked(activeModuleId);
       return;
     }
     // Closing a module's last tab empties its partition. The module stays on
