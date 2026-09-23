@@ -218,6 +218,13 @@ export interface IndexInfo {
     "indexing": boolean;
 
     /**
+     * Stale is true while a reopened project is served from its stored index
+     * and the refresh has not committed yet: queries answer, but from the
+     * index as of IndexedAt.
+     */
+    "stale": boolean;
+
+    /**
      * Error is the last run's failure, including the analyzer's output tail;
      * "" when it succeeded. The stored index, if any, is still the previous one.
      */

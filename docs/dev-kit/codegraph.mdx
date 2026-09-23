@@ -1127,6 +1127,15 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
   cùng debounce và các lần chạy nền còn chưa kết thúc.
 - Trong lúc đó, query dựa trên index trả `validation_failed: CodeGraph index not ready`.
   Đọc/ghi/list file trực tiếp vẫn hoạt động trong lúc re-index.
+- **Ngoại lệ: mở lại bằng đúng analyzer đã ghi index.** Mỗi lần ghi index thành
+  công (mở lạnh lẫn re-index) ghi thêm `index_meta.analyzer` = danh tính của
+  analyzer (`identity.go`: ngôn ngữ + đường dẫn/kích thước/thời gian sửa của
+  artifact + bản build DevKit). Khi mở lại, nếu index đã lưu đúng project
+  **và** đúng danh tính đó, query được trả lời ngay trên index đã lưu trong lúc
+  refresh chạy nền (`IndexInfo.stale`; sidebar: "Refreshing · showing the index
+  from …"). Analyzer khác (jar build lại, DevKit mới) hoặc không tự xác định
+  được thì vẫn chặn như trên. `waitForIndexReady` vẫn chờ refresh xong; refresh
+  thất bại thì thôi phục vụ index cũ.
   Refresh thất bại giữ bản index cũ trên đĩa nhưng không công bố nó là ready;
   mở lại project để retry. Timeout của caller không làm index thành ready.
 - Version tăng trong cùng SQLite transaction với mỗi lần thay index thành công,

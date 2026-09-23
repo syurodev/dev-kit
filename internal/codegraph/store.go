@@ -107,6 +107,10 @@ CREATE TABLE IF NOT EXISTS index_meta (
 // indexedProjectKey is the index_meta row holding the project root.
 const indexedProjectKey = "project_root"
 
+// indexedAnalyzerKey is the index_meta row naming the analyzer that wrote the
+// index (analyzerIdentity).
+const indexedAnalyzerKey = "analyzer"
+
 // sqliteStore is a Store backed by one SQLite file per project. Safe for
 // concurrent use (database/sql pools connections; see storePragmas). Service
 // still serialises index writes itself — see Service.writeMu — so that the
@@ -380,6 +384,36 @@ func (s *sqliteStore) SetIndexedProject(ctx context.Context, root string) error 
 		indexedProjectKey, root)
 	if err != nil {
 		return fmt.Errorf("codegraph: SetIndexedProject: %w", err)
+	}
+	return nil
+}
+
+// IndexedAnalyzer returns the identity of the analyzer that last wrote this
+// index, or "" when unknown — an index written before the record existed, or
+// by an analyzer that could not name itself.
+func (s *sqliteStore) IndexedAnalyzer(ctx context.Context) (string, error) {
+	var identity string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM index_meta WHERE key = ?`, indexedAnalyzerKey).Scan(&identity)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("codegraph: IndexedAnalyzer: %w", err)
+	}
+	return identity, nil
+}
+
+// SetIndexedAnalyzer records which analyzer wrote the index. Called after
+// every successful write, open and re-index alike: a refresh by a newer
+// analyzer rewrites the whole index, and the record must say so.
+func (s *sqliteStore) SetIndexedAnalyzer(ctx context.Context, identity string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO index_meta (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		indexedAnalyzerKey, identity)
+	if err != nil {
+		return fmt.Errorf("codegraph: SetIndexedAnalyzer: %w", err)
 	}
 	return nil
 }

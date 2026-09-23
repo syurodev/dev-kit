@@ -486,17 +486,26 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 	// weaker claim than a store holding the right rows, and acting on the
 	// weaker one hands one project's index to another.
 	if storedIndexMatches(ctx, store, root) {
+		// Served while it refreshes only when it was written by the analyzer
+		// that would refresh it — the same code over the same project, so the
+		// refresh can change what the files changed and nothing else. Anything
+		// else (an index from an older jar, an older DevKit, or an analyzer
+		// that cannot name itself) stays unready until the refresh commits:
+		// persisted rows alone are not evidence that the current analyzer has
+		// run.
+		serveStored := storedAnalyzerMatches(ctx, store, analyzer)
 		s.mu.Lock()
 		if s.index.generation != generation {
 			s.mu.Unlock()
 			return nil // the deferred check reports the switch
 		}
 		s.active = true
+		s.index.stale = serveStored
 		s.mu.Unlock()
 		s.startWatcherFor(generation, root)
 		// Reserve the refresh before returning, and before opening clears.
-		// Neither queries nor readiness may observe the cached graph as ready
-		// before this run commits.
+		// Unless the stored index is being served (stale, above), neither
+		// queries nor readiness may observe it as ready before this commits.
 		run := s.prepareReindex(projectCtx)
 		go run()
 		return s.saveProjectFor(generation, root)
@@ -520,6 +529,10 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 	// recognise it. Best-effort: failing to record it costs one re-index, which
 	// is not worth failing an otherwise successful open over.
 	_ = store.SetIndexedProject(ctx, root)
+	// And with the analyzer that wrote it, so a reopen knows whether it may
+	// serve this index while it refreshes. Best-effort for the same reason:
+	// a missing stamp only means the next reopen waits, as it always did.
+	_ = store.SetIndexedAnalyzer(ctx, analyzerIdentity(analyzer))
 
 	s.mu.Lock()
 	if s.index.generation != generation {
@@ -605,6 +618,17 @@ func storedIndexMatches(ctx context.Context, store Store, projectPath string) bo
 		return false
 	}
 	return indexed == filepath.Clean(projectPath)
+}
+
+// storedAnalyzerMatches reports whether the stored index was written by the
+// analyzer about to refresh it. Unknown on either side is no.
+func storedAnalyzerMatches(ctx context.Context, store Store, analyzer Analyzer) bool {
+	identity := analyzerIdentity(analyzer)
+	if identity == "" {
+		return false
+	}
+	stored, err := store.IndexedAnalyzer(ctx)
+	return err == nil && stored == identity
 }
 
 // ProjectRoot returns the directory the active project was opened from — or

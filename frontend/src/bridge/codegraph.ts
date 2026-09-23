@@ -358,6 +358,12 @@ export type CodeGraphIndexInfo = {
   /** When the stored index was last replaced, Unix ms; 0 when unknown. */
   indexedAt: number;
   indexing: boolean;
+  /**
+   * A reopened project answering from its stored index while the refresh
+   * runs — same analyzer, same project, so only what the files changed can
+   * differ. Optional because the UI builds optimistic copies of this.
+   */
+  stale?: boolean;
   /** The last run's failure with the analyzer's output tail, or "". */
   error: string;
   modules: string[];
@@ -377,6 +383,7 @@ export function codeGraphIndexInfo(): Promise<CodeGraphIndexInfo> {
     return {
       indexedAt: info.indexedAt,
       indexing: info.indexing,
+      stale: info.stale ?? false,
       error: info.error,
       modules: info.modules ?? [],
       language: info.language ?? "",

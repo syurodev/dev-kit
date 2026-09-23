@@ -535,6 +535,12 @@ func (s *Service) CancelAnalyzerBuild() {
 // analysis, so installing the runtime — or building the analyzer — takes
 // effect without a restart, and startup pays for no subprocess probes.
 func (t Toolchain) Analyzer() Analyzer {
+	return &toolchainIdentified{Analyzer: t.buildAnalyzer(), toolchain: t}
+}
+
+// buildAnalyzer is the analyzer itself, before Analyzer wraps it with an
+// identity (identity.go).
+func (t Toolchain) buildAnalyzer() Analyzer {
 	if t.Native != nil {
 		return t.Native()
 	}

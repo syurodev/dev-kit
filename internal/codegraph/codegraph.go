@@ -391,6 +391,11 @@ type Store interface {
 	// describes, so an open can tell "this project's index" from "an index".
 	IndexedProject(ctx context.Context) (string, error)
 	SetIndexedProject(ctx context.Context, root string) error
+	// IndexedAnalyzer / SetIndexedAnalyzer say which analyzer wrote the stored
+	// index (see analyzerIdentity), so a reopen can tell an index it may serve
+	// while it refreshes from one written by something else. "" is unknown.
+	IndexedAnalyzer(ctx context.Context) (string, error)
+	SetIndexedAnalyzer(ctx context.Context, identity string) error
 	HasIndex(ctx context.Context) (bool, error)
 	ListEndpoints(ctx context.Context) ([]Endpoint, error)
 	GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error)

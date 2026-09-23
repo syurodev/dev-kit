@@ -17,6 +17,8 @@ func (nilStore) IndexedAt(context.Context) (int64, error)  { return 0, nil }
 func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error { return ErrNoActiveProject }
 func (nilStore) IndexedProject(context.Context) (string, error)     { return "", nil }
 func (nilStore) SetIndexedProject(context.Context, string) error    { return nil }
+func (nilStore) IndexedAnalyzer(context.Context) (string, error)    { return "", nil }
+func (nilStore) SetIndexedAnalyzer(context.Context, string) error   { return nil }
 func (nilStore) HasIndex(context.Context) (bool, error)             { return false, nil }
 func (nilStore) ListEndpoints(context.Context) ([]Endpoint, error)  { return nil, ErrNoActiveProject }
 func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error) {

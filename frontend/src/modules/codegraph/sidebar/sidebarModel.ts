@@ -126,13 +126,19 @@ export type IndexTone = "ok" | "busy" | "failed";
 
 /** The line under the project name, and the colour of its dot. */
 export function indexStatusLine(
-  info: Pick<CodeGraphIndexInfo, "indexedAt" | "indexing" | "error"> | null,
+  info: Pick<CodeGraphIndexInfo, "indexedAt" | "indexing" | "error" | "stale"> | null,
   counts: { endpoints: number; services: number },
   now: number,
 ): { tone: IndexTone; text: string } {
   if (!info) return { tone: "busy", text: "Reading the index…" };
-  if (info.indexing) return { tone: "busy", text: "Indexing…" };
   const when = info.indexedAt ? relativeTime(info.indexedAt, now) : "";
+  // A reopen answering from the stored index while it refreshes: say which
+  // index is on screen, the way a failed run does, rather than "Indexing…"
+  // over a graph that already answers.
+  if (info.indexing && info.stale) {
+    return { tone: "busy", text: when ? `Refreshing · showing the index from ${when}` : "Refreshing…" };
+  }
+  if (info.indexing) return { tone: "busy", text: "Indexing…" };
   if (info.error) {
     return { tone: "failed", text: when ? `Index failed · showing the index from ${when}` : "Index failed" };
   }
