@@ -39,6 +39,43 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void recordsOutboundCallsAgainstTheMethodMakingThem(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("example"));
+        Files.writeString(root.resolve("example/BillingClient.java"), """
+                package example;
+                import org.springframework.cloud.openfeign.FeignClient;
+                import org.springframework.web.bind.annotation.GetMapping;
+                @FeignClient(name = "billing-service")
+                interface BillingClient {
+                    @GetMapping("/invoices")
+                    void list();
+                }
+                """);
+        Files.writeString(root.resolve("example/RefundService.java"), """
+                package example;
+                import org.springframework.web.client.RestTemplate;
+                class RefundService {
+                    private final RestTemplate rest = new RestTemplate();
+                    void notifyLedger(String id) {
+                        rest.postForObject("http://ledger-service/entries/" + id, null, Void.class);
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertEquals(2, result.outboundCalls.size(), "outbound calls: " + result.outboundCalls.size());
+        OutboundCall feign = result.outboundCalls.stream().filter(c -> c.client.equals("feign")).findFirst().orElseThrow();
+        assertEquals("example.BillingClient.list()", feign.from);
+        assertEquals("billing-service", feign.serviceName);
+        assertTrue(feign.file.endsWith("BillingClient.java"), feign.file);
+        OutboundCall rest = result.outboundCalls.stream().filter(c -> c.client.equals("rest-template")).findFirst().orElseThrow();
+        assertEquals("example.RefundService.notifyLedger(java.lang.String)", rest.from);
+        assertEquals("http://ledger-service/entries/{id}", rest.url);
+        assertEquals(6, rest.line);
+    }
+
+    @Test
     void feignClientDeclaringTheSameRouteAsItsControllerIsNotADuplicateEndpoint(@TempDir Path root) throws IOException {
         Files.createDirectories(root.resolve("example"));
         Files.writeString(root.resolve("example/ProductsController.java"), """

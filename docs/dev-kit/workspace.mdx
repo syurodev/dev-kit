@@ -22,14 +22,17 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Implement một phần">
 **Đã có:** registry (`internal/workspace`, bảng `workspaces` /
-`workspace_services`, migration 28 + 30), bước 1 của auto-discovery, title bar
-switcher, project picker của Code Graph / Git trỏ vào workspace, và grant cả
+`workspace_services`, migration 28 + 30), bước 1–2 của auto-discovery
+(quét tới độ sâu 2, tên từ `spring.application.name`), trích outbound call
+trong analyzer Java và resolve target về service
+(§ [Outbound edge](#outbound-edge)), title bar switcher, project picker của Code Graph / Git trỏ vào workspace, và grant cả
 workspace cho một session Agent Hub (§ [Agent liên service](#agent-liên-service-grant-cả-workspace)).
 Bind lồng RO/RW trên Linux đã đúng thứ tự (§ [Worktree](#worktree-dùng-chung-registry)).
 
-**Chưa có:** bước 2–3 của auto-discovery (tên từ config, sửa tay), Rescan,
-trạng thái index (§ [Trạng thái index](#trạng-thái-index-của-một-service)),
-manifest tier, outbound edge, join, Registry N slot, và tier worktree.
+**Chưa có:** bước 3 của auto-discovery (sửa tay), Rescan, trạng thái index
+(§ [Trạng thái index](#trạng-thái-index-của-một-service)), manifest tier
+(mode chạy riêng của analyzer), lưu outbound call vào index phía Go, join,
+Registry N slot, và tier worktree.
 `internal/codegraph/service.go` vẫn giữ **một** project active
 (`activeProject`, `SetProjectPath`), đúng FR-1 gốc của
 [CodeGraph](/dev-kit/codegraph) — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)
@@ -95,22 +98,42 @@ Ràng buộc (migration 30 — m28 ban đầu không có cái nào):
 Yêu cầu: tự động hết mức có thể, và **không được lag khi mở nhiều project**.
 Ba bước, xếp theo giá tăng dần, dừng ở bước rẻ nhất còn đúng.
 
-**Bước 1 — tìm service.** Đọc thư mục `root` ở **độ sâu 1**, giữ mục nào có
-`.git`. Không đệ quy. Một `readdir` cộng một `stat` mỗi mục con — vài
-mili-giây kể cả với vài chục repo. Đệ quy toàn cây là thứ duy nhất ở bước này
-có thể gây lag, nên nó bị loại.
+**Bước 1 — tìm service** (`discover.go`). Quét `root` **đi xuống cho tới khi
+gặp repo, tối đa 2 tầng**. Một thư mục có `.git` (thư mục, hoặc file của
+linked worktree) là service, và việc tìm dừng ở đó: không bao giờ đi vào bên
+trong một repo, nên submodule hay checkout vendored không thành service thứ
+hai. Thư mục không phải repo ở tầng 1 thì được mở thêm một tầng, nhờ vậy
+layout nhóm `root/backend/billing`, `root/frontend/web` ra đúng. Thư mục ẩn và
+`node_modules` / `target` / `build` / `dist` / `out` / `vendor` không được
+tìm vào (một repo tên `build` vẫn được nhận, vì nó được nhận ra trước khi
+danh sách này áp dụng). Chi phí vẫn là một `readdir` cho mỗi thư mục thường ở
+tầng 1, không phải một lượt walk cây.
 
-**Bước 2 — đặt tên service.** Tên trong URL (`http://billing-service/refunds`)
-**không** suy được chắc chắn từ tên thư mục. Nguồn đúng là
-`spring.application.name` trong `application.yml` / `application.properties`.
-Đọc đúng một file nhỏ ở đường dẫn cố định (`src/main/resources`) cho mỗi
-service; miss thì fallback tên thư mục. Ghi lại nguồn vào `name_source` để UI
-nói được tên này chắc hay đoán.
+Khi chính `root` là repo thì chỉ xét tầng 1, như trước. Một repo đơn là
+trường hợp phổ biến, và tìm sâu 2 tầng vào nó thì biến `third_party/lib` thành
+service và làm mất chính repo người dùng đã chọn.
+
+**Bước 2 — đặt tên service** (`springconfig.go`). Tên trong URL
+(`http://billing-service/refunds`) **không** suy được chắc chắn từ tên thư
+mục. Nguồn đúng là `spring.application.name`. Đọc vài file nhỏ ở đường dẫn cố
+định `src/main/resources`, theo đúng thứ tự Spring áp dụng (file sau đè file
+trước): `bootstrap.{yml,yaml,properties}` (Spring Cloud hay đặt tên ở đây),
+rồi `application.{yml,yaml,properties}`. Chỉ đọc **default profile**: document
+YAML có `spring.config.activate.on-profile` (hoặc `spring.profiles` kiểu cũ)
+bị bỏ qua, vì profile nào chạy ở đâu là chuyện của deployment mà máy này
+không biết. Placeholder trong tên (`${APP_NAME:billing}`) được fold. Miss,
+không fold được, hoặc file hỏng thì fallback tên thư mục, không fail cả
+workspace. Nguồn được ghi vào `name_source` (`config` / `folder`) để UI nói
+được tên này chắc hay đoán.
+
+Cùng bộ config đó là nguồn property để fold URL của outbound call
+(§ [Outbound edge](#outbound-edge)), và `server.port` (mặc định 8080) để khớp
+URL `localhost` theo port.
 
 **Bước 3 — người sửa.** Sửa tay luôn thắng và `name_source` thành `manual`;
 lần rescan sau không ghi đè lên nó.
 
-Một `root` không có repo con nào ở độ sâu 1 **không** phải lỗi. Nó là
+Một `root` không có repo con nào **không** phải lỗi. Nó là
 workspace một service, và service đó chính là `root`. Nhờ vậy "thêm
 workspace" luôn là một thao tác, dù thư mục chứa một project hay mười.
 
@@ -302,27 +325,80 @@ Join đọc trạng thái này cho đầu B của mỗi cạnh (§ [Join](#join-
 Đó là lý do nó phải là cột, không phải suy ra từ việc "có file index hay
 không".
 
-## Outbound edge — phần analyzer còn thiếu
+## Outbound edge
 
-Đo được: analyzer hiện **không** nhận diện `RestTemplate`, `WebClient`, hay
-`@FeignClient`. Annotation duy nhất nó biết là `RestController`,
-`RequestMapping`, `Get/Post/Put/Delete/PatchMapping`, `Service`, `Repository`,
-`Autowired` (`LayerClassifier.java`, `EndpointExtractor.java`).
+Trước đây analyzer **không** nhận diện `RestTemplate`, `WebClient` hay
+`@FeignClient`. Lời gọi xuyên service chỉ để lại dấu vết trong `call_sites`,
+dưới dạng hai bức tường đã có tên: `library` (callee nằm trong jar Spring)
+và `interface` (implementation của Feign sinh lúc runtime). Cross-service
+**không phải bức tường thứ tư**: đầu bên kia nằm trong workspace của bạn,
+nên vượt được. Việc cần làm là trích `(http method, path, target)` từ đúng
+những lời gọi đó, rồi resolve target về một service.
 
-Nhưng lời gọi xuyên service **đã** để lại dấu vết trong index, vì
-`ProjectAnalyzer.addCallEdges` không còn `continue` khi resolve thất bại — nó
-ghi vào `call_sites` kèm lý do (`CallSite.java`: `"" | "library" | "interface"
-| "unresolved"`):
+Việc chia làm hai nửa, mỗi nửa ở đúng chỗ có dữ liệu nó cần.
 
-| Cách gọi | Lý do được ghi | Vì sao |
-|---|---|---|
-| `restTemplate.postForObject(...)` | `library` | Callee nằm trong jar Spring, `JavassistMethodDeclaration` không bao giờ có AST |
-| `@FeignClient` interface | `interface` | Implementation sinh lúc runtime, không có API tìm subclass |
+### Analyzer: trích, không resolve
 
-Cross-service **không phải bức tường thứ tư**. Nó là hai bức tường đã có tên,
-nhưng đầu bên kia nằm trong workspace của bạn — nên vượt được, trong khi
-`library` thật (JDK, `PreparedStatement`) thì không. Việc còn thiếu chỉ là
-trích `(http method, path, target service)` từ đúng những call site đó.
+`OutboundCallExtractor.java` ghi `outboundCalls` vào kết quả analyze, mỗi
+call gắn với method gọi nó (`from`), file và dòng. Nó **thuần AST** như
+`EndpointExtractor`, nên manifest tier chạy được nó mà không cần solver.
+Receiver có phải `RestTemplate` hay không thì không hỏi type system: receiver
+là một cái tên, và khai báo của tên đó (field, parameter, local) ghi type
+ngay trong source.
+
+| Client | Đọc gì |
+|---|---|
+| `@FeignClient` | `name` / `value` / `serviceId` là tên service, `url` và `path` là prefix. Mỗi method có mapping annotation là một call, đọc bằng chính logic của `EndpointExtractor` nhưng theo nghĩa route được **gọi** |
+| `RestTemplate` / `RestOperations` | Tham số đầu của `getForObject` / `postForEntity` / `exchange` / … là URL. `exchange` / `execute` lấy HTTP method từ tham số thứ hai |
+| `WebClient` / `RestClient` | `client.get().uri(x)`, hoặc `.method(HttpMethod.X).uri(x)` |
+
+URL được fold bằng `ConstantResolver`, giờ đã đi theo được những thứ một
+method body chứa:
+
+- Literal và hằng của project (như trước).
+- Local được gán **đúng một lần**. Local bị gán lại thì thành lỗ `{url}`.
+- Parameter thành lỗ mang tên nó (`{id}`), đúng hình dạng của route variable.
+- Field Spring inject bằng `@Value("${key}")`, trên field hoặc trên parameter
+  của constructor gán vào field đó, trả về **nguyên placeholder**
+  (`${billing.url}`). Analyzer không đọc config.
+- Base URL của client được lấy từ chuỗi builder nơi client được tạo:
+  `builder.baseUrl(x).build()`, `WebClient.create(x)`, `rootUri(x)` của
+  `RestTemplateBuilder`. `URI.create(x)` được nhìn xuyên qua.
+
+Kết quả là `billingUrl + "/invoices/" + id` ra
+`${clients.billing.url}/invoices/{id}`, một chuỗi mà phía có config fold tiếp
+được.
+
+### Go: resolve theo config của caller
+
+`workspace.ResolveTarget` nhận target thô, config của **service gọi**
+(placeholder là của caller, không phải của callee) và danh sách service. Thứ
+tự bằng chứng, mạnh trước:
+
+1. **URL fold ra host** thắng tên Feign, vì chính Feign cho `url` đè `name`.
+   `${KEY:default}` dùng default khi config không có key. Cả hai dạng property
+   đều được fold.
+2. **Tên Feign** khớp thẳng tên service. Đây là trường hợp rẻ nhất và phổ biến
+   nhất trong code Spring Cloud, không cần URL.
+3. **Host khớp tên service**: khớp chính xác, hoặc khớp nhãn DNS đầu tiên, nên
+   `billing-service.payments.svc.cluster.local` và `billing-service:8080` đều
+   về `billing-service`.
+4. **Host loopback khớp theo port** (`localhost:8081` → service có
+   `server.port` = 8081), để bắt cấu hình dev.
+
+Mỗi kết quả `resolved` mang `provenance`: `feign-name` / `literal` /
+`property` / `port`. Người đọc nhờ đó cân được độ chắc: code nói, config trên
+máy này nói, hay đoán từ setup dev. Không `resolved` thì mang một trạng thái:
+
+| Trạng thái | Khi nào |
+|---|---|
+| `dynamic-url` | Phần host không fold được: lỗ `{…}`, placeholder không có trong config và không có default, hoặc URL tương đối vì client được inject sẵn từ một `@Bean` ở chỗ khác |
+| `unknown-service` | Host trông như tên nội bộ (không có dấu chấm, `.svc`, `.cluster.local`, `.internal`, `.local`, `.consul`, loopback) nhưng không có trong registry. Tên Feign không khớp service nào cũng rơi vào đây, vì nó luôn là tên service-discovery |
+| `ambiguous-service` | Hơn một service mang tên đó (§ [Data model](#data-model)) |
+| `external` | Host công khai (`api.stripe.com`) |
+
+Resolve chỉ dừng ở mức **service**. Ghép `path` với endpoint của service đó
+(`linked` / `endpoint-gone`) là phần của join.
 
 ## Join — tính khi hỏi
 
@@ -452,10 +528,21 @@ trên tên service chứ không trên path.
   thực (timestamp) thay vì che giấu. Service ngôn ngữ khác (kể cả chưa có
   analyzer) vẫn vào registry được — sandbox và worktree dùng bình thường —
   chỉ là chưa join được, nên vẫn xuất hiện ở đầu `external` của một cạnh.
-- **Auto-discovery chỉ ở độ sâu 1.** Layout nhóm (`root/backend/*`,
-  `root/frontend/*`) và monorepo (một `.git`, nhiều service bên trong) đều ra
-  sai: layout nhóm không thấy service nào, monorepo thì thành đúng một service.
-  Thêm tay vẫn đi được.
+- **Monorepo là một service.** Discovery dừng ở `.git`, nên một repo chứa
+  nhiều service ra đúng một service. Tách nó ra cần một bước khác (dựa trên
+  build marker: module của `pom.xml`, `settings.gradle`, `package.json`
+  workspaces). Nhưng các service đó dùng chung một `.git`, nên "RW một
+  service" vẫn phải cho RW cả `.git`, tức cô lập yếu hơn multi-repo. Thêm tay
+  từng thư mục vẫn đi được.
+- **Config chỉ ở `src/main/resources` của service, chỉ default profile.**
+  Maven multi-module có config ở module con thì không đọc được. Config
+  server, biến môi trường và profile đang chạy là chuyện của deployment:
+  placeholder chỉ trỏ vào những thứ đó thì ra `dynamic-url`, trừ khi có default.
+- **Client inject sẵn từ `@Bean`** (`@Qualifier("billing") WebClient`) giữ
+  URL tương đối, thành `dynamic-url`. Lần theo bean method trong
+  `@Configuration` là bước kế tiếp nếu tỉ lệ `dynamic-url` thực tế còn cao.
+  `@HttpExchange` client của Spring 6 và `String.format` / `UriComponentsBuilder`
+  cũng chưa được đọc.
 - **Solver setup vẫn walk toàn bộ `~/.m2` mỗi lần analyze.** Manifest tier né
   được nó, full index thì không — và worktree **nhân** nó lên theo số agent.
   `analyzer_subprocess.go` tự nó chưa giới hạn số JVM một service worktree có
