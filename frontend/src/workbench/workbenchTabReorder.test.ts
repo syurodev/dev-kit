@@ -21,6 +21,13 @@ const second: WorkbenchTab = {
   title: "Second",
 };
 
+// The store is shared by every test file bun runs in this process, and
+// setState merges: a group layout another file left behind (a notes group
+// showing some other tab) would make setActiveTab legitimately move that
+// group — a new state — and these no-op assertions fail depending only on
+// which files ran first. Each test starts from no groups.
+const NO_GROUPS = { groups: [], focusedGroupId: "" };
+
 describe("workbench tab reorder isolation", () => {
   test("treats a pure reorder as the same mounted content members", () => {
     expect(haveSameTabMembers([first, second], [second, first])).toBe(true);
@@ -34,6 +41,7 @@ describe("workbench tab reorder isolation", () => {
 
   test("does not publish a new store state for an order no-op", () => {
     useWorkbenchTabsStore.setState({
+      ...NO_GROUPS,
       activeModuleId: "notes",
       modules: {
         notes: {
@@ -52,6 +60,7 @@ describe("workbench tab reorder isolation", () => {
 
   test("preserves tab object identity for a real reorder", () => {
     useWorkbenchTabsStore.setState({
+      ...NO_GROUPS,
       activeModuleId: "notes",
       modules: {
         notes: {
@@ -71,6 +80,7 @@ describe("workbench tab reorder isolation", () => {
 
   test("does not publish state when the already-active tab is selected", () => {
     useWorkbenchTabsStore.setState({
+      ...NO_GROUPS,
       activeModuleId: "notes",
       modules: {
         notes: {
