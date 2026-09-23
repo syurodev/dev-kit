@@ -49,6 +49,22 @@ func TestProtectedPathHit(t *testing.T) {
 		{"similar HOME variable", map[string]any{"command": `cat "$HOMER/.claude.json"`}, false},
 		{"similar Claude filename", map[string]any{"command": `cat "$HOME/.claude-backup"`}, false},
 		{"user variable outside home", map[string]any{"command": `cat "/Users/$USER/project/.claude.json"`}, false},
+		// Claude Code's auto-memory and the user CLAUDE.md are the agent's own
+		// to write; a save there used to be denied as a credential read.
+		{"memory write via bash", map[string]any{"command": "cat > " + home + "/.claude/projects/-home-u-Workspace-kong/memory/request_integrity_doc.md"}, false},
+		{"memory write via tool", map[string]any{"file_path": home + "/.claude/projects/-home-u-Workspace-kong/memory/MEMORY.md"}, false},
+		{"memory directory listing", map[string]any{"command": "ls ~/.claude/projects/p/memory"}, false},
+		{"user CLAUDE.md", map[string]any{"file_path": home + "/.claude/CLAUDE.md"}, false},
+		// ...and nothing next to them is.
+		{"project transcript", map[string]any{"file_path": home + "/.claude/projects/p/session.jsonl"}, true},
+		{"projects root", map[string]any{"command": "ls ~/.claude/projects"}, true},
+		{"memory-named sibling", map[string]any{"file_path": home + "/.claude/projects/p/memory-notes/x.md"}, true},
+		{"settings", map[string]any{"file_path": home + "/.claude/settings.json"}, true},
+		{"traversal out of memory", map[string]any{"command": "cat ~/.claude/projects/p/memory/../../../.credentials.json"}, true},
+		{"relative credentials from memory", map[string]any{"command": "cd ~/.claude/projects/p/memory && cat ../../../.credentials.json"}, true},
+		{"relative credentials from home", map[string]any{"command": "cd && cat .claude/.credentials.json"}, true},
+		{"relative config from home", map[string]any{"command": "cat ./.claude.json"}, true},
+		{"relative credentials in an option", map[string]any{"command": "jq . --file=.claude/.credentials.json"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

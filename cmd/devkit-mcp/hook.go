@@ -162,6 +162,9 @@ func protectedReferenceHit(value string) string {
 	home = filepath.ToSlash(filepath.Clean(home))
 
 	for _, token := range referenceTokens(value) {
+		if hit := credentialFileReference(token); hit != "" {
+			return hit
+		}
 		expanded := expandHomeReferences(token, home)
 		// Options such as --file=/Users/x/.claude.json retain the path in the
 		// same shell word. Test each suffix beginning at the effective home.
@@ -220,7 +223,62 @@ func isProtectedHomePath(candidate, home string) bool {
 		home = strings.ToLower(home)
 	}
 	dir := home + "/.claude"
-	return candidate == home+"/.claude.json" || candidate == dir || strings.HasPrefix(candidate, dir+"/")
+	if candidate == home+"/.claude.json" {
+		return true
+	}
+	if candidate != dir && !strings.HasPrefix(candidate, dir+"/") {
+		return false
+	}
+	return !isAgentOwnedClaudePath(strings.TrimPrefix(candidate, dir))
+}
+
+// isAgentOwnedClaudePath reports whether rel — a path inside ~/.claude,
+// starting with "/" — is one the agent itself is meant to read and write:
+//
+//   - projects/<project>/memory/…, Claude Code's auto-memory. The agent
+//     saves what it learns there with its own Write/Bash tools, and a
+//     blanket block on ~/.claude made every save fail with this hook's
+//     denial.
+//   - CLAUDE.md, the user-level memory file the agent is asked to edit
+//     ("remember this for every project").
+//
+// Neither holds credentials, and both are exact shapes — a path is cleaned
+// before it gets here, so memory/../../../.credentials.json is no longer
+// under memory by then. Everything else in ~/.claude stays protected:
+// .credentials.json, settings.json (its env block can carry API keys, and a
+// tool rewriting it could loosen the agent's own permission rules), and the
+// other projects' transcripts.
+func isAgentOwnedClaudePath(rel string) bool {
+	if rel == "/CLAUDE.md" {
+		return true
+	}
+	parts := strings.Split(strings.TrimPrefix(rel, "/"), "/")
+	return len(parts) >= 3 && parts[0] == "projects" && parts[1] != "" && parts[2] == "memory"
+}
+
+// credentialFileReference catches the credential files by name when the path
+// does not start at the home directory — a relative one the home-prefix
+// check cannot see: "cat .claude/.credentials.json" run from $HOME, or
+// "cat ../../../.credentials.json" run from inside a memory directory, which
+// is reachable now that memory is allowed. .credentials.json is Claude
+// Code's own token file and nothing else is called that; .claude.json only
+// counts when relative, since an absolute one outside $HOME (a project's
+// file of that name) is not the agent's.
+func credentialFileReference(token string) string {
+	token = strings.TrimRight(token, ",:]}\"")
+	if i := strings.LastIndex(token, "="); i >= 0 {
+		token = token[i+1:] // --file=.claude/.credentials.json
+	}
+	path := filepath.ToSlash(strings.ReplaceAll(token, "\\", "/"))
+	base := path[strings.LastIndex(path, "/")+1:]
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		base = strings.ToLower(base)
+	}
+	relative := !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "~") && !strings.HasPrefix(path, "$")
+	if base == ".credentials.json" || (relative && base == ".claude.json") {
+		return path
+	}
+	return ""
 }
 
 // emitHookDecision writes the decision, or "{}" to defer. A deny is emitted
