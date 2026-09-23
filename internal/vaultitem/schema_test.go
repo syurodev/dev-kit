@@ -63,6 +63,11 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 		{name: "wrong payload key", itemType: ItemTypeNote, metadata: `{"title":"x"}`, payload: validSchemaEnvelope("db-password")},
 		{name: "note-folder missing name", itemType: ItemTypeNoteFolder, metadata: `{"color":"blue"}`, payload: validSchemaEnvelope("note-folder")},
 		{name: "note-folder unknown color", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"neon"}`, payload: validSchemaEnvelope("note-folder")},
+		// Stored hex is the canonical form only: a record carrying anything
+		// else goes into a style attribute on the next device unchecked.
+		{name: "note-folder uppercase hex", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"#3B82F6"}`, payload: validSchemaEnvelope("note-folder")},
+		{name: "note-folder short hex", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"#abc"}`, payload: validSchemaEnvelope("note-folder")},
+		{name: "note-folder css expression", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"red;background:url(x)"}`, payload: validSchemaEnvelope("note-folder")},
 		{name: "note-folder unknown field", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue","icon":"x"}`, payload: validSchemaEnvelope("note-folder")},
 		{name: "note-folder wrong payload key", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue"}`, payload: validSchemaEnvelope("note-body")},
 		{name: "note-folder missing payload", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue"}`},
@@ -118,5 +123,18 @@ func validSchemaEnvelope(keyID string) *crypto.Envelope {
 		KeyID:      keyID,
 		Nonce:      bytes.Repeat([]byte{1}, 24),
 		Ciphertext: bytes.Repeat([]byte{2}, 16),
+	}
+}
+
+func TestNoteFolderColorAcceptsPresetsAndHex(t *testing.T) {
+	for _, c := range []string{"blue", "gray", "#3b82f6", "#000000"} {
+		if !ValidNoteFolderColor(c) {
+			t.Errorf("ValidNoteFolderColor(%q) = false, want true", c)
+		}
+	}
+	for in, want := range map[string]string{" Blue ": "blue", "#3B82F6": "#3b82f6", "#ABC": "#aabbcc", "": ""} {
+		if got := NormalizeNoteFolderColor(in); got != want {
+			t.Errorf("NormalizeNoteFolderColor(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

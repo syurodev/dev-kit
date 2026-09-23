@@ -75,23 +75,49 @@ func TestEmptyFolderAllowed(t *testing.T) {
 	}
 }
 
-// A hex value — what an agent reaches for first — is refused as a named,
-// correctable validation error that lists the palette, and a name written
-// with other casing or spacing is accepted as that name.
-func TestFolderColorIsAPaletteName(t *testing.T) {
+// Any hex color is accepted and stored in one canonical spelling, presets
+// keep working, and anything else is refused as a named, correctable
+// validation error.
+func TestFolderColorIsAPresetOrHex(t *testing.T) {
 	s := newService(t)
-	_, err := s.CreateFolder("Work", "#3b82f6", nil)
-	if !errors.Is(err, ErrInvalidColor) {
-		t.Fatalf("err = %v, want ErrInvalidColor", err)
+	folder, err := s.CreateFolder("Work", "#3B82F6", nil)
+	if err != nil || folder.Color != "#3b82f6" {
+		t.Fatalf("CreateFolder(#3B82F6) = %+v, %v; want color #3b82f6", folder, err)
 	}
-	if !strings.Contains(err.Error(), `"#3b82f6"`) || !strings.Contains(err.Error(), "blue") {
-		t.Fatalf("message %q should name the value given and the accepted ones", err.Error())
+	short, err := s.CreateFolder("Short", "#abc", nil)
+	if err != nil || short.Color != "#aabbcc" {
+		t.Fatalf("CreateFolder(#abc) = %+v, %v; want color #aabbcc", short, err)
 	}
-	folder, err := s.CreateFolder("Work", " Blue ", nil)
-	if err != nil || folder.Color != "blue" {
-		t.Fatalf("CreateFolder(\" Blue \") = %+v, %v; want color blue", folder, err)
+	preset, err := s.CreateFolder("Preset", " Blue ", nil)
+	if err != nil || preset.Color != "blue" {
+		t.Fatalf("CreateFolder(\" Blue \") = %+v, %v; want color blue", preset, err)
+	}
+	for _, bad := range []string{"rgb(1,2,3)", "#12345", "#gggggg", "navy"} {
+		_, err := s.CreateFolder("Bad", bad, nil)
+		if !errors.Is(err, ErrInvalidColor) || !strings.Contains(err.Error(), "hex") {
+			t.Fatalf("CreateFolder(%q) err = %v, want ErrInvalidColor explaining the accepted forms", bad, err)
+		}
 	}
 	if _, err := s.UpdateFolder(folder.ID, "Work", "", nil); !errors.Is(err, ErrInvalidColor) {
 		t.Fatalf("UpdateFolder with no color: err = %v, want ErrInvalidColor (a folder must have one)", err)
+	}
+	listed, err := s.ListFolders()
+	if err != nil {
+		t.Fatalf("ListFolders: %v", err)
+	}
+	if len(listed) != 3 {
+		t.Fatalf("ListFolders = %d folders, want the 3 created (a hex folder must pass the record schema on read)", len(listed))
+	}
+}
+
+func TestNoteColorAcceptsHex(t *testing.T) {
+	s := newService(t)
+	summary, err := s.Create("Hello", "body", "", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	updated, err := s.SetOrganization(summary.ID, "", nil, "#FF8800")
+	if err != nil || updated.Color != "#ff8800" || updated.EffectiveColor != "#ff8800" {
+		t.Fatalf("SetOrganization(#FF8800) = %+v, %v", updated, err)
 	}
 }

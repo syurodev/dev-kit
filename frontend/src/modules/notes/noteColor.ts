@@ -1,12 +1,5 @@
 import type { CSSProperties } from "react";
-import { FOLDER_COLORS, type FolderColor } from "./folderColors";
-
-export function noteAccentColor(color: string): string | undefined {
-  if (!FOLDER_COLORS.includes(color as FolderColor)) {
-    return undefined;
-  }
-  return `var(--note-folder-${color})`;
-}
+import { noteColorValue } from "./folderColors";
 
 /**
  * A note card is tinted by its folder's colour: Figma `Note Card` (798:3178)
@@ -18,7 +11,7 @@ export function noteAccentColor(color: string): string | undefined {
  * cards do the same.
  */
 export function noteCardSurface(color: string): CSSProperties {
-  const base = noteAccentColor(color) ?? "var(--note-folder-gray)";
+  const base = noteColorValue(color) ?? "var(--note-folder-gray)";
   return {
     backgroundColor: `color-mix(in srgb, ${base} 26%, transparent)`,
     borderColor: `color-mix(in srgb, ${base} 45%, transparent)`,

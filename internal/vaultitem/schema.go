@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 
 	"devkit/internal/crypto"
 )
@@ -355,18 +356,48 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 	return nil
 }
 
-// NoteFolderColors are the only colors a note or a folder may carry: palette
-// names the UI maps to theme tokens, never a raw hex value — a hex picked on
-// one theme is unreadable on the other.
+// NoteFolderColors are the preset colors a note or a folder can pick: names
+// the UI maps to theme tokens, so they follow light and dark mode. They are
+// presets, not the whole set — any "#rrggbb" is accepted too.
 var NoteFolderColors = []string{"red", "orange", "yellow", "green", "teal", "blue", "violet", "pink", "gray"}
 
+// ValidNoteFolderColor accepts a preset name or a lowercase "#rrggbb". The
+// hex form is exactly that — six digits, lowercase — because the UI puts the
+// value straight into a style: a looser check (any CSS color, "#abc",
+// "rgb(...)") would be a string the frontend has to re-validate, and the
+// stored form should be one canonical spelling per color so two devices do
+// not keep "#ABC" and "#aabbcc" as different values. NormalizeNoteFolderColor
+// turns what a caller types into that form.
 func ValidNoteFolderColor(color string) bool {
 	for _, c := range NoteFolderColors {
 		if color == c {
 			return true
 		}
 	}
-	return false
+	return isHexColor(color)
+}
+
+func isHexColor(color string) bool {
+	if len(color) != 7 || color[0] != '#' {
+		return false
+	}
+	for _, r := range color[1:] {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// NormalizeNoteFolderColor trims and lower-cases color and expands the short
+// hex form ("#ABC" → "#aabbcc"). It does not validate; ValidNoteFolderColor
+// does, on the result.
+func NormalizeNoteFolderColor(color string) string {
+	color = strings.ToLower(strings.TrimSpace(color))
+	if len(color) == 4 && color[0] == '#' {
+		color = string([]byte{'#', color[1], color[1], color[2], color[2], color[3], color[3]})
+	}
+	return color
 }
 
 func decodeMetadataObject(metadata json.RawMessage, destination any) error {

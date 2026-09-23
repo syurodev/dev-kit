@@ -13,16 +13,17 @@ import (
 
 const folderKeyID = "note-folder"
 
-// ErrInvalidColor is a color outside vaultitem.NoteFolderColors. The wrapped
+// ErrInvalidColor is a color that is neither a preset nor a hex color. The wrapped
 // message names the value given and the ones accepted, so a caller — an
 // agent over MCP most of all — can correct itself instead of retrying blind.
 var ErrInvalidColor = errors.New("invalid color")
 
-// normalizeColor trims and lower-cases color ("Blue " is blue) and checks it
-// against the palette. optional lets "" through as "no color of its own"
-// (a note inheriting its folder's); a folder must have one.
+// normalizeColor brings color to its stored form ("Blue " is blue, "#3B82F6"
+// is #3b82f6, "#abc" is #aabbcc) and checks it: a preset name or a hex
+// color. optional lets "" through as "no color of its own" (a note
+// inheriting its folder's); a folder must have one.
 func normalizeColor(color string, optional bool) (string, error) {
-	color = strings.ToLower(strings.TrimSpace(color))
+	color = vaultitem.NormalizeNoteFolderColor(color)
 	if color == "" && optional {
 		return "", nil
 	}
@@ -31,7 +32,8 @@ func normalizeColor(color string, optional bool) (string, error) {
 		if shown == "" {
 			shown = "(empty)"
 		}
-		return "", fmt.Errorf("%w %q: use one of %s", ErrInvalidColor, shown, strings.Join(vaultitem.NoteFolderColors, ", "))
+		return "", fmt.Errorf("%w %q: use a hex color (#rrggbb or #rgb) or one of the presets %s",
+			ErrInvalidColor, shown, strings.Join(vaultitem.NoteFolderColors, ", "))
 	}
 	return color, nil
 }

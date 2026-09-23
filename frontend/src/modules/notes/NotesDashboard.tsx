@@ -38,7 +38,7 @@ import {
   type NoteFolder,
   listTrashedNotes,
 } from "../../bridge/notes";
-import { FOLDER_COLORS, type FolderColor } from "./folderColors";
+import { noteColorValue } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
 import { useNotesSidebar } from "./useNotesSidebar";
 import { useNotesSidebarStore } from "./notesSidebarStore";
@@ -204,12 +204,12 @@ export function NotesDashboard({
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
-  const [createColor, setCreateColor] = useState<FolderColor>("blue");
+  const [createColor, setCreateColor] = useState<string>("blue");
   const [createTags, setCreateTags] = useState<string[]>([]);
 
   const [renameFolder, setRenameFolder] = useState<NoteFolder | null>(null);
   const [renameName, setRenameName] = useState("");
-  const [renameColor, setRenameColor] = useState<FolderColor>("blue");
+  const [renameColor, setRenameColor] = useState<string>("blue");
 
   const [editTagsFolder, setEditTagsFolder] = useState<NoteFolder | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
@@ -393,11 +393,7 @@ export function NotesDashboard({
     } else if (pendingAction.kind === "rename") {
       setRenameFolder(pendingAction.folder);
       setRenameName(pendingAction.folder.name);
-      setRenameColor(
-        (FOLDER_COLORS.includes(pendingAction.folder.color as FolderColor)
-          ? pendingAction.folder.color
-          : "gray") as FolderColor,
-      );
+      setRenameColor(noteColorValue(pendingAction.folder.color) ? pendingAction.folder.color : "gray");
     } else if (pendingAction.kind === "tags") {
       setEditTagsFolder(pendingAction.folder);
       setEditTags([...pendingAction.folder.tags]);

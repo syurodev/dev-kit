@@ -115,11 +115,11 @@ của 1 link", chỉ cần `notes.get`/`notes.backlinks.list` là đủ ngữ c�
 | Field | At rest | Notes |
 |---|---|---|
 | `type` | `"note-folder"` | Schema-validated |
-| `metadata` | `{"name":"Work","color":"blue","tags":["work"]}` plaintext | `name` + `color` required, `color` ∈ 9-màu palette (`red orange yellow green teal blue violet pink gray`) |
+| `metadata` | `{"name":"Work","color":"blue","tags":["work"]}` plaintext | `name` + `color` required, `color` là một trong 9 màu preset (`red orange yellow green teal blue violet pink gray`) **hoặc** hex `#rrggbb` (chữ thường, 6 số) |
 | `payload` | Envelope V2 rỗng `{}` | `key_id` phải = `note-folder` — folder không có secret, envelope chỉ để record hợp lệ với sync validation |
 | One-level only | không nesting | sidebar là flat list |
 
-Note's `color` dùng **chung palette** với folder (`vaultitem.ValidNoteFolderColor`), không có hệ màu riêng.
+Note's `color` dùng **chung quy tắc** với folder (`vaultitem.ValidNoteFolderColor`): preset hoặc hex. Preset map sang token `--note-folder-<tên>` nên đổi theo theme sáng/tối; hex là đúng màu đó ở cả hai theme. Hex được lưu một dạng chuẩn duy nhất (`NormalizeNoteFolderColor`: trim, chữ thường, `#abc` → `#aabbcc`) nên hai máy không giữ `#ABC` và `#aabbcc` như hai giá trị khác nhau, và schema chỉ nhận đúng dạng đó vì giá trị được đưa thẳng vào `style` ở UI. Màu sai trả `validation_failed` kèm các dạng được nhận (`notes.ErrInvalidColor`), không phải `internal_error`.
 
 ### Version — `type = "note-version"`
 
@@ -428,7 +428,7 @@ khi vault locked.
 Note card (`NoteCard`) là "mini-window": khung ngoài `bg-card`/`border-border`
 trung tính (giống window chrome của app), title 1 dòng
 (`truncate`, không bao giờ xuống dòng), bên trong là panel inset tỉ lệ 3:2
-tô màu `effective_color` qua `color-mix()` trên token `--note-folder-*` có sẵn
+tô màu `effective_color` qua `color-mix()` trên token `--note-folder-*` có sẵn (hoặc trên chính màu hex)
 (30% nền / 45% viền, không gradient/glow) — panel rỗng màu (`bg-muted`) khi
 note không có effective color. Preview + tag chip (dot + label) + thời gian
 tương đối nằm trong panel đó.
@@ -522,7 +522,7 @@ Sáu đợt, tất cả đã land:
 
 - Title plaintext local — encrypt riêng nếu title ever sync/sensitive.
 - Folder **one level only** — không nested tree, không drag-and-drop reorder.
-- Note color giới hạn 9-màu palette dùng chung với folder, không freeform hex.
+- Màu hex chọn tự do (ô cuối của `ColorPicker`, mở color picker của hệ thống) không tự đổi theo theme như preset. **Sync với bản DevKit cũ hơn:** bản cũ chỉ nhận 9 preset trong schema, nên một note/folder mang màu hex sẽ bị bản cũ từ chối khi sync về — cần cập nhật mọi máy.
 - Đổi màu note chỉ từ editor — chưa có quick-set màu ngay trên dashboard card.
 - Legacy table `notes` đã drop ở migration m6; không còn backfill path.
 - Trash chỉ áp dụng cho note — folder xoá vẫn hard-delete (copy-down) ngay,
