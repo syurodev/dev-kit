@@ -9,7 +9,6 @@ import {
   ensureStarted,
   loadPlan,
   openFile,
-  pickAndOpenProject,
   reindex,
   showPlan,
   viewFlow,
@@ -138,7 +137,7 @@ export function CodeGraphSidebar() {
   if (!projectPath) {
     return (
       <div className="flex h-full flex-col select-none">
-        <EmptyProject busy={busy} onPickProject={pickAndOpenProject} onOpenProject={onOpenProject} />
+        <EmptyProject busy={busy} onOpenProject={onOpenProject} />
       </div>
     );
   }
@@ -151,7 +150,6 @@ export function CodeGraphSidebar() {
         counts={{ endpoints: endpoints.length, services }}
         busy={busy}
         onReindex={onReindex}
-        onPickProject={pickAndOpenProject}
         onOpenProject={onOpenProject}
       />
 

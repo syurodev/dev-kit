@@ -33,6 +33,36 @@ type CreateInput struct {
 	Cwd             string
 	ParentSessionID string // empty = root session
 	Title           *string
+	// ExtraReadWritePaths widen the jail beyond Cwd — see OpenSpec. Only the
+	// bridge (UI) path sets this; the MCP tool's own input struct has no such
+	// field, so an agent-created session never gets one.
+	ExtraReadWritePaths []string
+}
+
+// cleanExtraReadWritePaths applies the same invariants resolveCwd holds Cwd
+// to — absolute, not "/", not bare $HOME — dropping anything that fails
+// rather than rejecting the whole create: these are additional grants, not
+// the one the session cannot start without.
+func cleanExtraReadWritePaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	homeClean := filepath.Clean(home)
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" || !filepath.IsAbs(p) {
+			continue
+		}
+		clean := filepath.Clean(p)
+		if clean == "/" || clean == homeClean || seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		out = append(out, clean)
+	}
+	return out
 }
 
 // applySandboxExtras widens spec with the user's opt-in jail grants, if any
@@ -334,6 +364,13 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 
 	id := uuid.NewString()
 	spec := OpenSpec{Cwd: cwd}
+	// Belt: the MCP tool handler's own input struct has no field to carry
+	// this, so an agent caller cannot reach it in practice. Suspenders: reject
+	// it explicitly here too, so the guarantee holds even if that ever changes
+	// without whoever changes it noticing this needs to move with it.
+	if !caller.IsAgent() {
+		spec.ExtraReadWritePaths = cleanExtraReadWritePaths(in.ExtraReadWritePaths)
+	}
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(id)

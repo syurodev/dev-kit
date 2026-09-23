@@ -53,6 +53,90 @@ func newTestServiceWith(t *testing.T, adapter *agenthub.MockAdapter) *agenthub.S
 	return agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 }
 
+// A workspace's services do not necessarily share a root Cwd could cover
+// (workspace.mdx), so picking "the whole workspace" in the draft's picker
+// sends the other services as ExtraReadWritePaths. This is the UI (bridge)
+// path — an unattributed caller defaults to identity.UI() (gateway.go).
+func TestCreateSession_ExtraReadWritePathsReachTheSpec(t *testing.T) {
+	adapter := agenthub.NewMockAdapter()
+	svc := newTestServiceWith(t, adapter)
+	cwd := t.TempDir()
+	extra1, extra2 := t.TempDir(), t.TempDir()
+
+	if _, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType:           agenthub.AgentTypeMock,
+		Cwd:                 cwd,
+		ExtraReadWritePaths: []string{extra1, extra2, extra1}, // a duplicate, on purpose
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := adapter.LastSpec().ExtraReadWritePaths
+	if len(got) != 2 {
+		t.Fatalf("ExtraReadWritePaths = %v, want [%s %s] (deduped)", got, extra1, extra2)
+	}
+	want := map[string]bool{extra1: true, extra2: true}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected path in spec: %s", p)
+		}
+	}
+}
+
+// "/" and the bare home directory are the same invariants resolveCwd holds
+// Cwd to — a workspace service is never either of those in practice, but the
+// jail should not trust that rather than check it.
+func TestCreateSession_ExtraReadWritePathsDropsUnsafeEntries(t *testing.T) {
+	adapter := agenthub.NewMockAdapter()
+	svc := newTestServiceWith(t, adapter)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory available")
+	}
+
+	if _, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType:           agenthub.AgentTypeMock,
+		Cwd:                 t.TempDir(),
+		ExtraReadWritePaths: []string{"/", home, "relative/path", ""},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := adapter.LastSpec().ExtraReadWritePaths; len(got) != 0 {
+		t.Fatalf("ExtraReadWritePaths = %v, want none of the unsafe entries kept", got)
+	}
+}
+
+// An agent spawning a session — a sub-agent, or one it opens directly — must
+// never come out with a wider jail than a human choosing this in the UI
+// would grant it. The MCP tool handler's own input struct has no field for
+// this (tools_agenthub.go), so in practice an agent cannot reach it; this
+// checks the belt on top of that structural suspenders.
+func TestCreateSession_AgentCallerExtraReadWritePathsAreIgnored(t *testing.T) {
+	adapter := agenthub.NewMockAdapter()
+	svc := newTestServiceWith(t, adapter)
+	parent, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx := identity.WithCaller(context.Background(), identity.Agent(parent.ID))
+
+	if _, err := svc.CreateSession(agentCtx, agenthub.CreateInput{
+		AgentType:           agenthub.AgentTypeMock,
+		ParentSessionID:     parent.ID,
+		ExtraReadWritePaths: []string{t.TempDir()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := adapter.LastSpec().ExtraReadWritePaths; len(got) != 0 {
+		t.Fatalf("ExtraReadWritePaths = %v, want none — an agent caller must not be able to set this", got)
+	}
+}
+
 func TestCreateAndListSession(t *testing.T) {
 	svc := newTestService(t)
 	s, err := svc.CreateSession(context.Background(), agenthub.CreateInput{

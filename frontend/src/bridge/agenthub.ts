@@ -61,6 +61,14 @@ export type CreateSessionInput = {
   cwd: string;
   parentSessionId?: string;
   title?: string | null;
+  /**
+   * Extra services granted read-write alongside cwd — the rest of a
+   * workspace (docs/dev-kit/workspace.mdx) when the draft's picker chose the
+   * whole thing rather than one service. Only the UI path sets this; there
+   * is no way to reach it over MCP (internal/mcp/tools_agenthub.go has no
+   * such field), so an agent-created session can never widen its own jail.
+   */
+  extraReadWritePaths?: string[];
 };
 
 export type InvokeSessionInput = {
@@ -266,6 +274,7 @@ export function agentHubCreateSession(
       Cwd: input.cwd,
       ParentSessionID: input.parentSessionId ?? "",
       Title: input.title ?? null,
+      ExtraReadWritePaths: input.extraReadWritePaths ?? [],
     });
     return toSession(created);
   });

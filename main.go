@@ -42,6 +42,7 @@ import (
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 	"devkit/internal/workfolder"
+	"devkit/internal/workspace"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -134,6 +135,7 @@ func main() {
 	container.Notes.SetLinkIndex(notes.NewSQLLinkIndex(db))
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
+	container.Workspace = workspace.NewService(workspace.NewSQLRepository(db))
 	// Query consoles are files, DataGrip-style: one .sql per console, with the
 	// connection it belongs to on the first line. Not vault items — those are
 	// the saved queries, which are named, deliberate and synced, and are

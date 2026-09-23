@@ -55,6 +55,7 @@ import { rateLimitFailure } from "./surfaces/AgentContextMeter";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleFolder } from "../../stores/workFolder";
+import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -84,6 +85,8 @@ type CreateParams = {
   prompt?: string;
   attachments?: string[];
   images?: AgentImageAttachment[];
+  /** The rest of a workspace's services — see chooseWorkspaceForDraft. */
+  extraReadWritePaths?: string[];
 };
 type TurnInput = {
   sessionId: string;
@@ -189,6 +192,9 @@ export function AgentHubView() {
     cwd: string;
     parent: AgentSession | null;
     images: AgentImageAttachment[];
+    // The rest of a workspace's services, when "grant every service" was
+    // picked instead of one folder — see chooseWorkspaceForDraft.
+    extraReadWritePaths: string[];
   } | null>(null);
   const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_VENDOR);
   const [draftPrompt, setDraftPrompt] = useState("");
@@ -235,6 +241,7 @@ export function AgentHubView() {
   const unpin = useAgentPinsStore((state) => state.unpin);
   const recentProjects = useAgentPinsStore((state) => state.recentProjects);
   const rememberProject = useAgentPinsStore((state) => state.rememberProject);
+  const { workspace: currentWorkspace, services: workspaceServices } = useCurrentWorkspaceServices();
   // Where "no project" sessions get their folders. Read once: it is a fixed
   // place under the config dir, and the sidebar groups everything under it.
   const scratchRoot = useQuery({
@@ -371,13 +378,25 @@ export function AgentHubView() {
 
   /** Starts a draft in a folder that is already known — a project row, a parent. */
   function startDraft(cwd: string, parent: AgentSession | null) {
-    setDraft({ cwd, parent, images: [] });
+    setDraft({ cwd, parent, images: [], extraReadWritePaths: [] });
     setDraftPrompt("");
     setError("");
     setErrorReason("");
     setErrorCause(undefined);
     setSandboxHint("");
     setAuthRetry(null);
+  }
+
+  /**
+   * "Grant every service" in the draft's picker: cwd anchors on the first
+   * one (a concrete WorkDir the sandbox can bind), the rest become
+   * ExtraReadWritePaths — a workspace's services do not necessarily share a
+   * root cwd alone could cover (docs/dev-kit/workspace.mdx).
+   */
+  function chooseWorkspaceForDraft(paths: string[]) {
+    if (paths.length === 0) return;
+    const [cwd, ...rest] = paths;
+    setDraft((current) => current && { ...current, cwd, extraReadWritePaths: rest });
   }
 
   /**
@@ -398,8 +417,9 @@ export function AgentHubView() {
     const start = draft?.cwd || workFolder || (await codeGraphProjectRoot().catch(() => ""));
     try {
       const picked = await agentHubChooseDirectory(start);
-      // "" is a cancelled picker: the draft keeps the folder it had.
-      if (picked) setDraft((current) => current && { ...current, cwd: picked });
+      // "" is a cancelled picker: the draft keeps the folder it had. Picking
+      // one folder narrows back from "whole workspace" if that was chosen.
+      if (picked) setDraft((current) => current && { ...current, cwd: picked, extraReadWritePaths: [] });
     } catch (e) {
       reportError(e);
     }
@@ -424,6 +444,9 @@ export function AgentHubView() {
         agentType: params.vendor,
         cwd: params.cwd,
         parentSessionId: params.parentSessionId,
+        // A scratch session gets nothing beyond its own scratch folder — the
+        // "whole workspace" pick only applies to a real cwd.
+        extraReadWritePaths: scratch ? [] : params.extraReadWritePaths,
       });
       upsertSession(session);
       if (!scratch) rememberProject(params.cwd);
@@ -852,19 +875,25 @@ export function AgentHubView() {
     return map;
   }, [pendingQueue, elicitationQueue]);
 
-  // What the draft's picker offers: folders used before, most recent first,
+  // What the draft's picker offers: the current workspace's services first
+  // (docs/dev-kit/workspace.mdx — registered on purpose, so they should sort
+  // ahead of the guesses below), then folders used before, most recent first,
   // then any other project a session is open in. Never a scratch folder.
   const draftProjects = useMemo(() => {
     const isScratch = (path: string) => Boolean(scratchRoot) && path.startsWith(`${scratchRoot}/`);
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const path of [...recentProjects, ...sessions.map((s) => s.projectPath)]) {
+    for (const path of [
+      ...workspaceServices.map((s) => s.path),
+      ...recentProjects,
+      ...sessions.map((s) => s.projectPath),
+    ]) {
       if (!path || isScratch(path) || seen.has(path)) continue;
       seen.add(path);
       out.push(path);
     }
     return out;
-  }, [recentProjects, sessions, scratchRoot]);
+  }, [workspaceServices, recentProjects, sessions, scratchRoot]);
 
   useAgentHubSidebar({
     sessions,
@@ -924,10 +953,26 @@ export function AgentHubView() {
             hasMore={transcriptModel.hasMore}
             loadingOlder={transcriptModel.loadingOlder}
             onLoadOlder={transcriptModel.loadOlder}
-            draft={draft ? { projectPath: draft.cwd, parentName: draft.parent?.title || undefined } : null}
+            draft={
+              draft
+                ? {
+                    projectPath: draft.cwd,
+                    parentName: draft.parent?.title || undefined,
+                    workspaceSelected: draft.extraReadWritePaths.length > 0,
+                  }
+                : null
+            }
             projects={draftProjects}
-            onProjectChange={(path) => setDraft((current) => current && { ...current, cwd: path })}
+            onProjectChange={(path) =>
+              setDraft((current) => current && { ...current, cwd: path, extraReadWritePaths: [] })
+            }
             onChooseProject={() => void chooseFolderForDraft()}
+            workspace={
+              currentWorkspace && workspaceServices.length > 0
+                ? { name: currentWorkspace.name, paths: workspaceServices.map((s) => s.path) }
+                : null
+            }
+            onChooseWorkspace={chooseWorkspaceForDraft}
             agents={vendors}
             agent={draftAgent}
             onAgentChange={setDraftAgent}
@@ -947,6 +992,7 @@ export function AgentHubView() {
                 parentSessionId: draft.parent?.id,
                 prompt: draftPrompt.trim(),
                 images: draft.images,
+                extraReadWritePaths: draft.extraReadWritePaths,
               });
             }}
             onCancel={() => void handleCancel()}

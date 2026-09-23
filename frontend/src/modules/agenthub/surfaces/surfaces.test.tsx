@@ -592,6 +592,44 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(none).toContain(">No project<");
     });
 
+    it("names the whole workspace on the picker's trigger once it is selected", () => {
+      // The popover's own content (Radix Popover) only mounts once open, so
+      // renderToString — closed by default — cannot see the item inside it;
+      // this checks what a workspace pick changes on the always-rendered
+      // trigger, the same limit the project-list assertions above work under.
+      const props = {
+        session: null,
+        agents: ["claude"],
+        agent: "claude",
+        onAgentChange: () => {},
+        promptValue: "",
+        onPromptChange: () => {},
+        onSend: () => {},
+        onCancel: () => {},
+        projects: ["/Users/dev/billing-service"],
+        onProjectChange: () => {},
+        onChooseProject: () => {},
+        workspace: { name: "CHIRO", paths: ["/Users/dev/billing-service", "/Users/dev/api"] },
+        onChooseWorkspace: () => {},
+      };
+      const oneFolder = renderToString(
+        <AgentHubContent {...props} draft={{ projectPath: "/Users/dev/billing-service" }} />,
+      );
+      expect(oneFolder).toContain(">billing-service<");
+
+      // A workspace's services do not necessarily share a root, so naming
+      // just "billing-service" once every one of them is granted would
+      // understate what the session can actually reach.
+      const wholeWorkspace = renderToString(
+        <AgentHubContent
+          {...props}
+          draft={{ projectPath: "/Users/dev/billing-service", workspaceSelected: true }}
+        />,
+      );
+      expect(wholeWorkspace).toContain(">CHIRO (2)<");
+      expect(wholeWorkspace).not.toContain(">billing-service<");
+    });
+
     it("shows nothing of the previously selected session in a draft", () => {
       const previous: AgentSession = {
         id: "sess-prev",

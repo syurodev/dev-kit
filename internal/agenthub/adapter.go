@@ -19,6 +19,14 @@ type OpenSpec struct {
 	McpServers []acp.McpServerStdio
 	// ReadOnlyPaths are extra RO binds — the devkit-mcp proxy binary.
 	ReadOnlyPaths []string
+	// ExtraReadWritePaths widen the jail beyond Cwd — a workspace's other
+	// services, picked deliberately in the draft's project picker because a
+	// workspace's services do not necessarily share a root Cwd could cover
+	// (docs/dev-kit/workspace.mdx: "một service không cần nằm dưới root").
+	// Set only from CreateInput on the bridge (UI) path — never from the MCP
+	// tool handler's own input struct, which has no such field — so an agent
+	// can never grant a session it spawns a wider jail than its own.
+	ExtraReadWritePaths []string
 	// ExtraEnv is merged into the vendor's sandbox environment, winning over
 	// the base allowlist and the vendor's own launch env. Exists for
 	// applySandboxExtras's Docker widening: the jail's private HOME hides the
