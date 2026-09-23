@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { openNoteTab } from "./documents";
+import { openNoteTab, openNotesDashboard } from "./documents";
+import { useNotesRailData } from "./railData";
 import { NotesSidebar } from "./NotesSidebar";
 import { useNotesSidebarStore } from "./notesSidebarStore";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
@@ -19,6 +20,7 @@ import { deleteNote } from "../../bridge/notes";
  * pick a scope or a folder action — the dialogs live there.
  */
 export function useNotesSidebarContent(onNavigate?: () => void): ReactNode {
+  useNotesRailData();
   const scope = useNotesSidebarStore((s) => s.scope);
   const folders = useNotesSidebarStore((s) => s.folders);
   const notes = useNotesSidebarStore((s) => s.notes);
@@ -128,7 +130,14 @@ export function useNotesSidebar(onNavigate?: () => void) {
   useSidebarContent(useNotesSidebarContent(onNavigate));
 }
 
-/** The module's own rail, for ModuleManifest.sidebar — see ModuleSidebar. */
+/**
+ * The module's own rail, for ModuleManifest.sidebar — see ModuleSidebar.
+ *
+ * With no view mounted there is no dashboard to hand a scope change or a
+ * folder action to, so it opens one: the action is queued in the store
+ * (requestAction) and the dashboard consumes it on mount. Before, "New note",
+ * "New folder" and picking a folder here did nothing at all.
+ */
 export function NotesModuleSidebar() {
-  return useNotesSidebarContent();
+  return useNotesSidebarContent(openNotesDashboard);
 }

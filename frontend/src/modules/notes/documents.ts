@@ -28,3 +28,13 @@ export function openNoteTab(note: { id: string; title: string }, preview = true,
     beside,
   });
 }
+
+/**
+ * Opens (or focuses) the dashboard — where the rail sends a scope change or a
+ * folder action, since the dialogs and the filtered list live there. Plain
+ * call like openNoteTab, so the module's own rail can use it with no view
+ * mounted.
+ */
+export function openNotesDashboard(): void {
+  useWorkbenchTabsStore.getState().openTab({ moduleId: "notes", viewId: "notes.list", title: "Notes" });
+}

@@ -425,6 +425,24 @@ khi vault locked.
    `Notes / {folder|Ungrouped} / {title}` quay lại dashboard, giữ nguyên
    scope sidebar đã chọn.
 
+**Rail là của module, và tự nạp dữ liệu.** Folders, notes, số đếm và số note
+trong Trash được nạp bởi chính rail (`railData.ts`, `useNotesRailData`), không
+phải bởi dashboard. Trước đây chỉ dashboard nạp, nên khi mở Notes mà không có
+tab nào (hoặc chỉ có tab editor sau khi khởi động lại), rail rỗng cho tới khi
+bấm "Open notes". Rail luôn hiện **toàn bộ** danh sách, không phải kết quả
+search của dashboard (trước đây gõ vào ô search làm lọc cả folder và số đếm
+trên rail). Dashboard dùng chung query key cho danh sách không lọc, nên cả hai
+chỉ tốn một request. Khi rail đứng một mình, các thao tác New note, New
+folder, chọn scope… mở dashboard (`openNotesDashboard`), vì dialog nằm ở đó.
+Notes cũng có `opensHome`: đến module mà không có gì mở thì mở dashboard, thay
+vì hiện "Notes has nothing open".
+
+Header dashboard: search và "New note" chung một hàng, tag filter chip ở hàng
+riêng bên dưới (có nút Clear khi đang lọc). Preview trên card là text, không
+phải markdown: `previewFromBody` bỏ ký hiệu heading/quote/list/task, fence, rule,
+`**`/`~~`/backtick, và rút link/ảnh về phần chữ (dấu `*`/`_` đơn giữ nguyên vì
+thường là một phần của từ). Card hiện tối đa 4 tag, phần còn lại gom thành `+N`.
+
 Note card (`NoteCard`) là "mini-window": khung ngoài `bg-card`/`border-border`
 trung tính (giống window chrome của app), title 1 dòng
 (`truncate`, không bao giờ xuống dòng), bên trong là panel inset tỉ lệ 3:2

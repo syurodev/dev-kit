@@ -252,6 +252,21 @@ func TestListPreview(t *testing.T) {
 	}
 }
 
+func TestPreviewIsTextNotMarkdown(t *testing.T) {
+	cases := map[string]string{
+		"# Trang Confluence \"Request Integrity\"\nhttps://example.atlassian.net/wiki": `Trang Confluence "Request Integrity" https://example.atlassian.net/wiki`,
+		"## Steps\n- **one**\n- [ ] two\n1. three\n> - quoted item":                    "Steps one two three quoted item",
+		"See [the docs](https://x.dev/a) and ![diagram](d.png)":                        "See the docs and diagram",
+		"```go\nfmt.Println(1)\n```\n---\nafter `code` and ~~old~~":                    "fmt.Println(1) after code and old",
+		"keep snake_case and 2*3 as written":                                           "keep snake_case and 2*3 as written",
+	}
+	for body, want := range cases {
+		if got := previewFromBody(body); got != want {
+			t.Errorf("previewFromBody(%q)\n got  %q\n want %q", body, got, want)
+		}
+	}
+}
+
 func TestSearchByTagAndFolderName(t *testing.T) {
 	s := newService(t)
 	folder, _ := s.CreateFolder("Engineering", "blue", []string{"platform"})

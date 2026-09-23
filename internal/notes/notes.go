@@ -3,6 +3,7 @@ package notes
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -367,8 +368,11 @@ func decodeMetadata(record vaultitem.Record) (metadata, error) {
 	return meta, nil
 }
 
+// previewFromBody is the card's two-line summary of a note: its text, not
+// its markdown. The raw body put "# Heading", "**", "[label](https://…)" and
+// code fences on every card and spent the 120-rune budget on syntax.
 func previewFromBody(body string) string {
-	collapsed := strings.Join(strings.Fields(body), " ")
+	collapsed := strings.Join(strings.Fields(markdownToPlain(body)), " ")
 	runes := []rune(collapsed)
 	if len(runes) > 120 {
 		return string(runes[:120])
@@ -424,4 +428,41 @@ func (s *Service) toSummary(record vaultitem.Record, folderMap map[string]Folder
 		return Summary{}, err
 	}
 	return s.summaryFrom(record, meta, folderMap), nil
+}
+
+var (
+	mdImage      = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	mdLink       = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
+	mdEmphasis   = regexp.MustCompile(`(\*\*|__|~~|` + "`" + `)`)
+	mdBlockStart = regexp.MustCompile(`^(#{1,6}\s+|>\s?|[-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+(\[[ xX]\]\s+)?)`)
+	mdRule       = regexp.MustCompile(`^([-*_]\s*){3,}$`)
+)
+
+// markdownToPlain drops the markdown a reader does not see: heading, quote,
+// list and task markers at the start of a line, fences and rules as whole
+// lines, bold/strike/code markers, and links and images down to their text.
+// Single * and _ are left alone — they are as often part of a word
+// (snake_case, 2*3) as emphasis, and a preview that mangles the text is
+// worse than one showing a stray asterisk.
+func markdownToPlain(body string) string {
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") || mdRule.MatchString(t) {
+			continue
+		}
+		for {
+			stripped := mdBlockStart.ReplaceAllString(t, "")
+			if stripped == t {
+				break
+			}
+			t = stripped // "> - item" is two markers deep
+		}
+		t = mdImage.ReplaceAllString(t, "$1")
+		t = mdLink.ReplaceAllString(t, "$1")
+		t = mdEmphasis.ReplaceAllString(t, "")
+		out = append(out, t)
+	}
+	return strings.Join(out, "\n")
 }
