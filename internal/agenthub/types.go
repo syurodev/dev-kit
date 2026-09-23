@@ -34,8 +34,15 @@ type AgentSession struct {
 	Depth           int
 	Title           *string
 	ACPSessionID    string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// ExtraReadWritePaths is the jail widening CreateSession was given (a
+	// workspace's other services — see CreateInput). Stored with the session
+	// because the jail is rebuilt from scratch on every resume and rewind,
+	// and a grant that lived only in the first OpenSpec would silently narrow
+	// back to Cwd the first time the process was respawned. Not sent to the
+	// UI or to agents: nothing there reads it, and it is a list of paths.
+	ExtraReadWritePaths []string `json:"-"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // TurnRecord is one completed (or failed) prompt turn on a session.

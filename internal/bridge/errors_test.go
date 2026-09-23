@@ -11,6 +11,7 @@ import (
 
 	"devkit/internal/app"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/notes"
 	"devkit/internal/syncclient"
 )
 
@@ -87,5 +88,18 @@ func TestPublicErrorNamesTheMissingCodeGraphPath(t *testing.T) {
 	bare := publicError("builtin.codegraph", fmt.Errorf("read: %w", os.ErrNotExist))
 	if bare.Error() != "validation_failed: CodeGraph file or directory not found." {
 		t.Fatalf("error without a path = %q", bare.Error())
+	}
+}
+
+// An invalid folder color used to fall through to internal_error, which
+// told an MCP agent DevKit had broken rather than that its input was wrong.
+func TestPublicErrorMapsNotesColorToValidation(t *testing.T) {
+	cause := fmt.Errorf("%w %q: use one of red, blue", notes.ErrInvalidColor, "#fff")
+	err := publicError("builtin.notes", cause)
+	if err == nil || err.Code != codeValidationFailed || !strings.Contains(err.Message, "#fff") {
+		t.Fatalf("public error = %v, want validation_failed carrying the message", err)
+	}
+	if err := publicError("builtin.notes", notes.ErrTooManyTags); err == nil || err.Code != codeValidationFailed {
+		t.Fatalf("too many tags = %v, want validation_failed", err)
 	}
 }

@@ -101,6 +101,22 @@ public class EndpointExtractor {
         if (isDeclarativeClient(classDecl, annotations)) {
             return List.of();
         }
+        return mappings(classDecl, classAncestors, methodChain, annotations, constants);
+    }
+
+    /**
+     * The route a declarative client method CALLS — the same mapping
+     * annotations read the same way, for the class extract() skips. See
+     * OutboundCallExtractor.
+     */
+    public static List<HttpMapping> clientMappings(TypeDeclaration<?> classDecl, MethodDeclaration methodDecl,
+                                                   Annotations annotations, ConstantResolver constants) {
+        return mappings(classDecl, List.of(), List.of(methodDecl), annotations, constants);
+    }
+
+    private static List<HttpMapping> mappings(TypeDeclaration<?> classDecl, List<TypeDeclaration<?>> classAncestors,
+                                              List<MethodDeclaration> methodChain, Annotations annotations,
+                                              ConstantResolver constants) {
         Optional<Annotations.Match> methodMapping = Optional.empty();
         for (MethodDeclaration m : methodChain) {
             methodMapping = annotations.findAny(m, METHOD_ANNOTATIONS);
@@ -222,7 +238,7 @@ public class EndpointExtractor {
         return List.of(expr);
     }
 
-    private static String joinPath(String classPath, String methodPath) {
+    static String joinPath(String classPath, String methodPath) {
         // Collapse doubled slashes from concatenation (classPath or
         // methodPath may be "") down to one, then drop a trailing slash
         // unless the whole path collapsed to just "/".

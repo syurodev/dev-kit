@@ -192,7 +192,7 @@ type notesSetOrganizationInput struct {
 	ID       string   `json:"id"`
 	FolderID string   `json:"folder_id,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
-	Color    string   `json:"color,omitempty"`
+	Color    string   `json:"color,omitempty" jsonschema:"optional; a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray; empty inherits the folder color"`
 }
 
 func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRequest, in notesSetOrganizationInput) (*sdk.CallToolResult, any, error) {
@@ -220,7 +220,7 @@ func (s *Server) toolNotesFolderList(ctx context.Context, _ *sdk.CallToolRequest
 
 type notesFolderCreateInput struct {
 	Name  string   `json:"name"`
-	Color string   `json:"color"`
+	Color string   `json:"color" jsonschema:"a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray"`
 	Tags  []string `json:"tags"`
 }
 
@@ -237,7 +237,7 @@ func (s *Server) toolNotesFolderCreate(ctx context.Context, _ *sdk.CallToolReque
 type notesFolderUpdateInput struct {
 	ID    string   `json:"id"`
 	Name  string   `json:"name"`
-	Color string   `json:"color"`
+	Color string   `json:"color" jsonschema:"a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray"`
 	Tags  []string `json:"tags"`
 }
 

@@ -212,6 +212,7 @@ public class ProjectAnalyzer {
             addCallEdges(scope, index, dispatch, nodeIds, methodsByTypeAndName, result);
             addFieldAccesses(scope, index, result);
         }
+        extractOutboundCalls(index, scopes, annotations, constants, result);
 
         for (ParsedFile file : files) {
             addTypeDependencies(file, index, result);
@@ -670,6 +671,37 @@ public class ProjectAnalyzer {
         endpoint.path = mapping.path();
         endpoint.entryNode = entryNode;
         result.endpoints.add(endpoint);
+    }
+
+    /**
+     * Outbound HTTP calls to other services (OutboundCallExtractor), each
+     * recorded against the method it is made from — the same scopes the call
+     * edges use, so a call inside an initializer lands on the constructor
+     * that runs it. AST-only: nothing here asks the solver.
+     */
+    private void extractOutboundCalls(Index index, List<CallScope> scopes, Annotations annotations,
+                                      ConstantResolver constants, AnalysisResult result) {
+        for (TypeInfo type : index.all) {
+            for (OutboundCallExtractor.Found found : OutboundCallExtractor.feign(type.decl, annotations, constants)) {
+                OutboundCall call = found.call();
+                call.from = type.methods.stream().filter(m -> m.decl() == found.in())
+                        .map(MethodInfo::id).findFirst().orElse(type.id);
+                call.file = type.file.relativePath();
+                result.outboundCalls.add(call);
+            }
+        }
+        for (CallScope scope : scopes) {
+            for (MethodCallExpr expr : scope.node().findAll(MethodCallExpr.class)) {
+                if (!belongsTo(expr, scope.node())) {
+                    continue;
+                }
+                OutboundCallExtractor.call(expr, constants).ifPresent(call -> {
+                    call.from = scope.ownerIds().get(0);
+                    call.file = scope.owner().file.relativePath();
+                    result.outboundCalls.add(call);
+                });
+            }
+        }
     }
 
     // --- Pass 2: calls and field accesses -------------------------------------------

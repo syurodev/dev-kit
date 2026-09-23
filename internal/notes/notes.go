@@ -212,8 +212,9 @@ func (s *Service) SetOrganization(id, folderID string, tags []string, color stri
 	if err != nil {
 		return Summary{}, err
 	}
-	if color != "" && !vaultitem.ValidNoteFolderColor(color) {
-		return Summary{}, errors.New("invalid note color")
+	color, err = normalizeColor(color, true)
+	if err != nil {
+		return Summary{}, err
 	}
 	if folderID != "" {
 		record, err := s.store.Get(folderID)

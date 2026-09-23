@@ -65,6 +65,18 @@ func cleanExtraReadWritePaths(paths []string) []string {
 	return out
 }
 
+// sessionOpenSpec is the starting OpenSpec for respawning an existing
+// session's process (resume, rewind): its Cwd plus the jail widening it was
+// created with. Cleaned again on the way out — the stored list went through
+// cleanExtraReadWritePaths once already, but $HOME can differ from the one
+// it was checked against, and re-checking costs nothing.
+func sessionOpenSpec(sess AgentSession) OpenSpec {
+	return OpenSpec{
+		Cwd:                 sess.ProjectPath,
+		ExtraReadWritePaths: cleanExtraReadWritePaths(sess.ExtraReadWritePaths),
+	}
+}
+
 // applySandboxExtras widens spec with the user's opt-in jail grants, if any
 // are configured. Called at every place an OpenSpec is built — CreateSession,
 // the two resume paths, and rewind — so a resumed or forked session runs
@@ -404,6 +416,9 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		ACPSessionID: rt.ACPSessionID(),
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		// What the jail was actually built with, after cleaning — resume and
+		// rewind rebuild it from this (sessionOpenSpec).
+		ExtraReadWritePaths: spec.ExtraReadWritePaths,
 	}
 	if parentID != "" {
 		pid := parentID
@@ -1532,7 +1547,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		close(call.done)
 	}()
 
-	spec := OpenSpec{Cwd: sess.ProjectPath}
+	spec := sessionOpenSpec(sess)
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(sess.ID)

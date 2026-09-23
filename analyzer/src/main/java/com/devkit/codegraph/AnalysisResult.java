@@ -10,4 +10,5 @@ public class AnalysisResult {
     public List<FileDependency> fileDependencies = new ArrayList<>();
     public List<FieldAccess> fieldAccesses = new ArrayList<>();
     public List<CallSite> callSites = new ArrayList<>();
+    public List<OutboundCall> outboundCalls = new ArrayList<>();
 }

@@ -177,8 +177,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 28 {
-		t.Fatalf("migration version = %d, want 28", version)
+	if version != 30 {
+		t.Fatalf("migration version = %d, want 30", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -479,5 +479,68 @@ func TestMigration22KeepsTurnsWrittenBeforeIt(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `SELECT id FROM agent_checkpoints LIMIT 1`); err != nil {
 		t.Fatalf("checkpoints table after replay: %v", err)
+	}
+}
+
+// m30 rebuilds workspace_services from m28's shape: a duplicate path keeps
+// its first row, an orphan is dropped, and afterwards the table refuses a
+// second copy of a path and follows its workspace on delete.
+func TestMigrationRebuildsWorkspaceServicesWithKeys(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		// Back to m28's table, holding what m28 let through.
+		`DROP TABLE workspace_services`,
+		`CREATE TABLE workspace_services (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL, name_source TEXT NOT NULL)`,
+		`INSERT INTO workspaces (id, name, root) VALUES ('w1', 'acme', '/acme')`,
+		`INSERT INTO workspace_services VALUES ('s1', 'w1', 'billing', '/acme/billing', 'folder')`,
+		`INSERT INTO workspace_services VALUES ('s2', 'w1', 'billing-dup', '/acme/billing', 'folder')`,
+		`INSERT INTO workspace_services VALUES ('s3', 'gone', 'orphan', '/elsewhere', 'folder')`,
+		`DELETE FROM schema_migrations WHERE version >= 30`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("replaying m30: %v", err)
+	}
+
+	var ids []string
+	rows, err := db.QueryContext(ctx, `SELECT id FROM workspace_services ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) != 1 || ids[0] != "s1" {
+		t.Fatalf("services after rebuild = %v, want [s1]", ids)
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO workspace_services VALUES ('s4', 'w1', 'again', '/acme/billing', 'folder')`); err == nil {
+		t.Fatal("a second row for the same (workspace, path) was accepted")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workspace_services VALUES ('s5', 'nope', 'x', '/x', 'folder')`); err == nil {
+		t.Fatal("a service for a workspace that does not exist was accepted")
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = 'w1'`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_services`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("services after deleting their workspace = %d, %v; want 0 (cascade)", n, err)
 	}
 }

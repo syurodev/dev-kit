@@ -20,15 +20,23 @@ như một registry riêng thay vì nhét vào Agent Hub hay CodeGraph.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Design — chưa implement">
-Toàn bộ trang này là thiết kế. Runtime hiện tại: `internal/codegraph/service.go`
-chỉ giữ **một** project active (`activeProject`, `SetProjectPath`), đúng FR-1 gốc
-của [CodeGraph](/dev-kit/codegraph). `internal/agenthub/adapter_claude.go` set
-`WorkDir` = project path cho mọi agent, nên nhiều agent trên cùng project dùng
-chung một thư mục ghi — điều đó Workspace không đụng tới. FR-1 chính nó thì có:
-§ [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn) dưới đây thay nó
-bằng N project active có giới hạn, xây trên đúng `workspace_services.path` của
-trang này thay vì một khái niệm id mới.
+<Callout type="warn" title="Implement một phần">
+**Đã có:** registry (`internal/workspace`, bảng `workspaces` /
+`workspace_services`, migration 28 + 30), bước 1–2 của auto-discovery
+(quét tới độ sâu 2, tên từ `spring.application.name`), trích outbound call
+trong analyzer Java và resolve target về service
+(§ [Outbound edge](#outbound-edge)), title bar switcher, project picker của Code Graph / Git trỏ vào workspace, và grant cả
+workspace cho một session Agent Hub (§ [Agent liên service](#agent-liên-service-grant-cả-workspace)).
+Bind lồng RO/RW trên Linux đã đúng thứ tự (§ [Worktree](#worktree-dùng-chung-registry)).
+
+**Chưa có:** bước 3 của auto-discovery (sửa tay), Rescan, trạng thái index
+(§ [Trạng thái index](#trạng-thái-index-của-một-service)), manifest tier
+(mode chạy riêng của analyzer), lưu outbound call vào index phía Go, join,
+Registry N slot, và tier worktree.
+`internal/codegraph/service.go` vẫn giữ **một** project active
+(`activeProject`, `SetProjectPath`), đúng FR-1 gốc của
+[CodeGraph](/dev-kit/codegraph) — § [Registry](#registry-từ-1-project-active-sang-n-có-giới-hạn)
+là phần thay nó.
 </Callout>
 
 ```mermaid
@@ -70,29 +78,103 @@ máy. Sync một danh sách path sang máy khác thì mọi entry đều sai.
 Một service **không** cần nằm dưới `root`. `root` chỉ là gợi ý cho lần quét
 đầu; thêm tay một repo ở chỗ khác vẫn hợp lệ.
 
+Ràng buộc (migration 30 — m28 ban đầu không có cái nào):
+
+- `workspace_services.workspace_id` là foreign key tới `workspaces(id)` với
+  `ON DELETE CASCADE`. Xoá workspace thì service đi theo, không để lại orphan.
+- `UNIQUE (workspace_id, path)`. **`path` là khoá định danh của một service
+  trong workspace.** Rescan khớp service vừa quét được với dòng đã lưu theo
+  `path`, nhờ vậy tên `manual` sống qua rescan. Tên thì có thể đổi, nhưng path
+  thì không: đổi path tức là một service khác.
+- `name` **không** unique, có chủ ý. Hai repo cùng khai
+  `spring.application.name` là chuyện có thật (bản fork, bản v1/v2 chạy song
+  song). Chặn ở DB thì auto-discovery fail cả lần thêm workspace chỉ vì một
+  cặp trùng. Chỗ đúng để xử lý là join: tên trỏ tới hơn một service thì cạnh
+  mang trạng thái `ambiguous-service` (§ [Join](#join-tính-khi-hỏi)), UI chỉ
+  ra cặp trùng để người sửa tay.
+
 ## Auto-discovery
 
 Yêu cầu: tự động hết mức có thể, và **không được lag khi mở nhiều project**.
 Ba bước, xếp theo giá tăng dần, dừng ở bước rẻ nhất còn đúng.
 
-**Bước 1 — tìm service.** Đọc thư mục `root` ở **độ sâu 1**, giữ mục nào có
-`.git`. Không đệ quy. Một `readdir` cộng một `stat` mỗi mục con — vài
-mili-giây kể cả với vài chục repo. Đệ quy toàn cây là thứ duy nhất ở bước này
-có thể gây lag, nên nó bị loại.
+**Bước 1 — tìm service** (`discover.go`). Quét `root` **đi xuống cho tới khi
+gặp repo, tối đa 2 tầng**. Một thư mục có `.git` (thư mục, hoặc file của
+linked worktree) là service, và việc tìm dừng ở đó: không bao giờ đi vào bên
+trong một repo, nên submodule hay checkout vendored không thành service thứ
+hai. Thư mục không phải repo ở tầng 1 thì được mở thêm một tầng, nhờ vậy
+layout nhóm `root/backend/billing`, `root/frontend/web` ra đúng. Thư mục ẩn và
+`node_modules` / `target` / `build` / `dist` / `out` / `vendor` không được
+tìm vào (một repo tên `build` vẫn được nhận, vì nó được nhận ra trước khi
+danh sách này áp dụng). Chi phí vẫn là một `readdir` cho mỗi thư mục thường ở
+tầng 1, không phải một lượt walk cây.
 
-**Bước 2 — đặt tên service.** Tên trong URL (`http://billing-service/refunds`)
-**không** suy được chắc chắn từ tên thư mục. Nguồn đúng là
-`spring.application.name` trong `application.yml` / `application.properties`.
-Đọc đúng một file nhỏ ở đường dẫn cố định (`src/main/resources`) cho mỗi
-service; miss thì fallback tên thư mục. Ghi lại nguồn vào `name_source` để UI
-nói được tên này chắc hay đoán.
+Khi chính `root` là repo thì chỉ xét tầng 1, như trước. Một repo đơn là
+trường hợp phổ biến, và tìm sâu 2 tầng vào nó thì biến `third_party/lib` thành
+service và làm mất chính repo người dùng đã chọn.
+
+**Bước 2 — đặt tên service** (`springconfig.go`). Tên trong URL
+(`http://billing-service/refunds`) **không** suy được chắc chắn từ tên thư
+mục. Nguồn đúng là `spring.application.name`. Đọc vài file nhỏ ở đường dẫn cố
+định `src/main/resources`, theo đúng thứ tự Spring áp dụng (file sau đè file
+trước): `bootstrap.{yml,yaml,properties}` (Spring Cloud hay đặt tên ở đây),
+rồi `application.{yml,yaml,properties}`. Chỉ đọc **default profile**: document
+YAML có `spring.config.activate.on-profile` (hoặc `spring.profiles` kiểu cũ)
+bị bỏ qua, vì profile nào chạy ở đâu là chuyện của deployment mà máy này
+không biết. Placeholder trong tên (`${APP_NAME:billing}`) được fold. Miss,
+không fold được, hoặc file hỏng thì fallback tên thư mục, không fail cả
+workspace. Nguồn được ghi vào `name_source` (`config` / `folder`) để UI nói
+được tên này chắc hay đoán.
+
+Cùng bộ config đó là nguồn property để fold URL của outbound call
+(§ [Outbound edge](#outbound-edge)), và `server.port` (mặc định 8080) để khớp
+URL `localhost` theo port.
 
 **Bước 3 — người sửa.** Sửa tay luôn thắng và `name_source` thành `manual`;
 lần rescan sau không ghi đè lên nó.
 
+Một `root` không có repo con nào **không** phải lỗi. Nó là
+workspace một service, và service đó chính là `root`. Nhờ vậy "thêm
+workspace" luôn là một thao tác, dù thư mục chứa một project hay mười.
+
 Rescan chạy khi mở workspace và khi người bấm **Rescan** — không có watcher
 trên `root`. Watcher ở đây sẽ nổ mỗi lần một agent đụng file trong bất kỳ
 service nào, đổi lấy thông tin gần như không bao giờ đổi (danh sách repo).
+
+## Agent liên service: grant cả workspace
+
+Project picker của Agent Hub có một mục riêng cho cả workspace ("acme — tất
+cả N thư mục"), đặt trên các service lẻ. Chọn nó thì session có
+`Cwd` = service đầu tiên (một `WorkDir` cụ thể để sandbox bind), còn mọi
+service khác đi vào `ExtraReadWritePaths`. Tất cả đều **RW**.
+
+**Đây là chủ ý, không phải lỗ hổng.** Nó ngược với đường mặc định ở
+§ [Worktree](#worktree-dùng-chung-registry) ("RW đúng service của mình, phần
+còn lại RO"), và ngược một cách có lý do: có những việc về bản chất là liên
+project. Đổi một contract giữa hai service, đổi tên một field chạy qua
+producer lẫn consumer, sửa một lib chung rồi cập nhật chỗ gọi. Ép những việc
+đó qua mô hình "một service RW" thì hoặc phải mở N session rồi tự điều phối,
+hoặc agent đọc được B mà không sửa được B, đúng lúc việc cần làm là sửa B.
+
+Đánh đổi, và cách nó bị chặn:
+
+- **Chỉ người mới cấp được.** `ExtraReadWritePaths` chỉ đi qua bridge (UI).
+  Input struct của MCP tool không có field này, và `CreateSession` còn loại bỏ
+  nó tường minh khi caller là agent. Vì vậy một agent không thể tự mở rộng
+  jail cho chính nó hay cho sub-agent nó spawn.
+- **Vẫn là jail.** Mỗi path được làm sạch như `Cwd` (tuyệt đối, không `/`,
+  không `$HOME` trần). Ngoài danh sách service thì sandbox vẫn đóng như cũ.
+- **Grant sống theo session, không theo process.** Nó được lưu ở
+  `agent_sessions.extra_rw_paths` (migration 29) và dựng lại mỗi lần resume
+  hoặc rewind (`sessionOpenSpec`). Trước đó grant chỉ nằm trong `OpenSpec` đầu
+  tiên, nên session resume sau khi restart chỉ còn RW trên service đầu tiên.
+- **Snapshot lúc tạo.** Service thêm vào workspace sau khi session đã tạo thì
+  không tự vào jail của session đó. Muốn có thì tạo session mới. Session không
+  âm thầm rộng ra theo registry.
+- Chọn một service lẻ (hoặc "New project…") thì thu về đúng mô hình mặc định.
+  Trigger của picker ghi tên workspace chứ không ghi tên một thư mục trong lúc
+  đang giữ grant cả workspace, vì "billing-service" không nói hết được session
+  chạm tới đâu.
 
 ## Hai tầng index — chỗ quyết định chuyện lag
 
@@ -198,39 +280,125 @@ của nó không rẻ được (đo trên dự án thật ngoài repo — xem §
 nên không thể chạy lại mỗi lần mở workspace như manifest của Java.
 
 Giải: khi một service được thêm vào workspace (auto-discovery ở lần rescan
-kế tiếp, hoặc thêm tay), `Registry.Open` chạy **ngay tại đó, một lần** —
-không đợi người dùng bấm vào service trong panel. Đây là chi phí một lần
-(người thêm service chờ, có loading), không phải chi phí lặp lại mỗi lần mở
-workspace. Sau đó service có `ProjectDBPath` như thể đã từng được mở — join
-dùng ngay dữ liệu đó qua flow reuse đã có (`OpenProjectAt`, § Registry): mở
-lại chỉ đọc dữ liệu cũ, re-index nền phần đổi.
+kế tiếp, hoặc thêm tay), nó được **xếp hàng index một lần ngay tại đó**,
+không đợi người dùng bấm vào service trong panel. Đây là chi phí một lần,
+không phải chi phí lặp lại mỗi lần mở workspace. Sau đó service có
+`ProjectDBPath` như thể đã từng được mở, và join dùng ngay dữ liệu đó qua flow
+reuse đã có (`OpenProjectAt`, § Registry): mở lại chỉ đọc dữ liệu cũ, rồi
+re-index nền phần đã đổi.
 
-Việc này đóng đúng khoảng hở mà bảng trạng thái join (§
-[Join](#join-tính-khi-hỏi)) sẽ có nếu không làm: không còn ca "service đã có
-tên trong registry nhưng chưa từng có dữ liệu gì" — registry có nghĩa là đã
-index, luôn luôn, không có trạng thái lấp lửng ở giữa.
+**Hàng đợi, không phải chờ.** Thêm một workspace 89 thư mục không được biến
+thành 89 lần index nối nhau trong khi người dùng nhìn loading. Việc thêm trả
+về ngay, và index chạy nền, dùng chung trần `limit` với Registry (mỗi job là
+một JVM/`tsgo` như full index). Nhờ vậy thêm workspace lớn không vượt trần
+tiến trình mà § Registry đã đặt ra.
 
-## Outbound edge — phần analyzer còn thiếu
+Vì vậy registry **không** hứa "có tên là đã có index". Giữa hai điểm đó có
+những trạng thái thật (đang chờ, đang chạy, fail, không có analyzer), và
+chúng được đặt tên thay vì bị giấu — xem § dưới.
 
-Đo được: analyzer hiện **không** nhận diện `RestTemplate`, `WebClient`, hay
-`@FeignClient`. Annotation duy nhất nó biết là `RestController`,
-`RequestMapping`, `Get/Post/Put/Delete/PatchMapping`, `Service`, `Repository`,
-`Autowired` (`LayerClassifier.java`, `EndpointExtractor.java`).
+## Trạng thái index của một service
 
-Nhưng lời gọi xuyên service **đã** để lại dấu vết trong index, vì
-`ProjectAnalyzer.addCallEdges` không còn `continue` khi resolve thất bại — nó
-ghi vào `call_sites` kèm lý do (`CallSite.java`: `"" | "library" | "interface"
-| "unresolved"`):
+Mỗi `workspace_services` mang một trạng thái index, machine-local như chính
+bảng đó:
 
-| Cách gọi | Lý do được ghi | Vì sao |
+| Trạng thái | Nghĩa | Chuyển tiếp |
 |---|---|---|
-| `restTemplate.postForObject(...)` | `library` | Callee nằm trong jar Spring, `JavassistMethodDeclaration` không bao giờ có AST |
-| `@FeignClient` interface | `interface` | Implementation sinh lúc runtime, không có API tìm subclass |
+| `pending` | Đã vào registry, đang trong hàng đợi, chưa có dữ liệu | → `indexing` khi có slot |
+| `indexing` | Job đang chạy (một slot trong `limit`) | → `indexed` / `failed` |
+| `indexed` | Có dữ liệu, kèm `indexed_at` | → `indexing` khi re-index (vẫn phục vụ dữ liệu cũ trong lúc chạy) |
+| `failed` | Job fail, kèm lý do (toolchain thiếu, parse fail, bị huỷ) | → `pending` khi bấm Retry hoặc khi Rescan |
+| `unsupported` | Không analyzer nào nhận thư mục (`ErrUnsupportedProject`) | → `pending` khi Rescan, nếu từ lần trước đã có analyzer mới |
 
-Cross-service **không phải bức tường thứ tư**. Nó là hai bức tường đã có tên,
-nhưng đầu bên kia nằm trong workspace của bạn — nên vượt được, trong khi
-`library` thật (JDK, `PreparedStatement`) thì không. Việc còn thiếu chỉ là
-trích `(http method, path, target service)` từ đúng những call site đó.
+- `indexed` là trạng thái duy nhất có dữ liệu. Nhưng một service đang
+  `indexing` *sau* một lần `indexed` vẫn giữ `indexed_at` cũ và vẫn phục vụ
+  join. Re-index không làm dữ liệu biến mất trong lúc chạy.
+- `failed` do thiếu toolchain (JDK chưa có, `tsgo` chưa build) tách khỏi fail
+  thật, cùng cách phân biệt `HasArtifact` / `Ready` của setup panel. Hai lỗi
+  này chỉ ra hai hành động khác nhau cho người dùng.
+- App restart giữa chừng: `indexing` quay về `pending`, không bao giờ được
+  suy ra thành `indexed`. Cùng quy tắc `Recover` của `task_verify_runs`.
+- Service ngôn ngữ chưa có analyzer vẫn nằm trong registry (sandbox và
+  worktree vẫn dùng được), chỉ mang `unsupported`.
+
+Join đọc trạng thái này cho đầu B của mỗi cạnh (§ [Join](#join-tính-khi-hỏi)).
+Đó là lý do nó phải là cột, không phải suy ra từ việc "có file index hay
+không".
+
+## Outbound edge
+
+Trước đây analyzer **không** nhận diện `RestTemplate`, `WebClient` hay
+`@FeignClient`. Lời gọi xuyên service chỉ để lại dấu vết trong `call_sites`,
+dưới dạng hai bức tường đã có tên: `library` (callee nằm trong jar Spring)
+và `interface` (implementation của Feign sinh lúc runtime). Cross-service
+**không phải bức tường thứ tư**: đầu bên kia nằm trong workspace của bạn,
+nên vượt được. Việc cần làm là trích `(http method, path, target)` từ đúng
+những lời gọi đó, rồi resolve target về một service.
+
+Việc chia làm hai nửa, mỗi nửa ở đúng chỗ có dữ liệu nó cần.
+
+### Analyzer: trích, không resolve
+
+`OutboundCallExtractor.java` ghi `outboundCalls` vào kết quả analyze, mỗi
+call gắn với method gọi nó (`from`), file và dòng. Nó **thuần AST** như
+`EndpointExtractor`, nên manifest tier chạy được nó mà không cần solver.
+Receiver có phải `RestTemplate` hay không thì không hỏi type system: receiver
+là một cái tên, và khai báo của tên đó (field, parameter, local) ghi type
+ngay trong source.
+
+| Client | Đọc gì |
+|---|---|
+| `@FeignClient` | `name` / `value` / `serviceId` là tên service, `url` và `path` là prefix. Mỗi method có mapping annotation là một call, đọc bằng chính logic của `EndpointExtractor` nhưng theo nghĩa route được **gọi** |
+| `RestTemplate` / `RestOperations` | Tham số đầu của `getForObject` / `postForEntity` / `exchange` / … là URL. `exchange` / `execute` lấy HTTP method từ tham số thứ hai |
+| `WebClient` / `RestClient` | `client.get().uri(x)`, hoặc `.method(HttpMethod.X).uri(x)` |
+
+URL được fold bằng `ConstantResolver`, giờ đã đi theo được những thứ một
+method body chứa:
+
+- Literal và hằng của project (như trước).
+- Local được gán **đúng một lần**. Local bị gán lại thì thành lỗ `{url}`.
+- Parameter thành lỗ mang tên nó (`{id}`), đúng hình dạng của route variable.
+- Field Spring inject bằng `@Value("${key}")`, trên field hoặc trên parameter
+  của constructor gán vào field đó, trả về **nguyên placeholder**
+  (`${billing.url}`). Analyzer không đọc config.
+- Base URL của client được lấy từ chuỗi builder nơi client được tạo:
+  `builder.baseUrl(x).build()`, `WebClient.create(x)`, `rootUri(x)` của
+  `RestTemplateBuilder`. `URI.create(x)` được nhìn xuyên qua.
+
+Kết quả là `billingUrl + "/invoices/" + id` ra
+`${clients.billing.url}/invoices/{id}`, một chuỗi mà phía có config fold tiếp
+được.
+
+### Go: resolve theo config của caller
+
+`workspace.ResolveTarget` nhận target thô, config của **service gọi**
+(placeholder là của caller, không phải của callee) và danh sách service. Thứ
+tự bằng chứng, mạnh trước:
+
+1. **URL fold ra host** thắng tên Feign, vì chính Feign cho `url` đè `name`.
+   `${KEY:default}` dùng default khi config không có key. Cả hai dạng property
+   đều được fold.
+2. **Tên Feign** khớp thẳng tên service. Đây là trường hợp rẻ nhất và phổ biến
+   nhất trong code Spring Cloud, không cần URL.
+3. **Host khớp tên service**: khớp chính xác, hoặc khớp nhãn DNS đầu tiên, nên
+   `billing-service.payments.svc.cluster.local` và `billing-service:8080` đều
+   về `billing-service`.
+4. **Host loopback khớp theo port** (`localhost:8081` → service có
+   `server.port` = 8081), để bắt cấu hình dev.
+
+Mỗi kết quả `resolved` mang `provenance`: `feign-name` / `literal` /
+`property` / `port`. Người đọc nhờ đó cân được độ chắc: code nói, config trên
+máy này nói, hay đoán từ setup dev. Không `resolved` thì mang một trạng thái:
+
+| Trạng thái | Khi nào |
+|---|---|
+| `dynamic-url` | Phần host không fold được: lỗ `{…}`, placeholder không có trong config và không có default, hoặc URL tương đối vì client được inject sẵn từ một `@Bean` ở chỗ khác |
+| `unknown-service` | Host trông như tên nội bộ (không có dấu chấm, `.svc`, `.cluster.local`, `.internal`, `.local`, `.consul`, loopback) nhưng không có trong registry. Tên Feign không khớp service nào cũng rơi vào đây, vì nó luôn là tên service-discovery |
+| `ambiguous-service` | Hơn một service mang tên đó (§ [Data model](#data-model)) |
+| `external` | Host công khai (`api.stripe.com`) |
+
+Resolve chỉ dừng ở mức **service**. Ghép `path` với endpoint của service đó
+(`linked` / `endpoint-gone`) là phần của join.
 
 ## Join — tính khi hỏi
 
@@ -248,6 +416,8 @@ cái không nối được **không bị nuốt** — nó mang trạng thái:
 | `dynamic-url` | URL ghép từ biến, không fold được thành literal |
 | `unknown-service` | Tên host không có trong registry |
 | `endpoint-gone` | Tên service khớp, route thì không |
+| `ambiguous-service` | Tên host khớp hơn một service trong registry (§ [Data model](#data-model)) |
+| `not-indexed` | Service B có trong registry nhưng chưa có dữ liệu: `pending` / `indexing` lần đầu / `failed` / `unsupported`. Cạnh kèm trạng thái đó của B |
 | `external` | Host ngoài, không thuộc workspace |
 
 `dynamic-url` là giới hạn thật, không phải bug. Đoán bừa một endpoint còn tệ
@@ -281,11 +451,15 @@ còn lại giữ nguyên repo chính. Sandbox đọc đúng bảng đó ra polic
 
 Lồng "thư mục cha read-only, một service bên trong read-write" **chạy được trên
 macOS** vì rule `allow` của Seatbelt cộng dồn theo từng operation (đo live).
-**Trên Linux thì chưa**: bubblewrap mount theo thứ tự argv, và
-`internal/sandbox/bwrap_args.go` phát RW bind *trước* RO bind, nên `--ro-bind`
-cha phát sau **đè lên** bind RW của con — con thành read-only. Cần đổi thứ tự
-(RO cha trước, RW con sau) trong bwrap; chưa có test cho case này và chưa đo
-trên máy Linux.
+**Trên Linux thì cần đúng thứ tự**: bubblewrap mount theo thứ tự argv, mount
+sau đè mount trước. `internal/sandbox/bwrap_args.go` từng phát mọi RW bind
+trước mọi RO bind, nên `--ro-bind` của cha phát sau **đè lên** bind RW của con,
+và con thành read-only. Giờ bind được phát theo độ sâu path, nông trước
+(`appendNestedBinds`), nên bind lồng bên trong luôn nằm trên bind chứa nó, bất
+kể mode. Cùng một path được khai cả RW lẫn RO thì vẫn thành RO như trước.
+Đo trên Linux bằng bwrap thật: `TestBwrapNestedBindsKeepEachModeAtRuntime`
+(service ghi được, sibling dưới cha RO thì không) fail với thứ tự cũ và pass
+với thứ tự mới.
 
 Một ràng buộc git làm tier worktree phức tạp hơn dự tính: worktree liên kết có
 `.git` là *file* trỏ vào `<primary>/.git/worktrees/<name>/`, nơi chứa index và
@@ -298,7 +472,9 @@ nhưng không phải luôn):
 
 **Khác service — không cần worktree.** Mỗi agent RW đúng service của mình, cả
 thư mục cha RO. Không tạo worktree nào, không tốn đĩa, không có bước dọn. Đây
-là đường mặc định vì nó phủ đa số.
+là đường mặc định vì nó phủ đa số. Khi việc cần sửa nhiều service cùng lúc thì
+dùng grant cả workspace (§ [Agent liên service](#agent-liên-service-grant-cả-workspace)),
+thay vì nới mô hình này.
 
 **Cùng service — mới bật worktree.** Chỉ service bị tranh chấp mới có worktree
 riêng cho từng agent; các service khác vẫn RO trỏ về repo chính.
@@ -352,6 +528,21 @@ trên tên service chứ không trên path.
   thực (timestamp) thay vì che giấu. Service ngôn ngữ khác (kể cả chưa có
   analyzer) vẫn vào registry được — sandbox và worktree dùng bình thường —
   chỉ là chưa join được, nên vẫn xuất hiện ở đầu `external` của một cạnh.
+- **Monorepo là một service.** Discovery dừng ở `.git`, nên một repo chứa
+  nhiều service ra đúng một service. Tách nó ra cần một bước khác (dựa trên
+  build marker: module của `pom.xml`, `settings.gradle`, `package.json`
+  workspaces). Nhưng các service đó dùng chung một `.git`, nên "RW một
+  service" vẫn phải cho RW cả `.git`, tức cô lập yếu hơn multi-repo. Thêm tay
+  từng thư mục vẫn đi được.
+- **Config chỉ ở `src/main/resources` của service, chỉ default profile.**
+  Maven multi-module có config ở module con thì không đọc được. Config
+  server, biến môi trường và profile đang chạy là chuyện của deployment:
+  placeholder chỉ trỏ vào những thứ đó thì ra `dynamic-url`, trừ khi có default.
+- **Client inject sẵn từ `@Bean`** (`@Qualifier("billing") WebClient`) giữ
+  URL tương đối, thành `dynamic-url`. Lần theo bean method trong
+  `@Configuration` là bước kế tiếp nếu tỉ lệ `dynamic-url` thực tế còn cao.
+  `@HttpExchange` client của Spring 6 và `String.format` / `UriComponentsBuilder`
+  cũng chưa được đọc.
 - **Solver setup vẫn walk toàn bộ `~/.m2` mỗi lần analyze.** Manifest tier né
   được nó, full index thì không — và worktree **nhân** nó lên theo số agent.
   `analyzer_subprocess.go` tự nó chưa giới hạn số JVM một service worktree có

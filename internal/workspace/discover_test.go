@@ -120,6 +120,77 @@ func TestDiscoverServices_IgnoresFilesAtRoot(t *testing.T) {
 	}
 }
 
+// The grouped layout: repositories one level further down, under folders
+// that only organise them.
+func TestDiscoverServices_GroupedLayoutAtDepthTwo(t *testing.T) {
+	root := t.TempDir()
+	mkGitDir(t, filepath.Join(root, "backend", "billing"))
+	mkGitDir(t, filepath.Join(root, "backend", "refund"))
+	mkGitDir(t, filepath.Join(root, "frontend", "web"))
+	mkGitDir(t, filepath.Join(root, "gateway"))  // depth 1 still works beside them
+	mkdir(t, filepath.Join(root, "docs", "adr")) // a plain folder, nothing to find
+
+	got, err := DiscoverServices(root)
+	if err != nil {
+		t.Fatalf("DiscoverServices: %v", err)
+	}
+	if want := []string{"billing", "gateway", "refund", "web"}; !equal(names(got), want) {
+		t.Fatalf("names = %v, want %v", names(got), want)
+	}
+	for _, s := range got {
+		if s.Name == "billing" && s.Path != filepath.Join(root, "backend", "billing") {
+			t.Errorf("billing path = %s", s.Path)
+		}
+	}
+}
+
+func TestDiscoverServices_StopsAtDepthTwoAndAtRepositories(t *testing.T) {
+	root := t.TempDir()
+	mkGitDir(t, filepath.Join(root, "a", "b", "too-deep"))
+	mkGitDir(t, filepath.Join(root, "billing"))
+	mkGitDir(t, filepath.Join(root, "billing", "libs", "vendored")) // inside a repo: not searched
+
+	got, err := DiscoverServices(root)
+	if err != nil {
+		t.Fatalf("DiscoverServices: %v", err)
+	}
+	if want := []string{"billing"}; !equal(names(got), want) {
+		t.Fatalf("names = %v, want %v", names(got), want)
+	}
+}
+
+func TestDiscoverServices_SkipsHiddenAndBuildDirectories(t *testing.T) {
+	root := t.TempDir()
+	mkGitDir(t, filepath.Join(root, ".cache", "somerepo"))
+	mkGitDir(t, filepath.Join(root, "node_modules", "pkg"))
+	mkGitDir(t, filepath.Join(root, "target", "checkout"))
+	mkGitDir(t, filepath.Join(root, "build")) // a repository called build is still one
+
+	got, err := DiscoverServices(root)
+	if err != nil {
+		t.Fatalf("DiscoverServices: %v", err)
+	}
+	if want := []string{"build"}; !equal(names(got), want) {
+		t.Fatalf("names = %v, want %v", names(got), want)
+	}
+}
+
+// A root that is itself a repository keeps the old depth-1 behaviour: two
+// levels into a single repo finds vendored checkouts, not services.
+func TestDiscoverServices_RepoRootOnlyLooksOneLevelDown(t *testing.T) {
+	root := t.TempDir()
+	mkGitDir(t, root)
+	mkGitDir(t, filepath.Join(root, "third_party", "lib"))
+
+	got, err := DiscoverServices(root)
+	if err != nil {
+		t.Fatalf("DiscoverServices: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != root {
+		t.Fatalf("got %v, want root itself as the single service", got)
+	}
+}
+
 func TestDiscoverServices_MissingRoot(t *testing.T) {
 	if _, err := DiscoverServices(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
 		t.Fatal("expected an error for a root that does not exist")

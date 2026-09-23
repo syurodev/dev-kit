@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -71,23 +72,27 @@ func stringPtr(ns sql.NullString) *string {
 	return &s
 }
 
-const sessionColumns = `id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, created_at, updated_at`
+const sessionColumns = `id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at`
 
 func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var s AgentSession
 	var parent, title sql.NullString
 	var createdAt, updatedAt string
-	var agentType, status string
+	var agentType, status, extraRW string
 	if err := scan(
-		&s.ID, &agentType, &s.ProjectPath, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &createdAt, &updatedAt,
+		&s.ID, &agentType, &s.ProjectPath, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &createdAt, &updatedAt,
 	); err != nil {
 		return AgentSession{}, err
 	}
+	paths, err := decodePathList(extraRW)
+	if err != nil {
+		return AgentSession{}, err
+	}
+	s.ExtraReadWritePaths = paths
 	s.AgentType = AgentType(agentType)
 	s.Status = SessionStatus(status)
 	s.ParentSessionID = stringPtr(parent)
 	s.Title = stringPtr(title)
-	var err error
 	if s.CreatedAt, err = parseStoreTime(createdAt); err != nil {
 		return AgentSession{}, err
 	}
@@ -100,13 +105,35 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 func (st *SQLStore) InsertSession(ctx context.Context, s AgentSession) error {
 	_, err := st.db.ExecContext(ctx, `
 		INSERT INTO `+tableAgentSessions+` (
-			id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, string(s.AgentType), s.ProjectPath, string(s.Status),
 		nullString(s.ParentSessionID), s.Depth, nullString(s.Title), s.ACPSessionID,
+		encodePathList(s.ExtraReadWritePaths),
 		formatStoreTime(s.CreatedAt), formatStoreTime(s.UpdatedAt),
 	)
 	return err
+}
+
+// encodePathList stores a path list as a JSON array, "" when empty so a row
+// without a grant reads the same as one written before the column existed.
+func encodePathList(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(paths) // []string cannot fail to marshal
+	return string(b)
+}
+
+func decodePathList(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(raw), &paths); err != nil {
+		return nil, fmt.Errorf("agenthub: decode extra_rw_paths: %w", err)
+	}
+	return paths, nil
 }
 
 func (st *SQLStore) UpdateSession(ctx context.Context, s AgentSession) error {

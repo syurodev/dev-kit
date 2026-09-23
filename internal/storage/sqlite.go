@@ -1003,7 +1003,64 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28})
+	m29 := Migration{
+		Version: 29,
+		Name:    "agent_sessions extra_rw_paths",
+		Up: func(ctx context.Context) error {
+			// The jail widening a session was created with (a workspace's
+			// other services), as a JSON array. Resume and rewind rebuild
+			// the jail from the row; without this they narrowed it back to
+			// project_path. "" = no grant, which is also what every row
+			// written before this column reads as.
+			return addColumnIfNotExists(ctx, db, TableAgentSessions, "extra_rw_paths", "TEXT NOT NULL DEFAULT ''")
+		},
+	}
+
+	m30 := Migration{
+		Version: 30,
+		Name:    "workspace_services foreign key and unique path",
+		Up: func(ctx context.Context) error {
+			// m28 created workspace_services with neither: nothing tied a
+			// service to its workspace, and nothing stopped one path being
+			// registered twice. Rescan needs the second — it matches a
+			// rediscovered service to the stored row by path, so a manual
+			// rename survives — and SQLite can only add either by rebuilding
+			// the table. Duplicate paths collapse to one row (the copy keeps
+			// the first by rowid); orphans whose workspace is gone are dropped.
+			// One transaction of its own (DDL included — SQLite allows it), so
+			// an interrupted run leaves the old table, never half of each.
+			stmts := []string{
+				fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s_new (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE,
+					name TEXT NOT NULL,
+					path TEXT NOT NULL,
+					name_source TEXT NOT NULL,
+					UNIQUE (workspace_id, path)
+				)`, TableWorkspaceServices, TableWorkspaces),
+				fmt.Sprintf(`INSERT OR IGNORE INTO %[1]s_new (id, workspace_id, name, path, name_source)
+					SELECT id, workspace_id, name, path, name_source FROM %[1]s
+					WHERE workspace_id IN (SELECT id FROM %[2]s)
+					ORDER BY rowid`, TableWorkspaceServices, TableWorkspaces),
+				fmt.Sprintf(`DROP TABLE %s`, TableWorkspaceServices),
+				fmt.Sprintf(`ALTER TABLE %[1]s_new RENAME TO %[1]s`, TableWorkspaceServices),
+				fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_workspace_services_workspace ON %s (workspace_id)`, TableWorkspaceServices),
+			}
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			for _, stmt := range stmts {
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return err
+				}
+			}
+			return tx.Commit()
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30})
 	if err != nil {
 		return err
 	}

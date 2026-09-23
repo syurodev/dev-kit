@@ -449,7 +449,7 @@ func (r *rewindRun) abandonSafety(ctx context.Context, cause error) {
 
 func (r *rewindRun) openForked(ctx context.Context) error {
 	s := r.service
-	spec := OpenSpec{Cwd: r.session.ProjectPath}
+	spec := sessionOpenSpec(r.session)
 	r.closeNew = func() {}
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(r.session.ID)

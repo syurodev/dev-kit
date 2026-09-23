@@ -96,17 +96,18 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		args = append(args, "--tmpfs", "/tmp")
 	}
 
-	args = append(args, "--bind", p.WorkDir, p.WorkDir)
+	binds := []bwrapBind{{"--bind", p.WorkDir}}
 	for _, path := range p.ReadWritePaths {
 		if pathExists(path) {
-			args = append(args, "--bind", path, path)
+			binds = append(binds, bwrapBind{"--bind", path})
 		}
 	}
 	for _, path := range p.ReadOnlyPaths {
 		if pathExists(path) {
-			args = append(args, "--ro-bind", path, path)
+			binds = append(binds, bwrapBind{"--ro-bind", path})
 		}
 	}
+	appendNestedBinds(&args, binds)
 
 	denyPaths := p.EffectiveDenyRead()
 	for _, path := range denyPaths {
@@ -116,11 +117,13 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 	home := p.policyHomeDir()
 	if p.EffectivePrivateHome() && home != "" {
 		args = append(args, "--tmpfs", home)
+		var homeBinds []bwrapBind
 		if pathExists(p.WorkDir) && pathIsContainedIn(p.WorkDir, home) && !pathIsDenied(p.WorkDir, denyPaths) {
-			args = append(args, "--bind", p.WorkDir, p.WorkDir)
+			homeBinds = append(homeBinds, bwrapBind{"--bind", p.WorkDir})
 		}
-		appendHomeAllowlist(&args, home, denyPaths, p.ReadWritePaths, "--bind")
-		appendHomeAllowlist(&args, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
+		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadWritePaths, "--bind")
+		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
+		appendNestedBinds(&args, homeBinds)
 	}
 
 	for _, sock := range p.AllowUnixSockets {
@@ -151,13 +154,51 @@ func appendDenyReadMount(args *[]string, path string) {
 	*args = append(*args, "--bind", "/dev/null", path)
 }
 
-func appendHomeAllowlist(args *[]string, home string, denyPaths []string, paths []string, flag string) {
+func appendHomeAllowlist(binds []bwrapBind, home string, denyPaths []string, paths []string, flag string) []bwrapBind {
 	for _, path := range paths {
 		if !pathExists(path) || !pathIsUnder(path, home) || pathIsDenied(path, denyPaths) {
 			continue
 		}
-		*args = append(*args, flag, path, path)
+		binds = append(binds, bwrapBind{flag, path})
 	}
+	return binds
+}
+
+// bwrapBind is one --bind / --ro-bind of a path onto itself.
+type bwrapBind struct {
+	flag string
+	path string
+}
+
+// appendNestedBinds emits binds shallowest path first, so a bind inside
+// another one always lands on top of it whatever their modes.
+//
+// bwrap applies mounts in argv order and a later mount over the same subtree
+// wins. Emitting every RW bind and then every RO one (the old order) meant a
+// read-only parent silently re-covered a read-write child: a workspace root
+// RO with one service inside it RW came out with the service read-only, the
+// exact layout workspace.mdx's worktree tiers are built on. Seatbelt has no
+// such ordering — its allow rules add up — so this is what makes the two
+// backends agree.
+//
+// The sort is stable and callers list RW before RO, so the one case depth
+// cannot decide — the same path given both ways — still resolves read-only,
+// as it did before.
+func appendNestedBinds(args *[]string, binds []bwrapBind) {
+	sort.SliceStable(binds, func(i, j int) bool {
+		return pathDepth(binds[i].path) < pathDepth(binds[j].path)
+	})
+	for _, b := range binds {
+		*args = append(*args, b.flag, b.path, b.path)
+	}
+}
+
+func pathDepth(path string) int {
+	clean := filepath.Clean(path)
+	if clean == string(filepath.Separator) {
+		return 0
+	}
+	return strings.Count(clean, string(filepath.Separator))
 }
 
 func appendEnvArgs(args []string, env map[string]string) []string {

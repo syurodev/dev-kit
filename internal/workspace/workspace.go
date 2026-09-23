@@ -1,8 +1,9 @@
 // Package workspace is the multi-repo registry: a named (service name →
 // path) list, machine-local and unsynced — see docs/dev-kit/workspace.mdx.
-// This increment covers the registry itself (add / list / delete) and the
-// auto-discovery split in discover.go; the manifest tier, cross-service
-// join, and the Registry N-service full-index cache are not built yet.
+// This increment covers the registry itself (add / list / delete),
+// auto-discovery (discover.go, springconfig.go) and resolving an outbound
+// call's target to a service (target.go); the manifest tier, the join
+// itself, and the Registry N-service full-index cache are not built yet.
 package workspace
 
 import (
@@ -16,9 +17,9 @@ import (
 var ErrWorkspaceNotFound = errors.New("workspace not found")
 
 // Name sources for WorkspaceService.NameSource — see workspace.mdx's data
-// model. Only NameSourceFolder is produced today: config-based naming
-// (reading spring.application.name) is auto-discovery's step 2, not built
-// yet, and manual renames have no UI path yet either.
+// model. NameSourceConfig comes from spring.application.name
+// (springconfig.go), NameSourceFolder is the fallback; manual renames have
+// no UI path yet.
 const (
 	NameSourceFolder = "folder"
 	NameSourceConfig = "config"
@@ -103,12 +104,13 @@ func (s *Service) AddWorkspace(name, root string) (Workspace, []WorkspaceService
 		if err != nil {
 			return Workspace{}, nil, err
 		}
+		name, source := serviceName(d)
 		services = append(services, WorkspaceService{
 			ID:          svcID,
 			WorkspaceID: wsID,
-			Name:        d.Name,
+			Name:        name,
 			Path:        d.Path,
-			NameSource:  NameSourceFolder,
+			NameSource:  source,
 		})
 	}
 
@@ -116,6 +118,21 @@ func (s *Service) AddWorkspace(name, root string) (Workspace, []WorkspaceService
 		return Workspace{}, nil, err
 	}
 	return ws, services, nil
+}
+
+// serviceName is auto-discovery step 2: the name in a service's URLs comes
+// from its own spring.application.name when that folds to a literal, and
+// only falls back to the folder name otherwise. A config that fails to
+// parse falls back too — a folder name that might be wrong beats refusing
+// to register the workspace over one file.
+func serviceName(d DiscoveredService) (name, source string) {
+	cfg, err := ReadSpringConfig(d.Path)
+	if err == nil {
+		if n := cfg.ApplicationName(); n != "" {
+			return n, NameSourceConfig
+		}
+	}
+	return d.Name, NameSourceFolder
 }
 
 // DeleteWorkspace removes a workspace and every service under it. Services'
