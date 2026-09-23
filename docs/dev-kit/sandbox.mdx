@@ -87,6 +87,7 @@ Hai cách chạy, cùng nhận `Policy` + `Cmd`:
 |---|---|
 | Empty `Network` | `none` |
 | `PrivateHome` nil | `true` — force `HOME` + `TMPDIR=/tmp`; **Linux** thêm `--tmpfs $HOME`. **macOS không có tmpfs**: `HOME` vẫn trỏ home thật, home không đọc được chỉ nhờ `(deny default)`. Không tuyệt đối: caller vẫn khoan được lỗ vào home qua `ReadWritePaths` — Claude adapter làm vậy cho `~/.claude*` (xem [Agent Hub](/dev-kit/agent-hub)) |
+| `PrivateHome` false | Linux `--bind $HOME $HOME`, macOS `(subpath $HOME)` read-write; `/tmp` riêng và `HOME`/`TMPDIR` vẫn được đặt. Agent Hub dùng mặc định này — xem "Agent Hub's jail" bên dưới |
 | Sensitive denies | Always on; off only with `DangerousAllowSensitive` (tests) |
 
 ### Errors
@@ -248,99 +249,81 @@ Thử riêng từng cái đều fail; phải có cả hai. No-op ngoài darwin.
 
 Read-only là đủ: agent tra token của chính nó, không phải ghi lại.
 
-### User-configurable jail widening (Implemented)
+### Agent Hub's jail: home and Docker by default (Implemented)
 
-Default-deny is correct for most sessions, but it also means an agent cannot
-reach `docker.sock` or a sibling directory outside the project — both real
-complaints from people trying to use Agent Hub against a Docker-based dev
-loop or a monorepo. Rather than loosen the default (`NetworkHost` already
-reaches every unix socket in bwrap the moment it is turned on for network —
-see the Seatbelt section above for why Darwin needs a narrower, explicit
-grant instead), the jail stays shut and the user opts a specific path in.
+`sandbox.Policy` stays default-deny — `PrivateHome` nil means private, no unix
+socket but the ones listed. What changed is what **Agent Hub** asks it for.
+A jail an agent cannot run `docker compose up` or `kubectl` in is a jail
+people turn off, so a session now gets, by default:
 
-`preferences.AgentSandboxSettings` (`internal/preferences/preferences.go`)
-holds two fields, both empty/off by default so a machine that never touches
-Settings behaves exactly as it did before this existed:
+- **The real `$HOME`, read-write** (`ShareHome`, was the opt-in `RelaxedHome`).
+- **The Docker socket**, found on its own (`AllowDocker`).
 
-- `DockerSocketPath` — a single absolute unix socket path (normally
-  `/var/run/docker.sock`, or Docker Desktop's own `~/.docker/desktop/docker.sock`)
-  merged into `Policy.AllowUnixSockets` the same way the per-session devkit-mcp
-  socket already is: one literal path, not a network-outbound blanket grant.
-- `ExtraReadOnlyPaths` — extra directories/files outside `WorkDir`, merged
-  into `Policy.ReadOnlyPaths`.
+Both are switches in Settings → Agents → Sandbox, and both are `*bool` in
+`preferences.AgentSandboxSettings` so that unset — a machine that never
+opened Settings, or a value from before the field — reads as on. A stored
+value that does not parse reads as `StrictAgentSandbox()` (both off), and so
+does a preferences read that errors in `main.go`: the default is the
+permissive one now, so failing closed means failing to the other end.
 
-`agenthub.Service.SandboxExtras` is a `func() preferences.AgentSandboxSettings`
-hook read fresh at every `OpenSpec` construction — `CreateSession`, both
-resume paths, and `rewind.go`'s fork — via `Service.applySandboxExtras`, so a
-Settings change applies to the next session without a restart, and a resumed
-or forked session runs under the same widened jail an `Open` would give it.
-`main.go` wires it to `container.Preferences.AgentSandbox`, failing closed
-(returns the zero value) on a read error rather than guessing. It does **not**
-apply to a session already running — a live vendor process was already
-spawned under the narrower jail, so widening it means closing and reopening
-(or resuming/forking) the session, not editing it in place.
+**What stays hidden whatever the switches say:**
 
-The bind alone does not make `docker` work inside the jail: `EffectivePrivateHome`
-(on by default) replaces `$HOME` with an empty tmpfs, which hides the host's
-real `~/.docker` — the docker CLI's own context config (`~/.docker/config.json`,
-which says *which* socket to use) is gone even though the socket file itself is
-correctly bound at its configured path. So `applySandboxExtras` also sets
-`DOCKER_HOST=unix://<DockerSocketPath>` in the jail's env (`OpenSpec.ExtraEnv`,
-merged into `sandbox.Policy.Env` by `adapter_claude.go`'s `sandboxFor`) —
-bypassing context resolution entirely, so it works for any configured path,
-not only the compiled-in default `/var/run/docker.sock`.
+- The built-in deny list, `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`
+  — a tmpfs/`/dev/null` bind in bwrap and a `(deny file-read* file-write*)`
+  emitted last in Seatbelt, on top of the shared home.
+- **DevKit's own data directory**, every entry of it except `runtimes/`
+  (`agenthub.ProtectDataDir`, wired as `Service.ProtectedPaths` in
+  `main.go`): the vault database and its WAL, the shared `mcp.sock`,
+  `agents/` (every other session's MCP socket — on Linux a visible socket
+  file is a connectable one), `checkpoints/`, `consoles/`. `runtimes/` stays
+  because the agent binary DevKit installs lives there. Passed as
+  `Policy.DenyReadPaths`; a session's own socket inside `agents/` is granted
+  back — `validateBindPaths` checks sockets against the built-in deny list
+  only, bwrap binds sockets after the deny mounts, and Seatbelt's connect is
+  a network rule the file deny does not cover.
 
-Both fields still go through `sandbox.Policy.Validate` / `validateBindPaths`
-like any other grant: a path that resolves under `~/.ssh`, `~/.gnupg`,
-`~/.aws` or `~/.config/gcloud` is rejected at session-open time
-(`ErrInvalidPolicy`), same as it would be for `ReadOnlyPaths` set anywhere
-else. Widening the jail this way still cannot open a hole into the sensitive
-deny list.
+**Sharing home, per backend.** bwrap starts from an empty mount namespace,
+so "not private" has to be a `--bind $HOME $HOME` — without it (what
+`RelaxedHome` used to produce) home simply was not there, and neither was
+`/tmp` nor `$HOME` in the environment. Seatbelt grants `(subpath $HOME)`
+read-write. Both now always give a private `/tmp` and always set `HOME` and
+`TMPDIR` (`withHomeEnv`).
 
-**Wired to the desktop UI.** Settings → Agents → Sandbox
-(`frontend/src/modules/settings/AgentSandboxSetting.tsx`) edits all three
-fields through `getAgentSandbox`/`saveAgentSandbox`
-(`frontend/src/bridge/preferences.ts`), which call the
-`PreferencesGetAgentSandbox` / `PreferencesSetAgentSandbox` bridge methods
-above. The Docker socket is a single text field (no picker — a unix socket is
-not reliably selectable through a native file dialog); extra read-only paths
-are a list, added by the native folder picker or by typing a path and
-pressing Enter. One save writes all fields together, since
-`PreferencesSetAgentSandbox` takes the whole struct.
+**Finding Docker** (`agenthub.DetectDocker`), in the CLI's own order:
 
-### `RelaxedHome` (Implemented)
+1. `DOCKER_HOST` — a `unix://` path; `tcp://`/`ssh://` needs no socket.
+2. The current context — `DOCKER_CONTEXT`, else `currentContext` in
+   `~/.docker/config.json` (or `$DOCKER_CONFIG`), whose endpoint is in
+   `contexts/meta/<sha256(name)>/meta.json`. This is what picks the right
+   daemon when **OrbStack** (context `orbstack`) and **Docker Desktop**
+   (`desktop-linux`) are both installed.
+3. `/var/run/docker.sock`, then OrbStack `~/.orbstack/run/docker.sock`,
+   Docker Desktop `~/.docker/run/docker.sock` (macOS) and
+   `~/.docker/desktop/docker.sock` (Linux), Colima, Rancher Desktop,
+   rootless Docker and Podman under `$XDG_RUNTIME_DIR`.
 
-The two fields above widen the jail one exact path at a time — which is
-correct for a specific escape (Docker's socket) but means every tool that
-reads something under `$HOME` (a `kubeconfig`, `.npmrc`, a language's own
-config dir, next month's tool nobody has asked about yet) needs its own
-research-and-fix cycle the way Docker did (socket bind *and* `DOCKER_HOST`,
-because `PrivateHome` had already hidden `~/.docker/config.json`).
-`AgentSandboxSettings.RelaxedHome` is the coarser escape hatch for that: when
-on, `agenthub.Service.applySandboxExtras` sets `OpenSpec.PrivateHome` to a
-pointer to `false`, which `ClaudeAdapter.sandboxFor` forwards straight to
-`sandbox.Policy.PrivateHome`. `EffectivePrivateHome()` then reports false, so
-neither backend tmpfs-hides `$HOME` any more — the jail binds the real thing,
-same as `WorkDir` always has been.
+The socket is granted by its **resolved** path — Docker Desktop's
+`/var/run/docker.sock` is a symlink into `~/.docker/run`, and Seatbelt
+matches what the kernel connects to — and `DOCKER_HOST` points there.
+Settings' socket field overrides detection.
 
-**This does not touch the deny list.** `sandbox.Policy.EffectiveDenyRead()` —
-`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`, plus whatever
-`DenyReadPaths`/`ExtraReadOnlyPaths` validation already rejects — is applied
-unconditionally in both `buildBwrapArgs` and `buildSeatbeltProfile`, whether
-or not `PrivateHome` is on. bwrap's tmpfs/null-bind denies and Seatbelt's
-`(deny …)` rules are emitted from the same `denyPaths` regardless of this
-flag, so turning `RelaxedHome` on trades "agent cannot see `$HOME` at all"
-for "agent sees `$HOME` except the same fixed set of credential
-directories" — it does not turn the sandbox into a blacklist model for the
-rest of the filesystem (root, other users, everything bwrap already
-`--unshare`s away is untouched) and it does not relax `Network`,
-`AllowUnixSockets`, or anything else in `Policy`.
+The **CLI** needs more than the socket on macOS: Docker Desktop and OrbStack
+install `docker` (and the compose/buildx plugins, and the credential helper)
+as symlinks into `/Applications/<App>.app`, which no jail grants. The
+bundle is added read-only, and the directory `docker` was found in is
+appended to `PATH` when missing — an app opened from the Dock inherits
+launchd's `PATH`, which has neither `/usr/local/bin` nor `~/.orbstack/bin`.
 
-Real widening, same as any grant here: the agent can now read cookie
-stores, shell history, and any other project checked out under `$HOME`, not
-just the config file it needed. Off by default; a machine that never opens
-Settings → Agents → Sandbox keeps the private, tmpfs'd home it always had.
-Does not apply to a session already running, same as the other two fields.
+`ExtraReadOnlyPaths` is still there, for paths outside both the project and
+home (a library under `/opt`). All of it goes through
+`sandbox.Policy.Validate` like any other grant, is read fresh on every open,
+resume and fork (`Service.applySandboxExtras`), and does not apply to a
+session already running.
+
+Real widening, and the point of it: an agent can read shell history, cookie
+stores and every other project under `$HOME`, and the Docker socket is root
+on the host in practice. `SandboxExtras` nil (tests) keeps the adapter's own
+jail — private home, no Docker.
 
 ## Ops / tests
 

@@ -6,6 +6,15 @@ import {
 } from "../../bridge/mcp";
 import { errorMessage } from "../../bridge/errors";
 import { useCurrentFolder } from "../../stores/workFolder";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Scope = "global" | "project";
 
@@ -65,77 +74,71 @@ export function McpInstallPanel() {
     }
   }
 
+  const labels: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex" };
+
   return (
-    <section className="mcp-install-panel" aria-label="mcp-install">
-      <h2>MCP Install</h2>
-      <p>Register the DevKit MCP proxy with Claude Code or Codex.</p>
-
-      <div className="mcp-install-row">
-        <label>
-          Agent
-          <select
-            aria-label="mcp-agent"
-            value={agent}
-            onChange={(e) => setAgent(e.target.value)}
-          >
-            {agents.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-3">
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-caption-11 text-text-tertiary">Agent</span>
+          <Select value={agent} onValueChange={setAgent}>
+            <SelectTrigger aria-label="mcp-agent" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {labels[a] ?? a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
-
-        <fieldset aria-label="mcp-scope">
-          <legend>Scope</legend>
-          <label>
-            <input
-              type="radio"
-              name="mcp-scope"
-              value="global"
-              checked={scope === "global"}
-              onChange={() => setScope("global")}
-            />
-            global
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="mcp-scope"
-              value="project"
-              checked={scope === "project"}
-              onChange={() => setScope("project")}
-            />
-            project
-          </label>
-        </fieldset>
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-caption-11 text-text-tertiary">Scope</span>
+          <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
+            <SelectTrigger aria-label="mcp-scope" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="global">Global — every project</SelectItem>
+              <SelectItem value="project">One project</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
       </div>
 
       {scope === "project" ? (
-        <div className="mcp-install-row">
-          <label>
-            Project path
-            <input
-              aria-label="mcp-project-path"
-              placeholder="/path/to/project"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-            />
-          </label>
-        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-caption-11 text-text-tertiary">Project path</span>
+          <Input
+            aria-label="mcp-project-path"
+            placeholder="/path/to/project"
+            value={projectPath}
+            onChange={(e) => setProjectPath(e.target.value)}
+          />
+        </label>
       ) : null}
 
-      <div className="mcp-install-actions">
-        <button type="button" onClick={() => void onInstall()}>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" onClick={() => void onInstall()}>
           Install
-        </button>
-        <button type="button" onClick={() => void onUninstall()}>
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => void onUninstall()}>
           Uninstall
-        </button>
+        </Button>
       </div>
 
-      {status ? <p role="status">{status}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-    </section>
+      {status ? (
+        <p role="status" className="text-code-12 text-text-tertiary break-all">
+          {status}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-body-12 text-status-danger">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }

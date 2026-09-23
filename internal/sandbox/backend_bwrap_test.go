@@ -178,7 +178,7 @@ func TestBwrapCanWriteWorkDirUnderHome(t *testing.T) {
 	}
 }
 
-// TMPDIR is set to /tmp for every private-home jail (withPrivateHomeEnv), so
+// TMPDIR is set to /tmp for every private-home jail (withHomeEnv), so
 // /tmp inside the jail must actually exist and be writable — a Node CLI
 // reaching for os.tmpdir() early in its own startup (lockfiles, IPC sockets,
 // npm/V8 caches) can hang rather than error when it doesn't, which from the

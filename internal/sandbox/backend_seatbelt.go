@@ -110,13 +110,7 @@ func seatbeltProcessEnv(p Policy) []string {
 	if p.Env == nil && !p.EffectivePrivateHome() {
 		return nil
 	}
-	env := p.Env
-	if p.EffectivePrivateHome() {
-		env = withPrivateHomeEnv(p, env)
-	}
-	if env == nil {
-		return nil
-	}
+	env := withHomeEnv(p, p.Env)
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)

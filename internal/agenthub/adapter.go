@@ -28,19 +28,21 @@ type OpenSpec struct {
 	// can never grant a session it spawns a wider jail than its own.
 	ExtraReadWritePaths []string
 	// ExtraEnv is merged into the vendor's sandbox environment, winning over
-	// the base allowlist and the vendor's own launch env. Exists for
-	// applySandboxExtras's Docker widening: the jail's private HOME hides the
-	// host's real ~/.docker (so a docker CLI inside it has no context config
-	// telling it which socket to use, even though the socket itself is bound
-	// in), and DOCKER_HOST is the one env var that tells it directly.
+	// the base allowlist and the vendor's own launch env. applySandboxExtras
+	// puts DOCKER_HOST here, and PATH when the docker CLI lives somewhere an
+	// app opened from the Dock does not look.
 	ExtraEnv map[string]string
+	// DenyReadPaths are hidden from the session on top of sandbox.Policy's
+	// own deny list — DevKit's data directory, once $HOME is shared. A socket
+	// in AllowUnixSockets may still sit inside one (the session's own MCP
+	// socket does).
+	DenyReadPaths []string
 	// PrivateHome overrides sandbox.Policy.PrivateHome when non-nil. Nil keeps
-	// the adapter's own default (private home on). Set to a pointer to false
-	// by applySandboxExtras when the user opted into
-	// preferences.AgentSandboxSettings.RelaxedHome — the jail then binds the
-	// real $HOME instead of tmpfs-ing it, while sandbox.Policy's own deny list
-	// (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud) still applies unconditionally
-	// on top, the same as it does with private home on.
+	// the adapter's own default (private home on). applySandboxExtras sets it
+	// to false when preferences.AgentSandboxSettings.ShareHome is on — its
+	// default — and the jail then binds the real $HOME, with sandbox.Policy's
+	// deny list (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud) and DenyReadPaths
+	// still hidden on top.
 	PrivateHome *bool
 }
 

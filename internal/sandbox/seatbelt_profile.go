@@ -58,9 +58,14 @@ func buildSeatbeltProfile(p Policy) string {
 	for _, path := range p.ReadWritePaths {
 		writeSBPLPath(&b, path)
 	}
-	if p.EffectivePrivateHome() {
-		writeSBPLSubpath(&b, "/tmp")
-		writeSBPLSubpath(&b, "/private/tmp")
+	// /tmp whether or not home is shared: a CLI reaches for os.tmpdir()
+	// either way, and TMPDIR points there (withHomeEnv).
+	writeSBPLSubpath(&b, "/tmp")
+	writeSBPLSubpath(&b, "/private/tmp")
+	// A shared home is the whole of it, read-write. The deny rule emitted
+	// last still takes ~/.ssh and the rest back out: SBPL's later match wins.
+	if home := p.sharedHome(); home != "" {
+		writeSBPLPath(&b, home)
 	}
 	b.WriteString(")\n")
 
@@ -171,6 +176,7 @@ func (p Policy) grantedPaths() []string {
 		}
 	}
 	add(p.WorkDir)
+	add(p.sharedHome())
 	for _, path := range p.ReadWritePaths {
 		add(path)
 	}

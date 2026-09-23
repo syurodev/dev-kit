@@ -111,10 +111,12 @@ func TestSQLRepositoryRoundTripsCheckpointSettings(t *testing.T) {
 
 func TestSQLRepositoryRoundTripsAgentSandboxSettings(t *testing.T) {
 	repo, _ := checkpointRepo(t)
+	off := false
 	want := preferences.AgentSandboxSettings{
 		DockerSocketPath:   "/var/run/docker.sock",
 		ExtraReadOnlyPaths: []string{"/opt/shared-lib"},
-		RelaxedHome:        true,
+		ShareHome:          &off,
+		AllowDocker:        &off,
 	}
 	if err := repo.SetAgentSandbox(want); err != nil {
 		t.Fatal(err)
@@ -123,14 +125,13 @@ func TestSQLRepositoryRoundTripsAgentSandboxSettings(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("GetAgentSandbox = %+v, %v, %v", got, found, err)
 	}
-	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 1 || got.RelaxedHome != true {
+	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 1 || got.HomeShared() || got.DockerAllowed() {
 		t.Fatalf("round trip = %+v, want %+v", got, want)
 	}
 }
 
-// A machine that has never touched this setting must behave exactly as it
-// did before the setting existed: no Docker socket, no extra reads.
-func TestSQLRepositoryAgentSandboxDefaultsToOff(t *testing.T) {
+// A machine that has never touched this setting shares home and allows Docker.
+func TestSQLRepositoryAgentSandboxDefaultsToHomeAndDocker(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +145,7 @@ func TestSQLRepositoryAgentSandboxDefaultsToOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 || settings.RelaxedHome {
+	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 || !settings.HomeShared() || !settings.DockerAllowed() {
 		t.Fatalf("settings = %+v, want the zero value", settings)
 	}
 }
@@ -163,5 +164,21 @@ func TestSQLRepositoryTreatsAnUnreadableCheckpointRowAsUnset(t *testing.T) {
 	}
 	if found {
 		t.Fatalf("an unreadable row read as stored: %+v", settings)
+	}
+}
+
+// The default is permissive, so a stored value that no longer parses must
+// read as the narrowest jail, not as unset.
+func TestSQLRepositoryUnreadableAgentSandboxIsStrict(t *testing.T) {
+	repo, db := checkpointRepo(t)
+	if _, err := db.Exec(`INSERT INTO app_preferences (key, value) VALUES ('agent_sandbox', '{not json')`); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := repo.GetAgentSandbox()
+	if err != nil || !found {
+		t.Fatalf("GetAgentSandbox = %+v, %v, %v", got, found, err)
+	}
+	if got.HomeShared() || got.DockerAllowed() {
+		t.Fatalf("settings = %+v, want StrictAgentSandbox", got)
 	}
 }
