@@ -61,17 +61,11 @@ type Service struct {
 	// announcedRoot is the last root OnProjectChanged was told about, so
 	// reopening the same folder is not reported as a switch.
 	announcedRoot string
-	configDir     string
 
-	terminalRegistry *terminal.Registry
-
-	// toolchains is what BuildAnalyzer can build; see toolchain.go. Guarded by
-	// mu with everything else. buildMu is separate and is held for the whole
-	// length of a build — minutes on a cold Maven cache — which mu, taken on
-	// every read of the index, could not be. buildCancel stops that build.
-	toolchains  []Toolchain
-	buildMu     sync.Mutex
-	buildCancel context.CancelFunc
+	// host is what this Service shares with every other one in the app:
+	// toolchains and their build, the config directory, the terminal
+	// registry (host.go). Set at construction and never replaced.
+	host *Host
 
 	// detected is what the open folder turned out to hold — which language, and
 	// which module roots. Recorded during OpenProject so the answer costs one
@@ -122,7 +116,18 @@ type Service struct {
 }
 
 func NewService(store Store, analyzer Analyzer) *Service {
+	return NewServiceWithHost(NewHost(), store, analyzer)
+}
+
+// NewServiceWithHost is NewService on a Host shared with other Services —
+// how the workspace Registry gives N services one toolchain registry, one
+// analyzer build and one config directory (workspace.mdx § Registry).
+func NewServiceWithHost(host *Host, store Store, analyzer Analyzer) *Service {
+	if host == nil {
+		host = NewHost()
+	}
 	service := &Service{
+		host:             host,
 		store:            store,
 		lease:            newStoreLease(store),
 		analyzer:         analyzer,
@@ -154,9 +159,12 @@ func isAnalyzerOverride(analyzer Analyzer) bool {
 // every caller that opens a project by folder — the bridge, MCP, the restore
 // at startup — derives the same index path from the same source.
 func (s *Service) SetConfigDir(configDir string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.configDir = configDir
+	s.host.SetConfigDir(configDir)
+}
+
+// Host is what this Service shares with the rest of the app.
+func (s *Service) Host() *Host {
+	return s.host
 }
 
 // setProjectPath points the service at a project's on-disk index file,
@@ -187,9 +195,7 @@ func (s *Service) setProjectPath(dbPath string) error {
 // separately from NewService so NewService's signature (used by every
 // existing test in this package) doesn't need to change.
 func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.terminalRegistry = reg
+	s.host.SetTerminalRegistry(reg)
 }
 
 // SetAnalyzer replaces the Analyzer used by OpenProject/runReindex. Each
@@ -304,8 +310,8 @@ func (s *Service) StartTerminal(rows, cols int) (string, error) {
 	s.mu.RLock()
 	active := s.active
 	root := s.projectRoot
-	reg := s.terminalRegistry
 	s.mu.RUnlock()
+	reg := s.host.TerminalRegistry()
 
 	if !active {
 		return "", ErrNoActiveProject
@@ -330,9 +336,7 @@ func (s *Service) StartTerminal(rows, cols int) (string, error) {
 // a folder and nothing else — MCP — so they cannot derive a different index
 // path than the bridge does.
 func (s *Service) OpenProjectDir(ctx context.Context, projectPath string) error {
-	s.mu.RLock()
-	configDir := s.configDir
-	s.mu.RUnlock()
+	configDir := s.host.ConfigDir()
 	if configDir == "" {
 		return fmt.Errorf("codegraph: no config directory configured for project indexes")
 	}
@@ -686,13 +690,50 @@ func borrow(lease *storeLease, root string) (Store, string, func(), error) {
 func (s *Service) Close() error {
 	s.openMu.Lock()
 	defer s.openMu.Unlock()
-	s.cancelProject()
 	s.CancelAnalyzerBuild()
+	s.closeProjectLocked()
+	return nil
+}
+
+// Shutdown ends this Service for good, store included: what the workspace
+// Registry calls to evict one (workspace.mdx § Registry).
+//
+// Not Close. Close leaves the store open — the container owns the one a
+// singleton Service is built with — so evicting through it would leak a
+// SQLite handle per eviction. And Close cancels the analyzer build, which is
+// the Host's: evicting one service must not stop a build the setup panel
+// started for the whole app.
+//
+// The store is retired rather than closed outright: a query still reading it
+// finishes first, then it closes (storeLease). Afterwards the Service holds
+// the nil store and no project; opening a project on it again works, the
+// same as on a new one.
+func (s *Service) Shutdown() error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	s.closeProjectLocked()
+	nilStore := NewNilStore()
+	s.mu.Lock()
+	old := s.lease
+	s.store = nilStore
+	s.lease = newStoreLease(nilStore)
+	s.mu.Unlock()
+	if old != nil {
+		old.retire()
+	}
+	return nil
+}
+
+// closeProjectLocked is what Close and Shutdown share: stop the project's
+// work, its watcher and its analyzers. It returns without waiting for an
+// analyzer to exit: cancellation kills the subprocess, and whatever it was
+// doing can no longer publish. Caller holds openMu.
+func (s *Service) closeProjectLocked() {
+	s.cancelProject()
 	s.stopWatcher()
 	s.mu.Lock()
 	s.index.reset() // A late analyzer result cannot publish after shutdown.
 	s.active = false
 	s.mu.Unlock()
 	s.closeAnalyzers()
-	return nil
 }

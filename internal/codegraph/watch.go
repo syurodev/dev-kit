@@ -196,8 +196,8 @@ func (s *Service) restartWatcher(root string) error {
 	s.mu.Lock()
 	s.watchCancel = cancel
 	s.watchDone = done
-	relevant := watchFilter(s.toolchains)
 	s.mu.Unlock()
+	relevant := watchFilter(s.host.Toolchains())
 
 	go s.watchLoop(ctx, w, done, watched, relevant)
 	return nil

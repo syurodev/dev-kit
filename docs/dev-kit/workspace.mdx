@@ -241,9 +241,15 @@ và giữ lẫn hai loại trạng thái:
 | Của một project | Của cả app |
 |---|---|
 | `store` + `lease`, `index` (generation, opening, err) | toolchain registry, `BuildAnalyzer` / `CancelAnalyzerBuild`, `OnAnalyzerBuildOutput` |
-| `projectCtx`, watcher, `detected` | `configDir`, `terminalRegistry`, `workTree` |
+| `projectCtx`, watcher, `detected` | `configDir`, `terminalRegistry` |
 | `analyzers` (một mỗi ngôn ngữ — với TS là một process `tsgo`) | `OnProjectChanged` → đặt **work folder** của cả app (`main.go`), Git đi theo nó |
 | | plan reconcile đọc `ProjectRoot()` duy nhất (`internal/app/plantasks.go`) |
+
+`workTree` (Git, `SetWorkTreeStatus`) trông như của cả app nhưng không phải:
+Git module trả lời cho **work folder**, tức service đang focus. Dùng chung nó
+cho service không focus thì file tree của B tô theo thay đổi của A. Nên nó
+thuộc service đang focus; service khác dùng bộ đọc `git status` riêng của
+`codegraph` (đường fallback khi `workTree` là nil).
 
 N bản của `Service` y hệt nghĩa là N trạng thái build cho cùng một artifact
 trên đĩa, N lần "project changed", và work folder nhảy theo bản nào mở sau
@@ -370,7 +376,14 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
 
 ### Thứ tự làm
 
-1. Tách `Service` / phần của cả app, thêm `Shutdown()`. Không đổi hành vi.
+1. ✅ Tách `Service` / phần của cả app, thêm `Shutdown()`. Không đổi hành vi.
+   Phần của cả app là `codegraph.Host` (`host.go`): toolchain, build analyzer
+   (một build cho cả app), config dir, terminal registry. `NewService` tạo
+   Host riêng — đúng app hôm nay; `NewServiceWithHost` cho N service dùng
+   chung một Host. `Shutdown()` retire lease (đóng store khi reader xong) và
+   **không** huỷ build: build là của Host, còn `Close()` (thoát app) thì vẫn
+   huỷ. Callback `OnProjectChanged` / `OnIndexUpdated` vẫn trên `Service`;
+   bước 2 chuyển chúng lên Registry.
 2. `Registry` với hai trần + service đang focus; method không truyền
    `servicePath` giữ đúng hành vi hôm nay.
 3. Mở lại phục vụ index cũ khi analyzer cùng phiên bản.
