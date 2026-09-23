@@ -198,10 +198,10 @@ func matchByName(host string, services []TargetService) TargetResolution {
 	}
 	for _, s := range services {
 		name := strings.ToLower(s.Name)
-		switch {
-		case name == host:
+		switch name {
+		case host:
 			exact = append(exact, s.Path)
-		case name == firstLabel:
+		case firstLabel:
 			label = append(label, s.Path)
 		}
 	}
