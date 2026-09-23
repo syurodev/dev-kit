@@ -308,3 +308,76 @@ func assertArgsContain(t *testing.T, args []string, want ...string) {
 	}
 	t.Fatalf("args %q do not contain sequence %q", args, want)
 }
+
+// A workspace root read-only with one service inside it read-write is the
+// layout workspace.mdx's tiers are built on. bwrap applies mounts in argv
+// order, so the parent's --ro-bind has to come before the child's --bind.
+func TestBwrapArgsBindParentBeforeNestedChild(t *testing.T) {
+	root := t.TempDir()
+	service := filepath.Join(root, "billing")
+	if err := os.MkdirAll(service, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	args := buildBwrapArgs(Policy{
+		WorkDir:       service,
+		ReadOnlyPaths: []string{root},
+		Env:           map[string]string{"HOME": filepath.Join(root, "home")},
+		PrivateHome:   boolPtr(false),
+	}, Cmd{Path: "/bin/sh"})
+
+	ro, rw := bindIndex(args, "--ro-bind", root), bindIndex(args, "--bind", service)
+	if ro < 0 || rw < 0 {
+		t.Fatalf("args %q lack the parent RO bind or the child RW bind", args)
+	}
+	if ro > rw {
+		t.Fatalf("parent --ro-bind at %d comes after child --bind at %d: the child would end up read-only", ro, rw)
+	}
+}
+
+func TestBwrapNestedBindsKeepEachModeAtRuntime(t *testing.T) {
+	backend := NewBwrapBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("bwrap unavailable: %v", err)
+	}
+
+	root := t.TempDir()
+	service := filepath.Join(root, "billing")
+	sibling := filepath.Join(root, "refund")
+	for _, dir := range []string{service, sibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir:       service,
+		ReadOnlyPaths: []string{root},
+		Env:           map[string]string{"HOME": filepath.Join(root, "home")},
+		PrivateHome:   boolPtr(false),
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c",
+		"printf ok > " + filepath.Join(service, "rw.txt") + " && ! printf no > " + filepath.Join(sibling, "ro.txt") + " 2>/dev/null"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Wait(); err != nil {
+		t.Fatalf("sandboxed shell: %v (the service must be writable, its sibling must not)", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(service, "rw.txt")); err != nil || string(got) != "ok" {
+		t.Fatalf("write inside the RW service = %q, %v; want ok", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(sibling, "ro.txt")); err == nil {
+		t.Fatal("a sibling under the RO parent was written to")
+	}
+}
+
+func bindIndex(args []string, flag, path string) int {
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == flag && args[i+1] == path && args[i+2] == path {
+			return i
+		}
+	}
+	return -1
+}

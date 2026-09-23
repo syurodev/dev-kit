@@ -110,6 +110,34 @@ func TestStoreInsertGetUpdateListSession(t *testing.T) {
 	}
 }
 
+func TestStoreRoundTripsExtraReadWritePaths(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	withGrant := sampleSession("s-grant")
+	withGrant.ExtraReadWritePaths = []string{"/ws/billing", "/ws/refund"}
+	without := sampleSession("s-plain")
+	for _, s := range []agenthub.AgentSession{withGrant, without} {
+		if err := store.InsertSession(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := store.GetSession(ctx, "s-grant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.ExtraReadWritePaths, withGrant.ExtraReadWritePaths) {
+		t.Fatalf("ExtraReadWritePaths = %v, want %v", got.ExtraReadWritePaths, withGrant.ExtraReadWritePaths)
+	}
+	got, err = store.GetSession(ctx, "s-plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExtraReadWritePaths != nil {
+		t.Fatalf("ExtraReadWritePaths = %v, want nil for a session without a grant", got.ExtraReadWritePaths)
+	}
+}
+
 func TestStoreGetSessionNotFound(t *testing.T) {
 	store := newTestStore(t)
 	_, err := store.GetSession(context.Background(), "missing")

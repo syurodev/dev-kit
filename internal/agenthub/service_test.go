@@ -137,6 +137,36 @@ func TestCreateSession_AgentCallerExtraReadWritePathsAreIgnored(t *testing.T) {
 	}
 }
 
+// The jail is rebuilt from the stored row on every resume: a session created
+// with the whole workspace used to come back after a restart with RW on its
+// first service only, because the grant lived in the first OpenSpec and
+// nowhere else.
+func TestResume_KeepsTheExtraReadWritePathsTheSessionWasCreatedWith(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	adapter := resumableMock{agenthub.NewMockAdapter()}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	extra1, extra2 := t.TempDir(), t.TempDir()
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{
+		AgentType:           agenthub.AgentTypeMock,
+		Cwd:                 t.TempDir(),
+		ExtraReadWritePaths: []string{extra1, extra2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := agenthub.NewService(reg, store, nil)
+	if err := restarted.SetMode(ctx, sess.ID, "plan"); err != nil {
+		t.Fatalf("set mode after restart (resumes): %v", err)
+	}
+	got := adapter.LastSpec().ExtraReadWritePaths
+	if len(got) != 2 || got[0] != extra1 || got[1] != extra2 {
+		t.Fatalf("resumed ExtraReadWritePaths = %v, want [%s %s]", got, extra1, extra2)
+	}
+}
+
 func TestCreateAndListSession(t *testing.T) {
 	svc := newTestService(t)
 	s, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
