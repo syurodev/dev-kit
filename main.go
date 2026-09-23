@@ -287,7 +287,8 @@ func main() {
 	}
 	checkpointEngine := checkpoint.New(filepath.Join(dataDir, "checkpoints"), checkpointGit, checkpoint.Limits{})
 
-	runtimes := agentruntime.New(filepath.Join(dataDir, "runtimes"))
+	runtimesDir := filepath.Join(dataDir, "runtimes")
+	runtimes := agentruntime.New(runtimesDir)
 	runtimes.OnOutput = func(agent, line string) {
 		emitAppEvent("agenthub:runtimeInstallOutput", map[string]any{
 			"agent": agent,
@@ -467,11 +468,17 @@ func main() {
 	agentSvc.SandboxExtras = func() preferences.AgentSandboxSettings {
 		settings, err := container.Preferences.AgentSandbox()
 		if err != nil {
-			// Fail closed: a preferences read that errors must not widen the
-			// jail on a guess. The default is fully off, same as unset.
-			return preferences.AgentSandboxSettings{}
+			// Fail closed: the default shares home and Docker, and a read
+			// that errors must not hand that out on a guess.
+			return preferences.StrictAgentSandbox()
 		}
 		return settings
+	}
+	// Once home is shared, DevKit's own data directory is in it: the vault
+	// database and every session's MCP socket. Hidden whatever the settings
+	// say — all but the agent runtimes, which the jail has to run.
+	agentSvc.ProtectedPaths = func() []string {
+		return agenthub.ProtectDataDir(dataDir, filepath.Base(runtimesDir))
 	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —

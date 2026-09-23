@@ -110,8 +110,9 @@ func (r *SQLRepository) SetAgentCheckpoints(settings AgentCheckpointSettings) er
 	return err
 }
 
-// GetAgentSandbox treats anything it cannot parse as unset, so the default —
-// fully off — applies rather than the setting becoming unreadable.
+// GetAgentSandbox reads a value it cannot parse as StrictAgentSandbox rather
+// than as unset: unset is the permissive default, and a stored "don't share
+// home" that got mangled must not quietly turn into sharing it.
 func (r *SQLRepository) GetAgentSandbox() (AgentSandboxSettings, bool, error) {
 	var value string
 	err := r.db.QueryRowContext(context.Background(),
@@ -124,7 +125,7 @@ func (r *SQLRepository) GetAgentSandbox() (AgentSandboxSettings, bool, error) {
 	}
 	var settings AgentSandboxSettings
 	if jsonErr := json.Unmarshal([]byte(value), &settings); jsonErr != nil {
-		return AgentSandboxSettings{}, false, nil
+		return StrictAgentSandbox(), true, nil
 	}
 	return settings.Normalized(), true, nil
 }

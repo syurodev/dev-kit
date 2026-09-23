@@ -190,25 +190,26 @@ func TestAgentCheckpointsReadsTheOlderBooleanValue(t *testing.T) {
 	}
 }
 
-// Unset must read as fully off — a machine that never touched this setting
-// behaves exactly as it did before the setting existed.
-func TestAgentSandboxDefaultsToOff(t *testing.T) {
+// Unset shares home and allows Docker: the defaults are on.
+func TestAgentSandboxDefaultsToHomeAndDocker(t *testing.T) {
 	service := NewService(NewMemoryRepository())
 	settings, err := service.AgentSandbox()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 || settings.RelaxedHome {
+	if settings.DockerSocketPath != "" || len(settings.ExtraReadOnlyPaths) != 0 || !settings.HomeShared() || !settings.DockerAllowed() {
 		t.Fatalf("settings = %+v, want the zero value", settings)
 	}
 }
 
 func TestAgentSandboxRoundTrips(t *testing.T) {
+	off := false
 	service := NewService(NewMemoryRepository())
 	want := AgentSandboxSettings{
 		DockerSocketPath:   "/var/run/docker.sock",
 		ExtraReadOnlyPaths: []string{"/opt/shared-lib", "/mnt/data"},
-		RelaxedHome:        true,
+		ShareHome:          &off,
+		AllowDocker:        &off,
 	}
 	if err := service.SetAgentSandbox(want); err != nil {
 		t.Fatal(err)
@@ -217,7 +218,7 @@ func TestAgentSandboxRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 2 || got.RelaxedHome != true {
+	if got.DockerSocketPath != want.DockerSocketPath || len(got.ExtraReadOnlyPaths) != 2 || got.HomeShared() || got.DockerAllowed() {
 		t.Fatalf("settings = %+v, want %+v", got, want)
 	}
 }

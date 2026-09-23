@@ -68,7 +68,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 	}
 	appendResolvConf(&args, p)
 
-	// withPrivateHomeEnv (below) sets TMPDIR=/tmp whenever it isn't already
+	// withHomeEnv (below) sets TMPDIR=/tmp whenever it isn't already
 	// overridden, but bwrap starts from an empty mount namespace, so without
 	// this the jail promises a temp directory that plainly does not exist.
 	// A fresh tmpfs, not a bind of the host's real /tmp: unlike
@@ -92,11 +92,21 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 	// the ENOENT as a visible error — it can sit retrying, which reads from
 	// the outside as a session stuck on "starting" forever with no further
 	// log line.
-	if p.EffectivePrivateHome() {
-		args = append(args, "--tmpfs", "/tmp")
-	}
+	//
+	// Unconditional: a shared home still gets a private /tmp, for the same
+	// reason — sharing $HOME is a statement about the user's files, not about
+	// every other process's scratch space.
+	args = append(args, "--tmpfs", "/tmp")
 
 	binds := []bwrapBind{{"--bind", p.WorkDir}}
+	// A shared home is bound whole, read-write, as one more bind: it nests
+	// under the same depth ordering as everything else, and the deny mounts
+	// below still land on top of it (~/.ssh and the rest stay hidden).
+	// Without this the jail starts from an empty mount namespace and a
+	// "shared" home is simply absent — what RelaxedHome used to produce.
+	if shared := p.sharedHome(); shared != "" && pathExists(shared) {
+		binds = append(binds, bwrapBind{"--bind", shared})
+	}
 	for _, path := range p.ReadWritePaths {
 		if pathExists(path) {
 			binds = append(binds, bwrapBind{"--bind", path})
@@ -132,11 +142,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		}
 	}
 
-	env := p.Env
-	if p.EffectivePrivateHome() {
-		env = withPrivateHomeEnv(p, env)
-	}
-	args = appendEnvArgs(args, env)
+	args = appendEnvArgs(args, withHomeEnv(p, p.Env))
 	args = append(args, "--chdir", p.EffectiveChdir(c), "--", c.Path)
 	args = append(args, c.Args...)
 	return args

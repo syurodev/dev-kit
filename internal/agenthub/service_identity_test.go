@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"devkit/internal/acp"
@@ -84,14 +85,14 @@ func TestCreateSessionOpensEndpointAndPassesSpec(t *testing.T) {
 	}
 }
 
-// SandboxExtras widens every session's OpenSpec, on top of whatever the MCP
-// endpoint already grants — the user's opt-in escape from the default jail
-// (docs/dev-kit/sandbox.mdx), not a replacement for it.
+// SandboxExtras shapes every session's OpenSpec, on top of whatever the MCP
+// endpoint already grants (docs/dev-kit/sandbox.mdx), not in place of it.
 func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
 	svc, mock, _ := newIdentityService(t)
+	svc.DetectDocker = func() agenthub.DockerGrant { return agenthub.DockerGrant{} }
 	svc.SandboxExtras = func() preferences.AgentSandboxSettings {
 		return preferences.AgentSandboxSettings{
-			DockerSocketPath:   "/var/run/docker.sock",
+			DockerSocketPath:   "/nonexistent/docker.sock",
 			ExtraReadOnlyPaths: []string{"/opt/shared-lib"},
 		}
 	}
@@ -99,13 +100,13 @@ func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := mock.LastSpec()
-	if !slices.Contains(spec.AllowUnixSockets, "/var/run/docker.sock") {
+	if !slices.Contains(spec.AllowUnixSockets, "/nonexistent/docker.sock") {
 		t.Fatalf("spec.AllowUnixSockets = %v, want the Docker socket included", spec.AllowUnixSockets)
 	}
 	if !slices.Contains(spec.ReadOnlyPaths, "/opt/shared-lib") {
 		t.Fatalf("spec.ReadOnlyPaths = %v, want the extra path included", spec.ReadOnlyPaths)
 	}
-	if got := spec.ExtraEnv["DOCKER_HOST"]; got != "unix:///var/run/docker.sock" {
+	if got := spec.ExtraEnv["DOCKER_HOST"]; got != "unix:///nonexistent/docker.sock" {
 		t.Fatalf("spec.ExtraEnv[DOCKER_HOST] = %q, want the configured socket as a unix:// URL", got)
 	}
 	// The MCP socket grant from newIdentityService's fakeEndpoints must still be
@@ -114,31 +115,75 @@ func TestCreateSessionAppliesSandboxExtras(t *testing.T) {
 	if len(spec.AllowUnixSockets) != 2 {
 		t.Fatalf("spec.AllowUnixSockets = %v, want both the MCP socket and Docker", spec.AllowUnixSockets)
 	}
-	if spec.PrivateHome != nil {
-		t.Fatalf("spec.PrivateHome = %v, want nil (RelaxedHome unset leaves the adapter default)", spec.PrivateHome)
+	// Home is shared by default.
+	if spec.PrivateHome == nil || *spec.PrivateHome {
+		t.Fatalf("spec.PrivateHome = %v, want a pointer to false (ShareHome defaults on)", spec.PrivateHome)
 	}
 }
 
-// RelaxedHome is the coarser escape from the jail's private HOME: on, it
-// tells the adapter to bind the real $HOME instead of tmpfs-ing it, while
-// sandbox.Policy's own deny list still applies underneath regardless
-// (docs/dev-kit/sandbox.mdx § "RelaxedHome").
-func TestCreateSessionAppliesSandboxExtrasRelaxedHome(t *testing.T) {
+// With nothing configured, Docker is found and granted — socket, the CLI's
+// app bundle, and its directory on PATH.
+func TestCreateSessionGrantsDetectedDockerByDefault(t *testing.T) {
 	svc, mock, _ := newIdentityService(t)
-	svc.SandboxExtras = func() preferences.AgentSandboxSettings {
-		return preferences.AgentSandboxSettings{RelaxedHome: true}
+	svc.DetectDocker = func() agenthub.DockerGrant {
+		return agenthub.DockerGrant{
+			Socket:   "/Users/a/.orbstack/run/docker.sock",
+			ReadOnly: []string{"/Applications/OrbStack.app"},
+			PathDirs: []string{"/definitely/not/on/path"},
+		}
 	}
+	svc.SandboxExtras = func() preferences.AgentSandboxSettings { return preferences.AgentSandboxSettings{} }
 	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
 		t.Fatal(err)
 	}
 	spec := mock.LastSpec()
-	if spec.PrivateHome == nil || *spec.PrivateHome != false {
-		t.Fatalf("spec.PrivateHome = %v, want a pointer to false", spec.PrivateHome)
+	if !slices.Contains(spec.AllowUnixSockets, "/Users/a/.orbstack/run/docker.sock") {
+		t.Fatalf("spec.AllowUnixSockets = %v, want the detected socket", spec.AllowUnixSockets)
+	}
+	if got := spec.ExtraEnv["DOCKER_HOST"]; got != "unix:///Users/a/.orbstack/run/docker.sock" {
+		t.Fatalf("DOCKER_HOST = %q", got)
+	}
+	if !slices.Contains(spec.ReadOnlyPaths, "/Applications/OrbStack.app") {
+		t.Fatalf("spec.ReadOnlyPaths = %v, want the CLI's app bundle", spec.ReadOnlyPaths)
+	}
+	if !strings.HasSuffix(spec.ExtraEnv["PATH"], "/definitely/not/on/path") {
+		t.Fatalf("PATH = %q, want the CLI's directory appended", spec.ExtraEnv["PATH"])
 	}
 }
 
-// A build that never wires SandboxExtras (nil, the default) must leave the
-// jail exactly as restrictive as it was before this setting existed.
+// Both switches off: no Docker at all, and a private home.
+func TestCreateSessionHonoursSandboxOptOuts(t *testing.T) {
+	svc, mock, _ := newIdentityService(t)
+	svc.DetectDocker = func() agenthub.DockerGrant {
+		return agenthub.DockerGrant{Socket: "/var/run/docker.sock"}
+	}
+	svc.SandboxExtras = preferences.StrictAgentSandbox
+	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
+		t.Fatal(err)
+	}
+	spec := mock.LastSpec()
+	if len(spec.AllowUnixSockets) != 1 || spec.ExtraEnv["DOCKER_HOST"] != "" {
+		t.Fatalf("spec = %+v, want no Docker grant", spec)
+	}
+	if spec.PrivateHome != nil {
+		t.Fatalf("spec.PrivateHome = %v, want nil (the adapter's private default)", spec.PrivateHome)
+	}
+}
+
+// DevKit's data directory is hidden from every session, shared home or not.
+func TestCreateSessionHidesProtectedPaths(t *testing.T) {
+	svc, mock, _ := newIdentityService(t)
+	svc.ProtectedPaths = func() []string { return []string{"/home/a/.config/DevKit/devkit.db"} }
+	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {
+		t.Fatal(err)
+	}
+	if spec := mock.LastSpec(); !slices.Contains(spec.DenyReadPaths, "/home/a/.config/DevKit/devkit.db") {
+		t.Fatalf("spec.DenyReadPaths = %v", spec.DenyReadPaths)
+	}
+}
+
+// A build that never wires SandboxExtras (nil — tests) keeps the adapter's
+// own jail: no Docker, private home.
 func TestCreateSessionWithNoSandboxExtrasConfiguredIsUnchanged(t *testing.T) {
 	svc, mock, _ := newIdentityService(t)
 	if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)}); err != nil {

@@ -136,6 +136,15 @@ func (p Policy) EffectivePrivateHome() bool {
 	return p.PrivateHome == nil || *p.PrivateHome
 }
 
+// sharedHome is the home a backend grants whole when PrivateHome is off, or
+// "" when home is private (or cannot be named).
+func (p Policy) sharedHome() string {
+	if p.EffectivePrivateHome() {
+		return ""
+	}
+	return p.policyHomeDir()
+}
+
 func (p Policy) withDefaults() Policy {
 	if p.Network == "" {
 		p.Network = NetworkNone
@@ -152,7 +161,7 @@ func (p Policy) validateBindPaths() error {
 	if err := validateBindPath(p.WorkDir, denyPaths); err != nil {
 		return err
 	}
-	for _, path := range append(append(append([]string{}, p.ReadWritePaths...), p.ReadOnlyPaths...), p.AllowUnixSockets...) {
+	for _, path := range append(append([]string{}, p.ReadWritePaths...), p.ReadOnlyPaths...) {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
@@ -160,6 +169,24 @@ func (p Policy) validateBindPaths() error {
 			continue
 		}
 		if err := validateBindPath(path, denyPaths); err != nil {
+			return err
+		}
+	}
+	// A socket is checked against the built-in deny list only, not the
+	// caller's DenyReadPaths. The caller hides a directory and hands back
+	// the one socket in it the process may use — Agent Hub hides DevKit's
+	// data directory and grants the session's own MCP socket inside it. That
+	// is a hole the caller punched on purpose, and both backends honour it:
+	// bwrap binds sockets after the deny mounts, and Seatbelt's connect right
+	// is a network rule the file deny does not cover.
+	builtin := p
+	builtin.DenyReadPaths = nil
+	builtinDeny := builtin.resolvedEffectiveDenyRead()
+	for _, path := range p.AllowUnixSockets {
+		if strings.TrimSpace(path) == "" || !pathExists(path) {
+			continue
+		}
+		if err := validateBindPath(path, builtinDeny); err != nil {
 			return err
 		}
 	}
@@ -261,7 +288,11 @@ func expandHome(home, path string) string {
 	return path
 }
 
-func withPrivateHomeEnv(p Policy, env map[string]string) map[string]string {
+// withHomeEnv sets HOME to the policy's home and TMPDIR to /tmp unless the
+// caller set one. Both backends clear the environment down to Policy.Env, so
+// without it a jail has no HOME at all — private or shared, every CLI that
+// looks for its config under ~ would look nowhere.
+func withHomeEnv(p Policy, env map[string]string) map[string]string {
 	out := make(map[string]string, len(env)+2)
 	for key, value := range env {
 		out[key] = value

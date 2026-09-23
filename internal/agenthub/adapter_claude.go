@@ -168,8 +168,9 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
 		AllowKeychain:    true,
 		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
-		// nil keeps sandbox.Policy's own default (private home on); set only
-		// when the user opted into AgentSandboxSettings.RelaxedHome.
+		DenyReadPaths:    append([]string(nil), spec.DenyReadPaths...),
+		// nil keeps sandbox.Policy's own default (private home on); false
+		// when AgentSandboxSettings.ShareHome is on, which is its default.
 		PrivateHome: spec.PrivateHome,
 	}
 	return pol, sandbox.Cmd{Path: l.path, Args: l.args}

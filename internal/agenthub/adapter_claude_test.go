@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 
 	"devkit/internal/acp"
 	"os/exec"
@@ -236,7 +237,7 @@ func TestClaudeSandboxPolicyCarriesSpec(t *testing.T) {
 	}
 }
 
-// OpenSpec.PrivateHome, set by applySandboxExtras from RelaxedHome, must
+// OpenSpec.PrivateHome, set by applySandboxExtras from ShareHome, must
 // reach sandbox.Policy.PrivateHome unchanged — nil leaves the adapter's own
 // default (private home on), a pointer to false turns it off.
 func TestClaudeSandboxPolicyCarriesPrivateHome(t *testing.T) {
@@ -255,8 +256,9 @@ func TestClaudeSandboxPolicyCarriesPrivateHome(t *testing.T) {
 		t.Fatalf("pol.PrivateHome = %v, want nil when the spec carries none", pol.PrivateHome)
 	}
 
-	relaxed := false
-	pol, _, err = a.buildSandbox(OpenSpec{Cwd: proj, PrivateHome: &relaxed})
+	shared := false
+	hidden := filepath.Join(t.TempDir(), "devkit.db")
+	pol, _, err = a.buildSandbox(OpenSpec{Cwd: proj, PrivateHome: &shared, DenyReadPaths: []string{hidden}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +266,10 @@ func TestClaudeSandboxPolicyCarriesPrivateHome(t *testing.T) {
 		t.Fatalf("pol.PrivateHome = %v, want a pointer to false", pol.PrivateHome)
 	}
 	if pol.EffectivePrivateHome() {
-		t.Fatal("EffectivePrivateHome() = true, want false with RelaxedHome carried through")
+		t.Fatal("EffectivePrivateHome() = true, want false with ShareHome carried through")
+	}
+	if !slices.Contains(pol.DenyReadPaths, hidden) {
+		t.Fatalf("pol.DenyReadPaths = %v, want the spec's protected path", pol.DenyReadPaths)
 	}
 }
 

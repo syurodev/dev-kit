@@ -107,6 +107,10 @@ go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteW
 - Fail closed if `bwrap` missing / unsupported GOOS (`ErrUnavailable` / `ErrUnsupportedPlatform`).
 - Private home default: tmpfs on home + forced `HOME`/`TMPDIR`; WorkDir under `$HOME` is re-bound after tmpfs.
 - Default denies host `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`; symlink binds into deny → `ErrInvalidPolicy`.
+- **Agent Hub asks for more by default**: the real `$HOME` (`ShareHome`) and the Docker
+  socket found via DOCKER_HOST / current docker context / OrbStack / Docker Desktop
+  (`AllowDocker`, `agenthub.DetectDocker`). DevKit's data dir (except `runtimes/`) is always
+  hidden (`agenthub.ProtectDataDir`). Settings → Agents → Sandbox turns either off.
 - Product docs: `syurodev/base` → `/dev-kit/sandbox` (ADR-009).
 
 ### Linux desktop (GTK4 / WebKitGTK)

@@ -159,3 +159,34 @@ func TestSeatbeltProfileDenyIsResolvedToo(t *testing.T) {
 		}
 	}
 }
+
+// A shared home is granted whole, read-write, and the built-in deny list is
+// still emitted after it so ~/.ssh stays out. Private, home is not granted —
+// but /tmp is either way.
+func TestSeatbeltProfileSharedHome(t *testing.T) {
+	off := false
+	prof := buildSeatbeltProfile(Policy{
+		WorkDir:     "/tmp/proj",
+		Env:         map[string]string{"HOME": "/Users/alice"},
+		PrivateHome: &off,
+	}.withDefaults())
+	grant := strings.Index(prof, `(subpath "/Users/alice")`)
+	deny := strings.Index(prof, "(deny file-read* file-write*")
+	if grant < 0 {
+		t.Fatalf("expected the shared home to be granted: %s", prof)
+	}
+	if deny < grant || !strings.Contains(prof[deny:], "/Users/alice/.ssh") {
+		t.Fatalf("expected ~/.ssh denied after the home grant: %s", prof)
+	}
+	if !strings.Contains(prof, `(subpath "/private/tmp")`) {
+		t.Fatalf("expected /tmp with a shared home: %s", prof)
+	}
+
+	private := buildSeatbeltProfile(Policy{
+		WorkDir: "/tmp/proj",
+		Env:     map[string]string{"HOME": "/Users/alice"},
+	}.withDefaults())
+	if strings.Contains(private, `(subpath "/Users/alice")`) {
+		t.Fatalf("a private home must not be granted: %s", private)
+	}
+}

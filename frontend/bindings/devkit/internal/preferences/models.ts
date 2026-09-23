@@ -38,54 +38,59 @@ export interface AgentCheckpointSettings {
 }
 
 /**
- * AgentSandboxSettings widens the jail Agent Hub's vendor processes run under,
- * beyond what a session grants on its own (the devkit-mcp socket, the vendor's
- * own credential paths). All three fields are opt-in escapes from the
- * default-deny policy documented in docs/dev-kit/sandbox.mdx, so the zero
- * value — off, empty — must leave the jail exactly as restrictive as it is
- * today.
- *
- * The two path fields are not validated against the filesystem here: a path
- * that does not exist yet (a Docker socket before the daemon starts) is not a
+ * AgentSandboxSettings shapes the jail Agent Hub's vendor processes run
+ * under, beyond what a session grants on its own (the devkit-mcp socket, the
+ * vendor's own credential paths).
+ * 
+ * The default is a jail a developer can work in: the real $HOME, so ~/.docker,
+ * ~/.kube, ~/.npmrc, gh's config and the rest of what a CLI reads from home
+ * are there, and the Docker socket, found on its own. The two switches are
+ * pointers so that unset — a machine that never opened Settings, or a value
+ * written before the field existed — reads as on.
+ * 
+ * What is NOT configurable here is what stays hidden whatever these say:
+ * sandbox.Policy's deny list (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud) and
+ * DevKit's own data directory (the vault database, other sessions' sockets),
+ * which Agent Hub adds on top. A path resolving under the deny list is
+ * rejected at session-open time, not accepted here and silently dropped later.
+ * 
+ * The path fields are not validated against the filesystem here: a path that
+ * does not exist yet (a Docker socket before the daemon starts) is not a
  * typo, and sandbox.Policy already skips binds for paths that are not there.
- * What IS still enforced, unconditionally and regardless of RelaxedHome, is
- * sandbox.Policy's own deny list (~/.ssh, ~/.gnupg, ~/.aws,
- * ~/.config/gcloud): a path resolving under one of those is rejected at
- * session-open time, not accepted here and silently dropped later.
  */
 export interface AgentSandboxSettings {
     /**
-     * DockerSocketPath is a unix socket the jail may connect to — typically
-     * /var/run/docker.sock — granted the same way the per-session devkit-mcp
-     * socket is (an exact literal path, never a wildcard). Empty means the
-     * jail cannot reach Docker, which is the default: an unfiltered
-     * network-outbound grant reaches every unix socket on the host, not just
-     * Docker's, which is exactly what AllowUnixSockets exists to avoid.
+     * ShareHome lets a session see the real $HOME, read-write, instead of an
+     * empty tmpfs (sandbox.Policy.PrivateHome). Nil means on. Off, a session
+     * sees the project, the agent's own credentials and what is listed below,
+     * nothing else of home — for a machine whose home holds things no agent
+     * should read. (Was RelaxedHome, opt-in; a stored relaxedHome is ignored,
+     * since on is now what unset means.)
+     */
+    "shareHome"?: boolean | null;
+
+    /**
+     * AllowDocker binds the Docker socket into the jail and points
+     * DOCKER_HOST at it. Nil means on: agents build images, run compose and
+     * read container logs as a matter of course. It is a real grant — the
+     * socket is root on the host, in practice — which is why it is one switch
+     * away rather than buried.
+     */
+    "allowDocker"?: boolean | null;
+
+    /**
+     * DockerSocketPath overrides where the Docker socket is. Empty means
+     * found at session open (agenthub.DetectDocker). Only a unix socket,
+     * granted by its exact path, never a general grant on unix sockets.
      */
     "dockerSocketPath"?: string;
 
     /**
-     * ExtraReadOnlyPaths are additional directories or files, outside the
-     * project's own WorkDir, that every agent session may read. Use for a
-     * shared library or a monorepo sibling the agent legitimately needs to
-     * see — not a substitute for widening WorkDir itself.
+     * ExtraReadOnlyPaths are additional directories or files outside the
+     * project that every agent session may read — a shared library under
+     * /opt, say. Under a shared $HOME they are readable already.
      */
     "extraReadOnlyPaths"?: string[] | null;
-
-    /**
-     * RelaxedHome turns off the jail's private HOME (sandbox.Policy.PrivateHome)
-     * so a session sees the real $HOME instead of an empty tmpfs, for whatever
-     * under it the two fields above were not asked to enumerate one path at a
-     * time (Docker's ~/.docker/config.json needed its own DOCKER_HOST workaround
-     * above; the next tool that reads a home-rooted config would need its own
-     * fix again). It does NOT touch sandbox.Policy's own deny list: ~/.ssh,
-     * ~/.gnupg, ~/.aws and ~/.config/gcloud stay hidden by a kernel-level
-     * tmpfs/null-bind (EffectiveDenyRead), same as with PrivateHome on, and a
-     * path resolving under one of those is still rejected at session-open time
-     * regardless of this flag. False (off) by default: the jail keeps hiding
-     * all of $HOME except what a session explicitly grants.
-     */
-    "relaxedHome"?: boolean;
 }
 
 export enum Theme {

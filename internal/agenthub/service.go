@@ -77,36 +77,97 @@ func sessionOpenSpec(sess AgentSession) OpenSpec {
 	}
 }
 
-// applySandboxExtras widens spec with the user's opt-in jail grants, if any
-// are configured. Called at every place an OpenSpec is built — CreateSession,
-// the two resume paths, and rewind — so a resumed or forked session runs
-// under the same widened jail an open would give it, not a narrower one that
-// happens to be easier to reach from that call site.
+// applySandboxExtras shapes spec by the user's sandbox settings: the real
+// $HOME and Docker by default, extra read-only paths, and DevKit's own data
+// directory hidden whatever else is shared. Called at every place an
+// OpenSpec is built — CreateSession, the two resume paths, and rewind — so a
+// resumed or forked session runs under the same jail an open would give it,
+// not a narrower one that happens to be easier to reach from that call site.
 func (s *Service) applySandboxExtras(spec *OpenSpec) {
+	if s.ProtectedPaths != nil {
+		spec.DenyReadPaths = append(spec.DenyReadPaths, s.ProtectedPaths()...)
+	}
 	if s.SandboxExtras == nil {
 		return
 	}
 	extras := s.SandboxExtras()
-	if extras.DockerSocketPath != "" {
-		spec.AllowUnixSockets = append(spec.AllowUnixSockets, extras.DockerSocketPath)
-		// The bind alone is not enough: the jail's private HOME hides the
-		// host's ~/.docker, so a docker CLI inside it has no context config
-		// pointing at this socket and falls back to its own compiled-in
-		// default (/var/run/docker.sock), which is not there unless that
-		// happens to be the configured path. DOCKER_HOST bypasses context
-		// resolution entirely and works for any path.
-		if spec.ExtraEnv == nil {
-			spec.ExtraEnv = map[string]string{}
-		}
-		spec.ExtraEnv["DOCKER_HOST"] = "unix://" + extras.DockerSocketPath
+	if extras.DockerAllowed() {
+		s.applyDocker(spec, extras.DockerSocketPath)
 	}
 	if len(extras.ExtraReadOnlyPaths) > 0 {
 		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, extras.ExtraReadOnlyPaths...)
 	}
-	if extras.RelaxedHome {
-		relaxed := false
-		spec.PrivateHome = &relaxed
+	if extras.HomeShared() {
+		shared := false
+		spec.PrivateHome = &shared
 	}
+}
+
+// applyDocker grants the Docker daemon's socket and whatever the CLI needs to
+// run. override is the socket path from Settings; empty means found.
+func (s *Service) applyDocker(spec *OpenSpec, override string) {
+	detect := s.DetectDocker
+	if detect == nil {
+		detect = func() DockerGrant {
+			home, _ := os.UserHomeDir()
+			return DetectDocker(home, os.Getenv)
+		}
+	}
+	grant := detect()
+	socket := grant.Socket
+	if override != "" {
+		// Resolved like a found one: Seatbelt matches the path the kernel
+		// connects to, and Docker Desktop's /var/run/docker.sock is a
+		// symlink into ~/.docker.
+		socket = override
+		if resolved, err := filepath.EvalSymlinks(override); err == nil {
+			socket = resolved
+		}
+	}
+	if spec.ExtraEnv == nil {
+		spec.ExtraEnv = map[string]string{}
+	}
+	if socket != "" {
+		spec.AllowUnixSockets = append(spec.AllowUnixSockets, socket)
+		// DOCKER_HOST, not the context the CLI would otherwise resolve: it
+		// names the socket just granted, whatever ~/.docker says and whether
+		// or not home is shared.
+		spec.ExtraEnv["DOCKER_HOST"] = "unix://" + socket
+	}
+	spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, grant.ReadOnly...)
+	base := os.Getenv("PATH")
+	if base == "" {
+		base = "/usr/local/bin:/usr/bin:/bin" // claudeEnvAllowlist's fallback
+	}
+	if path := pathWith(base, grant.PathDirs); path != "" {
+		spec.ExtraEnv["PATH"] = path
+	}
+}
+
+// pathWith is base with dirs appended that it lacks, or "" when it lacks
+// none. Appended, not prepended: the user's own order still decides which
+// of two `docker`s runs.
+func pathWith(base string, dirs []string) string {
+	have := map[string]bool{}
+	for _, dir := range filepath.SplitList(base) {
+		have[dir] = true
+	}
+	parts := []string{}
+	if base != "" {
+		parts = append(parts, base)
+	}
+	added := false
+	for _, dir := range dirs {
+		if !have[dir] {
+			parts = append(parts, dir)
+			have[dir] = true
+			added = true
+		}
+	}
+	if !added {
+		return ""
+	}
+	return strings.Join(parts, string(os.PathListSeparator))
 }
 
 // InvokeInput is a blocking prompt against an existing hub session.
@@ -190,13 +251,20 @@ type Service struct {
 	PermissionTimeout         time.Duration // 0 = no deadline: wait for the user
 	// MCPEndpoints opens the per-session MCP socket before the vendor spawns.
 	MCPEndpoints MCPEndpoints
-	// SandboxExtras reads the user's opt-in widening of the vendor jail — an
-	// extra unix socket (Docker) and extra read-only directories — beyond what
-	// a session grants on its own. Read fresh on every spawn, resume and fork,
-	// so a change in Settings applies to the next session without a restart.
-	// nil (the default wiring for tests and any build that never sets it up)
-	// behaves exactly like the zero value: no widening at all.
+	// SandboxExtras reads the user's sandbox settings — shared $HOME, Docker,
+	// extra read-only directories — beyond what a session grants on its own.
+	// Read fresh on every spawn, resume and fork, so a change in Settings
+	// applies to the next session without a restart. nil (the default wiring
+	// for tests) leaves the adapter's own jail: private home, no Docker.
 	SandboxExtras func() preferences.AgentSandboxSettings
+	// ProtectedPaths lists what is hidden from every session whatever
+	// SandboxExtras shares — DevKit's data directory (ProtectDataDir). A
+	// function, read on every spawn, because the directory's contents are
+	// what gets listed and they change. main.go sets it.
+	ProtectedPaths func() []string
+	// DetectDocker finds the Docker daemon and CLI; nil means DetectDocker on
+	// the host's $HOME and environment. A seam for tests.
+	DetectDocker func() DockerGrant
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
 	// OnTurnFinished fires after the turn's final transcript flush, including
