@@ -355,13 +355,18 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 	return nil
 }
 
+// NoteFolderColors are the only colors a note or a folder may carry: palette
+// names the UI maps to theme tokens, never a raw hex value — a hex picked on
+// one theme is unreadable on the other.
+var NoteFolderColors = []string{"red", "orange", "yellow", "green", "teal", "blue", "violet", "pink", "gray"}
+
 func ValidNoteFolderColor(color string) bool {
-	switch color {
-	case "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink", "gray":
-		return true
-	default:
-		return false
+	for _, c := range NoteFolderColors {
+		if color == c {
+			return true
+		}
 	}
+	return false
 }
 
 func decodeMetadataObject(metadata json.RawMessage, destination any) error {

@@ -1,6 +1,10 @@
 package notes
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestCreateAndListFolder(t *testing.T) {
 	s := newService(t)
@@ -68,5 +72,26 @@ func TestEmptyFolderAllowed(t *testing.T) {
 	s := newService(t)
 	if _, err := s.CreateFolder("Empty", "gray", nil); err != nil {
 		t.Fatalf("CreateFolder: %v", err)
+	}
+}
+
+// A hex value — what an agent reaches for first — is refused as a named,
+// correctable validation error that lists the palette, and a name written
+// with other casing or spacing is accepted as that name.
+func TestFolderColorIsAPaletteName(t *testing.T) {
+	s := newService(t)
+	_, err := s.CreateFolder("Work", "#3b82f6", nil)
+	if !errors.Is(err, ErrInvalidColor) {
+		t.Fatalf("err = %v, want ErrInvalidColor", err)
+	}
+	if !strings.Contains(err.Error(), `"#3b82f6"`) || !strings.Contains(err.Error(), "blue") {
+		t.Fatalf("message %q should name the value given and the accepted ones", err.Error())
+	}
+	folder, err := s.CreateFolder("Work", " Blue ", nil)
+	if err != nil || folder.Color != "blue" {
+		t.Fatalf("CreateFolder(\" Blue \") = %+v, %v; want color blue", folder, err)
+	}
+	if _, err := s.UpdateFolder(folder.ID, "Work", "", nil); !errors.Is(err, ErrInvalidColor) {
+		t.Fatalf("UpdateFolder with no color: err = %v, want ErrInvalidColor (a folder must have one)", err)
 	}
 }

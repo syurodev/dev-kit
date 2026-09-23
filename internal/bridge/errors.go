@@ -18,6 +18,7 @@ import (
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
+	"devkit/internal/notes"
 	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
@@ -121,6 +122,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, environments.ErrTagLocked) {
 		return apperrors.New(codeValidationFailed, "environment tag is locked", true)
+	}
+	// Notes input an agent gets wrong over MCP as often as a person does in
+	// the UI. The message names what was given and what is accepted; as
+	// internal_error it said only that DevKit broke, which it had not.
+	if errors.Is(err, notes.ErrInvalidColor) || errors.Is(err, notes.ErrTagTooLong) || errors.Is(err, notes.ErrTooManyTags) {
+		return apperrors.New(codeValidationFailed, err.Error(), true)
 	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)

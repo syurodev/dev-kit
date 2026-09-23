@@ -3,6 +3,7 @@ package notes
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,29 @@ import (
 )
 
 const folderKeyID = "note-folder"
+
+// ErrInvalidColor is a color outside vaultitem.NoteFolderColors. The wrapped
+// message names the value given and the ones accepted, so a caller — an
+// agent over MCP most of all — can correct itself instead of retrying blind.
+var ErrInvalidColor = errors.New("invalid color")
+
+// normalizeColor trims and lower-cases color ("Blue " is blue) and checks it
+// against the palette. optional lets "" through as "no color of its own"
+// (a note inheriting its folder's); a folder must have one.
+func normalizeColor(color string, optional bool) (string, error) {
+	color = strings.ToLower(strings.TrimSpace(color))
+	if color == "" && optional {
+		return "", nil
+	}
+	if !vaultitem.ValidNoteFolderColor(color) {
+		shown := color
+		if shown == "" {
+			shown = "(empty)"
+		}
+		return "", fmt.Errorf("%w %q: use one of %s", ErrInvalidColor, shown, strings.Join(vaultitem.NoteFolderColors, ", "))
+	}
+	return color, nil
+}
 
 type folderMetadata struct {
 	Name  string   `json:"name"`
@@ -33,8 +57,9 @@ func (s *Service) CreateFolder(name, color string, tags []string) (Folder, error
 	if name == "" {
 		return Folder{}, errors.New("name is required")
 	}
-	if !vaultitem.ValidNoteFolderColor(color) {
-		return Folder{}, errors.New("invalid folder color")
+	color, err := normalizeColor(color, false)
+	if err != nil {
+		return Folder{}, err
 	}
 	normalized, err := NormalizeTags(tags)
 	if err != nil {
@@ -75,8 +100,9 @@ func (s *Service) UpdateFolder(id, name, color string, tags []string) (Folder, e
 	if name == "" {
 		return Folder{}, errors.New("name is required")
 	}
-	if !vaultitem.ValidNoteFolderColor(color) {
-		return Folder{}, errors.New("invalid folder color")
+	color, err := normalizeColor(color, false)
+	if err != nil {
+		return Folder{}, err
 	}
 	normalized, err := NormalizeTags(tags)
 	if err != nil {
