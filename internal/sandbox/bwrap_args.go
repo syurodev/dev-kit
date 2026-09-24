@@ -125,6 +125,17 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 			binds = append(binds, bwrapBind{"--ro-bind", path})
 		}
 	}
+	home := p.policyHomeDir()
+	privateHome := p.EffectivePrivateHome() && home != ""
+	fixed := append([]string{"/tmp", "/dev", "/proc"}, bwrapSystemReadOnlyPaths...)
+	if target, err := filepath.EvalSymlinks(resolvConfPath); err == nil {
+		fixed = append(fixed, target)
+	}
+	binds = pinDenyWriteAncestors(binds, p.DenyWritePaths, fixed, func(dir string) bool {
+		// A private home is its own tmpfs below; what sits in it is pinned
+		// there, against the binds that survive it.
+		return privateHome && pathIsContainedIn(dir, home)
+	})
 	appendNestedBinds(&args, binds)
 
 	denyPaths := p.EffectiveDenyRead()
@@ -132,8 +143,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		appendDenyReadMount(&args, path)
 	}
 
-	home := p.policyHomeDir()
-	if p.EffectivePrivateHome() && home != "" {
+	if privateHome {
 		args = append(args, "--tmpfs", home)
 		var homeBinds []bwrapBind
 		if pathExists(p.WorkDir) && pathIsContainedIn(p.WorkDir, home) && !pathIsDenied(p.WorkDir, denyPaths) {
@@ -142,6 +152,9 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadWritePaths, "--bind")
 		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
 		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.DenyWritePaths, "--ro-bind")
+		homeBinds = pinDenyWriteAncestors(homeBinds, p.DenyWritePaths, nil, func(dir string) bool {
+			return !pathIsUnder(dir, home) // home itself is the tmpfs, already a mount
+		})
 		appendNestedBinds(&args, homeBinds)
 	}
 
@@ -179,10 +192,62 @@ func appendHomeAllowlist(binds []bwrapBind, home string, denyPaths []string, pat
 	return binds
 }
 
-// bwrapBind is one --bind / --ro-bind of a path onto itself.
+// bwrapBind is one --bind / --ro-bind of a path onto itself, or a --tmpfs
+// at path.
 type bwrapBind struct {
 	flag string
 	path string
+}
+
+// pinDenyWriteAncestors makes every directory above a deny-write path a
+// mount point, because rename(2) refuses to move a mount point (EBUSY) and
+// nothing else stops it. The read-only bind on the path itself does not:
+// renaming any directory above it moves the mount along, and the agent
+// builds a writable tree at the old path — measured, `mv agent-homes x`
+// under a shared home renamed the host's directory and let the jail rewrite
+// config.toml. A directory inside a bind is bound onto itself with that
+// bind's mode, so its contents do not change; one bwrap made up to hold a
+// mount point is covered by an empty tmpfs, which is what it held anyway.
+//
+// A directory that is, or holds, one of the fixed mounts (the system
+// read-only paths, /tmp, /dev, /proc) is skipped: a tmpfs there would bury
+// them, and they are mounts or read-only already. skip covers the directories
+// another phase pins. appendNestedBinds orders the pins by depth, so each
+// lands after the bind it sits in and before anything mounted inside it.
+func pinDenyWriteAncestors(binds []bwrapBind, denyWrite, fixed []string, skip func(dir string) bool) []bwrapBind {
+	mounted := make(map[string]bool, len(binds))
+	for _, b := range binds {
+		mounted[b.path] = true
+	}
+	for _, path := range denyWrite {
+		if !pathExists(path) {
+			continue
+		}
+		for dir := filepath.Dir(path); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+			if mounted[dir] || skip(dir) || holdsFixedMount(dir, fixed) {
+				continue
+			}
+			pin := bwrapBind{"--tmpfs", dir}
+			depth := -1
+			for _, b := range binds {
+				if b.flag != "--tmpfs" && pathIsUnder(dir, b.path) && pathDepth(b.path) > depth {
+					pin.flag, depth = b.flag, pathDepth(b.path)
+				}
+			}
+			binds = append(binds, pin)
+			mounted[dir] = true
+		}
+	}
+	return binds
+}
+
+func holdsFixedMount(dir string, fixed []string) bool {
+	for _, mount := range fixed {
+		if pathIsContainedIn(mount, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // appendNestedBinds emits binds shallowest path first, so a bind inside
@@ -204,6 +269,10 @@ func appendNestedBinds(args *[]string, binds []bwrapBind) {
 		return pathDepth(binds[i].path) < pathDepth(binds[j].path)
 	})
 	for _, b := range binds {
+		if b.flag == "--tmpfs" {
+			*args = append(*args, b.flag, b.path)
+			continue
+		}
 		*args = append(*args, b.flag, b.path, b.path)
 	}
 }

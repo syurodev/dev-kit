@@ -139,10 +139,6 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString("(allow network-outbound (literal \"" + escapeSBPL(resolveDenyPath(sock)) + "\"))\n")
 	}
 
-	// Deny both operation classes: SBPL evaluates them independently, so a
-	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
-	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
-	// appendable). Emitted last because the later matching rule wins.
 	// Deny-write after every allow: SBPL's later matching rule wins, so these
 	// stay read-only inside WorkDir, a RW path or a shared home.
 	if len(p.DenyWritePaths) > 0 {
@@ -153,6 +149,10 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString(")\n")
 	}
 
+	// Deny both operation classes: SBPL evaluates them independently, so a
+	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
+	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
+	// appendable). Emitted last because the later matching rule wins.
 	denyPaths := p.EffectiveDenyRead()
 	if len(denyPaths) > 0 {
 		b.WriteString("(deny file-read* file-write*\n")
@@ -165,8 +165,14 @@ func buildSeatbeltProfile(p Policy) string {
 	// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
 	// (verified live). Deny rename/unlink of every ancestor directory, the
 	// same rule Codex uses for its protected paths — for deny-write paths as
-	// much as deny-read ones.
-	protected := append(append([]string(nil), denyPaths...), p.DenyWritePaths...)
+	// much as deny-read ones. In both spellings: Seatbelt checks the
+	// resolved path, so ancestors spelled through a symlink (/tmp for
+	// /private/tmp, a relocated home) match nothing, and `mv codex codex2`
+	// then succeeded and left codex2/config.toml writable (verified live).
+	var protected []string
+	for _, path := range append(append([]string(nil), denyPaths...), p.DenyWritePaths...) {
+		protected = append(protected, normalizePath(path), resolveThroughParents(path))
+	}
 	for _, dir := range pathAncestors(protected) {
 		b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
 	}
@@ -199,6 +205,27 @@ func (p Policy) grantedPaths() []string {
 		add(path)
 	}
 	return out
+}
+
+// resolveThroughParents is resolveDenyPath for a path that may not exist
+// yet: the deepest ancestor that does exist is resolved and the rest is
+// appended as spelled, so a deny path whose parent sits behind a symlink
+// still yields the ancestors the kernel will actually see.
+func resolveThroughParents(path string) string {
+	path = normalizePath(path)
+	if path == "" {
+		return ""
+	}
+	rest := ""
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		if dir == filepath.Dir(dir) {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
 }
 
 // pathAncestors returns every ancestor directory of the given paths,

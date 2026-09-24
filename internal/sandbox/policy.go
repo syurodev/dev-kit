@@ -26,12 +26,23 @@ type Policy struct {
 	ReadWritePaths []string // extra RW beyond WorkDir
 	DenyReadPaths  []string // added on top of defaults
 	// DenyWritePaths are never writable, even inside WorkDir, a
-	// ReadWritePaths entry or a shared home. They stay readable only when
-	// another grant covers them. For the files and directories that steer a
-	// vendor's own policy from inside a home DevKit hands it read-write —
-	// Codex reads approval rules and config from $CODEX_HOME. A path that
-	// does not exist is skipped on Linux (bwrap binds only what exists), so
-	// the caller creates it first.
+	// ReadWritePaths entry or a shared home. For the files and directories
+	// that steer a vendor's own policy from inside a home DevKit hands it
+	// read-write — Codex reads approval rules and config from $CODEX_HOME.
+	//
+	// Each one must be a clean absolute path that already exists and is not
+	// a symlink; Validate refuses anything else. bwrap can only bind what
+	// exists, and a path skipped there would be one the agent may create —
+	// an AGENTS.override.md planted for every later session — while Seatbelt
+	// denied it: the two backends must not disagree about a policy file.
+	// They are leaves: no WorkDir or ReadWritePaths entry may sit inside one
+	// (bwrap would bind it writable on top, Seatbelt's later deny would not).
+	// Meant for paths inside a grant; on Linux one outside every grant is
+	// still bound, read-only, so it is readable there.
+	//
+	// Both backends also stop the jail from renaming any directory above
+	// one, which would otherwise move the protected path aside and let the
+	// agent build a writable one in its place.
 	DenyWritePaths []string
 	// AllowUnixSockets are unix socket paths the process may connect to —
 	// the session's identity-bound DevKit MCP endpoint. Everything else stays
@@ -68,10 +79,8 @@ func (p Policy) Validate() error {
 			return ErrInvalidPolicy
 		}
 	}
-	for _, path := range p.DenyWritePaths {
-		if !filepath.IsAbs(path) {
-			return ErrInvalidPolicy
-		}
+	if err := p.validateDenyWritePaths(); err != nil {
+		return err
 	}
 	if err := p.validateBindPaths(); err != nil {
 		return err
@@ -201,6 +210,25 @@ func (p Policy) validateBindPaths() error {
 		}
 		if err := validateBindPath(path, builtinDeny); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (p Policy) validateDenyWritePaths() error {
+	grants := append([]string{p.WorkDir}, p.ReadWritePaths...)
+	for _, path := range p.DenyWritePaths {
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return ErrInvalidPolicy
+		}
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return ErrInvalidPolicy
+		}
+		for _, grant := range grants {
+			if grant != "" && pathIsContainedIn(normalizePath(grant), path) {
+				return ErrInvalidPolicy
+			}
 		}
 	}
 	return nil
