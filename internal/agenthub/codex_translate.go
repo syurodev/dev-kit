@@ -29,8 +29,11 @@ type codexUpdate struct {
 // approval for it reuses its title and content, and an interrupted turn
 // closes it (Phase 0: Codex never completes an item it interrupts).
 type codexOpenItem struct {
-	Title     string
-	Kind      string
+	Title string
+	Kind  string
+	// McpServer is the server of an mcpToolCall item, so an approval for it —
+	// which names the server but not the item — can find the card it is about.
+	McpServer string
 	Content   []ToolCallContent
 	Locations []ToolCallLocation
 	RawInput  json.RawMessage
@@ -140,6 +143,28 @@ func (t *codexTranslator) setThread(id string) {
 	t.threadID = id
 }
 
+// openMcpCall returns the one open MCP tool call on server, or ok=false when
+// there is none or more than one — two calls in flight on the same server
+// cannot be told apart by an approval that names only the server.
+func (t *codexTranslator) openMcpCall(server string) (string, codexOpenItem, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var id string
+	for _, candidate := range t.openOrder {
+		if t.open[candidate].McpServer != server {
+			continue
+		}
+		if id != "" {
+			return "", codexOpenItem{}, false
+		}
+		id = candidate
+	}
+	if id == "" {
+		return "", codexOpenItem{}, false
+	}
+	return id, t.open[id], true
+}
+
 // openItem returns what the translator knows of an in-progress item. Called
 // from approvalFor's caller, on a different goroutine than Translate's own —
 // see the type doc.
@@ -245,7 +270,7 @@ func codexToolItem(itemType string, item json.RawMessage) (codexOpenItem, bool) 
 		if json.Unmarshal(item, &m) != nil {
 			return codexOpenItem{}, false
 		}
-		return codexOpenItem{Title: m.Server + "." + m.Tool, Kind: "other", RawInput: m.Arguments}, true
+		return codexOpenItem{Title: m.Server + "." + m.Tool, Kind: "other", McpServer: m.Server, RawInput: m.Arguments}, true
 	case codexapp.ItemWebSearch:
 		var w codexapp.WebSearchItem
 		if json.Unmarshal(item, &w) != nil {

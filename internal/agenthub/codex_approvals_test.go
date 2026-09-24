@@ -229,3 +229,107 @@ func TestCodexOtherRequestsAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// mcpApprovalRequest is an mcpServer/elicitation/request shaped the way
+// codex-rs 0.147.0 builds a tool-call approval (mcp_tool_call.rs,
+// build_mcp_tool_approval_elicitation_meta).
+func mcpApprovalRequest(server string, persist any) json.RawMessage {
+	meta := map[string]any{
+		"codex_approval_kind": "mcp_tool_call",
+		"tool_title":          "Run a query",
+		"tool_params":         map[string]any{"sql": "select 1"},
+	}
+	if persist != nil {
+		meta["persist"] = persist
+	}
+	return marshalUpdate(map[string]any{
+		"threadId": "th-1", "turnId": "tu-1", "serverName": server, "mode": "form",
+		"_meta": meta, "message": "Allow devkit to run db.query?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})
+}
+
+func elicitAnswer(t *testing.T, body json.RawMessage) codexapp.McpElicitationResponse {
+	t.Helper()
+	var r codexapp.McpElicitationResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// Codex asks before an MCP tool runs under Ask and Auto; the person answers
+// on a card, and the answer goes back in MCP's elicitation shape. "Always"
+// is never offered: Codex would write it into config.toml as a rule.
+func TestCodexMcpToolApprovalBecomesACard(t *testing.T) {
+	tr := newCodexTranslator()
+	a, ok := tr.mcpToolApprovalFor("sess-1", "7", mcpApprovalRequest("devkit", []string{"session", "always"}))
+	if !ok {
+		t.Fatal("a tool-call approval must become a card")
+	}
+	p := decodePermission(t, a.Params)
+	var ids []string
+	for _, o := range p.options {
+		ids = append(ids, o.OptionID)
+	}
+	if strings.Join(ids, ",") != codexOptionAllow+","+codexOptionAllowSession+","+codexOptionDeny {
+		t.Fatalf("options = %v, want allow, allow for session, deny", ids)
+	}
+	if p.toolCall.ToolCallID != "mcp-approval-7" || p.toolCall.Title != "Run a query" {
+		t.Fatalf("toolCall = %+v", p.toolCall)
+	}
+
+	for option, want := range map[string]struct{ action, meta string }{
+		codexOptionAllow:        {"accept", "null"},
+		codexOptionAllowSession: {"accept", `{"persist":"session"}`},
+		codexOptionDeny:         {"decline", "null"},
+		"always":                {"cancel", "null"},
+	} {
+		got := elicitAnswer(t, a.Response(selected(option)))
+		if got.Action != want.action || string(got.Meta) != want.meta {
+			t.Errorf("%s → action %q meta %s, want %q %s", option, got.Action, got.Meta, want.action, want.meta)
+		}
+	}
+	if got := elicitAnswer(t, a.Response(nil)); got.Action != "cancel" {
+		t.Fatalf("no answer → %q, want cancel", got.Action)
+	}
+	if body := string(a.Response(nil)); !strings.Contains(body, `"content":null`) || !strings.Contains(body, `"_meta":null`) {
+		t.Fatalf("content and _meta are required keys: %s", body)
+	}
+}
+
+// Without "session" among the persist choices there is no session button.
+func TestCodexMcpToolApprovalOffersOnlyWhatCodexRemembers(t *testing.T) {
+	a, ok := newCodexTranslator().mcpToolApprovalFor("sess-1", "r", mcpApprovalRequest("devkit", nil))
+	if !ok {
+		t.Fatal("expected a card")
+	}
+	for _, o := range decodePermission(t, a.Params).options {
+		if o.OptionID == codexOptionAllowSession {
+			t.Fatal("allow for session offered without persist=session")
+		}
+	}
+}
+
+// The approval names the server, not the call; with one call open on that
+// server the card is that call's.
+func TestCodexMcpToolApprovalAttachesToTheOpenCall(t *testing.T) {
+	tr := newCodexTranslator()
+	tr.Translate(codexapp.MethodItemStarted, json.RawMessage(`{"threadId":"th-1","turnId":"tu-1","item":{"type":"mcpToolCall","id":"call-9","server":"devkit","tool":"db.query","status":"inProgress","arguments":{"sql":"select 1"}}}`))
+	a, _ := tr.mcpToolApprovalFor("sess-1", "1", mcpApprovalRequest("devkit", "session"))
+	if id := decodePermission(t, a.Params).toolCall.ToolCallID; id != "call-9" {
+		t.Fatalf("toolCallId = %q, want the open call", id)
+	}
+	tr.Translate(codexapp.MethodItemStarted, json.RawMessage(`{"threadId":"th-1","turnId":"tu-1","item":{"type":"mcpToolCall","id":"call-10","server":"devkit","tool":"notes.write","status":"inProgress","arguments":{}}}`))
+	a, _ = tr.mcpToolApprovalFor("sess-1", "2", mcpApprovalRequest("devkit", "session"))
+	if id := decodePermission(t, a.Params).toolCall.ToolCallID; id != "mcp-approval-2" {
+		t.Fatalf("two open calls: toolCallId = %q, want a card of its own", id)
+	}
+}
+
+// An MCP server's own question is not Codex asking for approval.
+func TestCodexMcpElicitationThatIsNotAnApprovalIsNotACard(t *testing.T) {
+	body := marshalUpdate(map[string]any{"threadId": "th-1", "serverName": "devkit", "mode": "form", "_meta": nil, "message": "Your name?"})
+	if _, ok := newCodexTranslator().mcpToolApprovalFor("sess-1", "1", body); ok {
+		t.Fatal("a plain elicitation must be refused, not shown as an approval")
+	}
+}

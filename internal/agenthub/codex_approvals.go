@@ -51,6 +51,9 @@ type codexApproval struct {
 	onCancel string
 	// Malformed is documented on the type above.
 	Malformed bool
+	// elicitation answers in MCP's elicitation shape rather than with a
+	// decision: an MCP tool-call approval (mcpToolApprovalFor).
+	elicitation bool
 }
 
 // codexMalformedApproval is approvalFor's answer to a command or file-change
@@ -202,7 +205,105 @@ func (a codexApproval) Response(outcome json.RawMessage) json.RawMessage {
 			decision = d
 		}
 	}
+	if a.elicitation {
+		return codexElicitationAnswer(decision)
+	}
 	return marshalUpdate(codexapp.ApprovalResponse{Decision: decision})
+}
+
+// codexElicitationAnswer is a decision said the way an MCP tool-call approval
+// takes it. Accept with no persist is "this once" — Codex reads an accept it
+// cannot parse further as a plain Allow. "session" remembers the tool for the
+// rest of the session, in Codex's memory only.
+func codexElicitationAnswer(decision string) json.RawMessage {
+	answer := codexapp.McpElicitationResponse{Action: codexapp.ElicitCancel}
+	switch decision {
+	case codexapp.DecisionAccept:
+		answer.Action = codexapp.ElicitAccept
+	case codexapp.DecisionAcceptForSession:
+		answer.Action = codexapp.ElicitAccept
+		answer.Meta = marshalUpdate(map[string]string{codexapp.McpPersistKey: codexapp.McpPersistSession})
+	case codexapp.DecisionDecline:
+		answer.Action = codexapp.ElicitDecline
+	}
+	return marshalUpdate(answer)
+}
+
+// mcpToolApprovalFor puts Codex's question "may this MCP tool run?" to the
+// person, or ok=false for an elicitation that is not that question — an MCP
+// server asking something of its own, which DevKit refuses (spec §7.2).
+//
+// Under Ask and Auto, Codex asks before every call to a tool that does not
+// declare itself read-only and non-destructive, which is most of DevKit's own
+// (codex-rs core/src/mcp_tool_call.rs, 0.147.0). It asks through an
+// elicitation, not an approval request, so without this every DevKit tool
+// call in those modes would be refused. Full auto never asks: Codex approves
+// MCP calls itself under never + externalSandbox, and DevKit's own gate for
+// prod environments still asks inside the tool.
+//
+// "Allow and don't ask me again" is never offered. Codex would write it into
+// config.toml as a permanent rule, and an approval must not do that — the
+// jail cannot write that file anyway.
+//
+// The request names the server but not the call. The card is the open call's
+// when exactly one call on that server is open (Codex starts the item before
+// it asks); otherwise it stands on its own, as "mcp-approval-<ref>" — ref is
+// the runtime's own count, unique within the session.
+func (t *codexTranslator) mcpToolApprovalFor(sessionID, ref string, params json.RawMessage) (codexApproval, bool) {
+	var p codexapp.McpElicitationParams
+	if json.Unmarshal(params, &p) != nil {
+		return codexApproval{}, false
+	}
+	var meta map[string]json.RawMessage
+	if json.Unmarshal(p.Meta, &meta) != nil {
+		return codexApproval{}, false
+	}
+	var kind string
+	if json.Unmarshal(meta[codexapp.McpApprovalKindKey], &kind) != nil || kind != codexapp.McpApprovalKindToolCall {
+		return codexApproval{}, false
+	}
+
+	id, call, known := t.openMcpCall(p.ServerName)
+	if !known {
+		id = "mcp-approval-" + ref
+		var title string
+		_ = json.Unmarshal(meta[codexapp.McpToolTitleKey], &title)
+		if title == "" {
+			title = p.ServerName
+		}
+		call = codexOpenItem{Title: title, Kind: "other", RawInput: meta[codexapp.McpToolParamsKey]}
+	}
+	if strings.TrimSpace(p.Message) != "" {
+		call.Content = []ToolCallContent{codexTextContent(p.Message)}
+	}
+	available := map[string]bool{
+		codexapp.DecisionAccept:  true,
+		codexapp.DecisionDecline: true,
+		codexapp.DecisionCancel:  true,
+	}
+	if codexPersistOffers(meta[codexapp.McpPersistKey], codexapp.McpPersistSession) {
+		available[codexapp.DecisionAcceptForSession] = true
+	}
+	a := codexApprovalRequest(sessionID, id, call, available)
+	a.elicitation = true
+	return a, true
+}
+
+// codexPersistOffers reads _meta.persist, a string or a list of them.
+func codexPersistOffers(raw json.RawMessage, want string) bool {
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		return one == want
+	}
+	var many []string
+	if json.Unmarshal(raw, &many) == nil {
+		for _, s := range many {
+			if s == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // codexPermissionsRequest answers item/permissions/requestApproval without
@@ -233,8 +334,8 @@ func codexPermissionsRequest(params json.RawMessage) (response json.RawMessage, 
 }
 
 // codexUnsupportedRequest refuses a server request DevKit does not handle, at
-// once, so the turn is not left waiting: user-input questions, MCP
-// elicitation, token refresh, attestation, the v1 approval methods, and
+// once, so the turn is not left waiting: user-input questions, an MCP
+// server's own elicitation, token refresh, attestation, the v1 approval methods, and
 // anything new. Each becomes supported by one case in the runtime's request
 // dispatch (spec §5.4).
 func codexUnsupportedRequest(method string) *codexapp.RPCError {
