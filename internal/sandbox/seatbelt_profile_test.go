@@ -72,6 +72,25 @@ func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
 	}
 }
 
+// A host-networking jail can check a server's certificate against the
+// system roots, and that is all the securityd lookup buys it: the login
+// keychain stays unreadable unless AllowKeychain asks for it, and a jail with
+// no network gets neither.
+func TestSeatbeltProfileNetworkHostCanCheckCertificates(t *testing.T) {
+	const lookup = `(global-name "com.apple.SecurityServer")`
+	host := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if !strings.Contains(host, lookup) {
+		t.Fatalf("NetworkHost must reach securityd to verify TLS: %s", host)
+	}
+	if strings.Contains(host, "Library/Keychains") {
+		t.Fatalf("certificate checks must not open the login keychain: %s", host)
+	}
+	none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if strings.Contains(none, lookup) {
+		t.Fatalf("a jail with no network has no certificate to check: %s", none)
+	}
+}
+
 func TestSeatbeltProfileAllowUnixSocketsIsResolvedAndAfterNetworkDeny(t *testing.T) {
 	// /tmp resolves to /private/tmp on macOS; Seatbelt matches the resolved
 	// path, so the emitted literal must be the resolved one.

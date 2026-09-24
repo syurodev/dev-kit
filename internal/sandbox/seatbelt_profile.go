@@ -24,6 +24,15 @@ var seatbeltSystemReadOnlyPaths = []string{
 // process needs under (deny default): network configuration (configd), the
 // classic and modern DNS responders, and the unified logging daemons. This
 // mirrors the service sets used by WebKit/Chromium sandbox profiles.
+//
+// securityd (com.apple.SecurityServer) is how a program that trusts the
+// system's certificate roots rather than a bundle of its own reads them.
+// Node carries its own bundle, so Claude never needed it; codex is Rust and
+// asks the system — without the lookup every HTTPS connection it made from
+// the jail failed with "invalid peer certificate: UnknownIssuer" (measured on
+// 0.147.0; with it the same connection reached the server). The lookup
+// alone does not open the login keychain: reading its items also needs the
+// file read AllowKeychain grants, and either alone fails.
 var seatbeltNetworkMachServices = []string{
 	"com.apple.SystemConfiguration.configd",
 	"com.apple.mDNSResponder",
@@ -31,6 +40,7 @@ var seatbeltNetworkMachServices = []string{
 	"com.apple.dns.registration",
 	"com.apple.system.logger",
 	"com.apple.system.notification_center",
+	"com.apple.SecurityServer",
 }
 
 // buildSeatbeltProfile returns an SBPL profile string for sandbox-exec.
