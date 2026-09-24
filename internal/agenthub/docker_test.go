@@ -207,3 +207,35 @@ func TestProtectDataDir(t *testing.T) {
 		t.Errorf("runtimes must stay reachable: %v", got)
 	}
 }
+
+// A vendor's home inside the hidden data directory is carved out for that
+// vendor's sessions: the path down to it opens, everything beside it on the
+// way stays hidden, and deny paths that do not hold it are left alone.
+func TestCarveOutKeepsOnlyThePathToTheHome(t *testing.T) {
+	data := t.TempDir()
+	home := filepath.Join(data, "agent-homes", "codex")
+	for _, dir := range []string{home, filepath.Join(data, "agent-homes", "claude"), filepath.Join(data, "checkpoints")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deny := ProtectDataDir(data, "runtimes")
+	got := carveOut(deny, home)
+	for _, hidden := range []string{
+		filepath.Join(data, "agent-homes", "claude"),
+		filepath.Join(data, "checkpoints"),
+		filepath.Join(data, "devkit.db"),
+	} {
+		if !slices.Contains(got, hidden) {
+			t.Errorf("%s must stay hidden: %v", hidden, got)
+		}
+	}
+	for _, open := range []string{filepath.Join(data, "agent-homes"), home} {
+		if slices.Contains(got, open) {
+			t.Errorf("%s is on the way to the home and must not be hidden: %v", open, got)
+		}
+	}
+	if other := carveOut([]string{"/elsewhere"}, home); !slices.Equal(other, []string{"/elsewhere"}) {
+		t.Errorf("a deny path that does not hold the home changed: %v", other)
+	}
+}
