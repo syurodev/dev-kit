@@ -48,7 +48,7 @@ func (s *AppService) WorkspaceChooseFolder(startIn string) (string, error) {
 		if dialog == nil {
 			dialog = defaultOpenDirectoryDialog
 		}
-		return dialog("Add workspace", startIn)
+		return dialog("Add folder", startIn)
 	})
 	if err != nil {
 		return "", err
@@ -56,21 +56,46 @@ func (s *AppService) WorkspaceChooseFolder(startIn string) (string, error) {
 	return result.(string), nil
 }
 
-// WorkspaceAddResult is what AddWorkspace hands back: the new workspace and
-// the services auto-discovery split it into.
+// WorkspaceAddResult is what WorkspaceCreate and WorkspaceUpdate hand back:
+// the workspace and its services, primary first.
 type WorkspaceAddResult struct {
 	Workspace workspace.Workspace          `json:"workspace"`
 	Services  []workspace.WorkspaceService `json:"services"`
 }
 
-// WorkspaceAdd registers root as a new workspace. name may be empty — see
-// workspace.Service.AddWorkspace for the folder-name fallback and the
-// auto-discovery split this runs.
-func (s *AppService) WorkspaceAdd(name, root string) (WorkspaceAddResult, error) {
+// WorkspaceCreate registers a named workspace over folders — the Create
+// project dialog. folders may be empty: a project is named first and given
+// its folders afterwards. Each folder goes through auto-discovery; the first
+// is the primary. See workspace.Service.CreateWorkspace.
+func (s *AppService) WorkspaceCreate(name string, folders []string) (WorkspaceAddResult, error) {
 	result, err := s.call(context.Background(), "builtin.workspace", "ws:write", "workspace:new", map[string]any{
-		"action": "add_workspace",
+		"action":  "create_workspace",
+		"folders": len(folders),
 	}, func(context.Context) (any, error) {
-		ws, services, err := s.container.Workspace.AddWorkspace(name, root)
+		ws, services, err := s.container.Workspace.CreateWorkspace(name, folders)
+		if err != nil {
+			return nil, err
+		}
+		return WorkspaceAddResult{Workspace: ws, Services: services}, nil
+	})
+	if err != nil {
+		return WorkspaceAddResult{}, err
+	}
+	return result.(WorkspaceAddResult), nil
+}
+
+// WorkspaceUpdate renames a workspace and sets its service folders to
+// paths, in order — the Edit project dialog's Save. Paths already registered
+// keep their rows; new ones are discovered and queued for indexing; missing
+// ones are dropped. The first is the primary.
+func (s *AppService) WorkspaceUpdate(id, name string, paths []string) (WorkspaceAddResult, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.workspace", "ws:write", "workspace:"+opaqueID, map[string]any{
+		"action":       "update_workspace",
+		"workspace_id": opaqueID,
+		"folders":      len(paths),
+	}, func(context.Context) (any, error) {
+		ws, services, err := s.container.Workspace.UpdateWorkspace(id, name, paths)
 		if err != nil {
 			return nil, err
 		}

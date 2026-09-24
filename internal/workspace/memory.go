@@ -65,3 +65,24 @@ func (r *MemoryRepository) SetIndexOutcome(path, state, reason string, missingTo
 	}
 	return nil
 }
+
+func (r *MemoryRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.workspaces[ws.ID]; !ok {
+		return ErrWorkspaceNotFound
+	}
+	r.workspaces[ws.ID] = ws
+	remove := map[string]bool{}
+	for _, id := range removeIDs {
+		remove[id] = true
+	}
+	kept := r.services[ws.ID][:0:0]
+	for _, svc := range r.services[ws.ID] {
+		if !remove[svc.ID] {
+			kept = append(kept, svc)
+		}
+	}
+	r.services[ws.ID] = append(kept, add...)
+	return nil
+}

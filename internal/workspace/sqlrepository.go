@@ -111,3 +111,37 @@ func (r *SQLRepository) SetIndexOutcome(path, state, reason string, missingToolc
 		state, reason, missingToolchain, path)
 	return err
 }
+
+// UpdateWorkspace renames the workspace, moves its root, and adds and
+// removes services in one transaction: the Edit project dialog saves as one
+// change, and half of it applied would be a list nobody asked for.
+func (r *SQLRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, "UPDATE workspaces SET name = ?, root = ? WHERE id = ?", ws.Name, ws.Root, ws.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrWorkspaceNotFound
+	}
+	for _, id := range removeIDs {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM workspace_services WHERE id = ? AND workspace_id = ?", id, ws.ID); err != nil {
+			return err
+		}
+	}
+	for _, svc := range add {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO workspace_services (id, workspace_id, name, path, name_source) VALUES (?, ?, ?, ?, ?)",
+			svc.ID, ws.ID, svc.Name, svc.Path, svc.NameSource,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

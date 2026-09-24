@@ -22,6 +22,7 @@ import (
 	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
+	"devkit/internal/workspace"
 )
 
 const (
@@ -122,6 +123,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, environments.ErrTagLocked) {
 		return apperrors.New(codeValidationFailed, "environment tag is locked", true)
+	}
+	if errors.Is(err, workspace.ErrNameRequired) {
+		return apperrors.New(codeValidationFailed, "Give the project a name.", true)
+	}
+	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
+		return apperrors.New(codeValidationFailed, "That project no longer exists.", true)
 	}
 	// Notes input an agent gets wrong over MCP as often as a person does in
 	// the UI. The message names what was given and what is accepted; as

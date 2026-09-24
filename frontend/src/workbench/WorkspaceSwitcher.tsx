@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, ChevronDown, FolderPlus } from "lucide-react";
+import { Boxes, ChevronDown, FolderPlus, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,14 +16,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/bridge/errors";
-import {
-  addWorkspace,
-  chooseWorkspaceFolder,
-  listWorkspaces,
-  type Workspace,
-} from "@/bridge/workspace";
+import { listWorkspaces, type Workspace } from "@/bridge/workspace";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
-import { folderDotVar, workspaceColor, workspaceInitials } from "./workspaceIdentity";
+import {
+  folderDotVar,
+  workspaceColor,
+  workspaceInitials,
+} from "./workspaceIdentity";
+import { WorkspaceDialog } from "./WorkspaceDialog";
 
 /**
  * The trigger's identity chip: initials on a note-palette color — see
@@ -66,9 +70,11 @@ function WorkspaceDot({ workspace }: { workspace: Workspace }) {
 export function WorkspaceSwitcher() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [adding, setAdding] = useState(false);
+  // The Create / Edit dialog: null closed, "new" creating, else the one edited.
+  const [dialog, setDialog] = useState<Workspace | "new" | null>(null);
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const setCurrent = useWorkspaceSwitcherStore((s) => s.setCurrent);
+  const servicesChanged = useWorkspaceSwitcherStore((s) => s.servicesChanged);
 
   const refresh = useCallback(async () => {
     try {
@@ -96,81 +102,106 @@ export function WorkspaceSwitcher() {
     setCurrent(workspaces[0].id);
   }, [loaded, workspaces, currentId, setCurrent]);
 
-  const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0] ?? null;
+  const current =
+    workspaces.find((w) => w.id === currentId) ?? workspaces[0] ?? null;
 
-  const handleAdd = useCallback(async () => {
-    setAdding(true);
-    try {
-      const path = await chooseWorkspaceFolder(current?.root ?? "");
-      if (!path) return; // cancelled
-      const result = await addWorkspace("", path);
-      setWorkspaces((prev) => [...prev, result.workspace]);
-      setCurrent(result.workspace.id);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setAdding(false);
-    }
-  }, [current?.root, setCurrent]);
+  const handleSaved = useCallback(
+    (saved: Workspace) => {
+      setWorkspaces((prev) =>
+        prev.some((w) => w.id === saved.id)
+          ? prev.map((w) => (w.id === saved.id ? saved : w))
+          : [...prev, saved],
+      );
+      setCurrent(saved.id);
+      servicesChanged();
+    },
+    [setCurrent, servicesChanged],
+  );
+
+  const handleRemoved = useCallback(
+    (removed: Workspace) => {
+      const rest = workspaces.filter((w) => w.id !== removed.id);
+      setWorkspaces(rest);
+      if (rest[0]) setCurrent(rest[0].id);
+    },
+    [workspaces, setCurrent],
+  );
 
   return (
-    <DropdownMenu onOpenChange={(open) => open && void refresh()}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            {current ? (
-              <Button
-                type="button"
-                variant="titlebar"
-                size="sm"
-                aria-label={`Workspace: ${current.name}`}
-                className="mx-1 rounded-md"
-              >
-                <WorkspaceAvatar workspace={current} />
-                <span className="max-w-32 truncate text-label-12">{current.name}</span>
-                <ChevronDown className="size-3.5 text-text-tertiary" />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="titlebar"
-                size="icon-sm"
-                aria-label="Add workspace"
-                className="mx-1"
-              >
-                <Boxes className="size-4" />
-              </Button>
-            )}
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {current ? current.root : "Add workspace"}
-        </TooltipContent>
-      </Tooltip>
+    <>
+      <DropdownMenu onOpenChange={(open) => open && void refresh()}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              {current ? (
+                <Button
+                  type="button"
+                  variant="titlebar"
+                  size="sm"
+                  aria-label={`Workspace: ${current.name}`}
+                  className="mx-1 rounded-md"
+                >
+                  <WorkspaceAvatar workspace={current} />
+                  <span className="max-w-32 truncate text-label-12">
+                    {current.name}
+                  </span>
+                  <ChevronDown className="size-3.5 text-text-tertiary" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="titlebar"
+                  size="icon-sm"
+                  aria-label="Add workspace"
+                  className="mx-1"
+                >
+                  <Boxes className="size-4" />
+                </Button>
+              )}
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {current ? current.root : "Add workspace"}
+          </TooltipContent>
+        </Tooltip>
 
-      <DropdownMenuContent align="start" className="w-72">
-        {workspaces.map((ws) => (
+        <DropdownMenuContent align="start" className="w-72">
+          {workspaces.map((ws) => (
+            <DropdownMenuItem
+              key={ws.id}
+              onSelect={() => setCurrent(ws.id)}
+              icon={<WorkspaceDot workspace={ws} />}
+              detail={ws.id === current?.id ? "Current" : undefined}
+            >
+              {ws.name}
+            </DropdownMenuItem>
+          ))}
+          {workspaces.length > 0 && <DropdownMenuSeparator />}
+          {current ? (
+            <DropdownMenuItem
+              onSelect={() => setDialog(current)}
+              icon={<Settings2 className="text-text-tertiary" />}
+            >
+              Edit workspace…
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
-            key={ws.id}
-            onSelect={() => setCurrent(ws.id)}
-            icon={<WorkspaceDot workspace={ws} />}
-            detail={ws.id === current?.id ? "Current" : undefined}
+            onSelect={() => setDialog("new")}
+            icon={<FolderPlus className="text-text-tertiary" />}
           >
-            {ws.name}
+            Add workspace…
           </DropdownMenuItem>
-        ))}
-        {workspaces.length > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem
-          disabled={adding}
-          onSelect={(event) => {
-            event.preventDefault(); // stay open through the native folder dialog
-            void handleAdd();
-          }}
-          icon={<FolderPlus className="text-text-tertiary" />}
-        >
-          Add workspace…
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* A sibling of the menu, not inside it: the menu closes on select and
+        hands focus back to its trigger, which would fight the dialog for it. */}
+      <WorkspaceDialog
+        open={dialog !== null}
+        onOpenChange={(open) => !open && setDialog(null)}
+        workspace={dialog === "new" ? null : dialog}
+        onSaved={handleSaved}
+        onRemoved={handleRemoved}
+      />
+    </>
   );
 }

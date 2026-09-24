@@ -70,14 +70,25 @@ máy. Sync một danh sách path sang máy khác thì mọi entry đều sai.
 | Field | Value |
 |---|---|
 | `workspace.id` | 24 lowercase hex (`vaultitem.NewID`) |
-| `workspace.name` | Tên do người đặt, hoặc tên thư mục cha |
-| `workspace.root` | Thư mục cha chứa các service (nguồn cho auto-discovery) |
+| `workspace.name` | Tên do người đặt (bắt buộc khi tạo từ UI) |
+| `workspace.root` | Path của service **primary** — service đầu tiên trong danh sách; rỗng khi chưa có thư mục nào |
 | `service.name` | Tên logic — thứ xuất hiện trong URL giữa các service |
 | `service.path` | Path tuyệt đối tới repo |
 | `service.name_source` | `config` \| `folder` \| `manual` — xem phần dưới |
 
-Một service **không** cần nằm dưới `root`. `root` chỉ là gợi ý cho lần quét
-đầu; thêm tay một repo ở chỗ khác vẫn hợp lệ.
+Một service **không** cần nằm dưới `root`, và các service không cần chung một
+thư mục cha. Workspace là **tên trước, thư mục sau**: dialog Create workspace
+chỉ bắt buộc tên, thư mục thêm từng cái một (ngay đó hoặc sau này ở Edit
+workspace), mỗi thư mục đi qua auto-discovery. Service đầu tiên là primary và
+`root` là path của nó — chỉ dùng làm thư mục mặc định cho picker và tooltip.
+
+- `CreateWorkspace(name, folders)` — tên bắt buộc (`ErrNameRequired`), thư
+  mục có thể rỗng.
+- `UpdateWorkspace(id, name, paths)` — đổi tên và đặt danh sách service thành
+  đúng `paths`, theo thứ tự. Path đã có giữ nguyên dòng (tên, tên `manual`,
+  kết quả index); path mới là thư mục cần quét, có thể ra nhiều service; path
+  không còn trong danh sách bị bỏ. Một transaction.
+- Service mới của cả hai đều đi qua `OnServicesAdded` → hàng đợi index.
 
 Ràng buộc (migration 30 — m28 ban đầu không có cái nào):
 
@@ -134,9 +145,9 @@ URL `localhost` theo port.
 **Bước 3 — người sửa.** Sửa tay luôn thắng và `name_source` thành `manual`;
 lần rescan sau không ghi đè lên nó.
 
-Một `root` không có repo con nào **không** phải lỗi. Nó là
-workspace một service, và service đó chính là `root`. Nhờ vậy "thêm
-workspace" luôn là một thao tác, dù thư mục chứa một project hay mười.
+Một thư mục được thêm mà không có repo con nào **không** phải lỗi: chính nó
+là một service. Nhờ vậy "thêm thư mục" luôn là một thao tác, dù thư mục chứa
+một project hay mười.
 
 Rescan chạy khi mở workspace và khi người bấm **Rescan** — không có watcher
 trên `root`. Watcher ở đây sẽ nổ mỗi lần một agent đụng file trong bất kỳ
@@ -466,7 +477,8 @@ duy nhất là không còn cancel bản đang mở khi vẫn còn slot thường
      toolchain (`ErrAnalyzerNotConfigured`, `ErrToolchainIncomplete`) tách
      khỏi fail thật. App thoát giữa chừng thì run đang chạy bị huỷ và **không**
      báo gì — không ghi "failed" cho một run chưa xong.
-   - `workspace.Service.OnServicesAdded` (sau `AddWorkspace`) xếp hàng mọi
+   - `workspace.Service.OnServicesAdded` (sau `CreateWorkspace` /
+     `UpdateWorkspace`) xếp hàng mọi
      service mới, mọi ngôn ngữ: manifest tier của Java chưa có, nên chưa có
      gì khác cho join đọc. Khi manifest tier xong, Java có thể bỏ qua hàng đợi.
    - Khởi động: `app.QueueUnindexedServices` xếp lại service chưa có index

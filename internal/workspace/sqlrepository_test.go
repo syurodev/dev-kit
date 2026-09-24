@@ -149,3 +149,24 @@ func TestAddWorkspaceReportsTheServicesAdded(t *testing.T) {
 		t.Fatalf("added = %+v, want %+v", added, services)
 	}
 }
+
+// The SQL update is one transaction over name, root, adds and removes.
+func TestSQLRepositoryUpdateWorkspace(t *testing.T) {
+	svc := workspace.NewService(newTestSQLRepo(t))
+	a, b := t.TempDir(), t.TempDir()
+	ws, _, err := svc.CreateWorkspace("one", []string{a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.UpdateWorkspace(ws.ID, "two", []string{b}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := svc.ListWorkspaces()
+	if len(all) != 1 || all[0].Name != "two" || all[0].Root != b {
+		t.Fatalf("workspaces = %+v", all)
+	}
+	services, _ := svc.ListServices(ws.ID)
+	if len(services) != 1 || services[0].Path != b {
+		t.Fatalf("services = %+v", services)
+	}
+}
