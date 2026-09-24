@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import type {
@@ -38,4 +39,54 @@ export function addWorkspace(name: string, root: string): Promise<AddWorkspaceRe
 
 export function deleteWorkspace(id: string): Promise<void> {
   return callBridge(() => AppService.WorkspaceDelete(id) as Promise<void>);
+}
+
+/**
+ * Where a workspace service's index stands (Go codegraph.ServiceIndexStatus,
+ * docs/dev-kit/workspace.mdx § "Trạng thái index của một service"). "" means
+ * nothing is queued and nothing is on disk.
+ */
+export type ServiceIndexState = "" | "pending" | "indexing" | "indexed" | "failed" | "unsupported";
+
+export type ServiceIndexStatus = {
+  path: string;
+  state: ServiceIndexState;
+  /** Why, for failed and unsupported. */
+  error: string;
+  /** The failure is a missing analyzer toolchain, not the code. */
+  missingToolchain: boolean;
+  /** Unix ms, for indexed; 0 when unknown. */
+  indexedAt: number;
+};
+
+function toStatus(raw: {
+  path?: string;
+  state?: string;
+  error?: string;
+  missingToolchain?: boolean;
+  indexedAt?: number;
+}): ServiceIndexStatus {
+  return {
+    path: raw.path ?? "",
+    state: (raw.state ?? "") as ServiceIndexState,
+    error: raw.error ?? "",
+    missingToolchain: raw.missingToolchain ?? false,
+    indexedAt: Number(raw.indexedAt ?? 0),
+  };
+}
+
+export function workspaceIndexStatus(workspaceId: string): Promise<ServiceIndexStatus[]> {
+  return callBridge(async () =>
+    ((await AppService.WorkspaceIndexStatus(workspaceId)) ?? []).map(toStatus),
+  );
+}
+
+/** Queue one service to be indexed again — Retry. Returns at once. */
+export function reindexWorkspaceService(path: string): Promise<void> {
+  return callBridge(() => AppService.WorkspaceReindexService(path) as Promise<void>);
+}
+
+/** Every index-queue transition: queued, running, and how it ended. */
+export function onServiceIndexStatus(handler: (status: ServiceIndexStatus) => void): () => void {
+  return Events.On("codegraph:indexStatus", (ev) => handler(toStatus(ev.data ?? {})));
 }

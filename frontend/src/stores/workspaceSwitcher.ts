@@ -3,7 +3,15 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { uiStateStorage } from "@/bridge/uistate";
-import { listWorkspaces, listWorkspaceServices, type Workspace, type WorkspaceService } from "@/bridge/workspace";
+import {
+  listWorkspaces,
+  listWorkspaceServices,
+  onServiceIndexStatus,
+  workspaceIndexStatus,
+  type ServiceIndexStatus,
+  type Workspace,
+  type WorkspaceService,
+} from "@/bridge/workspace";
 
 type WorkspaceSwitcherState = {
   /**
@@ -81,4 +89,41 @@ export function useCurrentWorkspaceServices(): {
   }, [workspaceId]);
 
   return { workspace, services, loaded };
+}
+
+/**
+ * Each service's index state for the current workspace, keyed by path: read
+ * once, then kept current by codegraph:indexStatus events. An empty map
+ * until the first read answers — callers show nothing rather than a guess.
+ */
+export function useWorkspaceIndexStatus(): Record<string, ServiceIndexStatus> {
+  const workspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
+  const [byPath, setByPath] = useState<Record<string, ServiceIndexStatus>>({});
+
+  useEffect(() => {
+    setByPath({});
+    if (!workspaceId) return;
+    let cancelled = false;
+    // Subscribed before the read, so a transition between the two is not
+    // lost; the read then only fills paths no event has spoken for.
+    const off = onServiceIndexStatus((status) => {
+      if (!cancelled) setByPath((prev) => ({ ...prev, [status.path]: status }));
+    });
+    workspaceIndexStatus(workspaceId)
+      .then((list) => {
+        if (cancelled) return;
+        setByPath((prev) => {
+          const next = { ...prev };
+          for (const status of list) next[status.path] ??= status;
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [workspaceId]);
+
+  return byPath;
 }

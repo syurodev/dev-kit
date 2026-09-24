@@ -324,6 +324,17 @@ let started = false;
 let restored = false;
 
 /**
+ * Whether servicePath names the project this view shows. Compared as Go's
+ * ProjectKey would (filepath.Clean): a trailing separator is the same folder.
+ */
+export function isFocusedService(servicePath: string): boolean {
+  if (servicePath === "") return true;
+  const focused = useCodeGraphStore.getState().projectPath;
+  const clean = (p: string) => (p.length > 1 ? p.replace(/[\\/]+$/, "") : p);
+  return focused !== "" && clean(focused) === clean(servicePath);
+}
+
+/**
  * Wires the module up once, from whichever of its surfaces mounts first — the
  * rail, the home view, a restored flow or file tab. None of them owns the
  * project, so none of them can be the one place this lives.
@@ -333,7 +344,13 @@ let restored = false;
 export function ensureStarted() {
   if (!started) {
     started = true;
-    onCodeGraphIndexUpdated(() => void refreshAfterReindex());
+    // Every re-index names its folder now that workspace services are kept
+    // open beside the focused project; only the one this view shows is
+    // refetched. An event with no folder is from a build that predates that,
+    // and it can only have meant the focused project.
+    onCodeGraphIndexUpdated((_version, servicePath) => {
+      if (isFocusedService(servicePath)) void refreshAfterReindex();
+    });
     // The project can change without this module doing it — an agent
     // switching it over MCP. Everything project-scoped is reset when it does.
     onCodeGraphProjectChanged((root) => void handleProjectChanged(root));

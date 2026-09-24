@@ -36,7 +36,7 @@ func (r *SQLRepository) ListWorkspaces() ([]Workspace, error) {
 	return workspaces, rows.Err()
 }
 
-const selectServiceColumns = "SELECT id, workspace_id, name, path, name_source FROM workspace_services"
+const selectServiceColumns = "SELECT id, workspace_id, name, path, name_source, index_state, index_error, index_missing_toolchain FROM workspace_services"
 
 func (r *SQLRepository) ListServices(workspaceID string) ([]WorkspaceService, error) {
 	rows, err := r.db.QueryContext(context.Background(),
@@ -48,7 +48,8 @@ func (r *SQLRepository) ListServices(workspaceID string) ([]WorkspaceService, er
 	services := make([]WorkspaceService, 0)
 	for rows.Next() {
 		var svc WorkspaceService
-		if err := rows.Scan(&svc.ID, &svc.WorkspaceID, &svc.Name, &svc.Path, &svc.NameSource); err != nil {
+		if err := rows.Scan(&svc.ID, &svc.WorkspaceID, &svc.Name, &svc.Path, &svc.NameSource,
+			&svc.IndexState, &svc.IndexError, &svc.IndexMissingToolchain); err != nil {
 			return nil, err
 		}
 		services = append(services, svc)
@@ -102,4 +103,11 @@ func (r *SQLRepository) DeleteWorkspace(id string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *SQLRepository) SetIndexOutcome(path, state, reason string, missingToolchain bool) error {
+	_, err := r.db.ExecContext(context.Background(),
+		"UPDATE workspace_services SET index_state = ?, index_error = ?, index_missing_toolchain = ? WHERE path = ?",
+		state, reason, missingToolchain, path)
+	return err
 }

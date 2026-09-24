@@ -54,6 +54,14 @@ type Registry struct {
 	// the UI can say which one closed rather than have it vanish.
 	OnEvicted func(servicePath string)
 
+	// OnIndexStatus fires on every index-queue transition (Enqueue): queued,
+	// running, and how it ended. The workspace registry persists the failed
+	// and unsupported outcomes; codegraph does not import it. Non-blocking
+	// only — it runs on the queue's worker.
+	OnIndexStatus func(ServiceIndexStatus)
+
+	indexQ *indexQueue
+
 	// analyzer, when set, is installed on every resident Service instead of
 	// the Host's per-language registry — the test seam SetAnalyzer already is
 	// for a single Service.
@@ -68,6 +76,15 @@ func NewRegistry(focus *Service, limit int) *Registry {
 		limit = DefaultResidentLimit
 	}
 	return &Registry{focus: focus, limit: limit, services: map[string]*Service{}}
+}
+
+// SetAnalyzer installs a on every resident Service opened from now on,
+// instead of the Host's per-language registry — Service.SetAnalyzer's seam,
+// for the Registry. Tests only; production resolves per folder.
+func (r *Registry) SetAnalyzer(a Analyzer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.analyzer = a
 }
 
 // Focused is the Service callers get when they do not name one.
@@ -140,6 +157,32 @@ func (r *Registry) Open(ctx context.Context, servicePath string) (*Service, erro
 	return svc, nil
 }
 
+// Focus makes servicePath the focused service's folder — what the UI shows
+// and what callers that name no service get — and returns the focused
+// Service once its index is ready.
+//
+// The focused Service switches folders in place, as it always has; it is not
+// swapped for the resident one. What Focus adds is handing the folder over:
+// a resident service for it is shut down first, so the folder is never open
+// twice (two watchers re-indexing one tree, two handles on one index file).
+// Nothing is lost by that: the index is on disk, and a reopen with the same
+// analyzer serves it at once while it refreshes (Service's stale index). The
+// folder focus leaves is not made resident — it opens again lazily, like any
+// other, the next time something asks for it.
+func (r *Registry) Focus(ctx context.Context, servicePath string) (*Service, error) {
+	if servicePath == "" {
+		return nil, errors.New("codegraph: focus needs a folder")
+	}
+	key := ProjectKey(servicePath)
+	if err := r.Close(key); err != nil {
+		return nil, err
+	}
+	if err := r.focus.OpenProjectDir(ctx, key); err != nil {
+		return nil, err
+	}
+	return r.focus, nil
+}
+
 // Close shuts down one resident service. The focused Service is not the
 // Registry's to close; asking to close it is a no-op.
 func (r *Registry) Close(servicePath string) error {
@@ -165,10 +208,16 @@ func (r *Registry) Resident() []string {
 	return append([]string(nil), r.lru...)
 }
 
-// Shutdown shuts down every resident service. The focused one is left to its
-// owner, which closes it on its own schedule (main.go's deferred Close).
+// Shutdown shuts down every resident service and stops the index queue (its
+// run in flight is cancelled; nothing queued is persisted — queued and
+// running are states of this process, and the next start queues again what
+// has no index). The focused one is left to its owner, which closes it on
+// its own schedule (main.go's deferred Close).
 func (r *Registry) Shutdown() error {
 	r.mu.Lock()
+	if r.indexQ != nil {
+		r.indexQ.cancel()
+	}
 	services := make([]*Service, 0, len(r.services))
 	for _, svc := range r.services {
 		services = append(services, svc)
@@ -190,9 +239,9 @@ func (r *Registry) focusRoot() string {
 	return ProjectKey(root)
 }
 
-// newResident builds a resident Service on the focused one's Host, reporting
-// its re-indexes under its own folder. Caller holds mu.
-func (r *Registry) newResident(key string) *Service {
+// newService builds a Service on the focused one's Host — a resident, or the
+// index queue's throwaway. Caller holds mu.
+func (r *Registry) newService() *Service {
 	var host *Host
 	if r.focus != nil {
 		host = r.focus.Host()
@@ -201,7 +250,13 @@ func (r *Registry) newResident(key string) *Service {
 	if analyzer == nil {
 		analyzer = NewSubprocessAnalyzer()
 	}
-	svc := NewServiceWithHost(host, NewNilStore(), analyzer)
+	return NewServiceWithHost(host, NewNilStore(), analyzer)
+}
+
+// newResident builds a resident Service, reporting its re-indexes under its
+// own folder. Caller holds mu.
+func (r *Registry) newResident(key string) *Service {
+	svc := r.newService()
 	svc.OnIndexUpdated = func(version int) {
 		if notify := r.OnIndexUpdated; notify != nil {
 			notify(key, version)

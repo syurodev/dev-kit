@@ -177,8 +177,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 30 {
-		t.Fatalf("migration version = %d, want 30", version)
+	if version != 31 {
+		t.Fatalf("migration version = %d, want 31", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {

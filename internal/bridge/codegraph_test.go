@@ -38,7 +38,7 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
-	endpoints, err := s.CodeGraphListEndpoints()
+	endpoints, err := s.CodeGraphListEndpoints("")
 	if err != nil {
 		t.Fatalf("CodeGraphListEndpoints: %v", err)
 	}
@@ -63,11 +63,11 @@ func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 		t.Fatalf("second CodeGraphOpenProject: %v", err)
 	}
 
-	if _, err := s.CodeGraphWaitForIndexReady(); err != nil {
+	if _, err := s.CodeGraphWaitForIndexReady(""); err != nil {
 		t.Fatal(err)
 	}
 
-	endpoints, err := s.CodeGraphListEndpoints()
+	endpoints, err := s.CodeGraphListEndpoints("")
 	if err != nil {
 		t.Fatalf("CodeGraphListEndpoints: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestCodeGraphListEndpointsBeforeOpenProjectFails(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{})
 
-	if _, err := s.CodeGraphListEndpoints(); !errors.Is(err, codegraph.ErrNoActiveProject) {
+	if _, err := s.CodeGraphListEndpoints(""); !errors.Is(err, codegraph.ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }
@@ -98,7 +98,7 @@ func TestCodeGraphListReadWriteFile(t *testing.T) {
 	if err := s.CodeGraphWriteFile("notes.md", "# hello", ""); err != nil {
 		t.Fatalf("CodeGraphWriteFile: %v", err)
 	}
-	got, err := s.CodeGraphReadFile("notes.md")
+	got, err := s.CodeGraphReadFile("notes.md", "")
 	if err != nil {
 		t.Fatalf("CodeGraphReadFile: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestCodeGraphListReadWriteFile(t *testing.T) {
 		t.Fatalf("CodeGraphReadFile = %q, want %q", got, "# hello")
 	}
 
-	entries, err := s.CodeGraphListFiles()
+	entries, err := s.CodeGraphListFiles("")
 	if err != nil {
 		t.Fatalf("CodeGraphListFiles: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestCodeGraphGetCodeSnippet(t *testing.T) {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
-	snippet, err := s.CodeGraphGetCodeSnippet("Foo.java", 2, 2)
+	snippet, err := s.CodeGraphGetCodeSnippet("Foo.java", 2, 2, "")
 	if err != nil {
 		t.Fatalf("CodeGraphGetCodeSnippet: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestCodeGraphGetBlastRadius(t *testing.T) {
 		t.Fatalf("OpenProjectAt: %v", err)
 	}
 
-	radius, err := s.CodeGraphGetBlastRadius("Service.java")
+	radius, err := s.CodeGraphGetBlastRadius("Service.java", "")
 	if err != nil {
 		t.Fatalf("CodeGraphGetBlastRadius: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestCodeGraphWaitForIndexReady(t *testing.T) {
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
-	version, err := s.CodeGraphWaitForIndexReady()
+	version, err := s.CodeGraphWaitForIndexReady("")
 	if err != nil {
 		t.Fatalf("CodeGraphWaitForIndexReady: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestCodeGraphGetNeighbors(t *testing.T) {
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
-	sub, err := s.CodeGraphGetNeighbors("n1", 1, codegraph.NeighborFilter{})
+	sub, err := s.CodeGraphGetNeighbors("n1", 1, codegraph.NeighborFilter{}, "")
 	if err != nil {
 		t.Fatalf("CodeGraphGetNeighbors: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestCodeGraphTraceDataFlow(t *testing.T) {
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
-	trace, err := s.CodeGraphTraceDataFlow("cls", "total")
+	trace, err := s.CodeGraphTraceDataFlow("cls", "total", "")
 	if err != nil {
 		t.Fatalf("CodeGraphTraceDataFlow: %v", err)
 	}
@@ -362,5 +362,52 @@ func TestCodeGraphCancelAnalyzerBuildWithNothingBuilding(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{})
 	if err := s.CodeGraphCancelAnalyzerBuild(); err != nil {
 		t.Fatalf("cancelling no build must be a no-op: %v", err)
+	}
+}
+
+// A call naming a folder reads that folder's index, from a resident service,
+// without moving the focused one; "" still means the focused project.
+func TestCodeGraphServicePathReadsAnotherFolder(t *testing.T) {
+	s := newTestService(t)
+	focused := codegraph.AnalysisResult{
+		Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/focused", EntryNode: "n1"}},
+	}
+	other := codegraph.AnalysisResult{
+		Nodes:     []codegraph.Node{{ID: "n2", Label: "B.bar", Kind: "method", Layer: "controller"}},
+		Endpoints: []codegraph.Endpoint{{ID: "ep2", HTTPMethod: "POST", Path: "/other", EntryNode: "n2"}},
+	}
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: focused})
+	s.container.ConfigDir = t.TempDir()
+	s.container.CodeGraph.SetConfigDir(s.container.ConfigDir)
+	s.container.CodeGraphRegistry = codegraph.NewRegistry(s.container.CodeGraph, -1)
+	s.container.CodeGraphRegistry.SetAnalyzer(fakeCodeGraphAnalyzer{result: other})
+	t.Cleanup(func() { _ = s.container.CodeGraphRegistry.Shutdown() })
+
+	focusDir, otherDir := t.TempDir(), t.TempDir()
+	if _, err := s.CodeGraphOpenProject(context.Background(), focusDir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.CodeGraphListEndpoints(otherDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Path != "/other" {
+		t.Fatalf("named service endpoints = %+v, want /other", got)
+	}
+	if got, _ := s.CodeGraphListEndpoints(""); len(got) != 1 || got[0].Path != "/focused" {
+		t.Fatalf("focused endpoints = %+v, want /focused", got)
+	}
+	if root := s.container.CodeGraph.ProjectRoot(); root != focusDir {
+		t.Fatalf("focused root = %q, want it unmoved at %q", root, focusDir)
+	}
+
+	// Focusing the other folder takes it from its resident.
+	if _, err := s.CodeGraphOpenProject(context.Background(), otherDir); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.container.CodeGraphRegistry.Resident()); n != 0 {
+		t.Fatalf("resident = %d, want the focused folder handed over", n)
 	}
 }

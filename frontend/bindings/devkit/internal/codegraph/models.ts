@@ -252,6 +252,47 @@ export interface IndexInfo {
 }
 
 /**
+ * IndexState is where one workspace service's index stands
+ * (docs/dev-kit/workspace.mdx § "Trạng thái index của một service").
+ */
+export enum IndexState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * IndexUnknown: nothing queued, and no index on disk for this folder.
+     */
+    IndexUnknown = "",
+
+    /**
+     * IndexPending: queued, waiting for the worker.
+     */
+    IndexPending = "pending",
+
+    /**
+     * IndexIndexing: the worker is analysing it now.
+     */
+    IndexIndexing = "indexing",
+
+    /**
+     * IndexIndexed: an index for exactly this folder is on disk.
+     */
+    IndexIndexed = "indexed",
+
+    /**
+     * IndexFailed: the last run failed; Error says why.
+     */
+    IndexFailed = "failed",
+
+    /**
+     * IndexUnsupported: no analyzer claims the folder (ErrUnsupportedProject).
+     */
+    IndexUnsupported = "unsupported",
+};
+
+/**
  * InstallCommand is one way to install a missing program, with the packaging
  * ecosystem it belongs to so the reader can pick the line that is theirs.
  */
@@ -545,6 +586,32 @@ export interface Requirement {
      * the frontend would only be guessing.
      */
     "install": InstallCommand[] | null;
+}
+
+/**
+ * ServiceIndexStatus is one service's index state as the Registry sees it.
+ */
+export interface ServiceIndexStatus {
+    "path": string;
+    "state": IndexState;
+
+    /**
+     * Error is the failure, for IndexFailed and IndexUnsupported.
+     */
+    "error"?: string;
+
+    /**
+     * MissingToolchain separates "install or build the analyzer" from a real
+     * failure — the setup panel's HasArtifact/Ready distinction, for a
+     * service nobody has opened.
+     */
+    "missingToolchain"?: boolean;
+
+    /**
+     * IndexedAt is when the stored index was written, Unix ms, for
+     * IndexIndexed; 0 when unknown.
+     */
+    "indexedAt"?: number;
 }
 
 /**

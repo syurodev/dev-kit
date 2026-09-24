@@ -23,6 +23,16 @@ func (s *AppService) CodeGraphOpenProject(ctx context.Context, path string) (cod
 	result, err := s.call(ctx, "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
+		if reg := s.codeGraphRegistry(); reg != nil {
+			// Through the Registry, so a resident service already open on
+			// this folder hands it over rather than the folder being open
+			// twice.
+			focus, err := reg.Focus(ctx, path)
+			if err != nil {
+				return nil, err
+			}
+			return focus.ActiveDetection(), nil
+		}
 		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
 		if err := s.container.CodeGraph.OpenProjectAt(ctx, dbPath, path); err != nil {
 			return nil, err
@@ -35,11 +45,41 @@ func (s *AppService) CodeGraphOpenProject(ctx context.Context, path string) (cod
 	return result.(codegraph.DetectedProject), nil
 }
 
-func (s *AppService) CodeGraphListEndpoints() ([]codegraph.Endpoint, error) {
+// codeGraphService is the Service a call names: the focused one for "" —
+// every caller before the workspace Registry, and every caller that still
+// means "whatever the Code Graph view has open" — else the resident service
+// for that folder, opened on first use (docs/dev-kit/workspace.mdx
+// § "Bề mặt API"). A folder never indexed is analysed by that open, so the
+// first query to it waits for its index like CodeGraphOpenProject does.
+func (s *AppService) codeGraphService(ctx context.Context, servicePath string) (*codegraph.Service, error) {
+	reg := s.codeGraphRegistry()
+	if servicePath == "" || reg == nil {
+		return s.container.CodeGraph, nil
+	}
+	return reg.Open(ctx, servicePath)
+}
+
+// codeGraphRegistry is the container's Registry when it is built around the
+// container's own CodeGraph, else nil. A Registry focused on some other
+// Service would answer "" with a project this app is not showing.
+func (s *AppService) codeGraphRegistry() *codegraph.Registry {
+	reg := s.container.CodeGraphRegistry
+	if reg == nil || reg.Focused() != s.container.CodeGraph {
+		return nil
+	}
+	return reg
+}
+
+func (s *AppService) CodeGraphListEndpoints(servicePath string) ([]codegraph.Endpoint, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action": "list_endpoints",
+		"service_path": servicePath,
+		"action":       "list_endpoints",
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.ListEndpoints(ctx)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListEndpoints(ctx)
 	})
 	if err != nil {
 		return nil, err
@@ -47,12 +87,17 @@ func (s *AppService) CodeGraphListEndpoints() ([]codegraph.Endpoint, error) {
 	return result.([]codegraph.Endpoint), nil
 }
 
-func (s *AppService) CodeGraphGetApiFlow(endpointID string) (codegraph.ApiFlow, error) {
+func (s *AppService) CodeGraphGetApiFlow(endpointID string, servicePath string) (codegraph.ApiFlow, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":      "get_api_flow",
-		"endpoint_id": endpointID,
+		"service_path": servicePath,
+		"action":       "get_api_flow",
+		"endpoint_id":  endpointID,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.GetApiFlow(ctx, endpointID)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetApiFlow(ctx, endpointID)
 	})
 	if err != nil {
 		return codegraph.ApiFlow{}, err
@@ -60,12 +105,17 @@ func (s *AppService) CodeGraphGetApiFlow(endpointID string) (codegraph.ApiFlow, 
 	return result.(codegraph.ApiFlow), nil
 }
 
-func (s *AppService) CodeGraphSearchSymbol(query string) ([]codegraph.SymbolMatch, error) {
+func (s *AppService) CodeGraphSearchSymbol(query string, servicePath string) ([]codegraph.SymbolMatch, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action": "search_symbol",
-		"query":  query,
+		"service_path": servicePath,
+		"action":       "search_symbol",
+		"query":        query,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.SearchSymbol(ctx, query)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.SearchSymbol(ctx, query)
 	})
 	if err != nil {
 		return nil, err
@@ -78,14 +128,19 @@ func (s *AppService) CodeGraphSearchSymbol(query string) ([]codegraph.SymbolMatc
 // (an empty slice) — the editor tries other things (e.g. leaving the cursor
 // alone) rather than surfacing a failure to the user for a symbol the index
 // simply has no location for.
-func (s *AppService) CodeGraphFindDefinitions(filePath string, line int, identifier string) ([]codegraph.Definition, error) {
+func (s *AppService) CodeGraphFindDefinitions(filePath string, line int, identifier string, servicePath string) ([]codegraph.Definition, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":     "find_definitions",
-		"file_path":  filePath,
-		"line":       line,
-		"identifier": identifier,
+		"service_path": servicePath,
+		"action":       "find_definitions",
+		"file_path":    filePath,
+		"line":         line,
+		"identifier":   identifier,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.FindDefinitions(ctx, filePath, line, identifier)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.FindDefinitions(ctx, filePath, line, identifier)
 	})
 	if err != nil {
 		return nil, err
@@ -97,14 +152,19 @@ func (s *AppService) CodeGraphFindDefinitions(filePath string, line int, identif
 // the cursor at filePath:line: every other place in the project that uses
 // it. Not found is a normal, non-error result (an empty slice), the same
 // contract as CodeGraphFindDefinitions.
-func (s *AppService) CodeGraphFindReferences(filePath string, line int, identifier string) ([]codegraph.Reference, error) {
+func (s *AppService) CodeGraphFindReferences(filePath string, line int, identifier string, servicePath string) ([]codegraph.Reference, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":     "find_references",
-		"file_path":  filePath,
-		"line":       line,
-		"identifier": identifier,
+		"service_path": servicePath,
+		"action":       "find_references",
+		"file_path":    filePath,
+		"line":         line,
+		"identifier":   identifier,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.FindReferences(ctx, filePath, line, identifier)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.FindReferences(ctx, filePath, line, identifier)
 	})
 	if err != nil {
 		return nil, err
@@ -117,14 +177,19 @@ func (s *AppService) CodeGraphFindReferences(filePath string, line int, identifi
 // implement it (asked on an interface/abstract method) or the classes that
 // implement it (asked on an interface/abstract class). Not found is a
 // normal, non-error result (an empty slice).
-func (s *AppService) CodeGraphFindImplementations(filePath string, line int, identifier string) ([]codegraph.Definition, error) {
+func (s *AppService) CodeGraphFindImplementations(filePath string, line int, identifier string, servicePath string) ([]codegraph.Definition, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":     "find_implementations",
-		"file_path":  filePath,
-		"line":       line,
-		"identifier": identifier,
+		"service_path": servicePath,
+		"action":       "find_implementations",
+		"file_path":    filePath,
+		"line":         line,
+		"identifier":   identifier,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.FindImplementations(ctx, filePath, line, identifier)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.FindImplementations(ctx, filePath, line, identifier)
 	})
 	if err != nil {
 		return nil, err
@@ -132,12 +197,17 @@ func (s *AppService) CodeGraphFindImplementations(filePath string, line int, ide
 	return result.([]codegraph.Definition), nil
 }
 
-func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) {
+func (s *AppService) CodeGraphGetBlastRadius(filePath string, servicePath string) ([]string, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":    "get_blast_radius",
-		"file_path": filePath,
+		"service_path": servicePath,
+		"action":       "get_blast_radius",
+		"file_path":    filePath,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.GetBlastRadius(ctx, filePath)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetBlastRadius(ctx, filePath)
 	})
 	if err != nil {
 		return nil, err
@@ -145,11 +215,16 @@ func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) 
 	return result.([]string), nil
 }
 
-func (s *AppService) CodeGraphWaitForIndexReady() (int, error) {
+func (s *AppService) CodeGraphWaitForIndexReady(servicePath string) (int, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action": "wait_for_index_ready",
+		"service_path": servicePath,
+		"action":       "wait_for_index_ready",
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.WaitForIndexReady(ctx)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.WaitForIndexReady(ctx)
 	})
 	if err != nil {
 		return 0, err
@@ -157,13 +232,18 @@ func (s *AppService) CodeGraphWaitForIndexReady() (int, error) {
 	return result.(int), nil
 }
 
-func (s *AppService) CodeGraphGetNeighbors(rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error) {
+func (s *AppService) CodeGraphGetNeighbors(rootID string, depth int, filter codegraph.NeighborFilter, servicePath string) (codegraph.Subgraph, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":  "get_neighbors",
-		"root_id": rootID,
-		"depth":   depth,
+		"service_path": servicePath,
+		"action":       "get_neighbors",
+		"root_id":      rootID,
+		"depth":        depth,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.GetNeighbors(ctx, rootID, depth, filter)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetNeighbors(ctx, rootID, depth, filter)
 	})
 	if err != nil {
 		return codegraph.Subgraph{}, err
@@ -171,11 +251,16 @@ func (s *AppService) CodeGraphGetNeighbors(rootID string, depth int, filter code
 	return result.(codegraph.Subgraph), nil
 }
 
-func (s *AppService) CodeGraphListFiles() ([]codegraph.FileEntry, error) {
+func (s *AppService) CodeGraphListFiles(servicePath string) ([]codegraph.FileEntry, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
-		"action": "list_files",
+		"service_path": servicePath,
+		"action":       "list_files",
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.ListFiles(ctx)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListFiles(ctx)
 	})
 	if err != nil {
 		return nil, err
@@ -183,12 +268,17 @@ func (s *AppService) CodeGraphListFiles() ([]codegraph.FileEntry, error) {
 	return result.([]codegraph.FileEntry), nil
 }
 
-func (s *AppService) CodeGraphReadFile(relativePath string) (string, error) {
+func (s *AppService) CodeGraphReadFile(relativePath string, servicePath string) (string, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "file:"+relativePath, map[string]any{
+		"service_path":  servicePath,
 		"action":        "read_file",
 		"relative_path": relativePath,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.ReadFile(ctx, relativePath)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ReadFile(ctx, relativePath)
 	})
 	if err != nil {
 		return "", err
@@ -211,14 +301,19 @@ func (s *AppService) CodeGraphWriteFile(relativePath, content, expectedRoot stri
 	return err
 }
 
-func (s *AppService) CodeGraphGetCodeSnippet(filePath string, line, endLine int) (codegraph.CodeSnippet, error) {
+func (s *AppService) CodeGraphGetCodeSnippet(filePath string, line, endLine int, servicePath string) (codegraph.CodeSnippet, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "file:"+filePath, map[string]any{
-		"action":    "get_code_snippet",
-		"file_path": filePath,
-		"line":      line,
-		"end_line":  endLine,
+		"service_path": servicePath,
+		"action":       "get_code_snippet",
+		"file_path":    filePath,
+		"line":         line,
+		"end_line":     endLine,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.GetCodeSnippet(ctx, filePath, line, endLine)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetCodeSnippet(ctx, filePath, line, endLine)
 	})
 	if err != nil {
 		return codegraph.CodeSnippet{}, err
@@ -226,13 +321,18 @@ func (s *AppService) CodeGraphGetCodeSnippet(filePath string, line, endLine int)
 	return result.(codegraph.CodeSnippet), nil
 }
 
-func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string) (codegraph.DataFlowTrace, error) {
+func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string, servicePath string) (codegraph.DataFlowTrace, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":     "trace_data_flow",
-		"symbol_id":  symbolID,
-		"field_name": fieldName,
+		"service_path": servicePath,
+		"action":       "trace_data_flow",
+		"symbol_id":    symbolID,
+		"field_name":   fieldName,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.TraceDataFlow(ctx, symbolID, fieldName)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.TraceDataFlow(ctx, symbolID, fieldName)
 	})
 	if err != nil {
 		return codegraph.DataFlowTrace{}, err
@@ -240,12 +340,17 @@ func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string) (codegra
 	return result.(codegraph.DataFlowTrace), nil
 }
 
-func (s *AppService) CodeGraphListFields(nodeID string) ([]codegraph.FieldRef, error) {
+func (s *AppService) CodeGraphListFields(nodeID string, servicePath string) ([]codegraph.FieldRef, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action":  "list_fields",
-		"node_id": nodeID,
+		"service_path": servicePath,
+		"action":       "list_fields",
+		"node_id":      nodeID,
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.ListFields(ctx, nodeID)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListFields(ctx, nodeID)
 	})
 	if err != nil {
 		return nil, err
@@ -357,11 +462,16 @@ func (s *AppService) CodeGraphCancelAnalyzerBuild() error {
 // CodeGraphIndexInfo is what the sidebar says under the project name: when the
 // index was built, whether a run is in flight, why the last one failed, and the
 // modules the project was detected with (a restored session knows them too).
-func (s *AppService) CodeGraphIndexInfo(ctx context.Context) (codegraph.IndexInfo, error) {
+func (s *AppService) CodeGraphIndexInfo(ctx context.Context, servicePath string) (codegraph.IndexInfo, error) {
 	result, err := s.call(ctx, "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
-		"action": "index_info",
+		"service_path": servicePath,
+		"action":       "index_info",
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.IndexInfo(ctx)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.IndexInfo(ctx)
 	})
 	if err != nil {
 		return codegraph.IndexInfo{}, err
@@ -371,11 +481,16 @@ func (s *AppService) CodeGraphIndexInfo(ctx context.Context) (codegraph.IndexInf
 
 // CodeGraphGitStatus maps changed files in the active project to M/A/D/R, for
 // the Files tab. Empty outside a git work tree.
-func (s *AppService) CodeGraphGitStatus(ctx context.Context) (map[string]string, error) {
+func (s *AppService) CodeGraphGitStatus(ctx context.Context, servicePath string) (map[string]string, error) {
 	result, err := s.call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
-		"action": "git_status",
+		"service_path": servicePath,
+		"action":       "git_status",
 	}, func(ctx context.Context) (any, error) {
-		return s.container.CodeGraph.GitStatus(ctx)
+		svc, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return svc.GitStatus(ctx)
 	})
 	if err != nil {
 		return nil, err

@@ -140,6 +140,29 @@ type CodeGraphAPI interface {
 	ListPlanNodeComments(ctx context.Context, planNodeID string) ([]codegraph.PlanComment, error)
 }
 
+// CodeGraphServices reaches the workspace services besides the focused
+// project — codegraph.Registry, through RegistryServices.
+type CodeGraphServices interface {
+	// Service is the one for servicePath, opened on first use.
+	Service(ctx context.Context, servicePath string) (CodeGraphAPI, error)
+	// Focus makes path the focused project, taking it from a resident
+	// service already open on it.
+	Focus(ctx context.Context, path string) (CodeGraphAPI, error)
+}
+
+// RegistryServices adapts a codegraph.Registry to CodeGraphServices.
+func RegistryServices(r *codegraph.Registry) CodeGraphServices { return registryServices{r} }
+
+type registryServices struct{ r *codegraph.Registry }
+
+func (s registryServices) Service(ctx context.Context, servicePath string) (CodeGraphAPI, error) {
+	return s.r.Open(ctx, servicePath)
+}
+
+func (s registryServices) Focus(ctx context.Context, path string) (CodeGraphAPI, error) {
+	return s.r.Focus(ctx, path)
+}
+
 // VaultStatusResult is the structured output of vault.status.
 type VaultStatusResult struct {
 	State string `json:"state"`
@@ -162,10 +185,14 @@ type Deps struct {
 	DB        DatabaseAPI
 	Kafka     KafkaAPI
 	CodeGraph CodeGraphAPI
-	Tasks     TasksAPI     // optional nil until wired from main
-	Git       GitAPI       // optional nil until wired from main
-	Accounts  AccountsAPI  // optional nil until wired from main
-	API       APIClientAPI // optional nil until wired from main
+	// CodeGraphServices lets codegraph.* tools name a workspace service
+	// (servicePath) instead of the focused project. Optional: nil leaves
+	// only the focused project, and a servicePath is refused.
+	CodeGraphServices CodeGraphServices
+	Tasks             TasksAPI     // optional nil until wired from main
+	Git               GitAPI       // optional nil until wired from main
+	Accounts          AccountsAPI  // optional nil until wired from main
+	API               APIClientAPI // optional nil until wired from main
 	// CodexHook records a lifecycle hook call from an external Codex CLI
 	// session — a session DevKit did not spawn. Optional nil until wired
 	// from main; codexsessions.Service is itself nil-safe, so a nil here

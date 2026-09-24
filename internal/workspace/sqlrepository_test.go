@@ -104,3 +104,48 @@ func TestSQLRepository_CreateWorkspaceIsAtomic(t *testing.T) {
 		t.Fatalf("ListServices = %+v, want empty — the failed create must not have left a service row behind", gotServices)
 	}
 }
+
+// A failed or unsupported index outlives a restart on every row at that
+// path; anything else clears it.
+func TestSQLRepositoryRecordsIndexOutcome(t *testing.T) {
+	svc := workspace.NewService(newTestSQLRepo(t))
+	root := t.TempDir()
+	_, services, err := svc.AddWorkspace("ws", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := services[0].Path
+
+	if err := svc.RecordIndexOutcome(path, workspace.IndexStateFailed, "java not found", true); err != nil {
+		t.Fatal(err)
+	}
+	all, err := svc.AllServices()
+	if err != nil || len(all) != 1 {
+		t.Fatalf("AllServices = %v, %v", all, err)
+	}
+	if got := all[0]; got.IndexState != workspace.IndexStateFailed || got.IndexError != "java not found" || !got.IndexMissingToolchain {
+		t.Fatalf("stored = %+v", got)
+	}
+
+	if err := svc.RecordIndexOutcome(path, "indexed", "", false); err != nil {
+		t.Fatal(err)
+	}
+	all, _ = svc.AllServices()
+	if got := all[0]; got.IndexState != "" || got.IndexError != "" || got.IndexMissingToolchain {
+		t.Fatalf("after success = %+v, want cleared", got)
+	}
+}
+
+// Registering services tells the composition root, so each can be queued.
+func TestAddWorkspaceReportsTheServicesAdded(t *testing.T) {
+	svc := workspace.NewService(workspace.NewMemoryRepository())
+	var added []workspace.WorkspaceService
+	svc.OnServicesAdded = func(s []workspace.WorkspaceService) { added = s }
+	_, services, err := svc.AddWorkspace("ws", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != len(services) || added[0].Path != services[0].Path {
+		t.Fatalf("added = %+v, want %+v", added, services)
+	}
+}

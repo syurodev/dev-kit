@@ -1060,7 +1060,29 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30})
+	m31 := Migration{
+		Version: 31,
+		Name:    "workspace_services index outcome",
+		Up: func(ctx context.Context) error {
+			// Only the outcomes that must survive a restart: a service whose
+			// index failed or that no analyzer claims is not queued again on
+			// every start (docs/dev-kit/workspace.mdx § "Trạng thái index").
+			// pending/indexing are this process's state, and indexed_at
+			// lives in the index itself.
+			for _, col := range []struct{ name, def string }{
+				{"index_state", "TEXT NOT NULL DEFAULT ''"},
+				{"index_error", "TEXT NOT NULL DEFAULT ''"},
+				{"index_missing_toolchain", "INTEGER NOT NULL DEFAULT 0"},
+			} {
+				if err := addColumnIfNotExists(ctx, db, TableWorkspaceServices, col.name, col.def); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31})
 	if err != nil {
 		return err
 	}
