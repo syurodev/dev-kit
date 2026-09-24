@@ -77,12 +77,16 @@ func siblingsOnTheWay(dir, keep string) []string {
 		return []string{dir}
 	}
 	next, rest, _ := strings.Cut(filepath.ToSlash(rel), "/")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		// Unlistable is not empty: keep the whole directory hidden. The home
+		// inside it then cannot be granted, and the spawn fails closed.
+		return []string{dir}
+	}
 	var out []string
-	if entries, err := os.ReadDir(dir); err == nil {
-		for _, entry := range entries {
-			if entry.Name() != next {
-				out = append(out, filepath.Join(dir, entry.Name()))
-			}
+	for _, entry := range entries {
+		if entry.Name() != next {
+			out = append(out, filepath.Join(dir, entry.Name()))
 		}
 	}
 	if rest != "" {

@@ -96,6 +96,17 @@ func runFakeCodex(scenario, logPath string) {
 				"error": map[string]any{"message": "usage limit", "codexErrorInfo": "usageLimitExceeded"}})
 		case "die":
 			os.Exit(3)
+		case "garbage":
+			// A line the client cannot read, with codex still running.
+			outMu.Lock()
+			_, _ = os.Stdout.Write([]byte("oops\n"))
+			outMu.Unlock()
+		case "stubborn":
+			notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": cmdItem})
+			// turn/interrupt is answered but the turn never ends.
+		case "staleError":
+			time.Sleep(300 * time.Millisecond)
+			done("completed")
 		default:
 			// Another thread on the same connection finishing first must not end
 			// this one.
@@ -105,8 +116,13 @@ func runFakeCodex(scenario, logPath string) {
 			notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": cmdItem})
 			notify("item/agentMessage/delta", map[string]any{"threadId": thread, "turnId": turn, "itemId": "msg-1", "delta": "done"})
 			notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "id": "msg-1", "text": "done"}})
+			total := map[string]any{"inputTokens": 100, "outputTokens": 20, "totalTokens": 120}
+			if scenario == "resumeUsage" {
+				// A resumed thread's first report counts the turns before it.
+				total = map[string]any{"inputTokens": 1100, "outputTokens": 220, "totalTokens": 1320}
+			}
 			notify("thread/tokenUsage/updated", map[string]any{"threadId": thread, "turnId": turn, "tokenUsage": map[string]any{
-				"total": map[string]any{"inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
+				"total": total,
 				"last":  map[string]any{"inputTokens": 100, "outputTokens": 20, "totalTokens": 120}, "modelContextWindow": 1000}})
 			notify("remoteControl/status/changed", map[string]any{"serverName": "secret-host", "installationId": "id"})
 			done("completed")
@@ -166,10 +182,16 @@ func runFakeCodex(scenario, logPath string) {
 				reply(map[string]any{"type": "apiKey"})
 				continue
 			}
-			if scenario == "login" {
+			switch scenario {
+			case "login":
 				go func() {
 					time.Sleep(50 * time.Millisecond)
 					notify("account/login/completed", map[string]any{"loginId": "login-1", "success": true, "error": nil})
+				}()
+			case "loginDies":
+				go func() {
+					time.Sleep(50 * time.Millisecond)
+					os.Exit(3)
 				}()
 			}
 		case "account/login/cancel", "account/logout":
@@ -189,11 +211,23 @@ func runFakeCodex(scenario, logPath string) {
 		case "turn/start":
 			turns++
 			turn = "tu-" + string(rune('0'+turns))
+			switch scenario {
+			case "startFails":
+				time.Sleep(200 * time.Millisecond)
+				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32000, "message": "no turn for you"}})
+				continue
+			case "staleError":
+				// An older turn's fatal error lands before this turn's id does.
+				notify("error", map[string]any{"threadId": thread, "turnId": "tu-old", "willRetry": false,
+					"error": map[string]any{"message": "stale failure", "codexErrorInfo": nil}})
+			}
 			reply(map[string]any{"turn": map[string]any{"id": turn, "status": "inProgress"}})
 			go playTurn()
 		case "turn/interrupt":
 			reply(map[string]any{})
-			notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "interrupted"}})
+			if scenario != "stubborn" {
+				notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "interrupted"}})
+			}
 		default:
 			send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32601, "message": "fake: " + m.Method}})
 		}
@@ -209,6 +243,7 @@ type fakeCodexRunner struct {
 	mu     sync.Mutex
 	policy sandbox.Policy
 	cmd    sandbox.Cmd
+	procs  []*exec.Cmd
 }
 
 func (r *fakeCodexRunner) StartPiped(_ context.Context, p sandbox.Policy, c sandbox.Cmd) (*sandbox.Proc, error) {
@@ -219,7 +254,9 @@ func (r *fakeCodexRunner) StartPiped(_ context.Context, p sandbox.Policy, c sand
 	r.policy, r.cmd = p, c
 	r.mu.Unlock()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestCodexFakeAppServer$")
-	cmd.Env = append(os.Environ(), "DEVKIT_FAKE_CODEX="+r.scenario, "DEVKIT_FAKE_CODEX_LOG="+r.log, "CODEX_HOME="+p.Env["CODEX_HOME"])
+	// GORACE: under -race the helper would otherwise sleep a second on exit,
+	// and every Close now waits for the process to exit on its own.
+	cmd.Env = append(os.Environ(), "DEVKIT_FAKE_CODEX="+r.scenario, "DEVKIT_FAKE_CODEX_LOG="+r.log, "CODEX_HOME="+p.Env["CODEX_HOME"], "GORACE=atexit_sleep_ms=0")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -228,10 +265,27 @@ func (r *fakeCodexRunner) StartPiped(_ context.Context, p sandbox.Policy, c sand
 	if err != nil {
 		return nil, err
 	}
+	proc := sandbox.NewProcPiped(cmd, stdin, stdout, &bytes.Buffer{})
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return sandbox.NewProcPiped(cmd, stdin, stdout, &bytes.Buffer{}), nil
+	r.mu.Lock()
+	r.procs = append(r.procs, cmd)
+	r.mu.Unlock()
+	return proc, nil
+}
+
+// reaped reports whether every process the runner started has been waited
+// for: a Kill with no Wait leaves a zombie for the life of the app.
+func (r *fakeCodexRunner) reaped() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, cmd := range r.procs {
+		if cmd.ProcessState == nil {
+			return false
+		}
+	}
+	return len(r.procs) > 0
 }
 
 func (r *fakeCodexRunner) started() (sandbox.Policy, sandbox.Cmd) {
@@ -996,5 +1050,152 @@ func TestServiceSignInRoutesByVendor(t *testing.T) {
 	}
 	if _, err := svc.StartSignIn(context.Background(), AgentTypeCodex, SignInBrowser); !errors.Is(err, ErrUnavailableInServerMode) {
 		t.Fatalf("server mode: %v", err)
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Every process DevKit starts is reaped: a closed session, a status check, a
+// sign-out, a probe.
+func TestCodexProcessesAreReaped(t *testing.T) {
+	f := newCodexFixture(t, "turn")
+	rt, err := f.adapter.Open(context.Background(), OpenSpec{Cwd: f.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.adapter.SignInStatus(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.adapter.SignOut(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "every process to be reaped", f.runner.reaped)
+}
+
+// A line the read loop cannot read ends the connection while codex is still
+// running. The process must not outlive it: it is stopped and reaped, and
+// the session reports itself dead so Service resumes it on a fresh one.
+func TestCodexReadLoopFailureStopsTheProcess(t *testing.T) {
+	f := newCodexFixture(t, "garbage")
+	rt := f.open(t)
+	if _, err := rt.Prompt(context.Background(), TextPrompt("go"), nil); !errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("Prompt = %v, want ErrProcessFailed", err)
+	}
+	waitFor(t, "the runtime to report itself dead", func() bool { dead, _ := rt.(RuntimeLiveness).Dead(); return dead })
+	waitFor(t, "the process to be reaped", f.runner.reaped)
+}
+
+// Stop on a turn Codex will not end: the watchdog kills the process, and the
+// turn is still a Stop — cancelled, not a crash.
+func TestCodexStopThatHasToKillIsStillAStop(t *testing.T) {
+	defer func(old time.Duration) { codexInterruptWait = old }(codexInterruptWait)
+	codexInterruptWait = 200 * time.Millisecond
+	f := newCodexFixture(t, "stubborn")
+	rt := f.open(t)
+	started := make(chan struct{}, 1)
+	rt.SetHandlers(RuntimeHandlers{OnUpdate: func(u, _ json.RawMessage) {
+		if ParseSessionUpdate(u).Kind == UpdateToolCall {
+			started <- struct{}{}
+		}
+	}})
+	errs := make(chan error, 1)
+	go func() {
+		_, err := rt.Prompt(context.Background(), TextPrompt("sleep"), nil)
+		errs <- err
+	}()
+	<-started
+	if err := rt.Cancel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errs:
+		if !errors.Is(err, ErrCancelled) {
+			t.Fatalf("Prompt = %v, want ErrCancelled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Prompt did not return")
+	}
+	waitFor(t, "the process to be reaped", f.runner.reaped)
+}
+
+// A fatal error about an older turn, arriving before turn/start answers,
+// must not fail the turn that is starting.
+func TestCodexStaleErrorDoesNotFailTheNewTurn(t *testing.T) {
+	defer func(old time.Duration) { codexErrorGrace = old }(codexErrorGrace)
+	codexErrorGrace = 100 * time.Millisecond
+	f := newCodexFixture(t, "staleError")
+	rt := f.open(t)
+	out, err := rt.Prompt(context.Background(), TextPrompt("go"), nil)
+	if err != nil || out.StopReason != "end_turn" {
+		t.Fatalf("Prompt = %+v, %v; want the turn to complete", out, err)
+	}
+}
+
+// Stop pressed while turn/start is in flight, and turn/start then fails:
+// there is no turn to stop, and the watchdog must not kill a healthy process.
+func TestCodexStopBeforeTheTurnStartedLeavesTheProcessAlone(t *testing.T) {
+	defer func(old time.Duration) { codexInterruptWait = old }(codexInterruptWait)
+	codexInterruptWait = 300 * time.Millisecond
+	f := newCodexFixture(t, "startFails")
+	rt := f.open(t)
+	errs := make(chan error, 1)
+	go func() {
+		_, err := rt.Prompt(context.Background(), TextPrompt("go"), nil)
+		errs <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if err := rt.Cancel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errs; !errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("Prompt = %v, want the turn/start failure", err)
+	}
+	time.Sleep(codexInterruptWait + 300*time.Millisecond)
+	if dead, _ := rt.(RuntimeLiveness).Dead(); dead {
+		t.Fatal("the watchdog killed a process with no turn running")
+	}
+}
+
+// After a resume, the first usage report counts the whole thread; the turn is
+// billed only for itself.
+func TestCodexUsageAfterAResumeCountsOnlyTheTurn(t *testing.T) {
+	f := newCodexFixture(t, "resumeUsage")
+	rt, err := f.adapter.Load(context.Background(), OpenSpec{Cwd: f.cwd}, "th-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close(context.Background())
+	out, err := rt.Prompt(context.Background(), TextPrompt("go"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, _ := f.adapter.NormalizeUsage(out.Meta)
+	if usage.InputTokens != 100 || usage.OutputTokens != 20 {
+		t.Fatalf("usage = %+v, want this turn's 100/20 (meta %s)", usage, out.Meta)
+	}
+}
+
+// A sign-in whose process dies ends at once, not at the 15-minute timeout.
+func TestCodexSignInEndsWhenItsProcessDies(t *testing.T) {
+	f := newCodexFixture(t, "loginDies")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	if _, err := f.adapter.StartBrowserSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r := waitSignIn(t, results); r.Success || !strings.Contains(r.Error, "exited") {
+		t.Fatalf("result = %+v", r)
 	}
 }

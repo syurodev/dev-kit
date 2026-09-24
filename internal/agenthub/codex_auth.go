@@ -146,6 +146,10 @@ func (a *CodexAdapter) StartDeviceSignIn(ctx context.Context) (SignInFlow, error
 }
 
 func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string) (SignInFlow, error) {
+	// One start at a time, so two quick clicks cannot both find no flow and
+	// leave the first running, holding the callback port, until it times out.
+	a.signInStart.Lock()
+	defer a.signInStart.Unlock()
 	a.signInMu.Lock()
 	previous := a.signIn
 	a.signInMu.Unlock()
@@ -199,6 +203,11 @@ func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string
 		early.LoginID = res.LoginID
 		go a.finishSignIn(s, *early, false)
 	}
+	// A process that dies mid-flow ends it now, not at the timeout.
+	go func() {
+		<-p.serveDone
+		a.finishSignIn(s, SignInResult{LoginID: res.LoginID, Error: "Codex exited before the sign-in finished."}, false)
+	}()
 	log.Printf("agenthub: codex: %s sign-in started", method)
 	return SignInFlow{
 		LoginID:         res.LoginID,

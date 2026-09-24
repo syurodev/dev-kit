@@ -56,13 +56,14 @@ const codexModelOption = "model"
 var codexDisabledFeatures = []string{"hooks", "plugins", "apps", "computer_use"}
 
 const (
-	// codexInterruptWait is how long a turn gets to end after turn/interrupt.
-	// Longer than that and the process is not answering: Cancel kills it, and
-	// the session resumes on a fresh one.
-	codexInterruptWait = 10 * time.Second
 	// codexModelPages bounds model/list paging.
 	codexModelPages = 5
 )
+
+// codexInterruptWait is how long a turn gets to end after turn/interrupt.
+// Longer than that and the process is not answering: it is killed, and the
+// session resumes on a fresh one. A var so a test need not wait it out.
+var codexInterruptWait = 10 * time.Second
 
 // codexErrorGrace is how long an error that will not be retried waits for
 // the turn/completed that normally follows it before it ends the turn
@@ -98,8 +99,9 @@ type CodexOptions struct {
 type CodexAdapter struct {
 	opts CodexOptions
 
-	signInMu sync.Mutex
-	signIn   *codexSignIn
+	signInStart sync.Mutex // held for the whole of a startSignIn
+	signInMu    sync.Mutex
+	signIn      *codexSignIn
 }
 
 // NewCodexAdapter returns the Codex adapter. Every process it starts goes
@@ -301,8 +303,10 @@ type codexProcess struct {
 	proc        *sandbox.Proc
 	conn        *codexapp.Conn
 	cancelServe context.CancelFunc
-	serveDone   chan struct{}
-	serveErr    error // written before serveDone closes
+	// serveDone closes once the read loop has ended AND the process has been
+	// reaped, so nothing that waits on it can leave a zombie behind.
+	serveDone chan struct{}
+	serveErr  error // written before serveDone closes
 }
 
 // start spawns the app-server and serves its connection with h. The process
@@ -332,14 +336,40 @@ func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store stri
 	go func() {
 		defer close(p.serveDone)
 		p.serveErr = p.conn.Serve(serveCtx)
+		p.reap()
 	}()
 	return p, nil
 }
 
-func (p *codexProcess) stop() {
-	p.cancelServe()
+// codexExitGrace is how long codex gets to exit on its own once its stdin
+// closes, before it is killed.
+const codexExitGrace = 2 * time.Second
+
+// reap ends the process however the read loop ended — a Close, an EOF, or a
+// line the loop could not read while codex was still running. stdin closes
+// first: codex exits on EOF and takes the commands it started with it
+// (measured on 0.147.0: gone in 0.08 s, a backgrounded child with it), which
+// a SIGKILL on macOS, with no pid namespace, would leave running. Killed if
+// it has not gone in codexExitGrace, and waited for either way.
+func (p *codexProcess) reap() {
 	_ = p.conn.Close()
-	_ = p.proc.Kill()
+	exited := make(chan struct{})
+	go func() {
+		_ = p.proc.Wait()
+		close(exited)
+	}()
+	select {
+	case <-exited:
+	case <-time.After(codexExitGrace):
+		_ = p.proc.Kill()
+		<-exited
+	}
+}
+
+// stop ends the process and waits until it is reaped.
+func (p *codexProcess) stop() {
+	_ = p.conn.Close()
+	p.cancelServe()
 	<-p.serveDone
 }
 
@@ -657,22 +687,32 @@ type codexRuntime struct {
 	model     string
 	turn      *codexTurn
 	usage     codexapp.TokenUsageBreakdown // the thread's running total
-	closed    bool
-	closing   bool
-	exitErr   error
+	// usageKnown says usage has been reported by this process at all; a
+	// resumed thread's first report already counts the turns before it.
+	usageKnown bool
+	closed     bool
+	closing    bool
+	exitErr    error
 }
 
 // codexTurn is the turn a Prompt is waiting on. id is empty until turn/start
 // answers; a turn/completed that arrives before that waits in early.
 type codexTurn struct {
-	id         string
-	done       chan codexTurnEnd // one end, for Prompt
-	over       chan struct{}     // closed at the end, for anyone else
-	ended      bool
-	early      map[string]codexTurnEnd
-	failure    *codexapp.TurnError // an error Codex will not retry
-	interrupt  bool                // Cancel came before the id did
+	id    string
+	done  chan codexTurnEnd // one end, for Prompt
+	over  chan struct{}     // closed at the end, for anyone else
+	ended bool
+	early map[string]codexTurnEnd
+	// earlyErr holds errors that arrived before turn/start answered, by the
+	// turn they name, so one about an older turn cannot fail this one.
+	earlyErr  map[string]codexapp.TurnError
+	failure   *codexapp.TurnError // an error Codex will not retry
+	interrupt bool                // Cancel came before the id did
+	// stopping says the person pressed Stop: if the process has to be killed
+	// to make it so, the turn was cancelled, not crashed.
+	stopping   bool
 	startUsage codexapp.TokenUsageBreakdown
+	baseKnown  bool // startUsage is a real baseline, not a guess
 }
 
 type codexTurnEnd struct {
@@ -680,13 +720,24 @@ type codexTurnEnd struct {
 	err    *codexapp.TurnError
 }
 
-// finish ends t once. Called with the runtime's mu held.
+// finish ends t once, with the end Prompt returns. Called with the
+// runtime's mu held.
 func (t *codexTurn) finish(end codexTurnEnd) {
 	if t.ended {
 		return
 	}
 	t.ended = true
 	t.done <- end
+	close(t.over)
+}
+
+// abandon ends t without an outcome: Prompt is returning, whatever became
+// of the turn. Called with the runtime's mu held.
+func (t *codexTurn) abandon() {
+	if t.ended {
+		return
+	}
+	t.ended = true
 	close(t.over)
 }
 
@@ -892,7 +943,14 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 		r.mu.Unlock()
 		return PromptOutcome{}, ErrSessionBusy
 	}
-	t := &codexTurn{done: make(chan codexTurnEnd, 1), over: make(chan struct{}), early: map[string]codexTurnEnd{}, startUsage: r.usage}
+	t := &codexTurn{
+		done:       make(chan codexTurnEnd, 1),
+		over:       make(chan struct{}),
+		early:      map[string]codexTurnEnd{},
+		earlyErr:   map[string]codexapp.TurnError{},
+		startUsage: r.usage,
+		baseKnown:  r.usageKnown,
+	}
 	r.turn = t
 	sandboxPolicy := codexapp.ExternalSandbox(r.network)
 	params := codexapp.TurnStartParams{
@@ -906,22 +964,41 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
+		// Ended however Prompt leaves: Cancel's watchdog waits on it, and must
+		// not kill a process a turn never got going on.
+		t.abandon()
 		if r.turn == t {
 			r.turn = nil
 		}
 		r.mu.Unlock()
 	}()
 
+	// turn/start answers at once with the turn in progress. Its own bound,
+	// not the prompt's ctx: a Stop that lands while it is in flight still
+	// needs the turn id it answers with, or Codex runs a turn nobody can
+	// interrupt and the next prompt starts beside it.
 	log.Printf("agenthub: codex turn/start sent (thread %s, policy %s)", params.ThreadID, params.ApprovalPolicy)
-	var res codexapp.TurnStartResponse
-	if err := r.conn.Call(ctx, codexapp.MethodTurnStart, params, &res); err != nil {
-		if ctx.Err() != nil {
-			return PromptOutcome{}, ErrCancelled
+	startCtx, cancelStart := context.WithTimeout(context.Background(), handshakeTimeout)
+	go func() {
+		select {
+		case <-r.serveDone:
+			cancelStart()
+		case <-startCtx.Done():
 		}
+	}()
+	var res codexapp.TurnStartResponse
+	err := r.conn.Call(startCtx, codexapp.MethodTurnStart, params, &res)
+	cancelStart()
+	if err != nil {
 		return PromptOutcome{}, r.callFailure("turn/start", err)
 	}
 	r.mu.Lock()
 	t.id = res.Turn.ID
+	for _, key := range []string{t.id, ""} {
+		if e, ok := t.earlyErr[key]; ok {
+			r.failLocked(t, e)
+		}
+	}
 	if end, ok := t.early[t.id]; ok {
 		t.finish(end)
 	}
@@ -937,13 +1014,28 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 		return r.outcome(t, end)
 	case <-r.serveDone:
 		r.emit(r.tr.closeOpen("Codex stopped before the turn finished."))
+		r.mu.Lock()
+		stopping := t.stopping
+		r.mu.Unlock()
+		if stopping {
+			// Stop had to kill it: still a Stop, not a crash.
+			return PromptOutcome{}, ErrCancelled
+		}
 		return PromptOutcome{}, r.callFailure("turn", codexapp.ErrClosed)
 	case <-ctx.Done():
+		r.mu.Lock()
+		t.stopping = true
+		r.mu.Unlock()
 		r.interrupt(t.id)
 		select {
 		case <-t.over:
 		case <-r.serveDone:
 		case <-time.After(codexInterruptWait):
+			// Codex did not stop. The next prompt must not start a turn
+			// beside this one, so the process goes; the session resumes
+			// on a fresh one.
+			log.Printf("agenthub: codex: turn did not stop after interrupt; killing the process (thread %s)", params.ThreadID)
+			_ = r.proc.Kill()
 			r.emit(r.tr.closeOpen("Cancelled."))
 		}
 		return PromptOutcome{}, ErrCancelled
@@ -968,13 +1060,7 @@ func (r *codexRuntime) callFailure(stage string, err error) error {
 // outcome is what Prompt returns for a turn that ended.
 func (r *codexRuntime) outcome(t *codexTurn, end codexTurnEnd) (PromptOutcome, error) {
 	r.mu.Lock()
-	used := codexapp.TokenUsageBreakdown{
-		TotalTokens:           r.usage.TotalTokens - t.startUsage.TotalTokens,
-		InputTokens:           r.usage.InputTokens - t.startUsage.InputTokens,
-		CachedInputTokens:     r.usage.CachedInputTokens - t.startUsage.CachedInputTokens,
-		OutputTokens:          r.usage.OutputTokens - t.startUsage.OutputTokens,
-		ReasoningOutputTokens: r.usage.ReasoningOutputTokens - t.startUsage.ReasoningOutputTokens,
-	}
+	used := codexUsageSince(r.usage, t.startUsage)
 	r.mu.Unlock()
 	meta := marshalUpdate(map[string]any{"codex": map[string]any{"turnId": t.id, "turn": used}})
 	switch end.status {
@@ -984,6 +1070,17 @@ func (r *codexRuntime) outcome(t *codexTurn, end codexTurnEnd) (PromptOutcome, e
 		return PromptOutcome{StopReason: "cancelled", Meta: meta}, nil
 	}
 	return PromptOutcome{}, codexTurnError(end.err)
+}
+
+// codexUsageSince is what was used between two running totals.
+func codexUsageSince(now, then codexapp.TokenUsageBreakdown) codexapp.TokenUsageBreakdown {
+	return codexapp.TokenUsageBreakdown{
+		TotalTokens:           now.TotalTokens - then.TotalTokens,
+		InputTokens:           now.InputTokens - then.InputTokens,
+		CachedInputTokens:     now.CachedInputTokens - then.CachedInputTokens,
+		OutputTokens:          now.OutputTokens - then.OutputTokens,
+		ReasoningOutputTokens: now.ReasoningOutputTokens - then.ReasoningOutputTokens,
+	}
 }
 
 // codexTurnError maps a failed turn's error. unauthorized is a sign-in to
@@ -1029,7 +1126,7 @@ func (r *codexRuntime) interrupt(turnID string) {
 		return
 	}
 	thread := r.thread()
-	ctx, cancel := context.WithTimeout(context.Background(), codexInterruptWait)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := r.conn.Call(ctx, codexapp.MethodTurnInterrupt, codexapp.TurnInterruptParams{ThreadID: thread, TurnID: turnID}, nil); err != nil {
 		log.Printf("agenthub: codex turn/interrupt (thread %s): %v", thread, err)
@@ -1046,6 +1143,7 @@ func (r *codexRuntime) Cancel(context.Context) error {
 	id := ""
 	if t != nil {
 		id = t.id
+		t.stopping = true
 		if id == "" {
 			t.interrupt = true
 		}
@@ -1055,11 +1153,12 @@ func (r *codexRuntime) Cancel(context.Context) error {
 		return nil
 	}
 	go r.interrupt(id)
+	wait := codexInterruptWait
 	go func() {
 		select {
 		case <-t.over:
 		case <-r.serveDone:
-		case <-time.After(codexInterruptWait):
+		case <-time.After(wait):
 			log.Printf("agenthub: codex: turn did not stop after interrupt; killing the process (thread %s)", r.thread())
 			_ = r.proc.Kill()
 		}
@@ -1075,19 +1174,18 @@ func (r *codexRuntime) Close(context.Context) error {
 	}
 	r.closed, r.closing = true, true
 	r.mu.Unlock()
-	if r.cancelServe != nil {
-		r.cancelServe()
-	}
+	// Closing stdin ends the read loop, and the loop's reaper does the rest:
+	// codex exits on EOF, or is killed after codexExitGrace, and is waited for.
 	if r.conn != nil {
 		_ = r.conn.Close()
 	}
-	if r.proc != nil {
-		_ = r.proc.Kill()
+	if r.cancelServe != nil {
+		r.cancelServe()
 	}
 	if r.serveDone != nil {
 		select {
 		case <-r.serveDone:
-		case <-time.After(2 * time.Second):
+		case <-time.After(codexExitGrace + 3*time.Second):
 		}
 	}
 	return nil
@@ -1167,14 +1265,25 @@ func (r *codexRuntime) onError(params json.RawMessage) {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	t := r.turn
-	if t == nil || t.ended || (t.id != "" && n.TurnID != "" && n.TurnID != t.id) {
-		r.mu.Unlock()
-		return
+	switch {
+	case t == nil || t.ended:
+	case t.id == "":
+		// turn/start has not answered: kept for the turn the error names,
+		// which may be an older one.
+		t.earlyErr[n.TurnID] = n.Error
+	case n.TurnID == "" || n.TurnID == t.id:
+		r.failLocked(t, n.Error)
 	}
-	failure := n.Error
+}
+
+// failLocked records an error t will not recover from, and ends t with it if
+// the turn/completed that normally follows does not come in codexErrorGrace.
+// Called with mu held.
+func (r *codexRuntime) failLocked(t *codexTurn, e codexapp.TurnError) {
+	failure := e
 	t.failure = &failure
-	r.mu.Unlock()
 	time.AfterFunc(codexErrorGrace, func() {
 		r.mu.Lock()
 		pending := r.turn == t && !t.ended
@@ -1195,7 +1304,14 @@ func (r *codexRuntime) onUsage(params json.RawMessage) {
 		return
 	}
 	r.mu.Lock()
-	r.usage = n.TokenUsage.Total
+	if t := r.turn; t != nil && !t.baseKnown {
+		// The first figure this process reports: after a resume it already
+		// counts every earlier turn, so the baseline is the thread's total
+		// before this call rather than zero.
+		t.startUsage = codexUsageSince(n.TokenUsage.Total, n.TokenUsage.Last)
+		t.baseKnown = true
+	}
+	r.usage, r.usageKnown = n.TokenUsage.Total, true
 	r.mu.Unlock()
 }
 
