@@ -15,15 +15,15 @@ func mkGitDir(t *testing.T, path string) {
 	}
 }
 
-func TestWorkspaceAddSplitsMultipleRepos(t *testing.T) {
+func TestWorkspaceCreateSplitsMultipleRepos(t *testing.T) {
 	svc := NewAppService(app.NewContainer())
 	root := t.TempDir()
 	mkGitDir(t, filepath.Join(root, "billing-service"))
 	mkGitDir(t, filepath.Join(root, "refund-service"))
 
-	result, err := svc.WorkspaceAdd("acme", root)
+	result, err := svc.WorkspaceCreate("acme", []string{root})
 	if err != nil {
-		t.Fatalf("WorkspaceAdd: %v", err)
+		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if result.Workspace.Name != "acme" {
 		t.Fatalf("workspace name = %q, want acme", result.Workspace.Name)
@@ -49,28 +49,35 @@ func TestWorkspaceAddSplitsMultipleRepos(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAddFallsBackToFolderItself(t *testing.T) {
+func TestWorkspaceCreateNeedsANameButNotFolders(t *testing.T) {
 	svc := NewAppService(app.NewContainer())
-	root := t.TempDir() // no nested repos
-
-	result, err := svc.WorkspaceAdd("", root)
+	if _, err := svc.WorkspaceCreate("", []string{t.TempDir()}); err == nil {
+		t.Fatal("a blank name must be refused")
+	}
+	result, err := svc.WorkspaceCreate("fsap", nil)
 	if err != nil {
-		t.Fatalf("WorkspaceAdd: %v", err)
+		t.Fatalf("WorkspaceCreate: %v", err)
 	}
-	if len(result.Services) != 1 || result.Services[0].Path != root {
-		t.Fatalf("services = %+v, want a single service at root %s", result.Services, root)
+	if len(result.Services) != 0 {
+		t.Fatalf("services = %+v, want none yet", result.Services)
 	}
-	if result.Workspace.Name != filepath.Base(root) {
-		t.Fatalf("workspace name = %q, want folder name fallback %q", result.Workspace.Name, filepath.Base(root))
+
+	root := t.TempDir() // no nested repos: the folder is the service
+	updated, err := svc.WorkspaceUpdate(result.Workspace.ID, "fsap", []string{root})
+	if err != nil {
+		t.Fatalf("WorkspaceUpdate: %v", err)
+	}
+	if len(updated.Services) != 1 || updated.Services[0].Path != root || updated.Workspace.Root != root {
+		t.Fatalf("updated = %+v, want the folder as its one, primary service", updated)
 	}
 }
 
 func TestWorkspaceDeleteRemovesServices(t *testing.T) {
 	svc := NewAppService(app.NewContainer())
 	root := t.TempDir()
-	result, err := svc.WorkspaceAdd("acme", root)
+	result, err := svc.WorkspaceCreate("acme", []string{root})
 	if err != nil {
-		t.Fatalf("WorkspaceAdd: %v", err)
+		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
 	if err := svc.WorkspaceDelete(result.Workspace.ID); err != nil {

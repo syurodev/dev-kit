@@ -23,16 +23,28 @@ export function chooseWorkspaceFolder(startIn: string): Promise<string> {
   return callBridge(() => AppService.WorkspaceChooseFolder(startIn));
 }
 
-export type AddWorkspaceResult = { workspace: Workspace; services: WorkspaceService[] };
+export type WorkspaceResult = { workspace: Workspace; services: WorkspaceService[] };
 
 /**
- * name may be "" — the backend falls back to root's own folder name. root
- * gets auto-discovery's split: one service per nested git checkout it finds,
- * or root itself when it finds none (docs/dev-kit/workspace.mdx).
+ * A workspace named first, folders optional (docs/dev-kit/workspace.mdx).
+ * Each folder goes through auto-discovery — one service per nested git
+ * checkout, or the folder itself — and the first is the primary.
  */
-export function addWorkspace(name: string, root: string): Promise<AddWorkspaceResult> {
+export function createWorkspace(name: string, folders: string[]): Promise<WorkspaceResult> {
   return callBridge(async () => {
-    const result = await AppService.WorkspaceAdd(name, root);
+    const result = await AppService.WorkspaceCreate(name, folders);
+    return { workspace: result.workspace, services: result.services ?? [] };
+  });
+}
+
+/**
+ * Rename a workspace and set its folders to `paths`, in order — first is the
+ * primary. Paths already registered keep their service; new ones are
+ * discovered and queued for indexing; missing ones are dropped.
+ */
+export function updateWorkspace(id: string, name: string, paths: string[]): Promise<WorkspaceResult> {
+  return callBridge(async () => {
+    const result = await AppService.WorkspaceUpdate(id, name, paths);
     return { workspace: result.workspace, services: result.services ?? [] };
   });
 }

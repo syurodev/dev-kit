@@ -23,6 +23,12 @@ type WorkspaceSwitcherState = {
    */
   currentId: string | null;
   setCurrent: (id: string) => void;
+  /**
+   * Bumped when a workspace's folders are edited, so every view listing the
+   * current workspace's services reads them again. Not persisted.
+   */
+  servicesVersion: number;
+  servicesChanged: () => void;
 };
 
 export const useWorkspaceSwitcherStore = create<WorkspaceSwitcherState>()(
@@ -30,6 +36,8 @@ export const useWorkspaceSwitcherStore = create<WorkspaceSwitcherState>()(
     (set) => ({
       currentId: null,
       setCurrent: (id) => set({ currentId: id }),
+      servicesVersion: 0,
+      servicesChanged: () => set((state) => ({ servicesVersion: state.servicesVersion + 1 })),
     }),
     {
       name: "workspaceSwitcher",
@@ -53,6 +61,7 @@ export function useCurrentWorkspaceServices(): {
   loaded: boolean;
 } {
   const workspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
+  const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [services, setServices] = useState<WorkspaceService[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -86,7 +95,7 @@ export function useCurrentWorkspaceServices(): {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, servicesVersion]);
 
   return { workspace, services, loaded };
 }
@@ -98,6 +107,7 @@ export function useCurrentWorkspaceServices(): {
  */
 export function useWorkspaceIndexStatus(): Record<string, ServiceIndexStatus> {
   const workspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
+  const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [byPath, setByPath] = useState<Record<string, ServiceIndexStatus>>({});
 
   useEffect(() => {
@@ -123,7 +133,7 @@ export function useWorkspaceIndexStatus(): Record<string, ServiceIndexStatus> {
       cancelled = true;
       off();
     };
-  }, [workspaceId]);
+  }, [workspaceId, servicesVersion]);
 
   return byPath;
 }

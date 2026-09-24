@@ -41,6 +41,11 @@ func DetectDocker(home string, getenv func(string) string) DockerGrant {
 	return g
 }
 
+// systemDockerSocket is the CLI's compiled-in default. A variable so tests
+// can point it somewhere empty: a machine with Docker running — every CI
+// runner — would otherwise answer every fallback test with its own daemon.
+var systemDockerSocket = "/var/run/docker.sock"
+
 func detectDockerSocket(home string, getenv func(string) string) string {
 	if host := getenv("DOCKER_HOST"); host != "" {
 		// A tcp:// or ssh:// DOCKER_HOST is reached over the network, which
@@ -50,7 +55,7 @@ func detectDockerSocket(home string, getenv func(string) string) string {
 	if host := dockerContextHost(home, getenv); host != "" {
 		return unixSocket(host)
 	}
-	candidates := []string{"/var/run/docker.sock"}
+	candidates := []string{systemDockerSocket}
 	if home != "" {
 		candidates = append(candidates,
 			filepath.Join(home, ".orbstack", "run", "docker.sock"),   // OrbStack

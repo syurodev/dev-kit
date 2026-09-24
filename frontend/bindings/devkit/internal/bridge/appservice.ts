@@ -2016,15 +2016,6 @@ export function WorkFolderState(): $CancellablePromise<workfolder$0.State> {
 }
 
 /**
- * WorkspaceAdd registers root as a new workspace. name may be empty — see
- * workspace.Service.AddWorkspace for the folder-name fallback and the
- * auto-discovery split this runs.
- */
-export function WorkspaceAdd(name: string, root: string): $CancellablePromise<$models.WorkspaceAddResult> {
-    return $Call.ByID(2326927766, name, root);
-}
-
-/**
  * WorkspaceChooseFolder opens the native folder picker for a workspace's
  * root. Same shape as TasksBoardChooseProject: cancelling returns "" and is
  * not an error, since backing out of a picker is not a failure the user
@@ -2032,6 +2023,16 @@ export function WorkspaceAdd(name: string, root: string): $CancellablePromise<$m
  */
 export function WorkspaceChooseFolder(startIn: string): $CancellablePromise<string> {
     return $Call.ByID(3899642854, startIn);
+}
+
+/**
+ * WorkspaceCreate registers a named workspace over folders — the Create
+ * project dialog. folders may be empty: a project is named first and given
+ * its folders afterwards. Each folder goes through auto-discovery; the first
+ * is the primary. See workspace.Service.CreateWorkspace.
+ */
+export function WorkspaceCreate(name: string, folders: string[] | null): $CancellablePromise<$models.WorkspaceAddResult> {
+    return $Call.ByID(2542708227, name, folders);
 }
 
 /**
@@ -2074,4 +2075,14 @@ export function WorkspaceListServices(workspaceID: string): $CancellablePromise<
  */
 export function WorkspaceReindexService(path: string): $CancellablePromise<void> {
     return $Call.ByID(3255175149, path);
+}
+
+/**
+ * WorkspaceUpdate renames a workspace and sets its service folders to
+ * paths, in order — the Edit project dialog's Save. Paths already registered
+ * keep their rows; new ones are discovered and queued for indexing; missing
+ * ones are dropped. The first is the primary.
+ */
+export function WorkspaceUpdate(id: string, name: string, paths: string[] | null): $CancellablePromise<$models.WorkspaceAddResult> {
+    return $Call.ByID(26410098, id, name, paths);
 }

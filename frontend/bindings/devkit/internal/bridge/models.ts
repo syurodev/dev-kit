@@ -163,8 +163,8 @@ export interface VaultStatusDTO {
 }
 
 /**
- * WorkspaceAddResult is what AddWorkspace hands back: the new workspace and
- * the services auto-discovery split it into.
+ * WorkspaceAddResult is what WorkspaceCreate and WorkspaceUpdate hand back:
+ * the workspace and its services, primary first.
  */
 export interface WorkspaceAddResult {
     "workspace": workspace$0.Workspace;

@@ -9,12 +9,16 @@ package workspace
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 
 	"devkit/internal/vaultitem"
 )
 
 // ErrWorkspaceNotFound is returned when no workspace matches the given ID.
 var ErrWorkspaceNotFound = errors.New("workspace not found")
+
+// ErrNameRequired is CreateWorkspace or UpdateWorkspace given a blank name.
+var ErrNameRequired = errors.New("workspace name is required")
 
 // Name sources for WorkspaceService.NameSource — see workspace.mdx's data
 // model. NameSourceConfig comes from spring.application.name
@@ -68,6 +72,9 @@ type Repository interface {
 	// DeleteWorkspace removes the workspace and every service under it.
 	DeleteWorkspace(id string) error
 	ListServices(workspaceID string) ([]WorkspaceService, error)
+	// UpdateWorkspace writes ws's name and root, adds the services in add
+	// and removes those with an id in removeIDs, as one unit.
+	UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error
 	// SetIndexOutcome records the index outcome of every service at path
 	// (one folder can be a service of two workspaces): state "" clears it.
 	SetIndexOutcome(path, state, reason string, missingToolchain bool) error
@@ -99,52 +106,169 @@ func (s *Service) ListServices(workspaceID string) ([]WorkspaceService, error) {
 	return s.repo.ListServices(workspaceID)
 }
 
-// AddWorkspace registers root as a new workspace, auto-discovering its
-// services via DiscoverServices: one service per nested git checkout it
-// finds at depth 1, or root itself when it finds none — see discover.go.
-//
-// name defaults to root's own folder name when empty, matching the "tên do
-// người đặt, hoặc tên thư mục cha" fallback in workspace.mdx's data model.
+// AddWorkspace registers root as a new workspace — CreateWorkspace with one
+// folder, named after that folder when name is empty ("tên do người đặt, hoặc
+// tên thư mục cha", workspace.mdx's data model).
 func (s *Service) AddWorkspace(name, root string) (Workspace, []WorkspaceService, error) {
 	root = filepath.Clean(root)
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		name = filepath.Base(root)
 	}
+	return s.CreateWorkspace(name, []string{root})
+}
 
-	discovered, err := DiscoverServices(root)
-	if err != nil {
-		return Workspace{}, nil, err
+// CreateWorkspace registers a named workspace over folders. Each folder goes
+// through auto-discovery (DiscoverServices): a folder holding several git
+// checkouts becomes one service per checkout, any other folder is one
+// service. The first folder is the workspace's primary — its Root.
+//
+// No folders is allowed: a workspace is created by name first and given its
+// folders afterwards (UpdateWorkspace), the order the Create project dialog
+// asks for them in.
+func (s *Service) CreateWorkspace(name string, folders []string) (Workspace, []WorkspaceService, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Workspace{}, nil, ErrNameRequired
 	}
-
 	wsID, err := vaultitem.NewID()
 	if err != nil {
 		return Workspace{}, nil, err
 	}
-	ws := Workspace{ID: wsID, Name: name, Root: root}
-
-	services := make([]WorkspaceService, 0, len(discovered))
-	for _, d := range discovered {
-		svcID, err := vaultitem.NewID()
-		if err != nil {
-			return Workspace{}, nil, err
-		}
-		name, source := serviceName(d)
-		services = append(services, WorkspaceService{
-			ID:          svcID,
-			WorkspaceID: wsID,
-			Name:        name,
-			Path:        d.Path,
-			NameSource:  source,
-		})
+	services, err := discoverAll(wsID, folders, nil)
+	if err != nil {
+		return Workspace{}, nil, err
 	}
-
+	ws := Workspace{ID: wsID, Name: name}
+	if len(services) > 0 {
+		ws.Root = services[0].Path
+	}
 	if err := s.repo.CreateWorkspace(ws, services); err != nil {
 		return Workspace{}, nil, err
 	}
+	s.servicesAdded(services)
+	return ws, services, nil
+}
+
+// UpdateWorkspace renames a workspace and makes its services exactly paths,
+// in order — the Edit project dialog's list. A path already registered keeps
+// its row (its name, a manual rename, its index outcome); a new one is a
+// folder to discover, which may bring several services; a registered path
+// not in the list is dropped. The first service is the new primary.
+func (s *Service) UpdateWorkspace(id, name string, paths []string) (Workspace, []WorkspaceService, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Workspace{}, nil, ErrNameRequired
+	}
+	ws, err := s.workspace(id)
+	if err != nil {
+		return Workspace{}, nil, err
+	}
+	existing, err := s.repo.ListServices(id)
+	if err != nil {
+		return Workspace{}, nil, err
+	}
+	byPath := make(map[string]WorkspaceService, len(existing))
+	for _, svc := range existing {
+		byPath[svc.Path] = svc
+	}
+
+	var ordered, added []WorkspaceService
+	seen := map[string]bool{}
+	for _, raw := range paths {
+		path := filepath.Clean(raw)
+		if seen[path] {
+			continue
+		}
+		if svc, ok := byPath[path]; ok {
+			seen[path] = true
+			ordered = append(ordered, svc)
+			continue
+		}
+		found, err := discoverAll(id, []string{path}, seen)
+		if err != nil {
+			return Workspace{}, nil, err
+		}
+		for _, svc := range found {
+			if old, ok := byPath[svc.Path]; ok {
+				// Discovery landed on a service already registered.
+				ordered = append(ordered, old)
+				continue
+			}
+			ordered = append(ordered, svc)
+			added = append(added, svc)
+		}
+	}
+	var removeIDs []string
+	for _, svc := range existing {
+		if !seen[svc.Path] {
+			removeIDs = append(removeIDs, svc.ID)
+		}
+	}
+
+	ws.Name = name
+	ws.Root = ""
+	if len(ordered) > 0 {
+		ws.Root = ordered[0].Path
+	}
+	if err := s.repo.UpdateWorkspace(ws, added, removeIDs); err != nil {
+		return Workspace{}, nil, err
+	}
+	s.servicesAdded(added)
+	return ws, ordered, nil
+}
+
+func (s *Service) workspace(id string) (Workspace, error) {
+	all, err := s.repo.ListWorkspaces()
+	if err != nil {
+		return Workspace{}, err
+	}
+	for _, ws := range all {
+		if ws.ID == id {
+			return ws, nil
+		}
+	}
+	return Workspace{}, ErrWorkspaceNotFound
+}
+
+func (s *Service) servicesAdded(services []WorkspaceService) {
 	if s.OnServicesAdded != nil && len(services) > 0 {
 		s.OnServicesAdded(append([]WorkspaceService(nil), services...))
 	}
-	return ws, services, nil
+}
+
+// discoverAll runs auto-discovery over each folder and turns what it finds
+// into rows for workspace wsID, skipping paths in seen (and recording the
+// ones it returns there). Order is the folders' order, then discovery's.
+func discoverAll(wsID string, folders []string, seen map[string]bool) ([]WorkspaceService, error) {
+	if seen == nil {
+		seen = map[string]bool{}
+	}
+	var out []WorkspaceService
+	for _, folder := range folders {
+		discovered, err := DiscoverServices(filepath.Clean(folder))
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range discovered {
+			if seen[d.Path] {
+				continue
+			}
+			seen[d.Path] = true
+			id, err := vaultitem.NewID()
+			if err != nil {
+				return nil, err
+			}
+			name, source := serviceName(d)
+			out = append(out, WorkspaceService{
+				ID:          id,
+				WorkspaceID: wsID,
+				Name:        name,
+				Path:        d.Path,
+				NameSource:  source,
+			})
+		}
+	}
+	return out, nil
 }
 
 // serviceName is auto-discovery step 2: the name in a service's URLs comes

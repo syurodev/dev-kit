@@ -1,6 +1,7 @@
 package workspace_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,8 +28,9 @@ func TestAddWorkspace_SplitsMultipleRepos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddWorkspace: %v", err)
 	}
-	if ws.Root != root {
-		t.Errorf("ws.Root = %s, want %s", ws.Root, root)
+	// Root is the primary service — the first one — not the folder picked.
+	if ws.Root != services[0].Path {
+		t.Errorf("ws.Root = %s, want the first service %s", ws.Root, services[0].Path)
 	}
 	if ws.Name != filepath.Base(root) {
 		t.Errorf("ws.Name = %s, want %s (fallback to folder name)", ws.Name, filepath.Base(root))
@@ -108,5 +110,63 @@ func TestAddWorkspace_MissingRootIsAnError(t *testing.T) {
 	svc := workspace.NewService(workspace.NewMemoryRepository())
 	if _, _, err := svc.AddWorkspace("", filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("expected an error for a root that does not exist")
+	}
+}
+
+// A workspace is created by name first; folders can come later.
+func TestCreateWorkspace_NameFirstFoldersLater(t *testing.T) {
+	svc := workspace.NewService(workspace.NewMemoryRepository())
+	if _, _, err := svc.CreateWorkspace("  ", nil); !errors.Is(err, workspace.ErrNameRequired) {
+		t.Fatalf("blank name: err = %v, want ErrNameRequired", err)
+	}
+	ws, services, err := svc.CreateWorkspace("fsap", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Name != "fsap" || ws.Root != "" || len(services) != 0 {
+		t.Fatalf("ws = %+v, services = %+v", ws, services)
+	}
+}
+
+// Update keeps what is still listed (a manual name survives), discovers what
+// is new, drops what is gone, and makes the first entry the primary.
+func TestUpdateWorkspace_AddsRemovesAndReordersFolders(t *testing.T) {
+	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()
+	svc := workspace.NewService(workspace.NewMemoryRepository())
+	var added []string
+	svc.OnServicesAdded = func(s []workspace.WorkspaceService) {
+		for _, x := range s {
+			added = append(added, x.Path)
+		}
+	}
+	ws, services, err := svc.CreateWorkspace("fsap", []string{a, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Root != a || len(services) != 2 {
+		t.Fatalf("create: ws = %+v, services = %+v", ws, services)
+	}
+	keptID := services[1].ID
+	added = nil
+
+	ws, services, err = svc.UpdateWorkspace(ws.ID, "fsap platform", []string{b, c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Name != "fsap platform" || ws.Root != b {
+		t.Fatalf("ws = %+v, want renamed with b primary", ws)
+	}
+	if len(services) != 2 || services[0].Path != b || services[0].ID != keptID || services[1].Path != c {
+		t.Fatalf("services = %+v, want b (same row) then c", services)
+	}
+	if len(added) != 1 || added[0] != c {
+		t.Fatalf("added = %v, want only c queued", added)
+	}
+	stored, _ := svc.ListServices(ws.ID)
+	if len(stored) != 2 {
+		t.Fatalf("stored = %+v, want a removed", stored)
+	}
+	if _, _, err := svc.UpdateWorkspace("nope", "x", nil); !errors.Is(err, workspace.ErrWorkspaceNotFound) {
+		t.Fatalf("unknown id: err = %v", err)
 	}
 }
