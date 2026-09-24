@@ -24,6 +24,15 @@ func listen(t *testing.T, path string) {
 	t.Cleanup(func() { ln.Close() })
 }
 
+// withoutSystemDocker hides the host's own daemon from DetectDocker for the
+// test, so a machine with Docker running (CI) answers like one without.
+func withoutSystemDocker(t *testing.T) {
+	t.Helper()
+	saved := systemDockerSocket
+	systemDockerSocket = filepath.Join(t.TempDir(), "no-docker.sock")
+	t.Cleanup(func() { systemDockerSocket = saved })
+}
+
 func shortHome(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "dk")
@@ -116,9 +125,10 @@ func TestDetectDockerPrecedence(t *testing.T) {
 // symlink (Docker Desktop's /var/run/docker.sock) resolves to its target.
 func TestDetectDockerFallsBackToKnownSocketsAndResolvesSymlinks(t *testing.T) {
 	home := shortHome(t)
+	withoutSystemDocker(t)
 	real := filepath.Join(home, ".docker", "run", "docker.sock")
 	listen(t, real)
-	if got := detectDockerSocket(home, env(nil)); got != real && got != "/var/run/docker.sock" {
+	if got := detectDockerSocket(home, env(nil)); got != real {
 		t.Fatalf("Socket = %q, want Docker Desktop's %q", got, real)
 	}
 
