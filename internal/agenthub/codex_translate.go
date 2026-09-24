@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"devkit/internal/codexapp"
@@ -37,20 +38,44 @@ type codexOpenItem struct {
 
 // codexTranslator turns one app-server session's notifications into ACP
 // updates, so core, store and UI never see Codex's shapes (FR-7). It holds
-// the little state a translation needs, so there is one per runtime. Not safe
-// for concurrent use: codexapp.Conn delivers notifications one at a time.
+// the little state a translation needs, so there is one per runtime.
+//
+// Safe for concurrent use: mu guards every field below. codexapp.Conn's read
+// loop delivers notifications to Translate one at a time (Handler.Notification
+// runs on the read loop), but the runtime adapter also calls approvalFor from
+// Handler.Request's own goroutine (one per server request) and calls closeOpen
+// from wherever a turn ends without turn/completed — both concurrently with
+// Translate. mu is never held while calling out to anything (PermissionWaiter,
+// the store, …): every locked section only touches this struct's own fields.
 type codexTranslator struct {
+	mu sync.Mutex
+
+	// threadID scopes Translate to one thread once set: empty
+	// (newCodexTranslator's default, and every test that predates per-thread
+	// scoping) accepts every thread.
+	threadID string
+
 	open          map[string]codexOpenItem
 	openOrder     []string
 	messageDeltas map[string]bool
 	thoughtDeltas map[string]bool
+	// reasoningIndex is the last summaryIndex seen per open reasoning item,
+	// so a new index can be told from a repeat of the same one.
+	reasoningIndex map[string]int
+	// closedByClose is the set of ids closeOpen most recently closed (finding
+	// 10). Only the latest close's set is kept: a late item/completed for one
+	// of those ids must be folded into the failed card rather than
+	// reconstructing a fresh in_progress one.
+	closedByClose map[string]bool
 }
 
 func newCodexTranslator() *codexTranslator {
 	return &codexTranslator{
-		open:          map[string]codexOpenItem{},
-		messageDeltas: map[string]bool{},
-		thoughtDeltas: map[string]bool{},
+		open:           map[string]codexOpenItem{},
+		messageDeltas:  map[string]bool{},
+		thoughtDeltas:  map[string]bool{},
+		reasoningIndex: map[string]int{},
+		closedByClose:  map[string]bool{},
 	}
 }
 
@@ -80,11 +105,47 @@ func (t *codexTranslator) Translate(method string, params json.RawMessage) []cod
 	if !ok {
 		return nil
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.threadID != "" && !t.sameThreadLocked(params) {
+		return nil
+	}
 	return handle(t, params)
 }
 
-// openItem returns what the translator knows of an in-progress item.
+// sameThreadLocked reports whether params either carries no top-level
+// threadId, or carries this translator's own: the only two cases
+// that may pass through once setThread has scoped the translator. A
+// notification with a different threadId belongs to another thread
+// multiplexed on the same connection — a sub-agent thread started by
+// collabAgentToolCall, in the one case Phase 0 has for it — and must not
+// touch this transcript's open items or deltas. Called with mu held.
+func (t *codexTranslator) sameThreadLocked(params json.RawMessage) bool {
+	var env struct {
+		ThreadID string `json:"threadId"`
+	}
+	if json.Unmarshal(params, &env) != nil || env.ThreadID == "" {
+		return true
+	}
+	return env.ThreadID == t.threadID
+}
+
+// setThread scopes this translator to one thread (see the threadID field
+// doc). The adapter calls it once it learns the id from thread/start or
+// thread/resume's response, before handing the connection its first
+// notification.
+func (t *codexTranslator) setThread(id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.threadID = id
+}
+
+// openItem returns what the translator knows of an in-progress item. Called
+// from approvalFor's caller, on a different goroutine than Translate's own —
+// see the type doc.
 func (t *codexTranslator) openItem(id string) (codexOpenItem, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	it, ok := t.open[id]
 	return it, ok
 }
@@ -213,15 +274,19 @@ func (t *codexTranslator) itemCompleted(params json.RawMessage) []codexUpdate {
 		delete(t.messageDeltas, h.ID)
 		var m codexapp.AgentMessageItem
 		if streamed || json.Unmarshal(item, &m) != nil || m.Text == "" {
+			// FR-8: a streamed message produces no update here,
+			// so there is nothing for meta to ride on either — its text
+			// already reached the transcript through item/agentMessage/delta.
 			return nil
 		}
 		return []codexUpdate{{Update: codexTextChunk(UpdateAgentMessageChunk, m.Text), Meta: meta}}
 	case codexapp.ItemReasoning:
 		streamed := t.thoughtDeltas[h.ID]
 		delete(t.thoughtDeltas, h.ID)
+		delete(t.reasoningIndex, h.ID)
 		var r codexapp.ReasoningItem
 		if streamed || json.Unmarshal(item, &r) != nil {
-			return nil
+			return nil // FR-8: same reasoning as agentMessage above.
 		}
 		text := strings.Join(r.Summary, "\n\n")
 		if text == "" {
@@ -229,25 +294,35 @@ func (t *codexTranslator) itemCompleted(params json.RawMessage) []codexUpdate {
 		}
 		return []codexUpdate{{Update: codexTextChunk(UpdateAgentThoughtChunk, text), Meta: meta}}
 	case codexapp.ItemUserMessage, codexapp.ItemHookPrompt:
-		// DevKit records the user's own message; hooks are disabled.
+		// FR-8: DevKit writes the user's own message itself, and
+		// hooks are disabled, so neither produces an update — and neither's
+		// raw item is kept as meta, for the same reason streamed text above
+		// carries none.
 		return nil
 	}
 
 	status, content, rawOutput, known := codexToolResult(h.Type, item)
 	if !known {
-		// A type this build does not translate is shown, not dropped (FR-8).
+		// A type this build does not translate is shown, not dropped (FR-8),
+		// but rawOutput is capped: an unknown item — imageGeneration,
+		// say — can carry a base64 payload, and only meta, not the rendered
+		// transcript, is meant to hold the whole thing regardless of size.
 		return []codexUpdate{{Update: marshalUpdate(codexToolCallWire{
 			SessionUpdate: string(UpdateToolCall),
 			ToolCallID:    h.ID,
 			Title:         h.Type,
 			Kind:          "other",
 			Status:        "completed",
-			RawOutput:     meta,
+			RawOutput:     codexCapRawOutput(meta, h.Type),
 		}), Meta: meta}}
 	}
 	var out []codexUpdate
-	if _, isOpen := t.open[h.ID]; !isOpen {
+	_, isOpen := t.open[h.ID]
+	if !isOpen && !t.closedByClose[h.ID] {
 		// Completed without a start we saw: show the call before closing it.
+		// An id closeOpen already closed is not this case — its
+		// card already ended failed, and a late completed for it must only
+		// update that card, never resurrect a fresh in_progress one.
 		out = t.itemStarted(params)
 	}
 	t.forget(h.ID)
@@ -307,7 +382,7 @@ func codexToolResult(itemType string, item json.RawMessage) (status string, cont
 			rawOutput, _ = json.Marshal(map[string]string{"error": msg})
 			return "failed", nil, rawOutput, true
 		}
-		return "completed", nil, m.Result, true
+		return "completed", nil, codexCapRawOutput(m.Result, ""), true
 	case codexapp.ItemWebSearch:
 		return "completed", nil, nil, true
 	}
@@ -338,8 +413,16 @@ func (t *codexTranslator) reasoningDelta(params json.RawMessage) []codexUpdate {
 	if json.Unmarshal(params, &d) != nil || d.Delta == "" {
 		return nil
 	}
+	text := d.Delta
+	if last, seen := t.reasoningIndex[d.ItemID]; seen && last != d.SummaryIndex {
+		// A new summaryIndex is a new paragraph of the summary:
+		// Codex sends no separator of its own between them, so without this
+		// two adjacent parts would run together as one word.
+		text = "\n\n" + text
+	}
+	t.reasoningIndex[d.ItemID] = d.SummaryIndex
 	t.thoughtDeltas[d.ItemID] = true
-	return []codexUpdate{{Update: codexTextChunk(UpdateAgentThoughtChunk, d.Delta)}}
+	return []codexUpdate{{Update: codexTextChunk(UpdateAgentThoughtChunk, text)}}
 }
 
 func (t *codexTranslator) planUpdated(params json.RawMessage) []codexUpdate {
@@ -393,9 +476,9 @@ func (t *codexTranslator) threadName(params json.RawMessage) []codexUpdate {
 	})}}
 }
 
-// turnCompleted closes every tool call still open. An interrupted turn leaves
-// its running command without an item/completed (Phase 0), and a card left
-// in_progress would spin forever.
+// turnCompleted closes every tool call still open, via closeOpenLocked: an
+// interrupted turn leaves its running command without an item/completed
+// (Phase 0), and a card left in_progress would spin forever.
 func (t *codexTranslator) turnCompleted(params json.RawMessage) []codexUpdate {
 	var n codexapp.TurnCompletedNotification
 	_ = json.Unmarshal(params, &n)
@@ -406,8 +489,38 @@ func (t *codexTranslator) turnCompleted(params json.RawMessage) []codexUpdate {
 	case codexapp.TurnFailed:
 		reason = "The turn failed."
 	}
+	out := t.closeOpenLocked(reason)
+	t.messageDeltas = map[string]bool{}
+	t.thoughtDeltas = map[string]bool{}
+	t.reasoningIndex = map[string]int{}
+	return out
+}
+
+// closeOpen closes every open tool call the way turnCompleted does — a failed
+// tool_call_update, in start order, carrying reason as its content — and
+// forgets them. It exists for every path that ends a turn without
+// ever sending turn/completed: error{willRetry:false} with no completion
+// behind it, the app-server process dying, or the prompt's own context being
+// cancelled. It only closes tool calls; messageDeltas/thoughtDeltas/
+// reasoningIndex key on message and reasoning item ids, which never appear in
+// openOrder, so there is nothing of theirs for this to forget.
+//
+// Safe to call from any goroutine, independently of Translate — see the type
+// doc.
+func (t *codexTranslator) closeOpen(reason string) []codexUpdate {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closeOpenLocked(reason)
+}
+
+// closeOpenLocked is closeOpen's body, split out so turnCompleted can call it
+// while Translate already holds mu — mu is not reentrant, so turnCompleted
+// must not go through closeOpen itself.
+func (t *codexTranslator) closeOpenLocked(reason string) []codexUpdate {
 	var out []codexUpdate
+	closed := make(map[string]bool, len(t.openOrder))
 	for _, id := range t.openOrder {
+		closed[id] = true
 		out = append(out, codexUpdate{Update: marshalUpdate(codexToolCallWire{
 			SessionUpdate: string(UpdateToolCallUpdate),
 			ToolCallID:    id,
@@ -415,10 +528,12 @@ func (t *codexTranslator) turnCompleted(params json.RawMessage) []codexUpdate {
 			Content:       []ToolCallContent{codexTextContent(reason)},
 		})})
 	}
+	// Only the most recent close's ids are remembered, so a late
+	// item/completed for one of them is folded into its already-failed card
+	// instead of reopening a fresh in_progress one.
+	t.closedByClose = closed
 	t.open = map[string]codexOpenItem{}
 	t.openOrder = nil
-	t.messageDeltas = map[string]bool{}
-	t.thoughtDeltas = map[string]bool{}
 	return out
 }
 
@@ -539,6 +654,23 @@ func codexJoinLines(lines []string) string {
 		return ""
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// codexCapRawOutput is raw, unless it is larger than codexOutputLimit — an
+// item like imageGeneration can carry a base64 image, and rawOutput is what
+// rides in the rendered transcript, not just in meta (FR-8 keeps the whole
+// original item there regardless of size). itemType names the
+// item in an unknown-item's stand-in; pass "" for mcpToolCall's result, which
+// has no type of its own worth naming.
+func codexCapRawOutput(raw json.RawMessage, itemType string) json.RawMessage {
+	if len(raw) <= codexOutputLimit {
+		return raw
+	}
+	stub := map[string]any{"truncated": true, "bytes": len(raw)}
+	if itemType != "" {
+		stub["type"] = itemType
+	}
+	return marshalUpdate(stub)
 }
 
 // codexTail keeps the last limit bytes of s on a rune boundary, marked as cut.

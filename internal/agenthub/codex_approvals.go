@@ -18,14 +18,45 @@ const (
 // codexApproval is a Codex approval request put as an ACP
 // session/request_permission, and the way back from the person's answer to
 // the decision Codex expects.
+//
+// Malformed marks a command or file-change approval DevKit could
+// not read — unparsable JSON, or no item id. Params is nil in that case: there
+// is nothing to build a card from. The runtime's request dispatch must send
+// Response(nil) at once — {"decision":"cancel"}, fail closed — and show
+// nobody anything. Both approval methods commit Codex to waiting for exactly
+// one decision; answering with codexUnsupportedRequest's -32601 instead, as
+// approvalFor's ok=false does for a method DevKit does not approve at all,
+// would leave the turn hanging the same way never answering would. The
+// runtime's request dispatch:
+//
+//	a, ok := t.approvalFor(sessionID, method, params)
+//	switch {
+//	case !ok:
+//		// not one of DevKit's approval methods
+//		return nil, codexUnsupportedRequest(method)
+//	case a.Malformed:
+//		return a.Response(nil), nil // fail closed, no card
+//	default:
+//		// show a.Params as session/request_permission, then send
+//		// a.Response(outcome) once it resolves
+//	}
 type codexApproval struct {
-	// Params is the ACP request_permission params for PermissionWaiter.
+	// Params is the ACP request_permission params for PermissionWaiter. Nil
+	// when Malformed is set — see above.
 	Params json.RawMessage
 	// decide maps an ACP option id to a Codex decision.
 	decide map[string]string
 	// onCancel is the decision for a cancelled, timed-out or unreadable
 	// answer: fail closed.
 	onCancel string
+	// Malformed is documented on the type above.
+	Malformed bool
+}
+
+// codexMalformedApproval is approvalFor's answer to a command or file-change
+// approval it could not parse. See codexApproval's Malformed doc.
+func codexMalformedApproval() codexApproval {
+	return codexApproval{onCancel: codexapp.DecisionCancel, Malformed: true}
 }
 
 type codexPermissionOption struct {
@@ -35,19 +66,25 @@ type codexPermissionOption struct {
 }
 
 // approvalFor builds the permission request for an approval server request,
-// or ok=false when method is not an approval DevKit puts to a person.
+// or ok=false when method is not an approval DevKit puts to a person at all.
+// A command or file-change approval DevKit could not parse still returns
+// ok=true, with Malformed set — see codexApproval's doc for the
+// three-way contract this leaves the caller.
 //
 // The options come from what Codex will accept. Measured under untrusted, a
 // command approval offers accept, an execpolicy amendment and cancel — no
 // decline, no acceptForSession — so a fixed button set would send decisions
 // Codex rejects. acceptWithExecpolicyAmendment is never offered: it writes a
 // permanent rule, and an approval must not.
+//
+// Safe to call concurrently with Translate on another goroutine —
+// the runtime's Handler.Request does, per codexapp.Conn's contract.
 func (t *codexTranslator) approvalFor(sessionID, method string, params json.RawMessage) (codexApproval, bool) {
 	switch method {
 	case codexapp.MethodCommandApproval:
 		var p codexapp.CommandApprovalParams
 		if json.Unmarshal(params, &p) != nil || p.ItemID == "" {
-			return codexApproval{}, false
+			return codexMalformedApproval(), true
 		}
 		call, known := t.openItem(p.ItemID)
 		if !known {
@@ -72,7 +109,7 @@ func (t *codexTranslator) approvalFor(sessionID, method string, params json.RawM
 	case codexapp.MethodFileChangeApproval:
 		var p codexapp.FileChangeApprovalParams
 		if json.Unmarshal(params, &p) != nil || p.ItemID == "" {
-			return codexApproval{}, false
+			return codexMalformedApproval(), true
 		}
 		call, known := t.openItem(p.ItemID)
 		if !known {

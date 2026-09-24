@@ -3,8 +3,10 @@ package agenthub
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"devkit/internal/codexapp"
@@ -280,6 +282,234 @@ func TestCodexHunkTexts(t *testing.T) {
 	before, after := codexHunkTexts("--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -9 +9 @@\n-x\n+y\n\\ No newline at end of file\n")
 	if before != "a\nb\n…\nx\n" || after != "a\nB\n…\ny\n" {
 		t.Fatalf("before %q after %q", before, after)
+	}
+}
+
+// TestCodexTranslatorConcurrentTranslateAndApprovalFor is the race
+// test: the runtime adapter calls approvalFor from Handler.Request's own
+// goroutine (one per server request, conn.go) while notifications keep
+// arriving on the read loop's Translate calls, and closeOpen can be called
+// from anywhere a turn ends abnormally. None of the three may race on the
+// translator's own state. Run with -race; there is nothing to assert beyond
+// "it didn't".
+func TestCodexTranslatorConcurrentTranslateAndApprovalFor(t *testing.T) {
+	tr := newCodexTranslator()
+	const n = 200
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < n; i++ {
+			id := fmt.Sprintf("c%d", i)
+			start, _ := json.Marshal(item(map[string]any{
+				"type": "commandExecution", "id": id, "command": "echo hi", "cwd": "/p", "status": "inProgress",
+			}))
+			tr.Translate(codexapp.MethodItemStarted, start)
+			done, _ := json.Marshal(item(map[string]any{
+				"type": "commandExecution", "id": id, "command": "echo hi", "cwd": "/p", "status": "completed", "exitCode": 0,
+			}))
+			tr.Translate(codexapp.MethodItemCompleted, done)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < n; i++ {
+			id := fmt.Sprintf("c%d", i)
+			params, _ := json.Marshal(map[string]any{
+				"threadId": "th", "turnId": "tu", "itemId": id, "command": "echo hi", "cwd": "/p",
+				"availableDecisions": []any{"accept", "decline", "cancel"},
+			})
+			tr.approvalFor("sess", codexapp.MethodCommandApproval, params)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < n; i++ {
+			tr.closeOpen("racing")
+		}
+	}()
+	wg.Wait()
+}
+
+func TestCodexThreadFilterDropsForeignNotifications(t *testing.T) {
+	tr := newCodexTranslator()
+	tr.setThread("th-main")
+
+	translateOne(t, tr, codexapp.MethodItemStarted, map[string]any{
+		"threadId": "th-main", "turnId": "tu",
+		"item": map[string]any{"type": "commandExecution", "id": "c1", "command": "echo hi", "cwd": "/p", "status": "inProgress"},
+	})
+	if _, ok := tr.openItem("c1"); !ok {
+		t.Fatal("setup: item did not open")
+	}
+
+	// A sub-agent thread's turn/completed (e.g. from collabAgentToolCall,
+	// spec §5.4) must not close an item opened on the home thread.
+	if got := translateOne(t, tr, codexapp.MethodTurnCompleted, map[string]any{
+		"threadId": "th-sub", "turn": map[string]any{"id": "tu2", "status": "interrupted"},
+	}); len(got) != 0 {
+		t.Fatalf("foreign-thread turn/completed produced updates: %+v", got)
+	}
+	if _, ok := tr.openItem("c1"); !ok {
+		t.Fatal("foreign-thread turn/completed closed an item on another thread")
+	}
+
+	// A sub-agent thread's own message deltas must not leak into this
+	// transcript either.
+	if got := translateOne(t, tr, codexapp.MethodAgentMessageDelta, map[string]any{
+		"threadId": "th-sub", "itemId": "m1", "delta": "leaked",
+	}); len(got) != 0 {
+		t.Fatalf("foreign-thread delta was emitted: %+v", got)
+	}
+
+	// The home thread's own turn/completed still closes it.
+	got := translateOne(t, tr, codexapp.MethodTurnCompleted, map[string]any{
+		"threadId": "th-main", "turn": map[string]any{"id": "tu", "status": "interrupted"},
+	})
+	if len(got) != 1 || got[0].ToolCall == nil || got[0].ToolCall.Status != "failed" {
+		t.Fatalf("home-thread turn/completed = %+v", got)
+	}
+}
+
+func TestCodexCloseOpenClosesEveryOpenCall(t *testing.T) {
+	tr := newCodexTranslator()
+	translateOne(t, tr, codexapp.MethodItemStarted, item(map[string]any{"type": "commandExecution", "id": "c1", "command": "sleep 5", "cwd": "/p", "status": "inProgress"}))
+	translateOne(t, tr, codexapp.MethodItemStarted, item(map[string]any{"type": "commandExecution", "id": "c2", "command": "sleep 6", "cwd": "/p", "status": "inProgress"}))
+
+	var got []SessionUpdate
+	for _, u := range tr.closeOpen("Process exited.") {
+		got = append(got, ParseSessionUpdate(u.Update))
+	}
+	if len(got) != 2 || got[0].ToolCall.ID != "c1" || got[1].ToolCall.ID != "c2" {
+		t.Fatalf("close order/ids = %+v", got)
+	}
+	for _, u := range got {
+		if u.ToolCall.Status != "failed" || len(u.ToolCall.Content) != 1 || u.ToolCall.Content[0].Content.Text != "Process exited." {
+			t.Fatalf("closed call = %+v", u.ToolCall)
+		}
+	}
+	if _, ok := tr.openItem("c1"); ok {
+		t.Fatal("closeOpen must forget the items it closed")
+	}
+	if again := tr.closeOpen("again"); len(again) != 0 {
+		t.Fatalf("closing with nothing open produced updates: %+v", again)
+	}
+}
+
+func TestCodexLateCompletedAfterCloseOpenOnlyUpdates(t *testing.T) {
+	tr := newCodexTranslator()
+	translateOne(t, tr, codexapp.MethodItemStarted, item(map[string]any{"type": "commandExecution", "id": "c1", "command": "sleep 5", "cwd": "/p", "status": "inProgress"}))
+	tr.closeOpen("Process exited.")
+
+	got := translateOne(t, tr, codexapp.MethodItemCompleted, item(map[string]any{
+		"type": "commandExecution", "id": "c1", "command": "sleep 5", "cwd": "/p", "status": "completed", "exitCode": 0,
+	}))
+	if len(got) != 1 {
+		t.Fatalf("a late item/completed after closeOpen re-opened a card: %+v", got)
+	}
+	if got[0].ToolCall == nil || got[0].ToolCall.Status != "completed" {
+		t.Fatalf("late completed = %+v", got[0])
+	}
+}
+
+func TestCodexClosedByCloseIsOnlyTheMostRecentClose(t *testing.T) {
+	tr := newCodexTranslator()
+	translateOne(t, tr, codexapp.MethodItemStarted, item(map[string]any{"type": "commandExecution", "id": "c1", "command": "a", "cwd": "/p", "status": "inProgress"}))
+	tr.closeOpen("first close")
+	translateOne(t, tr, codexapp.MethodItemStarted, item(map[string]any{"type": "commandExecution", "id": "c2", "command": "b", "cwd": "/p", "status": "inProgress"}))
+	tr.closeOpen("second close")
+
+	// c1 was closed by the FIRST closeOpen, which the second one superseded:
+	// a late completed for it goes through the normal "never saw a start"
+	// path again, proving the remembered set doesn't grow forever.
+	got := translateOne(t, tr, codexapp.MethodItemCompleted, item(map[string]any{
+		"type": "commandExecution", "id": "c1", "command": "a", "cwd": "/p", "status": "completed", "exitCode": 0,
+	}))
+	if len(got) != 2 {
+		t.Fatalf("a superseded close's id should no longer suppress reconstruction: got %d updates: %+v", len(got), got)
+	}
+}
+
+func TestCodexReasoningSummaryIndexSeparatesParts(t *testing.T) {
+	tr := newCodexTranslator()
+	got := translateOne(t, tr, codexapp.MethodReasoningSummaryDelta, map[string]any{"itemId": "r1", "delta": "first", "summaryIndex": 0})
+	if len(got) != 1 || got[0].Content.Text != "first" {
+		t.Fatalf("first delta = %+v", got)
+	}
+	got = translateOne(t, tr, codexapp.MethodReasoningSummaryDelta, map[string]any{"itemId": "r1", "delta": " part", "summaryIndex": 0})
+	if len(got) != 1 || got[0].Content.Text != " part" {
+		t.Fatalf("same-index delta = %+v, want no separator", got)
+	}
+	got = translateOne(t, tr, codexapp.MethodReasoningSummaryDelta, map[string]any{"itemId": "r1", "delta": "second", "summaryIndex": 1})
+	if len(got) != 1 || got[0].Content.Text != "\n\nsecond" {
+		t.Fatalf("index-change delta = %+v, want a blank line before it", got)
+	}
+}
+
+func TestCodexUnknownItemRawOutputIsCappedButMetaKeepsTheWhole(t *testing.T) {
+	tr := newCodexTranslator()
+	big := strings.Repeat("A", codexOutputLimit+100)
+	raw, err := json.Marshal(item(map[string]any{"type": "imageGeneration", "id": "g1", "image": big}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := tr.Translate(codexapp.MethodItemCompleted, raw)
+	if len(updates) != 1 {
+		t.Fatalf("got %d updates, want 1", len(updates))
+	}
+	su := ParseSessionUpdate(updates[0].Update)
+	if su.ToolCall == nil {
+		t.Fatalf("no tool call: %+v", su)
+	}
+	var stub struct {
+		Truncated bool   `json:"truncated"`
+		Bytes     int    `json:"bytes"`
+		Type      string `json:"type"`
+	}
+	if err := json.Unmarshal(su.ToolCall.RawOutput, &stub); err != nil || !stub.Truncated || stub.Type != "imageGeneration" || stub.Bytes < codexOutputLimit {
+		t.Fatalf("rawOutput = %s", su.ToolCall.RawOutput)
+	}
+	if len(su.ToolCall.RawOutput) > 200 {
+		t.Fatalf("rawOutput was not actually capped: %d bytes", len(su.ToolCall.RawOutput))
+	}
+	if len(updates[0].Meta) < codexOutputLimit {
+		t.Fatalf("meta was capped too, but FR-8 keeps the whole item there: %d bytes", len(updates[0].Meta))
+	}
+}
+
+func TestCodexMcpResultRawOutputIsCapped(t *testing.T) {
+	tr := newCodexTranslator()
+	big := strings.Repeat("x", codexOutputLimit+50)
+	result, err := json.Marshal(map[string]string{"data": big})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := translateOne(t, tr, codexapp.MethodItemCompleted, item(map[string]any{
+		"type": "mcpToolCall", "id": "m1", "server": "s", "tool": "t", "status": "completed", "result": json.RawMessage(result),
+	}))
+	last := got[len(got)-1].ToolCall
+	var stub struct {
+		Truncated bool `json:"truncated"`
+		Bytes     int  `json:"bytes"`
+	}
+	if err := json.Unmarshal(last.RawOutput, &stub); err != nil || !stub.Truncated || stub.Bytes == 0 {
+		t.Fatalf("rawOutput = %s", last.RawOutput)
+	}
+	if len(last.RawOutput) > 100 {
+		t.Fatalf("rawOutput was not actually capped: %d bytes", len(last.RawOutput))
+	}
+}
+
+// TestCodexTailSplitsMultiByteCharacterCleanly pins codexTail's rune-boundary
+// walk-back (used for the 64 KB command-output tail) against a cut point that
+// falls in the middle of a multi-byte UTF-8 character, rather than only ever
+// exercising it on ASCII.
+func TestCodexTailSplitsMultiByteCharacterCleanly(t *testing.T) {
+	prefix := strings.Repeat("a", 8)
+	s := prefix + "字" + "TAILS" // "字" is 3 bytes (E5 AD 97); limit 7 cuts into its middle byte.
+	got := codexTail(s, 7)
+	if got != "…\nTAILS" {
+		t.Fatalf("tail with cut mid-rune = %q, want %q", got, "…\nTAILS")
 	}
 }
 

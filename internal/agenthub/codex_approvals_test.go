@@ -183,6 +183,41 @@ func TestCodexPermissionsRequestGrantsNothing(t *testing.T) {
 	}
 }
 
+func TestCodexMalformedCommandApprovalFailsClosedWithoutACard(t *testing.T) {
+	tr := newCodexTranslator()
+	for _, params := range []json.RawMessage{
+		json.RawMessage(`not json`),
+		json.RawMessage(`{"threadId":"th","turnId":"tu"}`), // no itemId
+	} {
+		a, ok := tr.approvalFor("s", codexapp.MethodCommandApproval, params)
+		if !ok {
+			t.Fatalf("%s: a command approval must still be recognised as an approval method, not treated as unsupported", params)
+		}
+		if !a.Malformed || a.Params != nil {
+			t.Fatalf("%s: malformed approval = %+v", params, a)
+		}
+		if got := decision(t, a.Response(nil)); got != codexapp.DecisionCancel {
+			t.Fatalf("%s: decision = %q, want cancel (fail closed)", params, got)
+		}
+	}
+}
+
+func TestCodexMalformedFileChangeApprovalFailsClosedWithoutACard(t *testing.T) {
+	tr := newCodexTranslator()
+	for _, params := range []json.RawMessage{
+		json.RawMessage(`not json`),
+		json.RawMessage(`{"threadId":"th"}`), // no itemId
+	} {
+		a, ok := tr.approvalFor("s", codexapp.MethodFileChangeApproval, params)
+		if !ok || !a.Malformed || a.Params != nil {
+			t.Fatalf("%s: malformed file-change approval = %+v, ok=%v", params, a, ok)
+		}
+		if got := decision(t, a.Response(nil)); got != codexapp.DecisionCancel {
+			t.Fatalf("%s: decision = %q, want cancel", params, got)
+		}
+	}
+}
+
 func TestCodexOtherRequestsAreRefused(t *testing.T) {
 	tr := newCodexTranslator()
 	for _, m := range []string{"item/tool/requestUserInput", "mcpServer/elicitation/request", "account/chatgptAuthTokens/refresh", "attestation/generate", "applyPatchApproval", "execCommandApproval"} {

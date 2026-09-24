@@ -137,12 +137,16 @@ type WebSearchItem struct {
 }
 
 // DeltaNotification is item/agentMessage/delta and
-// item/reasoning/summaryTextDelta.
+// item/reasoning/summaryTextDelta. SummaryIndex is reasoning-only: which
+// summary paragraph (0-based) this delta belongs to. agentMessage/delta does
+// not carry the field, so it decodes as zero there — harmless, since the
+// translator only reads it for reasoning deltas.
 type DeltaNotification struct {
-	ThreadID string `json:"threadId"`
-	TurnID   string `json:"turnId"`
-	ItemID   string `json:"itemId"`
-	Delta    string `json:"delta"`
+	ThreadID     string `json:"threadId"`
+	TurnID       string `json:"turnId"`
+	ItemID       string `json:"itemId"`
+	Delta        string `json:"delta"`
+	SummaryIndex int    `json:"summaryIndex"`
 }
 
 type TurnPlanStep struct {
