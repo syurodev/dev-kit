@@ -323,7 +323,16 @@ func main() {
 	}
 	claudeAdapter := agenthub.NewClaudeAdapter(claudeOpts)
 	runtimes.Verify = claudeAdapter.Probe
-	agentReg.Register(claudeAdapter)
+	vendors := []agenthub.VendorAdapter{claudeAdapter}
+	if application.System.IsServer() {
+		// Server mode serves the bridge over unauthenticated loopback HTTP and
+		// the jail shares the host loopback: a session could approve its own
+		// tool calls. Keep the types, refuse the sessions.
+		vendors = agenthub.ForServerMode(vendors...)
+	}
+	for _, v := range vendors {
+		agentReg.Register(v)
+	}
 	container.AgentRuntimes = runtimes
 	// Desktop notifications for Agent Hub. Nil in server mode, where there is no
 	// desktop to notify; Notify and Authorize are no-ops on nil. Nothing here
@@ -724,6 +733,12 @@ func main() {
 	// NoopPrompter is enough: InteractionHost polls InteractionPending every 500ms
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
+	// Server mode: every bridge method, InteractionComplete included, is on
+	// unauthenticated loopback HTTP, so any local process — an agent in a
+	// terminal pointed at this MCP server — could answer its own prompt.
+	// Headless makes selection and confirmation fail fast instead, which is
+	// what AGENTS.md always said server mode does.
+	hub.Headless = application.System.IsServer()
 	container.Interaction = hub
 	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
 	// Accounts, Tasks, Git and the API client need the database, the vault and

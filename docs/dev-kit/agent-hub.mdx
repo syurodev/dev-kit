@@ -795,6 +795,12 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
     OpenAI), hình dạng lỗi auth thật khi không có credential nhưng network
     thông, và một vòng approval thật (chưa kích hoạt được vì chưa có turn nào
     chạy tới bước cần duyệt). Việc còn lại này giao cho máy có login Codex.
+- **Không chạy ở server mode** (2026-09-24). Server mode phục vụ toàn bộ bridge qua HTTP
+  loopback không xác thực, còn jail dùng `NetworkHost` nên đi chung loopback: một session có thể
+  tự gọi `AgentHubResolvePermission`/`InteractionComplete`. `main.go` đăng ký
+  `agenthub.ServerModeAdapter` thay vendor thật và bật `interaction.Hub.Headless`. Năm tool MCP
+  nhận `profileId` (`db.explain`, `db.listForeignKeys`, `db.testConnection`, `db.schema.get`,
+  `ssh.testConnection`) giờ hỏi ở env cần xác nhận qua `GateProfileMCP`.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.
 - Claude adapter chưa được claim production-verified trong CI với Claude Code thật.

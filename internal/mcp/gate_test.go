@@ -258,3 +258,81 @@ func TestGateReturnsConfirmedProfileID(t *testing.T) {
 		t.Fatalf("confirmed id = %q, want profile-A", id)
 	}
 }
+
+func TestGateProfileSkipsPromptWhenEnvDoesNotBlock(t *testing.T) {
+	h := interaction.NewHub(interaction.NoopPrompter{})
+	env := fakeEnvConfirmer{"dev": false}
+	profiles := fakeProfileEnvReader{"p-dev": "dev"}
+
+	if err := GateProfileMCP(context.Background(), h, env, profiles, "p-dev", "db.explain", "select 1", interaction.KindDatabase); err != nil {
+		t.Fatalf("dev gate: %v", err)
+	}
+	if h.Pending() != nil {
+		t.Fatal("a non-blocking env must not prompt for a read-only tool")
+	}
+}
+
+func TestGateProfileConfirmsProdEveryCall(t *testing.T) {
+	h := interaction.NewHub(interaction.NoopPrompter{})
+	env := fakeEnvConfirmer{"prod": true}
+	profiles := fakeProfileEnvReader{"p-prod": "prod"}
+
+	for i, answer := range []string{"allow", "allow"} {
+		prompted := make(chan struct{}, 1)
+		go func() {
+			waitForPending(t, h)
+			p := h.Pending()
+			if p.AllowAlwaysOffered {
+				t.Errorf("prod must not offer allow_always")
+			}
+			if p.Env != "prod" || p.Tool != "db.explain" {
+				t.Errorf("pending env/tool = %q/%q, want prod/db.explain", p.Env, p.Tool)
+			}
+			prompted <- struct{}{}
+			_ = h.Complete(p.ID, answer)
+		}()
+		if err := GateProfileMCP(context.Background(), h, env, profiles, "p-prod", "db.explain", "select 1", interaction.KindDatabase); err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		select {
+		case <-prompted:
+		default:
+			t.Fatalf("call %d: prod must prompt every call", i)
+		}
+	}
+}
+
+func TestGateProfileProdDenied(t *testing.T) {
+	h := interaction.NewHub(interaction.NoopPrompter{})
+	go func() {
+		waitForPending(t, h)
+		_ = h.Complete(h.Pending().ID, "deny")
+	}()
+	err := GateProfileMCP(context.Background(), h, fakeEnvConfirmer{"prod": true}, fakeProfileEnvReader{"p": "prod"}, "p", "ssh.testConnection", "test connection", interaction.KindSSH)
+	if !errors.Is(err, interaction.ErrConfirmationDenied) {
+		t.Fatalf("err = %v, want ErrConfirmationDenied", err)
+	}
+}
+
+func TestGateProfileHeadlessProdFailsClosed(t *testing.T) {
+	err := GateProfileMCP(context.Background(), nil, fakeEnvConfirmer{"prod": true}, fakeProfileEnvReader{"p": "prod"}, "p", "db.testConnection", "test connection", interaction.KindDatabase)
+	if !errors.Is(err, interaction.ErrConfirmationRequired) {
+		t.Fatalf("err = %v, want ErrConfirmationRequired", err)
+	}
+}
+
+func TestGateProfileUnknownProfile(t *testing.T) {
+	err := GateProfileMCP(context.Background(), nil, fakeEnvConfirmer{}, fakeProfileEnvReader{}, "missing", "db.explain", "", interaction.KindDatabase)
+	if !errors.Is(err, errProfileNotFound) {
+		t.Fatalf("err = %v, want errProfileNotFound", err)
+	}
+}
+
+func TestGateProfileUnresolvableEnvFailsClosed(t *testing.T) {
+	// fakeEnvConfirmer answers true for any name it does not know, as the real
+	// environments.Service does for a deleted or unreadable tag.
+	err := GateProfileMCP(context.Background(), nil, fakeEnvConfirmer{}, fakeProfileEnvReader{"p": "ghost-tag"}, "p", "db.explain", "select 1", interaction.KindDatabase)
+	if !errors.Is(err, interaction.ErrConfirmationRequired) {
+		t.Fatalf("err = %v, want ErrConfirmationRequired", err)
+	}
+}

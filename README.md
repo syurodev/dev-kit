@@ -86,6 +86,18 @@ production web-server deployment option. Public binding, TLS, authentication,
 and authorization are unsupported until a separate server design provides
 those controls.
 
+Because the bridge has no authentication, server mode cannot tell a person's
+"Allow" from any other local process's. So in server mode:
+
+- **Agent Hub does not start sessions** (`ErrUnavailableInServerMode`); use the
+  desktop app.
+- **Every confirmation fails fast**: MCP tools on the active target (any env), and
+  actions that need a confirmation from the UI (push to a prod remote, commit on a
+  guarded branch, sending to a prod API environment, task gates).
+
+Planned: ask for these through the OS's notifications instead, answered outside the
+HTTP bridge.
+
 ## Code organization
 
 DevKit follows the **standard Go module layout** described in the official guide

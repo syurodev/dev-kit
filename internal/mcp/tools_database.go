@@ -18,7 +18,7 @@ func (s *Server) registerDatabase(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.testConnection",
-		Description: "Test connectivity for a database profile by id",
+		Description: "Test connectivity for a database profile by id (asks first when the profile's env requires confirmation)",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -86,11 +86,25 @@ func (s *Server) toolDBListProfiles(ctx context.Context, _ *sdk.CallToolRequest,
 	return nil, structured(v), nil
 }
 
+// gateDBProfile runs GateProfileMCP for a database tool that names its own
+// profile. Metadata only: on an env that does not require confirmation it
+// never prompts.
+func (s *Server) gateDBProfile(ctx context.Context, profileID, tool, summary string) error {
+	target := s.databaseTarget()
+	if err := GateProfileMCP(ctx, s.deps.Hub, s.deps.Envs, target, profileID, tool, summary, interaction.KindDatabase); err != nil {
+		return mapInteractErr(err)
+	}
+	return nil
+}
+
 type dbTestConnectionInput struct {
 	ProfileID string `json:"profileId"`
 }
 
 func (s *Server) toolDBTestConnection(ctx context.Context, _ *sdk.CallToolRequest, in dbTestConnectionInput) (*sdk.CallToolResult, any, error) {
+	if err := s.gateDBProfile(ctx, in.ProfileID, "db.testConnection", "test connection"); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := recordID(in.ProfileID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("test_connection", map[string]any{
 		"profile_id": opaqueID,
@@ -181,6 +195,9 @@ type dbSchemaScopedInput struct {
 }
 
 func (s *Server) toolDBListForeignKeys(ctx context.Context, _ *sdk.CallToolRequest, in dbSchemaScopedInput) (*sdk.CallToolResult, any, error) {
+	if err := s.gateDBProfile(ctx, in.ProfileID, "db.listForeignKeys", "foreign keys of schema "+in.Schema); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := recordID(in.ProfileID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("list_foreign_keys", map[string]any{
 		"profile_id": opaqueID, "schema": in.Schema,
@@ -194,6 +211,11 @@ func (s *Server) toolDBListForeignKeys(ctx context.Context, _ *sdk.CallToolReque
 }
 
 func (s *Server) toolDBGetSchemaCache(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
+	// Not only a cache read: on a miss GetSchemaCache indexes the live
+	// database, so it opens a connection like the other gated tools.
+	if err := s.gateDBProfile(ctx, in.ProfileID, "db.schema.get", "read schema index"); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := recordID(in.ProfileID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("get_schema_cache", map[string]any{
 		"profile_id": opaqueID,
@@ -212,6 +234,9 @@ type dbExplainInput struct {
 }
 
 func (s *Server) toolDBExplain(ctx context.Context, _ *sdk.CallToolRequest, in dbExplainInput) (*sdk.CallToolResult, any, error) {
+	if err := s.gateDBProfile(ctx, in.ProfileID, "db.explain", in.SQL); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := recordID(in.ProfileID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("explain", map[string]any{
 		"profile_id": opaqueID, "analyzed": false,

@@ -289,3 +289,175 @@ func TestDBQueryGateDeny(t *testing.T) {
 		t.Fatalf("Caller should not run on deny, got %+v", caller.last)
 	}
 }
+
+const prodDBID = "0123456789abcdef01234567"
+
+func newDBGateServer(env string, req map[string]bool, hub *interaction.Hub) (*Server, *fakeCaller) {
+	caller := &fakeCaller{}
+	srv := NewServer(Deps{
+		Caller: caller,
+		Notes:  &fakeNotes{},
+		Vault:  &fakeVault{},
+		Search: &fakeSearch{},
+		Tools:  fakeTools{},
+		Envs:   &fakeEnvs{req: req},
+		SSH:    &fakeSSH{},
+		DB:     &fakeDB{profiles: []database.ProfileSummary{{ID: prodDBID, Env: env}}},
+		Kafka:  &fakeKafka{},
+		Hub:    hub,
+	})
+	return srv, caller
+}
+
+// dbProfileTools runs each profile-scoped database tool the gate now covers.
+func dbProfileTools(srv *Server) map[string]func() error {
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+	return map[string]func() error{
+		"db.testConnection": func() error {
+			_, _, err := srv.toolDBTestConnection(ctx, req, dbTestConnectionInput{ProfileID: prodDBID})
+			return err
+		},
+		"db.listForeignKeys": func() error {
+			_, _, err := srv.toolDBListForeignKeys(ctx, req, dbSchemaScopedInput{ProfileID: prodDBID, Schema: "public"})
+			return err
+		},
+		"db.explain": func() error {
+			_, _, err := srv.toolDBExplain(ctx, req, dbExplainInput{ProfileID: prodDBID, SQL: "select 1"})
+			return err
+		},
+	}
+}
+
+func TestDBProfileToolsProdHeadlessRefused(t *testing.T) {
+	srv, caller := newDBGateServer("prod", map[string]bool{"prod": true}, &interaction.Hub{Headless: true})
+	for name, run := range dbProfileTools(srv) {
+		err := run()
+		var app *apperrors.AppError
+		if !errors.As(err, &app) || app.Message != "Confirmation required." {
+			t.Fatalf("%s: err = %v, want Confirmation required", name, err)
+		}
+		if caller.last.subject != "" {
+			t.Fatalf("%s: reached the service without confirmation: %+v", name, caller.last)
+		}
+	}
+}
+
+func TestDBProfileToolsProdDenied(t *testing.T) {
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv, caller := newDBGateServer("prod", map[string]bool{"prod": true}, hub)
+	for name, run := range dbProfileTools(srv) {
+		go func() {
+			waitForPending(t, hub)
+			_ = hub.Complete(hub.Pending().ID, "deny")
+		}()
+		err := run()
+		var app *apperrors.AppError
+		if !errors.As(err, &app) || app.Code != "permission_denied" {
+			t.Fatalf("%s: err = %v, want permission_denied", name, err)
+		}
+		if caller.last.subject != "" {
+			t.Fatalf("%s: reached the service after deny: %+v", name, caller.last)
+		}
+	}
+}
+
+func TestDBProfileToolsProdAllowedReachService(t *testing.T) {
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv, caller := newDBGateServer("prod", map[string]bool{"prod": true}, hub)
+	for name, run := range dbProfileTools(srv) {
+		caller.last = callRecord{}
+		go func() {
+			waitForPending(t, hub)
+			_ = hub.Complete(hub.Pending().ID, "allow")
+		}()
+		if err := run(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if caller.last.subject != "builtin.database" {
+			t.Fatalf("%s: service not reached after allow: %+v", name, caller.last)
+		}
+	}
+}
+
+func TestDBProfileToolsDevDoNotPrompt(t *testing.T) {
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv, caller := newDBGateServer("dev", map[string]bool{"dev": false}, hub)
+	for name, run := range dbProfileTools(srv) {
+		caller.last = callRecord{}
+		if err := run(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if hub.Pending() != nil {
+			t.Fatalf("%s: dev must not prompt", name)
+		}
+		if caller.last.subject != "builtin.database" {
+			t.Fatalf("%s: service not reached: %+v", name, caller.last)
+		}
+	}
+}
+
+func newSSHGateServer(env string, req map[string]bool, hub *interaction.Hub) (*Server, *fakeCaller) {
+	caller := &fakeCaller{}
+	srv := NewServer(Deps{
+		Caller: caller,
+		Notes:  &fakeNotes{},
+		Vault:  &fakeVault{},
+		Search: &fakeSearch{},
+		Tools:  fakeTools{},
+		Envs:   &fakeEnvs{req: req},
+		SSH:    &fakeSSH{profiles: []sshservice.ProfileSummary{{ID: prodDBID, Env: env}}},
+		DB:     &fakeDB{},
+		Kafka:  &fakeKafka{},
+		Hub:    hub,
+	})
+	return srv, caller
+}
+
+func TestSSHTestConnectionProdHeadlessRefused(t *testing.T) {
+	srv, caller := newSSHGateServer("prod", map[string]bool{"prod": true}, &interaction.Hub{Headless: true})
+	_, _, err := srv.toolSSHTestConnection(context.Background(), &sdk.CallToolRequest{}, sshTestConnectionInput{ProfileID: prodDBID})
+	var app *apperrors.AppError
+	if !errors.As(err, &app) || app.Message != "Confirmation required." {
+		t.Fatalf("err = %v, want Confirmation required", err)
+	}
+	if caller.last.subject != "" {
+		t.Fatalf("reached the service without confirmation: %+v", caller.last)
+	}
+}
+
+func TestSSHTestConnectionDevDoesNotPrompt(t *testing.T) {
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv, caller := newSSHGateServer("dev", map[string]bool{"dev": false}, hub)
+	if _, _, err := srv.toolSSHTestConnection(context.Background(), &sdk.CallToolRequest{}, sshTestConnectionInput{ProfileID: prodDBID}); err != nil {
+		t.Fatalf("dev: %v", err)
+	}
+	if hub.Pending() != nil || caller.last.subject != "builtin.ssh" {
+		t.Fatalf("dev must pass without a prompt: pending=%v call=%+v", hub.Pending(), caller.last)
+	}
+}
+
+// db.schema.get indexes the live database on a cache miss, so it is gated
+// like the other profile-scoped database tools.
+func TestDBSchemaGetProdHeadlessRefused(t *testing.T) {
+	srv, caller := newDBGateServer("prod", map[string]bool{"prod": true}, &interaction.Hub{Headless: true})
+	_, _, err := srv.toolDBGetSchemaCache(context.Background(), &sdk.CallToolRequest{}, dbProfileScopedInput{ProfileID: prodDBID})
+	var app *apperrors.AppError
+	if !errors.As(err, &app) || app.Message != "Confirmation required." {
+		t.Fatalf("err = %v, want Confirmation required", err)
+	}
+	if caller.last.subject != "" {
+		t.Fatalf("reached the service without confirmation: %+v", caller.last)
+	}
+}
+
+func TestDBSchemaGetDevDoesNotPrompt(t *testing.T) {
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv, caller := newDBGateServer("dev", map[string]bool{"dev": false}, hub)
+	if _, _, err := srv.toolDBGetSchemaCache(context.Background(), &sdk.CallToolRequest{}, dbProfileScopedInput{ProfileID: prodDBID}); err != nil {
+		t.Fatalf("dev: %v", err)
+	}
+	if hub.Pending() != nil || caller.last.subject != "builtin.database" {
+		t.Fatalf("dev must pass without a prompt: pending=%v call=%+v", hub.Pending(), caller.last)
+	}
+}

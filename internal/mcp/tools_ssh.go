@@ -56,6 +56,9 @@ type sshTestConnectionInput struct {
 }
 
 func (s *Server) toolSSHTestConnection(ctx context.Context, _ *sdk.CallToolRequest, in sshTestConnectionInput) (*sdk.CallToolResult, any, error) {
+	if err := GateProfileMCP(ctx, s.deps.Hub, s.deps.Envs, s.sshTarget(), in.ProfileID, "ssh.testConnection", "test connection", interaction.KindSSH); err != nil {
+		return nil, nil, mapInteractErr(err)
+	}
 	opaqueID := recordID(in.ProfileID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.ssh", "ssh:connect", "profile:"+opaqueID, meta("test_connection", map[string]any{
 		"profile_id": opaqueID,

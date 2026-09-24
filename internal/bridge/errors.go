@@ -231,6 +231,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, message, true)
 		}
 		switch {
+		case errors.Is(err, agenthub.ErrUnavailableInServerMode):
+			return apperrors.New(codeValidationFailed, "Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts.", false)
 		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
 			return apperrors.New(codeInternalError, "Agent Hub is not available.", true)
 		case errors.Is(err, agenthub.ErrSessionClosed):

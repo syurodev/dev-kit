@@ -77,8 +77,16 @@ as production-verified against a real Claude Code session in cloud CI.
   `requiresConfirmation` (incl. fail-closed / `prod`), **env wins** — every gated call
   re-prompts; `allow_always` is ignored and not offered.
 - Headless / `task run:server` / nil Prompter: selection and confirmation **fail fast**
-  (no hang). Non-gated tools (e.g. `vault.status`, notes when unlocked in-process) can
-  still work when the host is up.
+  (no hang). Server mode sets `interaction.Hub.Headless` explicitly (`main.go`): its bridge
+  is unauthenticated loopback HTTP, so any local process could otherwise answer a prompt.
+  The hub is shared with the UI, so in server mode **every** prompt fails fast — active-target
+  MCP tools on any env (`db.query`, `ssh.runCommand`, `kafka.*`) and UI actions that confirm
+  (prod `git push`, guarded commits, prod `api.send`, task gates). Accepted for now; the plan is
+  to ask through OS notifications instead (Codex spec §8.1). Non-gated tools (e.g.
+  `vault.status`, notes when unlocked in-process) still work.
+- Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
+  `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
+  they prompt on every call when the profile's env requires confirmation, and pass otherwise.
 
 ### Agent Hub (`internal/agenthub` + `internal/acp`)
 **Partial** v1 surface on this branch: ACP codec/conn, mock + Claude adapters,
@@ -86,6 +94,10 @@ session service (SQLite migration 13), bridge/UI multi-tab, MCP `agenthub.*`.
 Claude vendor spawn uses `sandbox.DefaultRunner().StartPiped` (fail-closed).
 Codex/Gemini adapters are **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
+
+**Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
+every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
+and server mode's bridge has no authentication, so a session could approve itself.
 
 ```bash
 go test ./internal/acp/ ./internal/agenthub/ ./internal/bridge/ ./internal/mcp/ -count=1

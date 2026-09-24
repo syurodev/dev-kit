@@ -36,6 +36,7 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 			"agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
 		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
+		{agenthub.ErrUnavailableInServerMode, "validation_failed: Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts."},
 		{agenthub.ErrUnavailable, "internal_error: Agent Hub is not available."},
 	}
 	for _, tc := range cases {
