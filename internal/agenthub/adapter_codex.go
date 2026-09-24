@@ -88,6 +88,8 @@ type CodexOptions struct {
 	Runner SandboxRunner
 	// Version is DevKit's, sent as clientInfo.version.
 	Version string
+	// OnSignInCompleted reports how an in-app sign-in ended (InAppSignIn).
+	OnSignInCompleted func(SignInResult)
 }
 
 // CodexAdapter runs `codex app-server` inside DevKit's jail and speaks ACP to
@@ -95,6 +97,9 @@ type CodexOptions struct {
 // through PermissionWaiter.
 type CodexAdapter struct {
 	opts CodexOptions
+
+	signInMu sync.Mutex
+	signIn   *codexSignIn
 }
 
 // NewCodexAdapter returns the Codex adapter. Every process it starts goes

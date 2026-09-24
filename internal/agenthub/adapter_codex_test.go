@@ -152,10 +152,28 @@ func runFakeCodex(scenario, logPath string) {
 			if scenario == "signedout" {
 				reply(map[string]any{"account": nil, "requiresOpenaiAuth": true})
 			} else {
-				reply(map[string]any{"account": map[string]any{"type": "chatgpt"}, "requiresOpenaiAuth": true})
+				reply(map[string]any{"account": map[string]any{"type": "chatgpt", "email": "me@example.com", "planType": "plus"}, "requiresOpenaiAuth": true})
 			}
 		case "account/login/start":
-			reply(map[string]any{"type": "apiKey"})
+			var login codexapp.LoginStartParams
+			_ = json.Unmarshal(m.Params, &login)
+			switch login.Type {
+			case "chatgpt":
+				reply(map[string]any{"type": "chatgpt", "loginId": "login-1", "authUrl": "https://auth.example/authorize"})
+			case "chatgptDeviceCode":
+				reply(map[string]any{"type": "chatgptDeviceCode", "loginId": "login-1", "verificationUrl": "https://auth.example/device", "userCode": "ABCD-1234"})
+			default:
+				reply(map[string]any{"type": "apiKey"})
+				continue
+			}
+			if scenario == "login" {
+				go func() {
+					time.Sleep(50 * time.Millisecond)
+					notify("account/login/completed", map[string]any{"loginId": "login-1", "success": true, "error": nil})
+				}()
+			}
+		case "account/login/cancel", "account/logout":
+			reply(map[string]any{})
 		case "thread/start":
 			thread = "th-new"
 			reply(map[string]any{"thread": map[string]any{"id": thread}, "model": "gpt-5.5"})
@@ -837,4 +855,146 @@ func TestCodexInputCarriesTextImagesAndFiles(t *testing.T) {
 
 func agentruntimeResolved(bin string) agentruntime.Resolved {
 	return agentruntime.Resolved{Command: bin, ReadOnlyPaths: []string{filepath.Dir(bin)}}
+}
+
+func waitSignIn(t *testing.T, results <-chan SignInResult) SignInResult {
+	t.Helper()
+	select {
+	case r := <-results:
+		return r
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sign-in never finished")
+		return SignInResult{}
+	}
+}
+
+// Browser sign-in (spec §6.1): Codex's own login, started in a short-lived
+// app-server under the session jail with the ChatGPT store, which ends the
+// moment the login completes.
+func TestCodexBrowserSignIn(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	flow, err := f.adapter.StartBrowserSignIn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInBrowser || flow.AuthURL != "https://auth.example/authorize" || flow.LoginID != "login-1" {
+		t.Fatalf("flow = %+v", flow)
+	}
+	if r := waitSignIn(t, results); !r.Success || r.LoginID != "login-1" || r.Agent != AgentTypeCodex {
+		t.Fatalf("result = %+v", r)
+	}
+	pol, cmd := f.runner.started()
+	if !strings.Contains(strings.Join(cmd.Args, " "), `cli_auth_credentials_store="file"`) || pol.Env["CODEX_HOME"] != f.home {
+		t.Fatalf("sign-in must write the ChatGPT store in DevKit's home: %v %v", cmd.Args, pol.Env["CODEX_HOME"])
+	}
+	if pol.Network != sandbox.NetworkHost {
+		t.Fatal("the browser callback reaches the jail over the host loopback")
+	}
+	// account/read on the process that just signed in says "no account"
+	// (Phase 0); status is read by a fresh one.
+	if n := len(f.runner.sent(t, "account/read")); n != 0 {
+		t.Fatalf("account/read sent %d times on the sign-in process", n)
+	}
+}
+
+func TestCodexDeviceSignInShowsTheCode(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	f.adapter.opts.OnSignInCompleted = func(SignInResult) {}
+	flow, err := f.adapter.StartDeviceSignIn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInDeviceCode || flow.UserCode != "ABCD-1234" || flow.VerificationURL == "" {
+		t.Fatalf("flow = %+v", flow)
+	}
+}
+
+// Cancel withdraws the login and stops the process; a timeout does the same
+// on its own.
+func TestCodexSignInCancelAndTimeout(t *testing.T) {
+	defer func(old time.Duration) { codexSignInTimeout = old }(codexSignInTimeout)
+	for _, how := range []string{"cancel", "timeout"} {
+		t.Run(how, func(t *testing.T) {
+			if how == "timeout" {
+				codexSignInTimeout = 100 * time.Millisecond
+			} else {
+				codexSignInTimeout = time.Minute
+			}
+			f := newCodexFixture(t, "loginWait")
+			results := make(chan SignInResult, 1)
+			f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+			flow, err := f.adapter.StartBrowserSignIn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if how == "cancel" {
+				if err := f.adapter.CancelSignIn(context.Background(), flow.LoginID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if r := waitSignIn(t, results); r.Success || r.Error == "" {
+				t.Fatalf("result = %+v", r)
+			}
+			if cancels := f.runner.sent(t, "account/login/cancel"); len(cancels) != 1 || !strings.Contains(string(cancels[0]), "login-1") {
+				t.Fatalf("account/login/cancel = %s", cancels)
+			}
+		})
+	}
+}
+
+func TestCodexSignInStatusAndSignOut(t *testing.T) {
+	f := newCodexFixture(t, "turn")
+	status, err := f.adapter.SignInStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != (SignInStatus{SignedIn: true, Method: "chatgpt", Email: "me@example.com", Plan: "plus"}) {
+		t.Fatalf("status = %+v", status)
+	}
+	if err := f.adapter.SignOut(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runner.sent(t, "account/logout")) != 1 {
+		t.Fatal("SignOut must send account/logout")
+	}
+
+	out := newCodexFixture(t, "signedout")
+	if status, err := out.adapter.SignInStatus(context.Background()); err != nil || status.SignedIn {
+		t.Fatalf("signed out: %+v, %v", status, err)
+	}
+
+	// An API key is what sessions sign in with, so it is the status; no
+	// process is needed to say so.
+	key := newCodexFixture(t, "signedout")
+	key.adapter.opts.APIKey = func(context.Context) (string, error) { return "sk-1", nil }
+	if status, err := key.adapter.SignInStatus(context.Background()); err != nil || status != (SignInStatus{SignedIn: true, Method: "apiKey"}) {
+		t.Fatalf("api key: %+v, %v", status, err)
+	}
+}
+
+// Service routes sign-in to the vendor that supports it and says plainly
+// when one does not.
+func TestServiceSignInRoutesByVendor(t *testing.T) {
+	f := newCodexFixture(t, "turn")
+	reg := NewRegistry()
+	reg.Register(f.adapter)
+	reg.Register(NewMockAdapter())
+	svc := &Service{reg: reg}
+	if status, err := svc.SignInStatus(context.Background(), AgentTypeCodex); err != nil || !status.SignedIn {
+		t.Fatalf("codex: %+v, %v", status, err)
+	}
+	if _, err := svc.SignInStatus(context.Background(), AgentTypeMock); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("mock: %v, want ErrUnsupported", err)
+	}
+	if _, err := svc.StartSignIn(context.Background(), AgentTypeCodex, "telepathy"); !errors.Is(err, ErrAuthMethodUnknown) {
+		t.Fatalf("unknown method: %v", err)
+	}
+	for _, a := range ForServerMode(f.adapter) {
+		reg.Register(a)
+	}
+	if _, err := svc.StartSignIn(context.Background(), AgentTypeCodex, SignInBrowser); !errors.Is(err, ErrUnavailableInServerMode) {
+		t.Fatalf("server mode: %v", err)
+	}
 }

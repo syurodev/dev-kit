@@ -22,6 +22,7 @@ var (
 	_ SessionLoader = (*ServerModeAdapter)(nil)
 	_ AuthProvider  = (*ServerModeAdapter)(nil)
 	_ RuntimeForker = (*ServerModeAdapter)(nil)
+	_ InAppSignIn   = (*ServerModeAdapter)(nil)
 )
 
 // NewServerModeAdapter returns a stub for t whose sessions never start.
@@ -70,3 +71,23 @@ func (a *ServerModeAdapter) SignInCommand(context.Context, string) (SignInComman
 func (a *ServerModeAdapter) Fork(context.Context, OpenSpec, string, string) (SessionRuntime, error) {
 	return nil, ErrUnavailableInServerMode
 }
+
+// The in-app sign-in refuses too: a login started from a browser tab on the
+// unauthenticated bridge would leave a credential for any local caller.
+func (a *ServerModeAdapter) SignInStatus(context.Context) (SignInStatus, error) {
+	return SignInStatus{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) StartBrowserSignIn(context.Context) (SignInFlow, error) {
+	return SignInFlow{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) StartDeviceSignIn(context.Context) (SignInFlow, error) {
+	return SignInFlow{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) CancelSignIn(context.Context, string) error {
+	return ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) SignOut(context.Context) error { return ErrUnavailableInServerMode }
