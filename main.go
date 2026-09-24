@@ -322,7 +322,9 @@ func main() {
 		}
 	}
 	claudeAdapter := agenthub.NewClaudeAdapter(claudeOpts)
-	runtimes.Verify = claudeAdapter.Probe
+	runtimes.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
+		agentruntime.ClaudeACP: claudeAdapter.Probe,
+	}
 	vendors := []agenthub.VendorAdapter{claudeAdapter}
 	if application.System.IsServer() {
 		// Server mode serves the bridge over unauthenticated loopback HTTP and

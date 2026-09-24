@@ -149,6 +149,12 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: notify must not import %s", short(imp))
 	}
 
+	// codexapp is a leaf transport for `codex app-server`, like acp: the
+	// adapter in agenthub owns the sandbox and the translation to ACP.
+	for _, imp := range graph[pkg("codexapp")] {
+		t.Errorf("layering violation: codexapp must not import %s", short(imp))
+	}
+
 	// checkpoint runs git against a project directory and knows nothing about
 	// sessions, transcripts or storage. agenthub consumes it through a
 	// locally-declared interface, never the reverse — the same boundary

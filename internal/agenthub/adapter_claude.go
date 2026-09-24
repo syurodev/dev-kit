@@ -807,10 +807,11 @@ func withForkMeta(base json.RawMessage, messageID string) json.RawMessage {
 const probeTimeout = 20 * time.Second
 
 // Probe starts an installed runtime under the jail a real session gets, sends
-// ACP initialize and stops it. It is agentruntime.Manager.Verify: the proof
-// that node, the entry and the read grants are enough, before a version is
-// activated. A static look at the files cannot say that — a missing grant
-// looks exactly like a present file until the jail refuses to open it.
+// ACP initialize and stops it. It is agentruntime.Manager.Verifiers[ClaudeACP]:
+// the proof that node, the entry and the read grants are enough, before a
+// version is activated. A static look at the files cannot say that — a
+// missing grant looks exactly like a present file until the jail refuses to
+// open it.
 //
 // No session is created, so neither credentials nor a model are exercised.
 func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) error {

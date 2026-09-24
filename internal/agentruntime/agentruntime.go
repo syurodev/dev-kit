@@ -15,7 +15,7 @@
 // docs/superpowers/specs/2026-09-13-agent-runtime-install-design.md.
 //
 // Nothing here imports internal/agenthub. The installer only needs to prove an
-// install works, and agenthub hands that proof in as Manager.Verify.
+// install works, and agenthub hands that proof in as Manager.Verifiers.
 package agentruntime
 
 import (
@@ -26,6 +26,11 @@ import (
 
 // ClaudeACP is the ACP registry id of Claude's adapter.
 const ClaudeACP = "claude-acp"
+
+// CodexCLI is OpenAI's Codex CLI, run as `codex app-server`. Not an ACP
+// adapter and not in the ACP registry, so no "latest" is offered: the pinned
+// TestedVersion is what installs.
+const CodexCLI = "codex"
 
 // Agent is what DevKit knows about one installable adapter.
 type Agent struct {
@@ -45,6 +50,12 @@ type Agent struct {
 	// SDK's platform package puts the Claude Code binary. npm picks the package
 	// by os/cpu (and libc on Linux), so which one exists is decided at install.
 	BundledClaude []string
+	// NativeEntry lists globs, relative to a version directory, where npm puts
+	// the agent's own executable. When set, the agent is that binary: Entry and
+	// node are unused, and Resolved.Command is the match. npm picks the
+	// platform package by os/cpu, so which one exists is decided at install —
+	// the same reason BundledClaude is a list.
+	NativeEntry []string
 }
 
 var agents = map[string]Agent{
@@ -59,6 +70,17 @@ var agents = map[string]Agent{
 			// Only when npm could not hoist it; seen in no real install yet, and
 			// one more glob is cheaper than a failed install that was fine.
 			"node_modules/@anthropic-ai/claude-agent-sdk/node_modules/@anthropic-ai/claude-agent-sdk-*/" + exeName("claude"),
+		},
+	},
+	CodexCLI: {
+		ID:            CodexCLI,
+		Package:       "@openai/codex",
+		TestedVersion: "0.147.0",
+		NativeEntry: []string{
+			"node_modules/@openai/codex-*/vendor/*/bin/" + exeName("codex"),
+			// npm nests the platform package when it cannot hoist it; the global
+			// install on the machine this was measured on did exactly that.
+			"node_modules/@openai/codex/node_modules/@openai/codex-*/vendor/*/bin/" + exeName("codex"),
 		},
 	},
 }
