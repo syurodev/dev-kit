@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -30,9 +32,10 @@ var seatbeltSystemReadOnlyPaths = []string{
 // Node carries its own bundle, so Claude never needed it; codex is Rust and
 // asks the system — without the lookup every HTTPS connection it made from
 // the jail failed with "invalid peer certificate: UnknownIssuer" (measured on
-// 0.147.0; with it the same connection reached the server). The lookup
-// alone does not open the login keychain: reading its items also needs the
-// file read AllowKeychain grants, and either alone fails.
+// 0.147.0; with it the same connection reached the server). The lookup does
+// not open the login keychain on its own, but a shared home grants the
+// keychain files — so buildSeatbeltProfile denies ~/Library/Keychains
+// whenever AllowKeychain is off.
 var seatbeltNetworkMachServices = []string{
 	"com.apple.SystemConfiguration.configd",
 	"com.apple.mDNSResponder",
@@ -164,6 +167,16 @@ func buildSeatbeltProfile(p Policy) string {
 	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
 	// appendable). Emitted last because the later matching rule wins.
 	denyPaths := p.EffectiveDenyRead()
+	// The login keychain stays closed unless AllowKeychain asks for it. A
+	// shared home grants ~/Library/Keychains like any other file, and a
+	// host-networking jail reaches securityd to check certificates — the two
+	// together are exactly AllowKeychain: under that profile `security
+	// find-generic-password` read items out of the login keychain (review of
+	// plan 2c, verified live). Listed with the deny paths so the ancestors
+	// are protected from rename like theirs.
+	if !p.AllowKeychain {
+		denyPaths = append(denyPaths, p.keychainDirs()...)
+	}
 	if len(denyPaths) > 0 {
 		b.WriteString("(deny file-read* file-write*\n")
 		for _, path := range denyPaths {
@@ -188,6 +201,27 @@ func buildSeatbeltProfile(p Policy) string {
 	}
 
 	return b.String()
+}
+
+// keychainDirs are the login keychain stores the jail could otherwise reach:
+// the policy's home and the host's, when they differ.
+func (p Policy) keychainDirs() []string {
+	var out []string
+	for _, home := range []string{p.policyHomeDir(), hostHomeDir()} {
+		if home == "" {
+			continue
+		}
+		dir := filepath.Join(home, "Library", "Keychains")
+		if !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+func hostHomeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 // grantedPaths is every path the profile grants access to, in both spellings

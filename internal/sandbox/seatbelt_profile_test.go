@@ -74,20 +74,38 @@ func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
 
 // A host-networking jail can check a server's certificate against the
 // system roots, and that is all the securityd lookup buys it: the login
-// keychain stays unreadable unless AllowKeychain asks for it, and a jail with
-// no network gets neither.
+// keychain stays unreadable unless AllowKeychain asks for it — also under a
+// shared home, which grants ~/Library like the rest of $HOME — and a jail
+// with no network gets no lookup.
 func TestSeatbeltProfileNetworkHostCanCheckCertificates(t *testing.T) {
 	const lookup = `(global-name "com.apple.SecurityServer")`
+	keychains := `(subpath "/Users/alice/Library/Keychains")`
 	host := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
 	if !strings.Contains(host, lookup) {
 		t.Fatalf("NetworkHost must reach securityd to verify TLS: %s", host)
 	}
-	if strings.Contains(host, "Library/Keychains") {
-		t.Fatalf("certificate checks must not open the login keychain: %s", host)
-	}
 	none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
 	if strings.Contains(none, lookup) {
 		t.Fatalf("a jail with no network has no certificate to check: %s", none)
+	}
+
+	shared := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, PrivateHome: boolPtr(false),
+		Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	deny := strings.LastIndex(shared, "(deny file-read* file-write*")
+	if deny < 0 || !strings.Contains(shared[deny:], keychains) {
+		t.Fatalf("a shared home must not hand the login keychain to the jail: %s", shared)
+	}
+	if strings.LastIndex(shared, "(allow ") > deny {
+		t.Fatalf("the keychain deny must come after every allow: %s", shared)
+	}
+	if !strings.Contains(shared, `(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal "/Users/alice/Library")))`) {
+		t.Fatalf("renaming ~/Library must not move the keychain out from under the deny: %s", shared)
+	}
+
+	allowed := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, PrivateHome: boolPtr(false), AllowKeychain: true,
+		Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if at := strings.LastIndex(allowed, "(deny file-read* file-write*"); at >= 0 && strings.Contains(allowed[at:], keychains) {
+		t.Fatalf("AllowKeychain must keep the keychain readable: %s", allowed)
 	}
 }
 
