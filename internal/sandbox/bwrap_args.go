@@ -117,6 +117,14 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 			binds = append(binds, bwrapBind{"--ro-bind", path})
 		}
 	}
+	// Appended last: at equal depth the stable sort keeps them after a RW
+	// bind of the same path, and deeper ones sort after their RW parent, so a
+	// deny-write path always lands read-only on top.
+	for _, path := range p.DenyWritePaths {
+		if pathExists(path) {
+			binds = append(binds, bwrapBind{"--ro-bind", path})
+		}
+	}
 	appendNestedBinds(&args, binds)
 
 	denyPaths := p.EffectiveDenyRead()
@@ -133,6 +141,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		}
 		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadWritePaths, "--bind")
 		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
+		homeBinds = appendHomeAllowlist(homeBinds, home, denyPaths, p.DenyWritePaths, "--ro-bind")
 		appendNestedBinds(&args, homeBinds)
 	}
 

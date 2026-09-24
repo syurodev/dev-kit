@@ -143,6 +143,16 @@ func buildSeatbeltProfile(p Policy) string {
 	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
 	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
 	// appendable). Emitted last because the later matching rule wins.
+	// Deny-write after every allow: SBPL's later matching rule wins, so these
+	// stay read-only inside WorkDir, a RW path or a shared home.
+	if len(p.DenyWritePaths) > 0 {
+		b.WriteString("(deny file-write*\n")
+		for _, path := range p.DenyWritePaths {
+			writeSBPLPath(&b, path)
+		}
+		b.WriteString(")\n")
+	}
+
 	denyPaths := p.EffectiveDenyRead()
 	if len(denyPaths) > 0 {
 		b.WriteString("(deny file-read* file-write*\n")
@@ -150,13 +160,15 @@ func buildSeatbeltProfile(p Policy) string {
 			writeSBPLPath(&b, path)
 		}
 		b.WriteString(")\n")
-		// (subpath X) stops protecting X once an ancestor is renamed: with
-		// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
-		// (verified live). Deny rename/unlink of every ancestor directory,
-		// the same rule Codex uses for its protected paths.
-		for _, dir := range pathAncestors(denyPaths) {
-			b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
-		}
+	}
+	// (subpath X) stops protecting X once an ancestor is renamed: with
+	// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
+	// (verified live). Deny rename/unlink of every ancestor directory, the
+	// same rule Codex uses for its protected paths — for deny-write paths as
+	// much as deny-read ones.
+	protected := append(append([]string(nil), denyPaths...), p.DenyWritePaths...)
+	for _, dir := range pathAncestors(protected) {
+		b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
 	}
 
 	return b.String()

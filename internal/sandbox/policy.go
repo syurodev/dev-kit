@@ -25,6 +25,14 @@ type Policy struct {
 	ReadOnlyPaths  []string
 	ReadWritePaths []string // extra RW beyond WorkDir
 	DenyReadPaths  []string // added on top of defaults
+	// DenyWritePaths are never writable, even inside WorkDir, a
+	// ReadWritePaths entry or a shared home. They stay readable only when
+	// another grant covers them. For the files and directories that steer a
+	// vendor's own policy from inside a home DevKit hands it read-write —
+	// Codex reads approval rules and config from $CODEX_HOME. A path that
+	// does not exist is skipped on Linux (bwrap binds only what exists), so
+	// the caller creates it first.
+	DenyWritePaths []string
 	// AllowUnixSockets are unix socket paths the process may connect to —
 	// the session's identity-bound DevKit MCP endpoint. Everything else stays
 	// closed (NetworkHost is IP-only).
@@ -57,6 +65,11 @@ func (p Policy) Validate() error {
 	}
 	for _, sock := range p.AllowUnixSockets {
 		if !filepath.IsAbs(sock) {
+			return ErrInvalidPolicy
+		}
+	}
+	for _, path := range p.DenyWritePaths {
+		if !filepath.IsAbs(path) {
 			return ErrInvalidPolicy
 		}
 	}

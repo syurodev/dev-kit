@@ -88,6 +88,14 @@ request (server→client, có `id`, client phải trả lời đúng một lần
 - Agent mới `codex`: `Package "@openai/codex"`, `TestedVersion "0.147.0"`, glob entry theo `<triple>`.
 - Claude không đổi hành vi. Dùng chung màn hình cài / cập nhật / rollback.
 - `DEVKIT_CODEX_COMMAND` (tuyệt đối) ghi đè runtime, giống `DEVKIT_CLAUDE_ACP_COMMAND`.
+- **Cần quyết ở Kế hoạch 2c (runtime; review Kế hoạch 2a):** launcher `bin/codex.js` của 0.147.0 đặt
+  `CODEX_MANAGED_BY_NPM=1` và `CODEX_MANAGED_PACKAGE_ROOT=<realpath node_modules/@openai/codex>` trước khi
+  chạy binary; binary đọc hai biến này (và `codex-package.json`, thư mục `codex-path` chứa `rg` đi kèm).
+  Chạy thẳng binary thì mất cả hai → có thể đổi hành vi tự cập nhật / nhận diện cách cài, và `rg` đi kèm
+  có thể không được tìm thấy. 2c phải đo rồi chọn: đặt hai biến + thêm `codex-path` vào `PATH` trong
+  `resolveAt`, hay để trống có chủ đích (DevKit tự quản lý phiên bản, không muốn Codex tự cập nhật).
+- Bản cài Codex hiện được kích hoạt với `verified.handshake=false` (chưa có verifier) và đã gọi được qua
+  bridge/MCP `AgentRuntimeInstall("codex")`. 2c thêm verifier (`initialize` app-server trong jail).
 
 ### 4.3 `CodexAdapter` (`internal/agenthub/adapter_codex*.go`)
 
@@ -106,10 +114,16 @@ Hiện thực: `VendorAdapter`, `SessionLoader` (`thread/resume`), `RuntimeConfi
   - `-c mcp_servers.devkit.*` → `devkit-mcp` proxy với socket định danh của session (như Claude nhận qua `OpenSpec.McpServers`)
   - `--disable hooks --disable plugins --disable apps --disable computer_use` (§7.3)
 - Env: `CODEX_HOME=<data>/agent-homes/codex` (tạo 0700).
-- **`$CODEX_HOME/config.toml` không được để jail ghi** (Giai đoạn 0: agent ghi được file này thì tự
-  "trust" repo cho các session sau, và config của repo — kể cả hook — được nạp). DevKit ghi file này
-  (rỗng hoặc chỉ các khoá DevKit cần) trước mỗi spawn và bind **chỉ đọc** đè lên nó trong jail
-  (`ReadOnlyPaths` sau `ReadWritePaths` của home). Phần còn lại của home (auth, sessions, sqlite) vẫn ghi được.
+- **Các file mang chính sách trong `$CODEX_HOME` không được để jail ghi** — qua `sandbox.Policy.DenyWritePaths`
+  (Kế hoạch 2b): bwrap `--ro-bind` đè lên home đọc-ghi, Seatbelt `deny file-write*` sau mọi allow (trước đây
+  `ReadOnlyPaths` trên macOS **không** chặn ghi bên trong một vùng đọc-ghi). Danh sách, DevKit tạo sẵn (rỗng)
+  trước mỗi spawn vì bwrap chỉ bind được thứ đã tồn tại:
+  - `config.toml` — Giai đoạn 0: ghi được thì agent tự "trust" repo cho các session sau.
+  - `rules/` — exec policy toàn cục (`~/.codex/rules/default.rules` có thật trên máy dev): một luật `allow`
+    tự duyệt lệnh, **có thể ngay trong session đang chạy** — ghi lại lúc spawn không chặn được, nên phải chỉ-đọc.
+  - `AGENTS.md`, `AGENTS.override.md` — chỉ dẫn toàn cục: ghi được là tiêm prompt bền vững vào mọi session sau.
+  - `skills/` — skill toàn cục, cùng lý do.
+  Phần còn lại của home (auth, sessions, sqlite, log) vẫn ghi được.
 - Policy jail: như Claude (`NetworkHost`, `ShareHome`/Docker theo Settings), thêm
   `ReadWritePaths += CODEX_HOME`, `DenyReadPaths += ~/.codex`, keep-list `ProtectDataDir` thêm
   `agent-homes/codex`.
@@ -143,10 +157,10 @@ Hiện thực: `VendorAdapter`, `SessionLoader` (`thread/resume`), `RuntimeConfi
 |---|---|
 | `item/agentMessage/delta` | `agent_message_chunk`; `item/completed` của `agentMessage` chưa có delta nào → gửi nguyên `text` |
 | `item/reasoning/summaryTextDelta` | `agent_thought_chunk` (chỉ tóm tắt; `textDelta` thô bỏ qua) |
-| `commandExecution` started | `tool_call {toolCallId:itemId, kind:"execute", title:command, status:"in_progress", rawInput:{command,cwd}}` |
-| `item/commandExecution/outputDelta` | Gộp ~100 ms → `tool_call_update` content text; giữ **64 KB cuối** |
+| `commandExecution` started | `tool_call {toolCallId:itemId, kind:"execute", title, status:"in_progress", rawInput:{command,cwd}}` — `title` là `commandActions[0].command` (lệnh như model viết); `command` bị bọc `/usr/bin/zsh -lc "…"` |
+| `item/commandExecution/outputDelta` | Không dịch ở v1: Giai đoạn 0 **không thấy** delta trên dây — output tới một lần trong `aggregatedOutput` khi item xong (giữ **64 KB cuối**). Nối streaming sau là một dòng dispatch |
 | `commandExecution` completed | `tool_call_update` `completed`; `exitCode≠0` hoặc `failed` → `failed`; `declined` → `failed` + lý do; `rawOutput:{exitCode,durationMs}` |
-| `fileChange` | `tool_call {kind:"edit"}` (có `move_path` → `"move"`), `locations`, content `diff` **dựng từ hunk**: `oldText` = ngữ cảnh + dòng xoá, `newText` = ngữ cảnh + dòng thêm, `truncated:true`; `add`/`delete` → `oldText`/`newText` rỗng. **Không đọc file trên đĩa** (adapter ở ngoài jail; đường dẫn do agent đưa) |
+| `fileChange` | `tool_call {kind:"edit"}` (có `move_path` → `"move"`, toàn xoá → `"delete"`), `locations`, content `diff`: `update` **dựng từ hunk** (`oldText` = ngữ cảnh + dòng xoá, `newText` = ngữ cảnh + dòng thêm, `…` giữa hai hunk); `add` → `diff` của Codex **là cả file mới** (đo được: không có `@@`), không `oldText`; `delete` → `oldText` = nội dung. Không đặt `truncated` (cờ đó của UI nghĩa là "bị cắt để xem trước"). **Không đọc file trên đĩa** (adapter ở ngoài jail; đường dẫn do agent đưa) |
 | `mcpToolCall` | `tool_call {kind:"other", title:"server.tool", rawInput:arguments}`; completed → `rawOutput` |
 | `webSearch` | `tool_call {kind:"fetch"}` |
 | `turn/plan/updated` | `plan {entries}`; `inProgress` → `in_progress` |
@@ -250,6 +264,10 @@ Qua `OnPermission` → `PermissionWaiter`, cùng timeout với Claude.
 | `item/fileChange/requestApproval` | `edit`: diff từ item (§5.2) | `accept` | `acceptForSession` | `decline` | `cancel` |
 | `item/permissions/requestApproval` | không hiện thẻ | — | — | — | — |
 
+- **Nút dựng từ `availableDecisions`** của chính request (Kế hoạch 2b): Giai đoạn 0 đo `untrusted` với lệnh shell chỉ
+  có `accept`, một execpolicy amendment và `cancel` — không `decline`, không `acceptForSession`. Allow = `accept`;
+  "Allow cho session" chỉ khi có `acceptForSession`; Deny = `decline` nếu có, không thì `cancel` (dừng lượt).
+  Trả lời hỏng/huỷ/hết giờ → `cancel` (nếu có, không thì `decline`). File change luôn đủ bốn quyết định.
 - `acceptWithExecpolicyAmendment` / `applyNetworkPolicyAmendment` **không bao giờ** được đưa ra: một
   approval không ghi luật vĩnh viễn.
 - Xin thêm quyền (network, thư mục ghi): dưới `externalSandbox` vô nghĩa — jail mới quyết. Adapter tự
