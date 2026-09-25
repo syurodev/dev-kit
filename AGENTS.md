@@ -93,11 +93,27 @@ as production-verified against a real Claude Code session in cloud CI.
 session service (SQLite migration 13), bridge/UI multi-tab, MCP `agenthub.*`.
 Claude vendor spawn uses `sandbox.DefaultRunner().StartPiped` (fail-closed).
 A Codex adapter (`adapter_codex*.go`, `codex_*.go`) drives `codex app-server` 0.147.0
-under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`); it is
-registered in `main.go`, but the UI for it (sign-in panel, vendor picker) is not built
-yet — design in `docs/superpowers/specs/2026-09-24-codex-agent-hub-design.md`, state in
+under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — design in
+`docs/superpowers/specs/2026-09-24-codex-agent-hub-design.md`, state in
 `docs/superpowers/HANDOFF-codex.md`. Gemini is **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
+
+- **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
+  name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
+  unknown vendor gets its own name and nothing to install or sign in to.
+- **Codex signs in inside DevKit, UI only.** Bridge `AgentHubSignInStatus` /
+  `AgentHubStart{Browser,Device}SignIn` / `AgentHubCancelSignIn` / `AgentHubSignOut`
+  (`auth:codex`), event `agenthub:signInCompleted`. There is no MCP tool for it
+  (`TestNoToolSignsAgentsIn`), and `Service` refuses a caller stamped as an agent or a
+  user-terminal MCP client. Audit lines carry the method and account id, never the
+  login page, code or key.
+- **Codex API key = an Accounts token, by id.** `preferences` stores only the id
+  (`agent_codex_api_key_account`); `app.CodexAPIKey` resolves it at spawn and Accounts
+  refuses to delete it while chosen. A successful ChatGPT sign-in adds a `KindExternal`
+  "Codex (ChatGPT)" row to Accounts; signing out removes it.
+- `agent_not_installed` / `agent_auth_required` name the vendor: adapters wrap those
+  sentinels in `agenthub.VendorError`, and `bridge/errors.go` words the message per
+  vendor.
 
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
