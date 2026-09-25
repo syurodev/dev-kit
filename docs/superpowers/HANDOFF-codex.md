@@ -23,18 +23,23 @@ Nhánh **`codex/plan-2c-adapter`** (tách từ `main` a6a2d5ed), **chưa push**.
 | Kế hoạch 1 — đo Codex thật + vá bảo mật | Xong, đã review | `internal/mcp/gate.go`, `internal/agenthub/adapter_servermode.go`, `main.go`, capture `internal/agenthub/testdata/codex_session_capture.jsonl` |
 | Kế hoạch 2a — kết nối app-server + runtime native | Xong, đã review | `internal/codexapp/{wire,conn,protocol}.go`, `internal/agentruntime` (`NativeEntry`, `Verifiers`, agent `codex` 0.147.0). Commit gốc a6a2d5ed đặt nhầm 5 file `agentruntime` vào `internal/agenthub/` và thiếu phần nối `main.go`/`arch` — đã sửa ở e3425c38 |
 | Kế hoạch 2b — deny-write, bộ dịch, approval | Xong, **đã review tổng + sửa** (f4c625ce, 50455496, 1aecfbc6) | `internal/sandbox`, `internal/codexapp/items.go`, `internal/agenthub/codex_translate.go`, `codex_approvals.go` |
-| Kế hoạch 2c — runtime `CodexAdapter` | Xong 9/9 task, **đã review tổng + sửa** (497f9099, dd744616) | `internal/agenthub/adapter_codex.go`, `codex_auth.go`, `codex_home.go`, `protect.go` (`carveOut`), `codex_approvals.go` (`mcpToolApprovalFor`), `internal/sandbox/seatbelt_profile.go`, `internal/sandbox/proc.go`, `main.go` |
+| Kế hoạch 2c — runtime `CodexAdapter` | Xong 9/9 task, **đã review tổng + sửa** (497f9099, dd744616), **đã live test + sửa** (7a44da1d, 5051ba3a) | `internal/agenthub/adapter_codex.go`, `codex_auth.go`, `codex_home.go`, `protect.go` (`carveOut`), `codex_approvals.go` (`mcpToolApprovalFor`), `internal/sandbox/seatbelt_profile.go`, `internal/sandbox/proc.go`, `main.go` |
 | Kế hoạch 3 — bridge, frontend, tài liệu | **Chưa viết** | xem "Việc tiếp theo" |
 
 Codex **đã đăng ký** trong `main.go` (adapter, verifier cài đặt, `DEVKIT_CODEX_COMMAND`, event
 `agenthub:signInCompleted`), nhưng **chưa có UI**: không có panel đăng nhập, bridge chưa có method sign-in,
 nhiều chỗ frontend còn hard-code `"claude"`. `CodexOptions.APIKey` chưa nối với accounts.
 
-Kiểm cuối (2026-09-25, sau các sửa của review 2c): trên macOS `go test ./internal/{sandbox,codexapp,agentruntime,
-agenthub,bridge,mcp,arch}/ -race` xanh, `go vet -tags server ./...`, `gofmt`, `go build -tags server` sạch;
-`TestCodexRealBinaryInTheJail` qua với codex 0.147.0 thật và không để lại zombie. Trên Linux (bwrap trong
-container) bộ `sandbox/codexapp/agenthub/arch` xanh tới commit 495ccdda; **chưa chạy lại** sau 497f9099/dd744616
-vì Docker (OrbStack) treo giữa chừng — xem "Chưa đo / còn treo".
+Kiểm cuối (2026-09-25): trên macOS `go test ./internal/{sandbox,codexapp,agentruntime,agenthub,bridge,mcp,arch}/
+-race` xanh, `go vet -tags server ./...`, `gofmt`, `go build -tags server` sạch; `TestCodexRealBinaryInTheJail` qua
+với codex 0.147.0 thật, không để lại zombie. Linux (bwrap trong container) xanh trên 5051ba3a.
+
+**Live (2026-09-25, người dùng đồng ý, tài khoản ChatGPT cá nhân, home nháp — đã đăng xuất và xoá):**
+đăng nhập trình duyệt qua chính `StartBrowserSignIn` từ jail Seatbelt; `TestCodexLiveTurnWithAnApproval` và
+`TestCodexLiveMcpApprovalAndResume` đều qua (một lượt Ask + approval sửa file; thẻ duyệt tool MCP khớp dây thật;
+usage sau resume tính riêng lượt). Live tìm ra hai lỗi đăng nhập trên macOS, đã sửa ở 7a44da1d: Seatbelt chặn
+bind cổng callback 1455 (`Policy.ListenLoopbackPorts`), và bước đổi token cần `com.apple.trustd.agent`.
+Chi tiết: research doc mục 6.
 
 ## Quyết định của người dùng (giữ nguyên)
 
@@ -82,15 +87,7 @@ vì Docker (OrbStack) treo giữa chừng — xem "Chưa đo / còn treo".
 
 ## Việc tiếp theo
 
-1. **Chạy lại bộ test Linux** sau khi Docker hoạt động lại (khởi động lại OrbStack — hỏi người dùng trước):
-   `go test ./internal/sandbox/ ./internal/codexapp/ ./internal/agenthub/ ./internal/arch/ -count=1` trong container.
-   Hai commit cần kiểm trên Linux: `WaitDelay` trong `sandbox.NewProcPiped` và vòng đời reap của `codexProcess`.
-2. **Live test** (hỏi người dùng trước — tốn quota, cần đăng nhập Codex vào một `CODEX_HOME` nháp bằng trình
-   duyệt, không dùng/copy `~/.codex`):
-   `DEVKIT_CODEX_LIVE=1 DEVKIT_CODEX_LIVE_HOME=<home nháp> DEVKIT_CODEX_COMMAND=<binary> go test ./internal/agenthub/ -run CodexLive -v`.
-   Nên đo luôn: usage sau resume (spec giả định `total` của lần báo đầu tiên đã gồm lượt cũ), và một lần gọi tool
-   MCP của DevKit ở Ask (xác nhận thẻ duyệt MCP khớp dây thật).
-3. **Kế hoạch 3 — bridge + frontend + tài liệu** (viết theo đúng cách trên):
+1. **Kế hoạch 3 — bridge + frontend + tài liệu** (viết theo đúng cách trên):
    - Bridge: `AgentHubSignInStatus`, `AgentHubStartBrowserSignIn`/`AgentHubStartDeviceSignIn` (→ `Service.StartSignIn`),
      `AgentHubCancelSignIn`, `AgentHubSignOut`; capability `agenthub:execute` trên `auth:codex`, **chỉ UI**, không
      tool MCP; `wails3 generate bindings -clean=true -ts -i`.
@@ -107,15 +104,21 @@ vì Docker (OrbStack) treo giữa chừng — xem "Chưa đo / còn treo".
 
 ## Chưa đo / còn treo
 
-- Linux chưa chạy lại sau 497f9099/dd744616 (Docker treo) — Việc tiếp theo 1.
-- Live test (một lượt thật + approval thật) — chưa chạy, cần người dùng đồng ý.
 - Hình dạng lỗi khi token hết hạn giữa lượt (hiện map mọi `unauthorized` sang auth-required).
-- Usage sau resume: đã sửa theo giả định (baseline = `total − last` ở lần báo đầu), chưa đo trên dây thật.
+- Đăng nhập device code từ jail (chỉ trình duyệt đã chạy thật; device code không cần cổng callback nhưng vẫn cần
+  `trustd` cho bước đổi token — đã có).
+- Live trên Linux (bwrap): chỉ Phase 0 đã chạy thật ở đó; đường đăng nhập và lượt thật của adapter mới chạy thật
+  trên macOS.
 - Đối chứng: hook `PermissionRequest` *có* tự duyệt khi hooks bật (hiện chỉ biết `--disable hooks` chặn được).
 - Bằng chứng sau khi sửa rằng server mode từ chối `AgentHubCreateSession` (và sign-in) qua bridge thật.
 - Nếu Codex không bao giờ gửi `account/login/completed` sau khi đăng nhập thành công, flow bị báo "timed out"
   sau 15 phút dù `auth.json` đã ghi — chưa gặp, chỉ đọc code thấy.
 - Test cài npm thật trên Linux (trên macOS đã chạy qua `agentruntime.Install`: glob `NativeEntry` thứ nhất khớp).
+
+Chạy lại live (hỏi người dùng trước — tốn quota): đăng nhập một home nháp bằng `StartBrowserSignIn` (file test tạm
+gọi adapter với `Home` = thư mục nháp, mở `authUrl` bằng `open`), rồi
+`DEVKIT_CODEX_LIVE=1 DEVKIT_CODEX_LIVE_HOME=<home nháp> DEVKIT_CODEX_COMMAND=<binary> go test ./internal/agenthub/ -run CodexLive -v`;
+xong thì `CODEX_HOME=<home nháp> <binary> logout` và xoá thư mục.
 
 ## Việc nhỏ ghi lại để làm sau
 

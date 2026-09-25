@@ -203,6 +203,18 @@ khớp); `codex app-server` chạy thẳng binary, `CODEX_HOME` nháp.
   `exit 1` trước khi trả lời initialize.
 - **Duyệt tool MCP** (đọc mã nguồn tag `rust-v0.147.0`): xem spec §7.2.
 
+### 6. Live trên macOS (0.147.0, 2026-09-25, tài khoản cá nhân, home nháp — đã đăng xuất và xoá sau đó)
+- **Đăng nhập trình duyệt từ jail Seatbelt** hỏng ở hai chỗ rồi được sửa (spec §6.1): bind `localhost:1455` bị
+  từ chối; đổi token cần `com.apple.trustd.agent` (tái hiện không cần đăng nhập: gọi callback với code giả — ngoài
+  jail OpenAI trả `401`, trong jail thiếu trustd thì "error sending request"). Sau khi sửa: đăng nhập qua
+  `StartBrowserSignIn` thành công, tiến trình mới đọc `chatgpt · plus`, `auth.json` 0600 trong home nháp.
+- **Một lượt Ask thật** (`TestCodexLiveTurnWithAnApproval`): một `fileChange/requestApproval`, duyệt → file được
+  tạo, stream và thẻ tool call đúng; model mặc định `gpt-5.6-sol`, `model/list` trả 4 model.
+- **Duyệt tool MCP thật** (`TestCodexLiveMcpApprovalAndResume`, server MCP giả một tool): khớp spec §7.2.
+- **Usage sau resume:** lượt đầu 36520 in / 126 out; lượt sau resume 12301 in / 5 out — tính riêng lượt, không cộng
+  dồn thread.
+- Notification thấy thêm, đều vào nhánh bỏ qua: `mcpServer/startupStatus/updated`, `thread/goal/cleared`.
+
 ---
 
 ## Found while checking "Full auto must stop at prod" (2026-09-24)

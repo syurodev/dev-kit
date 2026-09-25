@@ -220,6 +220,12 @@ OpenAI. Đăng nhập trình duyệt thì chạy được ngay từ trong bwrap.
 1. UI bấm *Sign in* → backend chạy một `codex app-server` **ngắn hạn trong jail**, cùng home, store `file`.
 2. **Mặc định — "Sign in with browser":** `account/login/start {type:"chatgpt"}` → mở `authUrl`; callback
    `localhost:1455` tới tiến trình trong jail vì dùng chung loopback (`NetworkHost`) — đã đo.
+   **macOS (đo live 2026-09-25):** Seatbelt chặn cả hai bước — codex không bind được `localhost:1455`
+   (`failed to start login server: Operation not permitted`), rồi đổi code lấy token báo `error sending request
+   for url (…/oauth/token)` vì client đó kiểm chứng chỉ qua SecTrust → `trustd`. Sửa: `Policy.ListenLoopbackPorts`
+   (chỉ jail đăng nhập, cổng 1455; Seatbelt cần cả `network-bind` và `network-inbound`) và `mach-lookup
+   com.apple.trustd.agent` cho mọi jail `NetworkHost` (login keychain vẫn bị chặn). Sau đó đăng nhập thật qua
+   chính `StartBrowserSignIn` của DevKit thành công.
 3. **Tuỳ chọn — "Use a code instead"** (máy không mở trình duyệt được, SSH…): `{type:"chatgptDeviceCode"}` →
    UI hiện link + mã, **kèm dòng**: *"Cần bật 'device code authorization for Codex' trong ChatGPT → Settings →
    Security trước."*
@@ -302,7 +308,9 @@ Qua `OnPermission` → `PermissionWaiter`, cùng timeout với Claude.
   `{action:"accept", _meta:{persist:"session"}}`), Deny (`{action:"decline"}`); huỷ/hết giờ → `cancel`.
   **Không bao giờ** đưa "Allow and don't ask me again" (`persist:"always"` ghi luật vĩnh viễn vào `config.toml`).
   Request không mang item id: thẻ gắn vào lệnh gọi MCP đang mở duy nhất của server đó (Codex bắt đầu item trước
-  khi hỏi), không thì đứng riêng. Full auto không hỏi: `never` + externalSandbox → Codex tự duyệt, cổng prod của
+  khi hỏi), không thì đứng riêng. **Đo live 2026-09-25:** đúng như vậy trên dây thật — một tool không annotation
+  sinh đúng một elicitation `mcp_tool_call` với `persist` có `session`, thẻ gắn vào item `mcpToolCall` đang mở,
+  duyệt xong tool chạy. Full auto không hỏi: `never` + externalSandbox → Codex tự duyệt, cổng prod của
   DevKit vẫn hỏi bên trong tool (§7.4).
 - Server request khác (`item/tool/requestUserInput`, elicitation của chính một server MCP,
   `account/chatgptAuthTokens/refresh`, `attestation/generate`, v1 `applyPatchApproval`/`execCommandApproval`,
