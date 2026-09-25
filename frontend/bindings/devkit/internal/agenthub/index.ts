@@ -36,6 +36,8 @@ export type {
     RewindPreview,
     RewindRequest,
     RewindResult,
+    SignInFlow,
+    SignInStatus,
     TranscriptEntry,
     TranscriptPage
 } from "./models.js";
