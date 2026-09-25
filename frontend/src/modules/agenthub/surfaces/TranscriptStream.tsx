@@ -14,6 +14,7 @@ import { AgentTurn } from "./AgentTurn";
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
+import { vendorInfo } from "../vendors";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
@@ -135,7 +136,7 @@ export const TRANSCRIPT_OVERSCAN = 6;
 export function TranscriptStream({
   items,
   streamKey,
-  vendor = "Claude",
+  vendor = "",
   checkpoints = EMPTY_CHECKPOINTS,
   loadFileDiff,
   onRewind,
@@ -587,7 +588,7 @@ export function TranscriptStream({
         onOpenChange={(next) => {
           if (!next) setInspecting(null);
         }}
-        agentName={vendor}
+        agentName={vendorInfo(vendor).name}
         stopReason={metaField(inspecting, "stopReason")}
         cost={metaNumber(inspecting, "cost")}
         inputTokens={metaNumber(inspecting, "inputTokens")}

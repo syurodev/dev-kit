@@ -194,7 +194,7 @@ export function AgentRail({
   const displayTitle =
     activeSession?.title ||
     (activeSession ? `Session ${activeSession.id.slice(0, 8)}` : "");
-  const vendor = activeSession?.agentType || "claude";
+  const vendor = activeSession?.agentType ?? "";
 
   const isPendingForActiveSession =
     pendingPermission && activeSession && pendingPermission.sessionId === activeSession.id;

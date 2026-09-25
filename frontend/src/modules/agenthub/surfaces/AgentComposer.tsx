@@ -43,6 +43,7 @@ import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, S
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { EntityRef } from "@/workbench/intents";
+import { vendorInfo } from "../vendors";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -336,7 +337,7 @@ export function AgentComposer({
   goal,
   onSetGoal,
   turnCount = 0,
-  vendor = "claude",
+  vendor = "",
   attachedFiles = [],
   onRemoveAttachment,
   imageAttachments = [],
@@ -357,7 +358,7 @@ export function AgentComposer({
   onBrowseContext,
   onCompact,
   agents = [],
-  agent = "claude",
+  agent = "",
   onAgentChange,
   commands = [],
   contextFiles = [],
@@ -679,7 +680,7 @@ export function AgentComposer({
                   className="gap-1.5 px-2 text-text-secondary"
                 >
                   <VendorIcon vendor={agent} className="size-3.5" />
-                  <span className="text-body-13 capitalize">{agent}</span>
+                  <span className="text-body-13">{vendorInfo(agent).name}</span>
                   <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
@@ -693,7 +694,7 @@ export function AgentComposer({
                     detail={option === agent ? <Check className="size-3" aria-hidden="true" /> : undefined}
                     onSelect={() => onAgentChange(option)}
                   >
-                    <span className="capitalize">{option}</span>
+                    <span>{vendorInfo(option).name}</span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -836,7 +837,7 @@ export function AgentComposer({
           <BorderBeam
             active={isStreaming && !reduce}
             size="sm"
-            colorVariant={vendor.toLowerCase().startsWith("claude") ? "sunset" : "ocean"}
+            colorVariant={vendorInfo(vendor).beam}
             theme={theme}
             className="shrink-0 rounded-full"
           >
