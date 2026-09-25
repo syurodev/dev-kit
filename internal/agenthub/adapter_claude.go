@@ -197,11 +197,11 @@ func (a *ClaudeAdapter) resolveCommand() (launch, error) {
 		}, nil
 	}
 	if a.opts.Runtime == nil {
-		return launch{}, ErrAgentNotInstalled
+		return launch{}, vendorError(AgentTypeClaude, ErrAgentNotInstalled)
 	}
 	rt, err := a.opts.Runtime()
 	if errors.Is(err, agentruntime.ErrNotInstalled) {
-		return launch{}, fmt.Errorf("%w: %w", ErrAgentNotInstalled, err)
+		return launch{}, vendorError(AgentTypeClaude, fmt.Errorf("%w: %w", ErrAgentNotInstalled, err))
 	}
 	if err != nil {
 		// Both sentinels stay reachable: the bridge names a missing Node
@@ -652,7 +652,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		// A signed-out agent answers session/new or session/load with an error
 		// and stays alive; that is a sign-in to offer, not a crash.
 		if isAuthRequired(err) {
-			return fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err)
+			return vendorError(AgentTypeClaude, fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err))
 		}
 		// A grace period rather than a peek. A vendor that died mid-handshake
 		// fails this call two ways at once — the write hits a closed pipe, and
@@ -1269,7 +1269,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 		}
 		log.Printf("agenthub: claude session/prompt (session %s): %v%s", sid, err, reason)
 		if isAuthRequired(err) {
-			return PromptOutcome{}, fmt.Errorf("%w: %v", ErrAgentAuthRequired, err)
+			return PromptOutcome{}, vendorError(AgentTypeClaude, fmt.Errorf("%w: %v", ErrAgentAuthRequired, err))
 		}
 		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)
 	}

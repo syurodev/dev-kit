@@ -47,10 +47,42 @@ var (
 	ErrCallerMismatch = errors.New("agenthub.callerMismatch")
 	ErrProxyNotFound  = errors.New("agenthub.proxyNotFound")
 	// ErrAgentAuthRequired is an agent with no working sign-in: an expired or
-	// missing Claude login, or no API key. DevKit never signs anyone in; the
-	// user does that in Claude Code itself.
+	// missing login, or an API key that is gone or refused. An adapter returns
+	// it inside a VendorError, so the message can say whose sign-in to fix.
 	ErrAgentAuthRequired = errors.New("agenthub.authRequired")
 	// ErrAgentNotInstalled is an adapter with no runtime DevKit installed and
-	// no DEVKIT_CLAUDE_ACP_COMMAND override. Never a reason to try PATH or npx.
+	// no DEVKIT_*_COMMAND override. Never a reason to try PATH or npx. Like
+	// ErrAgentAuthRequired, it arrives inside a VendorError.
 	ErrAgentNotInstalled = errors.New("agenthub.notInstalled")
 )
+
+// VendorError is an error that is about one vendor rather than about Agent
+// Hub: which agent is not installed, whose sign-in expired. The error itself
+// is unchanged — Error and errors.Is see straight through — so the only thing
+// it adds is the name the person has to act on. Without it the bridge could
+// only guess, and it guessed Claude.
+type VendorError struct {
+	Agent AgentType
+	Err   error
+}
+
+func (e *VendorError) Error() string { return e.Err.Error() }
+
+func (e *VendorError) Unwrap() error { return e.Err }
+
+// vendorError names the vendor err is about; nil stays nil.
+func vendorError(agent AgentType, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &VendorError{Agent: agent, Err: err}
+}
+
+// ErrorVendor is the vendor an error names, or "" when it names none.
+func ErrorVendor(err error) AgentType {
+	var v *VendorError
+	if errors.As(err, &v) {
+		return v.Agent
+	}
+	return ""
+}
