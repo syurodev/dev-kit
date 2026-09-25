@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
+	"devkit/internal/capabilities"
+	"devkit/internal/identity"
 )
 
 // ErrCodexAPIKeyAccount is an account that cannot be Codex's API key: gone,
@@ -58,7 +61,16 @@ func (k CodexAPIKey) Key(context.Context) (string, error) {
 // Choose stores which account is the key; "" goes back to ChatGPT. It
 // refuses an account a spawn could not resolve, so the mistake is made here
 // and not at the next session.
-func (k CodexAPIKey) Choose(accountID string) error {
+//
+// The person's only, like signing in: the key decides whose account every
+// later session runs as. No MCP tool reaches this and the MCP subject holds
+// no preferences grant; a caller the gateway stamped as an agent or a
+// terminal MCP client is refused here as well, so a door added by mistake
+// later still opens onto nothing.
+func (k CodexAPIKey) Choose(ctx context.Context, accountID string) error {
+	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
+		return fmt.Errorf("%w: choosing Codex's API key is the person's, from the app", capabilities.ErrPermissionDenied)
+	}
 	if k.C.Preferences == nil {
 		return errors.New("preferences are not available")
 	}

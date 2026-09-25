@@ -7,6 +7,8 @@ import (
 
 	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
+	"devkit/internal/capabilities"
+	"devkit/internal/identity"
 )
 
 // The key Codex signs in with is an Accounts token chosen by id: resolved at
@@ -23,7 +25,7 @@ func TestCodexAPIKeyResolvesTheChosenToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := key.Choose(token.ID); err != nil {
+	if err := key.Choose(context.Background(), token.ID); err != nil {
 		t.Fatal(err)
 	}
 	if stored, _ := c.Preferences.CodexAPIKeyAccount(); stored != token.ID {
@@ -44,7 +46,7 @@ func TestCodexAPIKeyResolvesTheChosenToken(t *testing.T) {
 	if err := c.Accounts.Delete(token.ID); !errors.As(err, &inUse) || inUse.UsedBy[0] != codexAPIKeyUsage {
 		t.Fatalf("delete = %v, want InUseError naming Codex", err)
 	}
-	if err := key.Choose(""); err != nil {
+	if err := key.Choose(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := key.Key(context.Background()); err != nil || got != "" {
@@ -70,7 +72,7 @@ func TestCodexAPIKeyRefusesAnAccountItCannotUse(t *testing.T) {
 		"missing":    "fedcba9876543210fedcba98",
 		"not an id!": "../../etc/passwd",
 	} {
-		if err := key.Choose(id); !errors.Is(err, ErrCodexAPIKeyAccount) {
+		if err := key.Choose(context.Background(), id); !errors.Is(err, ErrCodexAPIKeyAccount) {
 			t.Errorf("%s: Choose = %v, want ErrCodexAPIKeyAccount", name, err)
 		}
 	}
@@ -79,7 +81,7 @@ func TestCodexAPIKeyRefusesAnAccountItCannotUse(t *testing.T) {
 	}
 	// Chosen while it was fine, then gone: the session is told, not handed "".
 	good, _ := c.Accounts.Create(accounts.CreateInput{Provider: "openai", Kind: accounts.KindToken, Label: "ok", Secret: "sk"})
-	if err := key.Choose(good.ID); err != nil {
+	if err := key.Choose(context.Background(), good.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Preferences.SetCodexAPIKeyAccount("fedcba9876543210fedcba98"); err != nil {
@@ -114,5 +116,30 @@ func TestAgentSignInIsNotedInAccounts(t *testing.T) {
 	}
 	if RecordAgentSignIn(nil, agenthub.AgentTypeCodex) != nil || ForgetAgentSignIn(&Container{}, agenthub.AgentTypeCodex) != nil {
 		t.Fatal("no Accounts is nothing to record, not an error")
+	}
+}
+
+// Choosing the key is the person's: an agent, or a CLI on the shared MCP
+// socket, is refused before anything is stored.
+func TestCodexAPIKeyChoiceIsForThePersonOnly(t *testing.T) {
+	c := credentialContainer(t)
+	token, err := c.Accounts.Create(accounts.CreateInput{Provider: "openai", Kind: accounts.KindToken, Label: "OpenAI", Secret: "sk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := CodexAPIKey{C: c}
+	for name, ctx := range map[string]context.Context{
+		"agent":         identity.WithCaller(context.Background(), identity.Agent("11111111-1111-1111-1111-111111111111")),
+		"user terminal": identity.WithCaller(context.Background(), identity.UserTerminal()),
+	} {
+		if err := key.Choose(ctx, token.ID); !errors.Is(err, capabilities.ErrPermissionDenied) {
+			t.Errorf("%s: Choose = %v, want permission denied", name, err)
+		}
+	}
+	if stored, _ := c.Preferences.CodexAPIKeyAccount(); stored != "" {
+		t.Fatalf("a refused caller chose the key: %q", stored)
+	}
+	if err := key.Choose(identity.WithCaller(context.Background(), identity.UI()), token.ID); err != nil {
+		t.Fatalf("ui: %v", err)
 	}
 }

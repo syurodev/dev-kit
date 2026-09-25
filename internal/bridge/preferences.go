@@ -269,8 +269,8 @@ func (s *AppService) PreferencesSetCodexAPIKeyAccount(accountID string) error {
 	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "agent_codex_api_key", map[string]any{
 		"action":     "set_codex_api_key_account",
 		"account_id": audited,
-	}, func(context.Context) (any, error) {
-		return nil, app.CodexAPIKey{C: s.container}.Choose(accountID)
+	}, func(callCtx context.Context) (any, error) {
+		return nil, app.CodexAPIKey{C: s.container}.Choose(callCtx, accountID)
 	})
 	return err
 }

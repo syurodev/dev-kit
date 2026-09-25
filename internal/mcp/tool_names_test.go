@@ -59,10 +59,10 @@ func TestToolNamesNoWireCollision(t *testing.T) {
 	}
 }
 
-// TestNoToolSignsAgentsIn: signing an agent in or out is the person's, from
-// the app (Codex spec §6.4). A tool for it would let one session put its own
-// account in the home every later session uses, or sign the person out
-// mid-work. The service refuses an agent caller too; this keeps the door from
+// TestNoToolSignsAgentsIn: signing an agent in or out, and choosing the API
+// key it signs in with, is the person's, from the app (Codex spec §6.4). A
+// tool for it would let one session put its own account in the home every
+// later session uses, or sign the person out mid-work. The service refuses an agent caller too; this keeps the door from
 // being built in the first place.
 func TestNoToolSignsAgentsIn(t *testing.T) {
 	files, err := filepath.Glob("*.go")
@@ -70,7 +70,7 @@ func TestNoToolSignsAgentsIn(t *testing.T) {
 		t.Fatalf("glob: %v", err)
 	}
 	signInName := regexp.MustCompile(`(?i)sign.?in|sign.?out|log.?in|log.?out`)
-	signInCall := regexp.MustCompile(`\b(SignInStatus|StartSignIn|StartBrowserSignIn|StartDeviceSignIn|CancelSignIn|SignOut|SignInCommand)\b`)
+	signInCall := regexp.MustCompile(`\b(SignInStatus|StartSignIn|StartBrowserSignIn|StartDeviceSignIn|CancelSignIn|SignOut|SignInCommand|CodexAPIKey|CodexAPIKeyAccount|SetCodexAPIKeyAccount)\b`)
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
