@@ -239,9 +239,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},
-		// Workspace: choosing the folder and adding it are UI-only today (no
-		// MCP tool reads or writes the registry yet), same split as ws:read
-		// vs ws:write below.
+		// Workspace: choosing the folder and adding it are UI-only. The one
+		// MCP tool, workspace.list, only reads (ws:read workspace:list), and
+		// an agent session sees only the workspaces its own folders are in.
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "workspace:list"},
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "service:*"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:new"},

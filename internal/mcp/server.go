@@ -207,8 +207,11 @@ type Deps struct {
 	// means an agent may commit but never push — a permission that outlives
 	// the session because it lives on the task, not in it.
 	TaskBranches TaskBranches
-	AgentHub     AgentHubAPI      // optional nil until wired from main
-	Hub          *interaction.Hub // optional nil → headless
+	AgentHub     AgentHubAPI // optional nil until wired from main
+	// Workspace answers workspace.list. Optional nil: the tool then says
+	// workspaces are not available.
+	Workspace WorkspaceAPI
+	Hub       *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -247,6 +250,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerAccounts(ms)
 	s.registerAPIClient(ms)
 	s.registerCodexHook(ms)
+	s.registerWorkspace(ms)
 	return ms
 }
 

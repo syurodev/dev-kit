@@ -816,9 +816,12 @@ func main() {
 		CodeGraph:         container.CodeGraph,
 		CodeGraphServices: mcp.RegistryServices(container.CodeGraphRegistry),
 		AgentHub:          container.AgentHub,
-		Tasks:             container.Tasks,
-		Git:               container.Git,
-		Accounts:          container.Accounts,
+		// workspace.list: an agent learns which folders make up its
+		// workspace and which of them its session may write.
+		Workspace: container.Workspace,
+		Tasks:     container.Tasks,
+		Git:       container.Git,
+		Accounts:  container.Accounts,
 		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
 		// not import app, and apiclient must not import codegraph.
 		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),
