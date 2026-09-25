@@ -31,6 +31,23 @@ export function codexApiKeyChoices(accounts: Account[]): Account[] {
 }
 
 /**
+ * The Select's label for a chosen id the list of usable tokens does not hold,
+ * or null when it holds it. Without an item for it the Select shows nothing —
+ * a blank box reads as "no key", which is the one thing it is not.
+ */
+export function chosenKeyLabel(
+  chosenId: string,
+  tokens: Account[],
+  accounts: { pending: boolean; error: boolean; all: Account[] },
+): string | null {
+  if (!chosenId || tokens.some((a) => a.id === chosenId)) return null;
+  if (accounts.pending) return "Loading…";
+  if (accounts.error) return "The chosen account";
+  const chosen = accounts.all.find((a) => a.id === chosenId);
+  return chosen ? `${chosen.label} · can't be used` : "Missing account";
+}
+
+/**
  * Settings → Agents → Codex: who Codex signs in as, and how. Kept beside the
  * sign-in it wraps, as Claude's is (ClaudeSignInSection).
  *
@@ -62,9 +79,14 @@ export function CodexAccountSection() {
   const tokens = codexApiKeyChoices(accounts.data ?? []);
   const chosenId = chosen.data ?? "";
   const chosenAccount = (accounts.data ?? []).find((a) => a.id === chosenId);
-  // An id with no account behind it: deleted on another device, or before
-  // Accounts learned to refuse deleting a bound key.
-  const chosenMissing = chosenId !== "" && accounts.isSuccess && !chosenAccount;
+  const extraLabel = chosenKeyLabel(chosenId, tokens, {
+    pending: accounts.isPending,
+    error: accounts.isError,
+    all: accounts.data ?? [],
+  });
+  // An id with no usable account behind it: deleted on another device, or
+  // changed since (an environment restriction added, say).
+  const chosenUnusable = extraLabel !== null && accounts.isSuccess;
   const s = status.data;
   const onChatGPT = Boolean(s?.signedIn && s.method !== "apiKey");
 
@@ -101,7 +123,8 @@ export function CodexAccountSection() {
       ) : null}
       {signOut.error ? <p className="text-body-12 text-status-danger">{errorMessage(signOut.error)}</p> : null}
 
-      {s && !s.signedIn ? <CodexSignIn signIn={signIn} /> : null}
+      {/* A failing key is fixed below, not by a sign-in: the key wins. */}
+      {s && !s.signedIn && s.method !== "apiKey" ? <CodexSignIn signIn={signIn} /> : null}
 
       <label className="flex flex-col gap-1">
         <span className="text-caption-11 text-text-tertiary">API key instead of ChatGPT</span>
@@ -120,7 +143,7 @@ export function CodexAccountSection() {
                 {`${a.label} · ${a.provider}`}
               </SelectItem>
             ))}
-            {chosenMissing ? <SelectItem value={chosenId}>Missing account</SelectItem> : null}
+            {extraLabel !== null ? <SelectItem value={chosenId}>{extraLabel}</SelectItem> : null}
           </SelectContent>
         </Select>
         <span className="text-caption-11 text-text-tertiary">
@@ -128,10 +151,12 @@ export function CodexAccountSection() {
           Codex&apos;s home. Add one in Accounts first.
         </span>
       </label>
-      {chosenMissing ? (
+      {chosenUnusable ? (
         <p className="flex items-center gap-1.5 text-body-12 text-status-warning">
           <TriangleAlert className="size-4 shrink-0" />
-          The chosen API key is no longer in Accounts. Choose another, or go back to ChatGPT.
+          {chosenAccount
+            ? "The chosen API key can't be used: it must be a token with no environment restriction. Choose another, or go back to ChatGPT."
+            : "The chosen API key is no longer in Accounts. Choose another, or go back to ChatGPT."}
         </p>
       ) : null}
       {choose.error ? <p className="text-body-12 text-status-danger">{errorMessage(choose.error)}</p> : null}

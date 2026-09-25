@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
  * notInstalled and requirement are not crashes: the agent never started, and
  * the way out is Settings → Agents, not a restart that fails the same way.
  */
-export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "requirement" | "authRequired";
+export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "requirement" | "authRequired" | "apiKey";
 
 const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: string }> = {
   crashed: {
@@ -34,6 +34,12 @@ const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: st
     retry: "Retry turn",
     reason: "agent_auth_required — Claude isn't signed in, or the sign-in expired.",
   },
+  // A sign-in does not fix it: the key chosen in Settings wins at every spawn.
+  apiKey: {
+    title: "can't use its API key",
+    retry: "Retry",
+    reason: "agent_api_key_unusable — the API key chosen in Settings → Agents is gone or was refused.",
+  },
 };
 
 export type AgentSessionErrorProps = {
@@ -46,7 +52,7 @@ export type AgentSessionErrorProps = {
   reason?: string;
   onClose?: () => void;
   onRetry?: () => void;
-  /** Replaces Retry for notInstalled/requirement: the fix is in Settings → Agents. */
+  /** Replaces Retry for notInstalled/requirement/apiKey: the fix is in Settings → Agents. */
   onOpenSettings?: () => void;
   /** The way out when it is more than one button — authRequired's sign-in. */
   children?: React.ReactNode;
@@ -102,7 +108,7 @@ export function AgentSessionError({
   const title = `${agentName} ${copy.title}`;
   const retryLabel = copy.retry;
   const defaultReason = copy.reason;
-  const setupCause = cause === "notInstalled" || cause === "requirement";
+  const setupCause = cause === "notInstalled" || cause === "requirement" || cause === "apiKey";
 
   const reasonText = reason ?? defaultReason;
   const actions = (

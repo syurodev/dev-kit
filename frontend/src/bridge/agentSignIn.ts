@@ -77,8 +77,10 @@ export function onAgentSignInCompleted(handler: (result: SignInResult) => void):
   });
 }
 
-/** "ChatGPT · a@b.c · plus", "API key", or "Not signed in". */
+/** "ChatGPT · a@b.c · plus", "API key", "API key can't be used", or "Not signed in". */
 export function signInStatusLine(status: SignInStatus, apiKeyLabel = ""): string {
+  // A chosen key that fails: sessions use it anyway, so it is the answer.
+  if (!status.signedIn && status.method === "apiKey") return "API key can't be used";
   if (!status.signedIn) return "Not signed in";
   if (status.method === "apiKey") return apiKeyLabel ? `API key · ${apiKeyLabel}` : "API key";
   const parts = ["ChatGPT", status.email, status.plan].filter((part): part is string => Boolean(part));

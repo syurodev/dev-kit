@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentRuntimeStatus,
+  isAgentApiKeyError,
   isAgentAuthRequiredError,
   isAgentNotInstalledError,
   isRuntimeRequirementError,
@@ -177,6 +178,8 @@ export function createFailure(vendor: string, error: unknown) {
     shownByInstallPanel: runtime && isAgentNotInstalledError(error),
     /** Show the vendor's own sign-in, and retry the create once it lands. */
     signIn: info.signIn !== "none" && isAgentAuthRequiredError(error),
+    /** The chosen API key failed: the error card sends the person to Settings. */
+    apiKey: isAgentApiKeyError(error),
     sandboxHint: info.runtimeId !== "" && isSandboxUnavailableError(error),
   };
 }
@@ -528,7 +531,9 @@ export function AgentHubView() {
           ? "requirement"
           : isAgentAuthRequiredError(app)
             ? "authRequired"
-            : undefined,
+            : isAgentApiKeyError(app)
+              ? "apiKey"
+              : undefined,
     );
   }
 
@@ -1019,7 +1024,12 @@ export function AgentHubView() {
             onChooseWorkspace={chooseWorkspaceForDraft}
             agents={vendors}
             agent={draftAgent}
-            onAgentChange={setDraftAgent}
+            onAgentChange={(agent) => {
+              setDraftAgent(agent);
+              // A sign-in waiting for one agent is not the next one's: the
+              // panel would name one vendor and sign in to the other.
+              setAuthRetry(null);
+            }}
             draftNotice={draftNotice}
             sendDisabled={draft ? busy || draftBlocked : false}
             promptValue={draft ? draftPrompt : activePrompt}

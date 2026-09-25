@@ -105,6 +105,14 @@ export function isAgentAuthRequiredError(error: unknown): boolean {
   return toAppError(error).code === "agent_auth_required";
 }
 
+/**
+ * The API key chosen in Settings is gone or was refused. A sign-in panel
+ * would not help — the key wins at every spawn — so this points at Settings.
+ */
+export function isAgentApiKeyError(error: unknown): boolean {
+  return toAppError(error).code === "agent_api_key_unusable";
+}
+
 const SIGN_IN_LABELS: Record<string, string> = {
   "claude-ai-login": "Sign in with Claude subscription",
   "console-login": "Sign in with Anthropic Console",
