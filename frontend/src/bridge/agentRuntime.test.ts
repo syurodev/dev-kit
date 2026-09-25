@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { AgentType } from "../../bindings/devkit/internal/agenthub/models";
-import { CLAUDE_VENDOR } from "./agenthub";
+import { CLAUDE_VENDOR, CODEX_VENDOR } from "./agenthub";
 import {
   CLAUDE_AGENT,
+  CODEX_AGENT,
   formatBytes,
   hintCommands,
   isAgentAuthRequiredError,
@@ -130,5 +131,22 @@ describe("the two Claude ids", () => {
 
   test("and that is not the runtime's id", () => {
     expect(CLAUDE_AGENT).not.toBe(CLAUDE_VENDOR);
+  });
+});
+
+describe("the two Codex ids", () => {
+  test("a session is created with the vendor the backend registers", () => {
+    expect(CODEX_VENDOR).toBe(AgentType.AgentTypeCodex);
+  });
+
+  test("the runtime id is the agentruntime registry's", () => {
+    expect(CODEX_AGENT).toBe("codex");
+  });
+});
+
+describe("runtimeStatusLine names the agent", () => {
+  test("Codex's runtime is not called Claude Agent", () => {
+    const line = runtimeStatusLine(status({ agent: "codex", testedVersion: "0.147.0", current: installed("0.147.0") }), "Codex");
+    expect(line.headline).toBe("Codex 0.147.0 · tested");
   });
 });

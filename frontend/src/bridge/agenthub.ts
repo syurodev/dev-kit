@@ -19,7 +19,7 @@ import type {
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
-export type AgentVendor = "claude";
+export type AgentVendor = "claude" | "codex";
 
 /**
  * The Claude agent as the hub knows it — the `agentType` a session is created
@@ -28,6 +28,13 @@ export type AgentVendor = "claude";
  * "Unknown agent vendor". Two ids for one agent, one per job.
  */
 export const CLAUDE_VENDOR: AgentVendor = "claude";
+
+/**
+ * Codex as the hub knows it. Its runtime id (CODEX_AGENT) happens to be the
+ * same string; the vendor table (modules/agenthub/vendors) keeps the two jobs
+ * apart anyway, so nothing depends on that.
+ */
+export const CODEX_VENDOR: AgentVendor = "codex";
 
 export type SessionStatus =
   | "idle"
