@@ -118,6 +118,12 @@ export function isPermissionBypassChoice(
  * DevKit is useless for many workflows without them (Codex spec §7.1, §8.3);
  * the person is told instead. Unset reads as on, like the setting itself, and
  * so does settings that could not be read: the warning errs towards showing.
+ *
+ * The settings read are today's, but a session's jail was fixed when it
+ * started (SandboxExtras is read at spawn). So when either is off now, the
+ * line also says that a session started with more open still has it —
+ * otherwise turning Docker off mid-session would silence the warning while
+ * the process kept the socket.
  */
 export function bypassSandboxWarning(
   settings: Pick<AgentSandboxSettings, "shareHome" | "allowDocker"> | null | undefined,
@@ -125,10 +131,12 @@ export function bypassSandboxWarning(
   const home = settings?.shareHome !== false;
   const docker = settings?.allowDocker !== false;
   const tail = "the sandbox does not stop the agent from using";
+  const started =
+    "Sandbox settings apply when a session starts: if this one started with more open, it still has it.";
   if (home && docker) return `The Docker socket and your $HOME are open to this session — ${tail} them.`;
-  if (docker) return `The Docker socket is open to this session — ${tail} it.`;
-  if (home) return `Your $HOME is open to this session — ${tail} it.`;
-  return "";
+  if (docker) return `The Docker socket is open to this session — ${tail} it. ${started}`;
+  if (home) return `Your $HOME is open to this session — ${tail} it. ${started}`;
+  return started;
 }
 
 /** Applies a choice, or hands a bypass to `ask` to apply only once confirmed. */

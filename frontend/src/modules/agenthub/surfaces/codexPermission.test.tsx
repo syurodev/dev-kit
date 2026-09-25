@@ -110,12 +110,21 @@ describe("Codex's Full auto", () => {
   it("the confirmation says what the jail leaves open", () => {
     expect(bypassSandboxWarning({})).toContain("Docker socket and your $HOME");
     expect(bypassSandboxWarning(null)).toContain("Docker socket and your $HOME");
-    expect(bypassSandboxWarning({ shareHome: false })).toBe(
+    expect(bypassSandboxWarning({ shareHome: false })).toStartWith(
       "The Docker socket is open to this session — the sandbox does not stop the agent from using it.",
     );
-    expect(bypassSandboxWarning({ allowDocker: false })).toBe(
+    expect(bypassSandboxWarning({ allowDocker: false })).toStartWith(
       "Your $HOME is open to this session — the sandbox does not stop the agent from using it.",
     );
-    expect(bypassSandboxWarning({ shareHome: false, allowDocker: false })).toBe("");
+  });
+
+  it("settings turned off after the session started do not silence it", () => {
+    // The jail was fixed at spawn: Docker switched off now may still be open
+    // in this process, so the line says so instead of disappearing.
+    const started = "if this one started with more open, it still has it.";
+    expect(bypassSandboxWarning({ shareHome: false, allowDocker: false })).toContain(started);
+    expect(bypassSandboxWarning({ allowDocker: false })).toContain(started);
+    expect(bypassSandboxWarning({ shareHome: false })).toContain(started);
+    expect(bypassSandboxWarning({})).not.toContain(started);
   });
 });
