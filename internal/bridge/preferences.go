@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/app"
 	"devkit/internal/preferences"
 )
 
@@ -235,6 +236,41 @@ func (s *AppService) PreferencesSetAgentSandbox(settings preferences.AgentSandbo
 			return nil, errPreferencesUnavailable
 		}
 		return nil, s.container.Preferences.SetAgentSandbox(settings)
+	})
+	return err
+}
+
+// PreferencesGetCodexAPIKeyAccount is the id of the Accounts token Codex
+// signs in with, or "" for its own ChatGPT sign-in. An id, never the key.
+func (s *AppService) PreferencesGetCodexAPIKeyAccount() (string, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_codex_api_key", map[string]any{
+		"action": "get_codex_api_key_account",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return s.container.Preferences.CodexAPIKeyAccount()
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
+// PreferencesSetCodexAPIKeyAccount chooses the token Codex signs in with; ""
+// goes back to ChatGPT. The account is checked here, so one a session could
+// not use is refused now rather than at the next spawn. The audit line names
+// the account, never its value — this method never sees the value at all.
+func (s *AppService) PreferencesSetCodexAPIKeyAccount(accountID string) error {
+	audited := ""
+	if accountID != "" {
+		audited = recordID(accountID)
+	}
+	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "agent_codex_api_key", map[string]any{
+		"action":     "set_codex_api_key_account",
+		"account_id": audited,
+	}, func(context.Context) (any, error) {
+		return nil, app.CodexAPIKey{C: s.container}.Choose(accountID)
 	})
 	return err
 }

@@ -329,7 +329,19 @@ func main() {
 		Runtime: func() (agentruntime.Resolved, error) {
 			return runtimes.Resolve(agentruntime.CodexCLI)
 		},
+		// An Accounts token chosen in Settings → Agents → Codex, resolved at
+		// spawn; none means Codex's own ChatGPT sign-in. Read through the
+		// container because Accounts is wired further down, once the database
+		// is open.
+		APIKey: app.CodexAPIKey{C: container}.Key,
 		OnSignInCompleted: func(r agenthub.SignInResult) {
+			if r.Success {
+				// Accounts notes the sign-in so its list answers "what am I
+				// signed in to". The credential stays in Codex's home.
+				if err := app.RecordAgentSignIn(container, r.Agent); err != nil {
+					log.Printf("agenthub: sign-in: accounts note: %v", err)
+				}
+			}
 			emitAppEvent("agenthub:signInCompleted", map[string]any{
 				"agent":   string(r.Agent),
 				"loginId": r.LoginID,

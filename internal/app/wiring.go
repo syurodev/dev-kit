@@ -95,6 +95,7 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// module that binds to answer for itself.
 	c.Accounts.RegisterUsage(apiUsage{api: c.APIClient})
 	c.Accounts.RegisterUsage(c.GitBindings)
+	c.Accounts.RegisterUsage(CodexAPIKey{C: c})
 
 	// One store for every credential DevKit holds. From here a new database,
 	// SSH or Kafka profile keeps its metadata in vault_items — where it syncs

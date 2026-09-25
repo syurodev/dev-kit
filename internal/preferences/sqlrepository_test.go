@@ -182,3 +182,25 @@ func TestSQLRepositoryUnreadableAgentSandboxIsStrict(t *testing.T) {
 		t.Fatalf("settings = %+v, want StrictAgentSandbox", got)
 	}
 }
+
+// The Codex API key is an Accounts id, never the key; unset and cleared both
+// read as "use the ChatGPT sign-in".
+func TestSQLRepositoryCodexAPIKeyAccountRoundTrip(t *testing.T) {
+	repo, _ := checkpointRepo(t)
+	service := preferences.NewService(repo)
+	if got, err := service.CodexAPIKeyAccount(); err != nil || got != "" {
+		t.Fatalf("unset = %q, %v", got, err)
+	}
+	if err := service.SetCodexAPIKeyAccount(" 0123456789abcdef01234567 "); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.CodexAPIKeyAccount(); err != nil || got != "0123456789abcdef01234567" {
+		t.Fatalf("stored = %q, %v", got, err)
+	}
+	if err := service.SetCodexAPIKeyAccount(""); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.CodexAPIKeyAccount(); err != nil || got != "" {
+		t.Fatalf("cleared = %q, %v", got, err)
+	}
+}

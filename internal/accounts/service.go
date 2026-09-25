@@ -494,6 +494,51 @@ func (s *Service) SweepOrphans(liveOwners []string) (int, error) {
 	return len(rows), nil
 }
 
+// RecordExternal notes that an identity exists somewhere DevKit does not hold
+// it — a vendor's own sign-in — and how to sign in again. One row per
+// provider and label: recording it again changes nothing, so a person who
+// signs in every week does not collect a list of them.
+func (s *Service) RecordExternal(provider, label, ref string) (Account, error) {
+	existing, err := s.findExternal(provider, label)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return Account{}, err
+	}
+	return s.Create(CreateInput{Provider: provider, Kind: KindExternal, Label: label, Ref: ref})
+}
+
+// ForgetExternal removes the note RecordExternal made, after the sign-in it
+// describes is gone. Nothing recorded is not an error.
+func (s *Service) ForgetExternal(provider, label string) error {
+	existing, err := s.findExternal(provider, label)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.Delete(existing.ID)
+}
+
+func (s *Service) findExternal(provider, label string) (Account, error) {
+	records, err := s.items.ListByType(vaultitem.ItemTypeAccount)
+	if err != nil {
+		return Account{}, err
+	}
+	for _, record := range records {
+		account, err := decodeMetadata(record)
+		if err != nil {
+			continue
+		}
+		if account.Kind == KindExternal && account.Provider == provider && account.Label == label {
+			return s.decorate(account), nil
+		}
+	}
+	return Account{}, ErrNotFound
+}
+
 // Providers lists the registry, for the UI's New Account form.
 func (s *Service) Providers() []Provider { return s.providers.List() }
 

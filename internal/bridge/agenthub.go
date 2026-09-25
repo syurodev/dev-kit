@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,7 +175,16 @@ func (s *AppService) AgentHubSignOut(ctx context.Context, agent string) error {
 		if err != nil {
 			return nil, err
 		}
-		return nil, svc.SignOut(callCtx, agenthub.AgentType(agent))
+		if err := svc.SignOut(callCtx, agenthub.AgentType(agent)); err != nil {
+			return nil, err
+		}
+		// The note in Accounts goes with the sign-in. Failing to remove it is
+		// not a failed sign-out: the credential, the thing that matters, is
+		// already gone from the vendor's home.
+		if err := app.ForgetAgentSignIn(s.container, agenthub.AgentType(agent)); err != nil {
+			log.Printf("agenthub: sign-out: accounts note: %v", err)
+		}
+		return nil, nil
 	})
 	return err
 }

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"devkit/internal/app"
 	"devkit/internal/capabilities"
 	"errors"
 	"io/fs"
@@ -135,6 +136,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	// internal_error it said only that DevKit broke, which it had not.
 	if errors.Is(err, notes.ErrInvalidColor) || errors.Is(err, notes.ErrTagTooLong) || errors.Is(err, notes.ErrTooManyTags) {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
+	}
+	if errors.Is(err, app.ErrCodexAPIKeyAccount) {
+		return apperrors.New(codeValidationFailed, app.ErrCodexAPIKeyAccount.Error(), true)
 	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)

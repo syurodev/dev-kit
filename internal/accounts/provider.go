@@ -79,7 +79,8 @@ func DefaultProviders() []Provider {
 			Hosts: []string{"bitbucket.org", "api.bitbucket.org"}},
 		{ID: "anthropic", Name: "Anthropic", Kinds: []Kind{KindToken}, Verify: anthropic,
 			Hosts: []string{"api.anthropic.com"}},
-		{ID: "openai", Name: "OpenAI", Kinds: []Kind{KindToken}, Hosts: []string{"api.openai.com"}},
+		// External: Codex's ChatGPT sign-in, kept in Codex's own home.
+		{ID: "openai", Name: "OpenAI", Kinds: []Kind{KindToken, KindExternal}, Hosts: []string{"api.openai.com"}},
 		{ID: "google", Name: "Google", Kinds: []Kind{KindToken, KindOAuth}},
 		{ID: "kong", Name: "Kong Admin", Kinds: []Kind{KindToken, KindBasic}},
 		{ID: ProviderDatabase, Name: "Database", Kinds: []Kind{KindSecret, KindBasic}},

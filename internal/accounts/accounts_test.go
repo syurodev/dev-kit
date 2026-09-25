@@ -465,3 +465,51 @@ func TestRevealIgnoresTheEnvironmentRestriction(t *testing.T) {
 		t.Fatalf("revealed = %+v", credential)
 	}
 }
+
+// A vendor sign-in DevKit does not hold is one row however often it happens,
+// and goes when the sign-in does.
+func TestExternalAccountIsRecordedOnceAndForgotten(t *testing.T) {
+	svc, _ := newService(t)
+	first, err := svc.RecordExternal("openai", "Codex (ChatGPT)", "Settings → Agents → Codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := svc.RecordExternal("openai", "Codex (ChatGPT)", "Settings → Agents → Codex")
+	if err != nil || again.ID != first.ID {
+		t.Fatalf("second record = %+v, %v; want the first row back", again, err)
+	}
+	if first.Kind != KindExternal || first.Ref != "Settings → Agents → Codex" {
+		t.Fatalf("row = %+v", first)
+	}
+	// A token under the same provider and label is not the note.
+	if _, err := svc.Create(CreateInput{Provider: "openai", Kind: KindToken, Label: "Codex (ChatGPT)", Secret: "sk-x"}); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := svc.List()
+	if n := countKind(list, KindExternal); n != 1 {
+		t.Fatalf("%d external rows, want 1", n)
+	}
+	if err := svc.ForgetExternal("openai", "Codex (ChatGPT)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ForgetExternal("openai", "Codex (ChatGPT)"); err != nil {
+		t.Fatalf("forgetting twice = %v", err)
+	}
+	list, _ = svc.List()
+	if n := countKind(list, KindExternal); n != 0 {
+		t.Fatalf("%d external rows after forgetting, want 0", n)
+	}
+	if n := countKind(list, KindToken); n != 1 {
+		t.Fatalf("forgetting the note took the token with it: %+v", list)
+	}
+}
+
+func countKind(list []Account, kind Kind) int {
+	n := 0
+	for _, a := range list {
+		if a.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
