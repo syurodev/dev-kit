@@ -31,9 +31,13 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrPermissionDenied, "permission_denied: Permission denied."},
 		{agenthub.ErrCancelled, "operation_cancelled: Operation cancelled."},
 		{agenthub.ErrProcessFailed, "connection_failed: Agent process failed."},
-		{agenthub.ErrAgentAuthRequired, "agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
-		{fmt.Errorf("%w: session/new: acp: rpc error -32000: Authentication required", agenthub.ErrAgentAuthRequired),
+		{agenthub.ErrAgentAuthRequired, "agent_auth_required: The agent isn't signed in, or the sign-in expired."},
+		{&agenthub.VendorError{Agent: agenthub.AgentTypeClaude, Err: fmt.Errorf("%w: session/new: acp: rpc error -32000: Authentication required", agenthub.ErrAgentAuthRequired)},
 			"agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
+		{&agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: %w: Codex refused the API key", agenthub.ErrAgentAuthRequired, agenthub.ErrAgentAPIKeyUnusable)},
+			"agent_api_key_unusable: Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."},
+		{fmt.Errorf("invoke: %w", &agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: Codex is not signed in", agenthub.ErrAgentAuthRequired)}),
+			"agent_auth_required: Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."},
 		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailableInServerMode, "validation_failed: Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts."},
@@ -48,7 +52,8 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 }
 
 func TestPublicErrorMapsAgentRuntimeErrors(t *testing.T) {
-	notInstalledSession := fmt.Errorf("%w: %w", agenthub.ErrAgentNotInstalled, agentruntime.ErrNotInstalled)
+	notInstalledSession := &agenthub.VendorError{Agent: agenthub.AgentTypeClaude, Err: fmt.Errorf("%w: %w", agenthub.ErrAgentNotInstalled, agentruntime.ErrNotInstalled)}
+	codexNotInstalled := &agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: agenthub.ErrAgentNotInstalled}
 	missingNode := fmt.Errorf("%w: %w", agenthub.ErrProcessFailed,
 		&agentruntime.Error{Kind: agentruntime.ErrRequirementNotMet, Reason: "Node.js 20.1.0 is older than 22"})
 	cases := []struct {
@@ -56,6 +61,8 @@ func TestPublicErrorMapsAgentRuntimeErrors(t *testing.T) {
 		want string
 	}{
 		{notInstalledSession, "agent_not_installed: Claude Agent is not installed. Install it in Settings → Agents."},
+		{codexNotInstalled, "agent_not_installed: Codex is not installed. Install it in Settings → Agents."},
+		{agenthub.ErrAgentNotInstalled, "agent_not_installed: The agent is not installed. Install it in Settings → Agents."},
 		{missingNode, "runtime_requirement: A requirement for the agent is not met: Node.js 20.1.0 is older than 22"},
 		{&agentruntime.Error{Kind: agentruntime.ErrInstallFailed, Reason: "npm install failed: 404 Not Found"},
 			"install_failed: Installing the agent failed: npm install failed: 404 Not Found"},

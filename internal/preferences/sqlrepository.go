@@ -13,6 +13,7 @@ const (
 	agentNotificationsKey = "agent_notifications"
 	agentCheckpointsKey   = "agent_checkpoints"
 	agentSandboxKey       = "agent_sandbox"
+	codexAPIKeyAccountKey = "agent_codex_api_key_account"
 	revealPasswordKey     = "accounts_reveal_requires_password"
 )
 
@@ -138,6 +139,26 @@ func (r *SQLRepository) SetAgentSandbox(settings AgentSandboxSettings) error {
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentSandboxKey, string(body))
+	return err
+}
+
+func (r *SQLRepository) GetCodexAPIKeyAccount() (string, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", codexAPIKeyAccountKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+func (r *SQLRepository) SetCodexAPIKeyAccount(accountID string) error {
+	_, err := r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, codexAPIKeyAccountKey, accountID)
 	return err
 }
 

@@ -235,6 +235,8 @@ type Repository interface {
 	SetAgentCheckpoints(settings AgentCheckpointSettings) error
 	GetAgentSandbox() (AgentSandboxSettings, bool, error)
 	SetAgentSandbox(settings AgentSandboxSettings) error
+	GetCodexAPIKeyAccount() (string, bool, error)
+	SetCodexAPIKeyAccount(accountID string) error
 }
 
 type Service struct {
@@ -371,4 +373,23 @@ func (s *Service) AgentSandbox() (AgentSandboxSettings, error) {
 
 func (s *Service) SetAgentSandbox(settings AgentSandboxSettings) error {
 	return s.repo.SetAgentSandbox(settings.Normalized())
+}
+
+// CodexAPIKeyAccount is the Accounts id of the API key Codex sessions sign in
+// with, or "" for Codex's own ChatGPT sign-in. Only the id is kept here: the
+// key stays in Accounts and is resolved at spawn, so rotating it there is
+// all it takes.
+func (s *Service) CodexAPIKeyAccount() (string, error) {
+	id, _, err := s.repo.GetCodexAPIKeyAccount()
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// SetCodexAPIKeyAccount stores the id; "" goes back to the ChatGPT sign-in.
+// Whether the id names a usable account is the caller's to check — this
+// package does not know accounts.
+func (s *Service) SetCodexAPIKeyAccount(accountID string) error {
+	return s.repo.SetCodexAPIKeyAccount(strings.TrimSpace(accountID))
 }

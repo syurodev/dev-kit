@@ -52,6 +52,8 @@ import {
   compareVersions,
 } from "@/bridge/agentRuntime";
 import { ClaudeSignInSection } from "@/modules/agenthub/ClaudeSignIn";
+import { CodexAccountSection } from "@/modules/agenthub/CodexAccountSection";
+import { CLAUDE_INFO, vendorInfo, type VendorInfo } from "@/modules/agenthub/vendors";
 
 export const agentRuntimeQueryKey = (agent: string) => ["agentRuntime", agent] as const;
 
@@ -126,9 +128,15 @@ export function useAgentRuntime(agent: string = CLAUDE_AGENT) {
 
 export type AgentRuntimeController = ReturnType<typeof useAgentRuntime>;
 
-/** Settings → Agents: the Claude agent's runtime. */
-export function AgentRuntimeSetting() {
-  const rt = useAgentRuntime();
+/**
+ * Settings → Agents: one agent's runtime and sign-in — Claude's by default,
+ * any vendor in the table by `vendor`. What differs between them is read from
+ * the table: Claude's adapter runs on Node and can use a Claude Code binary
+ * of the machine's; Codex is one native binary and signs in inside DevKit.
+ */
+export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: string } = {}) {
+  const info: VendorInfo = vendorInfo(vendor);
+  const rt = useAgentRuntime(info.runtimeId);
   const [confirmLatest, setConfirmLatest] = useState(false);
   const s = rt.status;
 
@@ -140,7 +148,7 @@ export function AgentRuntimeSetting() {
     );
   }
 
-  const { headline, latest } = runtimeStatusLine(s);
+  const { headline, latest } = runtimeStatusLine(s, info.runtimeName);
   const { current, previous, testedVersion, latestVersion } = s;
   const machine = s.claudeBinary.machine;
 
@@ -155,7 +163,10 @@ export function AgentRuntimeSetting() {
             {latest ? <span className="text-body-12 text-status-warning">{latest}</span> : null}
             <span className="text-caption-11 text-text-tertiary">
               {current
-                ? `SDK ${current.sdkVersion} · Node ${current.nodeVersion} · ${formatBytes(s.diskBytes)} on disk`
+                ? current.nodeVersion
+                  ? `SDK ${current.sdkVersion} · Node ${current.nodeVersion} · ${formatBytes(s.diskBytes)} on disk`
+                  : // A native binary (Codex): no SDK, and Node was only for the install.
+                    `${formatBytes(s.diskBytes)} on disk`
                 : `DevKit has tested ${testedVersion}. ${formatBytes(s.diskBytes)} on disk.`}
             </span>
           </div>
@@ -244,42 +255,44 @@ export function AgentRuntimeSetting() {
         <RuntimeRequirements requirements={s.requirements} />
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        <SubLabel>CLAUDE CODE</SubLabel>
-        <RadioGroup
-          value={s.claudeBinary.source}
-          disabled={rt.busy}
-          onValueChange={(value) => rt.setClaudeBinary(value as ClaudeBinarySource)}
-          className="gap-3"
-        >
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <RadioGroupItem value="bundled" className="mt-0.5" />
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-body-13 text-text-primary">Bundled with the agent (recommended)</span>
-              <span className="text-caption-11 text-text-tertiary">
-                Always the Claude Code version the agent&apos;s SDK was built with.
+      {info.id === CLAUDE_INFO.id ? (
+        <div className="flex flex-col gap-2.5">
+          <SubLabel>CLAUDE CODE</SubLabel>
+          <RadioGroup
+            value={s.claudeBinary.source}
+            disabled={rt.busy}
+            onValueChange={(value) => rt.setClaudeBinary(value as ClaudeBinarySource)}
+            className="gap-3"
+          >
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <RadioGroupItem value="bundled" className="mt-0.5" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-body-13 text-text-primary">Bundled with the agent (recommended)</span>
+                <span className="text-caption-11 text-text-tertiary">
+                  Always the Claude Code version the agent&apos;s SDK was built with.
+                </span>
               </span>
-            </span>
-          </label>
-          <label className={cn("flex items-start gap-2.5", machine ? "cursor-pointer" : "opacity-60")}>
-            <RadioGroupItem value="machine" disabled={!machine} className="mt-0.5" />
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-body-13 text-text-primary">Claude Code on this machine</span>
-              <span className="truncate text-code-11 text-text-tertiary" title={machine?.path}>
-                {machine ? `${machine.path} · ${machine.version}` : "Not found"}
+            </label>
+            <label className={cn("flex items-start gap-2.5", machine ? "cursor-pointer" : "opacity-60")}>
+              <RadioGroupItem value="machine" disabled={!machine} className="mt-0.5" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-body-13 text-text-primary">Claude Code on this machine</span>
+                <span className="truncate text-code-11 text-text-tertiary" title={machine?.path}>
+                  {machine ? `${machine.path} · ${machine.version}` : "Not found"}
+                </span>
+                <span className="text-caption-11 text-text-tertiary">
+                  Its version may not match the agent&apos;s SDK.
+                </span>
               </span>
-              <span className="text-caption-11 text-text-tertiary">
-                Its version may not match the agent&apos;s SDK.
-              </span>
-            </span>
-          </label>
-        </RadioGroup>
-      </div>
+            </label>
+          </RadioGroup>
+        </div>
+      ) : null}
 
-      {current ? (
+      {current && info.signIn !== "none" ? (
         <div className="flex flex-col gap-2.5">
           <SubLabel>SIGN IN</SubLabel>
-          <ClaudeSignInSection />
+          {info.signIn === "inApp" ? <CodexAccountSection /> : <ClaudeSignInSection />}
         </div>
       ) : null}
 

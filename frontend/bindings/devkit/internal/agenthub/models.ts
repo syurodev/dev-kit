@@ -32,6 +32,7 @@ export enum AgentType {
 
     AgentTypeMock = "mock",
     AgentTypeClaude = "claude",
+    AgentTypeCodex = "codex",
 };
 
 /**
@@ -663,6 +664,32 @@ export enum SessionStatus {
     SessionStatusError = "error",
     SessionStatusClosed = "closed",
 };
+
+/**
+ * SignInFlow is a sign-in in progress: a page to open (browser) or a code to
+ * type on one (device code). LoginID names it to CancelSignIn.
+ */
+export interface SignInFlow {
+    "loginId": string;
+    "method": string;
+    "authUrl"?: string;
+    "verificationUrl"?: string;
+    "userCode"?: string;
+}
+
+/**
+ * SignInStatus is a vendor's sign-in as the in-app panel shows it.
+ */
+export interface SignInStatus {
+    "signedIn": boolean;
+
+    /**
+     * Method is "chatgpt" or "apiKey".
+     */
+    "method"?: string;
+    "email"?: string;
+    "plan"?: string;
+}
 
 /**
  * TranscriptEntry is one persisted row of a session's conversation.

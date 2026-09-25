@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"devkit/internal/codexapp"
+	"devkit/internal/identity"
 )
 
 // SignInStatus is a vendor's sign-in as the in-app panel shows it.
@@ -60,7 +61,16 @@ type InAppSignIn interface {
 
 var _ InAppSignIn = (*CodexAdapter)(nil)
 
-func (s *Service) inAppSignIn(t AgentType) (InAppSignIn, error) {
+// inAppSignIn finds t's in-app sign-in, for the person only. There is no MCP
+// tool for any of it, and this is why that is not the only guard: a caller
+// the gateway stamped as an agent or a terminal MCP client is refused here,
+// so a door added later by mistake still opens onto nothing. An agent that
+// could start a sign-in could put its own account in the home every later
+// session uses; one that could sign out could lock the person out mid-work.
+func (s *Service) inAppSignIn(ctx context.Context, t AgentType) (InAppSignIn, error) {
+	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
+		return nil, fmt.Errorf("%w: signing in is the person's, from the app", ErrPermissionDenied)
+	}
 	adapter, ok := s.reg.Get(t)
 	if !ok {
 		return nil, ErrVendorUnknown
@@ -74,7 +84,7 @@ func (s *Service) inAppSignIn(t AgentType) (InAppSignIn, error) {
 
 // SignInStatus reads an agent type's sign-in.
 func (s *Service) SignInStatus(ctx context.Context, t AgentType) (SignInStatus, error) {
-	signIn, err := s.inAppSignIn(t)
+	signIn, err := s.inAppSignIn(ctx, t)
 	if err != nil {
 		return SignInStatus{}, err
 	}
@@ -83,7 +93,7 @@ func (s *Service) SignInStatus(ctx context.Context, t AgentType) (SignInStatus, 
 
 // StartSignIn begins a sign-in by browser or device code.
 func (s *Service) StartSignIn(ctx context.Context, t AgentType, method string) (SignInFlow, error) {
-	signIn, err := s.inAppSignIn(t)
+	signIn, err := s.inAppSignIn(ctx, t)
 	if err != nil {
 		return SignInFlow{}, err
 	}
@@ -98,7 +108,7 @@ func (s *Service) StartSignIn(ctx context.Context, t AgentType, method string) (
 
 // CancelSignIn abandons a sign-in in progress.
 func (s *Service) CancelSignIn(ctx context.Context, t AgentType, loginID string) error {
-	signIn, err := s.inAppSignIn(t)
+	signIn, err := s.inAppSignIn(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -107,7 +117,7 @@ func (s *Service) CancelSignIn(ctx context.Context, t AgentType, loginID string)
 
 // SignOut removes an agent type's stored sign-in.
 func (s *Service) SignOut(ctx context.Context, t AgentType) error {
-	signIn, err := s.inAppSignIn(t)
+	signIn, err := s.inAppSignIn(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -312,12 +322,21 @@ func (h *codexSignInHandler) Request(_ context.Context, method string, _ json.Ra
 // SignInStatus reads the sign-in a session would use. An API key, when one is
 // set, is what sessions sign in with, so it is the answer; otherwise a fresh
 // process reads the ChatGPT sign-in in the home.
+//
+// A key that is chosen but cannot be read is not a reason to report the
+// ChatGPT sign-in: sessions use the key whenever one is chosen, so they would
+// fail however signed in the home is. It reads as "API key, not signed in",
+// and the fix is in Settings, not in a sign-in.
 func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
-	if key, err := a.apiKey(ctx); err == nil && key != "" {
+	key, err := a.apiKey(ctx)
+	if err != nil {
+		return SignInStatus{SignedIn: false, Method: codexapp.AccountAPIKey}, nil
+	}
+	if key != "" {
 		return SignInStatus{SignedIn: true, Method: codexapp.AccountAPIKey}, nil
 	}
 	var res codexapp.GetAccountResponse
-	err := a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	err = a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountRead, map[string]any{"refreshToken": false}, &res); err != nil {
 			return p.failure("account/read", err)
 		}

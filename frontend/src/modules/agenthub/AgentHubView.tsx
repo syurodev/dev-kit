@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CLAUDE_AGENT,
   agentRuntimeStatus,
+  isAgentApiKeyError,
   isAgentAuthRequiredError,
   isAgentNotInstalledError,
   isRuntimeRequirementError,
@@ -10,8 +10,10 @@ import {
 } from "../../bridge/agentRuntime";
 import { agentRuntimeQueryKey } from "../settings/AgentRuntimeSetting";
 import { requestSettings } from "../../workbench/settingsRequest";
-import { ClaudeAgentSetup } from "./ClaudeAgentSetup";
+import { AgentRuntimeSetup } from "./AgentRuntimeSetup";
 import { ClaudeSignIn, useClaudeSignIn } from "./ClaudeSignIn";
+import { CodexSignIn, useCodexSignIn } from "./CodexSignIn";
+import { SHIPPED_VENDORS, vendorInfo } from "./vendors";
 import type { SessionErrorCause } from "./surfaces";
 import {
   agentHubCancel,
@@ -32,7 +34,6 @@ import {
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
   type AgentSession,
-  type AgentVendor,
   type AgentContextFile,
   type AgentImageAttachment,
 } from "../../bridge/agenthub";
@@ -73,9 +74,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// Until the backend answers. Claude is the one agent DevKit ships; the mock
-// adapter is a test double and is not offered.
-const DEFAULT_VENDORS: AgentVendor[] = ["claude"];
+// Until the backend answers: the agents DevKit ships. The mock adapter is a
+// test double and is not offered.
+const DEFAULT_VENDORS: string[] = [...SHIPPED_VENDORS];
 
 /** A session to create, and the first message that is the reason for it. */
 type CreateParams = {
@@ -95,7 +96,7 @@ type TurnInput = {
   images: AgentImageAttachment[];
   refs: EntityRef[];
 };
-/** The action that failed on sign-in, retried once a login exits 0. */
+/** The action that failed on sign-in, retried once the sign-in succeeds. */
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
 type ShortcutKey = Pick<
@@ -161,6 +162,28 @@ export async function renameAgentSession(
   if (session) upsertSession({ ...session, title });
 }
 
+/**
+ * What a failed create turns into, for the vendor that failed — read from the
+ * vendor table, so the install panel, the sign-in and the sandbox hint are
+ * Codex's as much as Claude's, and an agent with none of them (the mock) gets
+ * the plain error card.
+ */
+export function createFailure(vendor: string, error: unknown) {
+  const info = vendorInfo(vendor);
+  const runtime = info.runtimeId !== "" && (isAgentNotInstalledError(error) || isRuntimeRequirementError(error));
+  return {
+    /** The runtime whose status to re-read, or "". */
+    refreshRuntime: runtime ? info.runtimeId : "",
+    /** Nothing to add: the install panel already says it. */
+    shownByInstallPanel: runtime && isAgentNotInstalledError(error),
+    /** Show the vendor's own sign-in, and retry the create once it lands. */
+    signIn: info.signIn !== "none" && isAgentAuthRequiredError(error),
+    /** The chosen API key failed: the error card sends the person to Settings. */
+    apiKey: isAgentApiKeyError(error),
+    sandboxHint: info.runtimeId !== "" && isSandboxUnavailableError(error),
+  };
+}
+
 export function AgentHubView() {
   // Where the app is working, for a new draft to start in.
   const { folder: workFolder } = useModuleFolder("agenthub");
@@ -205,12 +228,12 @@ export function AgentHubView() {
   const [errorReason, setErrorReason] = useState("");
   // Not installed / missing Node are not crashes; the card offers Settings.
   const [errorCause, setErrorCause] = useState<SessionErrorCause | undefined>(undefined);
-  // What to do again once Claude is signed in. A failed create keeps its
-  // params here while the dialog steps aside for the terminal.
+  // What to do again once the agent is signed in. A failed create keeps its
+  // params here while the draft shows the sign-in instead of sending.
   const [authRetry, setAuthRetry] = useState<AuthRetry | null>(null);
   // The last turn sent, so Retry resends it: the composer is cleared on send.
   const lastTurn = useRef<TurnInput | null>(null);
-  const signIn = useClaudeSignIn((outcome) => {
+  const retryAfterSignIn = (outcome: { signedIn: boolean }) => {
     if (authRetry?.kind === "create") {
       // The draft is still on screen with its message, so a successful login
       // carries straight on: the session is created and the message sent.
@@ -218,14 +241,20 @@ export function AgentHubView() {
     } else if (authRetry?.kind === "turn" && outcome.signedIn) {
       void handleSend(authRetry);
     }
-  });
+  };
+  // One per way of signing in (vendors.ts): Claude's runs its login in a
+  // terminal, Codex's inside DevKit. Both retry the same way.
+  const claudeSignIn = useClaudeSignIn(retryAfterSignIn);
+  const codexSignIn = useCodexSignIn(retryAfterSignIn);
   const queryClient = useQueryClient();
-  // Asked while the draft has Claude picked, not after a send fails: the draft
-  // shows the install panel as soon as Claude is chosen and cannot start.
-  const claudeRuntime = useQuery({
-    queryKey: agentRuntimeQueryKey(CLAUDE_AGENT),
-    queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
-    enabled: draft !== null && draftAgent === CLAUDE_VENDOR,
+  // Asked while the draft has an agent picked, not after a send fails: the
+  // draft shows the install panel as soon as an agent that cannot start is
+  // chosen.
+  const draftVendor = vendorInfo(draftAgent);
+  const draftRuntime = useQuery({
+    queryKey: agentRuntimeQueryKey(draftVendor.runtimeId),
+    queryFn: () => agentRuntimeStatus(draftVendor.runtimeId),
+    enabled: draft !== null && draftVendor.runtimeId !== "",
   });
   // A vendor failure the user waved off. Keyed by id and revision: the agent
   // republishes a failure with a new revision when something about it changed,
@@ -469,20 +498,21 @@ export function AgentHubView() {
         );
       }
     } catch (e) {
-      if (isAgentNotInstalledError(e) || isRuntimeRequirementError(e)) {
+      const failure = createFailure(params.vendor, e);
+      if (failure.refreshRuntime) {
         // The status changed under the dialog (removed, Node uninstalled):
         // re-read it and the install panel takes the form's place.
-        void queryClient.invalidateQueries({ queryKey: agentRuntimeQueryKey(CLAUDE_AGENT) });
-        // The panel already says "not installed"; a requirement's reason stays.
-        if (isAgentNotInstalledError(e)) return;
+        void queryClient.invalidateQueries({ queryKey: agentRuntimeQueryKey(failure.refreshRuntime) });
       }
+      // The panel already says "not installed"; a requirement's reason stays.
+      if (failure.shownByInstallPanel) return;
       // The sign-in panel takes the form's place and says why.
-      if (params.vendor === "claude" && isAgentAuthRequiredError(e)) {
+      if (failure.signIn) {
         setAuthRetry({ kind: "create", params });
         return;
       }
       reportError(e);
-      if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
+      if (failure.sandboxHint) {
         setSandboxHint(sandboxUnavailableMessage());
       }
     } finally {
@@ -501,7 +531,9 @@ export function AgentHubView() {
           ? "requirement"
           : isAgentAuthRequiredError(app)
             ? "authRequired"
-            : undefined,
+            : isAgentApiKeyError(app)
+              ? "apiKey"
+              : undefined,
     );
   }
 
@@ -737,11 +769,15 @@ export function AgentHubView() {
       return;
     }
     if (action === "login") {
-      const methods = signIn.methods.data ?? [];
+      const methods = claudeSignIn.methods.data ?? [];
       // One way in: take it. Several: the error card's panel names them, and
-      // picking for the user would be guessing.
-      if (methods.length === 1) signIn.start(methods[0]);
-      else setErrorCause("authRequired");
+      // picking for the user would be guessing. An agent that signs in
+      // inside DevKit shows its panel, where the browser is the first button.
+      if (vendorInfo(activeSession?.agentType).signIn === "terminal" && methods.length === 1) {
+        claudeSignIn.start(methods[0]);
+      } else {
+        setErrorCause("authRequired");
+      }
     }
   }
 
@@ -832,19 +868,32 @@ export function AgentHubView() {
     }
   }
 
+  /** The sign-in a vendor offers, wired to retry what was waiting on it. */
+  function signInFor(vendor: string) {
+    switch (vendorInfo(vendor).signIn) {
+      case "terminal":
+        return <ClaudeSignIn signIn={claudeSignIn} />;
+      case "inApp":
+        return <CodexSignIn signIn={codexSignIn} />;
+      default:
+        return undefined;
+    }
+  }
+
   // What stands between a draft and its first message, in the draft's own view.
   const draftBlocked =
-    draftAgent === CLAUDE_VENDOR && Boolean(claudeRuntime.data && runtimeBlocked(claudeRuntime.data));
+    draftVendor.runtimeId !== "" && Boolean(draftRuntime.data && runtimeBlocked(draftRuntime.data));
   const draftNotice = !draft ? null : draftBlocked ? (
-    <ClaudeAgentSetup onOpenSettings={() => requestSettings("agents")} />
+    <AgentRuntimeSetup vendor={draftAgent} onOpenSettings={() => requestSettings("agents")} />
   ) : authRetry?.kind === "create" ? (
-    <div data-testid="claude-sign-in-panel" className="flex w-full flex-col gap-3 rounded-sm bg-(--state-soft) p-4">
-      <p className="text-body-13-medium text-text-primary">Claude isn&apos;t signed in</p>
+    <div data-testid="agent-sign-in-panel" className="flex w-full flex-col gap-3 rounded-sm bg-(--state-soft) p-4">
+      <p className="text-body-13-medium text-text-primary">{`${draftVendor.name} isn't signed in`}</p>
       <p className="text-caption-11 text-text-tertiary">
-        Sign in in the terminal that opens. The session starts and your message is sent as soon as
-        the login finishes.
+        {draftVendor.signIn === "terminal"
+          ? "Sign in in the terminal that opens. The session starts and your message is sent as soon as the login finishes."
+          : "Sign in below. The session starts and your message is sent as soon as the sign-in finishes."}
       </p>
-      <ClaudeSignIn signIn={signIn} />
+      {signInFor(authRetry.params.vendor)}
     </div>
   ) : null;
 
@@ -975,7 +1024,12 @@ export function AgentHubView() {
             onChooseWorkspace={chooseWorkspaceForDraft}
             agents={vendors}
             agent={draftAgent}
-            onAgentChange={setDraftAgent}
+            onAgentChange={(agent) => {
+              setDraftAgent(agent);
+              // A sign-in waiting for one agent is not the next one's: the
+              // panel would name one vendor and sign in to the other.
+              setAuthRetry(null);
+            }}
             draftNotice={draftNotice}
             sendDisabled={draft ? busy || draftBlocked : false}
             promptValue={draft ? draftPrompt : activePrompt}
@@ -1034,9 +1088,7 @@ export function AgentHubView() {
             onNewSession={() => void startNewDraft()}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
-              errorCause === "authRequired" && activeSession?.agentType === "claude" ? (
-                <ClaudeSignIn signIn={signIn} />
-              ) : undefined
+              errorCause === "authRequired" && activeSession ? signInFor(activeSession.agentType) : undefined
             }
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
             imageAttachments={draft ? draft.images : activeSession ? images[activeSession.id] ?? [] : []}

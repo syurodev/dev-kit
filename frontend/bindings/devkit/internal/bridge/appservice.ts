@@ -229,6 +229,14 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * AgentHubCancelSignIn abandons the sign-in in progress. A login id that is
+ * no longer current is already over, and cancelling it is not an error.
+ */
+export function AgentHubCancelSignIn(agent: string, loginID: string): $CancellablePromise<void> {
+    return $Call.ByID(2776279486, agent, loginID);
+}
+
+/**
  * AgentHubCheckpointAvailability is what Settings shows beside the switch:
  * whether the machine can do this at all, and which projects it could not.
  */
@@ -451,6 +459,46 @@ export function AgentHubSetGoal(id: string, objective: string): $CancellableProm
  */
 export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise<void> {
     return $Call.ByID(2776585725, id, modeID);
+}
+
+/**
+ * AgentHubSignInStatus reads an agent's in-app sign-in ("codex"): ChatGPT
+ * with its email and plan, an API key, or none. Claude signs in in a terminal
+ * (AgentHubAuthMethods) and answers "not supported" here.
+ * 
+ * These five are the person's only. There is no MCP tool for any of them, and
+ * the service refuses a caller stamped as an agent or a terminal MCP client,
+ * so the capability below is not the only thing between an agent and the
+ * account every later session signs in with.
+ */
+export function AgentHubSignInStatus(agent: string): $CancellablePromise<agenthub$0.SignInStatus> {
+    return $Call.ByID(3016855882, agent);
+}
+
+/**
+ * AgentHubSignOut removes the vendor's own sign-in from DevKit's home for it.
+ * An API key chosen in Settings is not signed out here; it is unlinked there.
+ */
+export function AgentHubSignOut(agent: string): $CancellablePromise<void> {
+    return $Call.ByID(453233837, agent);
+}
+
+/**
+ * AgentHubStartBrowserSignIn starts the default sign-in: the vendor serves a
+ * login page and its callback from inside the jail, and the UI opens the page.
+ * How it ends arrives as an agenthub:signInCompleted event.
+ */
+export function AgentHubStartBrowserSignIn(agent: string): $CancellablePromise<agenthub$0.SignInFlow> {
+    return $Call.ByID(1534464996, agent);
+}
+
+/**
+ * AgentHubStartDeviceSignIn starts a sign-in by code, for a machine that
+ * cannot open a browser. Off by default per ChatGPT account; the UI says how
+ * to turn it on.
+ */
+export function AgentHubStartDeviceSignIn(agent: string): $CancellablePromise<agenthub$0.SignInFlow> {
+    return $Call.ByID(3146585458, agent);
 }
 
 /**
@@ -1653,6 +1701,14 @@ export function PreferencesGetAgentSandbox(): $CancellablePromise<preferences$0.
     return $Call.ByID(197792724);
 }
 
+/**
+ * PreferencesGetCodexAPIKeyAccount is the id of the Accounts token Codex
+ * signs in with, or "" for its own ChatGPT sign-in. An id, never the key.
+ */
+export function PreferencesGetCodexAPIKeyAccount(): $CancellablePromise<string> {
+    return $Call.ByID(1650256823);
+}
+
 export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> {
     return $Call.ByID(1151267161);
 }
@@ -1700,6 +1756,16 @@ export function PreferencesSetAgentNotifications(enabled: boolean): $Cancellable
  */
 export function PreferencesSetAgentSandbox(settings: preferences$0.AgentSandboxSettings): $CancellablePromise<void> {
     return $Call.ByID(3347387056, settings);
+}
+
+/**
+ * PreferencesSetCodexAPIKeyAccount chooses the token Codex signs in with; ""
+ * goes back to ChatGPT. The account is checked here, so one a session could
+ * not use is refused now rather than at the next spawn. The audit line names
+ * the account, never its value — this method never sees the value at all.
+ */
+export function PreferencesSetCodexAPIKeyAccount(accountID: string): $CancellablePromise<void> {
+    return $Call.ByID(1822378715, accountID);
 }
 
 export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePromise<void> {

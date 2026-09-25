@@ -6,25 +6,28 @@ import {
   RuntimeRequirements,
   useAgentRuntime,
 } from "@/modules/settings/AgentRuntimeSetting";
+import { vendorInfo } from "./vendors";
 
 /**
- * What the new-session dialog shows instead of its form when Claude cannot be
- * started: not installed, or installed but missing Node/npm. The install runs
- * right here, with the same log as Settings → Agents.
+ * What the draft shows instead of sending when the picked agent cannot be
+ * started: not installed, or installed but missing what its install needs
+ * (Node/npm). The install runs right here, with the same log as Settings →
+ * Agents. Any vendor with a runtime (vendors.ts) gets it, named for itself.
  */
-export function ClaudeAgentSetup({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const rt = useAgentRuntime();
+export function AgentRuntimeSetup({ vendor, onOpenSettings }: { vendor: string; onOpenSettings: () => void }) {
+  const info = vendorInfo(vendor);
+  const rt = useAgentRuntime(info.runtimeId);
   const s = rt.status;
   if (!s) return null;
   const unmet = s.requirements.filter((r) => !r.met);
 
   return (
     <div
-      data-testid="claude-agent-setup"
+      data-testid="agent-runtime-setup"
       className="flex w-full flex-col items-center gap-3 rounded-sm bg-(--state-soft) p-4 text-center"
     >
       <p className="text-body-13-medium text-text-primary">
-        {s.current ? "Claude Agent can't start" : "Claude Agent isn't installed"}
+        {s.current ? `${info.runtimeName} can't start` : `${info.runtimeName} isn't installed`}
       </p>
       <p className="text-caption-11 text-text-tertiary">
         {s.current
@@ -41,7 +44,7 @@ export function ClaudeAgentSetup({ onOpenSettings }: { onOpenSettings: () => voi
         ) : !s.current ? (
           <Button type="button" size="sm" disabled={rt.busy} onClick={() => rt.install()}>
             <Download />
-            Install Claude Agent
+            {`Install ${info.runtimeName}`}
           </Button>
         ) : null}
         <Button type="button" variant="ghost" size="sm" onClick={onOpenSettings}>

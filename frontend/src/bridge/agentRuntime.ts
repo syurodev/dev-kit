@@ -16,8 +16,11 @@ export type AgentRuntimeStatus = Omit<Status, "requirements"> & { requirements: 
 
 export type ClaudeBinarySource = "bundled" | "machine";
 
-/** The only agent with a managed runtime today. */
+/** Claude's adapter, the runtime DevKit installs for the "claude" vendor. */
 export const CLAUDE_AGENT = "claude-acp";
+
+/** OpenAI's Codex CLI, run as `codex app-server` for the "codex" vendor. */
+export const CODEX_AGENT = "codex";
 
 function normalize(status: Status): AgentRuntimeStatus {
   return { ...status, requirements: status.requirements ?? [] };
@@ -102,6 +105,14 @@ export function isAgentAuthRequiredError(error: unknown): boolean {
   return toAppError(error).code === "agent_auth_required";
 }
 
+/**
+ * The API key chosen in Settings is gone or was refused. A sign-in panel
+ * would not help — the key wins at every spawn — so this points at Settings.
+ */
+export function isAgentApiKeyError(error: unknown): boolean {
+  return toAppError(error).code === "agent_api_key_unusable";
+}
+
 const SIGN_IN_LABELS: Record<string, string> = {
   "claude-ai-login": "Sign in with Claude subscription",
   "console-login": "Sign in with Anthropic Console",
@@ -134,14 +145,17 @@ export function runtimeBlocked(status: AgentRuntimeStatus): boolean {
  * The one line that says where an agent stands. `latest` is set only when the
  * registry has something newer than both the tested and the installed version.
  */
-export function runtimeStatusLine(status: AgentRuntimeStatus): {
+export function runtimeStatusLine(
+  status: AgentRuntimeStatus,
+  name = "Claude Agent",
+): {
   headline: string;
   latest: string | null;
 } {
   const { current, testedVersion, latestVersion } = status;
   const headline = !current
     ? "Not installed"
-    : `Claude Agent ${current.version}${current.version === testedVersion ? " · tested" : " · not tested by DevKit"}`;
+    : `${name} ${current.version}${current.version === testedVersion ? " · tested" : " · not tested by DevKit"}`;
   const latest =
     latestVersion && latestVersion !== testedVersion && latestVersion !== current?.version
       ? `${latestVersion} available (not tested by DevKit)`

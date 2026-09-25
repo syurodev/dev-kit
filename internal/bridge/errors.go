@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"devkit/internal/app"
 	"devkit/internal/capabilities"
 	"errors"
 	"io/fs"
@@ -52,6 +53,10 @@ const (
 	codeRuntimeRequirement = "runtime_requirement"
 	codeInstallFailed      = "install_failed"
 	codeAgentAuthRequired  = "agent_auth_required"
+	// codeAgentAPIKeyUnusable is a sign-in problem a sign-in cannot fix: the
+	// API key chosen in Settings is gone or was refused, and it wins over
+	// the vendor's own sign-in at every spawn. The UI points at Settings.
+	codeAgentAPIKeyUnusable = "agent_api_key_unusable"
 )
 
 var safeValidationMessages = map[string]struct{}{
@@ -136,6 +141,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, notes.ErrInvalidColor) || errors.Is(err, notes.ErrTagTooLong) || errors.Is(err, notes.ErrTooManyTags) {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
 	}
+	if errors.Is(err, app.ErrCodexAPIKeyAccount) {
+		return apperrors.New(codeValidationFailed, codexAPIKeyAccountMessage, true)
+	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}
@@ -202,7 +210,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, errAgentRuntimesUnavailable):
 			return apperrors.New(codeInternalError, "Agent runtimes are not available.", true)
 		case errors.Is(err, agenthub.ErrAgentNotInstalled):
-			return apperrors.New(codeAgentNotInstalled, "Claude Agent is not installed. Install it in Settings → Agents.", true)
+			return apperrors.New(codeAgentNotInstalled, agentNotInstalledMessage(agenthub.ErrorVendor(err)), true)
 		case errors.Is(err, agentruntime.ErrNotInstalled):
 			return apperrors.New(codeValidationFailed, "That agent version is not installed.", true)
 		case errors.Is(err, agentruntime.ErrRequirementNotMet):
@@ -253,10 +261,13 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
 		case errors.Is(err, agenthub.ErrSandboxUnavailable):
 			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
+		// Before auth-required, which it always also is.
+		case errors.Is(err, agenthub.ErrAgentAPIKeyUnusable):
+			return apperrors.New(codeAgentAPIKeyUnusable, agentAPIKeyUnusableMessage(agenthub.ErrorVendor(err)), true)
 		case errors.Is(err, agenthub.ErrAgentAuthRequired):
-			// Pointed at Claude Code's own sign-in, never a form of ours: third-party
-			// apps may not offer a Claude login.
-			return apperrors.New(codeAgentAuthRequired, "Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY.", true)
+			return apperrors.New(codeAgentAuthRequired, agentAuthRequiredMessage(agenthub.ErrorVendor(err)), true)
+		case errors.Is(err, agenthub.ErrUnsupported):
+			return apperrors.New(codeValidationFailed, "This agent doesn't support that.", true)
 		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
 			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
@@ -406,3 +417,44 @@ func unexpectedError(subject string, err error) *apperrors.AppError {
 	log.Printf("bridge: %s: unclassified error: %v", subject, err)
 	return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
 }
+
+// agentNotInstalledMessage names the agent to install. An error that names
+// none gets a sentence that does not guess: it used to say Claude whatever
+// the session was.
+func agentNotInstalledMessage(agent agenthub.AgentType) string {
+	switch agent {
+	case agenthub.AgentTypeClaude:
+		return "Claude Agent is not installed. Install it in Settings → Agents."
+	case agenthub.AgentTypeCodex:
+		return "Codex is not installed. Install it in Settings → Agents."
+	}
+	return "The agent is not installed. Install it in Settings → Agents."
+}
+
+// agentAuthRequiredMessage says whose sign-in to fix and where. Claude's
+// points at Claude Code's own login, never a form of ours: third-party apps
+// may not offer a Claude login. Codex signs in inside DevKit, in its own
+// home, so its message points at the card that does it.
+func agentAuthRequiredMessage(agent agenthub.AgentType) string {
+	switch agent {
+	case agenthub.AgentTypeClaude:
+		return "Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."
+	case agenthub.AgentTypeCodex:
+		return "Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."
+	}
+	return "The agent isn't signed in, or the sign-in expired."
+}
+
+// agentAPIKeyUnusableMessage sends the person to the one place that fixes a
+// failed key: choosing another, or none.
+func agentAPIKeyUnusableMessage(agent agenthub.AgentType) string {
+	if agent == agenthub.AgentTypeCodex {
+		return "Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."
+	}
+	return "The agent can't use the API key chosen for it in Settings → Agents. Choose another, or remove it."
+}
+
+// codexAPIKeyAccountMessage is what choosing an unusable account for Codex's
+// API key says: what would have worked, since the account itself is fine for
+// whatever else it is bound to.
+const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is not limited to an environment."

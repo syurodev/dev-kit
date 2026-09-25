@@ -19,7 +19,7 @@ import type {
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
-export type AgentVendor = "claude";
+export type AgentVendor = "claude" | "codex";
 
 /**
  * The Claude agent as the hub knows it — the `agentType` a session is created
@@ -28,6 +28,13 @@ export type AgentVendor = "claude";
  * "Unknown agent vendor". Two ids for one agent, one per job.
  */
 export const CLAUDE_VENDOR: AgentVendor = "claude";
+
+/**
+ * Codex as the hub knows it. Its runtime id (CODEX_AGENT) happens to be the
+ * same string; the vendor table (modules/agenthub/vendors) keeps the two jobs
+ * apart anyway, so nothing depends on that.
+ */
+export const CODEX_VENDOR: AgentVendor = "codex";
 
 export type SessionStatus =
   | "idle"
@@ -899,4 +906,42 @@ export function permissionCommand(params: unknown): string | undefined {
   if (!rawInput || typeof rawInput !== "object") return undefined;
   const command = (rawInput as Record<string, unknown>).command;
   return typeof command === "string" && command.trim() ? command : undefined;
+}
+
+/** How much of a call's arguments a permission card shows; the rest is elided. */
+const PERMISSION_ARGS_LIMIT = 240;
+
+/**
+ * What a request without a command is about: the question the agent put
+ * (Codex asks before an MCP tool runs, and says which tool, as text content)
+ * and the arguments of the call, as one compact line. Only for a call that is
+ * not an edit or a read — an edit shows its diff, a read its path — so a
+ * file's whole content never lands in the card as JSON.
+ */
+export function permissionDetail(params: unknown): { message?: string; args?: string } {
+  if (!params || typeof params !== "object") return {};
+  const toolCall = (params as Record<string, unknown>).toolCall;
+  if (!toolCall || typeof toolCall !== "object") return {};
+  const tc = toolCall as Record<string, unknown>;
+  const kind = typeof tc.kind === "string" ? tc.kind : "";
+  if (kind && kind !== "other" && kind !== "fetch") return {};
+  const out: { message?: string; args?: string } = {};
+  if (Array.isArray(tc.content)) {
+    for (const entry of tc.content) {
+      if (!entry || typeof entry !== "object") continue;
+      const block = (entry as Record<string, unknown>).content;
+      if (!block || typeof block !== "object") continue;
+      const text = (block as Record<string, unknown>).text;
+      if (typeof text === "string" && text.trim()) {
+        out.message = text.trim();
+        break;
+      }
+    }
+  }
+  const raw = tc.rawInput;
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length > 0) {
+    const line = JSON.stringify(raw);
+    out.args = line.length > PERMISSION_ARGS_LIMIT ? `${line.slice(0, PERMISSION_ARGS_LIMIT - 1)}…` : line;
+  }
+  return out;
 }

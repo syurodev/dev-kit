@@ -311,9 +311,12 @@ func NewContainerWithStores(
 		// switching or removing an adapter version. Scoped per agent id.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "runtime:*"},
-		// Sign-in: listing an agent's login methods, and running one in a
-		// terminal the user sees. The terminal grant is what lets that tab be
-		// typed into, resized and closed, the same grant CodeGraph's shells have.
+		// Sign-in: listing an agent's login methods and running one in a
+		// terminal the user sees (Claude), or signing in inside the app —
+		// status, browser or code, cancel, sign out (Codex). The terminal grant
+		// is what lets that tab be typed into, resized and closed, the same
+		// grant CodeGraph's shells have. No MCP tool uses auth:*, and the
+		// service refuses an agent caller for the in-app sign-in.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "auth:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "auth:*"},
 		{SubjectID: "builtin.agenthub", Capability: "terminal:io", Scope: "session:*"},
@@ -348,6 +351,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_checkpoints"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_sandbox"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_sandbox"},
+		// Which Accounts token Codex signs in with: the id, never the key.
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "accounts_reveal"},
 		// Accounts: read and write are the module's; reveal is a capability the
 		// MCP subject is never granted, which is how "an agent cannot read a

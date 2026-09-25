@@ -13,11 +13,12 @@ tự gọi sang agent khác lấy kết quả — không cần con người đi�
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info" title="Implemented — Phase 4 v1 closed (Claude-only)">
+<Callout type="info" title="Implemented — Phase 4 v1 closed; Codex là vendor thứ hai (2026-09-25)">
 Phase 4 đóng với runtime: `internal/acp`, `internal/agenthub` (Claude; mock chỉ là test double),
 bridge/UI multi-tab, MCP `agenthub.*`, spawn qua
-`sandbox.DefaultRunner().StartPiped(...)` (fail-closed). **Codex / Gemini
-adapters vẫn Design** — thêm sau, không chặn đóng Phase 4. Chưa claim
+`sandbox.DefaultRunner().StartPiped(...)` (fail-closed). **Codex chạy trong Agent Hub**
+(Lớp 2, `codex app-server` 0.147.0 — xem mục Codex dưới **Known ceiling (v1)**).
+**Gemini vẫn Design** — thêm sau theo cùng `VendorAdapter`. Chưa claim
 production-verified vs Claude Code thật trong CI — smoke desktop. **Next:**
 [Workbench UI (Phase 5)](/dev-kit/roadmap#phase-5--workbench-ui) theo
 `dev-kit-app/DESIGN.md` (UI đủ flex cho vendor/tab). Sandbox:
@@ -699,10 +700,14 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 ### Known ceiling (v1)
 
 - Chỉ target ACP protocol version 1; agent nào chỉ hỗ trợ v2 chưa dùng được.
-- Adapter shipped **trong Agent Hub** (spawn, ACP, `VendorAdapter`): **Claude**
-  (qua `sandbox.StartPiped`). Mock adapter chỉ là test double cho test
-  `agenthub`/`bridge` — không đăng ký trong app, không có trong bộ chọn agent.
-  Gemini vẫn Design — thêm theo cùng `VendorAdapter`, không rework core.
+- Adapter shipped **trong Agent Hub** (spawn, `VendorAdapter`): **Claude** (ACP) và
+  **Codex** (app-server, dịch sang ACP trong adapter), cả hai qua `sandbox.StartPiped`.
+  Mock adapter chỉ là test double cho test `agenthub`/`bridge` — không đăng ký trong
+  app, không có trong bộ chọn agent. Gemini vẫn Design — thêm theo cùng
+  `VendorAdapter`, không rework core. Frontend đọc **bảng mô tả vendor**
+  (`frontend/src/modules/agenthub/vendors.ts`: tên, runtime, cách đăng nhập, màu) thay
+  cho các chỗ từng so sánh với `"claude"`; vendor lạ hiện đúng tên của nó, không bao
+  giờ mượn hàng của Claude.
 - **Codex — hai lớp tách rời, không phải một adapter còn thiếu.** DevKit không
   spawn Codex và không cần `VendorAdapter` để *thấy* nó:
 
@@ -723,8 +728,41 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
     lưu — đúng lý do `api_request_history` seal URL: DevKit không viết ra
     chúng, cả hai đều có thể mang secret. UI: Settings → Agents → "Codex
     (observed)", chỉ xem transcript, không gửi được prompt từ đó.
-  - **Lớp 2 (chạy trong Agent Hub) — Design, Phase 0 đã đo một phần
-    (2026-09-20).** Cần một `VendorAdapter` thật, và đường vào giờ nghiêng hẳn
+  - **Lớp 2 (chạy trong Agent Hub) — Implemented (2026-09-25).** Thiết kế:
+    `docs/superpowers/specs/2026-09-24-codex-agent-hub-design.md`; trạng thái và việc
+    còn treo: `docs/superpowers/HANDOFF-codex.md`. Tóm tắt:
+
+    - `CodexAdapter` (`internal/agenthub/adapter_codex.go`) chạy `codex app-server`
+      **0.147.0** (DevKit tự cài qua `internal/agentruntime`, binary native; npm chỉ cần
+      lúc cài) trong jail của DevKit, với `CODEX_HOME` riêng `<data>/agent-homes/codex` —
+      `~/.codex` thật bị ẩn. Năm file mang chính sách trong home (`config.toml`, `rules/`,
+      `AGENTS.md`, `AGENTS.override.md`, `skills/`) bị reset trước mỗi spawn và chỉ-đọc
+      trong jail.
+    - Ba chế độ: Ask (`untrusted`, mặc định, resume luôn về Ask) / Auto (`on-request`) /
+      Full auto (`never`, id `bypassPermissions` nên hộp xác nhận bypass tự bật; hộp đó
+      thêm dòng cảnh báo khi Settings → Agents → Sandbox đang mở `$HOME`/Docker). Cổng
+      env prod của DevKit nằm trong tool MCP nên vẫn hỏi ở Full auto.
+    - Duyệt quyền qua thẻ sẵn có: lệnh, sửa file, và **mỗi lần gọi tool MCP của DevKit**
+      ở Ask/Auto (Allow / Allow for session / Deny — không bao giờ "always"). Thẻ tool MCP
+      hiện tên tool, câu hỏi của Codex và đối số.
+    - **Đăng nhập trong app** (Settings → Agents → Codex, và ngay trong bản nháp session
+      khi Codex báo chưa đăng nhập): ChatGPT qua trình duyệt là mặc định; "Use a code
+      instead" cho máy không mở được trình duyệt, kèm dòng nhắc bật device code trong
+      ChatGPT → Settings → Security (tắt sẵn theo tài khoản, Codex không báo). Hoặc chọn
+      một **API key** — account `token` trong Accounts; preferences chỉ lưu **id**, key
+      được resolve trong Go lúc spawn và gửi qua dây sau `initialize` (store
+      `ephemeral`), không nằm trên đĩa, env hay argv. Accounts ghi một dòng `external`
+      "Codex (ChatGPT)" khi đăng nhập ChatGPT thành công và xoá nó khi đăng xuất.
+    - Bridge: `AgentHubSignInStatus`, `AgentHubStartBrowserSignIn`,
+      `AgentHubStartDeviceSignIn`, `AgentHubCancelSignIn`, `AgentHubSignOut` (capability
+      `agenthub:read`/`agenthub:execute` trên `auth:codex`), event
+      `agenthub:signInCompleted`. **Chỉ UI**: không có tool MCP nào, và service từ chối
+      caller là agent hoặc CLI trên socket MCP chung. Audit ghi phương thức và id
+      account, không bao giờ ghi trang đăng nhập, mã hay key.
+    - Lỗi `agent_not_installed` / `agent_auth_required` nêu **đúng vendor**
+      (`agenthub.VendorError`), không còn luôn nói "Claude".
+
+    Lịch sử — Phase 0 (2026-09-20), trước khi có adapter: đường vào nghiêng hẳn
     về app-server JSON-RPC của chính Codex thay vì `@zed-industries/codex-acp`
     — package đó không release gì từ 2026-06-08 trong khi `@openai/codex` vẫn
     ship hằng ngày, và giờ có thêm lý do kỹ thuật, không chỉ lý do bus-factor.
@@ -790,11 +828,10 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
       toàn bộ `v2`, chưa rõ đúng phần nào. Chưa chốt được vì chưa cần đến
       method nào đòi cờ.
 
-    **Còn thiếu để chốt hẳn**: một turn chạy trọn vẹn với auth thật (cần máy
-    có `codex login`, môi trường build này không cho phép — proxy chặn domain
-    OpenAI), hình dạng lỗi auth thật khi không có credential nhưng network
-    thông, và một vòng approval thật (chưa kích hoạt được vì chưa có turn nào
-    chạy tới bước cần duyệt). Việc còn lại này giao cho máy có login Codex.
+    **Đã chốt sau đó** (2026-09-24/25, macOS, tài khoản ChatGPT, home nháp): một lượt
+    thật với approval sửa file, duyệt tool MCP trên dây thật, usage sau resume, và
+    đăng nhập trình duyệt qua chính `StartBrowserSignIn` từ jail Seatbelt. Chưa chạy
+    live trên Linux (bwrap) ngoài Phase 0.
 - **Không chạy ở server mode** (2026-09-24). Server mode phục vụ toàn bộ bridge qua HTTP
   loopback không xác thực, còn jail dùng `NetworkHost` nên đi chung loopback: một session có thể
   tự gọi `AgentHubResolvePermission`/`InteractionComplete`. `main.go` đăng ký
@@ -804,9 +841,10 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.
 - Claude adapter chưa được claim production-verified trong CI với Claude Code thật.
-- Runtime Claude chỉ cài được khi máy đã có Node ≥ 22 — DevKit không tải Node. Mới
-  có một agent cài được (`claude-acp`); Codex/Gemini dùng lại `agentruntime` khi có
-  adapter. UI Settings → Agents cho runtime đang làm.
+- Runtime cài được khi máy đã có Node ≥ 22 và npm — DevKit không tải Node. Hai agent
+  cài được: `claude-acp` (chạy trên Node) và `codex` (binary native; Node chỉ cần lúc
+  cài). Mỗi agent có card riêng ở Settings → Agents; Gemini sẽ dùng lại `agentruntime`
+  khi có adapter.
 - UI runtime đã có `Agent / Rail`, permission toast, dock badge và companion;
   subscriber shell giữ transcript chạy khi đổi module. **Đóng là cất đi, không
   phải khoá:** session đóng vẫn đọc và đổi tên được, và prompt gửi tay mở lại nó
@@ -936,7 +974,8 @@ T0 trước vì nó rẻ và nó quyết định `fs/*` có đáng làm không. 
   `sandbox.StartPiped` jail — xem mục Lớp 2 dưới **Known ceiling (v1)** ở
   trên. Còn thiếu: một turn hoàn chỉnh với auth thật và một vòng approval
   thật, chặn bởi domain OpenAI không nằm trong allowlist proxy của môi
-  trường build này — cần máy có `codex login`.
+  trường build này — cần máy có `codex login`. **Đóng (2026-09-25):** Lớp 2 đã
+  ship qua app-server; lượt thật và approval thật đã chạy trên macOS.
 - `fs/*` và `terminal/*` có thực sự được `claude-agent-acp` gọi không, hay chỉ là plumbing chưa dùng? Quyết định cả việc Capability Gateway có mediate được file access của agent hay không — đo bằng T0 trước khi cam kết.
 - ~~Ai chịu trách nhiệm theo dõi version bump từ `agentclientprotocol` org theo thời gian?~~ **Đã chốt (2026-09-13):** DevKit khoá `TestedVersion`; bản mới nhất của registry chỉ hiện như cập nhật chưa kiểm thử, và nâng mặc định theo [quy trình Nâng `TestedVersion`](#nâng-testedversion). Guard CI (`agent-acp-guard.yml`) vẫn chạy latest để báo trước release làm hỏng kênh `_meta`.
 

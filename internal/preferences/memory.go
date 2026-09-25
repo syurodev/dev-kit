@@ -15,6 +15,8 @@ type MemoryRepository struct {
 	hasAgentCheckpoints   bool
 	agentSandbox          AgentSandboxSettings
 	hasAgentSandbox       bool
+	codexAPIKeyAccount    string
+	hasCodexAPIKeyAccount bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -105,5 +107,19 @@ func (r *MemoryRepository) SetThemeFamily(family ThemeFamily) error {
 	defer r.mu.Unlock()
 	r.family = family
 	r.hasFamily = true
+	return nil
+}
+
+func (r *MemoryRepository) GetCodexAPIKeyAccount() (string, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.codexAPIKeyAccount, r.hasCodexAPIKeyAccount, nil
+}
+
+func (r *MemoryRepository) SetCodexAPIKeyAccount(accountID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.codexAPIKeyAccount = accountID
+	r.hasCodexAPIKeyAccount = true
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,110 @@ func (s *AppService) AgentHubStartSignIn(ctx context.Context, agent, methodID st
 		return "", err
 	}
 	return result.(string), nil
+}
+
+// AgentHubSignInStatus reads an agent's in-app sign-in ("codex"): ChatGPT
+// with its email and plan, an API key, or none. Claude signs in in a terminal
+// (AgentHubAuthMethods) and answers "not supported" here.
+//
+// These five are the person's only. There is no MCP tool for any of them, and
+// the service refuses a caller stamped as an agent or a terminal MCP client,
+// so the capability below is not the only thing between an agent and the
+// account every later session signs in with.
+func (s *AppService) AgentHubSignInStatus(ctx context.Context, agent string) (agenthub.SignInStatus, error) {
+	id := agentRuntimeID(agent)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "auth:"+id, map[string]any{
+		"action": "sign_in_status",
+		"agent":  id,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.SignInStatus(callCtx, agenthub.AgentType(agent))
+	})
+	if err != nil {
+		return agenthub.SignInStatus{}, err
+	}
+	return result.(agenthub.SignInStatus), nil
+}
+
+// AgentHubStartBrowserSignIn starts the default sign-in: the vendor serves a
+// login page and its callback from inside the jail, and the UI opens the page.
+// How it ends arrives as an agenthub:signInCompleted event.
+func (s *AppService) AgentHubStartBrowserSignIn(ctx context.Context, agent string) (agenthub.SignInFlow, error) {
+	return s.agentHubStartInAppSignIn(ctx, agent, agenthub.SignInBrowser)
+}
+
+// AgentHubStartDeviceSignIn starts a sign-in by code, for a machine that
+// cannot open a browser. Off by default per ChatGPT account; the UI says how
+// to turn it on.
+func (s *AppService) AgentHubStartDeviceSignIn(ctx context.Context, agent string) (agenthub.SignInFlow, error) {
+	return s.agentHubStartInAppSignIn(ctx, agent, agenthub.SignInDeviceCode)
+}
+
+// agentHubStartInAppSignIn records how, never what: the page and the code in
+// the answer are the person's to use once and stay out of the audit log.
+func (s *AppService) agentHubStartInAppSignIn(ctx context.Context, agent, method string) (agenthub.SignInFlow, error) {
+	id := agentRuntimeID(agent)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "auth:"+id, map[string]any{
+		"action": "start_in_app_sign_in",
+		"agent":  id,
+		"method": method,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.StartSignIn(callCtx, agenthub.AgentType(agent), method)
+	})
+	if err != nil {
+		return agenthub.SignInFlow{}, err
+	}
+	return result.(agenthub.SignInFlow), nil
+}
+
+// AgentHubCancelSignIn abandons the sign-in in progress. A login id that is
+// no longer current is already over, and cancelling it is not an error.
+func (s *AppService) AgentHubCancelSignIn(ctx context.Context, agent, loginID string) error {
+	id := agentRuntimeID(agent)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "auth:"+id, map[string]any{
+		"action": "cancel_in_app_sign_in",
+		"agent":  id,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.CancelSignIn(callCtx, agenthub.AgentType(agent), loginID)
+	})
+	return err
+}
+
+// AgentHubSignOut removes the vendor's own sign-in from DevKit's home for it.
+// An API key chosen in Settings is not signed out here; it is unlinked there.
+func (s *AppService) AgentHubSignOut(ctx context.Context, agent string) error {
+	id := agentRuntimeID(agent)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "auth:"+id, map[string]any{
+		"action": "sign_out",
+		"agent":  id,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.SignOut(callCtx, agenthub.AgentType(agent)); err != nil {
+			return nil, err
+		}
+		// The note in Accounts goes with the sign-in. Failing to remove it is
+		// not a failed sign-out: the credential, the thing that matters, is
+		// already gone from the vendor's home.
+		if err := app.ForgetAgentSignIn(s.container, agenthub.AgentType(agent)); err != nil {
+			log.Printf("agenthub: sign-out: accounts note: %v", err)
+		}
+		return nil, nil
+	})
+	return err
 }
 
 var errAgentHubUnavailable = errors.New("agenthub is not available")

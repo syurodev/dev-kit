@@ -260,6 +260,15 @@ OpenAI. Đăng nhập trình duyệt thì chạy được ngay từ trong bwrap.
   `AgentHubCancelSignIn`, `AgentHubSignOut`; event `agenthub:signInCompleted`.
 - Capability `agenthub:execute` trên `auth:codex`, **chỉ UI**. Không có tool MCP đăng nhập.
 - Audit ghi id account + phương thức; **không bao giờ** ghi mã một lần hay key.
+- **Đã làm ở Kế hoạch 3:** "chỉ UI" không chỉ là thiếu tool — `Service` từ chối caller đã được
+  gateway đóng dấu là agent hoặc CLI trên socket MCP chung (`ErrPermissionDenied`), nên một cửa
+  mở nhầm về sau vẫn không dẫn tới đâu; `internal/mcp` có test chặn tool/lời gọi sign-in.
+  API key: `preferences` lưu id (`agent_codex_api_key_account`), `app.CodexAPIKey` resolve lúc
+  spawn, chọn một account không dùng được (không phải `token`, scoped, giới hạn env, không tồn tại)
+  bị từ chối ngay ở Settings, và Accounts không cho xoá account đang được chọn. Dòng `external`
+  "Codex (ChatGPT)" (provider `openai`) được ghi khi `account/login/completed` báo thành công và
+  xoá khi Sign out. `agent_not_installed`/`agent_auth_required` nói đúng vendor qua
+  `agenthub.VendorError`.
 
 ## 7. Duyệt quyền và chế độ
 

@@ -141,11 +141,11 @@ func (a *CodexAdapter) resolveCommand() (launch, error) {
 		return launch{path: path, ro: uniqueAbsPaths(append([]string{path}, codexPackageDir(path)...)...)}, nil
 	}
 	if a.opts.Runtime == nil {
-		return launch{}, ErrAgentNotInstalled
+		return launch{}, vendorError(AgentTypeCodex, ErrAgentNotInstalled)
 	}
 	rt, err := a.opts.Runtime()
 	if errors.Is(err, agentruntime.ErrNotInstalled) {
-		return launch{}, fmt.Errorf("%w: %w", ErrAgentNotInstalled, err)
+		return launch{}, vendorError(AgentTypeCodex, fmt.Errorf("%w: %w", ErrAgentNotInstalled, err))
 	}
 	if err != nil {
 		return launch{}, fmt.Errorf("%w: %w", ErrProcessFailed, err)
@@ -432,7 +432,7 @@ func (a *CodexAdapter) apiKey(ctx context.Context) (string, error) {
 	}
 	key, err := a.opts.APIKey(ctx)
 	if err != nil {
-		return "", fmt.Errorf("%w: the Codex API key could not be read: %v", ErrAgentAuthRequired, err)
+		return "", vendorError(AgentTypeCodex, fmt.Errorf("%w: %w: the Codex API key could not be read: %v", ErrAgentAuthRequired, ErrAgentAPIKeyUnusable, err))
 	}
 	return strings.TrimSpace(key), nil
 }
@@ -512,7 +512,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Type: codexapp.LoginAPIKey, APIKey: key,
 		}, &login); err != nil {
 			// The server's message, never the key: it is not part of err.
-			return fail(fmt.Errorf("%w: Codex refused the API key: %v", ErrAgentAuthRequired, err))
+			return fail(vendorError(AgentTypeCodex, fmt.Errorf("%w: %w: Codex refused the API key: %v", ErrAgentAuthRequired, ErrAgentAPIKeyUnusable, err)))
 		}
 	}
 	var account codexapp.GetAccountResponse
@@ -520,7 +520,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		return fail(p.failure("account/read", err))
 	}
 	if account.RequiresOpenAIAuth && account.Account == nil {
-		return fail(fmt.Errorf("%w: Codex is not signed in", ErrAgentAuthRequired))
+		return fail(vendorError(AgentTypeCodex, fmt.Errorf("%w: Codex is not signed in", ErrAgentAuthRequired)))
 	}
 
 	var thread codexapp.ThreadStartResponse
@@ -1096,7 +1096,7 @@ func codexTurnError(e *codexapp.TurnError) error {
 	}
 	switch codexErrorKind(e.CodexErrorInfo) {
 	case "unauthorized":
-		return fmt.Errorf("%w: %s", ErrAgentAuthRequired, e.Message)
+		return vendorError(AgentTypeCodex, fmt.Errorf("%w: %s", ErrAgentAuthRequired, e.Message))
 	case "usageLimitExceeded":
 		return fmt.Errorf("%w: Codex usage limit reached: %s", ErrProcessFailed, e.Message)
 	case "contextWindowExceeded":

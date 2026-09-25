@@ -7,6 +7,7 @@ import {
   PermissionAsk,
   PermissionIdentity,
   PermissionLockedNote,
+  allowAlwaysLabel,
   permissionChoices,
   permissionEnv,
   type PermissionEnv,
@@ -111,7 +112,7 @@ export function AgentPermissionRequest({
           onClick={() => void onResolve(always.optionId)}
           className={cn("border-border-subtle", pad)}
         >
-          Allow always
+          {allowAlwaysLabel(always)}
         </Button>
       ) : null}
     </div>

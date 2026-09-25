@@ -33,6 +33,7 @@ import { AgentSessionFailure } from "./AgentSessionFailure";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
 import { AgentQuestionCard } from "./AgentQuestionCard";
 import { PermissionPresence } from "./permissionCard";
+import { vendorInfo } from "../vendors";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -251,7 +252,7 @@ export function AgentHubContent({
   workspace = null,
   onChooseWorkspace,
   agents = [],
-  agent = "claude",
+  agent = "",
   onAgentChange,
   draftNotice,
   sendDisabled = false,
@@ -319,7 +320,7 @@ export function AgentHubContent({
   const displayTitle = draft
     ? "New session"
     : session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
-  const vendor = draft ? agent : session?.agentType || "claude";
+  const vendor = draft ? agent : session?.agentType ?? "";
 
   return (
     <main
@@ -561,7 +562,7 @@ export function AgentHubContent({
               vendor={vendor}
               // A draft is not named yet; its placeholder addresses the agent
               // that will answer — "Ask Claude…", not "Ask New session…".
-              agentName={draft ? agent.charAt(0).toUpperCase() + agent.slice(1) : displayTitle}
+              agentName={draft ? vendorInfo(agent).name : displayTitle}
               // A closed session says what sending will do, since it does one
               // thing more than usual: it wakes the agent's process back up.
               placeholder={composerPlaceholder(session?.status)}
