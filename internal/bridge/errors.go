@@ -255,6 +255,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
 		case errors.Is(err, agenthub.ErrAgentAuthRequired):
 			return apperrors.New(codeAgentAuthRequired, agentAuthRequiredMessage(agenthub.ErrorVendor(err)), true)
+		case errors.Is(err, agenthub.ErrUnsupported):
+			return apperrors.New(codeValidationFailed, "This agent doesn't support that.", true)
 		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
 			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):

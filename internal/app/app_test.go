@@ -64,6 +64,9 @@ func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "runtime:claude-acp"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "auth:claude"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "auth:claude"},
+		// Codex signs in inside the app: status, browser or code, cancel, sign out.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "auth:codex"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "auth:codex"},
 		{SubjectID: "builtin.agenthub", Capability: "terminal:io", Scope: "session:abc"},
 	} {
 		decision := container.Permissions.Check(permissions.Request{
