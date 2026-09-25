@@ -57,6 +57,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSe
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleFolder } from "../../stores/workFolder";
 import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
+import { useSidebarWorkspaces } from "./sidebarWorkspaces";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -271,6 +272,7 @@ export function AgentHubView() {
   const recentProjects = useAgentPinsStore((state) => state.recentProjects);
   const rememberProject = useAgentPinsStore((state) => state.rememberProject);
   const { workspace: currentWorkspace, services: workspaceServices } = useCurrentWorkspaceServices();
+  const sidebarWorkspaces = useSidebarWorkspaces();
   // Where "no project" sessions get their folders. Read once: it is a fixed
   // place under the config dir, and the sidebar groups everything under it.
   const scratchRoot = useQuery({
@@ -946,6 +948,7 @@ export function AgentHubView() {
 
   useAgentHubSidebar({
     sessions,
+    workspaces: sidebarWorkspaces,
     scratchRoot,
     activeSessionId: activeSession?.id,
     pendingCounts,
@@ -955,8 +958,12 @@ export function AgentHubView() {
     },
     onNewSession: () => void startNewDraft(),
     // The "No project" group's + starts another scratch session, not one in
-    // the scratch root itself.
-    onNewSessionIn: (projectPath) => startDraft(projectPath === scratchRoot ? "" : projectPath, null),
+    // the scratch root itself. A workspace's + is the whole workspace: its
+    // primary as cwd, the other services granted beside it.
+    onNewSessionIn: (projectPath, workspacePaths) => {
+      startDraft(projectPath === scratchRoot ? "" : projectPath, null);
+      if (workspacePaths && workspacePaths.length > 1) chooseWorkspaceForDraft(workspacePaths);
+    },
     onNewChildSession: (parent) => startDraft(parent.projectPath, parent),
     onCancelTurn: (session) => void handleCancelFor(session),
     onCloseSession: (session) => void handleCloseFor(session),

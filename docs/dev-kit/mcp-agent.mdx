@@ -125,6 +125,7 @@ Ba primitive từng có — **Roots, Sampling, Logging** — đã bị deprecate
 | Search, Sync | [Technical contracts § Bridge contract](/dev-kit/technical-contracts#bridge-contract) — cột "MCP tool (design)" |
 | Code Graph | [Code Graph § MCP tool surface](/dev-kit/codegraph#mcp-tool-surface) |
 | Agent Hub | [Agent Hub § MCP tool surface](/dev-kit/agent-hub#mcp-tool-surface) — `agenthub.listAgents/createAgentSession/invokeAgent/getSessionStatus/cancelAgent` (Implemented Claude-only; Codex/Gemini Design) |
+| Workspace | [Workspace](/dev-kit/workspace) — `workspace.list` (chỉ đọc, `ws:read` `workspace:list`): workspace và các thư mục (service) của nó, primary đứng đầu. Gọi từ một session Agent Hub thì chỉ trả workspace chứa thư mục của session, kèm `cwd` và cờ `granted` cho thư mục session được ghi. CLI trên socket chung thấy mọi workspace. |
 
 ### Active target selection — pattern chung cho tool cần 1 target sống
 

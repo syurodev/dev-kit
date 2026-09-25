@@ -84,6 +84,12 @@ as production-verified against a real Claude Code session in cloud CI.
   (prod `git push`, guarded commits, prod `api.send`, task gates). Accepted for now; the plan is
   to ask through OS notifications instead (Codex spec §8.1). Non-gated tools (e.g.
   `vault.status`, notes when unlocked in-process) still work.
+- `workspace.list` (read-only) tells an agent its workspace: the folders (services),
+  primary first, its own `cwd`, and which folders its session may write (`granted`:
+  cwd plus the session's extra read-write paths). An Agent Hub session sees only the
+  workspaces its folders belong to; a terminal CLI on the shared socket sees them all.
+  The primary-first order comes from `workspace.Service.ListServices` — the SQL
+  repository alone sorts by name.
 - Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.
