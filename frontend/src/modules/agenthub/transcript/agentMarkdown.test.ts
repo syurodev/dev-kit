@@ -62,6 +62,33 @@ describe("agentMarkdown", () => {
     expect(plain).toMatchObject({ align: ["left", "left"] });
   });
 
+  it("reads a table that starts right after a sentence, with no blank line", () => {
+    // What an agent wrote in the field: the intro line, then the table. GFM
+    // lets a table interrupt a paragraph; read as one paragraph, the whole
+    // table came out as a line of pipes and dashes.
+    const blocks = parseMarkdown(
+      [
+        "4 folder, kong-plugin là primary:",
+        "| folder | path |",
+        "|---|---|",
+        "| **kong-plugin** (primary) | `/w/fsap/kong-plugin` |",
+        "| fsap-config-service | `/w/g-platform/fsap-config-service` |",
+        "",
+        "**Repo kong-plugin**",
+      ].join("\n"),
+    );
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph", "table", "paragraph"]);
+    expect(blocks[0]).toEqual({ type: "paragraph", text: "4 folder, kong-plugin là primary:" });
+    expect(blocks[1]).toMatchObject({ type: "table", head: ["folder", "path"] });
+    if (blocks[1].type === "table") expect(blocks[1].rows).toHaveLength(2);
+  });
+
+  it("needs as many divider cells as header cells, as GFM does", () => {
+    // A sentence with a pipe above a "---" rule is not a one-column table.
+    const blocks = parseMarkdown(["Summary:", "use `a | b` here", "---"].join("\n"));
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
   it("does not mistake a piped command for a table", () => {
     // Without a divider row this is a shell line, and turning it into a
     // two-column table would hide half of it.
@@ -108,6 +135,7 @@ describe("agentMarkdown", () => {
     "four-backtick fence": "````\ncode\n````\n\ntext",
     "fence inside a list": "- one\n```\ncode\n```\n- two\n\n1. three",
     "table whose divider comes after the header": "| A | B |\n| --- | ---: |\n| 1 | 2 |\n\nafter",
+    "table right after a sentence": "Summary:\n| A | B |\n|---|---|\n| 1 | 2 |\n\nafter",
     "list that keeps going": "- a\n- b\n\n- c\n- d\ntrailing",
     quote: "> one\n> two\n\n> three\n\nend",
     CRLF: "para\r\n\r\n```js\r\nx\r\n```\r\n\r\n| A |\r\n| - |\r\n| 1 |",

@@ -91,6 +91,20 @@ function tailKeys(blocks: MarkdownBlock[], previousBlocks: MarkdownBlock[], prev
   );
 }
 
+/**
+ * Whether a table starts at line i: a row with pipes, then a divider with as
+ * many cells (GFM's rule). The count is what keeps "a | b" followed by a
+ * "---" rule from reading as a table now that a table may follow a sentence.
+ */
+function startsTable(lines: string[], i: number): boolean {
+  return (
+    lines[i].includes("|") &&
+    i + 1 < lines.length &&
+    TABLE_DIVIDER.test(lines[i + 1]) &&
+    splitRow(lines[i]).length === splitRow(lines[i + 1]).length
+  );
+}
+
 function splitRow(line: string): string[] {
   return line
     .replace(/^\s*\|/, "")
@@ -138,7 +152,7 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
 
     // A table needs its divider row; without one these are just paragraphs
     // containing pipes, which is what a shell command looks like.
-    if (line.includes("|") && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1])) {
+    if (startsTable(lines, i)) {
       const head = splitRow(line);
       // The divider was only a marker before; it also says how each column
       // aligns, and a column of numbers is right-aligned so its digits line up.
@@ -177,11 +191,14 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
     }
 
     // Everything else is a paragraph, joined until a blank line so a wrapped
-    // sentence does not become three paragraphs.
+    // sentence does not become three paragraphs. A table ends it too, as in
+    // GFM: agents write "Summary:" and the table on the very next line, and
+    // read as one paragraph the whole table came out as a row of pipes.
     const paragraph: string[] = [];
     while (
       i < lines.length &&
       lines[i].trim() &&
+      !(paragraph.length > 0 && startsTable(lines, i)) &&
       !HEADING.test(lines[i]) &&
       !BULLET.test(lines[i]) &&
       !ORDERED.test(lines[i]) &&
