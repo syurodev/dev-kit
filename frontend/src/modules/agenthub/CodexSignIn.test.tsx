@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { CodexSignInPanel, DEVICE_CODE_HINT, codexSignInOutcome } from "./CodexSignIn";
+import { CodexSignInPanel, DEVICE_CODE_HINT, codexSignInOutcome, createSignInTracker } from "./CodexSignIn";
 
 const noop = () => {};
 const panel = (over: Partial<Parameters<typeof CodexSignInPanel>[0]> = {}) =>
@@ -51,5 +51,60 @@ describe("codexSignInOutcome", () => {
       message: "Sign-in cancelled.",
     });
     expect(codexSignInOutcome({ success: false, error: "" }).message).toBe("Sign-in did not finish.");
+  });
+});
+
+describe("which sign-in events a panel acts on", () => {
+  const flow = (loginId: string) => ({ loginId, method: "browser", authUrl: "https://auth.example/x" });
+  const result = (loginId: string, success: boolean, error = "") => ({ agent: "codex", loginId, success, error });
+
+  it("its own flow's end, success or not", () => {
+    const t = createSignInTracker();
+    expect(t.started(flow("a"))).toBeNull();
+    expect(t.event(result("a", false, "Sign-in timed out."))?.error).toBe("Sign-in timed out.");
+    expect(t.current).toBeNull();
+  });
+
+  it("another flow failing is not news", () => {
+    const t = createSignInTracker();
+    t.started(flow("a"));
+    expect(t.event(result("b", false, "Sign-in cancelled."))).toBeNull();
+    expect(t.current?.loginId).toBe("a");
+  });
+
+  it("a sign-in finished elsewhere lets the waiting action go ahead", () => {
+    // The hub waits to retry; the person signs in from Settings instead.
+    const hub = createSignInTracker();
+    expect(hub.event(result("settings-1", true))?.success).toBe(true);
+    // And if the hub had a flow, Settings replaced it: first its failure,
+    // then the success that counts.
+    const busy = createSignInTracker();
+    busy.started(flow("a"));
+    expect(busy.event(result("a", false, "Replaced by a new sign-in."))?.success).toBe(false);
+    expect(busy.event(result("b", true))?.success).toBe(true);
+  });
+
+  it("an end that beats its own start is taken when the start answers", () => {
+    const t = createSignInTracker();
+    expect(t.event(result("a", false, "Codex exited before the sign-in finished."))).toBeNull();
+    const ended = t.started(flow("a"));
+    expect(ended !== null && ended !== "reported" && ended.error).toBe("Codex exited before the sign-in finished.");
+    expect(t.current).toBeNull();
+  });
+
+  it("an early success is acted on once, not again at start", () => {
+    const t = createSignInTracker();
+    expect(t.event(result("a", true))?.success).toBe(true);
+    expect(t.started(flow("a"))).toBe("reported");
+    expect(t.current).toBeNull();
+  });
+
+  it("other vendors are ignored, and cancel hands back the flow to withdraw", () => {
+    const t = createSignInTracker();
+    t.started(flow("a"));
+    expect(t.event({ agent: "claude", loginId: "a", success: true, error: "" })).toBeNull();
+    expect(t.cancel()?.loginId).toBe("a");
+    expect(t.cancel()).toBeNull();
+    expect(t.event(result("a", false))).toBeNull();
   });
 });

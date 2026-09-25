@@ -36,15 +36,75 @@ export function codexSignInOutcome(result: Pick<SignInResult, "success" | "error
   return { signedIn: false, message: result.error || "Sign-in did not finish." };
 }
 
+/** How many ended flows the tracker remembers for a start still in flight. */
+const EARLY_RESULTS = 8;
+
+/**
+ * Which agenthub:signInCompleted events a sign-in panel acts on, kept apart
+ * from React so the rules can be tested.
+ *
+ * - Its own flow's end, success or not.
+ * - Any other Codex sign-in that succeeded: the backend runs one flow at a
+ *   time, so a sign-in finished elsewhere (Settings, while the hub waits to
+ *   retry) is the account every session will use, and the action waiting on
+ *   it can go ahead. Its own flow, if it had one, was replaced by that one.
+ * - An end that arrives before the start that made it has answered (Codex
+ *   exiting at once): remembered, and taken when the start resolves, so the
+ *   panel does not wait for an event that already came.
+ */
+export function createSignInTracker() {
+  let current: SignInFlow | null = null;
+  // Results of flows not known to be this tracker's, newest last.
+  const early: SignInResult[] = [];
+  return {
+    get current() {
+      return current;
+    },
+    /**
+     * A start answered. Returns how that flow already ended, or null while it
+     * runs; "reported" when it ended in a success event() already acted on.
+     */
+    started(flow: SignInFlow): SignInResult | "reported" | null {
+      const index = early.findIndex((r) => r.loginId === flow.loginId);
+      const ended = index >= 0 ? early[index] : null;
+      early.length = 0;
+      if (!ended) {
+        current = flow;
+        return null;
+      }
+      current = null;
+      return ended.success ? "reported" : ended;
+    },
+    /** An event. Returns the result to act on, or null to ignore it. */
+    event(result: SignInResult): SignInResult | null {
+      if (result.agent !== CODEX_VENDOR) return null;
+      if (current && result.loginId === current.loginId) {
+        current = null;
+        return result;
+      }
+      early.push(result);
+      if (early.length > EARLY_RESULTS) early.shift();
+      if (!result.success) return null;
+      current = null;
+      return result;
+    },
+    /** Withdraws the flow in progress; returns it for the backend cancel. */
+    cancel(): SignInFlow | null {
+      const flow = current;
+      current = null;
+      return flow;
+    },
+  };
+}
+
 /**
  * Sign in to Codex, as a state its owner keeps — the same shape as
  * useClaudeSignIn, so Agent Hub can retry the action that needed it once the
  * sign-in lands.
  *
  * The flow runs in the backend (a short-lived Codex in the jail, holding the
- * login page's callback port) and ends with an agenthub:signInCompleted event.
- * Only the event of the flow this hook started counts: a flow it replaced or
- * cancelled reports too, and must not read as this one finishing.
+ * login page's callback port) and ends with an agenthub:signInCompleted event;
+ * createSignInTracker decides which events count.
  */
 export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
   const client = useQueryClient();
@@ -53,35 +113,41 @@ export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
   const [outcome, setOutcome] = useState<SignInOutcome | null>(null);
   const [startError, setStartError] = useState("");
   // Read by the event handler and by cleanup, which see neither render's state.
-  const flowRef = useRef<SignInFlow | null>(null);
+  const [tracker] = useState(createSignInTracker);
+  const alive = useRef(true);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+
+  function finish(result: SignInResult) {
+    setFlow(null);
+    const next = codexSignInOutcome(result);
+    setOutcome(next);
+    void client.invalidateQueries({ queryKey: agentSignInStatusQueryKey(CODEX_VENDOR) });
+    onDoneRef.current?.(next);
+  }
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
 
   useEffect(
     () =>
       onAgentSignInCompleted((result) => {
-        const current = flowRef.current;
-        if (result.agent !== CODEX_VENDOR || !current || result.loginId !== current.loginId) return;
-        flowRef.current = null;
-        setFlow(null);
-        const next = codexSignInOutcome(result);
-        setOutcome(next);
-        void client.invalidateQueries({ queryKey: agentSignInStatusQueryKey(CODEX_VENDOR) });
-        onDoneRef.current?.(next);
+        const act = tracker.event(result);
+        if (act) finishRef.current(act);
       }),
-    [client],
+    [tracker],
   );
 
   // A flow nobody is looking at any more holds the callback port until it
-  // times out. Leaving withdraws it.
-  useEffect(
-    () => () => {
-      const current = flowRef.current;
-      flowRef.current = null;
+  // times out. Leaving withdraws it — including one whose start is still in
+  // flight, which start() withdraws when it answers.
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      const current = tracker.cancel();
       if (current) void agentHubCancelSignIn(CODEX_VENDOR, current.loginId).catch(() => {});
-    },
-    [],
-  );
+    };
+  }, [tracker]);
 
   async function start(method: CodexSignInMethod) {
     setStarting(method);
@@ -92,9 +158,17 @@ export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
         method === "browser"
           ? await agentHubStartBrowserSignIn(CODEX_VENDOR)
           : await agentHubStartDeviceSignIn(CODEX_VENDOR);
-      flowRef.current = next;
-      setFlow(next);
-      if (next.authUrl) void Browser.OpenURL(next.authUrl);
+      if (!alive.current) {
+        void agentHubCancelSignIn(CODEX_VENDOR, next.loginId).catch(() => {});
+        return;
+      }
+      const ended = tracker.started(next);
+      if (ended === null) {
+        setFlow(next);
+        if (next.authUrl) void Browser.OpenURL(next.authUrl);
+      } else if (ended !== "reported") {
+        finish(ended);
+      }
     } catch (e) {
       setStartError(errorMessage(e));
     } finally {
@@ -103,9 +177,8 @@ export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
   }
 
   async function cancel() {
-    const current = flowRef.current;
+    const current = tracker.cancel();
     if (!current) return;
-    flowRef.current = null;
     setFlow(null);
     try {
       await agentHubCancelSignIn(CODEX_VENDOR, current.loginId);
