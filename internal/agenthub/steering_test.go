@@ -149,3 +149,65 @@ func TestSetGoalAndClearItReachTheAgent(t *testing.T) {
 		t.Fatalf("goal = %q, want cleared", got)
 	}
 }
+
+// Answering a permission lets the turn go on, whichever way it was answered:
+// the agent is told yes or no and keeps working. The session has to say
+// running again for that stretch — a denial used to leave it
+// awaiting_permission until the turn ended, which took the running
+// indicator off an agent that was still writing.
+func TestAnsweredPermissionPutsTheTurnBackToRunning(t *testing.T) {
+	answers := map[string]string{
+		"allow": `{"outcome":{"outcome":"selected","optionId":"allow"}}`,
+		"deny":  `{"outcome":{"outcome":"selected","optionId":"deny"}}`,
+		// The card dismissed rather than answered: the gate fails closed and
+		// the agent is refused, but the turn still goes on.
+		"cancelled": `{"outcome":{"outcome":"cancelled"}}`,
+	}
+	for name, answer := range answers {
+		t.Run(name, func(t *testing.T) {
+			svc := newTestService(t)
+			answered := make(chan struct{})
+			svc.ResolvePermission = func(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
+				defer close(answered)
+				return json.RawMessage(answer), nil
+			}
+			sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+				AgentType: agenthub.AgentTypeMock,
+				Cwd:       t.TempDir(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, invokeErr := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "NEED_PERMISSION HOLD_AFTER"})
+				done <- invokeErr
+			}()
+			<-answered
+
+			deadline := time.After(2 * time.Second)
+			for {
+				status, err := svc.GetStatus(context.Background(), sess.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if status.Status == agenthub.SessionStatusRunning {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatalf("status = %q while the turn is still going, want running", status.Status)
+				default:
+					time.Sleep(time.Millisecond)
+				}
+			}
+
+			if err := svc.Cancel(context.Background(), sess.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil && !errors.Is(err, agenthub.ErrCancelled) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
