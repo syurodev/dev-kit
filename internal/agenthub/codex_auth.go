@@ -114,6 +114,12 @@ func (s *Service) SignOut(ctx context.Context, t AgentType) error {
 	return signIn.SignOut(ctx)
 }
 
+// codexLoginCallbackPort is where codex's login server takes the browser's
+// redirect (redirect_uri=http://localhost:1455/auth/callback, measured on
+// 0.147.0). Only a sign-in's jail may listen on it — without that, Seatbelt
+// refused the bind and browser sign-in failed on macOS (measured live).
+const codexLoginCallbackPort = 1455
+
 // codexSignInTimeout is how long a sign-in waits for the person (spec §6.1).
 // A var so a test need not wait it out.
 var codexSignInTimeout = 15 * time.Minute
@@ -167,7 +173,7 @@ func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string
 		return SignInFlow{}, err
 	}
 	s := &codexSignIn{work: work}
-	p, err := a.start(work, l, OpenSpec{}, codexStoreFile, &codexSignInHandler{a: a, s: s})
+	p, err := a.start(work, l, OpenSpec{}, codexStoreFile, &codexSignInHandler{a: a, s: s}, codexLoginCallbackPort)
 	if err != nil {
 		_ = os.RemoveAll(work)
 		return SignInFlow{}, err

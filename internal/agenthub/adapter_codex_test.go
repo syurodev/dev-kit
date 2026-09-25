@@ -440,6 +440,9 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	if pol.Network != sandbox.NetworkHost {
 		t.Errorf("network = %q", pol.Network)
 	}
+	if len(pol.ListenLoopbackPorts) != 0 {
+		t.Errorf("a session serves nothing: %v", pol.ListenLoopbackPorts)
+	}
 	for _, key := range []string{"OPENAI_API_KEY", "CODEX_API_KEY"} {
 		if _, ok := pol.Env[key]; ok {
 			t.Errorf("%s must not reach the jail", key)
@@ -945,6 +948,9 @@ func TestCodexBrowserSignIn(t *testing.T) {
 	}
 	if pol.Network != sandbox.NetworkHost {
 		t.Fatal("the browser callback reaches the jail over the host loopback")
+	}
+	if !slices.Equal(pol.ListenLoopbackPorts, []int{1455}) {
+		t.Fatalf("the sign-in must be able to serve the callback on 1455, and nothing else: %v", pol.ListenLoopbackPorts)
 	}
 	// account/read on the process that just signed in says "no account"
 	// (Phase 0); status is read by a fresh one.

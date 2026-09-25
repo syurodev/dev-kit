@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -83,6 +84,9 @@ func TestSeatbeltProfileNetworkHostCanCheckCertificates(t *testing.T) {
 	host := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
 	if !strings.Contains(host, lookup) {
 		t.Fatalf("NetworkHost must reach securityd to verify TLS: %s", host)
+	}
+	if !strings.Contains(host, `(global-name "com.apple.trustd.agent")`) {
+		t.Fatalf("NetworkHost must reach trustd, which the platform verifier asks: %s", host)
 	}
 	none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
 	if strings.Contains(none, lookup) {
@@ -225,5 +229,30 @@ func TestSeatbeltProfileSharedHome(t *testing.T) {
 	}.withDefaults())
 	if strings.Contains(private, `(subpath "/Users/alice")`) {
 		t.Fatalf("a private home must not be granted: %s", private)
+	}
+}
+
+// A sign-in callback listens on its one loopback port and no other; a policy
+// that asks for none gets none, and a port that is not one is refused.
+func TestSeatbeltProfileListensOnlyOnTheLoopbackPortsAsked(t *testing.T) {
+	prof := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, ListenLoopbackPorts: []int{1455}}.withDefaults())
+	for _, want := range []string{
+		`(allow network-bind (local ip "localhost:1455"))`,
+		`(allow network-inbound (local ip "localhost:1455"))`,
+	} {
+		if !strings.Contains(prof, want) {
+			t.Fatalf("missing %s: %s", want, prof)
+		}
+	}
+	if strings.Count(prof, "network-bind") != 1 || strings.Count(prof, "network-inbound") != 1 {
+		t.Fatalf("only the one port may listen: %s", prof)
+	}
+	if none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost}.withDefaults()); strings.Contains(none, "network-bind") || strings.Contains(none, "network-inbound") {
+		t.Fatalf("no listener unless asked: %s", none)
+	}
+	for _, port := range []int{0, -1, 65536} {
+		if err := (Policy{WorkDir: "/tmp", ListenLoopbackPorts: []int{port}}).Validate(); !errors.Is(err, ErrInvalidPolicy) {
+			t.Errorf("port %d: Validate = %v, want ErrInvalidPolicy", port, err)
+		}
 	}
 }

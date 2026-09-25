@@ -48,6 +48,13 @@ type Policy struct {
 	// the session's identity-bound DevKit MCP endpoint. Everything else stays
 	// closed (NetworkHost is IP-only).
 	AllowUnixSockets []string
+	// ListenLoopbackPorts are loopback ports the process may listen on — a
+	// vendor's sign-in callback, which the person's browser is redirected to.
+	// Seatbelt denies binding a socket otherwise (measured: codex's login
+	// server failed with "Operation not permitted"). bwrap needs nothing: a
+	// NetworkHost jail shares the host's loopback, and a NetworkNone one has
+	// no loopback the browser could reach anyway.
+	ListenLoopbackPorts []int
 	// AllowKeychain lets the process read the macOS login keychain. Vendor
 	// agents that authenticate with a subscription keep their OAuth token
 	// there, not in a file or an env var. No-op off darwin.
@@ -76,6 +83,11 @@ func (p Policy) Validate() error {
 	}
 	for _, sock := range p.AllowUnixSockets {
 		if !filepath.IsAbs(sock) {
+			return ErrInvalidPolicy
+		}
+	}
+	for _, port := range p.ListenLoopbackPorts {
+		if port < 1 || port > 65535 {
 			return ErrInvalidPolicy
 		}
 	}

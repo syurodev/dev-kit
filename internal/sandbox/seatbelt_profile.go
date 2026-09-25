@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +37,13 @@ var seatbeltSystemReadOnlyPaths = []string{
 // not open the login keychain on its own, but a shared home grants the
 // keychain files — so buildSeatbeltProfile denies ~/Library/Keychains
 // whenever AllowKeychain is off.
+//
+// trustd (com.apple.trustd.agent) is the other half: codex's sign-in
+// exchanges its code for a token through the platform verifier (SecTrust),
+// which asks trustd, not securityd. Without it the browser sign-in reached
+// the callback and then failed with "error sending request for url
+// (https://auth.openai.com/oauth/token)" (measured on 0.147.0, with the
+// keychain still closed afterwards).
 var seatbeltNetworkMachServices = []string{
 	"com.apple.SystemConfiguration.configd",
 	"com.apple.mDNSResponder",
@@ -44,6 +52,7 @@ var seatbeltNetworkMachServices = []string{
 	"com.apple.system.logger",
 	"com.apple.system.notification_center",
 	"com.apple.SecurityServer",
+	"com.apple.trustd.agent",
 }
 
 // buildSeatbeltProfile returns an SBPL profile string for sandbox-exec.
@@ -150,6 +159,13 @@ func buildSeatbeltProfile(p Policy) string {
 	// the resolved literal the connect right alone suffices (verified live).
 	for _, sock := range p.AllowUnixSockets {
 		b.WriteString("(allow network-outbound (literal \"" + escapeSBPL(resolveDenyPath(sock)) + "\"))\n")
+	}
+	// Loopback listeners, one port each. Both rules are needed: bind alone
+	// still fails at listen() (measured), and neither opens any other port.
+	for _, port := range p.ListenLoopbackPorts {
+		addr := "localhost:" + strconv.Itoa(port)
+		b.WriteString("(allow network-bind (local ip \"" + addr + "\"))\n")
+		b.WriteString("(allow network-inbound (local ip \"" + addr + "\"))\n")
 	}
 
 	// Deny-write after every allow: SBPL's later matching rule wins, so these

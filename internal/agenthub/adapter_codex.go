@@ -206,7 +206,10 @@ func codexEnv(l launch, spec OpenSpec, home string) map[string]string {
 
 // jail is the one place a Codex policy is written, shared by sessions,
 // sign-in and Probe, so each runs under the jail a session gets.
-func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store string) (sandbox.Policy, sandbox.Cmd, error) {
+//
+// listen are loopback ports the process may serve: only a sign-in asks, for
+// the browser's callback.
+func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store string, listen ...int) (sandbox.Policy, sandbox.Cmd, error) {
 	home := a.opts.Home
 	denyWrite, err := prepareCodexHome(home)
 	if err != nil {
@@ -221,15 +224,16 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		denyRead = append(denyRead, filepath.Join(host, ".codex"))
 	}
 	pol := sandbox.Policy{
-		WorkDir:          workDir,
-		Network:          sandbox.NetworkHost,
-		Env:              codexEnv(l, spec, home),
-		ReadOnlyPaths:    uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths:   uniqueAbsPaths(append([]string{home}, spec.ExtraReadWritePaths...)...),
-		DenyReadPaths:    denyRead,
-		DenyWritePaths:   denyWrite,
-		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
-		PrivateHome:      spec.PrivateHome,
+		WorkDir:             workDir,
+		Network:             sandbox.NetworkHost,
+		Env:                 codexEnv(l, spec, home),
+		ReadOnlyPaths:       uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
+		ReadWritePaths:      uniqueAbsPaths(append([]string{home}, spec.ExtraReadWritePaths...)...),
+		DenyReadPaths:       denyRead,
+		DenyWritePaths:      denyWrite,
+		AllowUnixSockets:    append([]string(nil), spec.AllowUnixSockets...),
+		ListenLoopbackPorts: append([]int(nil), listen...),
+		PrivateHome:         spec.PrivateHome,
 	}
 	args := append(append([]string(nil), l.args...), codexArgs(store, spec.McpServers)...)
 	return pol, sandbox.Cmd{Path: l.path, Args: args}, nil
@@ -312,8 +316,8 @@ type codexProcess struct {
 // start spawns the app-server and serves its connection with h. The process
 // outlives ctx on purpose, as Claude's does: a session's lifetime belongs to
 // its runtime, not to the request that opened it.
-func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store string, h codexapp.Handler) (*codexProcess, error) {
-	pol, cmd, err := a.jail(workDir, l, spec, store)
+func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store string, h codexapp.Handler, listen ...int) (*codexProcess, error) {
+	pol, cmd, err := a.jail(workDir, l, spec, store, listen...)
 	if err != nil {
 		return nil, err
 	}
