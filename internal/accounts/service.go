@@ -510,33 +510,50 @@ func (s *Service) RecordExternal(provider, label, ref string) (Account, error) {
 }
 
 // ForgetExternal removes the note RecordExternal made, after the sign-in it
-// describes is gone. Nothing recorded is not an error.
+// describes is gone. Nothing recorded is not an error. Every matching row
+// goes: two devices that both signed in before a sync each wrote one, and
+// the local check in RecordExternal could not see the other's.
 func (s *Service) ForgetExternal(provider, label string) error {
-	existing, err := s.findExternal(provider, label)
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
+	notes, err := s.externals(provider, label)
 	if err != nil {
 		return err
 	}
-	return s.Delete(existing.ID)
+	for _, note := range notes {
+		if err := s.Delete(note.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) findExternal(provider, label string) (Account, error) {
-	records, err := s.items.ListByType(vaultitem.ItemTypeAccount)
+	notes, err := s.externals(provider, label)
 	if err != nil {
 		return Account{}, err
 	}
+	if len(notes) == 0 {
+		return Account{}, ErrNotFound
+	}
+	return notes[0], nil
+}
+
+// externals lists the KindExternal rows with this provider and label.
+func (s *Service) externals(provider, label string) ([]Account, error) {
+	records, err := s.items.ListByType(vaultitem.ItemTypeAccount)
+	if err != nil {
+		return nil, err
+	}
+	var out []Account
 	for _, record := range records {
 		account, err := decodeMetadata(record)
 		if err != nil {
 			continue
 		}
 		if account.Kind == KindExternal && account.Provider == provider && account.Label == label {
-			return s.decorate(account), nil
+			out = append(out, s.decorate(account))
 		}
 	}
-	return Account{}, ErrNotFound
+	return out, nil
 }
 
 // Providers lists the registry, for the UI's New Account form.

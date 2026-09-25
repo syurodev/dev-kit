@@ -513,3 +513,22 @@ func countKind(list []Account, kind Kind) int {
 	}
 	return n
 }
+
+// Two devices that signed in before a sync each wrote a note; signing out
+// removes both rather than leaving one behind for nobody.
+func TestForgetExternalRemovesEveryCopy(t *testing.T) {
+	svc, _ := newService(t)
+	for range 2 {
+		// Create, not RecordExternal: the second copy is the one another
+		// device wrote, which this device's check could not see.
+		if _, err := svc.Create(CreateInput{Provider: "openai", Kind: KindExternal, Label: "Codex (ChatGPT)"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.ForgetExternal("openai", "Codex (ChatGPT)"); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := svc.List(); countKind(list, KindExternal) != 0 {
+		t.Fatalf("external rows left: %+v", list)
+	}
+}
