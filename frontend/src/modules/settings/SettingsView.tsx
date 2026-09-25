@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
+import { CODEX_VENDOR } from "@/bridge/agenthub";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
@@ -784,6 +785,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>CLAUDE AGENT</GroupLabel>
         <AgentRuntimeSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>CODEX</GroupLabel>
+        <AgentRuntimeSetting vendor={CODEX_VENDOR} />
       </div>
       <div className="flex flex-col gap-3">
         <GroupLabel>FILE CHECKPOINTS</GroupLabel>
