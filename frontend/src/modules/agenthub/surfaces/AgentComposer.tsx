@@ -42,6 +42,8 @@ import { AgentContextMeter } from "./AgentContextMeter";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
+import { getAgentSandbox } from "@/bridge/preferences";
+import type { AgentSandboxSettings } from "../../../../bindings/devkit/internal/preferences/models";
 import type { EntityRef } from "@/workbench/intents";
 import { vendorInfo } from "../vendors";
 
@@ -106,6 +108,27 @@ export function isPermissionBypassChoice(
 ): boolean {
   if (BYPASS.test(choice.value) || BYPASS.test(choice.name ?? "")) return true;
   return Boolean(option && (BYPASS.test(option.id) || BYPASS.test(option.name ?? "")) && !OFF.test(choice.value));
+}
+
+/**
+ * The line the bypass confirmation adds when the jail is widened (Settings →
+ * Agents → Sandbox): with prompts off, nothing stands between the agent and
+ * what the sandbox lets it reach, and the two widenings reach a lot — the
+ * Docker socket is a way out of the jail altogether. They stay on because
+ * DevKit is useless for many workflows without them (Codex spec §7.1, §8.3);
+ * the person is told instead. Unset reads as on, like the setting itself, and
+ * so does settings that could not be read: the warning errs towards showing.
+ */
+export function bypassSandboxWarning(
+  settings: Pick<AgentSandboxSettings, "shareHome" | "allowDocker"> | null | undefined,
+): string {
+  const home = settings?.shareHome !== false;
+  const docker = settings?.allowDocker !== false;
+  const tail = "the sandbox does not stop the agent from using";
+  if (home && docker) return `The Docker socket and your $HOME are open to this session — ${tail} them.`;
+  if (docker) return `The Docker socket is open to this session — ${tail} it.`;
+  if (home) return `Your $HOME is open to this session — ${tail} it.`;
+  return "";
 }
 
 /** Applies a choice, or hands a bypass to `ask` to apply only once confirmed. */
@@ -451,6 +474,19 @@ export function AgentComposer({
   // A bypass waiting on the dialog. Not window.confirm: WKWebView (macOS) has
   // no confirm panel, so it answered false and bypass could never be enabled.
   const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
+  // Read when the confirmation opens, not before: the setting can change in
+  // Settings between one bypass and the next.
+  const [sandboxWarning, setSandboxWarning] = useState("");
+  useEffect(() => {
+    if (!pendingBypass) return;
+    let live = true;
+    getAgentSandbox()
+      .then((settings) => live && setSandboxWarning(bypassSandboxWarning(settings)))
+      .catch(() => live && setSandboxWarning(bypassSandboxWarning(null)));
+    return () => {
+      live = false;
+    };
+  }, [pendingBypass]);
   // Picked in a menu, so it waits for that menu to close; see heldChoice.
   const [heldBypass] = useState(heldChoice);
   /**
@@ -873,6 +909,11 @@ export function AgentComposer({
               <AlertDialogDescription>
                 {`${agentName ?? "The agent"} will edit files and run commands without asking you first, until you change this back.`}
               </AlertDialogDescription>
+              {sandboxWarning ? (
+                <p data-testid="bypass-sandbox-warning" className="text-body-12 text-status-warning">
+                  {sandboxWarning}
+                </p>
+              ) : null}
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>

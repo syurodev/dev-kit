@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { EASE_OUT_STRONG, MOTION_BASE, MOTION_SLOW, noMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission, PermissionOption } from "@/bridge/agenthub";
-import { permissionCommand, permissionToolTitle } from "@/bridge/agenthub";
+import { permissionCommand, permissionDetail, permissionToolTitle } from "@/bridge/agenthub";
 import { AgentState } from "./AgentState";
 
 export type PermissionEnv = "open" | "locked";
@@ -200,6 +200,7 @@ export function PermissionAsk({
 }) {
   const toolTitle = permissionToolTitle(pending.params);
   const command = permissionCommand(pending.params);
+  const detail = command ? {} : permissionDetail(pending.params);
   // claude-agent-acp titles a Bash call with the command in backticks; showing
   // it twice, once as a title and once in the well, says nothing new.
   const titleRepeatsCommand =
@@ -220,8 +221,27 @@ export function PermissionAsk({
           {command}
         </p>
       ) : null}
+      {detail.message ? (
+        <p data-testid="permission-message" className="line-clamp-2 text-body-12 text-text-primary">
+          {detail.message}
+        </p>
+      ) : null}
+      {detail.args ? (
+        <p data-testid="permission-args" className="line-clamp-2 break-all text-code-11 text-text-secondary" title={detail.args}>
+          {detail.args}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * What the always-grant button says. Codex's lasts for the session and names
+ * itself so ("Allow for this session"); calling that "Allow always" would
+ * promise a rule nobody wrote. Anything else keeps the old words.
+ */
+export function allowAlwaysLabel(option: PermissionOption | undefined): string {
+  return option && /session/i.test(option.name) ? "Allow for session" : "Allow always";
 }
 
 /** The option the vendor means by "just this once", and the always-grant. */
