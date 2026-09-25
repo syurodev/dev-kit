@@ -279,6 +279,19 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 	}
 
 	outcome, err := s.ResolvePermission(waitCtx, sessionID, params)
+
+	// Answered, refused, dismissed or timed out, the turn goes on — the agent
+	// is told and keeps working — so the session is running again. Left
+	// awaiting_permission after a refusal, it said "waiting on you" for the
+	// rest of the turn and the UI took down its running indicator while the
+	// agent was still writing. Only a stopped turn is left alone: Invoke's
+	// error path gives it its final status.
+	if ctx.Err() == nil {
+		if setErr := s.setSessionStatus(ctx, sessionID, SessionStatusRunning); setErr != nil {
+			return nil, setErr
+		}
+	}
+
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			err = ErrPermissionDenied
@@ -290,7 +303,6 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 		if len(outcome) == 0 {
 			outcome = append(json.RawMessage(nil), deniedPermissionOutcome...)
 		}
-		// Leave status as awaiting_permission; Invoke error path sets final status.
 		return outcome, err
 	}
 
@@ -301,9 +313,5 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 		return outcome, ErrPermissionDenied
 	}
 
-	// Restore running so a continuing turn is still marked busy.
-	if setErr := s.setSessionStatus(ctx, sessionID, SessionStatusRunning); setErr != nil {
-		return nil, setErr
-	}
 	return outcome, nil
 }

@@ -5,6 +5,7 @@ import {
   agentHubResolvePermission,
   cancelledPermissionOutcome,
   selectedPermissionOutcome,
+  type AgentSession,
   type PendingPermission,
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
@@ -38,7 +39,11 @@ export function useResolvePermission(pending: PendingPermission | null) {
         );
         dequeuePending(pending.id);
         try {
-          upsertSession(await agentHubGetStatus(pending.sessionId));
+          const fresh = await agentHubGetStatus(pending.sessionId);
+          const stillWaiting = useAgentSessionsStore
+            .getState()
+            .pendingQueue.some((p) => p.sessionId === pending.sessionId);
+          upsertSession(statusAfterAnswer(fresh, stillWaiting));
         } catch {
           // The answer landed; the session may be gone or the hub away. Losing
           // the refreshed row must not look like a failed permission.
@@ -53,6 +58,21 @@ export function useResolvePermission(pending: PendingPermission | null) {
   );
 
   return { busy, error, resolve };
+}
+
+/**
+ * The session as it stands once a permission is answered. Answered either way,
+ * the turn goes on, but the status read right after the answer can still say
+ * awaiting_permission: the call returns as soon as the answer reaches the
+ * waiting agent, and Go puts the session back to running a moment later, on
+ * the agent's side. Nothing announces that change, so the stale read stood
+ * until the turn ended — and the transcript's running indicator stayed off
+ * while the agent kept working. Unless another request for the session has
+ * already arrived, it is running.
+ */
+export function statusAfterAnswer(fresh: AgentSession, stillWaiting: boolean): AgentSession {
+  if (fresh.status === "awaiting_permission" && !stillWaiting) return { ...fresh, status: "running" };
+  return fresh;
 }
 
 /** The request this session is waiting on, if any. */

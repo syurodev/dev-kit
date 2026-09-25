@@ -428,6 +428,16 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		if _, err := h.OnPermission(ctx, params); err != nil && !errors.Is(err, ErrPermissionDenied) {
 			return PromptOutcome{}, err
 		}
+		// The turn goes on after the answer, until stopped: what a test
+		// needs to see the session's status while the agent is still working.
+		if strings.Contains(text, "HOLD_AFTER") {
+			select {
+			case <-cancelCh:
+				return PromptOutcome{}, ErrCancelled
+			case <-ctx.Done():
+				return PromptOutcome{}, ErrCancelled
+			}
+		}
 	}
 
 	// Cancellation may have raced in while we were awaiting permission.
