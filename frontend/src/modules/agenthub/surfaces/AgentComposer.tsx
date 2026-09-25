@@ -728,7 +728,9 @@ export function AgentComposer({
                   <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-48">
+              {/* No width: the rows (200px minimum) size it. At w-48 the check
+                  marking the current agent was cut in half at the edge. */}
+              <DropdownMenuContent side="top" align="start">
                 <DropdownMenuLabel>Agent</DropdownMenuLabel>
                 {agents.map((option) => (
                   <DropdownMenuItem
