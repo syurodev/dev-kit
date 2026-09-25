@@ -101,7 +101,8 @@ function sticky(kind: string, rules: Rules): Rules {
   return out;
 }
 
-function newLexer(): Lexer {
+/** The lexer every parse here uses: GFM, with the anchored rules made sticky. */
+export function newLexer(): Lexer {
   const lexer = new Lexer({ gfm: true });
   // The rule set belongs to this lexer (marked builds it per instance), so
   // swapping it touches no other user of marked.

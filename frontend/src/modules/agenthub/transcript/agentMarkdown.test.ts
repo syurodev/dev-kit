@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import { parseInline, parseMarkdown, parseMarkdownIncremental, type InlineToken, type MarkdownBlock } from "./agentMarkdown";
+import {
+  newLexer,
+  parseInline,
+  parseMarkdown,
+  parseMarkdownIncremental,
+  type InlineToken,
+  type MarkdownBlock,
+} from "./agentMarkdown";
 
 const text = (value: string): InlineToken => ({ type: "text", value });
 const paragraph = (value: string): MarkdownBlock => ({ type: "paragraph", inline: [text(value)] });
@@ -246,30 +253,30 @@ describe("agentMarkdown", () => {
     ]);
   });
 
-  it("lexes in linear time on JavaScriptCore", () => {
-    // bun runs JSC, the engine of WKWebView and WebKitGTK. There, marked's
-    // `^`-anchored rules scan the rest of the input before failing, and
-    // lexing grows with the square of the answer: 8x the text took ~35x the
-    // time. agentMarkdown makes the rules sticky; if a marked upgrade moves
-    // them out of reach, this is what notices.
-    const prose = (size: number) => {
-      let text = "";
-      while (text.length < size) text += "Some prose with `code`\nand **bold** over lines.\n";
-      return text;
-    };
-    const time = (text: string) => {
-      const samples: number[] = [];
-      for (let run = 0; run < 3; run += 1) {
-        const started = performance.now();
-        parseMarkdown(text);
-        samples.push(performance.now() - started);
-      }
-      return samples.sort((a, b) => a - b)[1];
-    };
-    const small = prose(5_000);
-    const large = prose(40_000);
-    parseMarkdown(small); // warm up
-    expect(time(large) / time(small)).toBeLessThan(24);
+  it("lexes with sticky rules, which keep it linear on JavaScriptCore", () => {
+    // WKWebView and WebKitGTK run JSC, where marked's `^`-anchored rules scan
+    // the rest of the input before failing: 8x the text took ~35x the time.
+    // The sticky copies are what keep it linear. Checked by shape rather than
+    // by timing — a timed ratio was noise on a shared CI runner — so a marked
+    // upgrade that moves the rules out of reach fails here, not in the field.
+    type Rules = Record<string, unknown>;
+    const { rules } = (newLexer() as unknown as { tokenizer: { rules: { block: Rules; inline: Rules } } }).tokenizer;
+    for (const set of [rules.block, rules.inline]) {
+      const anchored = Object.values(set).filter(
+        (rule): rule is RegExp => rule instanceof RegExp && rule.source.startsWith("^") && !rule.global,
+      );
+      expect(anchored.length).toBeGreaterThan(5);
+      for (const rule of anchored) expect(rule.sticky).toBe(true);
+    }
+    // The ones measured slow, by name.
+    for (const name of ["hr", "table", "html", "blockquote", "lheading"]) {
+      expect((rules.block[name] as RegExp).sticky).toBe(true);
+    }
+    // Sticky, and still anchored to the start of each string it is handed.
+    const hr = rules.block.hr as RegExp;
+    expect(hr.exec("---\n")).not.toBeNull();
+    expect(hr.exec("---\n")).not.toBeNull();
+    expect(hr.exec("text\n---\n")).toBeNull();
   });
 
   it("reads inline code, links and emphasis", () => {
