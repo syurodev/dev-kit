@@ -12,34 +12,52 @@ session trước, nên mọi thứ cần biết nằm ở đây và trong các t
    riêng, cách đăng nhập, **kết quả đo** (mục "Phase 0 results", gồm mục 5 đo cho 2c).
 4. Các kế hoạch đã chạy (để biết cách làm, không cần chạy lại):
    `docs/superpowers/plans/2026-09-24-codex-plan-1-measure-and-security.md`, `…-plan-2a-wire-and-runtime.md`,
-   `…-plan-2b-translate-and-approvals.md`, `…-plan-2c-runtime-adapter.md`.
+   `…-plan-2b-translate-and-approvals.md`, `…-plan-2c-runtime-adapter.md`,
+   `docs/superpowers/plans/2026-09-25-codex-plan-3-bridge-frontend-docs.md`.
 
 ## Trạng thái
 
-Nhánh **`codex/plan-2c-adapter`** (tách từ `main` a6a2d5ed), **chưa push**. Mọi thứ dưới đây nằm trên nhánh đó.
+Kế hoạch 1–2c đã merge vào `main` (PR syurodev/dev-kit#148). Kế hoạch 3 nằm trên nhánh
+**`claude/adoring-bell-9b9d9k`** (tách từ `main` 05ef2f1 — merge của #148), **chưa push** tại thời điểm viết (người dùng
+quyết định lúc nào push; container cloud là tạm, commit chưa push mất khi container bị thu hồi).
 
 | Phần | Trạng thái | Nằm ở đâu |
 |---|---|---|
-| Kế hoạch 1 — đo Codex thật + vá bảo mật | Xong, đã review | `internal/mcp/gate.go`, `internal/agenthub/adapter_servermode.go`, `main.go`, capture `internal/agenthub/testdata/codex_session_capture.jsonl` |
-| Kế hoạch 2a — kết nối app-server + runtime native | Xong, đã review | `internal/codexapp/{wire,conn,protocol}.go`, `internal/agentruntime` (`NativeEntry`, `Verifiers`, agent `codex` 0.147.0). Commit gốc a6a2d5ed đặt nhầm 5 file `agentruntime` vào `internal/agenthub/` và thiếu phần nối `main.go`/`arch` — đã sửa ở e3425c38 |
-| Kế hoạch 2b — deny-write, bộ dịch, approval | Xong, **đã review tổng + sửa** (f4c625ce, 50455496, 1aecfbc6) | `internal/sandbox`, `internal/codexapp/items.go`, `internal/agenthub/codex_translate.go`, `codex_approvals.go` |
-| Kế hoạch 2c — runtime `CodexAdapter` | Xong 9/9 task, **đã review tổng + sửa** (497f9099, dd744616), **đã live test + sửa** (7a44da1d, 5051ba3a) | `internal/agenthub/adapter_codex.go`, `codex_auth.go`, `codex_home.go`, `protect.go` (`carveOut`), `codex_approvals.go` (`mcpToolApprovalFor`), `internal/sandbox/seatbelt_profile.go`, `internal/sandbox/proc.go`, `main.go` |
-| Kế hoạch 3 — bridge, frontend, tài liệu | **Chưa viết** | xem "Việc tiếp theo" |
+| Kế hoạch 1 — đo Codex thật + vá bảo mật | Xong, đã review, đã merge | `internal/mcp/gate.go`, `internal/agenthub/adapter_servermode.go`, `main.go` |
+| Kế hoạch 2a — kết nối app-server + runtime native | Xong, đã merge | `internal/codexapp`, `internal/agentruntime` |
+| Kế hoạch 2b — deny-write, bộ dịch, approval | Xong, đã merge | `internal/sandbox`, `codex_translate.go`, `codex_approvals.go` |
+| Kế hoạch 2c — runtime `CodexAdapter` | Xong, live test trên macOS, đã merge | `adapter_codex.go`, `codex_auth.go`, `codex_home.go`, `protect.go` |
+| Kế hoạch 3 — bridge, frontend, tài liệu | **Xong 10/10 task, đã review tổng (opus) + sửa** (d4df98e…e5168cf) | xem dưới |
+| Smoke thủ công trên app desktop | **Chưa làm** — người dùng làm, checklist ở "Việc tiếp theo" | |
 
-Codex **đã đăng ký** trong `main.go` (adapter, verifier cài đặt, `DEVKIT_CODEX_COMMAND`, event
-`agenthub:signInCompleted`), nhưng **chưa có UI**: không có panel đăng nhập, bridge chưa có method sign-in,
-nhiều chỗ frontend còn hard-code `"claude"`. `CodexOptions.APIKey` chưa nối với accounts.
+Kế hoạch 3, theo chỗ:
 
-Kiểm cuối (2026-09-25): trên macOS `go test ./internal/{sandbox,codexapp,agentruntime,agenthub,bridge,mcp,arch}/
--race` xanh, `go vet -tags server ./...`, `gofmt`, `go build -tags server` sạch; `TestCodexRealBinaryInTheJail` qua
-với codex 0.147.0 thật, không để lại zombie. Linux (bwrap trong container) xanh trên 5051ba3a.
+- **Lỗi theo vendor**: `agenthub.VendorError{Agent, Err}` gói `ErrAgentNotInstalled`/`ErrAgentAuthRequired` tại adapter
+  (Claude 4 chỗ, Codex 6 chỗ); `ErrorVendor(err)`; `internal/bridge/errors.go` viết thông báo theo vendor. Key API chọn
+  trong Settings mà hỏng (mất khỏi Accounts, không đọc được, Codex từ chối) còn mang `ErrAgentAPIKeyUnusable` → mã
+  `agent_api_key_unusable`, UI trỏ về Settings chứ không mở đăng nhập ChatGPT (key luôn thắng khi spawn).
+- **Bridge đăng nhập, chỉ UI**: `AgentHubSignInStatus` / `AgentHubStart{Browser,Device}SignIn` / `AgentHubCancelSignIn` /
+  `AgentHubSignOut` (`internal/bridge/agenthub.go`, scope `auth:<agent>`). `Service.inAppSignIn` (`codex_auth.go`) và
+  `app.CodexAPIKey.Choose` từ chối caller đã đóng dấu agent/user-terminal; `internal/mcp/tool_names_test.go`
+  `TestNoToolSignsAgentsIn` chặn tool/lời gọi sign-in hay chọn key. Audit ghi phương thức + id account, không bao giờ
+  trang/mã/login id/key.
+- **API key**: `preferences` key `agent_codex_api_key_account` (chỉ id); `internal/app/agentcodex.go` `CodexAPIKey`
+  (`Key` = `CodexOptions.APIKey` trong `main.go`, `Choose` kiểm account dùng được, `UsedBy` chặn xoá); bridge
+  `PreferencesGet/SetCodexAPIKeyAccount`. `SignInStatus` với key hỏng báo `{signedIn:false, method:"apiKey"}`.
+- **Accounts**: `RecordExternal`/`ForgetExternal` (xoá mọi bản trùng); dòng `external` "Codex (ChatGPT)" provider `openai`
+  ghi khi `account/login/completed` thành công (`main.go`), xoá khi `AgentHubSignOut`.
+- **Frontend**: bảng vendor `frontend/src/modules/agenthub/vendors.ts`; bridge `frontend/src/bridge/agentSignIn.ts`;
+  `CodexSignIn.tsx` (`createSignInTracker` quyết event nào tính: flow của mình, **mọi** Codex sign-in thành công, event
+  tới trước khi start trả lời); `AgentRuntimeSetup.tsx` (thay `ClaudeAgentSetup`); `AgentHubView` (`createFailure`,
+  `signInFor`, `retryAfterSignIn`); `CodexAccountSection.tsx` + `AgentRuntimeSetting({vendor})` + nhóm CODEX trong
+  Settings; `bypassSandboxWarning` trong `AgentComposer.tsx`; `permissionDetail` + `allowAlwaysLabel` cho thẻ duyệt tool
+  MCP; `AgentSessionError` cause `apiKey`.
+- **Tài liệu**: `docs/dev-kit/agent-hub.mdx`, `implementation-status.mdx`, `AGENTS.md`, `README.md`, spec §6.4.
 
-**Live (2026-09-25, người dùng đồng ý, tài khoản ChatGPT cá nhân, home nháp — đã đăng xuất và xoá):**
-đăng nhập trình duyệt qua chính `StartBrowserSignIn` từ jail Seatbelt; `TestCodexLiveTurnWithAnApproval` và
-`TestCodexLiveMcpApprovalAndResume` đều qua (một lượt Ask + approval sửa file; thẻ duyệt tool MCP khớp dây thật;
-usage sau resume tính riêng lượt). Live tìm ra hai lỗi đăng nhập trên macOS, đã sửa ở 7a44da1d: Seatbelt chặn
-bind cổng callback 1455 (`Policy.ListenLoopbackPorts`), và bước đổi token cần `com.apple.trustd.agent`.
-Chi tiết: research doc mục 6.
+Kiểm cuối (2026-09-25, **Linux**, container cloud, bwrap 0.9.0 cài bằng apt, chạy root):
+`go test ./internal/{sandbox,codexapp,agentruntime,agenthub,bridge,mcp,arch,app,accounts,preferences}/ -race` xanh,
+`go test ./internal/... ./cmd/...` xanh, `go vet -tags server ./...`, `gofmt`, `go build -tags server` sạch;
+`cd frontend && bun run build && bun test` xanh (trừ flake có sẵn, xem "Lưu ý môi trường"). Chưa chạy lại trên macOS.
 
 ## Quyết định của người dùng (giữ nguyên)
 
@@ -87,22 +105,38 @@ Chi tiết: research doc mục 6.
 
 ## Việc tiếp theo
 
-1. **Kế hoạch 3 — bridge + frontend + tài liệu** (viết theo đúng cách trên):
-   - Bridge: `AgentHubSignInStatus`, `AgentHubStartBrowserSignIn`/`AgentHubStartDeviceSignIn` (→ `Service.StartSignIn`),
-     `AgentHubCancelSignIn`, `AgentHubSignOut`; capability `agenthub:execute` trên `auth:codex`, **chỉ UI**, không
-     tool MCP; `wails3 generate bindings -clean=true -ts -i`.
-   - `CodexOptions.APIKey`: preferences lưu **id account** `KindToken` của `internal/accounts`, resolve trong Go
-     lúc spawn; `SignInStatus` báo `apiKey` khi có. Accounts thêm dòng `KindExternal` "Codex (ChatGPT)".
-   - Frontend: bảng mô tả vendor thay ~10 chỗ hard-code `"claude"` (spec §9 Giai đoạn 6); panel đăng nhập (trình
-     duyệt mặc định, "Use a code instead" kèm dòng hướng dẫn bật device code trong ChatGPT → Settings → Security,
-     nghe event `agenthub:signInCompleted`); card Codex trong Settings → Agents; dòng cảnh báo Docker/`$HOME` trong
-     hộp xác nhận Full auto; thẻ duyệt tool MCP hiện đúng (toolCallId có thể là `mcp-approval-<n>` khi không gắn
-     được vào lệnh gọi); `isPermissionBypassChoice` với id Codex.
-   - `internal/bridge/errors.go`: thông báo `agent_auth_required` đang viết riêng cho Claude → theo vendor.
-   - Tài liệu: `agent-hub.mdx`, `implementation-status.mdx`, AGENTS.md, README; smoke test thủ công trên app desktop
-     (đăng nhập; lượt Ask; Full auto + một lệnh prod qua MCP phải bị hỏi; resume sau khởi động lại).
+1. **Smoke thủ công trên app desktop** (người dùng làm; tốn quota Codex — một lượt Ask và một lượt Full auto ngắn;
+   home Codex của DevKit là `<data>/agent-homes/codex`, không đụng `~/.codex`). Chuẩn bị: `task build`; một profile DB
+   (hoặc SSH) gắn env prod có "Requires confirmation"; Settings → Agents → Sandbox để mặc định.
+   - [ ] **Cài + đăng nhập**: Settings → Agents có nhóm CODEX; Install 0.147.0 → headline "Codex 0.147.0 · tested", dòng
+     phụ chỉ "… on disk". SIGN IN: "Not signed in", nút **Sign in with ChatGPT** (đầu) và **Use a code instead**. Bấm
+     trình duyệt → trang OpenAI mở, panel "Finish signing in in your browser." → xong thì "Signed in to Codex.", dòng
+     `ChatGPT · email · plan`, có Sign out; Accounts có dòng external "Codex (ChatGPT)". (Tuỳ chọn) "Use a code instead"
+     hiện mã + dòng nhắc bật device code trong ChatGPT → Settings → Security; Cancel.
+   - [ ] **Một lượt Ask**: New session, bộ chọn có Claude và Codex; chọn Codex, project nháp, "Tạo file hello.txt chứa
+     chữ hi" → thẻ duyệt sửa file (diff), Allow once → file tạo; placeholder "Ask Codex…", viền streaming màu ocean.
+   - [ ] **Thẻ tool MCP (Ask)**: "Dùng tool DevKit env.listTags rồi cho tôi biết kết quả" → thẻ hiện tên tool, câu hỏi
+     của Codex và đối số; nút thứ ba **Allow for session**, không phải "Allow always".
+   - [ ] **Full auto + prod**: chọn Full auto → hộp "Skip permission prompts?" có dòng vàng về Docker socket và `$HOME` →
+     Skip permissions. "Chạy db.query `select 1` trên profile <prod>" → **phải hiện lời nhắc xác nhận env prod của
+     DevKit**; Deny → Codex báo lỗi tool.
+   - [ ] **Resume**: thoát hẳn app, mở lại session Codex, gửi tiếp → đúng hội thoại cũ, chế độ về Ask.
+   - [ ] **Lỗi + dọn**: Sign out → "Not signed in", dòng "Codex (ChatGPT)" biến mất; gửi một câu trong session Codex →
+     "Codex isn't signed in…" (không nhắc Claude/ANTHROPIC_API_KEY) và panel đăng nhập Codex ngay trong thẻ lỗi.
+     (Tuỳ chọn) tạo token OpenAI trong Accounts, chọn ở "API key instead of ChatGPT" → `API key · <tên>`; xoá account
+     đó → bị từ chối, nêu "Agent Hub: Codex API key"; chọn lại "None".
+2. Sau smoke: sửa những gì lệch, rồi PR (tách từ `main`; ghi rõ plan 3 và các commit review).
 
 ## Chưa đo / còn treo
+
+- **Kế hoạch 3 (review opus, không sửa)**: dòng `external` "Codex (ChatGPT)" là vault item nên sync — đăng xuất ở máy A
+  xoá ghi chú của máy B dù B vẫn đăng nhập (nó chỉ là ghi chú; credential ở home Codex của từng máy). Nếu muốn chính
+  xác theo máy thì thêm tên máy vào label hoặc giữ ngoài sync — hỏi người dùng trước (đổi quyết định "Accounts thêm dòng
+  KindExternal").
+- `unauthorized` **giữa lượt** khi đang dùng API key vẫn ra `agent_auth_required` (panel ChatGPT) chứ không phải
+  `agent_api_key_unusable`: runtime chưa nhớ lượt đó dùng key. Chỉ lúc spawn mới phân biệt.
+- Việc bỏ `authRetry` khi đổi agent trong bản nháp (`AgentHubView`, `onAgentChange`) không có unit test — nằm trong view
+  không render được bằng `renderToString`; thuộc smoke.
 
 - Hình dạng lỗi khi token hết hạn giữa lượt (hiện map mọi `unauthorized` sang auth-required).
 - Đăng nhập device code từ jail (chỉ trình duyệt đã chạy thật; device code không cần cổng callback nhưng vẫn cần
@@ -122,6 +156,9 @@ xong thì `CODEX_HOME=<home nháp> <binary> logout` và xoá thư mục.
 
 ## Việc nhỏ ghi lại để làm sau
 
+- `AgentSessionError` còn câu mặc định nói "Claude" cho `notInstalled`/`authRequired` — chỉ dùng khi view không truyền
+  `reason` (view luôn truyền), nên không hiện ra; đổi sang trung tính khi tiện.
+
 - Test helper `waitForPending` (`internal/mcp/gate_test.go`) gọi `t.Fatal` trong goroutine.
 - Lời nhắc xác nhận env chưa ghi **tên profile** (khó phân biệt hai profile prod).
 - Hỏi quyền qua notification OS cho server mode (spec §8.1, 4 điều kiện).
@@ -135,6 +172,13 @@ xong thì `CODEX_HOME=<home nháp> <binary> logout` và xoá thư mục.
   lần khởi động, vô hại. Nếu muốn có chúng, DevKit tự chép vào lúc reset.
 
 ## Lưu ý môi trường
+
+- **Container cloud Linux** (session Kế hoạch 3): không có sẵn bwrap, GTK/WebKit, wails3. `apt-get update && apt-get
+  install bubblewrap` (nhỏ); `libgtk-4-dev libwebkitgtk-6.0-dev` (~92 MB, người dùng đồng ý) cần cho `internal/bridge` và
+  wails3; wails3 cài vào module tạm (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25` từ một thư mục
+  ngoài repo). bwrap chạy được dưới root trong container này. Không có Docker-in-Docker cần dùng.
+- Flake frontend có sẵn trên `main`: `src/lib/debouncedWriter.test.ts` thỉnh thoảng hỏng khi chạy cả bộ (`window is not
+  defined`), chạy riêng thì qua.
 
 - Test sandbox runtime cần `bwrap` (Linux) hoặc `sandbox-exec` (macOS); `TestDenyWriteHoldsAtRuntime` chạy trên cả hai.
 - `TestCodexRealBinaryInTheJail` cần `DEVKIT_CODEX_COMMAND` = binary native

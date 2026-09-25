@@ -113,7 +113,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   "Codex (ChatGPT)" row to Accounts; signing out removes it.
 - `agent_not_installed` / `agent_auth_required` name the vendor: adapters wrap those
   sentinels in `agenthub.VendorError`, and `bridge/errors.go` words the message per
-  vendor.
+  vendor. A chosen API key that is gone or refused also carries
+  `ErrAgentAPIKeyUnusable` → `agent_api_key_unusable`, which the UI sends to Settings
+  rather than to a sign-in (the key wins at every spawn). `app.CodexAPIKey.Choose`
+  refuses agent / user-terminal callers like sign-in does.
 
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
