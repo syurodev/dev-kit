@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentCodeBlock } from "./AgentCodeBlock";
@@ -7,6 +7,8 @@ import {
   parseInline,
   parseMarkdownIncremental,
   type IncrementalMarkdownState,
+  type InlineToken,
+  type ListItem,
   type MarkdownBlock,
 } from "./agentMarkdown";
 
@@ -74,9 +76,13 @@ export type AgentMessageRichProps = {
  *  keeps its own line breaks (PlanCommentsPopover) rather than reflowing text
  *  that was never fenced as a code block into one run-on line. */
 export function Inline({ text }: { text: string }) {
+  return <InlineNodes tokens={parseInline(text)} />;
+}
+
+function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
   return (
     <>
-      {parseInline(text).map((token, idx) => {
+      {tokens.map((token, idx) => {
         switch (token.type) {
           case "code":
             return (
@@ -112,21 +118,29 @@ export function Inline({ text }: { text: string }) {
                 // code, and had no wrap protection of its own at all.
                 className="wrap-anywhere text-status-info underline"
               >
-                {token.value}
+                <InlineNodes tokens={token.children} />
               </a>
             );
           case "strong":
             return (
               <strong key={idx} className="font-medium text-text-primary">
-                {token.value}
+                <InlineNodes tokens={token.children} />
               </strong>
             );
           case "em":
             return (
               <em key={idx} className="italic">
-                {token.value}
+                <InlineNodes tokens={token.children} />
               </em>
             );
+          case "del":
+            return (
+              <del key={idx} className="text-text-tertiary">
+                <InlineNodes tokens={token.children} />
+              </del>
+            );
+          case "break":
+            return <br key={idx} />;
           default:
             return <React.Fragment key={idx}>{token.value}</React.Fragment>;
         }
@@ -148,7 +162,7 @@ function Block({ block }: { block: MarkdownBlock }) {
             block.level <= 2 ? "text-title-16" : "text-title-14",
           )}
         >
-          <Inline text={block.text} />
+          <InlineNodes tokens={block.inline} />
         </p>
       );
 
@@ -157,15 +171,14 @@ function Block({ block }: { block: MarkdownBlock }) {
         <div className="flex w-full flex-col gap-1 text-body-14 leading-(--type-prose-leading) text-text-primary">
           {block.items.map((item, idx) => (
             <div key={idx} className="flex w-full items-start gap-2">
-              <span
-                aria-hidden="true"
-                className="shrink-0 whitespace-nowrap text-text-tertiary"
-              >
-                {block.ordered ? `${idx + 1}.` : "•"}
-              </span>
-              <span className="min-w-0 flex-1 wrap-anywhere">
-                <Inline text={item} />
-              </span>
+              <ListMarker item={item} ordered={block.ordered} number={block.start + idx} />
+              {/* An item holds blocks: a nested list, a code block, a
+                  second paragraph — drawn tighter than the answer's own. */}
+              <div className="flex min-w-0 flex-1 flex-col gap-2 wrap-anywhere">
+                {item.blocks.map((child, childIdx) => (
+                  <Block key={childIdx} block={child} />
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -176,13 +189,19 @@ function Block({ block }: { block: MarkdownBlock }) {
         <div className="flex w-full items-stretch gap-3">
           <span
             aria-hidden="true"
-            className="w-0.5 shrink-0 self-stretch bg-border-default"
+            className="w-0.5 shrink-0 self-stretch bg-border"
           />
-          <p className="min-w-0 flex-1 wrap-anywhere text-body-14 leading-(--type-prose-leading) text-text-secondary">
-            <Inline text={block.text} />
-          </p>
+          {/* A quote is someone else's words, one tier down. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-2 wrap-anywhere [&_p]:text-text-secondary">
+            {block.blocks.map((child, childIdx) => (
+              <Block key={childIdx} block={child} />
+            ))}
+          </div>
         </div>
       );
+
+    case "rule":
+      return <hr className="w-full border-border-subtle" />;
 
     case "code":
       // wrap only a single-line fence: multi-line code keeps its own line
@@ -217,7 +236,7 @@ function Block({ block }: { block: MarkdownBlock }) {
                       ALIGN[block.align[idx] ?? "left"],
                     )}
                   >
-                    <Inline text={cell} />
+                    <InlineNodes tokens={cell} />
                   </th>
                 ))}
               </tr>
@@ -238,7 +257,7 @@ function Block({ block }: { block: MarkdownBlock }) {
                         block.align[idx] === "right" && "tabular-nums",
                       )}
                     >
-                      <Inline text={cell} />
+                      <InlineNodes tokens={cell} />
                     </td>
                   ))}
                 </tr>
@@ -251,10 +270,29 @@ function Block({ block }: { block: MarkdownBlock }) {
     default:
       return (
         <p className="w-full text-body-14 leading-(--type-prose-leading) wrap-anywhere text-text-primary">
-          <Inline text={block.text} />
+          <InlineNodes tokens={block.inline} />
         </p>
       );
   }
+}
+
+/** A list item's bullet, number, or — for `- [ ]` — its checkbox. */
+function ListMarker({ item, ordered, number }: { item: ListItem; ordered: boolean; number: number }) {
+  if (item.checked !== undefined) {
+    const Icon = item.checked ? SquareCheck : Square;
+    return (
+      <Icon
+        aria-label={item.checked ? "done" : "not done"}
+        // Centred on the first line's 24px leading.
+        className="mt-1 size-4 shrink-0 text-text-tertiary"
+      />
+    );
+  }
+  return (
+    <span aria-hidden="true" className="shrink-0 whitespace-nowrap text-text-tertiary">
+      {ordered ? `${number}.` : "•"}
+    </span>
+  );
 }
 
 export function AgentMessageRich({ text, author, className }: AgentMessageRichProps) {
