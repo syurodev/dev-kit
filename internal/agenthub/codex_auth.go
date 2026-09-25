@@ -322,12 +322,21 @@ func (h *codexSignInHandler) Request(_ context.Context, method string, _ json.Ra
 // SignInStatus reads the sign-in a session would use. An API key, when one is
 // set, is what sessions sign in with, so it is the answer; otherwise a fresh
 // process reads the ChatGPT sign-in in the home.
+//
+// A key that is chosen but cannot be read is not a reason to report the
+// ChatGPT sign-in: sessions use the key whenever one is chosen, so they would
+// fail however signed in the home is. It reads as "API key, not signed in",
+// and the fix is in Settings, not in a sign-in.
 func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
-	if key, err := a.apiKey(ctx); err == nil && key != "" {
+	key, err := a.apiKey(ctx)
+	if err != nil {
+		return SignInStatus{SignedIn: false, Method: codexapp.AccountAPIKey}, nil
+	}
+	if key != "" {
 		return SignInStatus{SignedIn: true, Method: codexapp.AccountAPIKey}, nil
 	}
 	var res codexapp.GetAccountResponse
-	err := a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	err = a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountRead, map[string]any{"refreshToken": false}, &res); err != nil {
 			return p.failure("account/read", err)
 		}

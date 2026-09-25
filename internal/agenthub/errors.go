@@ -50,6 +50,12 @@ var (
 	// missing login, or an API key that is gone or refused. An adapter returns
 	// it inside a VendorError, so the message can say whose sign-in to fix.
 	ErrAgentAuthRequired = errors.New("agenthub.authRequired")
+	// ErrAgentAPIKeyUnusable is the API key chosen in Settings failing: gone
+	// from Accounts, unreadable, or refused by the vendor. It always comes
+	// with ErrAgentAuthRequired — nothing about the agent works without it —
+	// but the fix is a different one: signing in to the vendor's account
+	// changes nothing while a key is chosen, since the key wins.
+	ErrAgentAPIKeyUnusable = errors.New("agenthub.apiKeyUnusable")
 	// ErrAgentNotInstalled is an adapter with no runtime DevKit installed and
 	// no DEVKIT_*_COMMAND override. Never a reason to try PATH or npx. Like
 	// ErrAgentAuthRequired, it arrives inside a VendorError.

@@ -53,6 +53,10 @@ const (
 	codeRuntimeRequirement = "runtime_requirement"
 	codeInstallFailed      = "install_failed"
 	codeAgentAuthRequired  = "agent_auth_required"
+	// codeAgentAPIKeyUnusable is a sign-in problem a sign-in cannot fix: the
+	// API key chosen in Settings is gone or was refused, and it wins over
+	// the vendor's own sign-in at every spawn. The UI points at Settings.
+	codeAgentAPIKeyUnusable = "agent_api_key_unusable"
 )
 
 var safeValidationMessages = map[string]struct{}{
@@ -257,6 +261,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
 		case errors.Is(err, agenthub.ErrSandboxUnavailable):
 			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
+		// Before auth-required, which it always also is.
+		case errors.Is(err, agenthub.ErrAgentAPIKeyUnusable):
+			return apperrors.New(codeAgentAPIKeyUnusable, agentAPIKeyUnusableMessage(agenthub.ErrorVendor(err)), true)
 		case errors.Is(err, agenthub.ErrAgentAuthRequired):
 			return apperrors.New(codeAgentAuthRequired, agentAuthRequiredMessage(agenthub.ErrorVendor(err)), true)
 		case errors.Is(err, agenthub.ErrUnsupported):
@@ -436,4 +443,13 @@ func agentAuthRequiredMessage(agent agenthub.AgentType) string {
 		return "Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."
 	}
 	return "The agent isn't signed in, or the sign-in expired."
+}
+
+// agentAPIKeyUnusableMessage sends the person to the one place that fixes a
+// failed key: choosing another, or none.
+func agentAPIKeyUnusableMessage(agent agenthub.AgentType) string {
+	if agent == agenthub.AgentTypeCodex {
+		return "Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."
+	}
+	return "The agent can't use the API key chosen for it in Settings → Agents. Choose another, or remove it."
 }

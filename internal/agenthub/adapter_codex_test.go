@@ -179,6 +179,10 @@ func runFakeCodex(scenario, logPath string) {
 			case "chatgptDeviceCode":
 				reply(map[string]any{"type": "chatgptDeviceCode", "loginId": "login-1", "verificationUrl": "https://auth.example/device", "userCode": "ABCD-1234"})
 			default:
+				if scenario == "badkey" {
+					send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32000, "message": "invalid api key"}})
+					continue
+				}
 				reply(map[string]any{"type": "apiKey"})
 				continue
 			}

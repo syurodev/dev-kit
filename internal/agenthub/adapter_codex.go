@@ -432,7 +432,7 @@ func (a *CodexAdapter) apiKey(ctx context.Context) (string, error) {
 	}
 	key, err := a.opts.APIKey(ctx)
 	if err != nil {
-		return "", vendorError(AgentTypeCodex, fmt.Errorf("%w: the Codex API key could not be read: %v", ErrAgentAuthRequired, err))
+		return "", vendorError(AgentTypeCodex, fmt.Errorf("%w: %w: the Codex API key could not be read: %v", ErrAgentAuthRequired, ErrAgentAPIKeyUnusable, err))
 	}
 	return strings.TrimSpace(key), nil
 }
@@ -512,7 +512,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Type: codexapp.LoginAPIKey, APIKey: key,
 		}, &login); err != nil {
 			// The server's message, never the key: it is not part of err.
-			return fail(vendorError(AgentTypeCodex, fmt.Errorf("%w: Codex refused the API key: %v", ErrAgentAuthRequired, err)))
+			return fail(vendorError(AgentTypeCodex, fmt.Errorf("%w: %w: Codex refused the API key: %v", ErrAgentAuthRequired, ErrAgentAPIKeyUnusable, err)))
 		}
 	}
 	var account codexapp.GetAccountResponse

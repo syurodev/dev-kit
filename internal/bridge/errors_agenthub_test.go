@@ -34,6 +34,8 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrAgentAuthRequired, "agent_auth_required: The agent isn't signed in, or the sign-in expired."},
 		{&agenthub.VendorError{Agent: agenthub.AgentTypeClaude, Err: fmt.Errorf("%w: session/new: acp: rpc error -32000: Authentication required", agenthub.ErrAgentAuthRequired)},
 			"agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
+		{&agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: %w: Codex refused the API key", agenthub.ErrAgentAuthRequired, agenthub.ErrAgentAPIKeyUnusable)},
+			"agent_api_key_unusable: Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."},
 		{fmt.Errorf("invoke: %w", &agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: Codex is not signed in", agenthub.ErrAgentAuthRequired)}),
 			"agent_auth_required: Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."},
 		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
