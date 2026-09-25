@@ -1,8 +1,11 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,6 +27,23 @@ var seatbeltSystemReadOnlyPaths = []string{
 // process needs under (deny default): network configuration (configd), the
 // classic and modern DNS responders, and the unified logging daemons. This
 // mirrors the service sets used by WebKit/Chromium sandbox profiles.
+//
+// securityd (com.apple.SecurityServer) is how a program that trusts the
+// system's certificate roots rather than a bundle of its own reads them.
+// Node carries its own bundle, so Claude never needed it; codex is Rust and
+// asks the system — without the lookup every HTTPS connection it made from
+// the jail failed with "invalid peer certificate: UnknownIssuer" (measured on
+// 0.147.0; with it the same connection reached the server). The lookup does
+// not open the login keychain on its own, but a shared home grants the
+// keychain files — so buildSeatbeltProfile denies ~/Library/Keychains
+// whenever AllowKeychain is off.
+//
+// trustd (com.apple.trustd.agent) is the other half: codex's sign-in
+// exchanges its code for a token through the platform verifier (SecTrust),
+// which asks trustd, not securityd. Without it the browser sign-in reached
+// the callback and then failed with "error sending request for url
+// (https://auth.openai.com/oauth/token)" (measured on 0.147.0, with the
+// keychain still closed afterwards).
 var seatbeltNetworkMachServices = []string{
 	"com.apple.SystemConfiguration.configd",
 	"com.apple.mDNSResponder",
@@ -31,6 +51,8 @@ var seatbeltNetworkMachServices = []string{
 	"com.apple.dns.registration",
 	"com.apple.system.logger",
 	"com.apple.system.notification_center",
+	"com.apple.SecurityServer",
+	"com.apple.trustd.agent",
 }
 
 // buildSeatbeltProfile returns an SBPL profile string for sandbox-exec.
@@ -138,11 +160,14 @@ func buildSeatbeltProfile(p Policy) string {
 	for _, sock := range p.AllowUnixSockets {
 		b.WriteString("(allow network-outbound (literal \"" + escapeSBPL(resolveDenyPath(sock)) + "\"))\n")
 	}
+	// Loopback listeners, one port each. Both rules are needed: bind alone
+	// still fails at listen() (measured), and neither opens any other port.
+	for _, port := range p.ListenLoopbackPorts {
+		addr := "localhost:" + strconv.Itoa(port)
+		b.WriteString("(allow network-bind (local ip \"" + addr + "\"))\n")
+		b.WriteString("(allow network-inbound (local ip \"" + addr + "\"))\n")
+	}
 
-	// Deny both operation classes: SBPL evaluates them independently, so a
-	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
-	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
-	// appendable). Emitted last because the later matching rule wins.
 	// Deny-write after every allow: SBPL's later matching rule wins, so these
 	// stay read-only inside WorkDir, a RW path or a shared home.
 	if len(p.DenyWritePaths) > 0 {
@@ -153,7 +178,21 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString(")\n")
 	}
 
+	// Deny both operation classes: SBPL evaluates them independently, so a
+	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
+	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
+	// appendable). Emitted last because the later matching rule wins.
 	denyPaths := p.EffectiveDenyRead()
+	// The login keychain stays closed unless AllowKeychain asks for it. A
+	// shared home grants ~/Library/Keychains like any other file, and a
+	// host-networking jail reaches securityd to check certificates — the two
+	// together are exactly AllowKeychain: under that profile `security
+	// find-generic-password` read items out of the login keychain (review of
+	// plan 2c, verified live). Listed with the deny paths so the ancestors
+	// are protected from rename like theirs.
+	if !p.AllowKeychain {
+		denyPaths = append(denyPaths, p.keychainDirs()...)
+	}
 	if len(denyPaths) > 0 {
 		b.WriteString("(deny file-read* file-write*\n")
 		for _, path := range denyPaths {
@@ -165,13 +204,40 @@ func buildSeatbeltProfile(p Policy) string {
 	// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
 	// (verified live). Deny rename/unlink of every ancestor directory, the
 	// same rule Codex uses for its protected paths — for deny-write paths as
-	// much as deny-read ones.
-	protected := append(append([]string(nil), denyPaths...), p.DenyWritePaths...)
+	// much as deny-read ones. In both spellings: Seatbelt checks the
+	// resolved path, so ancestors spelled through a symlink (/tmp for
+	// /private/tmp, a relocated home) match nothing, and `mv codex codex2`
+	// then succeeded and left codex2/config.toml writable (verified live).
+	var protected []string
+	for _, path := range append(append([]string(nil), denyPaths...), p.DenyWritePaths...) {
+		protected = append(protected, normalizePath(path), resolveThroughParents(path))
+	}
 	for _, dir := range pathAncestors(protected) {
 		b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
 	}
 
 	return b.String()
+}
+
+// keychainDirs are the login keychain stores the jail could otherwise reach:
+// the policy's home and the host's, when they differ.
+func (p Policy) keychainDirs() []string {
+	var out []string
+	for _, home := range []string{p.policyHomeDir(), hostHomeDir()} {
+		if home == "" {
+			continue
+		}
+		dir := filepath.Join(home, "Library", "Keychains")
+		if !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+func hostHomeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 // grantedPaths is every path the profile grants access to, in both spellings
@@ -199,6 +265,27 @@ func (p Policy) grantedPaths() []string {
 		add(path)
 	}
 	return out
+}
+
+// resolveThroughParents is resolveDenyPath for a path that may not exist
+// yet: the deepest ancestor that does exist is resolved and the rest is
+// appended as spelled, so a deny path whose parent sits behind a symlink
+// still yields the ancestors the kernel will actually see.
+func resolveThroughParents(path string) string {
+	path = normalizePath(path)
+	if path == "" {
+		return ""
+	}
+	rest := ""
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		if dir == filepath.Dir(dir) {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
 }
 
 // pathAncestors returns every ancestor directory of the given paths,

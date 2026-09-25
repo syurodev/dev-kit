@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os/exec"
+	"time"
 )
 
 // Proc wraps a started exec.Cmd.
@@ -27,12 +28,19 @@ func NewProcWithBuffers(cmd *exec.Cmd, stdout, stderr *bytes.Buffer) *Proc {
 	return &Proc{cmd: cmd, stdoutBuf: stdout, stderrBuf: stderr}
 }
 
+// pipedWaitDelay bounds how long Wait keeps copying stderr once the process
+// itself has exited. A command the agent left running in the background (a
+// dev server) inherits stderr and holds the pipe open; without a bound, Wait
+// — and whoever reaps the agent — blocked until it chose to exit.
+const pipedWaitDelay = 2 * time.Second
+
 // NewProcPiped wraps a command started with stdin/stdout pipes.
 // stderr may be a buffer for capture; pass nil to leave stderr unset.
 func NewProcPiped(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser, stderr *bytes.Buffer) *Proc {
 	if stderr != nil {
 		cmd.Stderr = stderr
 	}
+	cmd.WaitDelay = pipedWaitDelay
 	return &Proc{cmd: cmd, stdinW: stdin, stdoutR: stdout, stderrBuf: stderr}
 }
 

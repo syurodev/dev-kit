@@ -186,6 +186,35 @@ Prompt: `Append the line "line three" to notes.txt, then run: cat notes.txt`
 tool call still open when a turn ends `interrupted`; use `serverRequest/resolved` to retire approval cards.
 §5.3 — never log `remoteControl/status/changed` verbatim (hostname, installation id).
 
+### 5. Đo thêm cho Kế hoạch 2c (0.147.0, không đăng nhập, không tốn quota)
+Bản cài qua chính `internal/agentruntime` (npm hoist `@openai/codex-darwin-arm64`, glob `NativeEntry` thứ nhất
+khớp); `codex app-server` chạy thẳng binary, `CODEX_HOME` nháp.
+- **`PATH`/`rg`:** `command/exec` in ra `PATH` bắt đầu bằng `<home>/tmp/arg0/…` rồi `vendor/<triple>/codex-path`,
+  `command -v rg` ra `rg` đi kèm — giống hệt khi có hay không `CODEX_MANAGED_BY_NPM`/`CODEX_MANAGED_PACKAGE_ROOT`.
+  Binary tự tìm `codex-package.json` cạnh nó.
+- **Ghi gì vào home lúc khởi động:** `installation_id`, `*.sqlite`, `shell_snapshots/`, `tmp/arg0/`,
+  `sessions/…` (khi có thread), và `skills/.system/…` (skill hệ thống). **Không** ghi `config.toml`.
+- **Home có năm file chính sách chỉ-đọc (Seatbelt):** initialize, account/read, command/exec, thread/start đều
+  chạy; stderr có `failed to install system skills: … Operation not permitted` mỗi lần khởi động, không gì khác.
+- **TLS trong Seatbelt:** kết nối websocket tới `api.openai.com` báo `invalid peer certificate: UnknownIssuer`
+  trong jail, `401 Unauthorized` (tức TLS qua) ngoài jail. Thêm đúng `mach-lookup com.apple.SecurityServer`
+  → `401`. `trustd` một mình không đủ.
+- **Cấu hình MCP qua `-c`:** giá trị TOML đúng được nhận; sai kiểu (`args="notalist"`) → tiến trình thoát
+  `exit 1` trước khi trả lời initialize.
+- **Duyệt tool MCP** (đọc mã nguồn tag `rust-v0.147.0`): xem spec §7.2.
+
+### 6. Live trên macOS (0.147.0, 2026-09-25, tài khoản cá nhân, home nháp — đã đăng xuất và xoá sau đó)
+- **Đăng nhập trình duyệt từ jail Seatbelt** hỏng ở hai chỗ rồi được sửa (spec §6.1): bind `localhost:1455` bị
+  từ chối; đổi token cần `com.apple.trustd.agent` (tái hiện không cần đăng nhập: gọi callback với code giả — ngoài
+  jail OpenAI trả `401`, trong jail thiếu trustd thì "error sending request"). Sau khi sửa: đăng nhập qua
+  `StartBrowserSignIn` thành công, tiến trình mới đọc `chatgpt · plus`, `auth.json` 0600 trong home nháp.
+- **Một lượt Ask thật** (`TestCodexLiveTurnWithAnApproval`): một `fileChange/requestApproval`, duyệt → file được
+  tạo, stream và thẻ tool call đúng; model mặc định `gpt-5.6-sol`, `model/list` trả 4 model.
+- **Duyệt tool MCP thật** (`TestCodexLiveMcpApprovalAndResume`, server MCP giả một tool): khớp spec §7.2.
+- **Usage sau resume:** lượt đầu 36520 in / 126 out; lượt sau resume 12301 in / 5 out — tính riêng lượt, không cộng
+  dồn thread.
+- Notification thấy thêm, đều vào nhánh bỏ qua: `mcpServer/startupStatus/updated`, `thread/goal/cleared`.
+
 ---
 
 ## Found while checking "Full auto must stop at prod" (2026-09-24)

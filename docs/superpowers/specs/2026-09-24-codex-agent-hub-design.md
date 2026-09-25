@@ -88,12 +88,13 @@ request (server→client, có `id`, client phải trả lời đúng một lần
 - Agent mới `codex`: `Package "@openai/codex"`, `TestedVersion "0.147.0"`, glob entry theo `<triple>`.
 - Claude không đổi hành vi. Dùng chung màn hình cài / cập nhật / rollback.
 - `DEVKIT_CODEX_COMMAND` (tuyệt đối) ghi đè runtime, giống `DEVKIT_CLAUDE_ACP_COMMAND`.
-- **Cần quyết ở Kế hoạch 2c (runtime; review Kế hoạch 2a):** launcher `bin/codex.js` của 0.147.0 đặt
-  `CODEX_MANAGED_BY_NPM=1` và `CODEX_MANAGED_PACKAGE_ROOT=<realpath node_modules/@openai/codex>` trước khi
-  chạy binary; binary đọc hai biến này (và `codex-package.json`, thư mục `codex-path` chứa `rg` đi kèm).
-  Chạy thẳng binary thì mất cả hai → có thể đổi hành vi tự cập nhật / nhận diện cách cài, và `rg` đi kèm
-  có thể không được tìm thấy. 2c phải đo rồi chọn: đặt hai biến + thêm `codex-path` vào `PATH` trong
-  `resolveAt`, hay để trống có chủ đích (DevKit tự quản lý phiên bản, không muốn Codex tự cập nhật).
+- **Đã quyết ở Kế hoạch 2c (đo trên 0.147.0): để trống có chủ đích.** Launcher `bin/codex.js` đặt
+  `CODEX_MANAGED_BY_NPM=1` và `CODEX_MANAGED_PACKAGE_ROOT`, nhưng chạy thẳng binary thì binary **tự** đọc
+  `codex-package.json` cạnh nó và đưa `codex-path` (chứa `rg`) lên đầu `PATH` của tiến trình con — đo bằng
+  `command/exec`: `PATH` và `command -v rg` giống hệt có hay không có hai biến. Hai biến chỉ báo Codex cách
+  tự cập nhật; DevKit pin phiên bản và tắt `check_for_update_on_startup`. Jail phải đọc được cả thư mục
+  `vendor/<triple>` (không chỉ file binary) — `runtimeLaunch` đã cấp thư mục version, `DEVKIT_CODEX_COMMAND`
+  cấp thêm thư mục đó (`codexPackageDir`).
 - Bản cài Codex hiện được kích hoạt với `verified.handshake=false` (chưa có verifier) và đã gọi được qua
   bridge/MCP `AgentRuntimeInstall("codex")`. 2c thêm verifier (`initialize` app-server trong jail).
 
@@ -124,9 +125,25 @@ Hiện thực: `VendorAdapter`, `SessionLoader` (`thread/resume`), `RuntimeConfi
   - `AGENTS.md`, `AGENTS.override.md` — chỉ dẫn toàn cục: ghi được là tiêm prompt bền vững vào mọi session sau.
   - `skills/` — skill toàn cục, cùng lý do.
   Phần còn lại của home (auth, sessions, sqlite, log) vẫn ghi được.
+- DevKit **reset** các file đó trước mỗi spawn (`prepareCodexHome`): `config.toml` chỉ còn một dòng chú thích,
+  `rules/` và `skills/` rỗng, `AGENTS*.md` rỗng; symlink hay sai loại bị xoá chứ không đi theo. Chỉ-đọc chưa đủ:
+  thứ một session cũ (hoặc một symlink cài sẵn) để lại vẫn được lần spawn sau đọc.
+- Đo (0.147.0): Codex chạy bình thường khi cả năm chỉ-đọc. Mỗi lần khởi động nó cố chép skill hệ thống vào
+  `skills/.system` và ghi log `failed to install system skills` — vô hại, chỉ là không có các skill đi kèm
+  (imagegen, openai-docs, skill-creator…). Codex không ghi `config.toml` lúc khởi động.
 - Policy jail: như Claude (`NetworkHost`, `ShareHome`/Docker theo Settings), thêm
-  `ReadWritePaths += CODEX_HOME`, `DenyReadPaths += ~/.codex`, keep-list `ProtectDataDir` thêm
-  `agent-homes/codex`.
+  `ReadWritePaths += CODEX_HOME`, `DenyReadPaths += ~/.codex`. **Không** thêm `agent-homes/codex` vào keep-list
+  chung của `ProtectDataDir` (Kế hoạch 2c): keep-list dùng cho mọi vendor, nên session Claude dưới shared home sẽ
+  đọc được `auth.json` của Codex. Thay vào đó adapter Codex tự "khoét" home của mình ra khỏi danh sách ẩn của
+  **chính session Codex** (`carveOut`): mọi thứ cạnh đường tới home vẫn ẩn.
+- **macOS: Seatbelt phải cho `mach-lookup com.apple.SecurityServer` khi `NetworkHost`** (Kế hoạch 2c, đo):
+  Codex là Rust và kiểm chứng chỉ TLS bằng root của hệ thống; thiếu nó mọi kết nối HTTPS từ jail báo
+  `invalid peer certificate: UnknownIssuer`. Chỉ lookup đó không mở được login keychain (cần thêm quyền đọc
+  file mà `AllowKeychain` cấp). Claude không gặp vì Node mang bộ CA riêng.
+- Deny-write chịu được việc đổi tên thư mục cha (review Kế hoạch 2b): bwrap biến mọi thư mục phía trên thành
+  mount point (bind lên chính nó, hoặc tmpfs rỗng nếu bwrap tự tạo), Seatbelt chặn rename tổ tiên theo cả hai
+  cách viết path. `Policy.Validate` từ chối path deny-write không tồn tại, là symlink, chưa `Clean`, hoặc có
+  grant ghi nằm bên trong.
 - Handshake: `initialize {clientInfo:{name:"devkit", title:"DevKit", version}, capabilities:{experimentalApi:false}}`
   → `initialized` → `account/read` (§6.3) → `thread/start {cwd, approvalPolicy, approvalsReviewer:"user"}`.
 - `thread/start` **không** gửi `sandbox`: field đó là `SandboxMode` (`read-only`/`workspace-write`/
@@ -203,6 +220,12 @@ OpenAI. Đăng nhập trình duyệt thì chạy được ngay từ trong bwrap.
 1. UI bấm *Sign in* → backend chạy một `codex app-server` **ngắn hạn trong jail**, cùng home, store `file`.
 2. **Mặc định — "Sign in with browser":** `account/login/start {type:"chatgpt"}` → mở `authUrl`; callback
    `localhost:1455` tới tiến trình trong jail vì dùng chung loopback (`NetworkHost`) — đã đo.
+   **macOS (đo live 2026-09-25):** Seatbelt chặn cả hai bước — codex không bind được `localhost:1455`
+   (`failed to start login server: Operation not permitted`), rồi đổi code lấy token báo `error sending request
+   for url (…/oauth/token)` vì client đó kiểm chứng chỉ qua SecTrust → `trustd`. Sửa: `Policy.ListenLoopbackPorts`
+   (chỉ jail đăng nhập, cổng 1455; Seatbelt cần cả `network-bind` và `network-inbound`) và `mach-lookup
+   com.apple.trustd.agent` cho mọi jail `NetworkHost` (login keychain vẫn bị chặn). Sau đó đăng nhập thật qua
+   chính `StartBrowserSignIn` của DevKit thành công.
 3. **Tuỳ chọn — "Use a code instead"** (máy không mở trình duyệt được, SSH…): `{type:"chatgptDeviceCode"}` →
    UI hiện link + mã, **kèm dòng**: *"Cần bật 'device code authorization for Codex' trong ChatGPT → Settings →
    Security trước."*
@@ -227,7 +250,12 @@ OpenAI. Đăng nhập trình duyệt thì chạy được ngay từ trong bwrap.
 ### 6.4 Interface và bridge
 
 - `agenthub.InAppSignIn` (tuỳ chọn): `SignInStatus`, `StartDeviceSignIn`, `StartBrowserSignIn`,
-  `CancelSignIn`, `SignOut`. `AuthProvider` (terminal) giữ nguyên cho Claude.
+  `CancelSignIn`, `SignOut`. `AuthProvider` (terminal) giữ nguyên cho Claude. Đã có ở Kế hoạch 2c, cùng
+  `Service.SignInStatus` / `StartSignIn(agent, "browser"|"deviceCode")` / `CancelSignIn` / `SignOut`
+  (`ErrUnsupported` cho vendor không có) và stub server mode. `main.go` phát event `agenthub:signInCompleted`
+  `{agent, loginId, success, error}` qua `CodexOptions.OnSignInCompleted`.
+- API key: `CodexOptions.APIKey` (hàm trả key hoặc ""); có key thì `SignInStatus` báo `apiKey` và session
+  dùng store `ephemeral`. Nối nó với accounts + preferences là việc của Kế hoạch 3.
 - Bridge: `AgentHubSignInStatus`, `AgentHubStartDeviceSignIn`, `AgentHubStartBrowserSignIn`,
   `AgentHubCancelSignIn`, `AgentHubSignOut`; event `agenthub:signInCompleted`.
 - Capability `agenthub:execute` trên `auth:codex`, **chỉ UI**. Không có tool MCP đăng nhập.
@@ -273,7 +301,18 @@ Qua `OnPermission` → `PermissionWaiter`, cùng timeout với Claude.
 - Xin thêm quyền (network, thư mục ghi): dưới `externalSandbox` vô nghĩa — jail mới quyết. Adapter tự
   trả **grant rỗng** và ghi một dòng transcript: *"Codex xin quyền X. Quyền truy cập do sandbox của
   DevKit quyết định — Settings → Agents → Sandbox."*
-- Server request khác (`item/tool/requestUserInput`, `mcpServer/elicitation/request`,
+- **Duyệt tool MCP** (Kế hoạch 2c, đọc mã nguồn 0.147.0 `core/src/mcp_tool_call.rs`; người dùng chọn hiện thẻ):
+  ở Ask/Auto, Codex hỏi trước mỗi lần gọi một tool MCP không tự khai chỉ-đọc/không phá huỷ — tức phần lớn tool
+  của DevKit — qua `mcpServer/elicitation/request` có `_meta.codex_approval_kind = "mcp_tool_call"`. Thẻ:
+  Allow (`{action:"accept"}`), Allow cho session (chỉ khi `_meta.persist` có `"session"`,
+  `{action:"accept", _meta:{persist:"session"}}`), Deny (`{action:"decline"}`); huỷ/hết giờ → `cancel`.
+  **Không bao giờ** đưa "Allow and don't ask me again" (`persist:"always"` ghi luật vĩnh viễn vào `config.toml`).
+  Request không mang item id: thẻ gắn vào lệnh gọi MCP đang mở duy nhất của server đó (Codex bắt đầu item trước
+  khi hỏi), không thì đứng riêng. **Đo live 2026-09-25:** đúng như vậy trên dây thật — một tool không annotation
+  sinh đúng một elicitation `mcp_tool_call` với `persist` có `session`, thẻ gắn vào item `mcpToolCall` đang mở,
+  duyệt xong tool chạy. Full auto không hỏi: `never` + externalSandbox → Codex tự duyệt, cổng prod của
+  DevKit vẫn hỏi bên trong tool (§7.4).
+- Server request khác (`item/tool/requestUserInput`, elicitation của chính một server MCP,
   `account/chatgptAuthTokens/refresh`, `attestation/generate`, v1 `applyPatchApproval`/`execCommandApproval`,
   và mọi method lạ) → **từ chối ngay** để lượt không treo. Mỗi loại một dòng dispatch (§5.4).
 

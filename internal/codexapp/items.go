@@ -24,6 +24,27 @@ const (
 	MethodCommandApproval     = "item/commandExecution/requestApproval"
 	MethodFileChangeApproval  = "item/fileChange/requestApproval"
 	MethodPermissionsApproval = "item/permissions/requestApproval"
+	// MethodMcpElicitation is an MCP server asking the person something —
+	// and, with _meta.codex_approval_kind "mcp_tool_call", Codex itself
+	// asking whether an MCP tool may run.
+	MethodMcpElicitation = "mcpServer/elicitation/request"
+)
+
+// MCP tool-call approval metadata (codex-rs protocol/src/mcp_approval_meta.rs).
+const (
+	McpApprovalKindKey      = "codex_approval_kind"
+	McpApprovalKindToolCall = "mcp_tool_call"
+	McpPersistKey           = "persist"
+	McpPersistSession       = "session"
+	McpToolTitleKey         = "tool_title"
+	McpToolParamsKey        = "tool_params"
+)
+
+// Elicitation actions.
+const (
+	ElicitAccept  = "accept"
+	ElicitDecline = "decline"
+	ElicitCancel  = "cancel"
 )
 
 // Item types.
@@ -137,12 +158,16 @@ type WebSearchItem struct {
 }
 
 // DeltaNotification is item/agentMessage/delta and
-// item/reasoning/summaryTextDelta.
+// item/reasoning/summaryTextDelta. SummaryIndex is reasoning-only: which
+// summary paragraph (0-based) this delta belongs to. agentMessage/delta does
+// not carry the field, so it decodes as zero there — harmless, since the
+// translator only reads it for reasoning deltas.
 type DeltaNotification struct {
-	ThreadID string `json:"threadId"`
-	TurnID   string `json:"turnId"`
-	ItemID   string `json:"itemId"`
-	Delta    string `json:"delta"`
+	ThreadID     string `json:"threadId"`
+	TurnID       string `json:"turnId"`
+	ItemID       string `json:"itemId"`
+	Delta        string `json:"delta"`
+	SummaryIndex int    `json:"summaryIndex"`
 }
 
 type TurnPlanStep struct {
@@ -234,4 +259,23 @@ type ApprovalResponse struct {
 type PermissionsApprovalResponse struct {
 	Permissions struct{} `json:"permissions"`
 	Scope       string   `json:"scope"`
+}
+
+// McpElicitationParams is mcpServer/elicitation/request. Meta is the
+// request's _meta, which is where a tool-call approval says what it is.
+type McpElicitationParams struct {
+	ThreadID   string          `json:"threadId"`
+	TurnID     *string         `json:"turnId"`
+	ServerName string          `json:"serverName"`
+	Mode       string          `json:"mode"`
+	Meta       json.RawMessage `json:"_meta"`
+	Message    string          `json:"message"`
+}
+
+// McpElicitationResponse answers it. Content and Meta are sent as null when
+// empty: both keys are required on the wire.
+type McpElicitationResponse struct {
+	Action  string          `json:"action"`
+	Content json.RawMessage `json:"content"`
+	Meta    json.RawMessage `json:"_meta"`
 }

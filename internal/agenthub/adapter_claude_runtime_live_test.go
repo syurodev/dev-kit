@@ -32,7 +32,9 @@ func TestAgentRuntimeLiveInstall(t *testing.T) {
 	adapter := agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{
 		Runtime: func() (agentruntime.Resolved, error) { return manager.Resolve(agentruntime.ClaudeACP) },
 	})
-	manager.Verify = adapter.Probe
+	manager.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
+		agentruntime.ClaudeACP: adapter.Probe,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()

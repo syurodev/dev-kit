@@ -322,8 +322,36 @@ func main() {
 		}
 	}
 	claudeAdapter := agenthub.NewClaudeAdapter(claudeOpts)
-	runtimes.Verify = claudeAdapter.Probe
-	vendors := []agenthub.VendorAdapter{claudeAdapter}
+	codexOpts := agenthub.CodexOptions{
+		// DevKit's own Codex home: the user's ~/.codex, its sign-in and its
+		// rules, is never the session's (Codex spec §6).
+		Home: filepath.Join(dataDir, "agent-homes", "codex"),
+		Runtime: func() (agentruntime.Resolved, error) {
+			return runtimes.Resolve(agentruntime.CodexCLI)
+		},
+		OnSignInCompleted: func(r agenthub.SignInResult) {
+			emitAppEvent("agenthub:signInCompleted", map[string]any{
+				"agent":   string(r.Agent),
+				"loginId": r.LoginID,
+				"success": r.Success,
+				"error":   r.Error,
+			})
+		},
+	}
+	// Development and CI only, like DEVKIT_CLAUDE_ACP_COMMAND.
+	if override := os.Getenv("DEVKIT_CODEX_COMMAND"); override != "" {
+		if filepath.IsAbs(override) {
+			codexOpts.Command = override
+		} else {
+			log.Printf("agenthub: DEVKIT_CODEX_COMMAND must be absolute, ignoring %q", override)
+		}
+	}
+	codexAdapter := agenthub.NewCodexAdapter(codexOpts)
+	runtimes.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
+		agentruntime.ClaudeACP: claudeAdapter.Probe,
+		agentruntime.CodexCLI:  codexAdapter.Probe,
+	}
+	vendors := []agenthub.VendorAdapter{claudeAdapter, codexAdapter}
 	if application.System.IsServer() {
 		// Server mode serves the bridge over unauthenticated loopback HTTP and
 		// the jail shares the host loopback: a session could approve its own

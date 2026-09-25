@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -69,6 +70,46 @@ func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
 		if !strings.Contains(prof, service) {
 			t.Fatalf("expected mach-lookup for %q: %s", service, prof)
 		}
+	}
+}
+
+// A host-networking jail can check a server's certificate against the
+// system roots, and that is all the securityd lookup buys it: the login
+// keychain stays unreadable unless AllowKeychain asks for it — also under a
+// shared home, which grants ~/Library like the rest of $HOME — and a jail
+// with no network gets no lookup.
+func TestSeatbeltProfileNetworkHostCanCheckCertificates(t *testing.T) {
+	const lookup = `(global-name "com.apple.SecurityServer")`
+	keychains := `(subpath "/Users/alice/Library/Keychains")`
+	host := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if !strings.Contains(host, lookup) {
+		t.Fatalf("NetworkHost must reach securityd to verify TLS: %s", host)
+	}
+	if !strings.Contains(host, `(global-name "com.apple.trustd.agent")`) {
+		t.Fatalf("NetworkHost must reach trustd, which the platform verifier asks: %s", host)
+	}
+	none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if strings.Contains(none, lookup) {
+		t.Fatalf("a jail with no network has no certificate to check: %s", none)
+	}
+
+	shared := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, PrivateHome: boolPtr(false),
+		Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	deny := strings.LastIndex(shared, "(deny file-read* file-write*")
+	if deny < 0 || !strings.Contains(shared[deny:], keychains) {
+		t.Fatalf("a shared home must not hand the login keychain to the jail: %s", shared)
+	}
+	if strings.LastIndex(shared, "(allow ") > deny {
+		t.Fatalf("the keychain deny must come after every allow: %s", shared)
+	}
+	if !strings.Contains(shared, `(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal "/Users/alice/Library")))`) {
+		t.Fatalf("renaming ~/Library must not move the keychain out from under the deny: %s", shared)
+	}
+
+	allowed := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, PrivateHome: boolPtr(false), AllowKeychain: true,
+		Env: map[string]string{"HOME": "/Users/alice"}}.withDefaults())
+	if at := strings.LastIndex(allowed, "(deny file-read* file-write*"); at >= 0 && strings.Contains(allowed[at:], keychains) {
+		t.Fatalf("AllowKeychain must keep the keychain readable: %s", allowed)
 	}
 }
 
@@ -188,5 +229,30 @@ func TestSeatbeltProfileSharedHome(t *testing.T) {
 	}.withDefaults())
 	if strings.Contains(private, `(subpath "/Users/alice")`) {
 		t.Fatalf("a private home must not be granted: %s", private)
+	}
+}
+
+// A sign-in callback listens on its one loopback port and no other; a policy
+// that asks for none gets none, and a port that is not one is refused.
+func TestSeatbeltProfileListensOnlyOnTheLoopbackPortsAsked(t *testing.T) {
+	prof := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost, ListenLoopbackPorts: []int{1455}}.withDefaults())
+	for _, want := range []string{
+		`(allow network-bind (local ip "localhost:1455"))`,
+		`(allow network-inbound (local ip "localhost:1455"))`,
+	} {
+		if !strings.Contains(prof, want) {
+			t.Fatalf("missing %s: %s", want, prof)
+		}
+	}
+	if strings.Count(prof, "network-bind") != 1 || strings.Count(prof, "network-inbound") != 1 {
+		t.Fatalf("only the one port may listen: %s", prof)
+	}
+	if none := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost}.withDefaults()); strings.Contains(none, "network-bind") || strings.Contains(none, "network-inbound") {
+		t.Fatalf("no listener unless asked: %s", none)
+	}
+	for _, port := range []int{0, -1, 65536} {
+		if err := (Policy{WorkDir: "/tmp", ListenLoopbackPorts: []int{port}}).Validate(); !errors.Is(err, ErrInvalidPolicy) {
+			t.Errorf("port %d: Validate = %v, want ErrInvalidPolicy", port, err)
+		}
 	}
 }

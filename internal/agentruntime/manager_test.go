@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -335,9 +336,11 @@ func TestInstallVerifyFailureKeepsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var verified Resolved
-	tm.Verify = func(_ context.Context, rt Resolved) error {
-		verified = rt
-		return errors.New("initialize: agent process exited")
+	tm.Verifiers = map[string]func(context.Context, Resolved) error{
+		ClaudeACP: func(_ context.Context, rt Resolved) error {
+			verified = rt
+			return errors.New("initialize: agent process exited")
+		},
 	}
 	err := tm.Install(context.Background(), ClaudeACP, "0.76.0")
 	if !errors.Is(err, ErrInstallFailed) {
@@ -590,5 +593,143 @@ func TestRegistryEntryIgnoresAnotherPackage(t *testing.T) {
 	}
 	if v, _ := registryEntry([]byte("not json"), agents[ClaudeACP]); v != "" {
 		t.Fatal("version from garbage")
+	}
+}
+
+// writeFakeCodexInstall writes the tree `npm install @openai/codex` leaves,
+// with the platform package hoisted or nested under @openai/codex (npm does
+// either). The "binary" is a script that prints what the real one does for
+// --version.
+func writeFakeCodexInstall(t *testing.T, prefix, version string, nested, withBinary bool) {
+	t.Helper()
+	platform := "node_modules/@openai/codex-linux-x64"
+	if nested {
+		platform = "node_modules/@openai/codex/node_modules/@openai/codex-linux-x64"
+	}
+	files := map[string]string{
+		"package-lock.json":                       "{}",
+		"node_modules/@openai/codex/package.json": `{"version":"` + version + `"}`,
+		"node_modules/@openai/codex/bin/codex.js": "",
+	}
+	if withBinary {
+		files[platform+"/vendor/x86_64-unknown-linux-musl/bin/"+exeName("codex")] = "#!/bin/sh\necho codex-cli " + version + "\n"
+	}
+	for rel, body := range files {
+		path := filepath.Join(prefix, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func codexTestManager(t *testing.T, nested, withBinary bool) *testManager {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake codex binary is a shell script")
+	}
+	tm := newTestManager(t)
+	tm.npm = func(_ context.Context, prefix, spec string, _ func(string)) error {
+		if !strings.HasPrefix(spec, "@openai/codex@") {
+			t.Errorf("npm spec = %q, want @openai/codex@<version>", spec)
+		}
+		writeFakeCodexInstall(t, prefix, spec[strings.LastIndex(spec, "@")+1:], nested, withBinary)
+		return nil
+	}
+	return tm
+}
+
+func TestInstallCodexRunsItsNativeBinary(t *testing.T) {
+	tested := agents[CodexCLI].TestedVersion
+	for _, nested := range []bool{false, true} {
+		t.Run(fmt.Sprintf("nested=%v", nested), func(t *testing.T) {
+			tm := codexTestManager(t, nested, true)
+			claudeProbed := false
+			tm.Verifiers = map[string]func(context.Context, Resolved) error{
+				ClaudeACP: func(context.Context, Resolved) error { claudeProbed = true; return nil },
+			}
+			if err := tm.Install(context.Background(), CodexCLI, ""); err != nil {
+				t.Fatal(err)
+			}
+			if claudeProbed {
+				t.Fatal("Claude's probe ran against the Codex install")
+			}
+
+			rt, err := tm.Resolve(CodexCLI)
+			if err != nil {
+				t.Fatal(err)
+			}
+			versionDir := resolved(t, filepath.Join(tm.agentDir(CodexCLI), tested))
+			if !strings.HasPrefix(rt.Command, versionDir+string(filepath.Separator)) || filepath.Base(rt.Command) != exeName("codex") {
+				t.Fatalf("command = %q, want the codex binary under %s", rt.Command, versionDir)
+			}
+			if len(rt.Args) != 0 {
+				t.Fatalf("args = %v, want none: the binary is the entry", rt.Args)
+			}
+			if !slices.Equal(rt.ReadOnlyPaths, []string{versionDir}) {
+				t.Fatalf("ReadOnlyPaths = %v, want only the version directory (no node)", rt.ReadOnlyPaths)
+			}
+			if rt.Version != tested || rt.Env["PATH"] == "" {
+				t.Fatalf("resolved = %+v", rt)
+			}
+			out, err := exec.Command(rt.Command, "--version").Output()
+			if err != nil || !strings.Contains(string(out), "codex-cli "+tested) {
+				t.Fatalf("running %s: %q, %v", rt.Command, out, err)
+			}
+		})
+	}
+}
+
+func TestInstallCodexWithoutPlatformBinaryFails(t *testing.T) {
+	tm := codexTestManager(t, false, false)
+	err := tm.Install(context.Background(), CodexCLI, "")
+	if !errors.Is(err, ErrInstallFailed) || !strings.Contains(err.Error(), "no codex executable") {
+		t.Fatalf("err = %v, want ErrInstallFailed naming the missing executable", err)
+	}
+	if got := tm.readCurrent(CodexCLI); got.Version != "" {
+		t.Fatalf("current = %+v after a failed install", got)
+	}
+}
+
+func TestStatusSkipsClaudeBinaryForAgentsWithNoBundledClaude(t *testing.T) {
+	tm := codexTestManager(t, false, true)
+	tm.findClaude = func(context.Context) *MachineClaude {
+		t.Fatal("findClaude was called for an agent with no BundledClaude")
+		return nil
+	}
+	if err := tm.Install(context.Background(), CodexCLI, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := tm.Status(context.Background(), CodexCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.ClaudeBinary != (ClaudeBinary{}) {
+		t.Fatalf("ClaudeBinary = %+v, want the zero value", st.ClaudeBinary)
+	}
+	if st.Current == nil || st.Current.Version != agents[CodexCLI].TestedVersion {
+		t.Fatalf("Current = %+v, want version %s", st.Current, agents[CodexCLI].TestedVersion)
+	}
+}
+
+func TestResolveRefusesEntryOutsideVersionDir(t *testing.T) {
+	tm := codexTestManager(t, false, true)
+	if err := tm.Install(context.Background(), CodexCLI, ""); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(tm.agentDir(CodexCLI), agents[CodexCLI].TestedVersion, "install.json")
+	var mf map[string]any
+	if err := readJSON(manifest, &mf); err != nil {
+		t.Fatal(err)
+	}
+	mf["entry"] = "../../../bin/sh"
+	if err := writeJSON(manifest, mf); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.Resolve(CodexCLI); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("Resolve with an escaping entry = %v, want ErrNotInstalled", err)
 	}
 }

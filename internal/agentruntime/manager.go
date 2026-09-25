@@ -37,10 +37,13 @@ type Manager struct {
 	// OnOutput receives every line npm writes during an install, on the
 	// goroutine draining npm. Non-blocking implementations only.
 	OnOutput func(agent, line string)
-	// Verify proves a staged install runs before it is activated. agenthub
-	// supplies a sandboxed ACP initialize under the same policy a real session
-	// gets; nil skips the check, which only tests should do.
-	Verify func(ctx context.Context, rt Resolved) error
+	// Verifiers prove a staged install runs before it is activated, one per
+	// agent: agenthub supplies each vendor's own handshake under the jail a
+	// real session gets. Per agent because a probe is vendor-specific — Claude's
+	// ACP initialize run against the Codex binary would fail every install of
+	// it. An agent with no verifier is checked statically only, and its
+	// install.json says verified.handshake=false.
+	Verifiers map[string]func(ctx context.Context, rt Resolved) error
 
 	RegistryURL string
 	HTTPClient  *http.Client
@@ -132,8 +135,14 @@ func (m *Manager) Status(ctx context.Context, agentID string) (Status, error) {
 		Previous:      m.installed(agentID, cur.Previous),
 		Installing:    installing,
 		Requirements:  reqs,
-		ClaudeBinary:  ClaudeBinary{Source: m.claudeSource(agentID), Machine: m.findClaude(ctx)},
 		DiskBytes:     dirSize(m.agentDir(agentID)),
+	}
+	// An agent with no BundledClaude globs (Codex) never runs a Claude
+	// binary at all, bundled or machine-picked, so there is nothing here to
+	// report — and probing the machine for one it will never use is a
+	// pointless process launch on every Status call.
+	if len(agent.BundledClaude) > 0 {
+		st.ClaudeBinary = ClaudeBinary{Source: m.claudeSource(agentID), Machine: m.findClaude(ctx)}
 	}
 	if body, err := os.ReadFile(m.registryPath()); err == nil {
 		if latest, license := registryEntry(body, agent); latest != "" {
@@ -173,7 +182,7 @@ func (m *Manager) installed(agent, version string) *InstalledRuntime {
 //
 // It runs outside the sandbox — npm needs the network and somewhere to write —
 // which is why --ignore-scripts is not optional: no code from the package runs
-// until Verify starts it inside the jail. Neither the adapter nor its SDK has
+// until its verifier starts it inside the jail. Neither the adapter nor its SDK has
 // an install script (checked for 0.78.0 and SDK 0.3.270, including zod and @agentclientprotocol/sdk); the Claude binary
 // arrives as an optionalDependency picked by os/cpu.
 //
@@ -256,7 +265,8 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 		return fail(ErrInstallFailed, reason)
 	}
 
-	mf, err := inspectInstall(agent, staging, version, m.claudeSource(agentID) == ClaudeBundled)
+	needBundledClaude := len(agent.BundledClaude) > 0 && m.claudeSource(agentID) == ClaudeBundled
+	mf, err := inspectInstall(agent, staging, version, needBundledClaude)
 	if err != nil {
 		return err
 	}
@@ -264,12 +274,12 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 	mf.NPMVersion = npmVersion
 	mf.InstalledAt = time.Now().UTC().Format(time.RFC3339)
 
-	if m.Verify != nil {
+	if verify := m.Verifiers[agentID]; verify != nil {
 		rt, err := m.resolveAt(ctx, agent, staging, mf)
 		if err != nil {
 			return err
 		}
-		if err := m.Verify(ctx, rt); err != nil {
+		if err := verify(ctx, rt); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -331,7 +341,13 @@ func (m *Manager) trashPath(agent, version string) string {
 // are where they should be, and npm installed what was asked for.
 func inspectInstall(agent Agent, dir, version string, needBundledClaude bool) (installManifest, error) {
 	var mf installManifest
-	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(agent.Entry))); err != nil {
+	entry := agent.Entry
+	if len(agent.NativeEntry) > 0 {
+		entry = firstExecutable(dir, agent.NativeEntry)
+		if entry == "" {
+			return mf, fail(ErrInstallFailed, "npm installed no "+agent.ID+" executable for this platform")
+		}
+	} else if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(entry))); err != nil {
 		return mf, fail(ErrInstallFailed, "the adapter's entry script is missing")
 	}
 	var pkg struct {
@@ -346,30 +362,38 @@ func inspectInstall(agent Agent, dir, version string, needBundledClaude bool) (i
 	if _, err := os.Stat(filepath.Join(dir, "package-lock.json")); err != nil {
 		return mf, fail(ErrInstallFailed, "package-lock.json is missing")
 	}
-	var sdk struct {
-		Version string `json:"version"`
+	if agent.SDKPackage != "" {
+		var sdk struct {
+			Version string `json:"version"`
+		}
+		_ = readJSON(filepath.Join(dir, "node_modules", filepath.FromSlash(agent.SDKPackage), "package.json"), &sdk)
+		mf.SDKVersion = sdk.Version
 	}
-	_ = readJSON(filepath.Join(dir, "node_modules", filepath.FromSlash(agent.SDKPackage), "package.json"), &sdk)
 
-	mf.Agent, mf.Version, mf.Entry, mf.SDKVersion = agent.ID, version, agent.Entry, sdk.Version
+	mf.Agent, mf.Version, mf.Entry = agent.ID, version, entry
 	mf.Package = agent.Package + "@" + version
-	for _, pattern := range agent.BundledClaude {
-		matches, _ := filepath.Glob(filepath.Join(dir, filepath.FromSlash(pattern)))
-		for _, match := range matches {
-			if isExecutable(match) {
-				rel, _ := filepath.Rel(dir, match)
-				mf.BundledClaude = filepath.ToSlash(rel)
-				break
-			}
-		}
-		if mf.BundledClaude != "" {
-			break
-		}
-	}
+	mf.BundledClaude = firstExecutable(dir, agent.BundledClaude)
 	if mf.BundledClaude == "" && needBundledClaude {
 		return mf, fail(ErrInstallFailed, "npm installed no Claude Code binary for this platform")
 	}
 	return mf, nil
+}
+
+// firstExecutable returns the first executable matching patterns — globs
+// relative to dir — as a slash-separated path relative to dir, or "".
+func firstExecutable(dir string, patterns []string) string {
+	for _, pattern := range patterns {
+		matches, _ := filepath.Glob(filepath.Join(dir, filepath.FromSlash(pattern)))
+		for _, match := range matches {
+			if !isExecutable(match) {
+				continue
+			}
+			if rel, err := filepath.Rel(dir, match); err == nil {
+				return filepath.ToSlash(rel)
+			}
+		}
+	}
+	return ""
 }
 
 // Activate points current.json at an installed version; the old current
@@ -473,6 +497,26 @@ func (m *Manager) resolveAt(ctx context.Context, agent Agent, dir string, mf ins
 	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return Resolved{}, ErrNotInstalled
+	}
+	if len(agent.NativeEntry) > 0 {
+		// The binary is the agent: no node, no entry script, nothing to grant
+		// but the version directory. install.json names the binary; it is
+		// DevKit's own file, but a path that leaves the version directory is
+		// refused anyway rather than executed.
+		rel := filepath.FromSlash(mf.Entry)
+		if mf.Entry == "" || filepath.IsAbs(rel) || !filepath.IsLocal(rel) {
+			return Resolved{}, ErrNotInstalled
+		}
+		exe := filepath.Join(dir, rel)
+		if !isExecutable(exe) {
+			return Resolved{}, ErrNotInstalled
+		}
+		return Resolved{
+			Command:       exe,
+			ReadOnlyPaths: []string{dir},
+			Env:           map[string]string{"PATH": hostPath()},
+			Version:       mf.Version,
+		}, nil
 	}
 	entry := filepath.Join(dir, filepath.FromSlash(agent.Entry))
 	if _, err := os.Stat(entry); err != nil {

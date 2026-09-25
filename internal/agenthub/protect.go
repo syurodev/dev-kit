@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // dataDirSecrets are the entries of DevKit's data directory hidden even when
@@ -45,4 +46,57 @@ func ProtectDataDir(dataDir string, keep ...string) []string {
 		out = append(out, filepath.Join(dataDir, name))
 	}
 	return out
+}
+
+// carveOut returns deny with one path inside it made reachable again: each
+// deny path that holds keep is replaced by its entries, except the one on the
+// way to keep, one level at a time down to keep itself.
+//
+// For a vendor whose home lives in DevKit's data directory, which every
+// session hides. Keeping the home in ProtectDataDir's list instead would hand
+// it to every vendor — a Claude session would read Codex's auth.json — so the
+// adapter that owns the home carves it out of its own sessions' deny list and
+// nobody else's. Entries are listed when the session opens; one created later
+// beside the path is not hidden from that session.
+func carveOut(deny []string, keep string) []string {
+	out := make([]string, 0, len(deny))
+	for _, path := range deny {
+		if !pathIsInside(keep, path) {
+			out = append(out, path)
+			continue
+		}
+		out = append(out, siblingsOnTheWay(path, keep)...)
+	}
+	return out
+}
+
+// siblingsOnTheWay lists everything under dir except the path down to keep.
+func siblingsOnTheWay(dir, keep string) []string {
+	rel, err := filepath.Rel(dir, keep)
+	if err != nil {
+		return []string{dir}
+	}
+	next, rest, _ := strings.Cut(filepath.ToSlash(rel), "/")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		// Unlistable is not empty: keep the whole directory hidden. The home
+		// inside it then cannot be granted, and the spawn fails closed.
+		return []string{dir}
+	}
+	var out []string
+	for _, entry := range entries {
+		if entry.Name() != next {
+			out = append(out, filepath.Join(dir, entry.Name()))
+		}
+	}
+	if rest != "" {
+		out = append(out, siblingsOnTheWay(filepath.Join(dir, next), keep)...)
+	}
+	return out
+}
+
+// pathIsInside reports whether path lies strictly below dir.
+func pathIsInside(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }

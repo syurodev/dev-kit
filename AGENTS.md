@@ -92,7 +92,11 @@ as production-verified against a real Claude Code session in cloud CI.
 **Partial** v1 surface on this branch: ACP codec/conn, mock + Claude adapters,
 session service (SQLite migration 13), bridge/UI multi-tab, MCP `agenthub.*`.
 Claude vendor spawn uses `sandbox.DefaultRunner().StartPiped` (fail-closed).
-Codex/Gemini adapters are **not** shipped. Product design + status:
+A Codex adapter (`adapter_codex*.go`, `codex_*.go`) drives `codex app-server` 0.147.0
+under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`); it is
+registered in `main.go`, but the UI for it (sign-in panel, vendor picker) is not built
+yet — design in `docs/superpowers/specs/2026-09-24-codex-agent-hub-design.md`, state in
+`docs/superpowers/HANDOFF-codex.md`. Gemini is **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
 
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
@@ -101,6 +105,9 @@ and server mode's bridge has no authentication, so a session could approve itsel
 
 ```bash
 go test ./internal/acp/ ./internal/agenthub/ ./internal/bridge/ ./internal/mcp/ -count=1
+# Codex in the real jail, signed out (no quota): DEVKIT_CODEX_COMMAND is the native
+# binary, e.g. <data>/runtimes/codex/0.147.0/node_modules/@openai/codex-<platform>/vendor/<triple>/bin/codex
+DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexRealBinary -v
 ```
 
 ### Agent sandbox (`internal/sandbox`)
