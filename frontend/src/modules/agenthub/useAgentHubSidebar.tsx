@@ -1,7 +1,7 @@
 import { useMemo, useRef, useCallback } from "react";
 
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { AgentSidebarTree } from "./surfaces";
+import { AgentSidebarTree, type SidebarWorkspace } from "./surfaces";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import type { AgentSession } from "../../bridge/agenthub";
@@ -27,11 +27,13 @@ export function useAgentHubSidebar(args: {
   sessions: AgentSession[];
   /** Sessions under this folder are drawn as one "No project" group. */
   scratchRoot?: string;
+  /** Workspaces to group sessions by, the current one first. */
+  workspaces?: SidebarWorkspace[];
   activeSessionId?: string;
   pendingCounts: Record<string, number>;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
-  onNewSessionIn: (projectPath: string) => void;
+  onNewSessionIn: (projectPath: string, workspacePaths?: string[]) => void;
   onNewChildSession: (parent: AgentSession) => void;
   onCancelTurn: (session: AgentSession) => void;
   onCloseSession: (session: AgentSession) => void;
@@ -40,7 +42,7 @@ export function useAgentHubSidebar(args: {
   onDeleteSession: (session: AgentSession, descendants: number) => void;
   onCopy: (text: string) => void;
 }) {
-  const { sessions, scratchRoot, activeSessionId, pendingCounts } = args;
+  const { sessions, scratchRoot, workspaces, activeSessionId, pendingCounts } = args;
   const pinned = useAgentPinsStore((state) => state.pinned);
   const togglePin = useAgentPinsStore((state) => state.togglePin);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
@@ -62,7 +64,7 @@ export function useAgentHubSidebar(args: {
   );
   const onNewSession = useCallback(() => handlers.current.onNewSession(), []);
   const onNewSessionIn = useCallback(
-    (projectPath: string) => handlers.current.onNewSessionIn(projectPath),
+    (projectPath: string, workspacePaths?: string[]) => handlers.current.onNewSessionIn(projectPath, workspacePaths),
     [],
   );
   const onNewChildSession = useCallback(
@@ -96,6 +98,7 @@ export function useAgentHubSidebar(args: {
     () => (
       <AgentSidebarTree
         sessions={sessions}
+        workspaces={workspaces}
         scratchRoot={scratchRoot}
         activeSessionId={activeSessionId}
         pendingCounts={pendingCounts}
@@ -120,6 +123,7 @@ export function useAgentHubSidebar(args: {
     ),
     [
       sessions,
+      workspaces,
       scratchRoot,
       activeSessionId,
       pendingCounts,

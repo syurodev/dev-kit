@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Ban, Bot, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, FolderX, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
+import { Ban, Bot, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, FolderX, Layers, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,21 @@ import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
 
+/**
+ * A workspace as the rail groups by it: its services' folders, primary first.
+ * A session opened in any of them belongs to the workspace, not to the one
+ * folder its process happens to start in.
+ */
+export type SidebarWorkspace = { id: string; name: string; paths: string[] };
+
 export type AgentSidebarTreeProps = {
   sessions: AgentSession[];
+  /**
+   * Workspaces to group by, the current one first — a folder in two
+   * workspaces goes to the one the person is in. Sessions outside all of
+   * them are grouped by their folder, as before workspaces existed.
+   */
+  workspaces?: SidebarWorkspace[];
   /**
    * Where "no project" sessions get their folders. Every session under it is
    * one "No project" group, not a project per timestamped scratch folder.
@@ -55,9 +68,11 @@ export type AgentSidebarTreeProps = {
   onToggleHideClosed?: () => void;
   /**
    * Starts a session in this project's folder: the "+" on a project row and
-   * its context menu. The folder is already known, so nothing is asked.
+   * its context menu. The folder is already known, so nothing is asked. On a
+   * workspace row it also gets the workspace's folders, primary first, so the
+   * session is the whole workspace's.
    */
-  onNewSessionIn?: (projectPath: string) => void;
+  onNewSessionIn?: (projectPath: string, workspacePaths?: string[]) => void;
   /** Spawns a child of this session — the context menu's only creating action. */
   onNewChildSession?: (parent: AgentSession) => void;
   onCancelTurn?: (session: AgentSession) => void;
@@ -141,9 +156,13 @@ function toSubagentStatus(state: string | undefined): AgentStatus {
   }
 }
 
-/** The last segment of a path — the folder a developer calls the project. */
-function projectLabel(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
+/**
+ * The last segment of a path — the folder a developer calls the project — or
+ * the last `segments` of them, to tell two folders of one name apart.
+ */
+function projectLabel(path: string, segments = 1): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length ? parts.slice(-segments).join("/") : path;
 }
 
 /**
@@ -212,8 +231,22 @@ export function visibleSessions(
 
 
 
-/** One project and the root sessions opened in it, pinned ones first. */
-export type ProjectGroup = { path: string; roots: AgentSession[]; total: number };
+/**
+ * One project and the root sessions opened in it, pinned ones first. A
+ * workspace group's path is its primary folder; `label` is what the row says.
+ */
+export type ProjectGroup = {
+  path: string;
+  label: string;
+  roots: AgentSession[];
+  total: number;
+  workspace?: SidebarWorkspace;
+};
+
+/** Whether path is folder or inside it. */
+function within(path: string, folder: string): boolean {
+  return path === folder || path.startsWith(`${folder.replace(/\/+$/, "")}/`);
+}
 
 /**
  * Roots grouped by project, with each group's sessions counted through their
@@ -227,9 +260,19 @@ export function groupByProject(
   sessions: AgentSession[],
   pinnedIds: string[] = [],
   scratchRoot = "",
+  workspaces: SidebarWorkspace[] = [],
 ): ProjectGroup[] {
-  // Every scratch folder is the same "no project" as far as the rail goes.
-  const groupOf = (path: string) => (scratchRoot && path.startsWith(`${scratchRoot}/`) ? scratchRoot : path);
+  const workspaceByKey = new Map<string, SidebarWorkspace>();
+  // Every scratch folder is the same "no project" as far as the rail goes; a
+  // folder of a workspace is that workspace, the first listed winning.
+  const groupOf = (path: string) => {
+    if (scratchRoot && path.startsWith(`${scratchRoot}/`)) return scratchRoot;
+    const workspace = workspaces.find((w) => w.paths.some((folder) => within(path, folder)));
+    if (!workspace) return path;
+    const key = `workspace:${workspace.id}`;
+    workspaceByKey.set(key, workspace);
+    return key;
+  };
   const byId = new Set(sessions.map((session) => session.id));
   const groups = new Map<string, AgentSession[]>();
   for (const session of sessions) {
@@ -246,21 +289,45 @@ export function groupByProject(
   };
   const descendants = countDescendants(sessions);
 
+  // Two folders with the same name (an old clone and a new one) would be two
+  // rows that read the same; those say which parent they are in.
+  const folderNames = new Map<string, number>();
+  for (const key of groups.keys()) {
+    if (workspaceByKey.has(key) || key === scratchRoot) continue;
+    const name = projectLabel(key);
+    folderNames.set(name, (folderNames.get(name) ?? 0) + 1);
+  }
+  const labelOf = (key: string) => {
+    const workspace = workspaceByKey.get(key);
+    if (workspace) return workspace.name;
+    const name = projectLabel(key);
+    return (folderNames.get(name) ?? 0) > 1 ? projectLabel(key, 2) : name;
+  };
+
   return [...groups.entries()]
-    .map(([path, roots]) => ({
-      path,
-      roots: [...roots].sort((a, b) => pinRank(a) - pinRank(b)),
-      total: roots.reduce((sum, root) => sum + 1 + (descendants[root.id] ?? 0), 0),
-    }))
+    .map(([key, roots]) => {
+      const workspace = workspaceByKey.get(key);
+      return {
+        path: workspace ? (workspace.paths[0] ?? "") : key,
+        label: labelOf(key),
+        roots: [...roots].sort((a, b) => pinRank(a) - pinRank(b)),
+        total: roots.reduce((sum, root) => sum + 1 + (descendants[root.id] ?? 0), 0),
+        ...(workspace ? { workspace } : {}),
+      };
+    })
     // No project last: the named ones are what the rail is organised by.
     .sort((a, b) =>
-      Number(a.path === scratchRoot && !!scratchRoot) - Number(b.path === scratchRoot && !!scratchRoot) ||
-      projectLabel(a.path).localeCompare(projectLabel(b.path)),
+      Number(a.path === scratchRoot && !!scratchRoot && !a.workspace) -
+        Number(b.path === scratchRoot && !!scratchRoot && !b.workspace) || a.label.localeCompare(b.label),
     );
 }
 
+// A stable default: a fresh [] per render would rebuild the tree every time.
+const NO_WORKSPACES: SidebarWorkspace[] = [];
+
 export function AgentSidebarTree({
   sessions: allSessions,
+  workspaces = NO_WORKSPACES,
   scratchRoot = "",
   activeSessionId,
   pendingCounts = {},
@@ -464,16 +531,20 @@ export function AgentSidebarTree({
       };
     };
 
-    return groupByProject(sessions, pinnedIds, scratchRoot).map((group) => {
-      const key = `project:${group.path}`;
-      const scratch = Boolean(scratchRoot) && group.path === scratchRoot;
-      const name = scratch ? "No project" : projectLabel(group.path) || "No project";
+    return groupByProject(sessions, pinnedIds, scratchRoot, workspaces).map((group) => {
+      const workspace = group.workspace;
+      const key = workspace ? `workspace:${workspace.id}` : `project:${group.path}`;
+      const scratch = !workspace && Boolean(scratchRoot) && group.path === scratchRoot;
+      const name = scratch ? "No project" : group.label || "No project";
+      const newIn = () => onNewSessionIn?.(group.path, workspace?.paths);
       return {
         id: key,
         label: name,
-        title: scratch ? undefined : group.path || undefined,
+        title: scratch ? undefined : workspace ? workspace.paths.join("\n") : group.path || undefined,
         icon: scratch ? (
           <FolderX />
+        ) : workspace ? (
+          <Layers />
         ) : (
           <Folder />
         ),
@@ -482,7 +553,7 @@ export function AgentSidebarTree({
         // you are looking at should not mean picking that folder again.
         actions: onNewSessionIn ? (
           <ActionTooltip label={scratch ? "New session without a project" : `New session in ${name}`}>
-            <TreeRowAction data-testid="agent-tree-project-new" onClick={() => onNewSessionIn(group.path)}>
+            <TreeRowAction data-testid="agent-tree-project-new" onClick={newIn}>
               <Plus aria-hidden="true" />
             </TreeRowAction>
           </ActionTooltip>
@@ -494,7 +565,7 @@ export function AgentSidebarTree({
               <ContextMenuLabel className="truncate">{name}</ContextMenuLabel>
               <ContextMenuSeparator />
               {onNewSessionIn ? (
-                <ContextMenuItem icon={<Plus />} onSelect={() => onNewSessionIn(group.path)}>
+                <ContextMenuItem icon={<Plus />} onSelect={newIn}>
                   New session
                 </ContextMenuItem>
               ) : null}
@@ -521,6 +592,7 @@ export function AgentSidebarTree({
     });
   }, [
     sessions,
+    workspaces,
     scratchRoot,
     subagents,
     turnCounts,
