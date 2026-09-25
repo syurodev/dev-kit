@@ -142,7 +142,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
 	}
 	if errors.Is(err, app.ErrCodexAPIKeyAccount) {
-		return apperrors.New(codeValidationFailed, app.ErrCodexAPIKeyAccount.Error(), true)
+		return apperrors.New(codeValidationFailed, codexAPIKeyAccountMessage, true)
 	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
@@ -453,3 +453,8 @@ func agentAPIKeyUnusableMessage(agent agenthub.AgentType) string {
 	}
 	return "The agent can't use the API key chosen for it in Settings → Agents. Choose another, or remove it."
 }
+
+// codexAPIKeyAccountMessage is what choosing an unusable account for Codex's
+// API key says: what would have worked, since the account itself is fine for
+// whatever else it is bound to.
+const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is not limited to an environment."

@@ -62,7 +62,7 @@ func TestCodexAPIKeyAccountRefusesANonToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = svc.PreferencesSetCodexAPIKeyAccount(basic.ID)
-	if err == nil || err.Error() != "validation_failed: "+app.ErrCodexAPIKeyAccount.Error() {
+	if err == nil || err.Error() != "validation_failed: Choose an API key (a token account) that is not limited to an environment." {
 		t.Fatalf("basic account = %v", err)
 	}
 }

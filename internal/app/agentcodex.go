@@ -14,8 +14,9 @@ import (
 
 // ErrCodexAPIKeyAccount is an account that cannot be Codex's API key: gone,
 // not a token, a single connection's secret, or limited to an environment
-// (a spawn has none to offer, so Resolve would refuse it every time).
-var ErrCodexAPIKeyAccount = errors.New("Choose an API key (a token account) that is not limited to an environment.")
+// (a spawn has none to offer, so Resolve would refuse it every time). The
+// sentence the person reads is the bridge's (codexAPIKeyAccountMessage).
+var ErrCodexAPIKeyAccount = errors.New("app.codexAPIKeyAccount")
 
 // The note Accounts keeps of Codex's ChatGPT sign-in. The credential itself
 // is in Codex's own home; this row only answers "what am I signed in to".
