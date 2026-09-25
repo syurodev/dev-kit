@@ -170,3 +170,38 @@ func TestSQLRepositoryUpdateWorkspace(t *testing.T) {
 		t.Fatalf("services = %+v", services)
 	}
 }
+
+// The primary comes first however the services sort by name. The SQL
+// repository returns them alphabetically, and callers (Agent Hub's "whole
+// workspace" draft, the Git and CodeGraph gates) take the first as the
+// primary: a workspace whose primary was kong-plugin opened its agents in
+// fsap-authentication-service, which only sorts earlier.
+func TestListServicesPutsThePrimaryFirst(t *testing.T) {
+	parent := t.TempDir()
+	kong := filepath.Join(parent, "kong-plugin")
+	auth := filepath.Join(parent, "fsap-authentication-service")
+	config := filepath.Join(parent, "fsap-config-service")
+	for _, dir := range []string{kong, auth, config} {
+		mkGitDir(t, dir)
+	}
+	svc := workspace.NewService(newTestSQLRepo(t))
+	ws, _, err := svc.CreateWorkspace("fsap-security", []string{kong, auth, config})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.ListServices(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 3 || listed[0].Path != kong {
+		t.Fatalf("services = %+v, want kong-plugin (the primary) first", listed)
+	}
+	// Moving the primary moves it to the front of the list as well.
+	if _, _, err := svc.UpdateWorkspace(ws.ID, "fsap-security", []string{config, kong, auth}); err != nil {
+		t.Fatal(err)
+	}
+	listed, _ = svc.ListServices(ws.ID)
+	if listed[0].Path != config {
+		t.Fatalf("after update: services = %+v, want fsap-config-service first", listed)
+	}
+}

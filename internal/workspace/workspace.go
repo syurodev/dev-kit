@@ -102,8 +102,41 @@ func (s *Service) ListWorkspaces() ([]Workspace, error) {
 }
 
 // ListServices returns every service under workspaceID.
+//
+// The primary (the workspace's Root) comes first, whatever the repository's
+// own order: the SQL one sorts by name, and every caller that wants the
+// primary takes the first service — Agent Hub opened a "whole workspace"
+// session in whichever service sorted first rather than in the primary.
 func (s *Service) ListServices(workspaceID string) ([]WorkspaceService, error) {
-	return s.repo.ListServices(workspaceID)
+	services, err := s.repo.ListServices(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := s.workspace(workspaceID)
+	if err != nil {
+		// An unknown id lists what the repository has for it (nothing):
+		// ordering is not a reason to turn a listing into an error.
+		return services, nil
+	}
+	return primaryFirst(services, ws.Root), nil
+}
+
+// primaryFirst moves the service at root to the front, keeping the rest in
+// their order.
+func primaryFirst(services []WorkspaceService, root string) []WorkspaceService {
+	for i, svc := range services {
+		if svc.Path == root {
+			if i > 0 {
+				out := make([]WorkspaceService, 0, len(services))
+				out = append(out, svc)
+				out = append(out, services[:i]...)
+				out = append(out, services[i+1:]...)
+				return out
+			}
+			break
+		}
+	}
+	return services
 }
 
 // AddWorkspace registers root as a new workspace — CreateWorkspace with one
