@@ -24,6 +24,12 @@ import {
  * had: the row carried three buttons for three of the actions while the
  * context menu carried nine, so which ones you could reach depended on how you
  * asked. A list rendered into both cannot disagree with itself.
+ *
+ * Shared rather than the Database rail's own: it started there, and the Tasks
+ * rail needs the same two menus for its boards and tasks. A second module
+ * importing it from inside `modules/database` would be a cross-module edge
+ * (moduleBoundaryRatchet.test.ts) for something that was never about
+ * databases.
  */
 export type RowAction =
   | {

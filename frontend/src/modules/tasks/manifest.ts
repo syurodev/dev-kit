@@ -22,6 +22,12 @@ export const tasksModule: ModuleManifest = {
   // the workflow or the verify command that binds it.
   capabilities: ["tasks:read", "tasks:write", "tasks:admin"],
   commands: [{ id: "tasks.create", title: "New task" }],
+  // The workspace → board → task tree belongs to the module, not to whichever
+  // board is open: choosing a board is what the rail is for, and a task tab
+  // with no board tab beside it still needs somewhere to pick the next one.
+  sidebar: lazy(() =>
+    import("./TasksSidebar").then(({ TasksSidebar }) => ({ default: TasksSidebar })),
+  ),
   views: [
     {
       id: "tasks.board",

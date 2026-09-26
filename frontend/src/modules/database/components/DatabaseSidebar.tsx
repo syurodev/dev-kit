@@ -53,7 +53,7 @@ import { useDatabaseStore, type SidebarPane } from "../databaseStore";
 import { countTables, filterNamespace, keepsProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
 import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
-import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "./rowActions";
+import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "@/components/row-actions";
 import { EditFolderDialog } from "./EditFolderDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConsoleFilesPanel } from "./ConsoleFilesPanel";

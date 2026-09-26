@@ -30,8 +30,8 @@ import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
  * path does not travel, so it is a service NAME of the board's workspace now
  * — resolved to a path on this machine only when the command actually runs. A
  * board with no binding has no workspace to list services from, so saving a
- * command is disabled until someone links it (Tasks sidebar, "Bind to
- * workspace").
+ * command is disabled until someone links it (Tasks sidebar, "Link to
+ * current workspace").
  */
 export function BoardVerifyDialog({
   board,
@@ -109,7 +109,7 @@ export function BoardVerifyDialog({
           ) : (
             <p className="text-code-11 text-amber-600">
               This board isn't linked to a workspace on this machine. Link it to a
-              workspace (Tasks sidebar → Bind to workspace) before setting a command.
+              workspace (Tasks sidebar → Link to current workspace) before setting a command.
             </p>
           )}
           <p className="text-code-11 text-text-tertiary">
