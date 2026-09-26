@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"path/filepath"
-	"strings"
 
 	"devkit/internal/apperrors"
 	"devkit/internal/identity"
@@ -106,8 +104,8 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 		for _, svc := range services {
 			folder := WorkspaceFolder{Name: svc.Name, Path: svc.Path, Primary: svc.Path == ws.Root}
 			if caller.IsAgent() {
-				folder.Granted = coveredBy(svc.Path, granted)
-				if folder.Granted || within(cwd, svc.Path) {
+				folder.Granted = workspace.Covered(svc.Path, granted)
+				if folder.Granted || workspace.Within(cwd, svc.Path) {
 					mine = true
 				}
 			}
@@ -119,24 +117,4 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 		out.Workspaces = append(out.Workspaces, info)
 	}
 	return out, nil
-}
-
-// coveredBy reports whether path is one of roots or inside one.
-func coveredBy(path string, roots []string) bool {
-	for _, root := range roots {
-		if root != "" && within(path, root) {
-			return true
-		}
-	}
-	return false
-}
-
-// within reports whether path is root or inside it — a prefix of a folder
-// name (kong-plugin-v2 against kong-plugin) is not.
-func within(path, root string) bool {
-	if path == "" || root == "" {
-		return false
-	}
-	path, root = filepath.Clean(path), filepath.Clean(root)
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
