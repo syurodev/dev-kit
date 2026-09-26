@@ -30,6 +30,7 @@ type Tables struct {
 	APIRequestHistory  string
 	CodexHookEvents    string
 	TaskVerifyRuns     string
+	TaskBoardBindings  string
 }
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an

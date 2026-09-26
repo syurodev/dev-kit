@@ -167,6 +167,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableAppPreferences, TableUIState, TableDBQueryHistory, TableDBSchemaCache,
 		TableAuditEvents, TableAgentCheckpoints, TableAccountSecrets,
 		TableTaskVerifyRuns, TableAccountHostChoices, TableAPIRequestHistory, TableCodexHookEvents,
+		TableTaskBoardBindings,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -177,8 +178,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 31 {
-		t.Fatalf("migration version = %d, want 31", version)
+	if version != 32 {
+		t.Fatalf("migration version = %d, want 32", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -542,5 +543,44 @@ func TestMigrationRebuildsWorkspaceServicesWithKeys(t *testing.T) {
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_services`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("services after deleting their workspace = %d, %v; want 0 (cascade)", n, err)
+	}
+}
+
+// TestTaskBoardBindingsCascadeDelete verifies that deleting a workspace cascades
+// to delete its board bindings, while the board itself (a vault_item) is unaffected.
+func TestTaskBoardBindingsCascadeDelete(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Create a workspace and insert a binding.
+	if _, err := db.ExecContext(ctx, `INSERT INTO workspaces (id, name, root) VALUES ('ws1', 'test-ws', '/test')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO task_board_bindings (board_id, workspace_id, bound_at) VALUES ('board1', 'ws1', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the binding exists.
+	var boardID string
+	if err := db.QueryRowContext(ctx, `SELECT board_id FROM task_board_bindings WHERE board_id = 'board1'`).Scan(&boardID); err != nil {
+		t.Fatalf("binding not inserted: %v", err)
+	}
+
+	// Delete the workspace.
+	if _, err := db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = 'ws1'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the binding is gone (cascade delete).
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_board_bindings`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("bindings after deleting workspace = %d, %v; want 0 (cascade)", count, err)
 	}
 }

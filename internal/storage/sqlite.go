@@ -54,6 +54,13 @@ const (
 	// what its exit code would have been.
 	TableTaskVerifyRuns = "task_verify_runs"
 
+	// TableTaskBoardBindings binds boards to workspaces on this machine. It is
+	// derived/operational — it says how this machine views the project, not what
+	// the project is — so it never syncs. A board can sync to another machine
+	// without its binding; when it arrives, it lands in the "unbound" group until
+	// the user gathers it into a workspace.
+	TableTaskBoardBindings = "task_board_bindings"
+
 	// TableAccountHostChoices remembers which account was picked for a host on
 	// an environment, so the question is asked once per pair rather than every
 	// time. Local, not a vault item: it is a convenience that can be answered
@@ -1082,7 +1089,33 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31})
+	m32 := Migration{
+		Version: 32,
+		Name:    "task board bindings",
+		Up: func(ctx context.Context) error {
+			// Board-to-workspace bindings are machine-local: a binding represents
+			// how this machine views the board's place in the project, not a fact
+			// about the project itself. When a workspace is deleted, its bindings
+			// are dropped (ON DELETE CASCADE). See docs/dev-kit/tasks.mdx §
+			// "Tích hợp Workspace".
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					board_id     TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE,
+					bound_at     TEXT NOT NULL
+				)`, TableTaskBoardBindings, TableWorkspaces,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_task_board_bindings_workspace ON %s (workspace_id)`,
+				TableTaskBoardBindings,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32})
 	if err != nil {
 		return err
 	}

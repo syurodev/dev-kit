@@ -790,6 +790,7 @@ func main() {
 		APIRequestHistory:  storage.TableAPIRequestHistory,
 		CodexHookEvents:    storage.TableCodexHookEvents,
 		TaskVerifyRuns:     storage.TableTaskVerifyRuns,
+		TaskBoardBindings:  storage.TableTaskBoardBindings,
 	})
 	// The board asks the hub whether a session is still alive before letting
 	// another take over its claim. Separate because the hub is built above,
