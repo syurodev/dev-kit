@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -61,11 +62,11 @@ func TestBindingFillsWorkspaceIDOnReadAndNeverStoresIt(t *testing.T) {
 	if bound.WorkspaceID != "ws-a" {
 		t.Fatalf("BindBoard returned workspace %q", bound.WorkspaceID)
 	}
-	read, err := svc.Board(board.ID)
+	read, err := svc.Board(user, board.ID)
 	if err != nil || read.WorkspaceID != "ws-a" {
 		t.Fatalf("Board = %+v, %v", read, err)
 	}
-	all, err := svc.Boards()
+	all, err := svc.Boards(user)
 	if err != nil || len(all) != 1 || all[0].WorkspaceID != "ws-a" {
 		t.Fatalf("Boards = %+v, %v", all, err)
 	}
@@ -113,14 +114,14 @@ func TestRebindMovesAndUnbindReleases(t *testing.T) {
 	if _, err := svc.BindBoard(board.ID, "ws-b"); err != nil {
 		t.Fatal(err)
 	}
-	if read, _ := svc.Board(board.ID); read.WorkspaceID != "ws-b" {
+	if read, _ := svc.Board(user, board.ID); read.WorkspaceID != "ws-b" {
 		t.Fatalf("rebind left workspace %q", read.WorkspaceID)
 	}
 	unbound, err := svc.UnbindBoard(board.ID)
 	if err != nil || unbound.WorkspaceID != "" {
 		t.Fatalf("UnbindBoard = %+v, %v", unbound, err)
 	}
-	if read, _ := svc.Board(board.ID); read.WorkspaceID != "" {
+	if read, _ := svc.Board(user, board.ID); read.WorkspaceID != "" {
 		t.Fatalf("unbound board still reads workspace %q", read.WorkspaceID)
 	}
 	// Unbinding twice is not an error.
@@ -146,7 +147,7 @@ func TestDeletingTheWorkspaceUnbindsTheBoard(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM `+storage.TableWorkspaces+` WHERE id = ?`, "ws-a"); err != nil {
 		t.Fatal(err)
 	}
-	read, err := svc.Board(board.ID)
+	read, err := svc.Board(user, board.ID)
 	if err != nil || read.WorkspaceID != "" {
 		t.Fatalf("board after workspace delete = %+v, %v", read, err)
 	}
@@ -165,10 +166,10 @@ func TestABindingToAVanishedWorkspaceReadsAsUnbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope.gone["ws-a"] = true
-	if read, _ := svc.Board(board.ID); read.WorkspaceID != "" {
+	if read, _ := svc.Board(user, board.ID); read.WorkspaceID != "" {
 		t.Fatalf("Board = %q", read.WorkspaceID)
 	}
-	all, _ := svc.Boards()
+	all, _ := svc.Boards(user)
 	if len(all) != 1 || all[0].WorkspaceID != "" {
 		t.Fatalf("Boards = %+v", all)
 	}
@@ -224,5 +225,225 @@ func TestNilScopeSeesEveryBoard(t *testing.T) {
 	}
 	if _, err := svc.BindBoard(board.ID, "ws-a"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("binding with no table = %v", err)
+	}
+}
+
+// scopeFixture is one agent in ws-a, and a board in each of three places: its
+// own workspace, another one, and none.
+type scopeFixture struct {
+	svc                  *Service
+	scope                *fakeScope
+	home, other, unbound Board
+	homeTask, otherTask  Task
+	unboundTask          Task
+}
+
+func newScopeFixture(t *testing.T) scopeFixture {
+	t.Helper()
+	svc, db, scope := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	addWorkspace(t, db, "ws-b")
+	scope.sessions[agent.SessionID] = []string{"ws-a"}
+
+	f := scopeFixture{svc: svc, scope: scope}
+	for _, b := range []struct {
+		board     *Board
+		task      *Task
+		workspace string
+	}{
+		{&f.home, &f.homeTask, "ws-a"},
+		{&f.other, &f.otherTask, "ws-b"},
+		{&f.unbound, &f.unboundTask, ""},
+	} {
+		*b.board = newBoard(t, svc)
+		if b.workspace != "" {
+			if _, err := svc.BindBoard(b.board.ID, b.workspace); err != nil {
+				t.Fatal(err)
+			}
+		}
+		task, err := svc.Create(user, CreateInput{BoardID: b.board.ID, Title: "work", Description: "secret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		*b.task = task
+	}
+	return f
+}
+
+// scopedCall is one public method, pointed at a target task. home is a board
+// the caller can reach, for the calls that combine the two.
+type scopedCall struct {
+	name string
+	call func(s *Service, c Caller, target Task, home Board) error
+}
+
+// everyScopedMethod is every public path that reads or writes a task or a
+// board on the caller's behalf. Delete is last because it destroys the target.
+func everyScopedMethod() []scopedCall {
+	ctx := context.Background()
+	return []scopedCall{
+		{"Board", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Board(c, t.BoardID); return err }},
+		{"List", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.List(c, ListInput{BoardID: t.BoardID})
+			return err
+		}},
+		{"Get", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Get(c, t.ID); return err }},
+		{"Update", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Update(c, t.ID, "renamed", "rewritten")
+			return err
+		}},
+		{"SetFields", func(s *Service, c Caller, t Task, _ Board) error {
+			high := "high"
+			_, err := s.SetFields(c, t.ID, Fields{Priority: &high})
+			return err
+		}},
+		{"Archive", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Archive(c, t.ID); return err }},
+		{"Unarchive", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Unarchive(c, t.ID); return err }},
+		{"Claim", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Claim(c, t.ID); return err }},
+		{"Release", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Release(c, t.ID); return err }},
+		{"Transition", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Transition(ctx, c, TransitionInput{TaskID: t.ID, To: "review"})
+			return err
+		}},
+		{"AddComment", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.AddComment(c, t.ID, "hello")
+			return err
+		}},
+		{"Comments", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Comments(c, t.ID); return err }},
+		{"Progress", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Progress(c, t.ID); return err }},
+		{"Search", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Search(c, t.BoardID, "work")
+			return err
+		}},
+		{"LinkPlanNode", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.LinkPlanNode(c, t.ID, "n1")
+			return err
+		}},
+		{"ByPlanNode", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.ByPlanNode(c, t.BoardID); return err }},
+		{"CreateFromPlan", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.CreateFromPlan(c, t.BoardID, []PlanSeed{{PlanNodeID: "n2", Label: "Step"}})
+			return err
+		}},
+		{"Create", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Create(c, CreateInput{BoardID: t.BoardID, Title: "more"})
+			return err
+		}},
+		// A subtask on a board the caller can reach, under a parent it may
+		// not: the parent is how it would learn the target exists.
+		{"Create subtask", func(s *Service, c Caller, t Task, home Board) error {
+			_, err := s.Create(c, CreateInput{BoardID: home.ID, Title: "child", ParentID: t.ID})
+			return err
+		}},
+		{"Delete", func(s *Service, c Caller, t Task, _ Board) error { return s.Delete(ctx, c, t.ID) }},
+	}
+}
+
+func TestAnAgentWorksOnItsOwnWorkspacesBoard(t *testing.T) {
+	f := newScopeFixture(t)
+	for _, method := range everyScopedMethod() {
+		if err := method.call(f.svc, agent, f.homeTask, f.home); err != nil {
+			t.Errorf("%s on its own workspace's task = %v", method.name, err)
+		}
+	}
+}
+
+// Every path refuses in the same words, and the words are "not found": which
+// boards another workspace holds is what the scope keeps from the agent, and
+// "permission denied" would give it away.
+func TestAnAgentCannotReachAnotherWorkspaceOrAnUnboundBoard(t *testing.T) {
+	for _, target := range []string{"other workspace", "unbound"} {
+		t.Run(target, func(t *testing.T) {
+			f := newScopeFixture(t)
+			task := f.otherTask
+			if target == "unbound" {
+				task = f.unboundTask
+			}
+			for _, method := range everyScopedMethod() {
+				if err := method.call(f.svc, agent, task, f.home); !errors.Is(err, ErrNotFound) {
+					t.Errorf("%s = %v, want ErrNotFound", method.name, err)
+				}
+			}
+			// And nothing was written on the way to the refusal.
+			after, err := f.svc.Get(user, task.ID)
+			if err != nil {
+				t.Fatalf("the refused calls destroyed the task: %v", err)
+			}
+			if after.Title != "work" || after.Description != "secret" || after.Status != "todo" ||
+				after.ArchivedAt != "" || after.SessionID != "" || after.PlanNodeID != "" || after.Priority != "" {
+				t.Fatalf("a refused call still wrote: %+v", after)
+			}
+			if comments, _ := f.svc.Comments(user, task.ID); len(comments) != 0 {
+				t.Fatalf("a refused comment landed: %+v", comments)
+			}
+			if listed, _ := f.svc.List(user, ListInput{BoardID: task.BoardID}); len(listed) != 1 {
+				t.Fatalf("a refused create landed: %+v", listed)
+			}
+		})
+	}
+}
+
+func TestBoardsShowsAnAgentOnlyItsWorkspace(t *testing.T) {
+	f := newScopeFixture(t)
+	mine, err := f.svc.Boards(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mine) != 1 || mine[0].ID != f.home.ID || mine[0].WorkspaceID != "ws-a" {
+		t.Fatalf("agent Boards = %+v", mine)
+	}
+	everything, err := f.svc.Boards(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(everything) != 3 {
+		t.Fatalf("user Boards = %+v", everything)
+	}
+}
+
+// The user — and a terminal CLI on the shared socket, which carries no
+// session — sees every board, bound or not.
+func TestTheUserReachesEveryBoard(t *testing.T) {
+	for _, target := range []string{"home", "other workspace", "unbound"} {
+		t.Run(target, func(t *testing.T) {
+			f := newScopeFixture(t)
+			task := map[string]Task{"home": f.homeTask, "other workspace": f.otherTask, "unbound": f.unboundTask}[target]
+			for _, method := range everyScopedMethod() {
+				if method.name == "Claim" {
+					continue // a claim is an agent's act; the user is refused everywhere
+				}
+				if err := method.call(f.svc, user, task, f.home); err != nil {
+					t.Errorf("%s as the user = %v", method.name, err)
+				}
+			}
+		})
+	}
+}
+
+// Checking only the board a task leaves would let an agent carry work out of
+// its own reach and into another workspace's board.
+func TestSetFieldsRefusesMovingATaskOutOfScope(t *testing.T) {
+	f := newScopeFixture(t)
+	for _, destination := range []Board{f.other, f.unbound} {
+		id := destination.ID
+		if _, err := f.svc.SetFields(agent, f.homeTask.ID, Fields{BoardID: &id}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("moving to %s = %v, want ErrNotFound", id, err)
+		}
+	}
+	after, _ := f.svc.Get(user, f.homeTask.ID)
+	if after.BoardID != f.home.ID {
+		t.Fatalf("the task moved to %s", after.BoardID)
+	}
+}
+
+// ErrClaimed would confirm the task exists; out of scope comes first.
+func TestAClaimOutOfScopeIsNotFoundEvenWhenHeld(t *testing.T) {
+	f := newScopeFixture(t)
+	f.scope.sessions["sess-2"] = []string{"ws-b"}
+	f.svc.SetLiveness(liveness{"sess-2": true})
+	if _, err := f.svc.Claim(Caller{SessionID: "sess-2"}, f.otherTask.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Claim(agent, f.otherTask.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("claiming a held task out of scope = %v", err)
 	}
 }

@@ -148,8 +148,10 @@ func (m boardMetadata) board(id string) Board {
 	}
 }
 
-// Boards lists every board, each with the workspace it is bound to here.
-func (s *Service) Boards() ([]Board, error) {
+// Boards lists the boards the caller may see, each with the workspace it is
+// bound to here. For an agent that is its session's workspaces and nothing
+// else — an unbound board is in nobody's.
+func (s *Service) Boards(caller Caller) ([]Board, error) {
 	records, err := s.items.ListByType(vaultitem.ItemTypeTaskBoard)
 	if err != nil {
 		return nil, err
@@ -166,15 +168,18 @@ func (s *Service) Boards() ([]Board, error) {
 		}
 		board := meta.board(record.ID)
 		board.WorkspaceID = bound[record.ID]
+		if !s.inScope(caller, board.WorkspaceID) {
+			continue
+		}
 		out = append(out, board)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-// Board returns one board.
-func (s *Service) Board(id string) (Board, error) {
-	return s.board(id)
+// Board returns one board the caller may see.
+func (s *Service) Board(caller Caller, id string) (Board, error) {
+	return s.boardFor(caller, id)
 }
 
 // board reads a board with no scope check, for the service acting on its own
@@ -196,7 +201,7 @@ func (s *Service) board(id string) (Board, error) {
 // DeleteBoard removes an empty board. A board with live tasks refuses: the
 // tasks are the project's record, not the board's decoration.
 func (s *Service) DeleteBoard(id string) error {
-	tasks, err := s.List(ListInput{BoardID: id, IncludeArchived: true})
+	tasks, err := s.list(ListInput{BoardID: id, IncludeArchived: true})
 	if err != nil {
 		return err
 	}
@@ -224,7 +229,7 @@ type CreateInput struct {
 
 // Create makes a task, including a subtask of the one an agent is working on.
 func (s *Service) Create(caller Caller, in CreateInput) (Task, error) {
-	board, err := s.Board(in.BoardID)
+	board, err := s.boardFor(caller, in.BoardID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -232,7 +237,9 @@ func (s *Service) Create(caller Caller, in CreateInput) (Task, error) {
 		return Task{}, ErrInvalid
 	}
 	if in.ParentID != "" {
-		parent, err := s.get(in.ParentID)
+		// Through the parent's own board: a subtask is not a way to learn
+		// that a task in another workspace exists.
+		parent, err := s.taskFor(caller, in.ParentID)
 		if err != nil {
 			return Task{}, err
 		}
@@ -316,7 +323,19 @@ type ListInput struct {
 
 // List returns task summaries — no description, so a board of two thousand
 // tasks is not two thousand decryptions.
-func (s *Service) List(in ListInput) ([]Task, error) {
+func (s *Service) List(caller Caller, in ListInput) ([]Task, error) {
+	if in.BoardID == "" {
+		return nil, ErrInvalid
+	}
+	if err := s.guard(caller, in.BoardID); err != nil {
+		return nil, err
+	}
+	return s.list(in)
+}
+
+// list is List with no scope check, for the service's own passes over a
+// board it has already reached.
+func (s *Service) list(in ListInput) ([]Task, error) {
 	if in.BoardID == "" {
 		return nil, ErrInvalid
 	}
@@ -365,13 +384,17 @@ func contains(list []string, want string) bool {
 }
 
 // Get returns one task with its description decrypted.
-func (s *Service) Get(id string) (Task, error) {
+func (s *Service) Get(caller Caller, id string) (Task, error) {
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Task{}, ErrNotFound
 	}
 	var meta taskMetadata
 	if err := decodeInto(record.Metadata, &meta); err != nil {
+		return Task{}, err
+	}
+	// Before the payload is opened: a task out of scope is not decrypted.
+	if err := s.guard(caller, meta.BoardID); err != nil {
 		return Task{}, err
 	}
 	task := meta.task(record.ID, record.CreatedAt, record.UpdatedAt)
@@ -389,13 +412,16 @@ func (s *Service) Get(id string) (Task, error) {
 // Update changes title and description, leaving status, labels and assignee
 // alone — those move through their own calls so a body edit cannot silently
 // reopen a task.
-func (s *Service) Update(id, title, description string) (Task, error) {
+func (s *Service) Update(caller Caller, id, title, description string) (Task, error) {
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Task{}, ErrNotFound
 	}
 	var meta taskMetadata
 	if err := decodeInto(record.Metadata, &meta); err != nil {
+		return Task{}, err
+	}
+	if err := s.guard(caller, meta.BoardID); err != nil {
 		return Task{}, err
 	}
 	if strings.TrimSpace(title) == "" {
@@ -430,8 +456,8 @@ type Fields struct {
 }
 
 // SetFields applies metadata-only changes.
-func (s *Service) SetFields(id string, fields Fields) (Task, error) {
-	return s.mutate(id, func(meta *taskMetadata) error {
+func (s *Service) SetFields(caller Caller, id string, fields Fields) (Task, error) {
+	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		if fields.Priority != nil {
 			meta.Priority = *fields.Priority
 		}
@@ -443,7 +469,7 @@ func (s *Service) SetFields(id string, fields Fields) (Task, error) {
 		}
 		if fields.ParentID != nil {
 			if *fields.ParentID != "" {
-				parent, err := s.get(*fields.ParentID)
+				parent, err := s.taskFor(caller, *fields.ParentID)
 				if err != nil {
 					return err
 				}
@@ -466,20 +492,36 @@ func (s *Service) SetFields(id string, fields Fields) (Task, error) {
 			meta.PlanNodeID = *fields.PlanNodeID
 		}
 		if fields.BoardID != nil {
+			// The destination answers to the scope too. Checking only the
+			// board a task leaves would let an agent move work out of its
+			// own reach into another workspace's board.
+			if _, err := s.boardFor(caller, *fields.BoardID); err != nil {
+				return err
+			}
 			meta.BoardID = *fields.BoardID
 		}
 		return nil
 	})
 }
 
-// mutate reads, changes and writes a task's metadata.
+// mutate reads, changes and writes a task's metadata, as the service itself:
+// no scope check, because the service acting on its own record is not an
+// agent reading one.
 func (s *Service) mutate(id string, apply func(*taskMetadata) error) (Task, error) {
+	return s.mutateAs(Caller{}, id, apply)
+}
+
+// mutateAs is mutate on the caller's behalf, through the task's board.
+func (s *Service) mutateAs(caller Caller, id string, apply func(*taskMetadata) error) (Task, error) {
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Task{}, ErrNotFound
 	}
 	var meta taskMetadata
 	if err := decodeInto(record.Metadata, &meta); err != nil {
+		return Task{}, err
+	}
+	if err := s.guard(caller, meta.BoardID); err != nil {
 		return Task{}, err
 	}
 	if err := apply(&meta); err != nil {
@@ -498,23 +540,28 @@ func (s *Service) mutate(id string, apply func(*taskMetadata) error) (Task, erro
 
 // Archive hides a task without destroying it. Deleting is a person's call and
 // never reachable from MCP; archiving is recoverable, so it needs no gate.
-func (s *Service) Archive(id string) (Task, error) {
+func (s *Service) Archive(caller Caller, id string) (Task, error) {
 	at := s.now().UTC().Format(time.RFC3339)
-	return s.mutate(id, func(meta *taskMetadata) error {
+	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		meta.ArchivedAt = at
 		return nil
 	})
 }
 
-func (s *Service) Unarchive(id string) (Task, error) {
-	return s.mutate(id, func(meta *taskMetadata) error {
+func (s *Service) Unarchive(caller Caller, id string) (Task, error) {
+	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		meta.ArchivedAt = ""
 		return nil
 	})
 }
 
 // Delete removes a task and its comments. UI-only.
-func (s *Service) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, caller Caller, id string) error {
+	if s.scoped(caller) {
+		if _, err := s.taskFor(caller, id); err != nil {
+			return err
+		}
+	}
 	comments, err := s.items.ListByTypeAndMetaField(vaultitem.ItemTypeTaskComment, "task_id", id)
 	if err != nil {
 		return err

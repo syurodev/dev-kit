@@ -116,12 +116,14 @@ func taskKeyForSession(c *Container, sessionID string) string {
 	if c.Tasks == nil || sessionID == "" {
 		return ""
 	}
-	boards, err := c.Tasks.Boards()
+	// As the session, so only boards in its scope are scanned.
+	caller := tasks.Caller{SessionID: sessionID}
+	boards, err := c.Tasks.Boards(caller)
 	if err != nil {
 		return ""
 	}
 	for _, board := range boards {
-		held, err := c.Tasks.List(tasksForBoard(board.ID))
+		held, err := c.Tasks.List(caller, tasksForBoard(board.ID))
 		if err != nil {
 			continue
 		}

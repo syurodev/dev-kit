@@ -31,8 +31,8 @@ type PlanSeed struct {
 }
 
 // LinkPlanNode points a task at a plan node, or clears the link with "".
-func (s *Service) LinkPlanNode(id, planNodeID string) (Task, error) {
-	return s.mutate(id, func(meta *taskMetadata) error {
+func (s *Service) LinkPlanNode(caller Caller, id, planNodeID string) (Task, error) {
+	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		meta.PlanNodeID = planNodeID
 		return nil
 	})
@@ -42,8 +42,16 @@ func (s *Service) LinkPlanNode(id, planNodeID string) (Task, error) {
 //
 // This is what the plan canvas draws its task chips from: one bounded query
 // instead of a column in a store that gets rebuilt.
-func (s *Service) ByPlanNode(boardID string) (map[string][]Task, error) {
-	all, err := s.List(ListInput{BoardID: boardID, IncludeArchived: true})
+func (s *Service) ByPlanNode(caller Caller, boardID string) (map[string][]Task, error) {
+	if err := s.guard(caller, boardID); err != nil {
+		return nil, err
+	}
+	return s.byPlanNode(boardID)
+}
+
+// byPlanNode is ByPlanNode with no scope check, for reconcile.
+func (s *Service) byPlanNode(boardID string) (map[string][]Task, error) {
+	all, err := s.list(ListInput{BoardID: boardID, IncludeArchived: true})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +77,7 @@ func (s *Service) CreateFromPlan(caller Caller, boardID string, seeds []PlanSeed
 	if boardID == "" {
 		return nil, ErrInvalid
 	}
-	existing, err := s.ByPlanNode(boardID)
+	existing, err := s.ByPlanNode(caller, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +133,7 @@ func (s *Service) ReconcilePlan(ctx context.Context, boardID string, statuses ma
 	if boardID == "" || len(statuses) == 0 {
 		return out, nil
 	}
-	board, err := s.Board(boardID)
+	board, err := s.board(boardID)
 	if err != nil {
 		return out, err
 	}
@@ -134,7 +142,7 @@ func (s *Service) ReconcilePlan(ctx context.Context, boardID string, statuses ma
 	if !hasReview || !hasWorking {
 		return out, nil
 	}
-	linked, err := s.ByPlanNode(boardID)
+	linked, err := s.byPlanNode(boardID)
 	if err != nil {
 		return out, err
 	}
@@ -191,12 +199,12 @@ func (s *Service) ReconcilePlan(ctx context.Context, boardID string, statuses ma
 // searching them would mean decrypting every task on the board to answer one
 // query. Key and title are plaintext metadata, so this works with the vault
 // locked — the same trade note titles already make.
-func (s *Service) Search(boardID, query string) ([]Task, error) {
+func (s *Service) Search(caller Caller, boardID, query string) ([]Task, error) {
 	if boardID == "" {
 		return nil, ErrInvalid
 	}
 	query = strings.TrimSpace(strings.ToLower(query))
-	all, err := s.List(ListInput{BoardID: boardID})
+	all, err := s.List(caller, ListInput{BoardID: boardID})
 	if err != nil {
 		return nil, err
 	}

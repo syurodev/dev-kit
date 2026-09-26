@@ -38,7 +38,7 @@ func (s *Service) Transition(ctx context.Context, caller Caller, in TransitionIn
 	if err != nil {
 		return TransitionResult{}, err
 	}
-	board, err := s.Board(task.BoardID)
+	board, err := s.boardFor(caller, task.BoardID)
 	if err != nil {
 		return TransitionResult{}, err
 	}
@@ -88,16 +88,17 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	// The board first: ErrClaimed on a task out of scope would say it exists.
+	board, err := s.boardFor(caller, task.BoardID)
+	if err != nil {
+		return Task{}, err
+	}
 	if task.SessionID != "" && task.SessionID != caller.SessionID {
 		// A claim held by a session that has died can be taken over: holding
 		// is so the agent can reconnect to its own work, not a lock forever.
 		if s.live == nil || s.live.Alive(task.SessionID) {
 			return Task{}, ErrClaimed
 		}
-	}
-	board, err := s.Board(task.BoardID)
-	if err != nil {
-		return Task{}, err
 	}
 	active, ok := board.Workflow.FirstOf(CategoryActive)
 	if !ok {
@@ -119,8 +120,8 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 // Release drops a claim without moving the task. A dead session's claim is
 // deliberately NOT cleared automatically: the agent reopening reclaims its own
 // work, and a live claim can take a dead one over anyway.
-func (s *Service) Release(id string) (Task, error) {
-	return s.mutate(id, func(meta *taskMetadata) error {
+func (s *Service) Release(caller Caller, id string) (Task, error) {
+	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		meta.SessionID = ""
 		return nil
 	})
@@ -131,6 +132,11 @@ func (s *Service) Release(id string) (Task, error) {
 // AddComment writes a comment. Authorship comes from the caller, never from a
 // parameter: an agent cannot sign as the user.
 func (s *Service) AddComment(caller Caller, taskID, body string) (Comment, error) {
+	if s.scoped(caller) {
+		if _, err := s.taskFor(caller, taskID); err != nil {
+			return Comment{}, err
+		}
+	}
 	kind := CommentHuman
 	if caller.IsAgent() {
 		kind = CommentAgent
@@ -169,7 +175,12 @@ func (s *Service) writeComment(taskID, author string, kind CommentKind, body str
 // Comments returns a task's comments. Human and agent comments are the
 // conversation; system ones are the Activity tab, which is why the kind is on
 // every row rather than inferred from the author.
-func (s *Service) Comments(taskID string) ([]Comment, error) {
+func (s *Service) Comments(caller Caller, taskID string) ([]Comment, error) {
+	if s.scoped(caller) {
+		if _, err := s.taskFor(caller, taskID); err != nil {
+			return nil, err
+		}
+	}
 	records, err := s.items.ListByTypeAndMetaField(vaultitem.ItemTypeTaskComment, "task_id", taskID)
 	if err != nil {
 		return nil, err
@@ -201,16 +212,16 @@ type Progress struct {
 	Total int `json:"total"`
 }
 
-func (s *Service) Progress(parentID string) (Progress, error) {
+func (s *Service) Progress(caller Caller, parentID string) (Progress, error) {
 	parent, err := s.get(parentID)
 	if err != nil {
 		return Progress{}, err
 	}
-	board, err := s.Board(parent.BoardID)
+	board, err := s.boardFor(caller, parent.BoardID)
 	if err != nil {
 		return Progress{}, err
 	}
-	children, err := s.List(ListInput{BoardID: parent.BoardID, ParentID: parentID})
+	children, err := s.list(ListInput{BoardID: parent.BoardID, ParentID: parentID})
 	if err != nil {
 		return Progress{}, err
 	}

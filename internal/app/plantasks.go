@@ -21,7 +21,11 @@ var ErrPlanNotApproved = errors.New("app: the plan is still a draft")
 //
 // Approval is checked here for the same reason. Tasks cannot see a plan's
 // state, and teaching it to would be teaching it a fact that is Code Graph's.
-func CreateTasksFromPlan(ctx context.Context, c *Container, boardID string) ([]tasks.Task, error) {
+//
+// The caller is passed through rather than assumed to be the user: MCP's
+// tasks.createFromPlan reaches here too, and an agent must not be able to
+// fill a board outside its workspace by going round through the plan.
+func CreateTasksFromPlan(ctx context.Context, c *Container, caller tasks.Caller, boardID string) ([]tasks.Task, error) {
 	if c == nil || c.CodeGraph == nil || c.Tasks == nil {
 		return nil, ErrPlanNotApproved
 	}
@@ -33,7 +37,7 @@ func CreateTasksFromPlan(ctx context.Context, c *Container, boardID string) ([]t
 	if err != nil {
 		return nil, err
 	}
-	return c.Tasks.CreateFromPlan(tasks.Caller{}, boardID, seeds)
+	return c.Tasks.CreateFromPlan(caller, boardID, seeds)
 }
 
 // seedsFromPlan is the whole of the decision, kept out of the I/O so it can be
@@ -111,7 +115,8 @@ func reconcileBoardsForProject(c *Container) {
 	if root == "" {
 		return
 	}
-	boards, err := c.Tasks.Boards()
+	// The app's own pass after a re-index, not anybody's request: every board.
+	boards, err := c.Tasks.Boards(tasks.Caller{})
 	if err != nil {
 		return
 	}
@@ -149,11 +154,11 @@ func NewPlanBacklog(c *Container) *PlanBacklog {
 	return &PlanBacklog{container: c}
 }
 
-func (p *PlanBacklog) CreateTasksFromPlan(ctx context.Context, boardID string) ([]tasks.Task, error) {
+func (p *PlanBacklog) CreateTasksFromPlan(ctx context.Context, caller tasks.Caller, boardID string) ([]tasks.Task, error) {
 	if p == nil {
 		return nil, ErrPlanNotApproved
 	}
 	// CreateTasksFromPlan already answers for a container with no Code Graph
 	// or no Tasks, so an unwired adapter reports rather than panics.
-	return CreateTasksFromPlan(ctx, p.container, boardID)
+	return CreateTasksFromPlan(ctx, p.container, caller, boardID)
 }

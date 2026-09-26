@@ -124,7 +124,7 @@ func TestAgentMovesFreelyBelowTerminal(t *testing.T) {
 			t.Fatalf("status = %q, want %q", result.Task.Status, to)
 		}
 	}
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if len(after.History) != 3 {
 		t.Fatalf("history = %+v", after.History)
 	}
@@ -148,7 +148,7 @@ func TestOptimisticTransitionRefusesRatherThanOverwrites(t *testing.T) {
 	if !errors.Is(err, ErrStatusChanged) {
 		t.Fatalf("stale transition = %v, want ErrStatusChanged", err)
 	}
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if after.Status != "in_progress" {
 		t.Fatalf("the losing transition overwrote: %q", after.Status)
 	}
@@ -177,7 +177,7 @@ func TestClaimRefusesALiveSessionAndTakesOverADeadOne(t *testing.T) {
 	// The holder dies; the claim stays on the task so it can reconnect, and
 	// another session may now take it.
 	svc.SetLiveness(liveness{})
-	still, _ := svc.Get(task.ID)
+	still, _ := svc.Get(user, task.ID)
 	if still.SessionID != "sess-1" {
 		t.Fatal("a dead session's claim was cleared automatically")
 	}
@@ -230,7 +230,7 @@ func TestCloseIsRefusedWhenDeniedAndWhenHeadless(t *testing.T) {
 	if _, err := svc.Transition(ctx, agent, TransitionInput{TaskID: task.ID, To: "done"}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("denied close = %v", err)
 	}
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if after.Status == "done" {
 		t.Fatal("a denied close still moved the task")
 	}
@@ -316,7 +316,7 @@ func TestVerifyPassCloses(t *testing.T) {
 	}
 
 	waitForNotification(t, notify)
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if after.Status != "done" {
 		t.Fatalf("status after a passing verify = %q", after.Status)
 	}
@@ -347,7 +347,7 @@ func TestVerifyFailureDoesNotFallBackToAsking(t *testing.T) {
 	}
 	waitForNotification(t, notify)
 
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if after.Status == "done" {
 		t.Fatal("a failing verify closed the task")
 	}
@@ -383,7 +383,7 @@ func TestRecoverRequeuesAnInterruptedRun(t *testing.T) {
 	if len(runs) != 1 || runs[0].State != RunQueued {
 		t.Fatalf("after recovery = %+v; an unfinished run must never read as a result", runs)
 	}
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if after.Status == "done" {
 		t.Fatal("recovery closed a task from a run that never finished")
 	}
@@ -457,7 +457,7 @@ func TestSubtasksAreOneLevelAndCountedByCategory(t *testing.T) {
 		t.Fatalf("a subtask of a subtask was allowed: %v", err)
 	}
 
-	progress, err := svc.Progress(parent.ID)
+	progress, err := svc.Progress(user, parent.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestSubtasksAreOneLevelAndCountedByCategory(t *testing.T) {
 	if _, err := svc.Transition(context.Background(), user, TransitionInput{TaskID: childA.ID, To: "done"}); err != nil {
 		t.Fatal(err)
 	}
-	progress, _ = svc.Progress(parent.ID)
+	progress, _ = svc.Progress(user, parent.ID)
 	if progress.Done != 1 || progress.Total != 2 {
 		t.Fatalf("progress = %+v", progress)
 	}
@@ -488,7 +488,7 @@ func TestCommentAuthorshipComesFromTheCaller(t *testing.T) {
 	if _, err := svc.AddComment(user, task.ID, "from the user"); err != nil {
 		t.Fatal(err)
 	}
-	comments, err := svc.Comments(task.ID)
+	comments, err := svc.Comments(user, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,14 +510,14 @@ func TestListLeavesDescriptionsEncrypted(t *testing.T) {
 	if _, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x", Description: "secret body"}); err != nil {
 		t.Fatal(err)
 	}
-	list, err := svc.List(ListInput{BoardID: board.ID})
+	list, err := svc.List(user, ListInput{BoardID: board.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(list) != 1 || list[0].Description != "" {
 		t.Fatalf("List returned a description: %+v", list)
 	}
-	full, err := svc.Get(list[0].ID)
+	full, err := svc.Get(user, list[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func TestListLeavesDescriptionsEncrypted(t *testing.T) {
 
 func TestListRequiresABoard(t *testing.T) {
 	svc, _ := newService(t)
-	if _, err := svc.List(ListInput{}); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.List(user, ListInput{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an unbounded listing was allowed: %v", err)
 	}
 }
@@ -547,7 +547,7 @@ func TestHistoryIsBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	after, _ := svc.Get(task.ID)
+	after, _ := svc.Get(user, task.ID)
 	if len(after.History) != HistoryLimit {
 		t.Fatalf("history = %d entries, want %d", len(after.History), HistoryLimit)
 	}
@@ -564,7 +564,7 @@ func waitForNotification(t *testing.T, n *stubNotify) {
 
 func assertSystemComment(t *testing.T, svc *Service, taskID, want string) {
 	t.Helper()
-	comments, err := svc.Comments(taskID)
+	comments, err := svc.Comments(user, taskID)
 	if err != nil {
 		t.Fatal(err)
 	}

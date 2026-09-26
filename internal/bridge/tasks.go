@@ -15,7 +15,7 @@ func (s *AppService) TasksBoardList() ([]tasks.Board, error) {
 	result, err := s.call(context.Background(), "builtin.tasks", "tasks:read", "board:list", map[string]any{
 		"action": "board_list",
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Boards()
+		return s.container.Tasks.Boards(tasks.Caller{})
 	})
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (s *AppService) TasksList(boardID, status, assignee, label string, includeA
 		"action":   "list",
 		"board_id": recordID(boardID),
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.List(tasks.ListInput{
+		return s.container.Tasks.List(tasks.Caller{}, tasks.ListInput{
 			BoardID: boardID, Status: status, Assignee: assignee, Label: label,
 			IncludeArchived: includeArchived, Limit: limit,
 		})
@@ -106,7 +106,7 @@ func (s *AppService) TasksGet(id string) (tasks.Task, error) {
 		"action":  "get",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Get(id)
+		return s.container.Tasks.Get(tasks.Caller{}, id)
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -136,7 +136,7 @@ func (s *AppService) TasksUpdate(id, title, description string) (tasks.Task, err
 		"action":  "update",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Update(id, title, description)
+		return s.container.Tasks.Update(tasks.Caller{}, id, title, description)
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -168,7 +168,7 @@ func (s *AppService) TasksSetFields(id, priority, assignee, parentID, branch str
 		if labels != nil {
 			fields.Labels = &labels
 		}
-		return s.container.Tasks.SetFields(id, fields)
+		return s.container.Tasks.SetFields(tasks.Caller{}, id, fields)
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -199,7 +199,7 @@ func (s *AppService) TasksArchive(id string) (tasks.Task, error) {
 		"action":  "archive",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Archive(id)
+		return s.container.Tasks.Archive(tasks.Caller{}, id)
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -214,7 +214,7 @@ func (s *AppService) TasksDelete(id string) error {
 		"action":  "delete",
 		"task_id": opaqueID,
 	}, func(ctx context.Context) (any, error) {
-		return nil, s.container.Tasks.Delete(ctx, id)
+		return nil, s.container.Tasks.Delete(ctx, tasks.Caller{}, id)
 	})
 	return err
 }
@@ -239,7 +239,7 @@ func (s *AppService) TasksCommentList(taskID string) ([]tasks.Comment, error) {
 		"action":  "comment_list",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Comments(taskID)
+		return s.container.Tasks.Comments(tasks.Caller{}, taskID)
 	})
 	if err != nil {
 		return nil, err
@@ -255,7 +255,7 @@ func (s *AppService) TasksProgress(parentID string) (tasks.Progress, error) {
 		"action":  "progress",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Progress(parentID)
+		return s.container.Tasks.Progress(tasks.Caller{}, parentID)
 	})
 	if err != nil {
 		return tasks.Progress{}, err
@@ -305,7 +305,7 @@ func (s *AppService) TasksSearch(boardID, query string) ([]tasks.Task, error) {
 		"action":   "search",
 		"board_id": recordID(boardID),
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.Search(boardID, query)
+		return s.container.Tasks.Search(tasks.Caller{}, boardID, query)
 	})
 	if err != nil {
 		return nil, err
@@ -324,7 +324,7 @@ func (s *AppService) TasksLinkPlanNode(id, planNodeID string) (tasks.Task, error
 		"action":  "link_plan_node",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.LinkPlanNode(id, planNodeID)
+		return s.container.Tasks.LinkPlanNode(tasks.Caller{}, id, planNodeID)
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -339,7 +339,7 @@ func (s *AppService) TasksByPlanNode(boardID string) (map[string][]tasks.Task, e
 		"action":   "by_plan_node",
 		"board_id": recordID(boardID),
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.ByPlanNode(boardID)
+		return s.container.Tasks.ByPlanNode(tasks.Caller{}, boardID)
 	})
 	if err != nil {
 		return nil, err
@@ -354,7 +354,7 @@ func (s *AppService) TasksCreateFromPlan(boardID string) ([]tasks.Task, error) {
 		"action":   "create_from_plan",
 		"board_id": recordID(boardID),
 	}, func(ctx context.Context) (any, error) {
-		return app.CreateTasksFromPlan(ctx, s.container, boardID)
+		return app.CreateTasksFromPlan(ctx, s.container, tasks.Caller{}, boardID)
 	})
 	if err != nil {
 		return nil, err

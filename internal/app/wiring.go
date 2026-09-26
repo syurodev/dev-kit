@@ -211,13 +211,17 @@ func (t *TaskBranches) BranchesForSession(sessionID string) []string {
 	if t == nil || t.tasks == nil || sessionID == "" {
 		return nil
 	}
-	boards, err := t.tasks.Boards()
+	// As the session: only boards in its scope are scanned. The session_id
+	// match below is what decides; this is scanning the right place rather
+	// than the whole vault.
+	caller := tasks.Caller{SessionID: sessionID}
+	boards, err := t.tasks.Boards(caller)
 	if err != nil {
 		return nil
 	}
 	var branches []string
 	for _, board := range boards {
-		held, err := t.tasks.List(tasks.ListInput{BoardID: board.ID})
+		held, err := t.tasks.List(caller, tasks.ListInput{BoardID: board.ID})
 		if err != nil {
 			continue
 		}

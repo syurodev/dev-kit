@@ -36,7 +36,7 @@ func TestCreateFromPlanIsIdempotent(t *testing.T) {
 	if len(again) != 1 || again[0].PlanNodeID != "n3" {
 		t.Fatalf("second pass created %+v; only the new node should be made", again)
 	}
-	all, _ := svc.List(ListInput{BoardID: board.ID})
+	all, _ := svc.List(user, ListInput{BoardID: board.ID})
 	if len(all) != 3 {
 		t.Fatalf("board has %d tasks, want 3", len(all))
 	}
@@ -52,7 +52,7 @@ func TestByPlanNodeGroupsTheLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	byNode, err := svc.ByPlanNode(board.ID)
+	byNode, err := svc.ByPlanNode(user, board.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +69,11 @@ func TestByPlanNodeGroupsTheLink(t *testing.T) {
 
 	// Linking and clearing go through the task, which is the only place the
 	// link is stored.
-	linked, err := svc.LinkPlanNode(loose.ID, "n9")
+	linked, err := svc.LinkPlanNode(user, loose.ID, "n9")
 	if err != nil || linked.PlanNodeID != "n9" {
 		t.Fatalf("link = %+v, %v", linked, err)
 	}
-	cleared, err := svc.LinkPlanNode(loose.ID, "")
+	cleared, err := svc.LinkPlanNode(user, loose.ID, "")
 	if err != nil || cleared.PlanNodeID != "" {
 		t.Fatalf("clear = %+v, %v", cleared, err)
 	}
@@ -97,7 +97,7 @@ func TestReconcileMovesToReviewButNeverCloses(t *testing.T) {
 	if len(result.MovedToReview) != 1 || result.MovedToReview[0] != created[0].Key {
 		t.Fatalf("reconciled = %+v", result)
 	}
-	after, _ := svc.Get(created[0].ID)
+	after, _ := svc.Get(user, created[0].ID)
 	if after.Status != "review" {
 		t.Fatalf("status = %q, want review", after.Status)
 	}
@@ -127,12 +127,12 @@ func TestReconcileMovesBackWhenTheCodeDiverges(t *testing.T) {
 	if len(result.MovedBackToWIP) != 1 {
 		t.Fatalf("reconciled = %+v", result)
 	}
-	after, _ := svc.Get(created[0].ID)
+	after, _ := svc.Get(user, created[0].ID)
 	if after.Status != "in_progress" {
 		t.Fatalf("status = %q, want in_progress", after.Status)
 	}
 	// The move is explained, in the Activity tab rather than the conversation.
-	comments, _ := svc.Comments(created[0].ID)
+	comments, _ := svc.Comments(user, created[0].ID)
 	var explained bool
 	for _, comment := range comments {
 		if comment.Kind == CommentSystem && strings.Contains(comment.Body, "no longer matches") {
@@ -160,7 +160,7 @@ func TestReconcileNeverReopensAClosedTask(t *testing.T) {
 	if len(result.MovedBackToWIP) != 0 {
 		t.Fatalf("a closed task was reopened: %+v", result)
 	}
-	after, _ := svc.Get(created[0].ID)
+	after, _ := svc.Get(user, created[0].ID)
 	if after.Status != "done" {
 		t.Fatalf("status = %q", after.Status)
 	}
@@ -174,7 +174,7 @@ func TestReconcileLeavesUnlinkedTasksAlone(t *testing.T) {
 	if _, err := svc.ReconcilePlan(context.Background(), board.ID, map[string]string{"n1": PlanImplementedMatching}); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := svc.Get(loose.ID)
+	after, _ := svc.Get(user, loose.ID)
 	if after.Status != "todo" {
 		t.Fatalf("an unlinked task moved to %q", after.Status)
 	}
@@ -191,7 +191,7 @@ func TestSearchMatchesKeyTitleAndLabelButNotDescription(t *testing.T) {
 	}
 
 	for _, query := range []string{"refund", "BILLING", strings.ToLower(created.Key)} {
-		found, err := svc.Search(board.ID, query)
+		found, err := svc.Search(user, board.ID, query)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,10 +201,10 @@ func TestSearchMatchesKeyTitleAndLabelButNotDescription(t *testing.T) {
 	}
 	// The description is the encrypted half; searching it would mean
 	// decrypting every task on the board to answer one query.
-	if found, err := svc.Search(board.ID, "nobody should find"); err != nil || len(found) != 0 {
+	if found, err := svc.Search(user, board.ID, "nobody should find"); err != nil || len(found) != 0 {
 		t.Fatalf("Search matched a description: %d, %v", len(found), err)
 	}
-	if _, err := svc.Search("", "x"); err == nil {
+	if _, err := svc.Search(user, "", "x"); err == nil {
 		t.Fatal("an unbounded search was allowed")
 	}
 }

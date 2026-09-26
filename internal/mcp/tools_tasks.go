@@ -11,28 +11,28 @@ import (
 
 // TasksAPI is the board surface MCP tools invoke.
 type TasksAPI interface {
-	Boards() ([]tasks.Board, error)
-	List(in tasks.ListInput) ([]tasks.Task, error)
-	Get(id string) (tasks.Task, error)
+	Boards(caller tasks.Caller) ([]tasks.Board, error)
+	List(caller tasks.Caller, in tasks.ListInput) ([]tasks.Task, error)
+	Get(caller tasks.Caller, id string) (tasks.Task, error)
 	Create(caller tasks.Caller, in tasks.CreateInput) (tasks.Task, error)
-	Update(id, title, description string) (tasks.Task, error)
-	SetFields(id string, fields tasks.Fields) (tasks.Task, error)
+	Update(caller tasks.Caller, id, title, description string) (tasks.Task, error)
+	SetFields(caller tasks.Caller, id string, fields tasks.Fields) (tasks.Task, error)
 	Transition(ctx context.Context, caller tasks.Caller, in tasks.TransitionInput) (tasks.TransitionResult, error)
 	Claim(caller tasks.Caller, id string) (tasks.Task, error)
-	Release(id string) (tasks.Task, error)
-	Archive(id string) (tasks.Task, error)
+	Release(caller tasks.Caller, id string) (tasks.Task, error)
+	Archive(caller tasks.Caller, id string) (tasks.Task, error)
 	AddComment(caller tasks.Caller, taskID, body string) (tasks.Comment, error)
-	Comments(taskID string) ([]tasks.Comment, error)
-	Progress(parentID string) (tasks.Progress, error)
-	Search(boardID, query string) ([]tasks.Task, error)
-	LinkPlanNode(id, planNodeID string) (tasks.Task, error)
+	Comments(caller tasks.Caller, taskID string) ([]tasks.Comment, error)
+	Progress(caller tasks.Caller, parentID string) (tasks.Progress, error)
+	Search(caller tasks.Caller, boardID, query string) ([]tasks.Task, error)
+	LinkPlanNode(caller tasks.Caller, id, planNodeID string) (tasks.Task, error)
 }
 
 // PlanBacklog turns an approved Code Graph plan into tasks. It is a function
 // rather than a method on TasksAPI because it is the join of two modules that
 // must not import each other, and only the composition root can see both.
 type PlanBacklog interface {
-	CreateTasksFromPlan(ctx context.Context, boardID string) ([]tasks.Task, error)
+	CreateTasksFromPlan(ctx context.Context, caller tasks.Caller, boardID string) ([]tasks.Task, error)
 }
 
 // taskCaller turns the request's identity into the board's. An agent's
@@ -164,7 +164,7 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 
 func (s *Server) toolTasksBoardList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "board:list", meta("board_list", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Boards()
+		return s.deps.Tasks.Boards(taskCaller(ctx))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -182,7 +182,7 @@ type tasksListInput struct {
 
 func (s *Server) toolTasksList(ctx context.Context, _ *sdk.CallToolRequest, in tasksListInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:list", meta("list", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.List(tasks.ListInput{
+		return s.deps.Tasks.List(taskCaller(ctx), tasks.ListInput{
 			BoardID: in.BoardID, Status: in.Status, Assignee: in.Assignee,
 			Label: in.Label, Limit: in.Limit,
 		})
@@ -199,7 +199,7 @@ type taskIDInput struct {
 
 func (s *Server) toolTasksGet(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:"+in.TaskID, meta("get", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Get(in.TaskID)
+		return s.deps.Tasks.Get(taskCaller(ctx), in.TaskID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -237,7 +237,7 @@ type tasksUpdateInput struct {
 
 func (s *Server) toolTasksUpdate(ctx context.Context, _ *sdk.CallToolRequest, in tasksUpdateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("update", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Update(in.TaskID, in.Title, in.Description)
+		return s.deps.Tasks.Update(taskCaller(ctx), in.TaskID, in.Title, in.Description)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -272,7 +272,7 @@ func (s *Server) toolTasksSetFields(ctx context.Context, _ *sdk.CallToolRequest,
 		if in.Labels != nil {
 			fields.Labels = &in.Labels
 		}
-		return s.deps.Tasks.SetFields(in.TaskID, fields)
+		return s.deps.Tasks.SetFields(taskCaller(ctx), in.TaskID, fields)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -292,7 +292,7 @@ func (s *Server) toolTasksClaim(ctx context.Context, _ *sdk.CallToolRequest, in 
 
 func (s *Server) toolTasksRelease(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("release", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Release(in.TaskID)
+		return s.deps.Tasks.Release(taskCaller(ctx), in.TaskID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -339,7 +339,7 @@ func (s *Server) toolTasksCommentAdd(ctx context.Context, _ *sdk.CallToolRequest
 
 func (s *Server) toolTasksCommentList(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:"+in.TaskID, meta("comment_list", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Comments(in.TaskID)
+		return s.deps.Tasks.Comments(taskCaller(ctx), in.TaskID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -349,7 +349,7 @@ func (s *Server) toolTasksCommentList(ctx context.Context, _ *sdk.CallToolReques
 
 func (s *Server) toolTasksProgress(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:"+in.TaskID, meta("progress", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Progress(in.TaskID)
+		return s.deps.Tasks.Progress(taskCaller(ctx), in.TaskID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -359,7 +359,7 @@ func (s *Server) toolTasksProgress(ctx context.Context, _ *sdk.CallToolRequest, 
 
 func (s *Server) toolTasksArchive(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("archive", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Archive(in.TaskID)
+		return s.deps.Tasks.Archive(taskCaller(ctx), in.TaskID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -374,7 +374,7 @@ type tasksSearchInput struct {
 
 func (s *Server) toolTasksSearch(ctx context.Context, _ *sdk.CallToolRequest, in tasksSearchInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:search", meta("search", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Search(in.BoardID, in.Query)
+		return s.deps.Tasks.Search(taskCaller(ctx), in.BoardID, in.Query)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -390,7 +390,7 @@ type tasksLinkPlanNodeInput struct {
 
 func (s *Server) toolTasksLinkPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in tasksLinkPlanNodeInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("link_plan_node", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.LinkPlanNode(in.TaskID, in.PlanNodeID)
+		return s.deps.Tasks.LinkPlanNode(taskCaller(ctx), in.TaskID, in.PlanNodeID)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -404,7 +404,7 @@ type tasksCreateFromPlanInput struct {
 
 func (s *Server) toolTasksCreateFromPlan(ctx context.Context, _ *sdk.CallToolRequest, in tasksCreateFromPlanInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:new", meta("create_from_plan", nil), func(ctx context.Context) (any, error) {
-		return s.deps.PlanBacklog.CreateTasksFromPlan(ctx, in.BoardID)
+		return s.deps.PlanBacklog.CreateTasksFromPlan(ctx, taskCaller(ctx), in.BoardID)
 	})
 	if err != nil {
 		return nil, nil, err

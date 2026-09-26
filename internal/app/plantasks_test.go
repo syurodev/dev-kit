@@ -72,14 +72,14 @@ func TestStatusesFromProgressNarrowsToTheOneFactTasksActsOn(t *testing.T) {
 // adapter reports instead.
 func TestPlanBacklogIsNeverATypedNilInAnInterface(t *testing.T) {
 	var backlog interface {
-		CreateTasksFromPlan(ctx context.Context, boardID string) ([]tasks.Task, error)
+		CreateTasksFromPlan(ctx context.Context, caller tasks.Caller, boardID string) ([]tasks.Task, error)
 	} = NewPlanBacklog(nil)
 
 	if backlog == nil {
 		t.Fatal("the interface is nil, so the caller would skip registration")
 	}
 	// The point: calling it must report, not panic.
-	if _, err := backlog.CreateTasksFromPlan(context.Background(), "board"); !errors.Is(err, ErrPlanNotApproved) {
+	if _, err := backlog.CreateTasksFromPlan(context.Background(), tasks.Caller{}, "board"); !errors.Is(err, ErrPlanNotApproved) {
 		t.Fatalf("an unwired adapter returned %v", err)
 	}
 }
