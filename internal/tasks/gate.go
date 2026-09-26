@@ -237,13 +237,16 @@ func (g *verifyGate) Recover() error {
 	return err
 }
 
-// Drain runs the queue for a project. Called when a project opens and after
-// each enqueue.
+// Drain runs the queue for a project. Called after each enqueue, from
+// internal/app/main.go on every work-folder change (a project opening,
+// switching, or reopening after a restart), and once at startup for every
+// project with a queued run (DrainAll, below).
 //
-// Exported for the bridge: DevKit drains again whenever a workspace's work
-// folder changes, on top of the two calls this package already makes on its
-// own — otherwise a request that arrived while nobody was draining that path
-// waits for the next enqueue to notice it.
+// Exported because this package only drains after its own enqueue; every
+// other trigger — a workspace's folder changing, the startup sweep — starts
+// outside it. Without those extra calls a run that arrived while nobody was
+// draining that path would wait for the next unrelated enqueue on the same
+// project to notice it.
 func (g *verifyGate) Drain(projectPath string) { g.drain(projectPath) }
 
 // DrainAll drains every project with a queued run. This is the sweep DevKit

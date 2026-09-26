@@ -91,6 +91,11 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 		// the tasks it held simply stay where they were, which is the safe end.
 		c.recoverErr = err
 	}
+	// Recover only rewinds an interrupted run to queued; nothing runs it again
+	// without this. Without the sweep, a run a quit caught mid-flight would sit
+	// there until some unrelated request happened to enqueue against the same
+	// project and trigger a drain of its own.
+	gate.DrainAll()
 
 	// Accounts refuses to delete one something still binds, which needs each
 	// module that binds to answer for itself.
@@ -300,12 +305,32 @@ func (l agentLiveness) Alive(sessionID string) bool {
 	}
 }
 
-// WireAgentLiveness connects Agent Hub to the board. It is separate from
+// WireAgentLiveness connects Agent Hub to the board — both the liveness check
+// a claim takeover reads, and (with db and the board-bindings table) which
+// boards an agent session may see at all. It is separate from
 // WireCredentialsAndWork because main builds the hub later, after the vendor
-// registry and the sandbox runner.
-func WireAgentLiveness(c *Container) {
-	if c == nil || c.Tasks == nil || c.AgentHub == nil {
+// registry and the sandbox runner, and both of these need it.
+//
+// db and bindingsTable are taken as parameters rather than read off the
+// Container because nothing on Container holds a raw *sql.DB —
+// WireCredentialsAndWork takes the same two, for the same reason (see
+// Tables).
+func WireAgentLiveness(c *Container, db *sql.DB, bindingsTable string) {
+	if c == nil || c.Tasks == nil {
 		return
 	}
-	c.Tasks.SetLiveness(agentLiveness{hub: c.AgentHub})
+	// A nil AgentHub (an ephemeral container, or a build that never wires one)
+	// must reach taskScope as a nil interface, not a typed-nil *agenthub.Service
+	// — assigning the latter would make the interface's own nil check lie.
+	var hub agentSessions
+	if c.AgentHub != nil {
+		hub = c.AgentHub
+		c.Tasks.SetLiveness(agentLiveness{hub: c.AgentHub})
+	}
+	if c.Workspace != nil {
+		// A nil hub here is not a reason to skip scoping: SessionWorkspaces
+		// simply reads every session as unknown, which is scope's own
+		// fail-closed answer, not a crash.
+		c.Tasks.SetScope(newTaskScope(c.Workspace, hub), db, bindingsTable)
+	}
 }

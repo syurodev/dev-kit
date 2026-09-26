@@ -699,6 +699,17 @@ func main() {
 			"current": state.Current,
 			"pins":    state.Pins,
 		})
+		// A workspace's folder changing (opening, switching, or a restore
+		// finishing after the window is up) may be the work tree a queued
+		// verify run is waiting on. Drain runs its own goroutine and returns at
+		// once, and the gate does not exist yet the first few times this fires
+		// (WireCredentialsAndWork below has not run), so a nil Gate is not an
+		// error, just nothing to drain.
+		if state.Current != "" {
+			if gate := container.Tasks.Gate(); gate != nil {
+				gate.Drain(state.Current)
+			}
+		}
 	})
 	container.CodeGraph.SetConfigDir(container.ConfigDir)
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
@@ -793,9 +804,16 @@ func main() {
 		TaskBoardBindings:  storage.TableTaskBoardBindings,
 	})
 	// The board asks the hub whether a session is still alive before letting
-	// another take over its claim. Separate because the hub is built above,
-	// after the vendor registry and the sandbox runner.
-	app.WireAgentLiveness(container)
+	// another take over its claim, and which boards a session may see at all.
+	// Separate because the hub is built above, after the vendor registry and
+	// the sandbox runner.
+	app.WireAgentLiveness(container, db, storage.TableTaskBoardBindings)
+	// One-time, idempotent: a board written before workspaces existed has no
+	// binding yet, and without this it would simply vanish from every agent
+	// the moment the scope wiring above takes effect. Run after
+	// WireAgentLiveness so Tasks.SetScope has already run — otherwise every
+	// board reads back as unbound and "already bound" is never true.
+	app.MigrateBoardBindings(container)
 	// A re-index that changed the index reconciles any board pointed at this
 	// project: a plan node whose code now matches moves its task to review,
 	// one that diverged moves it back. Chains the existing listener rather

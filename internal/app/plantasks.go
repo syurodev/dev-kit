@@ -110,6 +110,24 @@ func WirePlanReconcile(c *Container) {
 	}
 }
 
+// boardMatchesProject decides whether a re-indexed root is board's project,
+// which is no longer a straight comparison against the board's own
+// (deprecated, un-syncable) project_path.
+//
+// A bound board answers through its workspace: root reconciles it exactly
+// when the workspace it is bound to — on THIS machine — has a service at
+// root, so a board bound to a different workspace is correctly left alone
+// even if its stale project_path happens to equal root. An unbound board, or
+// a container with no workspace registry at all (an ephemeral test
+// container), falls back to the legacy comparison — the only one available
+// before bindings existed.
+func boardMatchesProject(c *Container, board tasks.Board, root string) bool {
+	if board.WorkspaceID != "" && c.Workspace != nil {
+		return workspaceHasPath(c.Workspace, board.WorkspaceID, root)
+	}
+	return board.ProjectPath == root
+}
+
 func reconcileBoardsForProject(c *Container) {
 	root := c.CodeGraph.ProjectRoot()
 	if root == "" {
@@ -122,7 +140,7 @@ func reconcileBoardsForProject(c *Container) {
 	}
 	ctx := context.Background()
 	for _, board := range boards {
-		if board.ProjectPath != root {
+		if !boardMatchesProject(c, board, root) {
 			continue
 		}
 		result, err := ReconcilePlanTasks(ctx, c, board.ID)
