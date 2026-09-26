@@ -188,6 +188,7 @@ func (s *Service) BindBoard(boardID, workspaceID string) (Board, error) {
 	if err := s.binds.Bind(boardID, workspaceID); err != nil {
 		return Board{}, err
 	}
+	s.changed(boardID, "")
 	board.WorkspaceID = workspaceID
 	return board, nil
 }
@@ -205,6 +206,7 @@ func (s *Service) UnbindBoard(boardID string) (Board, error) {
 			return Board{}, err
 		}
 	}
+	s.changed(boardID, "")
 	board.WorkspaceID = ""
 	return board, nil
 }

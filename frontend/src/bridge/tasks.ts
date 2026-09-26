@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge } from "./client";
 
@@ -287,4 +288,23 @@ export function progressOf(board: Board, children: Task[]): Progress {
     done: children.filter((child) => terminal.has(child.status)).length,
     total: children.length,
   };
+}
+
+export const TASKS_CHANGED_EVENT = "tasks:changed";
+
+/**
+ * Fires after any successful write to a board or a task — an agent closing
+ * one over MCP, a background verify run landing, a person editing in another
+ * tab — so the sidebar tree and any open board/detail view can refresh
+ * without polling. Ids only: no title, no description (NFR-4 — the
+ * description is the encrypted half). taskId is "" for a board-level write
+ * (create, update, delete, bind, unbind). Returns an unsubscribe function.
+ */
+export function onTasksChanged(cb: (e: { boardId: string; taskId: string }) => void): () => void {
+  return Events.On(TASKS_CHANGED_EVENT, (ev) => {
+    cb({
+      boardId: String(ev.data?.boardId ?? ""),
+      taskId: String(ev.data?.taskId ?? ""),
+    });
+  });
 }

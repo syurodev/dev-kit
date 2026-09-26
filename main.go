@@ -136,6 +136,14 @@ func main() {
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
 	container.Workspace = workspace.NewService(workspace.NewSQLRepository(db))
+	// A board's tree in the sidebar is a live view, not a snapshot: an agent
+	// closing a task over MCP, or a background verify run landing, must reach
+	// it without the user refreshing. Wired here, before MigrateBoardBindings
+	// below can call BindBoard on startup — emitting that early is harmless,
+	// since emitAppEvent no-ops until the Wails/server app singleton exists.
+	container.Tasks.OnChanged = func(boardID, taskID string) {
+		emitAppEvent("tasks:changed", map[string]any{"boardId": boardID, "taskId": taskID})
+	}
 	// Query consoles are files, DataGrip-style: one .sql per console, with the
 	// connection it belongs to on the first line. Not vault items — those are
 	// the saved queries, which are named, deliberate and synced, and are

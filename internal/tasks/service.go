@@ -58,6 +58,23 @@ type Service struct {
 	// behaviour from before bindings: every board, to everyone. See binding.go.
 	scope WorkspaceScope
 	binds *bindingRepo
+
+	// OnChanged fires after every successful write a client needs to learn
+	// about without polling — the sidebar tree, an open board or task detail.
+	// The payload is ids only, never a title or description (NFR-4: the
+	// description is the encrypted half). taskID is "" for a board-level
+	// write. nil is a no-op, so a test that does not care never has to wire
+	// one. main.go is the only caller that sets it, straight to an app-event
+	// emit — never call this while holding a lock, and never block on it.
+	OnChanged func(boardID, taskID string)
+}
+
+// changed is the one call site for OnChanged, so every write notifies the
+// same way rather than each one checking nil for itself.
+func (s *Service) changed(boardID, taskID string) {
+	if s.OnChanged != nil {
+		s.OnChanged(boardID, taskID)
+	}
 }
 
 func NewService(items ItemStore) *Service {
@@ -102,6 +119,7 @@ func (s *Service) CreateBoard(name, keyPrefix, color string, workflow Workflow) 
 	if err != nil {
 		return Board{}, err
 	}
+	s.changed(record.ID, "")
 	return meta.board(record.ID), nil
 }
 
@@ -135,6 +153,7 @@ func (s *Service) UpdateBoard(id string, apply func(*Board)) (Board, error) {
 	if _, err := s.items.UpdateMetadata(id, raw); err != nil {
 		return Board{}, err
 	}
+	s.changed(id, "")
 	out := updated.board(id)
 	out.WorkspaceID = s.workspaceOf(id)
 	return out, nil
@@ -210,7 +229,11 @@ func (s *Service) DeleteBoard(id string) error {
 			return ErrInvalid
 		}
 	}
-	return s.items.Delete(id)
+	if err := s.items.Delete(id); err != nil {
+		return err
+	}
+	s.changed(id, "")
+	return nil
 }
 
 // ---- tasks -----------------------------------------------------------
@@ -282,6 +305,7 @@ func (s *Service) Create(caller Caller, in CreateInput) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	s.changed(meta.BoardID, record.ID)
 	return meta.task(record.ID, updated.CreatedAt, updated.UpdatedAt), nil
 }
 
@@ -436,6 +460,7 @@ func (s *Service) Update(caller Caller, id, title, description string) (Task, er
 	if err != nil {
 		return Task{}, err
 	}
+	s.changed(meta.BoardID, id)
 	task := meta.task(id, updated.CreatedAt, updated.UpdatedAt)
 	task.Description = description
 	return task, nil
@@ -524,6 +549,10 @@ func (s *Service) mutateAs(caller Caller, id string, apply func(*taskMetadata) e
 	if err := s.guard(caller, meta.BoardID); err != nil {
 		return Task{}, err
 	}
+	// Captured before apply: apply may itself change BoardID (SetFields), and
+	// a move between boards has to tell both — the tree the task left and the
+	// one it landed on.
+	oldBoardID := meta.BoardID
 	if err := apply(&meta); err != nil {
 		return Task{}, err
 	}
@@ -534,6 +563,10 @@ func (s *Service) mutateAs(caller Caller, id string, apply func(*taskMetadata) e
 	updated, err := s.items.UpdateMetadata(id, raw)
 	if err != nil {
 		return Task{}, err
+	}
+	s.changed(meta.BoardID, id)
+	if meta.BoardID != oldBoardID {
+		s.changed(oldBoardID, id)
 	}
 	return meta.task(id, updated.CreatedAt, updated.UpdatedAt), nil
 }
@@ -557,10 +590,18 @@ func (s *Service) Unarchive(caller Caller, id string) (Task, error) {
 
 // Delete removes a task and its comments. UI-only.
 func (s *Service) Delete(ctx context.Context, caller Caller, id string) error {
+	// The board is read for the changed notification below, not for scoping —
+	// an unscoped caller's read failing here is not new: it fell through to
+	// items.Delete(id) failing the same way before this existed.
+	var boardID string
 	if s.scoped(caller) {
-		if _, err := s.taskFor(caller, id); err != nil {
+		task, err := s.taskFor(caller, id)
+		if err != nil {
 			return err
 		}
+		boardID = task.BoardID
+	} else if task, err := s.get(id); err == nil {
+		boardID = task.BoardID
 	}
 	comments, err := s.items.ListByTypeAndMetaField(vaultitem.ItemTypeTaskComment, "task_id", id)
 	if err != nil {
@@ -571,5 +612,9 @@ func (s *Service) Delete(ctx context.Context, caller Caller, id string) error {
 			return err
 		}
 	}
-	return s.items.Delete(id)
+	if err := s.items.Delete(id); err != nil {
+		return err
+	}
+	s.changed(boardID, id)
+	return nil
 }

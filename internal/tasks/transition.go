@@ -154,9 +154,15 @@ func (s *Service) writeComment(taskID, author string, kind CommentKind, body str
 	if taskID == "" || body == "" {
 		return Comment{}, ErrInvalid
 	}
-	if _, err := s.items.Get(taskID); err != nil {
+	taskRecord, err := s.items.Get(taskID)
+	if err != nil {
 		return Comment{}, ErrNotFound
 	}
+	// Best effort: a task whose metadata does not decode still gets its
+	// comment written (unchanged from before this notification existed), just
+	// with no board to name in the notification.
+	var taskMeta taskMetadata
+	_ = decodeInto(taskRecord.Metadata, &taskMeta)
 	meta := commentMetadata{TaskID: taskID, Author: author, Kind: string(kind)}
 	raw, err := json.Marshal(meta)
 	if err != nil {
@@ -166,6 +172,7 @@ func (s *Service) writeComment(taskID, author string, kind CommentKind, body str
 	if err != nil {
 		return Comment{}, err
 	}
+	s.changed(taskMeta.BoardID, taskID)
 	return Comment{
 		ID: record.ID, TaskID: taskID, Author: author, Kind: kind,
 		Body: body, CreatedAt: record.CreatedAt,
