@@ -22,6 +22,7 @@ import (
 	"devkit/internal/notes"
 	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
+	"devkit/internal/tasks"
 	"devkit/internal/vault"
 	"devkit/internal/workspace"
 )
@@ -134,6 +135,14 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
 		return apperrors.New(codeValidationFailed, "That project no longer exists.", true)
+	}
+	// A board declared a verify command but this machine cannot resolve where
+	// it runs: no workspace binding, or a binding whose service does not
+	// resolve here. Falling back to asking a person would silently swap the
+	// board's rule for a different one nobody agreed to, so the service
+	// refuses instead — this is what tells the person why, and what to do.
+	if errors.Is(err, tasks.ErrBoardUnbound) {
+		return apperrors.New(codeValidationFailed, "This board isn't linked to a workspace on this machine. Link it to a workspace to run its verify command.", true)
 	}
 	// Notes input an agent gets wrong over MCP as often as a person does in
 	// the UI. The message names what was given and what is accepted; as

@@ -1884,20 +1884,26 @@ export function TasksArchive(id: string): $CancellablePromise<tasks$0.Task> {
 }
 
 /**
- * TasksBoardChooseProject opens the native folder picker for a board's project
- * path, which is where its verify command runs.
+ * TasksBoardBind links a board to a workspace on this machine. The link lives
+ * in a local table, never in the board's own (synced) metadata — a workspace
+ * id only means something on the machine that made it.
  * 
- * It is tasks:admin rather than a call into the Agent Hub's picker: asking
- * another module for its capability to open a dialog would hand this one
- * everything else that capability covers. Cancelling returns "" and is not an
- * error — the settings dialog stays as it was.
+ * tasks:admin and UI-only, deliberately: a binding decides which agents see a
+ * board, so letting an agent bind one would let it widen its own scope.
  */
-export function TasksBoardChooseProject(startIn: string): $CancellablePromise<string> {
-    return $Call.ByID(2312716230, startIn);
+export function TasksBoardBind(boardID: string, workspaceID: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(21726531, boardID, workspaceID);
 }
 
-export function TasksBoardCreate(name: string, keyPrefix: string, color: string): $CancellablePromise<tasks$0.Board> {
-    return $Call.ByID(4166159416, name, keyPrefix, color);
+/**
+ * TasksBoardCreate makes a board and, when workspaceID is given, binds it in
+ * the same call — the common case, since a board is usually made for the
+ * project already open. If the bind fails the board itself is not undone: it
+ * stays created, just unbound, so a person is not left believing the whole
+ * thing vanished, and the error tells them what to do next.
+ */
+export function TasksBoardCreate(name: string, keyPrefix: string, color: string, workspaceID: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(4166159416, name, keyPrefix, color, workspaceID);
 }
 
 export function TasksBoardList(): $CancellablePromise<tasks$0.Board[] | null> {
@@ -1905,14 +1911,30 @@ export function TasksBoardList(): $CancellablePromise<tasks$0.Board[] | null> {
 }
 
 /**
- * TasksBoardSetVerify sets the command that closes tasks on this board.
+ * TasksBoardSetVerify sets the command that closes tasks on this board, and
+ * which workspace service it runs in ("" for the primary).
+ * 
+ * It no longer writes ProjectPath: that field is the deprecated fallback
+ * verifyDir still reads for a board that predates workspace binding, and this
+ * leaves whatever value it already has alone rather than clearing it out from
+ * under that fallback.
  * 
  * tasks:admin and UI-only, deliberately: changing it is changing the rule that
  * binds every agent on the board, which is the same reason the workflow is not
  * reachable from MCP.
  */
-export function TasksBoardSetVerify(boardID: string, command: string, timeoutSec: number, projectPath: string): $CancellablePromise<tasks$0.Board> {
-    return $Call.ByID(4245920665, boardID, command, timeoutSec, projectPath);
+export function TasksBoardSetVerify(boardID: string, command: string, timeoutSec: number, service: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(4245920665, boardID, command, timeoutSec, service);
+}
+
+/**
+ * TasksBoardUnbind returns a board to the unbound group on this machine. Its
+ * tasks are untouched; only which agents can see them changes.
+ * 
+ * tasks:admin and UI-only, same reasoning as TasksBoardBind.
+ */
+export function TasksBoardUnbind(boardID: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(258261992, boardID);
 }
 
 /**

@@ -13,6 +13,15 @@ export interface Board {
     "verify"?: Verify | null;
     "branchTemplate"?: string;
     "projectPath"?: string;
+
+    /**
+     * WorkspaceID is the workspace this board is bound to on THIS machine,
+     * read from task_board_bindings every time and never written into the
+     * board's metadata. The board syncs; a workspace id is only meaningful on
+     * the machine that created it, so storing it on the board would hand every
+     * other device a pointer into nothing — see binding.go.
+     */
+    "workspaceId"?: string;
 }
 
 /**
@@ -185,6 +194,14 @@ export interface TransitionResult {
 export interface Verify {
     "command": string;
     "timeout_sec": number;
+
+    /**
+     * Service is the NAME of the workspace service the command runs in, empty
+     * for the primary. A name, not a path: this travels with the board to
+     * every device, and a name means the same service on each of them where a
+     * path means a folder on one.
+     */
+    "service"?: string;
 }
 
 /**

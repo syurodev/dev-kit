@@ -1,48 +1,155 @@
 package bridge
 
 import (
+	"path/filepath"
 	"testing"
 
 	"devkit/internal/app"
+	"devkit/internal/storage"
+	"devkit/internal/tasks"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
+	"devkit/internal/workspace"
 )
 
-// The board's project picker is the Tasks module's own, under tasks:admin.
-// Reaching for the Agent Hub's picker would have handed this module the
-// capability that one is gated on, along with everything else it covers.
-func TestTasksBoardChooseProjectPassesStartInAndReturnsChoice(t *testing.T) {
-	svc := NewAppService(app.NewContainer())
-	var gotTitle, gotStartIn string
-	svc.openDirDialog = func(title, startIn string) (string, error) {
-		gotTitle, gotStartIn = title, startIn
-		return "/acme/billing-service", nil
+// newBridgeWithTasksWorkspace wires a real vault, a real sqlite handle for the
+// board-bindings table, and a workspace with one service — the setup Bind and
+// Unbind need to do anything, since a nil db (an ephemeral app.NewContainer())
+// leaves TasksBoardBind with no table to write to.
+func newBridgeWithTasksWorkspace(t *testing.T) (*AppService, *app.Container, workspace.Workspace) {
+	t.Helper()
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatal(err)
 	}
-
-	got, err := svc.TasksBoardChooseProject("/acme")
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "/acme/billing-service" {
-		t.Fatalf("path = %q", got)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := storage.Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
 	}
-	if gotStartIn != "/acme" {
-		t.Fatalf("startIn = %q, want /acme", gotStartIn)
+
+	container := app.NewContainer()
+	container.Vault = v
+	container.Items = vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	container.Tasks = tasks.NewService(container.Items)
+	// The bindings table's workspace_id has a real foreign key into
+	// `workspaces`, so the registry has to be the same sqlite handle — a
+	// memory-backed one leaves no row for it to reference.
+	container.Workspace = workspace.NewService(workspace.NewSQLRepository(db))
+
+	ws, _, err := container.Workspace.AddWorkspace("Acme", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if gotTitle == "" {
-		t.Fatal("dialog opened with no title")
+	// The scope wiring a real run does in main.go, minus Agent Hub: the bridge
+	// caller here is always the user (tasks.Caller{}), which the binding never
+	// restricts, so a nil hub is enough to exercise Bind/Unbind/Create/SetVerify.
+	app.WireAgentLiveness(container, db, storage.TableTaskBoardBindings)
+
+	return NewAppService(container), container, ws
+}
+
+func TestTasksBoardCreateBindsWhenGivenAWorkspace(t *testing.T) {
+	svc, _, ws := newBridgeWithTasksWorkspace(t)
+
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.WorkspaceID != ws.ID {
+		t.Fatalf("workspaceId = %q, want %q", board.WorkspaceID, ws.ID)
 	}
 }
 
-// Backing out of a picker is not a failure the user caused, and rendering it
-// as one in a settings dialog reads as though saving broke.
-func TestTasksBoardChooseProjectCancelIsNotAnError(t *testing.T) {
-	svc := NewAppService(app.NewContainer())
-	svc.openDirDialog = func(string, string) (string, error) { return "", nil }
+// The plan's out-of-scope note for board create: no workspace named means no
+// bind attempted, and the board is simply unbound — not an error.
+func TestTasksBoardCreateWithNoWorkspaceLeavesItUnbound(t *testing.T) {
+	svc, _, _ := newBridgeWithTasksWorkspace(t)
 
-	got, err := svc.TasksBoardChooseProject("")
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", "")
 	if err != nil {
-		t.Fatalf("cancel reported as error: %v", err)
+		t.Fatal(err)
 	}
-	if got != "" {
-		t.Fatalf("path = %q, want empty", got)
+	if board.WorkspaceID != "" {
+		t.Fatalf("workspaceId = %q, want unbound", board.WorkspaceID)
+	}
+}
+
+func TestTasksBoardBindAndUnbind(t *testing.T) {
+	svc, _, ws := newBridgeWithTasksWorkspace(t)
+
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bound, err := svc.TasksBoardBind(board.ID, ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.WorkspaceID != ws.ID {
+		t.Fatalf("workspaceId after bind = %q, want %q", bound.WorkspaceID, ws.ID)
+	}
+
+	unbound, err := svc.TasksBoardUnbind(board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbound.WorkspaceID != "" {
+		t.Fatalf("workspaceId after unbind = %q, want empty", unbound.WorkspaceID)
+	}
+}
+
+// Binding to a workspace that does not exist is refused rather than silently
+// recorded — a dangling binding would make a board look bound to nothing.
+func TestTasksBoardBindRejectsUnknownWorkspace(t *testing.T) {
+	svc, _, _ := newBridgeWithTasksWorkspace(t)
+
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TasksBoardBind(board.ID, "ws-does-not-exist"); err == nil {
+		t.Fatal("bound to a workspace that does not exist")
+	}
+}
+
+// TasksBoardSetVerify stores verify.service and leaves ProjectPath alone: it
+// is the deprecated fallback the legacy verifyDir path still reads, and this
+// call must not be the thing that erases it out from under a board that has
+// not been migrated to a binding yet.
+func TestTasksBoardSetVerifyStoresServiceAndKeepsProjectPath(t *testing.T) {
+	svc, container, _ := newBridgeWithTasksWorkspace(t)
+
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := container.Tasks.UpdateBoard(board.ID, func(b *tasks.Board) {
+		b.ProjectPath = "/legacy/path"
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := svc.TasksBoardSetVerify(board.ID, "go test ./...", 600, "billing-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Verify == nil || updated.Verify.Command != "go test ./..." || updated.Verify.Service != "billing-service" {
+		t.Fatalf("verify = %+v", updated.Verify)
+	}
+	if updated.ProjectPath != "/legacy/path" {
+		t.Fatalf("projectPath = %q, want untouched", updated.ProjectPath)
+	}
+
+	cleared, err := svc.TasksBoardSetVerify(board.ID, "", 600, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Verify != nil {
+		t.Fatalf("verify = %+v, want cleared", cleared.Verify)
 	}
 }

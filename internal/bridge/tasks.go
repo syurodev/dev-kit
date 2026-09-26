@@ -23,11 +23,23 @@ func (s *AppService) TasksBoardList() ([]tasks.Board, error) {
 	return result.([]tasks.Board), nil
 }
 
-func (s *AppService) TasksBoardCreate(name, keyPrefix, color string) (tasks.Board, error) {
+// TasksBoardCreate makes a board and, when workspaceID is given, binds it in
+// the same call — the common case, since a board is usually made for the
+// project already open. If the bind fails the board itself is not undone: it
+// stays created, just unbound, so a person is not left believing the whole
+// thing vanished, and the error tells them what to do next.
+func (s *AppService) TasksBoardCreate(name, keyPrefix, color, workspaceID string) (tasks.Board, error) {
 	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:new", map[string]any{
 		"action": "board_create",
 	}, func(context.Context) (any, error) {
-		return s.container.Tasks.CreateBoard(name, keyPrefix, color, tasks.Workflow{})
+		board, err := s.container.Tasks.CreateBoard(name, keyPrefix, color, tasks.Workflow{})
+		if err != nil {
+			return tasks.Board{}, err
+		}
+		if workspaceID == "" {
+			return board, nil
+		}
+		return s.container.Tasks.BindBoard(board.ID, workspaceID)
 	})
 	if err != nil {
 		return tasks.Board{}, err
@@ -35,35 +47,56 @@ func (s *AppService) TasksBoardCreate(name, keyPrefix, color string) (tasks.Boar
 	return result.(tasks.Board), nil
 }
 
-// TasksBoardChooseProject opens the native folder picker for a board's project
-// path, which is where its verify command runs.
+// TasksBoardBind links a board to a workspace on this machine. The link lives
+// in a local table, never in the board's own (synced) metadata — a workspace
+// id only means something on the machine that made it.
 //
-// It is tasks:admin rather than a call into the Agent Hub's picker: asking
-// another module for its capability to open a dialog would hand this one
-// everything else that capability covers. Cancelling returns "" and is not an
-// error — the settings dialog stays as it was.
-func (s *AppService) TasksBoardChooseProject(startIn string) (string, error) {
-	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:project", map[string]any{
-		"action": "choose_project",
+// tasks:admin and UI-only, deliberately: a binding decides which agents see a
+// board, so letting an agent bind one would let it widen its own scope.
+func (s *AppService) TasksBoardBind(boardID, workspaceID string) (tasks.Board, error) {
+	opaqueID := recordID(boardID)
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:"+opaqueID, map[string]any{
+		"action":   "board_bind",
+		"board_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		dialog := s.openDirDialog
-		if dialog == nil {
-			dialog = defaultOpenDirectoryDialog
-		}
-		return dialog("Where the verify command runs", startIn)
+		return s.container.Tasks.BindBoard(boardID, workspaceID)
 	})
 	if err != nil {
-		return "", err
+		return tasks.Board{}, err
 	}
-	return result.(string), nil
+	return result.(tasks.Board), nil
 }
 
-// TasksBoardSetVerify sets the command that closes tasks on this board.
+// TasksBoardUnbind returns a board to the unbound group on this machine. Its
+// tasks are untouched; only which agents can see them changes.
+//
+// tasks:admin and UI-only, same reasoning as TasksBoardBind.
+func (s *AppService) TasksBoardUnbind(boardID string) (tasks.Board, error) {
+	opaqueID := recordID(boardID)
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:"+opaqueID, map[string]any{
+		"action":   "board_unbind",
+		"board_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Tasks.UnbindBoard(boardID)
+	})
+	if err != nil {
+		return tasks.Board{}, err
+	}
+	return result.(tasks.Board), nil
+}
+
+// TasksBoardSetVerify sets the command that closes tasks on this board, and
+// which workspace service it runs in ("" for the primary).
+//
+// It no longer writes ProjectPath: that field is the deprecated fallback
+// verifyDir still reads for a board that predates workspace binding, and this
+// leaves whatever value it already has alone rather than clearing it out from
+// under that fallback.
 //
 // tasks:admin and UI-only, deliberately: changing it is changing the rule that
 // binds every agent on the board, which is the same reason the workflow is not
 // reachable from MCP.
-func (s *AppService) TasksBoardSetVerify(boardID, command string, timeoutSec int, projectPath string) (tasks.Board, error) {
+func (s *AppService) TasksBoardSetVerify(boardID, command string, timeoutSec int, service string) (tasks.Board, error) {
 	opaqueID := recordID(boardID)
 	result, err := s.call(context.Background(), "builtin.tasks", "tasks:admin", "board:"+opaqueID, map[string]any{
 		"action":   "board_set_verify",
@@ -73,9 +106,8 @@ func (s *AppService) TasksBoardSetVerify(boardID, command string, timeoutSec int
 			if command == "" {
 				b.Verify = nil
 			} else {
-				b.Verify = &tasks.Verify{Command: command, TimeoutSec: timeoutSec}
+				b.Verify = &tasks.Verify{Command: command, TimeoutSec: timeoutSec, Service: service}
 			}
-			b.ProjectPath = projectPath
 		})
 	})
 	if err != nil {
