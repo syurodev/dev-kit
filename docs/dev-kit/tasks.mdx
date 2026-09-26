@@ -22,15 +22,15 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 transition, claim/takeover khi phiên chết, cửa duyệt đóng task với `verify`
 chạy nền + hàng đợi `task_verify_runs` + notification, link plan node +
 `ReconcilePlan`, trailer `Task:` ở `git.commitTurn`, quyền push theo
-`task.branch`. Trạng thái chi tiết ở
+`task.branch`. Workspace scoping agent (chỉ thấy board của workspace nó đang làm),
+tree sidebar với Workspace → Board → Status → Task, binding local không sync,
+event `tasks:changed` để tự cập nhật UI. Trạng thái chi tiết ở
 [Implementation status](/dev-kit/implementation-status).
 
 **Chưa có**: FR-12 (turn kết thúc → review), FR-19/20 (commit của task, dữ
-kiện git ở cửa duyệt), kéo-thả / virtualize theo cột / editor workflow, board
-tự cập nhật khi agent đổi task, drain hàng đợi `verify` lúc khởi động, và toàn
-bộ [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync)
-(còn là design). Phần dưới vẫn là thiết kế đầy đủ; chỗ nào code đi khác thiết
-kế thì trang này ghi ngay tại chỗ.
+kiện git ở cửa duyệt), kéo-thả / virtualize theo cột / editor workflow. Phần
+dưới vẫn là thiết kế đầy đủ; chỗ nào code đi khác thiết kế thì trang này ghi
+ngay tại chỗ.
 </Callout>
 
 ```mermaid
@@ -878,10 +878,10 @@ nên đây là trạng thái mặc định khi Tasks v1 ship, không phải mộ
 
 ### Tích hợp Workspace — liên kết nằm ở máy, tên đi theo sync
 
-<Callout type="info" title="Design — chưa có runtime">
+<Callout type="info" title="Implemented">
 Thiết kế v1 ở trên viết trước khi có [Workspace](/dev-kit/workspace): board là
 toàn cục, và `project_path` là mối nối duy nhất với code. Mục này thay mối nối
-đó. Runtime hôm nay vẫn là `project_path`.
+đó. Runtime đã implement xong ở branch `claude/tasks-workspace`.
 </Callout>
 
 #### Vấn đề
@@ -914,15 +914,21 @@ Luật của mục này: **liên kết nằm ở phía local, phần sync chỉ 
 ```sql
 task_board_bindings(
   board_id     TEXT PRIMARY KEY,   -- id vault item của board
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
   bound_at     TEXT NOT NULL
 )
 ```
 
 - Mỗi board gắn **tối đa một** workspace trên mỗi máy; một workspace có nhiều
   board.
-- Xoá workspace ⇒ board thành "chưa gắn", **không** mất task. Task là bản ghi
-  của dự án, workspace chỉ là cách máy này nhìn thấy dự án.
+- Xoá workspace ⇒ `workspace_id` thành `NULL` (chỉ ngắt liên kết, không xoá
+  hàng), board vẫn ở nhóm "Chưa gắn". Task là bản ghi của dự án, workspace chỉ
+  là cách máy này nhìn thấy dự án.
+- **Distinguish never-considered từ deliberately unbound:** Sự hiện diện của hàng
+  (dù `workspace_id` là `NULL` hay không) có nghĩa "máy này đã cân nhắc board này".
+  `Migration` chỉ gắn board chưa bao giờ được xem xét (`Considered` trả `false`),
+  nên một board đã được người dùng gỡ liên kết có thể không dự dính lại sau khi
+  khởi động lại.
 - Bảng thuộc `internal/tasks` — gate đã giữ sẵn `*sql.DB`.
 
 **Metadata board (sync):**
@@ -1007,11 +1013,19 @@ làm thư mục), để test và bản build thiếu workspace không vỡ.
 Không ghi gì vào metadata sync — hai máy cùng migrate là hai lần ghi vào cùng
 một board, và task chỉ có `use-ours` / `use-theirs` ([Sync & conflict](#sync--conflict)).
 
-- Khởi động, idempotent: board có `project_path` và chưa có binding ⇒ tìm
-  workspace có service trùng path đó ⇒ gắn.
+- Khởi động, idempotent: board có `project_path`, chưa bao giờ được xem xét
+  (không có hàng trong `task_board_bindings`) ⇒ tìm workspace có service trùng
+  path đó ⇒ gắn. Nếu board đã được cân nhắc trước đó (có hàng với `workspace_id`
+  bất kỳ, kể cả `NULL`), migration **không** động tới nó — cho dù người dùng đã
+  gỡ liên kết thủ công.
 - `verify.service` rỗng mà `project_path` trùng một service của workspace đã
   gắn ⇒ dùng service đó, tính **lúc chạy**, không ghi lại.
 - Không khớp gì ⇒ board nằm ở nhóm "Chưa gắn".
+
+Khi `MigrateBoardBindings` gắn một board, cũng là lúc MCP `tasks.createFromPlan`
+chuyển ngữ cảnh caller từ `app.CreateTasksFromPlan` (user cứng) thành caller thật
+(người gọi qua MCP), để agent không thể tạo task vào board mà nó không nắm vì
+qua khe hổng indirect này.
 
 #### Thứ tự triển khai
 
@@ -1036,14 +1050,19 @@ Module `tasks` với hai view trong cùng workbench pane:
 
 1. **Board** (`tasks.board`, mặc định) — cột theo `workflow.statuses` theo
    đúng thứ tự khai báo; card hiển thị `key`, title, label chip, assignee, và
-   một chấm trạng thái phiên nếu task đang được agent giữ. Sidebar trái
-   (`useSidebarContent`, xem [Sidebar](/dev-kit/sidebar)) là list board +
-   filter.
+   một chấm trạng thái phiên nếu task đang được agent giữ.
 2. **Detail** (`tasks.detail`) — mở dưới dạng **tab riêng theo task**
    (`openTab({moduleId:"tasks", viewId:"tasks.detail", params:{taskId}, preview:true})`),
    đúng pattern per-item tab mà Notes đã tiêu thụ thật
    ([Module tabs](/dev-kit/module-tabs)). Single-click card = preview tab,
    bắt đầu sửa = pin.
+
+**Sidebar tree:** Sidebar trái (`useSidebarContent`, xem [Sidebar](/dev-kit/sidebar))
+là cây Workspace → Board → Status → Task (một cấp subtask dưới cha). Workspace
+hiện tại luôn ở đầu và mở sẵn; board chưa gắn vào workspace nào nằm ở nhóm riêng
+"Chưa gắn workspace" với nút gắn nhanh. Tree cập nhật tự động khi agent đổi task
+qua MCP thông qua event `tasks:changed` — không cần user refresh. Tìm kiếm
+(key/title/label) mở ép cây để hiện match và tất cả ancestor của nó.
 
 - **Description** dùng lại Plate editor của Notes
   ([ADR-010](/dev-kit/architecture-decisions#adr-010-rich-text-plate-note-editor-not-markdown-only))

@@ -481,6 +481,16 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   compares the whole **origin**: comparing hostnames passed under httptest,
   where both servers are 127.0.0.1, and the test caught the credential
   following a cross-service redirect.
+- **Boards bind to workspaces through local `task_board_bindings`** (not synced):
+  each machine maintains its own binding of board → workspace, never written into
+  the synced board metadata. `workspace_id` is nullable; a row's mere presence
+  means "this machine has considered the board", distinguishing never-considered
+  from deliberately-unbound. Agents see only boards bound to workspaces in their
+  session's granted paths (via `workspace.SessionOwns`), getting `tasks.notFound`
+  otherwise—no second-guessing, and no MCP tool may bind. `project_path` is
+  read-only fallback for legacy boards; `verify.service` names a workspace service
+  instead, traveling through sync unlike paths. `Considered` marker guards
+  `MigrateBoardBindings` to avoid re-binding unbound boards on restart.
 - **`internal/notify` and `internal/gitparse` are leaves** pinned by
   `internal/arch`, extracted as their own commits before the modules that
   needed them. `notify.Target` is three strings and deliberately not the
