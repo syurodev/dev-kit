@@ -214,6 +214,70 @@ func TestMigrateBoardBindingsSecondRunChangesNothing(t *testing.T) {
 	}
 }
 
+// The gap the whole change closes: a person unbinding a legacy board must
+// not have it drift back bound on the next startup just because its stale
+// project_path still matches a workspace.
+func TestMigrateBoardBindingsDoesNotRebindADeliberateUnbind(t *testing.T) {
+	c, _ := migrationContainer(t, nil)
+	a, _, err := c.Workspace.AddWorkspace("A", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := boardWithProjectPath(t, c, "Matched", a.Root)
+
+	MigrateBoardBindings(c)
+	bound, err := c.Tasks.Board(tasks.Caller{}, board.ID)
+	if err != nil || bound.WorkspaceID != a.ID {
+		t.Fatalf("first migration = %+v, %v, want workspace %s", bound, err, a.ID)
+	}
+
+	if _, err := c.Tasks.UnbindBoard(board.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	MigrateBoardBindings(c)
+
+	still, err := c.Tasks.Board(tasks.Caller{}, board.ID)
+	if err != nil || still.WorkspaceID != "" {
+		t.Fatalf("migration re-bound a deliberately unbound board: %+v, %v", still, err)
+	}
+	if !c.Tasks.Considered(board.ID) {
+		t.Fatal("an unbound board must still be Considered")
+	}
+}
+
+// A board bound to a workspace that is later deleted must not be picked up
+// by a second migration and bound to some other workspace that happens to
+// have a service at the same path — the deleted workspace's binding row is
+// still Considered, not a blank slate.
+func TestMigrateBoardBindingsDoesNotRebindAfterWorkspaceDeleted(t *testing.T) {
+	c, db := migrationContainer(t, nil)
+	root := t.TempDir()
+	a, _, err := c.Workspace.AddWorkspace("A", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := boardWithProjectPath(t, c, "Board", root)
+	if _, err := c.Tasks.BindBoard(board.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`DELETE FROM `+storage.TableWorkspaces+` WHERE id = ?`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A second workspace registers at the exact same path...
+	if _, _, err := c.Workspace.AddWorkspace("B", root); err != nil {
+		t.Fatal(err)
+	}
+
+	MigrateBoardBindings(c)
+
+	got, err := c.Tasks.Board(tasks.Caller{}, board.ID)
+	if err != nil || got.WorkspaceID != "" {
+		t.Fatalf("migration rebound a board whose workspace was deleted: %+v, %v, want unbound", got, err)
+	}
+}
+
 // A board bound to a different workspace must stay out of the reconcile pass
 // even when its stale, deprecated project_path happens to equal root — the
 // binding is now the source of truth, not the field migration reads once.

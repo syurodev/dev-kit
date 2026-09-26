@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -546,9 +547,13 @@ func TestMigrationRebuildsWorkspaceServicesWithKeys(t *testing.T) {
 	}
 }
 
-// TestTaskBoardBindingsCascadeDelete verifies that deleting a workspace cascades
-// to delete its board bindings, while the board itself (a vault_item) is unaffected.
-func TestTaskBoardBindingsCascadeDelete(t *testing.T) {
+// TestTaskBoardBindingsNulledOnWorkspaceDelete verifies that deleting a
+// workspace leaves its board bindings in place with workspace_id set to NULL
+// (ON DELETE SET NULL), rather than removing the row: the row itself is the
+// record that this machine has considered the board, and losing it on a
+// workspace delete would make that board look never-touched to the next
+// migration. The board itself (a vault_item) is unaffected either way.
+func TestTaskBoardBindingsNulledOnWorkspaceDelete(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -578,9 +583,16 @@ func TestTaskBoardBindingsCascadeDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify the binding is gone (cascade delete).
+	// The row survives with a NULL workspace, not gone.
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_board_bindings`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("bindings after deleting workspace = %d, %v; want 0 (cascade)", count, err)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_board_bindings`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("bindings after deleting workspace = %d, %v; want 1 (row kept)", count, err)
+	}
+	var workspaceID sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT workspace_id FROM task_board_bindings WHERE board_id = 'board1'`).Scan(&workspaceID); err != nil {
+		t.Fatalf("read binding after delete: %v", err)
+	}
+	if workspaceID.Valid {
+		t.Fatalf("workspace_id after deleting workspace = %q, want NULL", workspaceID.String)
 	}
 }

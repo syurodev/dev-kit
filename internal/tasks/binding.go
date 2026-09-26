@@ -59,28 +59,50 @@ func (r *bindingRepo) Bind(boardID, workspaceID string) error {
 	return err
 }
 
-// Unbind removes a board's binding. Unbinding an unbound board is not an error.
+// Unbind marks a board unbound on this machine, on purpose. It upserts a row
+// with a NULL workspace rather than deleting it: the row's presence is what
+// "this machine has considered the board" means, and deleting it would make
+// a deliberate unbind indistinguishable from a board never touched, which is
+// exactly what let it drift back bound on the next migration. Unbinding an
+// already-unbound (or never-bound) board is not an error.
 func (r *bindingRepo) Unbind(boardID string) error {
-	_, err := r.db.Exec(fmt.Sprintf(`DELETE FROM %s WHERE board_id = ?`, r.table), boardID)
+	_, err := r.db.Exec(fmt.Sprintf(
+		`INSERT INTO %s (board_id, workspace_id, bound_at) VALUES (?, NULL, ?)
+		 ON CONFLICT(board_id) DO UPDATE SET workspace_id = NULL, bound_at = excluded.bound_at`,
+		r.table), boardID, r.now().UTC().Format(time.RFC3339))
 	return err
 }
 
-// workspaceOf is one board's binding. A read that fails reports unbound, which
-// is the closed answer: an unbound board is one no agent sees.
+// workspaceOf is one board's binding. A read that fails, or finds a row with
+// a NULL workspace (deliberately unbound), reports unbound — the closed
+// answer: an unbound board is one no agent sees.
 func (r *bindingRepo) workspaceOf(boardID string) (string, bool) {
-	var workspaceID string
+	var workspaceID sql.NullString
 	err := r.db.QueryRow(fmt.Sprintf(`SELECT workspace_id FROM %s WHERE board_id = ?`, r.table),
 		boardID).Scan(&workspaceID)
-	if err != nil {
+	if err != nil || !workspaceID.Valid {
 		return "", false
 	}
-	return workspaceID, true
+	return workspaceID.String, true
 }
 
-// bindings is every binding on this machine, board id to workspace id, so a
-// board listing is one query rather than one per board.
+// hasRow reports whether this machine has ever considered boardID — bound to
+// a workspace, or deliberately left unbound — regardless of what the row
+// currently says. This is the fact a legacy-board migration needs and
+// workspaceOf cannot give it: workspaceOf collapses "never touched" and
+// "unbound on purpose" to the same false, which is right for "does an agent
+// see this board" and wrong for "should the migration touch this board".
+func (r *bindingRepo) hasRow(boardID string) bool {
+	var n int
+	_ = r.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE board_id = ?`, r.table), boardID).Scan(&n)
+	return n == 1
+}
+
+// bindings is every bound (non-NULL) binding on this machine, board id to
+// workspace id, so a board listing is one query rather than one per board.
+// A deliberately-unbound row is left out, the same as it not existing at all.
 func (r *bindingRepo) bindings() (map[string]string, error) {
-	rows, err := r.db.Query(fmt.Sprintf(`SELECT board_id, workspace_id FROM %s`, r.table))
+	rows, err := r.db.Query(fmt.Sprintf(`SELECT board_id, workspace_id FROM %s WHERE workspace_id IS NOT NULL`, r.table))
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +133,11 @@ func (s *Service) SetScope(scope WorkspaceScope, db *sql.DB, table string) {
 }
 
 // workspaceOf is a board's binding as the rest of the package sees it. A
-// binding whose workspace is gone reads as unbound: the foreign key's cascade
-// normally removes it, and this is the net for a database opened without
-// foreign keys switched on.
+// binding whose workspace is gone reads as unbound: the foreign key sets
+// workspace_id to NULL directly (ON DELETE SET NULL) rather than removing the
+// row, and the Exists check here is the same net for a database opened
+// without foreign keys switched on, or a scope whose notion of "gone" is not
+// a SQL row disappearing.
 func (s *Service) workspaceOf(boardID string) string {
 	if s.binds == nil {
 		return ""
@@ -183,6 +207,20 @@ func (s *Service) UnbindBoard(boardID string) (Board, error) {
 	}
 	board.WorkspaceID = ""
 	return board, nil
+}
+
+// Considered reports whether this machine has already decided about boardID
+// — bound to a workspace, or deliberately left unbound — as opposed to a
+// board with no binding row at all. It is what lets a legacy-board migration
+// tell "never touched" apart from "a person already unbound this", so it
+// binds the first and leaves the second alone. Not tasks:admin: it exposes a
+// yes/no, never which workspace, and app's startup migration needs it before
+// any caller identity exists to check against.
+func (s *Service) Considered(boardID string) bool {
+	if s.binds == nil {
+		return false
+	}
+	return s.binds.hasRow(boardID)
 }
 
 // ---- who sees which board --------------------------------------------

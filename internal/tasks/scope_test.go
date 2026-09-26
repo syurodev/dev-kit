@@ -148,6 +148,59 @@ func TestRebindMovesAndUnbindReleases(t *testing.T) {
 	}
 }
 
+// Unbinding a board leaves it unbound but Considered: the row records that
+// this machine has already decided about it, so a migration must not treat
+// it as a legacy board it has never seen.
+func TestUnbindBoardIsUnboundButConsidered(t *testing.T) {
+	svc, db, _ := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	board := newBoard(t, svc)
+
+	if svc.Considered(board.ID) {
+		t.Fatal("a board never bound is already Considered")
+	}
+	if _, err := svc.BindBoard(board.ID, "ws-a"); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.Considered(board.ID) {
+		t.Fatal("a bound board is not Considered")
+	}
+
+	if _, err := svc.UnbindBoard(board.ID); err != nil {
+		t.Fatal(err)
+	}
+	if read, _ := svc.Board(user, board.ID); read.WorkspaceID != "" {
+		t.Fatalf("unbound board still reads workspace %q", read.WorkspaceID)
+	}
+	if !svc.Considered(board.ID) {
+		t.Fatal("an unbound board must still be Considered")
+	}
+}
+
+// Deleting a bound board's workspace leaves it unbound, and it must still
+// read as Considered — the row survives the delete with a NULL workspace —
+// so a migration does not bind it to some other workspace behind the user's
+// back.
+func TestConsideredSurvivesTheWorkspaceBeingDeleted(t *testing.T) {
+	svc, db, _ := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	board := newBoard(t, svc)
+	if _, err := svc.BindBoard(board.ID, "ws-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`DELETE FROM `+storage.TableWorkspaces+` WHERE id = ?`, "ws-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	if read, _ := svc.Board(user, board.ID); read.WorkspaceID != "" {
+		t.Fatalf("board after workspace delete = %q, want unbound", read.WorkspaceID)
+	}
+	if !svc.Considered(board.ID) {
+		t.Fatal("a board whose workspace was deleted must stay Considered")
+	}
+}
+
 // Deleting a workspace leaves its boards unbound, never gone: the tasks are
 // the project's record, and the workspace was only this machine's view of it.
 func TestDeletingTheWorkspaceUnbindsTheBoard(t *testing.T) {

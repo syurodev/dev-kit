@@ -59,6 +59,13 @@ const (
 	// the project is — so it never syncs. A board can sync to another machine
 	// without its binding; when it arrives, it lands in the "unbound" group until
 	// the user gathers it into a workspace.
+	//
+	// workspace_id is nullable: a row with NULL means this machine has
+	// considered the board and left it unbound on purpose — a person unbound
+	// it, or its workspace was deleted — recorded separately from no row at
+	// all, which means the board was never considered here. That distinction
+	// is what lets a startup migration bind boards it has never seen without
+	// undoing an unbind a person already made.
 	TableTaskBoardBindings = "task_board_bindings"
 
 	// TableAccountHostChoices remembers which account was picked for a host on
@@ -1095,13 +1102,18 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		Up: func(ctx context.Context) error {
 			// Board-to-workspace bindings are machine-local: a binding represents
 			// how this machine views the board's place in the project, not a fact
-			// about the project itself. When a workspace is deleted, its bindings
-			// are dropped (ON DELETE CASCADE). See docs/dev-kit/tasks.mdx §
-			// "Tích hợp Workspace".
+			// about the project itself. workspace_id is nullable, and NULL is not
+			// "no opinion" — the row's mere presence records that this machine has
+			// already considered the board, bound or deliberately not, which is
+			// what tells a legacy-board migration apart from a person's own
+			// unbind. When a workspace is deleted its bindings are kept and set to
+			// NULL (ON DELETE SET NULL), not dropped: dropping the row would erase
+			// that "already considered" fact along with the workspace. See
+			// docs/dev-kit/tasks.mdx § "Tích hợp Workspace".
 			if _, err := db.ExecContext(ctx, fmt.Sprintf(
 				`CREATE TABLE IF NOT EXISTS %s (
 					board_id     TEXT PRIMARY KEY,
-					workspace_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE,
+					workspace_id TEXT NULL REFERENCES %s(id) ON DELETE SET NULL,
 					bound_at     TEXT NOT NULL
 				)`, TableTaskBoardBindings, TableWorkspaces,
 			)); err != nil {

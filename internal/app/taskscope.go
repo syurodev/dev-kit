@@ -124,12 +124,15 @@ func (t *taskScope) Exists(workspaceID string) bool {
 	return false
 }
 
-// MigrateBoardBindings binds every legacy board — one with a project_path but
-// still unbound on this machine — to the workspace that has a service at that
-// exact path, so an upgrade does not make every existing board vanish from
-// every agent the moment scope wiring turns on (docs/dev-kit/tasks.mdx §
-// Migration). Idempotent: a board already bound, or matching nothing, is
-// untouched by a second run.
+// MigrateBoardBindings binds every legacy board — one with a project_path
+// that this machine has never considered — to the workspace that has a
+// service at that exact path, so an upgrade does not make every existing
+// board vanish from every agent the moment scope wiring turns on
+// (docs/dev-kit/tasks.mdx § Migration). Idempotent, and more than merely
+// re-run-safe: it skips anything tasks.Service.Considered already has an
+// opinion about, bound or deliberately not, so a board a person unbinds stays
+// unbound on every later startup instead of drifting back the moment its
+// stale project_path matches a workspace again.
 //
 // It writes only the local binding table, never the board's own metadata —
 // two devices each migrating the same synced board would be two racing
@@ -137,17 +140,8 @@ func (t *taskScope) Exists(workspaceID string) bool {
 // use-ours/use-theirs, never a merge.
 //
 // Call once at startup, after the workspace registry is populated and
-// Tasks.SetScope has run: a migration before SetScope would read every
-// board's WorkspaceID as empty regardless of what task_board_bindings holds,
-// and "already bound" would never be true.
-//
-// Known gap: the table has no record of "migrated once" separate from "never
-// bound", so a legacy board a person deliberately unbinds — one whose
-// project_path still matches a workspace — reads exactly like one that was
-// never touched, and the next startup binds it again. Closing that needs a
-// marker this table does not carry (out of scope here); today it is a board
-// that keeps drifting back until someone changes its verify.service or moves
-// the project, at which point it stops matching and stays unbound for good.
+// Tasks.SetScope has run: a migration before SetScope would read Considered
+// as false for every board regardless of what task_board_bindings holds.
 func MigrateBoardBindings(c *Container) {
 	if c == nil || c.Tasks == nil || c.Workspace == nil {
 		return
@@ -164,7 +158,7 @@ func MigrateBoardBindings(c *Container) {
 	}
 	bound := 0
 	for _, board := range boards {
-		if board.ProjectPath == "" || board.WorkspaceID != "" {
+		if board.ProjectPath == "" || c.Tasks.Considered(board.ID) {
 			continue
 		}
 		workspaceID, ok := workspaceForProjectPath(c.Workspace, workspaces, board.ProjectPath)
