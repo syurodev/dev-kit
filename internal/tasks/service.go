@@ -53,6 +53,11 @@ type Service struct {
 	live  SessionLiveness
 	gate  *verifyGate
 	now   func() time.Time
+
+	// scope and binds decide which boards an agent sees. Both nil is the
+	// behaviour from before bindings: every board, to everyone. See binding.go.
+	scope WorkspaceScope
+	binds *bindingRepo
 }
 
 func NewService(items ItemStore) *Service {
@@ -130,7 +135,9 @@ func (s *Service) UpdateBoard(id string, apply func(*Board)) (Board, error) {
 	if _, err := s.items.UpdateMetadata(id, raw); err != nil {
 		return Board{}, err
 	}
-	return updated.board(id), nil
+	out := updated.board(id)
+	out.WorkspaceID = s.workspaceOf(id)
+	return out, nil
 }
 
 func (m boardMetadata) board(id string) Board {
@@ -141,9 +148,13 @@ func (m boardMetadata) board(id string) Board {
 	}
 }
 
-// Boards lists every board.
+// Boards lists every board, each with the workspace it is bound to here.
 func (s *Service) Boards() ([]Board, error) {
 	records, err := s.items.ListByType(vaultitem.ItemTypeTaskBoard)
+	if err != nil {
+		return nil, err
+	}
+	bound, err := s.boundWorkspaces()
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +164,9 @@ func (s *Service) Boards() ([]Board, error) {
 		if decodeInto(record.Metadata, &meta) != nil {
 			continue
 		}
-		out = append(out, meta.board(record.ID))
+		board := meta.board(record.ID)
+		board.WorkspaceID = bound[record.ID]
+		out = append(out, board)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -161,6 +174,12 @@ func (s *Service) Boards() ([]Board, error) {
 
 // Board returns one board.
 func (s *Service) Board(id string) (Board, error) {
+	return s.board(id)
+}
+
+// board reads a board with no scope check, for the service acting on its own
+// records — a gate landing a run, a reconcile — which is not an agent reading.
+func (s *Service) board(id string) (Board, error) {
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Board{}, ErrNotFound
@@ -169,7 +188,9 @@ func (s *Service) Board(id string) (Board, error) {
 	if err := decodeInto(record.Metadata, &meta); err != nil {
 		return Board{}, err
 	}
-	return meta.board(record.ID), nil
+	board := meta.board(record.ID)
+	board.WorkspaceID = s.workspaceOf(record.ID)
+	return board, nil
 }
 
 // DeleteBoard removes an empty board. A board with live tasks refuses: the

@@ -76,6 +76,11 @@ type Workflow struct {
 type Verify struct {
 	Command    string `json:"command"`
 	TimeoutSec int    `json:"timeout_sec"`
+	// Service is the NAME of the workspace service the command runs in, empty
+	// for the primary. A name, not a path: this travels with the board to
+	// every device, and a name means the same service on each of them where a
+	// path means a folder on one.
+	Service string `json:"service,omitempty"`
 }
 
 // Board is one board.
@@ -88,6 +93,13 @@ type Board struct {
 	Verify         *Verify  `json:"verify,omitempty"`
 	BranchTemplate string   `json:"branchTemplate,omitempty"`
 	ProjectPath    string   `json:"projectPath,omitempty"`
+
+	// WorkspaceID is the workspace this board is bound to on THIS machine,
+	// read from task_board_bindings every time and never written into the
+	// board's metadata. The board syncs; a workspace id is only meaningful on
+	// the machine that created it, so storing it on the board would hand every
+	// other device a pointer into nothing — see binding.go.
+	WorkspaceID string `json:"workspaceId,omitempty"`
 }
 
 // Transition is one entry of a task's history.
