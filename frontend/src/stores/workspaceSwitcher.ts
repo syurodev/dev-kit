@@ -48,19 +48,21 @@ export const useWorkspaceSwitcherStore = create<WorkspaceSwitcherState>()(
 );
 
 /**
- * The current workspace and its services — what Code Graph's and Git's
- * project switchers list instead of an arbitrary "open a folder" picker, and
- * what Agent Hub's draft picker offers as "grant every service" (workspace
- * name included, for that item's label). Re-fetches whenever the current
- * workspace changes; `loaded` starts false so callers can tell "no workspace
- * yet" apart from "still asking Go."
+ * A workspace and its services, by id — the general form behind
+ * `useCurrentWorkspaceServices` below. Split out for a caller that needs a
+ * SPECIFIC workspace rather than whichever one the title-bar switcher is
+ * showing: `BoardVerifyDialog` lists the services of the board's own
+ * `workspaceId`, which is not necessarily the one on screen when the dialog
+ * opens. Re-fetches whenever `workspaceId` (or the switcher's services
+ * version, for edits made to the current workspace's folders) changes;
+ * `loaded` starts false so callers can tell "no workspace yet" apart from
+ * "still asking Go."
  */
-export function useCurrentWorkspaceServices(): {
+export function useWorkspaceServices(workspaceId: string | null): {
   workspace: Workspace | null;
   services: WorkspaceService[];
   loaded: boolean;
 } {
-  const workspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
   const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [services, setServices] = useState<WorkspaceService[]>([]);
@@ -98,6 +100,21 @@ export function useCurrentWorkspaceServices(): {
   }, [workspaceId, servicesVersion]);
 
   return { workspace, services, loaded };
+}
+
+/**
+ * The current workspace and its services — what Code Graph's and Git's
+ * project switchers list instead of an arbitrary "open a folder" picker, and
+ * what Agent Hub's draft picker offers as "grant every service" (workspace
+ * name included, for that item's label).
+ */
+export function useCurrentWorkspaceServices(): {
+  workspace: Workspace | null;
+  services: WorkspaceService[];
+  loaded: boolean;
+} {
+  const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
+  return useWorkspaceServices(currentId);
 }
 
 /**

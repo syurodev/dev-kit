@@ -1,21 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
-  createBoard,
   createTask,
   createTasksFromPlan,
-  listBoards,
-  listTasks,
+  onTasksChanged,
   progressOf,
   setBoardVerify,
   transitionTask,
   type Board,
   type Task,
 } from "@/bridge/tasks";
-import { BoardVerifyDialog } from "./BoardVerifyDialog";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
+import { BoardVerifyDialog } from "./BoardVerifyDialog";
+import { canRunFromPlan, homeBoardOf } from "./boardHome";
+import { useTasksStore } from "./tasksStore";
 
 function TaskCard({
   task,
@@ -78,88 +79,118 @@ function TaskCard({
  * The board. Columns come from the workflow in declaration order, and every
  * rule reads a status's category rather than its name — renaming a column
  * cannot move a gate.
+ *
+ * Which board is a `params.boardId` question now — the sidebar tree is where
+ * one is picked and this view no longer keeps its own dropdown or its own
+ * "create a board" button. Boards and a shown board's tasks come from
+ * tasksStore rather than a fetch of this view's own: the sidebar (mounted for
+ * as long as the module is) reads the same state, so a board opened from the
+ * tree never pays for a second round trip of what it already has.
  */
-export function TasksBoardView() {
-  const [boards, setBoards] = useState<Board[] | null>(null);
-  const [boardID, setBoardID] = useState("");
+export function TasksBoardView({ params }: { params?: Record<string, unknown> }) {
+  const boardIdParam = typeof params?.boardId === "string" ? params.boardId : "";
   // The board whose close rule is being edited, or null.
   const [editingVerify, setEditingVerify] = useState<Board | null>(null);
-  // null until the first load answers: an empty array here cannot tell
-  // "not loaded yet" from "this board is empty", and the columns would
-  // flash zero counts on every open.
-  const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState("");
   const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
 
-  const board = useMemo(
-    () => boards?.find((candidate) => candidate.id === boardID) ?? null,
-    [boards, boardID],
-  );
+  const { boards, tasksByBoard, storeError, refreshBoards, ensureBoardTasks, refreshBoard } =
+    useTasksStore(
+      useShallow((s) => ({
+        boards: s.boards,
+        tasksByBoard: s.tasksByBoard,
+        storeError: s.error,
+        refreshBoards: s.refreshBoards,
+        ensureBoardTasks: s.ensureBoardTasks,
+        refreshBoard: s.refreshBoard,
+      })),
+    );
 
-  const reloadBoards = useCallback(() => {
-    listBoards()
-      .then((next) => {
-        setBoards(next);
-        setBoardID((current) => current || next[0]?.id || "");
-        setError("");
-      })
-      .catch((e: Error) => setError(e.message));
-  }, []);
+  // The sidebar reads this on its own mount and stays mounted for the
+  // module's life, so this is normally a no-op — but a board tab can be
+  // restored (or this view can be someone's first paint of the module)
+  // before that read has landed, and asking again costs nothing once it has.
+  useEffect(() => {
+    void refreshBoards();
+  }, [refreshBoards]);
 
-  const reloadTasks = useCallback(() => {
-    if (!boardID) {
-      setTasks(null);
-      return;
-    }
-    listTasks(boardID)
-      .then(setTasks)
-      .catch((e: Error) => setError(e.message));
-  }, [boardID]);
+  // With no boardId — the module's `opensHome` tab opens with none — show
+  // the current workspace's first board by name rather than nothing: the
+  // sidebar tree is where a board is normally chosen, but arriving at Tasks
+  // with nothing open should still show something when there is one to show.
+  const board = useMemo(() => {
+    if (!boards) return null;
+    if (boardIdParam) return boards.find((candidate) => candidate.id === boardIdParam) ?? null;
+    return homeBoardOf(boards, currentWorkspaceId);
+  }, [boards, boardIdParam, currentWorkspaceId]);
 
-  useEffect(reloadBoards, [reloadBoards]);
-  useEffect(reloadTasks, [reloadTasks]);
+  useEffect(() => {
+    if (board) void ensureBoardTasks(board.id);
+  }, [board, ensureBoardTasks]);
 
-  if (error && !boards) {
-    return <EmptyState icon={KanbanSquare} title="Tasks are unavailable" body={error} />;
+  // Its own subscription rather than leaning on the sidebar's: a board tab
+  // outlives whatever else happens to be on screen beside it, and reloading
+  // here should not depend on the rail staying mounted. Lightly debounced the
+  // same way tasksStore.subscribeTasksChanged is (150ms, per board) — an
+  // agent moving several subtasks in a row is one burst of events for the one
+  // board this view shows, not one refetch per event.
+  useEffect(() => {
+    if (!board) return;
+    const boardId = board.id;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let boardLevel = false;
+    const off = onTasksChanged((e) => {
+      if (e.boardId !== boardId) return;
+      // A board-level event (taskId === "") may have changed the board's own
+      // fields (name, verify, workspaceId), so it earns a refreshBoards() on
+      // top of the board's own re-list.
+      if (e.taskId === "") boardLevel = true;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void refreshBoard(boardId);
+        if (boardLevel) {
+          boardLevel = false;
+          void refreshBoards();
+        }
+      }, 150);
+    });
+    return () => {
+      off();
+      clearTimeout(timer);
+    };
+  }, [board, refreshBoard, refreshBoards]);
+
+  if (storeError && !boards) {
+    return <EmptyState icon={KanbanSquare} title="Tasks are unavailable" body={storeError} />;
   }
   if (!boards) {
     return null;
   }
-  if (boards.length === 0) {
+  if (!board) {
     return (
-      <EmptyState icon={KanbanSquare} title="No board yet" body="A board holds the work, and an agent can move it.">
-        <Button
-          size="sm"
-          onClick={() => {
-            createBoard("DevKit", "DEV", "blue", currentWorkspaceId ?? "")
-              .then(reloadBoards)
-              .catch((e: Error) => setError(e.message));
-          }}
-        >
-          Create a board
-        </Button>
-      </EmptyState>
+      <EmptyState
+        icon={KanbanSquare}
+        title="No board here"
+        body={
+          boardIdParam
+            ? "This board is gone. Pick another one in the Tasks sidebar."
+            : boards.length === 0
+              ? "A board holds the work an agent can pick up. Create one in the Tasks sidebar."
+              : "This workspace has no board yet. Create one in the Tasks sidebar."
+        }
+      />
     );
   }
-  if (!board || !tasks) {
+
+  const tasks = tasksByBoard[board.id];
+  if (!tasks) {
     return null;
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
-        <select
-          className="bg-transparent text-sm"
-          value={boardID}
-          aria-label="Board"
-          onChange={(event) => setBoardID(event.target.value)}
-        >
-          {boards.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.name}
-            </option>
-          ))}
-        </select>
+        <h2 className="min-w-0 truncate text-sm font-medium">{board.name}</h2>
         {/* tasks:admin and UI-only: an agent can trigger the command and can
             never choose it. With no UI at all it was unreachable rather than
             protected, which is not the same thing. */}
@@ -181,10 +212,10 @@ export function TasksBoardView() {
           )}
         </Button>
         <div className="flex-1" />
-        {/* Only offered for a board that names a project: the plan belongs to
-            the project Code Graph has open, and a board pointed somewhere else
-            would build a backlog out of somebody else's plan. */}
-        {board.projectPath ? (
+        {/* Only offered for a board bound to a workspace: the plan belongs to
+            a service of that workspace, and a board pointed nowhere would
+            build a backlog out of nobody's plan (boardHome.canRunFromPlan). */}
+        {canRunFromPlan(board) ? (
           <Button
             variant="ghost"
             size="sm"
@@ -199,7 +230,7 @@ export function TasksBoardView() {
                   } else {
                     setError("");
                   }
-                  reloadTasks();
+                  void ensureBoardTasks(board.id);
                 })
                 .catch((e: Error) => setError(e.message));
             }}
@@ -213,14 +244,19 @@ export function TasksBoardView() {
           size="sm"
           onClick={() => {
             createTask({ boardId: board.id, title: "New task" })
-              .then(reloadTasks)
+              .then(() => ensureBoardTasks(board.id))
               .catch((e: Error) => setError(e.message));
           }}
         >
           <Plus className="size-4" aria-hidden />
           New task
         </Button>
-        <Button variant="ghost" size="icon" aria-label="Reload" onClick={reloadTasks}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Reload"
+          onClick={() => void ensureBoardTasks(board.id)}
+        >
           <RefreshCw className="size-4" aria-hidden />
         </Button>
       </header>
@@ -231,7 +267,7 @@ export function TasksBoardView() {
           setBoardVerify(editingVerify?.id ?? "", command, timeoutSec, service)
             .then(() => {
               setEditingVerify(null);
-              reloadBoards();
+              void refreshBoards();
             })
             .catch((e: Error) => setError(e.message));
         }}
@@ -258,7 +294,7 @@ export function TasksBoardView() {
                       // The status the card was showing goes along, so a card
                       // somebody else moved is refused rather than overwritten.
                       transitionTask(task.id, to, task.status)
-                        .then(reloadTasks)
+                        .then(() => ensureBoardTasks(board.id))
                         .catch((e: Error) => setError(e.message));
                     }}
                   />

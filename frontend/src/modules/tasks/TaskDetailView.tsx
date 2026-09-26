@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   getTask,
   listComments,
+  onTasksChanged,
   splitComments,
   verifyRuns,
   type Comment,
@@ -39,6 +40,18 @@ export function TaskDetailView({ params }: { params?: Record<string, unknown> })
   }, [taskID]);
 
   useEffect(reload, [reload]);
+
+  // A board-level event (taskId === "") cannot be about this task — a rename,
+  // a new column, a bind — so it is ignored here the way tasksStore treats it
+  // as the sidebar's business, not this view's. Not debounced: a single task
+  // at a time makes a burst unlikely, and the three reads reload does are
+  // each already the smallest fetch for what changed.
+  useEffect(() => {
+    if (!taskID) return;
+    return onTasksChanged((e) => {
+      if (e.taskId === taskID) reload();
+    });
+  }, [taskID, reload]);
 
   if (!taskID) {
     return <EmptyState icon={ListChecks} title="No task open" body="Pick a task on the board." />;

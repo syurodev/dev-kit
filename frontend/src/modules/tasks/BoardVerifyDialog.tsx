@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type Board } from "@/bridge/tasks";
-import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
+import { useWorkspaceServices } from "@/stores/workspaceSwitcher";
 
 /**
  * The command that closes a task on this board, and the workspace service it
@@ -32,6 +32,11 @@ import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
  * board with no binding has no workspace to list services from, so saving a
  * command is disabled until someone links it (Tasks sidebar, "Link to
  * current workspace").
+ *
+ * Services come from the BOARD's own workspace, not whichever one the
+ * title-bar switcher happens to be showing: a command set while looking at
+ * one project must still run in the service its own board is bound to, not
+ * wherever the switcher was last left.
  */
 export function BoardVerifyDialog({
   board,
@@ -45,7 +50,7 @@ export function BoardVerifyDialog({
   const [command, setCommand] = useState("");
   const [timeout, setTimeoutSec] = useState("600");
   const [service, setService] = useState("");
-  const { workspace, services } = useCurrentWorkspaceServices();
+  const { workspace, services } = useWorkspaceServices(board?.workspaceId || null);
   const bound = !!board?.workspaceId;
 
   useEffect(() => {
