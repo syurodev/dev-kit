@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -104,12 +105,76 @@ func (s *Service) closeThroughGate(ctx context.Context, caller Caller, board Boa
 		moved, err := s.applyTransition(task.ID, caller, to)
 		return TransitionResult{Task: moved}, err
 	}
-	runID, err := s.gate.enqueue(board, task, to, caller.Author())
+	dir, err := s.verifyDir(board)
 	if err != nil {
 		return TransitionResult{}, err
 	}
-	s.gate.drain(board.ProjectPath)
+	runID, err := s.gate.enqueue(board, dir, task, to, caller.Author())
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	s.gate.drain(dir)
 	return TransitionResult{Task: task, Verifying: true, RunID: runID}, nil
+}
+
+// verifyDir resolves the work tree a board's verify command runs in.
+//
+// The board's binding is local and never travels with the board (see
+// binding.go), so this is worked out here, at the point of use, from
+// whatever workspace the board is bound to on THIS machine — never stored,
+// because a resolved path stored anywhere that syncs would be exactly the
+// mistake `project_path` already made.
+//
+// Resolution order:
+//  1. bound, and the board names a service ⇒ that service's path; not found
+//     here ⇒ ErrBoardUnbound.
+//  2. bound, no service named, but the board's legacy `project_path` still
+//     names one of the workspace's services ⇒ that path, so a board written
+//     before `verify.service` existed keeps working with no write of its own.
+//  3. bound, no service named and no matching legacy path ⇒ the workspace's
+//     primary.
+//  4. no scope wired at all ⇒ `project_path`, exactly today's behaviour.
+//  5. otherwise — scoped, but the board is not bound to a workspace here ⇒
+//     ErrBoardUnbound.
+//
+// A resolution that comes out empty is folded into ErrBoardUnbound too: an
+// empty `project_path` is a board with nowhere to run in, and enqueuing it
+// anyway would write a run under a key nothing ever drains.
+func (s *Service) verifyDir(board Board) (string, error) {
+	dir, err := s.resolveVerifyDir(board)
+	if err != nil {
+		return "", err
+	}
+	if dir == "" {
+		return "", ErrBoardUnbound
+	}
+	return dir, nil
+}
+
+func (s *Service) resolveVerifyDir(board Board) (string, error) {
+	if s.scope == nil {
+		return board.ProjectPath, nil
+	}
+	if board.WorkspaceID == "" {
+		return "", ErrBoardUnbound
+	}
+	service := ""
+	if board.Verify != nil {
+		service = board.Verify.Service
+	}
+	if service != "" {
+		if path, ok := s.scope.ServicePath(board.WorkspaceID, service); ok {
+			return path, nil
+		}
+		return "", ErrBoardUnbound
+	}
+	if board.ProjectPath != "" && s.scope.HasPath(board.WorkspaceID, board.ProjectPath) {
+		return board.ProjectPath, nil
+	}
+	if path, ok := s.scope.ServicePath(board.WorkspaceID, ""); ok {
+		return path, nil
+	}
+	return "", ErrBoardUnbound
 }
 
 func (g *verifyGate) ask(ctx context.Context, task Task, to string) (bool, error) {
@@ -122,7 +187,10 @@ func (g *verifyGate) ask(ctx context.Context, task Task, to string) (bool, error
 		"An agent wants to move "+task.Title+" to "+to+".")
 }
 
-func (g *verifyGate) enqueue(board Board, task Task, to, by string) (string, error) {
+// enqueue writes a queued run. dir is the already-resolved work tree — the
+// caller decides that (verifyDir), never this, so a refusal to resolve never
+// reaches the point of writing a row.
+func (g *verifyGate) enqueue(board Board, dir string, task Task, to, by string) (string, error) {
 	if g.db == nil {
 		return "", ErrConfirmationRequired
 	}
@@ -136,7 +204,7 @@ func (g *verifyGate) enqueue(board Board, task Task, to, by string) (string, err
 	_, err = g.db.Exec(fmt.Sprintf(
 		`INSERT INTO %s (id, task_id, board_id, project_path, target_status, command, timeout_sec, requested_by, requested_at, state)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, g.table),
-		id, task.ID, board.ID, board.ProjectPath, to, board.Verify.Command,
+		id, task.ID, board.ID, dir, to, board.Verify.Command,
 		board.Verify.TimeoutSec, by, g.now().UTC().Format(time.RFC3339Nano), string(RunQueued))
 	if err != nil {
 		return "", err
@@ -171,6 +239,39 @@ func (g *verifyGate) Recover() error {
 
 // Drain runs the queue for a project. Called when a project opens and after
 // each enqueue.
+//
+// Exported for the bridge: DevKit drains again whenever a workspace's work
+// folder changes, on top of the two calls this package already makes on its
+// own — otherwise a request that arrived while nobody was draining that path
+// waits for the next enqueue to notice it.
+func (g *verifyGate) Drain(projectPath string) { g.drain(projectPath) }
+
+// DrainAll drains every project with a queued run. This is the sweep DevKit
+// runs once at startup, right after Recover has put interrupted runs back in
+// the queue — Recover alone leaves them queued, not running, and nothing
+// drains them without this.
+func (g *verifyGate) DrainAll() {
+	if g.db == nil {
+		return
+	}
+	rows, err := g.db.Query(fmt.Sprintf(
+		`SELECT DISTINCT project_path FROM %s WHERE state = ?`, g.table), string(RunQueued))
+	if err != nil {
+		return
+	}
+	var paths []string
+	for rows.Next() {
+		var path string
+		if rows.Scan(&path) == nil {
+			paths = append(paths, path)
+		}
+	}
+	rows.Close()
+	for _, path := range paths {
+		g.drain(path)
+	}
+}
+
 func (g *verifyGate) drain(projectPath string) {
 	if g.db == nil || projectPath == "" {
 		return
@@ -219,6 +320,14 @@ func (g *verifyGate) next(projectPath string) (Run, error) {
 		_ = g.finish(run, RunStale, 0, "")
 		g.comment(run, "Verify was not run: the request waited longer than "+StaleAfter.String()+
 			" and the code it was made against has moved on.")
+		return g.next(projectPath)
+	}
+	if _, err := os.Stat(run.ProjectPath); err != nil {
+		// The work tree this run was queued against is gone from this
+		// machine — a different device, a moved folder, a workspace that was
+		// removed. Grading nothing is not a result either.
+		_ = g.finish(run, RunStale, 0, "")
+		g.comment(run, "Verify was not run: "+run.ProjectPath+" is not on this machine any more.")
 		return g.next(projectPath)
 	}
 	if _, err := g.db.Exec(fmt.Sprintf(`UPDATE %s SET state = ?, started_at = ? WHERE id = ? AND state = ?`, g.table),

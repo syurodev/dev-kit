@@ -17,9 +17,27 @@ type fakeScope struct {
 	db       *sql.DB
 	sessions map[string][]string
 	gone     map[string]bool
+	// services is workspace id to service name ("" is the primary) to path,
+	// the fixture's stand-in for workspace.Service.ListServices.
+	services map[string]map[string]string
 }
 
-func (f *fakeScope) ServicePath(string, string) (string, bool) { return "", false }
+func (f *fakeScope) ServicePath(workspaceID, service string) (string, bool) {
+	paths, ok := f.services[workspaceID]
+	if !ok {
+		return "", false
+	}
+	path, ok := paths[service]
+	return path, ok
+}
+func (f *fakeScope) HasPath(workspaceID, path string) bool {
+	for _, p := range f.services[workspaceID] {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
 func (f *fakeScope) SessionWorkspaces(sessionID string) []string {
 	return f.sessions[sessionID]
 }
@@ -37,7 +55,7 @@ func (f *fakeScope) Exists(workspaceID string) bool {
 func scopedService(t *testing.T) (*Service, *sql.DB, *fakeScope) {
 	t.Helper()
 	svc, db := newService(t)
-	scope := &fakeScope{db: db, sessions: map[string][]string{}, gone: map[string]bool{}}
+	scope := &fakeScope{db: db, sessions: map[string][]string{}, gone: map[string]bool{}, services: map[string]map[string]string{}}
 	svc.SetScope(scope, db, storage.TableTaskBoardBindings)
 	return svc, db, scope
 }
@@ -445,5 +463,153 @@ func TestAClaimOutOfScopeIsNotFoundEvenWhenHeld(t *testing.T) {
 	}
 	if _, err := f.svc.Claim(agent, f.otherTask.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claiming a held task out of scope = %v", err)
+	}
+}
+
+// ---- verify resolves through the binding, not project_path -----------
+
+// verifyBoard is a board bound to ws-a with a verify command, ready for
+// closeThroughGate to run.
+func verifyBoard(t *testing.T, svc *Service, apply func(*Verify, *Board)) Board {
+	t.Helper()
+	board := newBoard(t, svc)
+	if _, err := svc.BindBoard(board.ID, "ws-a"); err != nil {
+		t.Fatal(err)
+	}
+	verify := &Verify{Command: "true", TimeoutSec: 30}
+	updated, err := svc.UpdateBoard(board.ID, func(b *Board) {
+		b.Verify = verify
+		apply(verify, b)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return updated
+}
+
+// runProjectPath reads back the project_path a Transition's run landed with.
+func runProjectPath(t *testing.T, db *sql.DB, runID string) string {
+	t.Helper()
+	var path string
+	if err := db.QueryRow(`SELECT project_path FROM `+storage.TableTaskVerifyRuns+` WHERE id = ?`, runID).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestVerifyRunsInTheNamedServicesPath(t *testing.T) {
+	svc, db, scope := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	scope.sessions[agent.SessionID] = []string{"ws-a"}
+	apiDir := t.TempDir()
+	scope.services["ws-a"] = map[string]string{"": t.TempDir(), "api": apiDir}
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+
+	board := verifyBoard(t, svc, func(v *Verify, b *Board) { v.Service = "api" })
+	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runProjectPath(t, db, result.RunID); got != apiDir {
+		t.Fatalf("project_path = %q, want the api service's path %q", got, apiDir)
+	}
+}
+
+func TestVerifyWithNoServiceNamedUsesThePrimary(t *testing.T) {
+	svc, db, scope := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	scope.sessions[agent.SessionID] = []string{"ws-a"}
+	primary := t.TempDir()
+	scope.services["ws-a"] = map[string]string{"": primary}
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+
+	board := verifyBoard(t, svc, func(v *Verify, b *Board) {})
+	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runProjectPath(t, db, result.RunID); got != primary {
+		t.Fatalf("project_path = %q, want the primary %q", got, primary)
+	}
+}
+
+// A board written before verify.service existed still has its legacy
+// project_path; as long as that path still names one of the bound
+// workspace's services, it keeps working with no write of its own.
+func TestVerifyLegacyProjectPathKeepsWorkingWhenItMatchesAService(t *testing.T) {
+	svc, db, scope := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	scope.sessions[agent.SessionID] = []string{"ws-a"}
+	legacy := t.TempDir()
+	scope.services["ws-a"] = map[string]string{"": t.TempDir(), "api": legacy}
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+
+	board := verifyBoard(t, svc, func(v *Verify, b *Board) { b.ProjectPath = legacy })
+	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runProjectPath(t, db, result.RunID); got != legacy {
+		t.Fatalf("project_path = %q, want the legacy path %q", got, legacy)
+	}
+}
+
+// A board bound to a workspace that names a verify.service which does not
+// resolve here refuses outright rather than falling back to asking a
+// person — and nothing is written to the queue on the way to the refusal.
+func TestCloseRefusesRatherThanEnqueueWhenTheServiceDoesNotResolve(t *testing.T) {
+	svc, db, scope := scopedService(t)
+	addWorkspace(t, db, "ws-a")
+	scope.sessions[agent.SessionID] = []string{"ws-a"}
+	scope.services["ws-a"] = map[string]string{"": t.TempDir()} // no "api" service
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+
+	board := verifyBoard(t, svc, func(v *Verify, b *Board) { v.Service = "api" })
+	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"}); !errors.Is(err, ErrBoardUnbound) {
+		t.Fatalf("transition = %v, want ErrBoardUnbound", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + storage.TableTaskVerifyRuns).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("a refused close still enqueued %d rows", count)
+	}
+	after, _ := svc.Get(user, task.ID)
+	if after.Status == "done" {
+		t.Fatal("a refused close still moved the task")
+	}
+}
+
+// An unbound board is invisible to an agent through boardFor, so this checks
+// the resolver directly rather than through Transition (which an agent could
+// never even reach for a board outside its scope).
+func TestVerifyDirRefusesAnUnboundBoard(t *testing.T) {
+	svc, _, _ := scopedService(t)
+	board := newBoard(t, svc)
+	updated, err := svc.UpdateBoard(board.ID, func(b *Board) {
+		b.Verify = &Verify{Command: "true", TimeoutSec: 30}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.verifyDir(updated); !errors.Is(err, ErrBoardUnbound) {
+		t.Fatalf("verifyDir on an unbound board = %v, want ErrBoardUnbound", err)
 	}
 }

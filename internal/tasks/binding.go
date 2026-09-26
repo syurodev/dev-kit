@@ -29,6 +29,12 @@ type WorkspaceScope interface {
 	// ServicePath resolves a service name in a workspace to its path on this
 	// machine. An empty service is the primary.
 	ServicePath(workspaceID, service string) (string, bool)
+	// HasPath reports whether path names one of the workspace's service
+	// paths. This is what lets a legacy board's `project_path` keep working
+	// without a synced write: the path is trusted only when it still names a
+	// real service in the workspace the board is bound to, never as a bare
+	// string handed back unchecked.
+	HasPath(workspaceID, path string) bool
 	// SessionWorkspaces lists the workspaces an agent session belongs to.
 	SessionWorkspaces(sessionID string) []string
 	// Exists reports whether a workspace is still registered here.

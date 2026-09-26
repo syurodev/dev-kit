@@ -434,12 +434,92 @@ func TestOneVerifyPerTaskAtATime(t *testing.T) {
 		b.ProjectPath = t.TempDir()
 	})
 	task, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x"})
-	if _, err := gate.enqueue(board, task, "done", "agent:x"); err != nil {
+	if _, err := gate.enqueue(board, board.ProjectPath, task, "done", "agent:x"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gate.enqueue(board, task, "done", "agent:x"); !errors.Is(err, ErrVerifying) {
+	if _, err := gate.enqueue(board, board.ProjectPath, task, "done", "agent:x"); !errors.Is(err, ErrVerifying) {
 		t.Fatalf("second enqueue = %v, want ErrVerifying", err)
 	}
+}
+
+// With no scope wired at all, verifyDir must read exactly as it did before
+// bindings existed: the board's own project_path, unconditionally.
+func TestVerifyDirWithNoScopeUsesProjectPathAsBefore(t *testing.T) {
+	svc, _ := newService(t)
+	dir, err := svc.verifyDir(Board{ProjectPath: "/some/path"})
+	if err != nil || dir != "/some/path" {
+		t.Fatalf("verifyDir with no scope = %q, %v", dir, err)
+	}
+}
+
+// Recover alone leaves an interrupted run queued, not running; DrainAll is
+// the sweep that actually finishes it, the way startup runs it once after
+// Recover.
+func TestRecoverAndDrainAllFinishAnInterruptedRun(t *testing.T) {
+	svc, db := newService(t)
+	notify := &stubNotify{mu: make(chan struct{}, 4)}
+	gate := NewGate(db, storage.TableTaskVerifyRuns, nil, notify)
+	svc.SetGate(gate)
+	board := newBoard(t, svc)
+	task, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x"})
+	dir := t.TempDir()
+
+	if _, err := db.Exec(`INSERT INTO `+storage.TableTaskVerifyRuns+
+		` (id, task_id, board_id, project_path, target_status, command, timeout_sec, requested_by, requested_at, state)
+		  VALUES ('run-interrupted', ?, ?, ?, 'done', 'true', 30, 'agent:x', ?, 'running')`,
+		task.ID, board.ID, dir, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	gate.DrainAll()
+	waitForNotification(t, notify)
+
+	after, _ := svc.Get(user, task.ID)
+	if after.Status != "done" {
+		t.Fatalf("status after Recover+DrainAll = %q", after.Status)
+	}
+	runs, _ := gate.Runs(task.ID, 5)
+	if len(runs) != 1 || runs[0].State != RunPassed {
+		t.Fatalf("runs = %+v", runs)
+	}
+}
+
+// A queued run whose folder has vanished from this machine — a different
+// device, a moved or deleted worktree — grades nothing rather than nothing:
+// it goes stale, same as a request that simply waited too long, and the task
+// stays exactly where it was.
+func TestQueuedRunWithAMissingProjectPathGoesStale(t *testing.T) {
+	svc, db := newService(t)
+	gate := NewGate(db, storage.TableTaskVerifyRuns, nil, nil)
+	svc.SetGate(gate)
+	board := newBoard(t, svc)
+	task, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x"})
+	missing := t.TempDir() + "/gone"
+
+	if _, err := db.Exec(`INSERT INTO `+storage.TableTaskVerifyRuns+
+		` (id, task_id, board_id, project_path, target_status, command, timeout_sec, requested_by, requested_at, state)
+		  VALUES ('run-missing', ?, ?, ?, 'done', 'true', 30, 'agent:x', ?, 'queued')`,
+		task.ID, board.ID, missing, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	run, err := gate.next(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ID != "" {
+		t.Fatalf("a run whose folder is gone was started: %+v", run)
+	}
+	runs, _ := gate.Runs(task.ID, 5)
+	if len(runs) != 1 || runs[0].State != RunStale {
+		t.Fatalf("runs = %+v, want stale", runs)
+	}
+	after, _ := svc.Get(user, task.ID)
+	if after.Status == "done" {
+		t.Fatal("a missing folder still closed the task")
+	}
+	assertSystemComment(t, svc, task.ID, "not on this machine")
 }
 
 func TestSubtasksAreOneLevelAndCountedByCategory(t *testing.T) {

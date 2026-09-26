@@ -52,6 +52,12 @@ var (
 	ErrVerifying = errors.New("tasks.verifying")
 	// ErrParentHasParent guards the one-level rule.
 	ErrParentHasParent = errors.New("tasks.parentHasParent")
+	// ErrBoardUnbound is a board that declared a verify command but has no
+	// directory this machine can resolve: no workspace binding, or a binding
+	// whose service does not resolve here. Falling back to asking a person
+	// would silently swap the board's rule — an exit code decides — for a
+	// different one nobody agreed to, so this refuses instead.
+	ErrBoardUnbound = errors.New("tasks.boardUnbound")
 )
 
 // Status is one column of a board.
