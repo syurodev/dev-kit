@@ -15,6 +15,7 @@ import {
   type Task,
 } from "@/bridge/tasks";
 import { BoardVerifyDialog } from "./BoardVerifyDialog";
+import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 
 function TaskCard({
   task,
@@ -88,6 +89,7 @@ export function TasksBoardView() {
   // flash zero counts on every open.
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState("");
+  const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
 
   const board = useMemo(
     () => boards?.find((candidate) => candidate.id === boardID) ?? null,
@@ -129,7 +131,9 @@ export function TasksBoardView() {
         <Button
           size="sm"
           onClick={() => {
-            createBoard("DevKit", "DEV", "blue").then(reloadBoards).catch((e: Error) => setError(e.message));
+            createBoard("DevKit", "DEV", "blue", currentWorkspaceId ?? "")
+              .then(reloadBoards)
+              .catch((e: Error) => setError(e.message));
           }}
         >
           Create a board
@@ -223,8 +227,8 @@ export function TasksBoardView() {
       <BoardVerifyDialog
         board={editingVerify}
         onClose={() => setEditingVerify(null)}
-        onSave={(command, timeoutSec, projectPath) => {
-          setBoardVerify(editingVerify?.id ?? "", command, timeoutSec, projectPath)
+        onSave={(command, timeoutSec, service) => {
+          setBoardVerify(editingVerify?.id ?? "", command, timeoutSec, service)
             .then(() => {
               setEditingVerify(null);
               reloadBoards();

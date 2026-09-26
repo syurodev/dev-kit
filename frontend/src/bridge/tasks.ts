@@ -11,7 +11,7 @@ export type Workflow = { statuses: Status[] };
  * board because it must be the user's: an agent can trigger it and can never
  * change it.
  */
-export type Verify = { command: string; timeout_sec: number };
+export type Verify = { command: string; timeout_sec: number; service?: string };
 
 export type Board = {
   id: string;
@@ -22,6 +22,8 @@ export type Board = {
   verify?: Verify | null;
   branchTemplate?: string;
   projectPath?: string;
+  /** The workspace this board is bound to on THIS machine, or "" if unbound. */
+  workspaceId?: string;
 };
 
 export type Transition = { from: string; to: string; by: string; at: string };
@@ -77,29 +79,48 @@ export function listBoards(): Promise<Board[]> {
   return callBridge(async () => ((await AppService.TasksBoardList()) ?? []) as Board[]);
 }
 
-export function createBoard(name: string, keyPrefix: string, color: string): Promise<Board> {
+/**
+ * Creates a board, binding it to workspaceId in the same call when one is
+ * given — the common case, since a board is usually made for the project
+ * already open.
+ */
+export function createBoard(
+  name: string,
+  keyPrefix: string,
+  color: string,
+  workspaceId = "",
+): Promise<Board> {
   return callBridge(
-    async () => (await AppService.TasksBoardCreate(name, keyPrefix, color)) as Board,
+    async () => (await AppService.TasksBoardCreate(name, keyPrefix, color, workspaceId)) as Board,
   );
 }
 
 /**
- * The native folder picker for a board's project. Cancelling returns "" and is
- * not an error — the dialog stays open with the field untouched.
+ * Links a board to a workspace on this machine. tasks:admin and UI-only: a
+ * binding decides which agents see the board.
  */
-export function chooseBoardProject(startIn = ""): Promise<string> {
-  return callBridge(async () => await AppService.TasksBoardChooseProject(startIn));
+export function bindBoard(boardId: string, workspaceId: string): Promise<Board> {
+  return callBridge(async () => (await AppService.TasksBoardBind(boardId, workspaceId)) as Board);
 }
 
+/** Returns a board to the unbound group on this machine. Its tasks are untouched. */
+export function unbindBoard(boardId: string): Promise<Board> {
+  return callBridge(async () => (await AppService.TasksBoardUnbind(boardId)) as Board);
+}
+
+/**
+ * Sets the command that closes tasks on this board, and the workspace service
+ * it runs in ("" for the primary). An empty command clears the verify rule.
+ */
 export function setBoardVerify(
   boardId: string,
   command: string,
   timeoutSec: number,
-  projectPath: string,
+  service: string,
 ): Promise<Board> {
   return callBridge(
     async () =>
-      (await AppService.TasksBoardSetVerify(boardId, command, timeoutSec, projectPath)) as Board,
+      (await AppService.TasksBoardSetVerify(boardId, command, timeoutSec, service)) as Board,
   );
 }
 

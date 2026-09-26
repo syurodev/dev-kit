@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, FolderOpen } from "lucide-react";
+import { Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,11 +9,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { chooseBoardProject, type Board } from "@/bridge/tasks";
-import { useModuleFolder } from "@/stores/workFolder";
+import { type Board } from "@/bridge/tasks";
+import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
 
 /**
- * The command that closes a task on this board, and the folder it runs in.
+ * The command that closes a task on this board, and the workspace service it
+ * runs in.
  *
  * `TasksBoardSetVerify` shipped with no caller, which meant the close gate
  * could never be turned on: an agent could trigger a verify run and nobody
@@ -24,6 +25,13 @@ import { useModuleFolder } from "@/stores/workFolder";
  * An empty command is a real setting, not a blank form: it means closing asks
  * a person every time. That is the default and it is spelled out below,
  * because a form that looks unfinished invites someone to fill it in.
+ *
+ * A folder picker used to choose where the command runs; a board syncs and a
+ * path does not travel, so it is a service NAME of the board's workspace now
+ * — resolved to a path on this machine only when the command actually runs. A
+ * board with no binding has no workspace to list services from, so saving a
+ * command is disabled until someone links it (Tasks sidebar, "Bind to
+ * workspace").
  */
 export function BoardVerifyDialog({
   board,
@@ -32,26 +40,24 @@ export function BoardVerifyDialog({
 }: {
   board: Board | null;
   onClose: () => void;
-  onSave: (command: string, timeoutSec: number, projectPath: string) => void;
+  onSave: (command: string, timeoutSec: number, service: string) => void;
 }) {
   const [command, setCommand] = useState("");
   const [timeout, setTimeoutSec] = useState("600");
-  // What was typed or picked, until something is. A board with no folder of its
-  // own starts on the one the app is working in, shown in the field so saving
-  // it is a choice the person can see.
-  const [typedPath, setProjectPath] = useState<string | null>(null);
-  const { folder: workFolder } = useModuleFolder("tasks");
-  const projectPath = typedPath ?? (board?.projectPath || workFolder);
+  const [service, setService] = useState("");
+  const { workspace, services } = useCurrentWorkspaceServices();
+  const bound = !!board?.workspaceId;
 
   useEffect(() => {
     if (!board) return;
     setCommand(board.verify?.command ?? "");
     setTimeoutSec(String(board.verify?.timeout_sec || 600));
-    setProjectPath(null);
+    setService(board.verify?.service ?? "");
   }, [board]);
 
   const seconds = Number(timeout);
   const validTimeout = Number.isInteger(seconds) && seconds > 0;
+  const primaryName = services[0]?.name ?? workspace?.name ?? "primary";
 
   return (
     <Dialog open={!!board} onOpenChange={(open) => !open && onClose()}>
@@ -81,36 +87,35 @@ export function BoardVerifyDialog({
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-label-12 text-text-primary" htmlFor="verify-project">
-            Project folder
+          <label className="text-label-12 text-text-primary" htmlFor="verify-service">
+            Runs in
           </label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="verify-project"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="/Users/you/code/billing-service"
-              spellCheck={false}
-              className="font-mono"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                // Cancelling hands back "", which must not clear a path the
-                // person already chose.
-                chooseBoardProject(projectPath)
-                  .then((picked) => picked && setProjectPath(picked))
-                  .catch(() => undefined);
-              }}
+          {bound ? (
+            <select
+              id="verify-service"
+              className="w-full rounded-md border border-border-subtle bg-transparent px-2 py-1.5 text-sm"
+              value={service}
+              onChange={(e) => setService(e.target.value)}
             >
-              <FolderOpen className="size-4" aria-hidden />
-              Choose
-            </Button>
-          </div>
+              <option value="">Primary ({primaryName})</option>
+              {services
+                .filter((candidate) => candidate.name !== primaryName)
+                .map((candidate) => (
+                  <option key={candidate.id} value={candidate.name}>
+                    {candidate.name}
+                  </option>
+                ))}
+            </select>
+          ) : (
+            <p className="text-code-11 text-amber-600">
+              This board isn't linked to a workspace on this machine. Link it to a
+              workspace (Tasks sidebar → Bind to workspace) before setting a command.
+            </p>
+          )}
           <p className="text-code-11 text-text-tertiary">
-            Where the command runs. It is also the project a backlog is built from, so
-            From plan only appears once this is set.
+            The workspace service the command runs in, resolved to a path on this
+            machine each time it runs — a name travels with the board to another
+            device where a folder would not.
           </p>
         </div>
 
@@ -142,8 +147,8 @@ export function BoardVerifyDialog({
             </Button>
             <Button
               size="sm"
-              disabled={!validTimeout}
-              onClick={() => onSave(command.trim(), seconds, projectPath.trim())}
+              disabled={!validTimeout || (!bound && !!command.trim())}
+              onClick={() => onSave(command.trim(), seconds, bound ? service : "")}
             >
               Save
               <Check />
