@@ -64,7 +64,7 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tasks.get",
-		Description: "Get one task with its description, comments and history — the context to read when picking work back up",
+		Description: "Get one task with its description and history; comments come from tasks.comment.list",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolTasksGet)
 

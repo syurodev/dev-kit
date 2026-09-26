@@ -91,3 +91,28 @@ func TestNoToolSignsAgentsIn(t *testing.T) {
 		}
 	}
 }
+
+// TestNoToolBindsBoards: a binding decides which boards an agent sees, so an
+// agent that could bind a board could widen its own scope. Bindings are
+// tasks:admin and UI-only — they control access, never grant it.
+func TestNoToolBindsBoards(t *testing.T) {
+	files, err := filepath.Glob("tools_*.go")
+	if err != nil {
+		t.Fatalf("glob tools_*.go: %v", err)
+	}
+	bindName := regexp.MustCompile(`tasks\..*(bind|unbind)`)
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, m := range toolNamePattern.FindAllStringSubmatch(string(data), -1) {
+			if bindName.MatchString(m[1]) {
+				t.Errorf("%s declares tool %q: board binding is UI only", path, m[1])
+			}
+		}
+	}
+}
