@@ -16,13 +16,21 @@ item khác.
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
-<Callout type="warn" title="Design only">
-Chưa có runtime. Trang này là thiết kế đầy đủ cho module mới; chưa có
-`internal/tasks`, chưa có record type `task` trong
-`internal/vaultitem/schema.go`. Phụ thuộc: [Agent Hub](/dev-kit/agent-hub)
-(Implemented, Claude-only) và [Code Graph § Plan-first flow](/dev-kit/codegraph)
-(Design). [Git](/dev-kit/git) (Design) là phụ thuộc **tuỳ chọn**: không có nó
-thì FR-17…19 biến mất và board chạy y nguyên.
+<Callout type="warn" title="Partial">
+Đã có runtime cho phần lõi: `internal/tasks` trên ba record type, bridge
+`Tasks*`, MCP `tasks.*` (không delete, không board write), optimistic
+transition, claim/takeover khi phiên chết, cửa duyệt đóng task với `verify`
+chạy nền + hàng đợi `task_verify_runs` + notification, link plan node +
+`ReconcilePlan`, trailer `Task:` ở `git.commitTurn`, quyền push theo
+`task.branch`. Trạng thái chi tiết ở
+[Implementation status](/dev-kit/implementation-status).
+
+**Chưa có**: FR-12 (turn kết thúc → review), FR-19/20 (commit của task, dữ
+kiện git ở cửa duyệt), kéo-thả / virtualize theo cột / editor workflow, board
+tự cập nhật khi agent đổi task, drain hàng đợi `verify` lúc khởi động, và toàn
+bộ [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync)
+(còn là design). Phần dưới vẫn là thiết kế đầy đủ; chỗ nào code đi khác thiết
+kế thì trang này ghi ngay tại chỗ.
 </Callout>
 
 ```mermaid
@@ -347,7 +355,7 @@ Ba record type mới trên `vault_items` ([ADR-008](/dev-kit/architecture-decisi
 | Field | At rest | Notes |
 |---|---|---|
 | `type` | `"task-board"` | Schema-validated |
-| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...},"verify":{...},"branch_template":"","project_path":""}` plaintext | `workflow` là danh sách status + `category`, xem dưới. `verify` (FR-8), `branch_template` (FR-17) và `project_path` đều **optional**, thêm field vào type đã có — không phải record type thứ tư |
+| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...},"verify":{"command":"…","timeout_sec":600,"service":""},"branch_template":"","project_path":""}` plaintext | `workflow` là danh sách status + `category`, xem dưới. `verify` (FR-8), `branch_template` (FR-17) và `project_path` đều **optional**, thêm field vào type đã có — không phải record type thứ tư. `project_path` là **deprecated** — một path tuyệt đối không đúng trên máy khác; thay bằng binding local + `verify.service`, xem [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync) |
 | `payload` | Envelope V2 rỗng `{}` | `key_id` phải = `task-board` — board không có secret, envelope chỉ để record hợp lệ với sync validation (cùng cách `note-folder` đang làm) |
 
 #### Task — `type = "task"`
@@ -476,6 +484,7 @@ opaque qua `recordID()` như mọi module khác.
 | `TasksLinkPlanNode` | `tasks:write` | `task:<id>` | Set/clear `plan_node_id`, đồng bộ ngược sang `plan_nodes` |
 | `TasksCreateFromPlan` | `tasks:write` | `task:new` | Chỉ chạy trên plan đã `approved` |
 | `TasksGitActivity` | `tasks:read` | `task:<id>` | Commit + branch + trạng thái push của một task. Không đọc vault; trả rỗng khi không có Git (FR-19, NFR-10/11) |
+| `TasksBoardBind` / `TasksBoardUnbind` | `tasks:admin` | `board:<id>` | Gắn / gỡ board khỏi một workspace **trên máy này**; ghi bảng local, không đụng record board. UI-only — xem [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync) |
 
 Ba capability tách theo bản chất hành động, cùng lý do đã áp cho
 `kafka:connect` / `kafka:produce` / `kafka:admin`:
@@ -519,6 +528,9 @@ Xem cơ chế chung + rationale ở [MCP / Agent](/dev-kit/mcp-agent).
   workflow là đổi chính luật đang ràng buộc agent**. Cho agent sửa `category`
   của một status đồng nghĩa cho nó tự tháo gate FR-8; đây là loại trừ cứng,
   không phải thứ nới ra được bằng cách sửa policy.
+- `TasksBoardBind` / `TasksBoardUnbind` — binding quyết định **agent thấy
+  board nào**. Cho agent gắn một board vào workspace của nó là cho nó tự nới
+  phạm vi của chính nó.
 
 `author` của comment và `by` trong `history` **do service gán từ ngữ cảnh
 call** (`origin` + `session_id`), không lấy từ tham số tool — agent không tự
@@ -864,6 +876,160 @@ mọi thứ khác **không đổi một dòng**. Tasks đứng trước Git tron
 khai ([Liên module § Thứ tự](/dev-kit/cross-module#thứ-tự-triển-khai-gợi-ý)),
 nên đây là trạng thái mặc định khi Tasks v1 ship, không phải một trường hợp lạ.
 
+### Tích hợp Workspace — liên kết nằm ở máy, tên đi theo sync
+
+<Callout type="info" title="Design — chưa có runtime">
+Thiết kế v1 ở trên viết trước khi có [Workspace](/dev-kit/workspace): board là
+toàn cục, và `project_path` là mối nối duy nhất với code. Mục này thay mối nối
+đó. Runtime hôm nay vẫn là `project_path`.
+</Callout>
+
+#### Vấn đề
+
+Hai loại dữ liệu nằm ở hai phía ngược nhau của ranh giới sync:
+
+| | Ở đâu | Sync |
+|---|---|---|
+| Board, task, comment | `vault_items` | **Có** |
+| Workspace, service | `workspaces` / `workspace_services` | **Không** — machine-local ([Workspace § Data model](/dev-kit/workspace)) |
+
+Nên **không ghi được `workspace_id` lên board**: id đó chỉ có nghĩa trên máy
+đã tạo nó, sang máy khác là một con trỏ vào hư không. Đây đúng là lỗi
+`accounts` đã tránh bằng `scope_owner` thay vì `account_id`, và cũng là lỗi
+`project_path` đang mắc — một path tuyệt đối sync sang máy khác thì hoặc không
+tồn tại, hoặc trỏ nhầm chỗ.
+
+Hệ quả hôm nay: agent của workspace A đọc, claim và comment được task của
+workspace B (`tasks.board.list` trả mọi board, trong khi `workspace.list` đã
+thu hẹp theo session); một board chỉ trỏ được một path trong khi workspace có
+nhiều service; và reconcile/verify lệch ngay trên máy thứ hai.
+
+Luật của mục này: **liên kết nằm ở phía local, phần sync chỉ mang tên.**
+
+#### Dữ liệu
+
+**Bảng local mới** — cùng loại derived/operational với `task_verify_runs`,
+**không** sync:
+
+```sql
+task_board_bindings(
+  board_id     TEXT PRIMARY KEY,   -- id vault item của board
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  bound_at     TEXT NOT NULL
+)
+```
+
+- Mỗi board gắn **tối đa một** workspace trên mỗi máy; một workspace có nhiều
+  board.
+- Xoá workspace ⇒ board thành "chưa gắn", **không** mất task. Task là bản ghi
+  của dự án, workspace chỉ là cách máy này nhìn thấy dự án.
+- Bảng thuộc `internal/tasks` — gate đã giữ sẵn `*sql.DB`.
+
+**Metadata board (sync):**
+
+- Thêm `verify.service` — **tên** service mà `verify` chạy trong đó; rỗng =
+  primary. Tên đi được qua máy khác vì nó đến từ `spring.application.name`
+  hoặc tên thư mục ([Workspace § Discovery](/dev-kit/workspace)); path thì không.
+- `project_path` deprecated: chỉ còn **đọc** làm fallback cho board cũ, không
+  ghi nữa.
+
+**Metadata task (sync), pha sau:** `services []string` — những service task
+này đụng tới. Đây là chỗ nối với [Workspace § Worktree](/dev-kit/workspace):
+workspace `acme @ task-123` trỏ đúng các service trong danh sách này về
+worktree riêng, phần còn lại giữ repo chính.
+
+#### Resolve lúc dùng
+
+```
+board ──binding (local)──► workspace ──ListServices──► service theo tên ──► path
+```
+
+`internal/tasks` **không** import `internal/workspace`. Nó nhận một interface
+hẹp do `internal/app` tiêm — cùng cách `SessionLiveness` đang làm, nên
+`internal/arch` không có cạnh mới:
+
+```go
+// WorkspaceScope is what tasks needs from the workspace registry and Agent Hub.
+type WorkspaceScope interface {
+    // ServicePath resolves a service name in a workspace to its path on this machine.
+    ServicePath(workspaceID, service string) (string, bool)
+    // SessionWorkspaces lists the workspaces an agent session belongs to.
+    SessionWorkspaces(sessionID string) []string
+}
+```
+
+Interface `nil` ⇒ hành vi như hôm nay (mọi board thấy được, `project_path`
+làm thư mục), để test và bản build thiếu workspace không vỡ.
+
+#### Ai thấy board nào
+
+| Caller | Thấy |
+|---|---|
+| UI | Board gắn vào `workspaceSwitcher.currentId`, cộng một nhóm **"Chưa gắn workspace"** với nút "Gắn vào workspace này" — board sync về từ máy khác nằm ở đó |
+| Phiên Agent Hub | Chỉ board gắn vào workspace chứa `cwd` / `granted` của phiên — đúng logic `workspace.list` đang dùng, tách thành `app.WorkspacesForSession` để hai chỗ không lệch nhau |
+| CLI terminal trên socket chung | Tất cả — nhất quán với `workspace.list` |
+
+- Kiểm tra nằm ở **tầng Service**, qua một helper duy nhất
+  `boardFor(caller, id)`. Mọi đường vào — `get`, `claim`, `transition`,
+  `comment`, `setFields`, `createFromPlan` — đi qua nó, thay vì mỗi MCP tool tự
+  lọc rồi có một tool quên.
+- Task ngoài phạm vi ⇒ `tasks.notFound`, **không** `permission_denied`: câu trả
+  lời không được lộ ra rằng task đó tồn tại.
+- Board chưa gắn ⇒ **không agent nào thấy** (fail closed). Người dùng gắn tay
+  từ UI; binding là `tasks:admin`, UI-only, vì cho agent gắn board là cho nó
+  tự nới phạm vi của chính nó.
+
+#### Những chỗ đang đọc `project_path`
+
+- **`verify`** chạy trong `resolve(binding, verify.service)`. Không resolve
+  được — board chưa gắn, hoặc máy này không có service đó — ⇒ `tasks.transition`
+  trả `tasks.boardUnbound` ngay và **không** rơi về hỏi người: board đã khai
+  `verify` nghĩa là luật đóng là exit code, tự đổi sang hỏi người là đổi luật
+  mà không ai biết.
+  - Khoá hàng đợi vẫn là **path đã resolve** (NFR-13): hai board cùng một
+    service vẫn chung một hàng, vì work tree mới là thứ bị tranh chấp.
+  - Khi task có worktree riêng, path đó **là** worktree — `verify` của hai task
+    khác nhau khi ấy chạy song song được, vì chúng không còn chung work tree.
+- **Drain lúc mở**, không chỉ sau enqueue: khi DevKit khởi động và khi một
+  workspace được mở, gate rút hàng đợi của mọi path đã resolve. Hôm nay
+  `drain` chỉ được gọi sau `enqueue`, nên một lượt `Recover` trả về `queued`
+  nằm im tới khi có yêu cầu mới trên cùng project. Path không còn trên máy ⇒
+  `stale` (FR-8f).
+- **Reconcile plan**: `board.ProjectPath == ProjectRoot()` thành "board gắn
+  vào workspace có service chứa `ProjectRoot()`" — cùng hướng tách
+  `codegraph.Service` theo project ở [Workspace](/dev-kit/workspace).
+- **`BranchesForSession`** (quyền push của agent, [Git NFR-4](/dev-kit/git))
+  chỉ quét board trong phạm vi của phiên. Lọc theo `session_id` đã đúng; đây
+  là để quét đúng chỗ, không phải quét cả vault.
+
+#### Migration
+
+Không ghi gì vào metadata sync — hai máy cùng migrate là hai lần ghi vào cùng
+một board, và task chỉ có `use-ours` / `use-theirs` ([Sync & conflict](#sync--conflict)).
+
+- Khởi động, idempotent: board có `project_path` và chưa có binding ⇒ tìm
+  workspace có service trùng path đó ⇒ gắn.
+- `verify.service` rỗng mà `project_path` trùng một service của workspace đã
+  gắn ⇒ dùng service đó, tính **lúc chạy**, không ghi lại.
+- Không khớp gì ⇒ board nằm ở nhóm "Chưa gắn".
+
+#### Thứ tự triển khai
+
+1. Bảng binding + `WorkspaceScope` + UI lọc theo workspace hiện tại / nhóm
+   "Chưa gắn" + migration.
+2. Phạm vi MCP qua `boardFor`; thu hẹp `BranchesForSession`.
+3. `verify.service` + resolve path + drain lúc khởi động / mở workspace +
+   reconcile.
+4. `task.services` + worktree `acme @ task-123`.
+
+#### Không làm
+
+- **Sync binding.** Nó mô tả máy này nhìn dự án ra sao, không phải dữ liệu dự án.
+- **Một board thuộc nhiều workspace.** Hai workspace cần chung việc thì chung
+  service, không chung board.
+- **Nhóm task theo service trên board.** Đó là việc của filter/label; board
+  vẫn là cột theo status.
+
 ### UI
 
 Module `tasks` với hai view trong cùng workbench pane:
@@ -965,7 +1131,10 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
   `project_path` khác project đang mở ⇒ task detail nói "board này gắn với
   project khác" thay vì trả lời sai; board không khai gì thì lấy project đang
   mở. Nhiều repo cùng lúc chưa nằm trong phạm vi — cùng giới hạn "một project
-  active per session" của Code Graph.
+  active per session" của Code Graph. Hướng gỡ: [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync).
+- Board chưa có phạm vi: hôm nay mọi agent thấy mọi board, và `project_path`
+  là path tuyệt đối sync sang máy khác. Thiết kế thay thế ở
+  [Tích hợp Workspace](#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync).
 - Commit không mang trailer `Task:` thì không có cách nào tìm ra. Trailer được
   seed ở `git.commitTurn` và được **đề nghị** cho commit trên branch khớp
   `task.branch`; người gõ `git commit` thẳng trong terminal vẫn phải tự thêm.
@@ -1012,6 +1181,13 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
   tránh cướp nhầm một agent đang reconnect?
 - Ngưỡng `stale` mặc định 24h (FR-8f). Nên cho board khai lại, hay một con số
   cứng là đủ và khai được chỉ thêm một nút để chỉnh sai?
+- Board chưa gắn workspace thì agent không thấy (fail closed). Sau khi nâng
+  cấp, board cũ không migrate được sẽ biến khỏi agent tới khi người dùng gắn
+  tay — chấp nhận, hay cho một thời gian chuyển tiếp?
+- Tạo workspace có tự tạo một board không, hay giữ N:1 và tạo tay?
+- `verify` một lệnh mỗi board hay mỗi service? Workspace nhiều service có thể
+  cần `go test` ở service này và `bun test` ở service kia. Đề xuất v1: một lệnh
+  mỗi board, cần khác thì tách board.
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />
   <Card title="Code Graph" href="/dev-kit/codegraph" description="Plan-first flow — plan đã duyệt sinh backlog, auto-diff đẩy task sang review" />
@@ -1020,4 +1196,5 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
   <Card title="MCP / Agent" href="/dev-kit/mcp-agent" description="Cơ chế tool surface + confirmation gate được tái dùng nguyên" />
   <Card title="Module tabs" href="/dev-kit/module-tabs" description="Per-item tab cho task detail + setTabStatus theo phiên agent" />
   <Card title="Data & sync" href="/dev-kit/data-sync" description="Task sync như mọi vault_items record, conflict ours/theirs" />
+  <Card title="Workspace" href="/dev-kit/workspace" description="Board gắn workspace qua binding local; verify chạy theo tên service" />
 </Cards>

@@ -67,6 +67,13 @@ Bảng `workspaces` và `workspace_services` trong `internal/storage`, **machine
 không sync**. Lý do giống NFR-4 của CodeGraph: path là thứ chỉ đúng trên một
 máy. Sync một danh sách path sang máy khác thì mọi entry đều sai.
 
+Hệ quả cho module nào có dữ liệu **sync** muốn gắn vào workspace: không ghi
+`workspace.id` lên record sync — id đó dangling trên máy khác. Liên kết nằm
+trong một bảng local phía module đó, phần sync chỉ mang `service.name` (thứ
+đi được qua máy vì nó đến từ config hoặc tên thư mục). Tasks là module đầu
+tiên theo cách này: board gắn workspace qua `task_board_bindings` —
+[Tasks § Tích hợp Workspace](/dev-kit/tasks#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync).
+
 | Field | Value |
 |---|---|
 | `workspace.id` | 24 lowercase hex (`vaultitem.NewID`) |
@@ -255,7 +262,7 @@ và giữ lẫn hai loại trạng thái:
 | `store` + `lease`, `index` (generation, opening, err) | toolchain registry, `BuildAnalyzer` / `CancelAnalyzerBuild`, `OnAnalyzerBuildOutput` |
 | `projectCtx`, watcher, `detected` | `configDir`, `terminalRegistry` |
 | `analyzers` (một mỗi ngôn ngữ — với TS là một process `tsgo`) | `OnProjectChanged` → đặt **work folder** của cả app (`main.go`), Git đi theo nó |
-| | plan reconcile đọc `ProjectRoot()` duy nhất (`internal/app/plantasks.go`) |
+| | plan reconcile đọc `ProjectRoot()` duy nhất (`internal/app/plantasks.go`) — thiết kế thay: board gắn workspace có service chứa project vừa re-index ([Tasks § Tích hợp Workspace](/dev-kit/tasks#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync)) |
 
 `workTree` (Git, `SetWorkTreeStatus`) trông như của cả app nhưng không phải:
 Git module trả lời cho **work folder**, tức service đang focus. Dùng chung nó
@@ -718,6 +725,12 @@ thay vì nới mô hình này.
 **Cùng service — mới bật worktree.** Chỉ service bị tranh chấp mới có worktree
 riêng cho từng agent; các service khác vẫn RO trỏ về repo chính.
 
+Service nào của `acme @ task-123` được trỏ về worktree thì task tự khai:
+`task.services` (tên service, sync được) — xem
+[Tasks § Tích hợp Workspace](/dev-kit/tasks#tích-hợp-workspace--liên-kết-nằm-ở-máy-tên-đi-theo-sync).
+Khi đó `verify` của task chạy trong worktree của nó, nên hai task cùng service
+không còn phải xếp chung một hàng.
+
 Vì `internal/codegraph/paths.go` đã hash project path để ra file index, mỗi
 worktree tự có *file* index riêng — nhưng là index **nguội**: mỗi worktree mới
 trả trọn một lần dựng solver (walk `~/.m2`). Worktree nhân chi phí full index
@@ -814,5 +827,5 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
   <Card title="CodeGraph" href="/dev-kit/codegraph" description="FR-1, ba bức tường, call_sites" />
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Consumer của workspace path" />
   <Card title="Sandbox" href="/dev-kit/sandbox" description="Policy dựng từ workspace" />
-  <Card title="Tasks" href="/dev-kit/tasks" description="Task liên kết mềm tới worktree" />
+  <Card title="Tasks" href="/dev-kit/tasks" description="Board gắn workspace qua binding local; task liên kết mềm tới worktree" />
 </Cards>
