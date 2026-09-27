@@ -8,6 +8,15 @@ function chevrons(html: string): number {
 }
 
 describe("TreeView", () => {
+  it("makes IDE navigation a single tab stop without changing other trees", () => {
+    const nodes = [{ id: "file", label: "file.ts", selected: true }];
+    const keyboard = renderToString(<TreeView nodes={nodes} keyboardNavigation />);
+    expect(keyboard).toContain('role="tree" tabindex="0" aria-label="Files"');
+    expect(keyboard).toContain('tabindex="-1"');
+    const ordinary = renderToString(<TreeView nodes={nodes} />);
+    expect(ordinary).not.toContain('tabindex="0"');
+    expect(ordinary).not.toContain('tabindex="-1"');
+  });
   it("keeps names primary and gives only the selected name medium weight", () => {
     const html = renderToString(<TreeView nodes={[
       { id: "selected", label: "Selected connection", selected: true },

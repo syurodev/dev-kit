@@ -12,6 +12,10 @@ Trang này nói riêng về **ba primitive dùng chung** mà Workbench host, cho
 phép bất kỳ module nào mở rộng title bar, side content và khay dưới mà không
 phải tự vẽ toolbar/panel riêng.
 
+Sidebar dùng quy tắc riêng về [padding và vùng cuộn](/dev-kit/sidebar#phân-chia-padding-và-vùng-cuộn):
+shell không có padding ngang; header/control dùng `SidebarInset`, viewport trải
+hết chiều rộng và row tự quản lý khoảng đệm bên trong.
+
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 

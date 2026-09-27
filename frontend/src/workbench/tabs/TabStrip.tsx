@@ -596,7 +596,7 @@ export function TabStrip({
 
   return (
     <div
-      className="flex h-12 min-w-0 w-full items-center justify-start p-2 gap-2 [--wails-draggable:no-drag]"
+      className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 [--wails-draggable:no-drag]"
       // Double-click on the strip's own empty space opens a tab, as in VS Code.
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) onNewTab?.();

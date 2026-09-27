@@ -35,6 +35,12 @@ const (
 	ThemeFamilyGitHub     ThemeFamily = "github"
 	ThemeFamilyRosePine   ThemeFamily = "rosepine"
 	ThemeFamilyLotus      ThemeFamily = "lotus"
+	ThemeFamilyNord       ThemeFamily = "nord"
+	ThemeFamilySolarized  ThemeFamily = "solarized"
+	ThemeFamilyGruvbox    ThemeFamily = "gruvbox"
+	ThemeFamilyTokyoNight ThemeFamily = "tokyonight"
+	ThemeFamilyEverforest ThemeFamily = "everforest"
+	ThemeFamilyXcode      ThemeFamily = "xcode"
 )
 
 const DefaultThemeFamily = ThemeFamilyDevKit
@@ -277,7 +283,8 @@ func (s *Service) SetTheme(theme Theme) error {
 func ValidThemeFamily(family ThemeFamily) bool {
 	switch family {
 	case ThemeFamilyDevKit, ThemeFamilyCatppuccin, ThemeFamilyDracula, ThemeFamilyAyu, ThemeFamilyGitHub,
-		ThemeFamilyRosePine, ThemeFamilyLotus:
+		ThemeFamilyRosePine, ThemeFamilyLotus, ThemeFamilyNord, ThemeFamilySolarized, ThemeFamilyGruvbox,
+		ThemeFamilyTokyoNight, ThemeFamilyEverforest, ThemeFamilyXcode:
 		return true
 	default:
 		return false

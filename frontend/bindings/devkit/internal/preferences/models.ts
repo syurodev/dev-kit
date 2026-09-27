@@ -130,6 +130,12 @@ export enum ThemeFamily {
     ThemeFamilyGitHub = "github",
     ThemeFamilyRosePine = "rosepine",
     ThemeFamilyLotus = "lotus",
+    ThemeFamilyNord = "nord",
+    ThemeFamilySolarized = "solarized",
+    ThemeFamilyGruvbox = "gruvbox",
+    ThemeFamilyTokyoNight = "tokyonight",
+    ThemeFamilyEverforest = "everforest",
+    ThemeFamilyXcode = "xcode",
 
     DefaultThemeFamily = "devkit",
 };

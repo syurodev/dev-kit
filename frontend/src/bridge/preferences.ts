@@ -47,6 +47,12 @@ export const themeFamilies = [
   "github",
   "rosepine",
   "lotus",
+  "nord",
+  "solarized",
+  "gruvbox",
+  "tokyonight",
+  "everforest",
+  "xcode",
 ] as const;
 
 export type ThemeFamilyPreference = (typeof themeFamilies)[number];
@@ -71,6 +77,12 @@ export function saveThemeFamily(family: ThemeFamilyPreference): Promise<void> {
     github: NativeThemeFamily.ThemeFamilyGitHub,
     rosepine: NativeThemeFamily.ThemeFamilyRosePine,
     lotus: NativeThemeFamily.ThemeFamilyLotus,
+    nord: NativeThemeFamily.ThemeFamilyNord,
+    solarized: NativeThemeFamily.ThemeFamilySolarized,
+    gruvbox: NativeThemeFamily.ThemeFamilyGruvbox,
+    tokyonight: NativeThemeFamily.ThemeFamilyTokyoNight,
+    everforest: NativeThemeFamily.ThemeFamilyEverforest,
+    xcode: NativeThemeFamily.ThemeFamilyXcode,
   }[family];
   return callBridge(() => AppService.PreferencesSetThemeFamily(native));
 }
