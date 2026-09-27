@@ -93,7 +93,7 @@ function CraftButtonIcon({
 }) {
   return (
     <span className={cn("relative z-1 size-5", className)}>
-      <span className="bg-background absolute inset-0 -z-1 size-5 rounded-full transition-transform duration-(--motion-slow) group-hover/button:scale-[15]" />
+      <span className="bg-background absolute inset-0 -z-1 size-5 rounded-full transition-transform duration-(--motion-slow) group-hover/button:scale-1500" />
       <span className="bg-background text-text-primary group-hover/button:bg-action-primary group-hover/button:text-action-primary-foreground relative z-2 flex size-5 items-center justify-center rounded-full transition-all duration-(--motion-slow)">
         {children}
       </span>

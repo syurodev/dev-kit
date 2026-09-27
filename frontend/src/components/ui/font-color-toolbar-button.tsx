@@ -182,7 +182,7 @@ export function FontColorToolbarButton({
 
   React.useEffect(() => {
     if (selectionDefined) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Preserve the mark color while menu focus clears editor selection.
+      // Preserve the mark color while menu focus clears editor selection.
       setSelectedColor(color);
     }
   }, [color, selectionDefined]);
@@ -521,7 +521,7 @@ export function ColorDropdownMenuItems({
   return (
     <div
       className={cn(
-        'grid grid-cols-[repeat(10,1fr)] place-items-center gap-x-1',
+        'grid grid-cols-10 place-items-center gap-x-1',
         className
       )}
       {...props}

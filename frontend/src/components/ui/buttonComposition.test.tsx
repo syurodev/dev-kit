@@ -92,7 +92,7 @@ describe("craft is a component", () => {
   it("clips the wash to the pill", () => {
     expect(html).toContain("overflow-hidden");
     expect(html).toContain("rounded-full");
-    expect(html).toContain("group-hover/button:scale-[15]");
+    expect(html).toContain("group-hover/button:scale-1500");
   });
 
   // The coordination the variant could not have done: three elements reacting

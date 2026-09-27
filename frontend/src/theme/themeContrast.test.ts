@@ -63,6 +63,16 @@ const FLOOR: Record<string, number> = {
   "--status-warning": 4.5,
   "--status-recovery": 4.5,
   "--status-danger": 4.5,
+  // Code is text. Only a family that sets these is measured here; the rest
+  // derive them from the ramp above, which is already floored.
+  "--syntax-keyword": 4.5,
+  "--syntax-string": 4.5,
+  "--syntax-number": 4.5,
+  "--syntax-type": 4.5,
+  "--syntax-function": 4.5,
+  "--syntax-definition": 4.5,
+  "--syntax-comment": 4.5,
+  "--syntax-meta": 4.5,
 };
 
 /**

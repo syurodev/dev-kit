@@ -53,7 +53,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        className="flex w-[180px] min-w-0 flex-col"
+        className="flex w-45 min-w-0 flex-col"
         align="start"
       >
         <DropdownMenuGroup>
@@ -78,7 +78,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!mergeState.canMerge}
                 onSelect={() => {
                   tf.table.merge();
@@ -89,7 +89,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                 Merge cells
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!mergeState.canSplit}
                 onSelect={() => {
                   tf.table.split();
@@ -111,7 +111,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.insert.tableRow({ before: true });
@@ -122,7 +122,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                 Insert row before
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.insert.tableRow();
@@ -133,7 +133,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                 Insert row after
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.remove.tableRow();
@@ -155,7 +155,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.insert.tableColumn({ before: true });
@@ -166,7 +166,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                 Insert column before
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.insert.tableColumn();
@@ -177,7 +177,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                 Insert column after
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="min-w-[180px]"
+                className="min-w-45"
                 disabled={!tableSelected}
                 onSelect={() => {
                   tf.remove.tableColumn();
@@ -191,7 +191,7 @@ export function TableToolbarButton(props: DropdownMenuProps) {
           </DropdownMenuSub>
 
           <DropdownMenuItem
-            className="min-w-[180px]"
+            className="min-w-45"
             disabled={!tableSelected}
             onSelect={() => {
               tf.remove.table();
@@ -240,7 +240,7 @@ function TablePicker() {
       }}
       role="button"
     >
-      <div className="grid size-[130px] grid-cols-8 gap-0.5 p-1">
+      <div className="grid size-32.5 grid-cols-8 gap-0.5 p-1">
         {tablePicker.grid.map((rows, rowIndex) =>
           rows.map((value, columIndex) => (
             <div

@@ -105,7 +105,7 @@ function visibleColumns(data: TableNodeData): string[] {
 function TableNode({ data }: { data: TableNodeData }) {
   return (
     <div
-      className={`bg-surface-raised rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-code-12 border ${
+      className={`bg-surface-raised rounded-xl shadow-lg min-w-65 max-w-85 overflow-hidden text-code-12 border ${
         data.isFocused
           ? "border-action-primary ring-1 ring-action-primary/40"
           : "border-border/80"
@@ -145,7 +145,7 @@ function TableNode({ data }: { data: TableNodeData }) {
       {/* nowheel lets the list scroll instead of the canvas zooming. A 32
           column table would otherwise be a wall five times taller than
           everything beside it. */}
-      <div className="nowheel p-2 space-y-1 bg-surface-raised/40 max-h-[320px] overflow-y-auto">
+      <div className="nowheel p-2 space-y-1 bg-surface-raised/40 max-h-80 overflow-y-auto">
         {visibleColumns(data).map((col) => {
           const isPK = data.primaryColumns.includes(col);
           const isDeclaredFK = data.foreignKeys.some((fk) => fk.column === col);
@@ -1027,7 +1027,7 @@ export function ERDView() {
           <BareSelect
             value={tablesInSchema[focusTable] ? focusTable : ""}
             onChange={setFocusTable}
-            className="max-w-[240px]"
+            className="max-w-60"
             title="Focus on one table and its neighbours"
           >
             <option value="">All tables</option>

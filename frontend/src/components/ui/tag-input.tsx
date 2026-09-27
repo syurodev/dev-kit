@@ -98,7 +98,7 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
         data-disabled={disabled}
         onClick={() => inputRef.current?.focus()}
         className={cn(
-          "flex min-h-(--control-height-md) w-full max-w-[320px] flex-wrap items-center gap-1.5 rounded-md border border-status-info/16 bg-white/6 px-2 py-1 transition-all",
+          "flex min-h-(--control-height-md) w-full max-w-80 flex-wrap items-center gap-1.5 rounded-md border border-status-info/16 bg-white/6 px-2 py-1 transition-all",
           "focus-within:border-status-info",
           disabled && "pointer-events-none opacity-38",
           className,
@@ -127,7 +127,7 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
             onBlur={() => {
               if (draft) addTag(draft);
             }}
-            className="flex-1 min-w-[60px] bg-transparent text-body-12 text-text-primary placeholder:text-text-tertiary outline-none border-none p-0 focus:outline-none focus:ring-0"
+            className="flex-1 min-w-15 bg-transparent text-body-12 text-text-primary placeholder:text-text-tertiary outline-none border-none p-0 focus:outline-none focus:ring-0"
           />
         )}
       </div>

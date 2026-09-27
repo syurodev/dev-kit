@@ -224,7 +224,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="378:2698" label="Tag Input — 320×32, r=8, Default & Focus states">
-          <div className="flex max-w-[320px] flex-col gap-3">
+          <div className="flex max-w-80 flex-col gap-3">
             <TagInputGalleryDemo />
             <TagInput
               value={["read-only", "locked"]}
@@ -235,7 +235,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="28:62" label="Input — Field 360×40, r=8; Type=Password has a reveal toggle">
-          <div className="flex max-w-[360px] flex-col gap-4">
+          <div className="flex max-w-90 flex-col gap-4">
             <Input id="measure-input-rest" placeholder="Enter value" />
             <Input id="measure-input-password" type="password" placeholder="Master password" defaultValue="secret123" />
             <Input
@@ -296,7 +296,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="378:70 / 378:71" label="Select / Menu & Option — Menu 220×142 r=10 glass-modal; Option 32px r=6 Selected adds bg-white/6 + check">
-          <div id="measure-select-menu" className="flex w-[220px] flex-col rounded-control border border-glass-border bg-surface-glass-modal p-1.5 shadow-2xl backdrop-blur-xl">
+          <div id="measure-select-menu" className="flex w-55 flex-col rounded-control border border-glass-border bg-surface-glass-modal p-1.5 shadow-2xl backdrop-blur-xl">
             <div id="measure-select-option-selected" className="flex h-8 w-full items-center justify-between rounded-sm bg-white/6 px-2.5 py-1.5 text-body-13 text-text-primary">
               <span>Production Replica</span>
               <span className="text-text-primary">✓</span>
@@ -585,7 +585,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="449:325" label="Tab Strip — 48px, p-2, gap-2, 28×28 radius 8 new-tab button with 13px plus, trailing spacer">
-          <div className="w-full max-w-[900px] border border-border-subtle rounded-lg overflow-hidden bg-background-app">
+          <div className="w-full max-w-225 border border-border-subtle rounded-lg overflow-hidden bg-background-app">
             <div id="measure-tab-strip">
               <TabStrip
                 tabs={[
@@ -611,7 +611,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Active (surface-raised, solid border, 6px dot, 12px close)</span>
               <div
                 id="measure-tab-pill-active"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
+                className="group relative flex h-8 max-w-50 shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0">Active Pill</span>
@@ -627,7 +627,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Inactive (state-soft, subtle border, 12px close, no dot)</span>
               <div
                 id="measure-tab-pill-inactive"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-solid border-border-subtle bg-state-soft px-3 gap-2 text-label-12 text-text-secondary"
+                className="group relative flex h-8 max-w-50 shrink-0 items-center rounded-sm border border-solid border-border-subtle bg-state-soft px-3 gap-2 text-label-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0">Inactive Pill</span>
@@ -642,7 +642,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Preview (state-soft, subtle dashed border, body-12, no close)</span>
               <div
                 id="measure-tab-pill-preview"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-dashed border-border-subtle bg-state-soft px-3 gap-2 text-body-12 text-text-secondary"
+                className="group relative flex h-8 max-w-50 shrink-0 items-center rounded-sm border border-dashed border-border-subtle bg-state-soft px-3 gap-2 text-body-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0 font-normal">Preview Pill</span>
@@ -654,11 +654,11 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Focused (Separate radius 8 ring, 2px border-focus)</span>
               <div
                 id="measure-tab-pill-focused"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
+                className="group relative flex h-8 max-w-50 shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
               >
                 <span
                   id="measure-tab-pill-focus-ring"
-                  className="pointer-events-none absolute -inset-[2px] rounded-md border-2 border-[var(--border-focus,#b2d5e5)]"
+                  className="pointer-events-none absolute -inset-0.5 rounded-md border-2 border-border-focus"
                   aria-hidden="true"
                 />
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
@@ -707,7 +707,7 @@ export default function ComponentGallery() {
                 <div
                   id="measure-shell-diagram-sidebar"
                   style={{ width: 140 }}
-                  className="relative flex shrink-0 flex-col justify-between rounded border border-border-subtle bg-[rgba(29,29,29,0.4)] p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary"
+                  className="relative flex shrink-0 flex-col justify-between rounded border border-border-subtle bg-surface-base/40 p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary"
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="font-semibold text-text-secondary">sidebar-surface</span>
@@ -715,7 +715,7 @@ export default function ComponentGallery() {
                     <span className="text-text-tertiary/70">content 264×836</span>
                   </div>
                   {/* scroll ruler indicator */}
-                  <div className="absolute top-1 right-0.5 h-[calc(100%-8px)] w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×836" />
+                  <div className="absolute top-1 right-0.5 bottom-1 w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×836" />
                 </div>
 
                 {/* Sidebar Sash: 8×852 -> scaled 4px */}
@@ -751,7 +751,7 @@ export default function ComponentGallery() {
                     <div className="flex flex-1 items-center justify-center text-text-tertiary">
                       bottom-content (808×172)
                     </div>
-                    <div className="absolute top-1 right-0.5 h-[calc(100%-8px)] w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×156" />
+                    <div className="absolute top-1 right-0.5 bottom-1 w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×156" />
                   </div>
                 </div>
 
@@ -775,7 +775,7 @@ export default function ComponentGallery() {
                     <span className="text-text-tertiary/70">panel-content 320×852</span>
                   </div>
                   {/* scroll ruler indicator */}
-                  <div className="absolute top-1 right-0.5 h-[calc(100%-8px)] w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×836" />
+                  <div className="absolute top-1 right-0.5 bottom-1 w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×836" />
                 </div>
               </div>
             </div>
@@ -790,7 +790,7 @@ export default function ComponentGallery() {
             </div>
             <div className="flex flex-col gap-2">
               <span className="text-caption-11 text-text-tertiary">Static props, scrolled 50%</span>
-              <div className="relative h-[400px] w-[80px] overflow-hidden rounded-lg border border-border-subtle bg-surface-base">
+              <div className="relative h-100 w-20 overflow-hidden rounded-lg border border-border-subtle bg-surface-base">
                 <ScrollRuler
                   id="measure-scroll-ruler-mid"
                   contentHeight={2000}
@@ -804,7 +804,7 @@ export default function ComponentGallery() {
 
             <div className="flex flex-col gap-2">
               <span className="text-caption-11 text-text-tertiary">Fits — renders no node at all</span>
-              <div className="relative flex h-[120px] w-[320px] overflow-hidden rounded-lg border border-border-subtle bg-surface-base">
+              <div className="relative flex h-30 w-80 overflow-hidden rounded-lg border border-border-subtle bg-surface-base">
                 <div className="flex-1 overflow-auto p-4">
                   <p className="text-body-13 text-text-secondary">Short content.</p>
                 </div>
@@ -1020,7 +1020,7 @@ export default function ComponentGallery() {
             <span className="text-caption-11 text-text-tertiary">Terminal Tab Pill (190×30, r6, label-12)</span>
             <div
               id="measure-shell-terminal-pill"
-              className="flex h-(--control-height-sm) w-[190px] items-center gap-1 rounded-sm border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
+              className="flex h-(--control-height-sm) w-47.5 items-center gap-1 rounded-sm border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
             >
               <Terminal className="size-3.5 shrink-0 opacity-80" />
               <span className="truncate flex-1">zsh (terminal 1)</span>
@@ -1030,7 +1030,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="116:1367" label="Sidebar rail — three row tiers, one set of everything else">
-          <div className="flex w-[280px] flex-col gap-4">
+          <div className="flex w-70 flex-col gap-4">
             <SidebarHeader>
               <SidebarSearch value="" onChange={() => {}} placeholder="Search…" />
             </SidebarHeader>

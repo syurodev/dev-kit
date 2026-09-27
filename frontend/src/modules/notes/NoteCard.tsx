@@ -36,7 +36,7 @@ export function NoteCard({
       onClick={() => onOpen(note)}
       onDoubleClick={() => onOpenDouble(note)}
       style={noteCardSurface(note.effectiveColor)}
-      className="flex h-37 flex-col gap-2.5 rounded-control border p-4 text-left [contain-intrinsic-size:auto_148px] [content-visibility:auto]"
+      className="flex h-37 flex-col gap-2.5 rounded-control border p-4 text-left contain-intrinsic-37 content-visibility-auto"
     >
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-title-16 text-text-primary">

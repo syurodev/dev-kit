@@ -271,7 +271,11 @@ export type CodeGraphCodeSnippet = {
   line: number;
   endLine: number;
   source: string;
-  /** "java" | "json" | "yaml" | "markdown" | "" — drives the editor's language extension. */
+  /**
+   * The Go side's label for the file ("java", "typescript", "" …). Informational:
+   * the editor colours by path through components/code/languages, which knows
+   * far more languages than the indexer does.
+   */
   language: string;
   /** Fully-qualified name of the symbol shown; empty if it matched no single symbol. */
   fqn: string;

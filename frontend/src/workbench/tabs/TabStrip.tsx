@@ -303,7 +303,7 @@ function TabItem({
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
-        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-[border-color,background-color] select-none [--wails-draggable:no-drag] focus-visible:border-status-info",
+        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-status-info",
         // The same two marks the selected row in a tree carries — a
         // --status-info hairline and a fill. The hairline carries it (floored
         // at 3:1 in themeContrast.test); an inactive tab keeps a quiet
@@ -318,7 +318,7 @@ function TabItem({
       {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
       {showFocusRing && (
         <span
-          className="pointer-events-none absolute -inset-[2px] rounded-md border-2 border-[var(--border-focus,#b2d5e5)]"
+          className="pointer-events-none absolute -inset-0.5 rounded-md border-2 border-border-focus"
           aria-hidden="true"
         />
       )}
@@ -351,7 +351,7 @@ function TabItem({
             event.stopPropagation();
             onTogglePin(tab.id);
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
         >
           <Pin className="size-3" />
         </span>
@@ -374,7 +374,7 @@ function TabItem({
               onClose(tab.id);
             }
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
         >
           <X className="size-3" />
         </span>
@@ -596,7 +596,7 @@ export function TabStrip({
 
   return (
     <div
-      className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 [--wails-draggable:no-drag]"
+      className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 wails-no-drag"
       // Double-click on the strip's own empty space opens a tab, as in VS Code.
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) onNewTab?.();
@@ -689,7 +689,7 @@ export function TabStrip({
       </DndContext>
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
       <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
-        <Plus className="size-[13px]" />
+        <Plus className="size-3.25" />
       </Button>
       {/* Trailing spacer: a flex-grow 8px-high frame after new-tab (Figma 449:325) */}
       <div className="flex-1 h-2 self-center" aria-hidden="true" />

@@ -120,7 +120,7 @@ export function ConnectionOptionsDialog() {
               <NativeSelect
                 value={env}
                 onChange={(e) => setEnv(e.target.value)}
-                className="min-w-[120px] rounded-control bg-surface-base"
+                className="min-w-30 rounded-control bg-surface-base"
               >
                 {envTags.map((tag) => (
                   <NativeSelectOption key={tag.id} value={tag.name}>
@@ -186,7 +186,7 @@ export function ConnectionOptionsDialog() {
               <NativeSelect
                 value={sshProfileId}
                 onChange={(e) => setSshProfileId(e.target.value)}
-                className="min-w-[150px] rounded-control bg-surface-base"
+                className="min-w-37.5 rounded-control bg-surface-base"
               >
                 <NativeSelectOption value="">Direct (No Tunnel)</NativeSelectOption>
                 {sshProfiles.map((ssh) => (

@@ -34,9 +34,9 @@ function SecurityNotice({
       data-slot="security-notice"
       data-type={type}
       className={cn(
-        "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-colors backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
-        isSecure && "h-[72px] min-h-[72px] border-status-success bg-[rgba(153,225,217,0.12)]",
-        isIrreversible && "h-[84px] min-h-[84px] border-glass-border bg-glass-panel",
+        "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-colors backdrop-blur-md shadow-glass-edge",
+        isSecure && "h-18 min-h-18 border-status-success bg-status-success/12",
+        isIrreversible && "h-21 min-h-21 border-glass-border bg-glass-panel",
         className
       )}
       {...props}
@@ -45,16 +45,16 @@ function SecurityNotice({
       {isIrreversible && (
         <div
           data-slot="security-notice-accent-bar"
-          className="h-10 w-[3px] shrink-0 rounded-2xs bg-status-recovery"
+          className="h-10 w-0.75 shrink-0 rounded-2xs bg-status-recovery"
         />
       )}
 
       {/* Icon: 18px */}
       <div className="shrink-0 flex items-center justify-center">
         {isSecure ? (
-          <Shield className="size-[18px] text-status-success" strokeWidth={1.5} />
+          <Shield className="size-4.5 text-status-success" strokeWidth={1.5} />
         ) : (
-          <TriangleAlert className="size-[18px] text-status-recovery" strokeWidth={1.5} />
+          <TriangleAlert className="size-4.5 text-status-recovery" strokeWidth={1.5} />
         )}
       </div>
 

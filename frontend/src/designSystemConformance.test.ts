@@ -32,7 +32,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // panel widths — content measures the Scale has no bucket for. Lowered from
   // 15 when the console's inline result table became ResultGrid: its two
   // max-w-[NNNpx] cell caps are now colgroup widths the caller owns.
-  "modules/database": { twText: 0, rawPx: 8, rawHex: 0 },
+  // 8 → 0 on 2026-09-27 with shadcn/no-arbitrary-values: every px width that
+  // landed on the 4px grid is its spacing step (w-80, max-w-150…).
+  "modules/database": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
   // max-w-180 on the spacing scale.
@@ -41,7 +43,8 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // the modal's own frame (620×940, a 220 nav, 656 content columns) and the
   // two blur radii — measures of the modal, not steps on the scale.
   // 6 → 3: Settings is a Dialog, and its hand-drawn scrim and shadow went.
-  "modules/settings": { twText: 0, rawPx: 3, rawHex: 0 },
+  // 3 → 0: the frame is w-55 / max-w-164 / h-settings, a named measure.
+  "modules/settings": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },
@@ -60,12 +63,17 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // Spacing and radius literals now resolve through shared tokens.
   // rawPx 79 → 78: the command dialog's width is one min(640px, 100% - 2rem)
   // where it was a w-[640px] max-w-[640px] pair.
-  components: { twText: 0, rawPx: 78, rawHex: 1 },
+  // 78 → 0, rawHex 1 → 0 on 2026-09-27 with shadcn/no-arbitrary-values:
+  // on-grid px became spacing steps, the rest named tokens in index.css
+  // (shadow-glass-edge, backdrop-blur-float, max-w-command…), and the static
+  // code block took the editor's token classes.
+  components: { twText: 0, rawPx: 0, rawHex: 0 },
   // 33 → 24: nine `rounded-[8px]` went with the nine copies of the title
   // bar's action button, which is Button's `titlebar` variant now. --radius-md
   // is that 8px, so the scale had the number the whole time. 24 → 19: the
-  // dock went, and modules switch from title-bar Buttons.
-  workbench: { twText: 0, rawPx: 9, rawHex: 1 },
+  // dock went, and modules switch from title-bar Buttons. 9 → 0 (and rawHex
+  // 1 → 0) on 2026-09-27 with shadcn/no-arbitrary-values.
+  workbench: { twText: 0, rawPx: 0, rawHex: 0 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a

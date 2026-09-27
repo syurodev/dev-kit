@@ -2,6 +2,8 @@ import type * as React from "react";
 import { useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage } from "@/components/code/languages";
 import { Button } from "@/components/ui/button";
 import {
   Questionnaire,
@@ -213,7 +215,7 @@ export function AgentQuestionCard({
                 an empty Previous column and a whole row for one ghost button.
                 With one question, skipping it and skipping them all are the
                 same click; only the one that declines is kept. */}
-            <QuestionnaireActions className="grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
+            <QuestionnaireActions className="grid-cols-question-actions">
               {form.fields.length > 1 ? (
                 <div className="col-start-1 row-start-1 -ml-2 justify-self-start">{skipAll("Skip all")}</div>
               ) : null}
@@ -329,9 +331,11 @@ function QuestionField({ field, form }: { field: ElicitationField; form: Elicita
       )}
 
       {preview ? (
-        <pre className="max-h-40 max-w-full overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap wrap-anywhere text-text-secondary">
-          {preview}
-        </pre>
+        <CodeBlock
+          code={preview}
+          language={detectLanguage(preview)}
+          className="max-h-40 max-w-full overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap wrap-anywhere text-text-secondary"
+        />
       ) : null}
 
       <QuestionnaireError />

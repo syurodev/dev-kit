@@ -54,8 +54,8 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
         "group relative flex w-67 flex-col gap-2.5 rounded-lg border bg-surface-raised p-3 in-focus-visible:ring-2 in-focus-visible:ring-text-primary",
         status.border,
         selected
-          ? "shadow-[0_6px_8px_rgba(0,0,0,0.45)]"
-          : "shadow-[0_1px_1.5px_rgba(0,0,0,0.18)]",
+          ? "shadow-canvas-node-selected"
+          : "shadow-canvas-node",
       )}
     >
       <Handle id="top" type="target" position={Position.Top} className="!opacity-0" />

@@ -44,7 +44,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-full max-w-[220px] items-center justify-between gap-2 rounded-md border border-status-info/16 bg-white/6 px-3 py-1.5 text-body-13 text-text-primary whitespace-nowrap transition-colors outline-none select-none",
+        "flex w-full max-w-55 items-center justify-between gap-2 rounded-md border border-status-info/16 bg-white/6 px-3 py-1.5 text-body-13 text-text-primary whitespace-nowrap transition-colors outline-none select-none",
         "focus:border-status-info focus-visible:border-status-info data-[state=open]:border-status-info focus-visible:outline-none focus-visible:ring-0",
         "disabled:cursor-not-allowed disabled:text-text-tertiary disabled:opacity-50",
         "aria-invalid:border-status-danger",
@@ -75,7 +75,7 @@ function SelectContent({
       data-slot="select-content"
       data-align-trigger={position === "item-aligned"}
       className={cn(
-        "relative z-50 max-h-(--radix-select-content-available-height) min-w-[220px] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-control border border-glass-border bg-surface-glass-modal p-1.5 text-text-primary shadow-2xl backdrop-blur-xl duration-(--motion-base) data-[state=closed]:duration-(--motion-fast)",
+        "relative z-50 max-h-(--radix-select-content-available-height) min-w-55 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-control border border-glass-border bg-surface-glass-modal p-1.5 text-text-primary shadow-2xl backdrop-blur-xl duration-(--motion-base) data-[state=closed]:duration-(--motion-fast)",
         "data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",

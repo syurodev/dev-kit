@@ -1,7 +1,7 @@
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 import type { DiffPair, DiffRow, DiffRun, SourcedDiffLine } from "@/lib/diffHunks";
-import type { SyntaxSegment } from "@/modules/agenthub/transcript/syntax";
+import type { SyntaxSegment } from "@/components/code/highlight";
 
 /**
  * 08 Diff — Figma `408:3`. One diff language for Notes version history, Sync

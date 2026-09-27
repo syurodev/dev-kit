@@ -12,7 +12,8 @@ import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
-import { languageForPath, normalizeLanguage, parseListing } from "./syntax";
+import { languageForPath, normalizeLanguage } from "@/components/code/languages";
+import { parseListing } from "./syntax";
 import { renderToolResult } from "@/workbench/toolResultViews";
 
 export type AgentToolCallProps = {
@@ -426,7 +427,7 @@ export function AgentToolCall({
             <span
               data-testid="tool-call-result"
               className={cn(
-                "min-w-0 max-w-[50%] shrink truncate text-caption-11 whitespace-nowrap",
+                "min-w-0 max-w-1/2 shrink truncate text-caption-11 whitespace-nowrap",
                 state === "failed"
                   ? "text-status-danger"
                   : state === "done"

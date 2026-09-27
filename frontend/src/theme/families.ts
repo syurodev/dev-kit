@@ -1,5 +1,5 @@
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
-import type { MixToken, ThemeToken, TintToken } from "./tokens";
+import type { MixToken, SyntaxToken, ThemeToken, TintToken } from "./tokens";
 
 /**
  * One palette, in one mode: the tokens it overrides and nothing else.
@@ -8,7 +8,7 @@ import type { MixToken, ThemeToken, TintToken } from "./tokens";
  * does not have to restate a value it agrees with, and a token added to the
  * base later reaches every family for free.
  */
-export type ThemePalette = Partial<Record<TintToken | ThemeToken | MixToken, string>>;
+export type ThemePalette = Partial<Record<TintToken | ThemeToken | MixToken | SyntaxToken, string>>;
 
 /**
  * A family supplies BOTH modes.
@@ -500,7 +500,7 @@ const NORD: ThemeFamilyDefinition = {
     "--tint-border": "#8f9baa",
     "--background-app": "#242933",
     "--background-canvas": "#2e3440",
-    "--surface-base": "#353c4a",
+    "--surface-base": "#333a48", // was #353c4a: a shade darker, so the well over it keeps Claude's mark at 3:1
     "--surface-raised": "#3b4252",
     "--surface-tinted": "#434c5e",
     "--text-primary": "#eceff4",
@@ -511,11 +511,11 @@ const NORD: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#242933",
     ...states("#88c0d0", "dark"),
     "--brand-text": "#8fcbdb",
-    "--status-info": "#81a1c1",
+    "--status-info": "#9db6cf", // was #81a1c1, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#a3be8c",
     "--status-warning": "#ebcb8b",
-    "--status-recovery": "#b48ead",
-    "--status-danger": "#bf616a",
+    "--status-recovery": "#c7aac2", // was #b48ead, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#dba5aa", // was #bf616a, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#88c0d0",
   },
   light: {
@@ -533,11 +533,11 @@ const NORD: ThemeFamilyDefinition = {
     "--action-primary": "#4b7898",
     "--action-primary-foreground": "#ffffff",
     ...states("#4b7898", "light"),
-    "--brand-text": "#426f8e",
-    "--status-info": "#35698f",
-    "--status-success": "#477238",
+    "--brand-text": "#3d6683", // was #426f8e, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#34668b", // was #35698f, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#436c35", // was #477238, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805600",
-    "--status-recovery": "#815d7e",
+    "--status-recovery": "#795776", // was #815d7e, deepened in its own hue to clear themeContrast.test.ts
     "--status-danger": "#a33f4a",
     "--border-focus": "#35698f",
   },
@@ -567,7 +567,7 @@ const SOLARIZED: ThemeFamilyDefinition = {
     "--status-success": "#91d59a",
     "--status-warning": "#f0ca63",
     "--status-recovery": "#d6a6d8",
-    "--status-danger": "#f0786b",
+    "--status-danger": "#f49c92", // was #f0786b, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#72c5dc",
   },
   light: {
@@ -615,11 +615,11 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#1d2021",
     ...states("#b8bb26", "dark"),
     "--brand-text": "#b8bb26",
-    "--status-info": "#83a598",
+    "--status-info": "#8eada1", // was #83a598, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#b8bb26",
     "--status-warning": "#fabd2f",
-    "--status-recovery": "#d3869b",
-    "--status-danger": "#fb4934",
+    "--status-recovery": "#d893a6", // was #d3869b, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#fc8375", // was #fb4934, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#83a598",
   },
   light: {
@@ -637,9 +637,9 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--action-primary": "#5b7500",
     "--action-primary-foreground": "#ffffff",
     ...states("#5b7500", "light"),
-    "--brand-text": "#5b7500",
-    "--status-info": "#176b85",
-    "--status-success": "#557000",
+    "--brand-text": "#526900", // was #5b7500, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#176983", // was #176b85, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#506900", // was #557000, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805600",
     "--status-recovery": "#8b435c",
     "--status-danger": "#b52b20",
@@ -690,11 +690,11 @@ const TOKYO_NIGHT: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#ffffff",
     ...states("#34548a", "light"),
     "--brand-text": "#34548a",
-    "--status-info": "#176b9b",
-    "--status-success": "#4d6f21",
-    "--status-warning": "#805600",
-    "--status-recovery": "#7144a3",
-    "--status-danger": "#ad304e",
+    "--status-info": "#145d87", // was #176b9b, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#43601d", // was #4d6f21, deepened in its own hue to clear themeContrast.test.ts
+    "--status-warning": "#785000", // was #805600, deepened in its own hue to clear themeContrast.test.ts
+    "--status-recovery": "#6e429f", // was #7144a3, deepened in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#9f2c48", // was #ad304e, deepened in its own hue to clear themeContrast.test.ts
     "--border-focus": "#34548a",
   },
 };
@@ -711,19 +711,19 @@ const EVERFOREST: ThemeFamilyDefinition = {
     "--surface-base": "#343f44",
     "--surface-raised": "#3d484d",
     "--surface-tinted": "#475258",
-    "--text-primary": "#d3c6aa",
-    "--text-secondary": "#c5bda4",
-    "--text-tertiary": "#a7b0a0",
+    "--text-primary": "#e5decd", // was #d3c6aa, lifted in its own hue to clear themeContrast.test.ts
+    "--text-secondary": "#cdc6b0", // was #c5bda4, lifted in its own hue to clear themeContrast.test.ts
+    "--text-tertiary": "#aeb6a7", // was #a7b0a0, lifted in its own hue to clear themeContrast.test.ts
     "--icon-secondary": "#c5bda4",
     "--action-primary": "#a7c080",
     "--action-primary-foreground": "#272e33",
     ...states("#a7c080", "dark"),
     "--brand-text": "#a7c080",
-    "--status-info": "#7fbbb3",
+    "--status-info": "#85beb7", // was #7fbbb3, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#a7c080",
     "--status-warning": "#dbbc7f",
-    "--status-recovery": "#d699b6",
-    "--status-danger": "#e67e80",
+    "--status-recovery": "#dba4be", // was #d699b6, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#eda0a1", // was #e67e80, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#7fbbb3",
   },
   light: {
@@ -741,17 +741,41 @@ const EVERFOREST: ThemeFamilyDefinition = {
     "--action-primary": "#55734b",
     "--action-primary-foreground": "#ffffff",
     ...states("#55734b", "light"),
-    "--brand-text": "#55734b",
-    "--status-info": "#327c78",
-    "--status-success": "#54751f",
+    "--brand-text": "#4f6a45", // was #55734b, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#2c6d69", // was #327c78, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#4e6c1d", // was #54751f, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805700",
     "--status-recovery": "#8d4f70",
-    "--status-danger": "#b33f3d",
+    "--status-danger": "#ac3c3b", // was #b33f3d, deepened in its own hue to clear themeContrast.test.ts
     "--border-focus": "#327c78",
   },
 };
 
-/** Xcode — Apple's familiar graphite editor and bright system-blue light mode. */
+/**
+ * Xcode — macOS chrome around Xcode's own "Default" editor palette.
+ *
+ * Two sources, because Xcode itself is two things. The chrome is macOS: the
+ * system grays for grounds and text, and the system colours for accent and
+ * status (blue, green, orange, red, purple). The code is Xcode's "Default
+ * (Dark)" / "Default (Light)" theme, Xcode 12 onwards — pink keywords, red
+ * strings, purple system types — read out of the .xccolortheme files.
+ *
+ * Where a published value misses the floor in themeContrast.test.ts, Apple's
+ * own Increased Contrast variant is used (dark: blue #409cff, red #ff6961,
+ * purple #da8fff; light: red #d70015, purple #8944ab), and only when that
+ * misses too is the colour taken darker or lighter in its own hue, exactly as
+ * far as the floor needs:
+ * - light: blue #007aff → #0067d7, green #248a3d → #207b36, orange #c93400 → #c83400
+ * - dark code: function #a167e6 → #b282eb (Xcode 11's own "other function"),
+ *   declaration #41a1c0 → #47a4c2, attribute #bf8555 → #c38d60, and comment
+ *   #6c7986 → #909aa4 — the one real move: Xcode's comment is 2.9:1 on these
+ *   grounds, fine for a gutter hint, not for text people read.
+ * Every light code colour is Xcode's exactly.
+ *
+ * The filled button is #0071e3, Apple's own button blue: system blue under
+ * white text is 3.7:1 (dark) and 4.0:1 (light), and white is what an Apple
+ * button says on.
+ */
 const XCODE: ThemeFamilyDefinition = {
   id: "xcode",
   label: "Xcode",
@@ -767,21 +791,31 @@ const XCODE: ThemeFamilyDefinition = {
     "--text-secondary": "#d1d1d6",
     "--text-tertiary": "#a1a1a8",
     "--icon-secondary": "#d1d1d6",
-    "--action-primary": "#64a8ff",
-    "--action-primary-foreground": "#171719",
-    ...states("#64a8ff", "dark"),
-    "--brand-text": "#64a8ff",
-    "--status-info": "#64a8ff",
-    "--status-success": "#69d18b",
-    "--status-warning": "#ffd166",
-    "--status-recovery": "#c5a3ff",
-    "--status-danger": "#ff7b72",
-    "--border-focus": "#64a8ff",
+    "--action-primary": "#0071e3",
+    "--action-primary-foreground": "#ffffff",
+    ...states("#0071e3", "dark"),
+    "--brand-text": "#409cff",
+    "--status-info": "#409cff",
+    "--status-success": "#30d158",
+    "--status-warning": "#ff9f0a",
+    "--status-recovery": "#da8fff",
+    "--status-danger": "#ff6961",
+    "--border-focus": "#409cff",
+    "--syntax-keyword": "#fc5fa3",
+    "--syntax-string": "#fc6a5d",
+    "--syntax-number": "#d0bf69",
+    "--syntax-type": "#d0a8ff",
+    "--syntax-function": "#b282eb",
+    "--syntax-definition": "#47a4c2",
+    "--syntax-comment": "#909aa4",
+    "--syntax-meta": "#c38d60",
   },
   light: {
     "--tint-veil": "#1c1c1e",
     "--tint-border": "#8e8e93",
-    "--background-app": "#e5e5ea",
+    // macOS's window background; systemGray5 (#e5e5ea) sat darker than the
+    // window Xcode actually draws, and cost every status colour contrast.
+    "--background-app": "#ececec",
     "--background-canvas": "#f2f2f7",
     "--surface-base": "#ffffff",
     "--surface-raised": "#f2f2f7",
@@ -790,16 +824,24 @@ const XCODE: ThemeFamilyDefinition = {
     "--text-secondary": "#3a3a3c",
     "--text-tertiary": "#545458",
     "--icon-secondary": "#3a3a3c",
-    "--action-primary": "#0066cc",
+    "--action-primary": "#0071e3",
     "--action-primary-foreground": "#ffffff",
-    ...states("#0066cc", "light"),
-    "--brand-text": "#0066cc",
-    "--status-info": "#0066cc",
-    "--status-success": "#248a3d",
-    "--status-warning": "#8a5a00",
-    "--status-recovery": "#8944b8",
-    "--status-danger": "#c5221f",
-    "--border-focus": "#0066cc",
+    ...states("#0071e3", "light"),
+    "--brand-text": "#0067d7",
+    "--status-info": "#0067d7",
+    "--status-success": "#207b36",
+    "--status-warning": "#c83400",
+    "--status-recovery": "#8944ab",
+    "--status-danger": "#d70015",
+    "--border-focus": "#0067d7",
+    "--syntax-keyword": "#9b2393",
+    "--syntax-string": "#c41a16",
+    "--syntax-number": "#1c00cf",
+    "--syntax-type": "#3900a0",
+    "--syntax-function": "#6c36a9",
+    "--syntax-definition": "#0f68a0",
+    "--syntax-comment": "#5d6c79",
+    "--syntax-meta": "#815f03",
   },
 };
 

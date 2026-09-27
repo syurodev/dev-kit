@@ -6,8 +6,6 @@ import {
   CodeLinePlugin,
   CodeSyntaxPlugin,
 } from '@platejs/code-block/react';
-import { common, createLowlight } from 'lowlight';
-import dockerfile from 'highlight.js/lib/languages/dockerfile';
 
 import {
   CodeBlockElement,
@@ -15,11 +13,7 @@ import {
   CodeSyntaxLeaf,
 } from '@/components/ui/code-block-node';
 
-// `all` registers every one of highlight.js' 192 grammars (~1.3 MB) into the
-// notes chunk. `common` covers the 37 languages people actually paste, plus
-// Dockerfile for a dev workbench. Add more here if a language is missed.
-const lowlight = createLowlight(common);
-lowlight.register({ dockerfile });
+import { lowlight } from './code-block-languages';
 
 export const CodeBlockKit = [
   CodeBlockPlugin.configure({

@@ -39,7 +39,7 @@ export function EditFolderDialog({
 
   return (
     <Dialog open={!!folder} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[480px]" showCloseButton={false}>
+      <DialogContent className="sm:max-w-120" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Edit folder</DialogTitle>
         </DialogHeader>

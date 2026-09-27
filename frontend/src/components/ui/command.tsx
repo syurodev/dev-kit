@@ -15,7 +15,7 @@ import {
 /**
  * Shell / Command Palette (Figma 719:1475 — Results / Empty)
  *
- * - Box: 640 wide, rounded-14, glass-float 62% + backdrop-blur-[20px] + --glass-border,
+ * - Box: 640 wide, rounded-14, glass-float 62% + backdrop-blur-float + --glass-border,
  *   NO shadow, NO inset highlight
  * - Search row: h56, pl-5 pr-4, gap-3, glyph 20; text 16 SemiBold (text-title-16) —
  *   --text-tertiary as placeholder, --text-primary once typed
@@ -41,7 +41,7 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
+        "flex w-160 max-w-160 flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-float border border-glass-border shadow-none text-text-primary select-none",
         className
       )}
       {...props}
@@ -88,7 +88,7 @@ function CommandDialog({
           //
           // One variable, because two numbers have to agree: where the dialog
           // starts, and how tall the column inside may be (below).
-          "[--command-top:3.5rem] top-(--command-top) translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[min(640px,calc(100%-2rem))] sm:max-w-[min(640px,calc(100%-2rem))]",
+          "command-top-14 top-(--command-top) translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-160 max-w-command sm:max-w-command",
           className
         )}
         showCloseButton={showCloseButton}
@@ -103,7 +103,7 @@ function CommandDialog({
             bottom and took the footer with it. Capping the column instead
             works for any list — the input and footer do not shrink, so the
             list gives way and scrolls inside. */}
-        <Command className="w-full max-h-[calc(100vh-var(--command-top)-1rem)]" {...commandProps}>
+        <Command className="w-full max-h-command" {...commandProps}>
           {children}
         </Command>
       </DialogContent>

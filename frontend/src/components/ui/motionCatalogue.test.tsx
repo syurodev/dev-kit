@@ -16,7 +16,7 @@ function usesMotionToken(html: string): boolean {
 describe("motion catalogue", () => {
   it("Button presses and transitions on tokens", () => {
     const html = renderToString(<Button>Run</Button>);
-    expect(html).toContain("active:scale-[0.98]");
+    expect(html).toContain("active:scale-98");
     expect(usesMotionToken(html)).toBe(true);
     // disabled↔enabled is a colour and opacity change; transition-all covers it.
     expect(html).toContain("transition-all");

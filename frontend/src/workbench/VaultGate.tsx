@@ -339,7 +339,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto shell-surface p-8">
-          <div className="flex w-full max-w-160 flex-col items-center rounded-lg border border-border-subtle bg-surface-base px-12 pt-11 pb-10 text-center shadow-[0_20px_24px_rgba(0,0,0,0.5)]">
+          <div className="flex w-full max-w-160 flex-col items-center rounded-lg border border-border-subtle bg-surface-base px-12 pt-11 pb-10 text-center shadow-gate">
             <span className="flex size-14 items-center justify-center rounded-full border border-glass-border bg-state-soft">
               <Vault className="size-6.5 text-(--brand-text)" strokeWidth={1.5} />
             </span>

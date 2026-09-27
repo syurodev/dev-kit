@@ -12,30 +12,33 @@ import { tagHighlighter, tags as t } from "@lezer/highlight";
  * work without CodeMirror injecting a stylesheet, and `var(--token)` still
  * re-resolves the instant the palette changes.
  *
- * Tags map onto the status ramp rather than onto new colours, because a
- * palette that has to name a syntax colour is a palette most families do not
- * publish — and the ramp is already contrast-checked against the surfaces.
+ * Tags map onto --syntax-* tokens, and those default to the status ramp
+ * (index.css), because a palette that has to name a syntax colour is a
+ * palette most families do not publish — and the ramp is already
+ * contrast-checked against the surfaces. A family that does publish one
+ * (Xcode) sets the tokens; themeContrast.test.ts floors them like the ramp.
  */
 export const devkitSyntax = tagHighlighter([
-  // Keywords and control flow: the accent the theme reserves for "this is the
-  // structure", which every family gives us as its brand text colour.
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword], class: "text-(--brand-text)" },
+  // Keywords and control flow. By default the accent the theme reserves for
+  // "this is the structure"; a family with an editor palette of its own sets
+  // --syntax-keyword (index.css declares the defaults, families.ts the rest).
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword], class: "text-(--syntax-keyword)" },
   { tag: [t.operator, t.operatorKeyword, t.punctuation], class: "text-(--text-secondary)" },
 
-  // Names. The definition is the primary text; a reference to something the
-  // language owns is toned down, and a type sits with the informational hue.
+  // Names. A reference is primary text, a definition may be marked (Xcode
+  // colours declarations), a call takes the function colour, a type its own.
   { tag: [t.variableName, t.propertyName], class: "text-(--text-primary)" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], class: "text-(--status-info)" },
-  { tag: [t.typeName, t.className, t.namespace], class: "text-(--status-recovery)" },
-  { tag: [t.definition(t.variableName), t.definition(t.propertyName)], class: "text-(--text-primary)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], class: "text-(--syntax-function)" },
+  { tag: [t.typeName, t.className, t.namespace], class: "text-(--syntax-type)" },
+  { tag: [t.definition(t.variableName), t.definition(t.propertyName)], class: "text-(--syntax-definition)" },
 
   // Literals.
-  { tag: [t.string, t.special(t.string), t.regexp], class: "text-(--status-success)" },
-  { tag: [t.number, t.bool, t.null, t.atom], class: "text-(--status-warning)" },
+  { tag: [t.string, t.special(t.string), t.regexp], class: "text-(--syntax-string)" },
+  { tag: [t.number, t.bool, t.null, t.atom], class: "text-(--syntax-number)" },
 
   // Everything that is not the code itself.
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: "text-(--text-tertiary) italic" },
-  { tag: [t.meta, t.annotation], class: "text-(--text-tertiary)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: "text-(--syntax-comment) italic" },
+  { tag: [t.meta, t.annotation], class: "text-(--syntax-meta)" },
   { tag: t.invalid, class: "text-(--status-danger)" },
 
   // Markdown and the like, which the notes editor renders.

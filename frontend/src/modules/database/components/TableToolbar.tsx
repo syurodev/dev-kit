@@ -287,7 +287,7 @@ export function TableToolbar({
             they came from DataGrip, whose boxes carry no border and no label.
             Ours carry the label; 36px of the narrowest row in the header go
             back to the clause. */}
-        <div className="flex h-(--control-height-sm) min-w-0 flex-[3] items-center rounded-md bg-surface-well pl-2">
+        <div className="flex h-(--control-height-sm) min-w-0 flex-3 items-center rounded-md bg-surface-well pl-2">
           <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">WHERE</span>
           <WhereInput
             value={where}
@@ -311,7 +311,7 @@ export function TableToolbar({
               variant="ghost"
               size="sm"
               disabled={columns.length === 0}
-              className="min-w-0 flex-[2] justify-start gap-2 bg-surface-well px-2 font-normal"
+              className="min-w-0 flex-2 justify-start gap-2 bg-surface-well px-2 font-normal"
             >
               <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">
                 ORDER BY

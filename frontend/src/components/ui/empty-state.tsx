@@ -60,7 +60,7 @@ export function EmptyState({
               size={26}
               className={cn(
                 tone === "danger" ? "text-status-danger" : "text-text-secondary",
-                busy && "animate-spin motion-reduce:animate-[spin_3s_linear_infinite]",
+                busy && "animate-spin motion-reduce:animate-spin-slow",
               )}
             />
           ) : null}

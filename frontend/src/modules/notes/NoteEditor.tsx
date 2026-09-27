@@ -354,7 +354,6 @@ export function NoteEditor({ params }: NoteEditorProps) {
         );
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
   function scheduleSave(nextTitle: string) {
@@ -550,7 +549,6 @@ export function NoteEditor({ params }: NoteEditorProps) {
       />,
       { width: 460, onClose: () => setHistoryOpen(false) },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyOpen, note?.id]);
 
   useEffect(() => {
@@ -582,7 +580,6 @@ export function NoteEditor({ params }: NoteEditorProps) {
     // over anything effect-relevant; omitted to avoid re-pushing panel
     // content on every render (they're new function references each
     // render, but their behavior only changes when these listed values do).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metaOpen, note, folders, folderId, ownTags, color, tagDraft, inherited]);
 
   if (loadError) {

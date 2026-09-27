@@ -174,7 +174,6 @@ function useMeasured(): [React.RefObject<HTMLDivElement | null>, { width: number
     const observer = new ResizeObserver(sync);
     observer.observe(el);
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return [ref, size];
@@ -288,7 +287,6 @@ export function RunGroup({
    */
   useEffect(() => {
     if (status.kind === "error") setOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.kind, startedAt]);
 
   useCloseOnOutsideClick(open, () => setOpen(false), root);

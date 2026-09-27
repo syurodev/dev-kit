@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { CodeBlock } from "@/components/code/CodeBlock";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -96,9 +97,9 @@ export function AgentMetaInspector({
         data-testid="agent-meta-inspector"
         showCloseButton={false}
         className={cn(
-          "w-136 max-w-[calc(100%-2rem)] gap-4 rounded-lg p-5 sm:max-w-136",
+          "w-136 max-w-gutter gap-4 rounded-lg p-5 sm:max-w-136",
           "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-lg",
-          "shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.5)] ring-0",
+          "shadow-inspector ring-0",
           className,
         )}
       >
@@ -144,16 +145,16 @@ export function AgentMetaInspector({
           </Button>
         </div>
 
-        <pre
+        <CodeBlock
           data-testid="meta-inspector-raw"
+          code={raw || "{}"}
+          language="json"
           className={cn(
             "max-h-60 w-full overflow-auto rounded-control p-3",
             "border border-border-subtle bg-surface-base",
             "text-code-11 whitespace-pre-wrap text-text-secondary select-text",
           )}
-        >
-          <code>{raw || "{}"}</code>
-        </pre>
+        />
 
         <p className="w-full text-caption-11 text-text-tertiary">
           The adapter normalizes what it understands and keeps the rest verbatim.

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEVKIT_FAMILY, FAMILIES } from "./families";
-import { CONTRACT, MIX_TOKENS, THEME_TOKENS, TINT_TOKENS } from "./tokens";
+import { CONTRACT, MIX_TOKENS, SYNTAX_TOKENS, THEME_TOKENS, TINT_TOKENS } from "./tokens";
 
 // Comments stripped first: index.css documents tokens in prose that starts
 // with the token's own name ("--brand-text is the accent for text/icons…"),
@@ -124,10 +124,34 @@ describe("the contract's own shape", () => {
     expect(new Set(CONTRACT).size).toBe(CONTRACT.length);
   });
 
-  test("the three tiers do not overlap", () => {
+  test("the tiers do not overlap", () => {
     const tint = new Set<string>(TINT_TOKENS);
     const mix = new Set<string>(MIX_TOKENS);
-    expect(THEME_TOKENS.filter((t) => tint.has(t) || mix.has(t))).toEqual([]);
+    const syntax = new Set<string>(SYNTAX_TOKENS);
+    expect(THEME_TOKENS.filter((t) => tint.has(t) || mix.has(t) || syntax.has(t))).toEqual([]);
+  });
+});
+
+describe("code colours follow the ramp unless a family says otherwise", () => {
+  // A family is not required to set these (families.ts sets them for Xcode
+  // alone), which only works if the base derives every one: a literal here
+  // would paint the same code colour into all thirteen families.
+  test("index.css derives every syntax token from a ramp token", () => {
+    for (const token of SYNTAX_TOKENS) {
+      expect(dark.get(token), `${token} is not derived`).toMatch(/^var\(--(brand-text|status-|text-)/);
+      expect(light.has(token), `light restates ${token}; it follows the ramp already`).toBe(false);
+    }
+  });
+
+  // Half a syntax palette would mix the family's editor colours with the
+  // ramp's — Xcode strings next to DevKit keywords.
+  test("a family sets all of them or none", () => {
+    for (const family of Object.values(FAMILIES)) {
+      for (const mode of ["dark", "light"] as const) {
+        const set = SYNTAX_TOKENS.filter((token) => token in family[mode]);
+        expect([0, SYNTAX_TOKENS.length], `${family.label} ${mode} sets ${set.join(", ")}`).toContain(set.length);
+      }
+    }
   });
 });
 

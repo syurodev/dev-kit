@@ -137,11 +137,11 @@ function Titlebar({
         reservesWindowButtons(resolvedPlatform)
           ? "pt-(--titlebar-optical-offset)"
           : "pt-0",
-        "transition-[padding-left] duration-300 ease-out motion-reduce:transition-none",
+        "transition-padding-left duration-300 ease-out motion-reduce:transition-none",
         // The whole row is the drag surface; interactive children opt out with
         // [--wails-draggable:no-drag]. main.go keeps InvisibleTitleBarHeight at
         // zero because that native hit zone cannot make that distinction.
-        "[--wails-draggable:drag]",
+        "wails-drag",
         // pl-21 (84) + the first control's own mx-1 (4) lands it at x=88, which
         // is where Figma starts the module zone. Traffic lights end at 72, so
         // this also reproduces the 16px clearance.

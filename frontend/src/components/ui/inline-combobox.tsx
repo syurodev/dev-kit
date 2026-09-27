@@ -247,7 +247,7 @@ const InlineComboboxInput = ({
     <>
       {showTrigger && trigger}
 
-      <span className="relative min-h-[1lh]">
+      <span className="relative min-h-line">
         <span
           className="invisible overflow-hidden text-nowrap"
           aria-hidden="true"
@@ -303,7 +303,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
     <Portal>
       <ComboboxPopover
         className={cn(
-          'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md glass-float text-popover-foreground',
+          'z-500 max-h-72 w-75 overflow-y-auto rounded-md glass-float text-popover-foreground',
           className
         )}
         onKeyDownCapture={handleKeyDown}
@@ -314,7 +314,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
 };
 
 const comboboxItemVariants = cva(
-  'relative mx-1 flex h-(--control-height-sm) w-[calc(100%-0.5rem)] select-none items-center gap-2 rounded-sm px-2 text-foreground text-body-13 outline-none [&_svg:not([class*=size-])]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg:not([class*=size-])]:shrink-0',
+  'relative mx-1 flex h-(--control-height-sm) w-inset-1 select-none items-center gap-2 rounded-sm px-2 text-foreground text-body-13 outline-none [&_svg:not([class*=size-])]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg:not([class*=size-])]:shrink-0',
   {
     defaultVariants: {
       interactive: true,

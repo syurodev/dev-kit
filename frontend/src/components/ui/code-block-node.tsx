@@ -28,113 +28,14 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import {
+  CODE_BLOCK_LANGUAGES,
+  getCodeBlockLanguageLabel,
+} from '@/components/editor/plugins/code-block-languages';
 
 type CodeBlockElementProps = PlateElementProps<TCodeBlockElement> & {
   showLanguageLabel?: boolean;
 };
-
-const codeBlockLanguages: { label: string; value: string }[] = [
-  { label: 'Auto', value: 'auto' },
-  { label: 'Plain Text', value: 'plaintext' },
-  { label: 'ABAP', value: 'abap' },
-  { label: 'Agda', value: 'agda' },
-  { label: 'Arduino', value: 'arduino' },
-  { label: 'ASCII Art', value: 'ascii' },
-  { label: 'Assembly', value: 'x86asm' },
-  { label: 'Bash', value: 'bash' },
-  { label: 'BASIC', value: 'basic' },
-  { label: 'BNF', value: 'bnf' },
-  { label: 'C', value: 'c' },
-  { label: 'C#', value: 'csharp' },
-  { label: 'C++', value: 'cpp' },
-  { label: 'Clojure', value: 'clojure' },
-  { label: 'CoffeeScript', value: 'coffeescript' },
-  { label: 'Coq', value: 'coq' },
-  { label: 'CSS', value: 'css' },
-  { label: 'Dart', value: 'dart' },
-  { label: 'Dhall', value: 'dhall' },
-  { label: 'Diff', value: 'diff' },
-  { label: 'Docker', value: 'dockerfile' },
-  { label: 'EBNF', value: 'ebnf' },
-  { label: 'Elixir', value: 'elixir' },
-  { label: 'Elm', value: 'elm' },
-  { label: 'Erlang', value: 'erlang' },
-  { label: 'F#', value: 'fsharp' },
-  { label: 'Flow', value: 'flow' },
-  { label: 'Fortran', value: 'fortran' },
-  { label: 'Gherkin', value: 'gherkin' },
-  { label: 'GLSL', value: 'glsl' },
-  { label: 'Go', value: 'go' },
-  { label: 'GraphQL', value: 'graphql' },
-  { label: 'Groovy', value: 'groovy' },
-  { label: 'Haskell', value: 'haskell' },
-  { label: 'HCL', value: 'hcl' },
-  { label: 'HTML', value: 'html' },
-  { label: 'Idris', value: 'idris' },
-  { label: 'Java', value: 'java' },
-  { label: 'JavaScript', value: 'javascript' },
-  { label: 'JSON', value: 'json' },
-  { label: 'Julia', value: 'julia' },
-  { label: 'Kotlin', value: 'kotlin' },
-  { label: 'LaTeX', value: 'latex' },
-  { label: 'Less', value: 'less' },
-  { label: 'Lisp', value: 'lisp' },
-  { label: 'LiveScript', value: 'livescript' },
-  { label: 'LLVM IR', value: 'llvm' },
-  { label: 'Lua', value: 'lua' },
-  { label: 'Makefile', value: 'makefile' },
-  { label: 'Markdown', value: 'markdown' },
-  { label: 'Markup', value: 'markup' },
-  { label: 'MATLAB', value: 'matlab' },
-  { label: 'Mathematica', value: 'mathematica' },
-  { label: 'Mermaid', value: 'mermaid' },
-  { label: 'Nix', value: 'nix' },
-  { label: 'Notion Formula', value: 'notion' },
-  { label: 'Objective-C', value: 'objectivec' },
-  { label: 'OCaml', value: 'ocaml' },
-  { label: 'Pascal', value: 'pascal' },
-  { label: 'Perl', value: 'perl' },
-  { label: 'PHP', value: 'php' },
-  { label: 'PowerShell', value: 'powershell' },
-  { label: 'Prolog', value: 'prolog' },
-  { label: 'Protocol Buffers', value: 'protobuf' },
-  { label: 'PureScript', value: 'purescript' },
-  { label: 'Python', value: 'python' },
-  { label: 'R', value: 'r' },
-  { label: 'Racket', value: 'racket' },
-  { label: 'Reason', value: 'reasonml' },
-  { label: 'Ruby', value: 'ruby' },
-  { label: 'Rust', value: 'rust' },
-  { label: 'Sass', value: 'scss' },
-  { label: 'Scala', value: 'scala' },
-  { label: 'Scheme', value: 'scheme' },
-  { label: 'SCSS', value: 'scss' },
-  { label: 'Shell', value: 'shell' },
-  { label: 'Smalltalk', value: 'smalltalk' },
-  { label: 'Solidity', value: 'solidity' },
-  { label: 'SQL', value: 'sql' },
-  { label: 'Swift', value: 'swift' },
-  { label: 'TOML', value: 'toml' },
-  { label: 'TypeScript', value: 'typescript' },
-  { label: 'VB.Net', value: 'vbnet' },
-  { label: 'Verilog', value: 'verilog' },
-  { label: 'VHDL', value: 'vhdl' },
-  { label: 'Visual Basic', value: 'vbnet' },
-  { label: 'WebAssembly', value: 'wasm' },
-  { label: 'XML', value: 'xml' },
-  { label: 'YAML', value: 'yaml' },
-];
-
-function getCodeBlockLanguageLabel(lang?: string | null) {
-  const value = lang?.trim();
-
-  if (!value) return null;
-
-  return (
-    codeBlockLanguages.find((language) => language.value === value)?.label ??
-    value
-  );
-}
 
 export function CodeBlockElement({
   showLanguageLabel = true,
@@ -148,13 +49,14 @@ export function CodeBlockElement({
       // literal hexes behind a `dark:` prefix. Those followed the MODE and
       // nothing else, so a Dracula app rendered GitHub-coloured code blocks —
       // and the light half never matched any theme but GitHub Light. The
-      // colours now come off the status ramp, which every family supplies and
-      // themeContrast.test.ts already scores against the surfaces.
-      className="py-1 **:[.hljs-addition]:bg-(--feedback-success-soft) **:[.hljs-addition]:text-(--status-success) **:[.hljs-deletion]:bg-(--feedback-danger-soft) **:[.hljs-deletion]:text-(--status-danger) **:[.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable]:text-(--status-info) **:[.hljs-built\\_in,.hljs-symbol,.hljs-bullet]:text-(--status-warning) **:[.hljs-comment,.hljs-code,.hljs-formula]:text-(--text-tertiary) **:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language\\_]:text-(--brand-text) **:[.hljs-name,.hljs-quote,.hljs-selector-tag,.hljs-selector-pseudo]:text-(--status-success) **:[.hljs-regexp,.hljs-string,.hljs-meta_.hljs-string]:text-(--status-success) **:[.hljs-section]:text-(--status-info) **:[.hljs-title,.hljs-title.class\\_,.hljs-title.class\\_.inherited\\_\\_,.hljs-title.function\\_]:text-(--status-recovery) **:[.hljs-emphasis]:italic **:[.hljs-section]:font-bold **:[.hljs-strong]:font-bold"
+      // colours are the --syntax-* tokens every editor uses (devkitSyntax.ts):
+      // the status ramp by default, a family's own editor palette where it
+      // has one, and themeContrast.test.ts scores both.
+      className="py-1 **:[.hljs-addition]:bg-(--feedback-success-soft) **:[.hljs-addition]:text-(--status-success) **:[.hljs-deletion]:bg-(--feedback-danger-soft) **:[.hljs-deletion]:text-(--status-danger) **:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-selector-tag,.hljs-variable.language\\_]:text-(--syntax-keyword) **:[.hljs-string,.hljs-regexp,.hljs-meta_.hljs-string]:text-(--syntax-string) **:[.hljs-number,.hljs-literal,.hljs-symbol,.hljs-bullet]:text-(--syntax-number) **:[.hljs-type,.hljs-built\\_in,.hljs-name,.hljs-title,.hljs-title.class\\_,.hljs-title.class\\_.inherited\\_\\_]:text-(--syntax-type) **:[.hljs-title.function\\_]:text-(--syntax-function) **:[.hljs-attr,.hljs-attribute,.hljs-property,.hljs-variable,.hljs-template-variable,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-selector-pseudo]:text-(--syntax-definition) **:[.hljs-comment,.hljs-code,.hljs-formula,.hljs-quote]:text-(--syntax-comment) **:[.hljs-meta,.hljs-meta_.hljs-keyword]:text-(--syntax-meta) **:[.hljs-section]:text-(--text-primary) **:[.hljs-section]:font-bold **:[.hljs-emphasis]:italic **:[.hljs-strong]:font-bold"
       {...props}
     >
       <div className="relative rounded-md bg-muted/50">
-        <pre className="overflow-x-auto p-8 pr-4 text-code-12 [tab-size:2] print:break-inside-avoid">
+        <pre className="overflow-x-auto p-8 pr-4 text-code-12 tab-size-2 print:break-inside-avoid">
           <code>{props.children}</code>
         </pre>
 
@@ -202,7 +104,7 @@ function CodeBlockCombobox({
 
   const items = React.useMemo(
     () =>
-      codeBlockLanguages.filter(
+      CODE_BLOCK_LANGUAGES.filter(
         (language) =>
           !searchValue ||
           language.label.toLowerCase().includes(searchValue.toLowerCase())
@@ -230,7 +132,7 @@ function CodeBlockCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[200px] p-0"
+        className="w-50 p-0"
         onCloseAutoFocus={() => setSearchValue('')}
       >
         <Command shouldFilter={false}>
@@ -242,7 +144,7 @@ function CodeBlockCombobox({
           />
           <CommandEmpty>No language found.</CommandEmpty>
 
-          <CommandList className="h-[344px] overflow-y-auto">
+          <CommandList className="h-86 overflow-y-auto">
             <CommandGroup>
               {items.map((language) => (
                 <CommandItem

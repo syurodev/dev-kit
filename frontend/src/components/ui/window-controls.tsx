@@ -73,7 +73,7 @@ function useMaximised(): boolean {
 // by hand — the same measurement, but taken from --radius-md on the scale,
 // which is what designSystemConformance measures components/ against.
 const CONTROL =
-  "size-7 shrink-0 rounded-md hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]"
+  "size-7 shrink-0 rounded-md hover:bg-state-soft hover:text-text-primary wails-no-drag"
 
 export function WindowControls({ className }: { className?: string }) {
   const maximised = useMaximised()

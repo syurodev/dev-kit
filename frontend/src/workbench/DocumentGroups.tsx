@@ -223,7 +223,7 @@ function GroupCard({
           onClick={focus}
         >
           <Icon className="size-4 shrink-0" aria-hidden />
-          <span className="min-h-0 truncate text-label-12 [writing-mode:vertical-rl]">
+          <span className="min-h-0 truncate text-label-12 writing-vertical">
             {tabs.find((t) => t.id === group.activeTabId)?.title ?? module?.title}
           </span>
         </button>

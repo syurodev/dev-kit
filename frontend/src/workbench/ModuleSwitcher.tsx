@@ -134,7 +134,7 @@ function GroupButton({
       <span
         aria-hidden
         className={cn(
-          "absolute right-1 bottom-1 size-1.25 bg-current [clip-path:polygon(100%_0,100%_100%,0_100%)] transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
+          "absolute right-1 bottom-1 size-1.25 bg-current clip-triangle-br transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
           active ? "text-text-primary" : "text-text-tertiary group-hover/button:text-text-secondary",
         )}
       />

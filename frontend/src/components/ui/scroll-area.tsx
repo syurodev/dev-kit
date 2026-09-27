@@ -23,7 +23,7 @@ function ScrollArea({
         // with no scrollbar to reveal it (there is none for a ScrollArea
         // with no horizontal ScrollBar). Forcing it back to block keeps
         // width bound to the viewport, the way every caller actually wants.
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:block!"
+        className="size-full rounded-inherit transition-color-shadow outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:block!"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

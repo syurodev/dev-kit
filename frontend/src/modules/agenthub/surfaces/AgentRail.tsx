@@ -293,7 +293,7 @@ export function AgentRail({
             className="shrink-0"
           >
             {isQuestionForActiveSession && pendingElicitation ? (
-              <div data-testid="rail-inline-question" className="max-h-[60vh] overflow-y-auto px-6 pt-2">
+              <div data-testid="rail-inline-question" className="max-h-screen-60 overflow-y-auto px-6 pt-2">
                 <AgentQuestionCard
                   pending={pendingElicitation}
                   session={activeSession}

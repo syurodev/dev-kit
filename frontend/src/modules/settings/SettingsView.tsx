@@ -112,12 +112,12 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
             event.preventDefault();
             (event.currentTarget as HTMLElement | null)?.focus();
           }}
-          className="flex w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 text-text-primary select-none sm:max-w-[940px]"
+          className="flex w-full max-w-gutter flex-col gap-0 overflow-hidden p-0 text-text-primary select-none sm:max-w-235"
         >
           {/* The height lives here, not on DialogContent: the dialog's body
               is h-fit, so the nav and the scrolling content need a box of
               their own to fill. */}
-          <div className="flex h-[min(620px,calc(100vh-2rem))] flex-col">
+          <div className="flex h-settings flex-col">
           {/* Modal Header · 56px */}
           <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle pr-3 pl-6">
             <DialogTitle className="text-text-primary">Settings</DialogTitle>
@@ -143,7 +143,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
           <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* The nav has no fill of its own — a hairline separates it from
                 the content and the glass shows through both. */}
-            <div className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border-subtle px-3 py-4">
+            <div className="flex w-55 shrink-0 flex-col gap-1 border-r border-border-subtle px-3 py-4">
               <NavItem
                 active={activeTab === "account"}
                 icon={User}
@@ -263,7 +263,7 @@ function NavItem({
  */
 function TabColumn({ gap = 6, children }: { gap?: 6 | 7; children: React.ReactNode }) {
   return (
-    <div className={cn("flex w-full max-w-[656px] flex-col", gap === 7 ? "gap-7" : "gap-6")}>
+    <div className={cn("flex w-full max-w-164 flex-col", gap === 7 ? "gap-7" : "gap-6")}>
       {children}
     </div>
   );

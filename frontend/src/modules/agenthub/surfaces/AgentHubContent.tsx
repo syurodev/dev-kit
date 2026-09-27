@@ -509,7 +509,7 @@ export function AgentHubContent({
             {pendingElicitation && onRespondElicitation ? (
               // Capped and scrolled: four questions with previews would
               // otherwise push the composer off the bottom of the window.
-              <div className="max-h-[60vh] overflow-y-auto pb-3">
+              <div className="max-h-screen-60 overflow-y-auto pb-3">
                 <AgentQuestionCard
                   pending={pendingElicitation}
                   session={session}

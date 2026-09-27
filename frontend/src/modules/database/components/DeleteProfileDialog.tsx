@@ -94,7 +94,7 @@ export function DeleteProfileDialog({
 
   return (
     <Dialog open={!!profile} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-120">
         <DialogHeader>
           <DialogTitle>Delete {shown?.name}?</DialogTitle>
           <DialogDescription>

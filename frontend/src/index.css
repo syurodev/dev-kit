@@ -201,7 +201,95 @@
     --radius-lg: 12px;
     --radius-xl: 16px;
     --radius-full: 9999px;
+    --radius-inherit: inherit;
+
+    /* Named measures for what used to be arbitrary classes (p-[13px] and
+       friends — shadcn/no-arbitrary-values). Each is a value the design uses
+       on purpose but the Tailwind scale has no step for: a viewport share, a
+       min() of a cap and the window, a grid template. Naming them is what
+       lets a second call site bind to the same number instead of retyping it. */
+    --color-border-focus: var(--border-focus);
+    --color-feedback-danger-soft: var(--feedback-danger-soft);
+    /* The forced-colours pair a native <select> popup is painted in. */
+    --color-system-canvas: Canvas;
+    --color-system-canvas-text: CanvasText;
+    /* Chat bubble fills, derived from the theme's own primary/secondary/muted. */
+    --color-bubble-primary: oklch(from var(--primary) 0.93 calc(c * 0.4) h);
+    --color-bubble-primary-dark: oklch(from var(--primary) 0.3 calc(c * 0.4) h);
+    --color-bubble-primary-hover: oklch(from var(--primary) 0.88 calc(c * 0.5) h);
+    --color-bubble-primary-hover-dark: oklch(from var(--primary) 0.35 calc(c * 0.5) h);
+    --color-bubble-secondary-hover: color-mix(in oklch, var(--secondary), var(--foreground) 5%);
+    --color-bubble-muted-hover: color-mix(in oklch, var(--muted), var(--foreground) 5%);
+
+    --font-inherit: inherit;
+
+    /* The 1px specular edge glass carries (.glass-float draws the same one). */
+    --shadow-glass-edge: inset 0 1px 0 var(--glass-highlight);
+    --shadow-glass-edge-lifted: inset 0 1px 0 var(--glass-highlight), 0 6px 10px 0 rgba(0, 0, 0, 0.3);
+    --shadow-toast: 0 12px 16px 0 rgba(0, 0, 0, 0.45);
+    --shadow-inspector: 0 20px 48px -8px rgba(0, 0, 0, 0.5);
+    --shadow-gate: 0 20px 24px rgba(0, 0, 0, 0.5);
+    /* Canvas elevation (CodeGraph flow and plan graphs). */
+    --shadow-canvas-node: 0 1px 1.5px rgba(0, 0, 0, 0.18);
+    --shadow-canvas-node-hover: 0 4px 6px rgba(0, 0, 0, 0.35);
+    --shadow-canvas-node-selected: 0 6px 8px rgba(0, 0, 0, 0.45);
+    --shadow-canvas-chip: 0 2px 6px rgba(0, 0, 0, 0.45);
+    --shadow-canvas-legend: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-canvas-overlay: 0 6px 10px rgba(0, 0, 0, 0.35);
+    --shadow-canvas-popover: 0 12px 32px rgba(0, 0, 0, 0.45);
+    /* The keycap Plate draws for a kbd mark, light and dark. */
+    --shadow-kbd: rgba(255, 255, 255, 0.1) 0 0.5px 0 0 inset, rgb(248, 249, 250) 0 1px 5px 0 inset, rgb(193, 200, 205) 0 0 0 0.5px, rgb(193, 200, 205) 0 2px 1px -1px, rgb(193, 200, 205) 0 1px 0 0;
+    --shadow-kbd-dark: rgba(255, 255, 255, 0.1) 0 0.5px 0 0 inset, rgb(26, 29, 30) 0 1px 5px 0 inset, rgb(76, 81, 85) 0 0 0 0.5px, rgb(76, 81, 85) 0 2px 1px -1px, rgb(76, 81, 85) 0 1px 0 0;
+
+    /* Between Tailwind's lg (16px) and xl (24px): the command palette, toasts
+       and the recovery key float over more than a popover does. */
+    --blur-float: 20px;
+
+    --ease-in-strong: cubic-bezier(0.7, 0, 0.84, 0);
+    --animate-spin-slow: spin 3s linear infinite;
+
+    --transition-property-color-shadow: color, box-shadow;
+    --transition-property-border-bg: border-color, background-color;
+    --transition-property-transform-fade: translate, scale, opacity;
+    --transition-property-padding-left: padding-left;
+
+    --grid-template-rows-auto-fr: auto 1fr;
+    --grid-template-rows-auto-auto: auto auto;
+    --grid-template-rows-auto-auto-fr: auto auto 1fr;
+    --grid-template-columns-fr-auto: 1fr auto;
+    --grid-template-columns-auto-fr-auto: auto 1fr auto;
+    --grid-template-columns-fill-auto-auto: minmax(0, 1fr) auto auto;
+    /* icon · label · trailing (shortcut, check) */
+    --grid-template-columns-menu-row: var(--icon-14) minmax(0, 1fr) auto;
+    --grid-template-columns-question-actions: auto minmax(0, 1fr) auto auto auto;
+    /* Notes and Trash share one card grid. */
+    --grid-template-columns-note-cards: repeat(auto-fill, minmax(348px, 1fr));
+
+    /* Viewport shares. */
+    --height-screen-60: 60vh;
+    --height-screen-70: 70vh;
+    --height-screen-80: 80vh;
+    --height-screen-85: 85vh;
+    --height-screen-90: 90vh;
+    --max-width-screen-80: 80vw;
+    --max-width-screen-90: 90vw;
+    /* A dialog keeps a 1rem gutter on each side of a narrow window. */
+    --max-width-gutter: calc(100% - 2rem);
+    --max-width-screen-gutter: calc(100vw - 2rem);
+    --max-width-command: min(640px, calc(100% - 2rem));
+    /* What is left of the window below the command dialog, less a 1rem gutter. */
+    --max-height-command: calc(100vh - var(--command-top) - 1rem);
+    --height-settings: min(620px, calc(100vh - 2rem));
+    --width-diff: min(1100px, 92vw);
+    --max-height-editor-compact: min(70vh, 320px);
+    --min-height-line: 1lh;
+    --min-width-counter: 14ch;
+    /* A row inset by mx-1 on both sides. */
+    --width-inset-1: calc(100% - 0.5rem);
+    --min-width-combobox: calc(var(--anchor-width) + var(--spacing) * 7);
+    --max-height-combobox: min(calc(var(--spacing) * 72 - var(--spacing) * 9), calc(var(--available-height) - var(--spacing) * 9));
 }
+
 
 :root {
     /* 01 Foundations: Palette Anchors (Figma "01 Foundations", v2 glass) */
@@ -291,6 +379,22 @@
     --border-default: color-mix(in srgb, var(--tint-border) 16%, transparent);
     --border-subtle: color-mix(in srgb, var(--tint-border) 8%, transparent);
     --border-focus: var(--palette-candy-blue);
+
+    /* Syntax colours (components/code-editor/devkitSyntax.ts), for every
+       surface that colours code: editors, read-only blocks, Notes.
+       Derived from the ramp, so a family that says nothing about code gets
+       code in its own status colours, already contrast-checked. A family whose
+       editor has a palette of its own (Xcode's pink keywords and red strings)
+       sets these in theme/families.ts. Declared here, on :root, so the var()s
+       resolve against the family's ramp on the same element. */
+    --syntax-keyword: var(--brand-text);
+    --syntax-string: var(--status-success);
+    --syntax-number: var(--status-warning);
+    --syntax-type: var(--status-recovery);
+    --syntax-function: var(--status-info);
+    --syntax-definition: var(--text-primary);
+    --syntax-comment: var(--text-tertiary);
+    --syntax-meta: var(--text-tertiary);
 
     /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
        (same hue as the background, Apple-style — the lavender/orchid ambience
@@ -1129,6 +1233,69 @@
   line-height: var(--type-dense-leading);
   font-weight: var(--font-weight-normal);
   letter-spacing: 0;
+}
+
+/* Properties Tailwind has no utility for, named so call sites stop writing
+   [property:value] by hand. */
+
+/* Wails reads this custom property to decide what drags the window. */
+@utility wails-drag {
+  --wails-draggable: drag;
+}
+
+@utility wails-no-drag {
+  --wails-draggable: no-drag;
+}
+
+@utility tab-size-2 {
+  tab-size: 2;
+}
+
+@utility content-visibility-auto {
+  content-visibility: auto;
+}
+
+/* The height a skipped (content-visibility) box reserves, on the spacing scale. */
+@utility contain-intrinsic-* {
+  contain-intrinsic-size: auto --spacing(--value(number));
+}
+
+@utility scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+@utility writing-vertical {
+  writing-mode: vertical-rl;
+}
+
+/* The lower-right half of a square: a corner tick. */
+@utility clip-triangle-br {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* Component-local custom properties that components size themselves by. */
+@utility command-top-* {
+  --command-top: --spacing(--value(number));
+}
+
+@utility card-spacing-* {
+  --card-spacing: --spacing(--value(number));
+}
+
+@utility cell-size-* {
+  --cell-size: --spacing(--value(number));
+}
+
+@utility cell-radius-* {
+  --cell-radius: --value(--radius-*);
+}
+
+/* A hover wash on a cell that must stay opaque (sticky columns): the state
+   layer painted over the well, not over whatever scrolls underneath. */
+@utility bg-state-soft-on-well {
+  background-image:
+    linear-gradient(var(--state-soft), var(--state-soft)),
+    linear-gradient(var(--surface-well), var(--surface-well));
 }
 
 /* Scoped typography helpers */

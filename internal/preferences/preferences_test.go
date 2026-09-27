@@ -72,9 +72,13 @@ func TestThemeFamilyRoundTrips(t *testing.T) {
 	}
 }
 
+// "not-a-family" rather than a real palette's name: this used "nord" until
+// Nord shipped, and then the test was asserting that a valid family fails.
+const unknownThemeFamily ThemeFamily = "not-a-family"
+
 func TestSetThemeFamilyRejectsUnknown(t *testing.T) {
 	service := NewService(NewMemoryRepository())
-	if err := service.SetThemeFamily("nord"); err != ErrInvalidThemeFamily {
+	if err := service.SetThemeFamily(unknownThemeFamily); err != ErrInvalidThemeFamily {
 		t.Fatalf("err = %v, want %v", err, ErrInvalidThemeFamily)
 	}
 }
@@ -83,7 +87,7 @@ func TestSetThemeFamilyRejectsUnknown(t *testing.T) {
 // whoever had it selected — the same forgiveness Theme already has.
 func TestThemeFamilyFallsBackForAStoredUnknown(t *testing.T) {
 	repo := NewMemoryRepository()
-	if err := repo.SetThemeFamily("nord"); err != nil {
+	if err := repo.SetThemeFamily(unknownThemeFamily); err != nil {
 		t.Fatalf("SetThemeFamily: %v", err)
 	}
 	family, err := NewService(repo).ThemeFamily()

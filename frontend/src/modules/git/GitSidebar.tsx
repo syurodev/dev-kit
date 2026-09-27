@@ -322,7 +322,7 @@ function RepositoryHeader({
               <ChevronDown className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[28rem] max-w-[90vw]">
+          <DropdownMenuContent align="start" className="w-112 max-w-screen-90">
             <DropdownMenuLabel>{repos.length} repositories</DropdownMenuLabel>
             {repos.map((repo) => (
               <DropdownMenuItem key={repo.path} disabled={repo.path === folder} onSelect={() => onChoose(repo)}>

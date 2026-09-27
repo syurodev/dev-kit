@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, MessageSquare, Send, User, X } from "lucide-react";
 import { NodeToolbar, Panel, Position, useInternalNode, useStore, useViewport } from "@xyflow/react";
+import { CodeBlock } from "@/components/code/CodeBlock";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -41,12 +42,12 @@ function CommentBody({ text }: { text: string }) {
     <div className="flex flex-col gap-2 text-pretty text-body-12 text-text-secondary">
       {paragraphs.map((paragraph, index) =>
         isMarkupParagraph(paragraph) ? (
-          <pre
+          <CodeBlock
             key={index}
+            code={paragraph}
+            language="xml"
             className="overflow-x-auto rounded-md bg-surface-base p-2 font-mono text-code-11 whitespace-pre text-text-primary"
-          >
-            {paragraph}
-          </pre>
+          />
         ) : (
           // wrap-anywhere, not break-words: a comment quotes code inline too
           // — a Liquibase changeset id, a Redis key pattern — with no spaces
@@ -207,7 +208,7 @@ export function PlanCommentsPopover({
       role="dialog"
       aria-label={`Comments on ${label}`}
       style={{ width: placement.width, height: placement.height }}
-      className="nowheel nopan flex flex-col overflow-hidden rounded-lg border border-glass-border bg-surface-raised shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      className="nowheel nopan flex flex-col overflow-hidden rounded-lg border border-glass-border bg-surface-raised shadow-canvas-popover"
     >
       <div className="flex shrink-0 items-center gap-2 px-5 pt-4 pb-3">
         <MessageSquare size={16} className="shrink-0 text-text-secondary" />

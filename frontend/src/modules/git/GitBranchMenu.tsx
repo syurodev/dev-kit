@@ -78,7 +78,7 @@ export function GitBranchMenu({
             <ChevronDown className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-80 w-96 max-w-[90vw]">
+        <DropdownMenuContent align="start" className="max-h-80 w-96 max-w-screen-90">
           <DropdownMenuLabel>{dirty ? "Commit or stash to switch" : "Switch branch"}</DropdownMenuLabel>
           {branches === null ? (
             <DropdownMenuItem disabled>Reading branches…</DropdownMenuItem>

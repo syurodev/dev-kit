@@ -3,12 +3,13 @@ import { RotateCcw, TriangleAlert } from "lucide-react";
 import { keymap, type EditorView } from "@codemirror/view";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
 import { codeIntel, markCodeIntelBaseline, type CodeLocation } from "@/components/code-editor/codeIntel";
+import { languageForPath } from "@/components/code/languages";
+import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { tabKey } from "@/stores/workbenchTabs";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { createCodeGraphIntelProvider } from "./codegraphIntelProvider";
-import { languageExtensionForPath } from "./editorLanguage";
 import { useCodeGraphStore } from "./codegraphStore";
 import { discardFile, editFile, openFile, reloadFile, saveFile } from "./codegraphActions";
 import { FILE_VIEW, MODULE } from "./documents";
@@ -43,14 +44,17 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   }, [ready, path, buffer]);
 
   // Per path: the keymap reads the store when pressed, never a stale buffer.
-  const extensions = useMemo(
+  // Its own memo, apart from the language: the grammar arrives a frame later,
+  // and rebuilding codeIntel then would throw away its save baseline.
+  const fileExtensions = useMemo(
     () => [
-      ...languageExtensionForPath(path),
       keymap.of([{ key: "Mod-s", run: () => (void saveFile(path), true) }]),
       codeIntel({ path, provider: intelProvider, onNavigate }),
     ],
     [path],
   );
+  const language = useLanguageExtension(languageForPath(path));
+  const extensions = useMemo(() => [...language, ...fileExtensions], [language, fileExtensions]);
 
   // Once a save lands, the index will describe the text on screen, so that is
   // what go-to-definition should count lines from (see codeIntel.ts's

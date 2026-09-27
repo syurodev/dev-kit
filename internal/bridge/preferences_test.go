@@ -142,7 +142,7 @@ func TestPreferencesAgentNotificationsDefaultOnAndTurningOnAsksTheOS(t *testing.
 
 func TestPreferencesSetThemeFamilyRejectsUnknown(t *testing.T) {
 	service := NewAppService(app.NewContainer())
-	if err := service.PreferencesSetThemeFamily("nord"); err == nil {
+	if err := service.PreferencesSetThemeFamily("not-a-family"); err == nil {
 		t.Fatal("PreferencesSetThemeFamily error = nil, want validation error")
 	}
 }

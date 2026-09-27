@@ -3,7 +3,8 @@ import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { dedent } from "@/components/code-editor/dedent";
 import { Button } from "@/components/ui/button";
 import { lineNumbers } from "@codemirror/view";
-import { languageExtensionForPath } from "../editorLanguage";
+import { languageForPath } from "@/components/code/languages";
+import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import type { CodeGraphCodeSnippet } from "@/bridge/codegraph";
 
 export type DetailTabProps = {
@@ -23,15 +24,13 @@ export type DetailTabProps = {
 export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
   // The snippet is cut from the middle of a file, so CodeMirror's own numbering
   // would start at 1 and disagree with the ":24" beside it.
+  const language = useLanguageExtension(languageForPath(snippet?.filePath));
   const extensions = useMemo(
     () =>
       snippet
-        ? [
-            ...languageExtensionForPath(snippet.filePath),
-            lineNumbers({ formatNumber: (n) => String(n + snippet.line - 1) }),
-          ]
+        ? [...language, lineNumbers({ formatNumber: (n) => String(n + snippet.line - 1) })]
         : [],
-    [snippet],
+    [snippet, language],
   );
 
   // A method cut out of its class still carries the class's indentation. In

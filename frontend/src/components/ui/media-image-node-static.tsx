@@ -15,7 +15,7 @@ export function ImageElementStatic(
     <SlateElement {...props} className="py-2.5">
       <figure className="group relative m-0 inline-block" style={{ width }}>
         <div
-          className="relative min-w-[92px] max-w-full"
+          className="relative min-w-23 max-w-full"
           style={{ textAlign: align }}
         >
           <div>
@@ -30,7 +30,7 @@ export function ImageElementStatic(
           </div>
           {caption && (
             <figcaption
-              className="mx-auto mt-2 h-[24px] max-w-full"
+              className="mx-auto mt-2 h-6 max-w-full"
               style={{ textAlign: 'center' }}
             >
               {NodeApi.string(caption[0])}
