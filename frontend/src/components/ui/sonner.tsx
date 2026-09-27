@@ -9,7 +9,7 @@ export type ToastTone = "info" | "success" | "warning" | "error" | "loading";
  * Shell / Toast (Figma 727:1682 — 5 tones × action boolean)
  *
  * - Box: 380 wide, hugs height, rounded-14, pl-4 pr-3 py-3, gap-3, items-start
- * - Material: --glass-float-bg (62%) + backdrop-blur-[20px] + --glass-border + shadow-[0_12px_16px_rgba(0,0,0,0.45)]
+ * - Material: --glass-float-bg (62%) + backdrop-blur-float + --glass-border + shadow-[0_12px_16px_rgba(0,0,0,0.45)]
  *   EXCEPTION: Toast has NO inset top highlight.
  *   EXCEPTION: Body text is --text-tertiary, not --text-secondary.
  *   EXCEPTION: Gap between title and body is 0 (--space-0).
@@ -67,7 +67,7 @@ export function ToastSpecCard({
       data-slot="toast"
       data-tone={tone}
       className={cn(
-        "relative flex w-[380px] items-start gap-3 rounded-float bg-glass-float p-3 pl-4 backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] select-none",
+        "relative flex w-95 items-start gap-3 rounded-float bg-glass-float p-3 pl-4 backdrop-blur-float border border-glass-border shadow-toast select-none",
         className
       )}
     >
@@ -129,7 +129,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         unstyled: true,
         classNames: {
           toast:
-            "app-toast flex w-[380px] rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
+            "app-toast flex w-95 rounded-float bg-glass-float backdrop-blur-float border border-glass-border shadow-toast pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
           content: "flex min-w-0 flex-1 flex-col gap-0",
           icon: "relative flex size-5 shrink-0 items-center justify-center text-text-tertiary",
           title: "text-body-13-medium text-text-primary",

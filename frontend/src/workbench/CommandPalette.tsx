@@ -190,7 +190,7 @@ export function CommandPalette({
           No vh here — fitting the window is the dialog's job (command.tsx caps
           the whole column), and a second guess at it only made the list
           shorter than the room it had. */}
-      <CommandList ref={listRef} className="max-h-[28rem]">
+      <CommandList ref={listRef} className="max-h-112">
         {empty && !searching ? (
           <CommandEmpty title={emptyMessage.title}>{emptyMessage.body}</CommandEmpty>
         ) : null}
@@ -265,7 +265,7 @@ export function CommandPaletteStaticCard({
       data-slot="command-palette-static"
       data-state={state}
       className={cn(
-        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
+        "flex w-160 max-w-160 flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-float border border-glass-border shadow-none text-text-primary select-none",
         className
       )}
     >

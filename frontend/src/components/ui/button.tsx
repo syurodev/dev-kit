@@ -9,7 +9,7 @@ const buttonVariants = cva(
   // transition-all already covers the disabled↔enabled colour and opacity
   // change, and the duration comes off the token rather than Tailwind's 150ms
   // default so buttons move at the same speed as everything else.
-  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-(--motion-fast) ease-(--ease-out-strong) active:scale-[0.98] outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-(--motion-fast) ease-(--ease-out-strong) active:scale-98 outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -33,7 +33,7 @@ const buttonVariants = cva(
         // region that hands its mousedown to the window move is a control you
         // cannot click, and every call site had to remember that by hand.
         titlebar:
-          "bg-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary active:bg-state-soft cursor-pointer [--wails-draggable:no-drag]",
+          "bg-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary active:bg-state-soft cursor-pointer wails-no-drag",
         // The float tier as a control: see .glass-button in index.css, which
         // holds the wash, the travelling ring and the reduced-transparency and
         // reduced-motion answers. Only what a variant may own is here.

@@ -25,10 +25,10 @@ const editorContainerVariants = cva(
           'has-aria-disabled:border-input has-aria-disabled:bg-muted'
         ),
         default: 'h-full',
-        demo: 'h-[650px]',
+        demo: 'h-162.5',
         select: cn(
           'group rounded-md border border-input ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
-          'has-data-readonly:w-fit has-data-readonly:cursor-default has-data-readonly:border-transparent has-data-readonly:focus-within:[box-shadow:none]'
+          'has-data-readonly:w-fit has-data-readonly:cursor-default has-data-readonly:border-transparent has-data-readonly:focus-within:ring-0 has-data-readonly:focus-within:ring-offset-0'
         ),
       },
     },
@@ -74,7 +74,7 @@ const editorVariants = cva(
       variant: {
         ai: 'w-full px-0 text-body-16 md:text-body-13',
         aiChat:
-          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-3 py-2 text-body-16 md:text-body-13',
+          'max-h-editor-compact w-full overflow-y-auto px-3 py-2 text-body-16 md:text-body-13',
         comment: cn('rounded-none border-none bg-transparent text-body-13'),
         default:
           'size-full px-16 pt-4 pb-72 text-body-16 sm:px-(--space-editor-gutter)',

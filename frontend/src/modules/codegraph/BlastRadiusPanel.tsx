@@ -29,7 +29,7 @@ export function BlastRadiusPanel({ filePath, onOpenFile }: Props) {
         </TooltipTrigger>
         <TooltipContent>File impact</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" aria-labelledby={titleId} className="w-96 max-w-[calc(100vw-2rem)]">
+      <PopoverContent align="end" aria-labelledby={titleId} className="w-96 max-w-screen-gutter">
         <h2 id={titleId} className="text-body-13-medium">File impact</h2>
         {open && (
           <ImpactResult
@@ -96,7 +96,7 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
       <p role="status" className="text-body-12 text-text-secondary tabular-nums">
         {files.length} dependent file{files.length === 1 ? "" : "s"}
       </p>
-      <ul className="max-h-64 overflow-y-auto [scrollbar-gutter:stable]">
+      <ul className="max-h-64 overflow-y-auto scrollbar-gutter-stable">
         {files.slice(0, visibleCount).map((path) => (
           <li key={path}>
             <button

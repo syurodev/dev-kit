@@ -49,7 +49,7 @@ export function TerminalTabs({ showModule }: { showModule: boolean }) {
           {showModule && (
             <TabsTrigger
               value={MODULE_KEY}
-              className="w-[190px] h-6 flex-none rounded-sm px-2 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
+              className="w-47.5 h-6 flex-none rounded-sm px-2 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
             >
               Panel
             </TabsTrigger>
@@ -58,7 +58,7 @@ export function TerminalTabs({ showModule }: { showModule: boolean }) {
             <TabsTrigger
               key={t.key}
               value={t.key}
-              className="w-[190px] h-6 flex-none gap-1 rounded-sm px-2 pr-1.5 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
+              className="w-47.5 h-6 flex-none gap-1 rounded-sm px-2 pr-1.5 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
             >
               <span className="truncate flex-1 text-left">{t.title}</span>
               <span
@@ -85,7 +85,7 @@ export function TerminalTabs({ showModule }: { showModule: boolean }) {
           aria-label="New terminal"
           onClick={() => openTab()}
         >
-          <Plus className="size-[13px]" />
+          <Plus className="size-3.25" />
         </Button>
       </div>
     </div>

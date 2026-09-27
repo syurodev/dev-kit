@@ -65,7 +65,7 @@ export function CollectionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-[560px]" showCloseButton={false}>
+      <DialogContent className="sm:max-w-140" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Folders</DialogTitle>
         </DialogHeader>

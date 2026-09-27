@@ -72,7 +72,7 @@ export function RevealDialog({
 
   return (
     <Dialog open={!!account} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[520px]" showCloseButton={false}>
+      <DialogContent className="sm:max-w-130" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Show the value for {account?.label}</DialogTitle>
         </DialogHeader>

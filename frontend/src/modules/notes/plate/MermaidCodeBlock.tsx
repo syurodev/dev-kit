@@ -126,7 +126,7 @@ function MermaidDiagram({ source }: { source: string }) {
   if (state.status === "rendering") {
     return <p className="text-body-13 text-muted-foreground">Rendering diagram…</p>;
   }
-  // eslint-disable-next-line react/no-danger -- Mermaid's own render output, not user HTML
+  // Mermaid's own render output, not user HTML
   return <div dangerouslySetInnerHTML={{ __html: state.svg }} />;
 }
 

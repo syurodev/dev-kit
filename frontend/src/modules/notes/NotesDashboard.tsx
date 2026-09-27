@@ -462,7 +462,7 @@ export function NotesDashboard({
           <ScrollArea className="min-h-0 flex-1">
             {/* 348-wide cards on a 20px gap (Figma draws 22/20 — one step on
                 the 4px grid), 24px in from the card edge. */}
-            <div ref={cardsRef} className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
+            <div ref={cardsRef} className="grid grid-cols-note-cards gap-5 px-6 pb-6">
               {filtered.map((note) => (
                 <NoteCard
                   key={note.id}

@@ -101,7 +101,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     }
 
     return (
-      <div className="flex w-full max-w-[360px] flex-col gap-1.5" data-slot="input-container">
+      <div className="flex w-full max-w-90 flex-col gap-1.5" data-slot="input-container">
         {label && (
           <label className="text-label-12 text-text-secondary select-none">
             {label}

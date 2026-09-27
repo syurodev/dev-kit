@@ -71,7 +71,7 @@ export function QueryPlanView({
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-xl border border-border bg-surface-base p-0 shadow-2xl ring-0 sm:max-w-4xl"
+        className="flex max-h-screen-90 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-surface-base p-0 shadow-2xl ring-0 sm:max-w-4xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
@@ -152,8 +152,8 @@ export function QueryPlanView({
             // no height of its own draws nothing. The other tabs share the
             // same cap so the modal never grows past the diagram's size.
             activeTab === "diagram"
-              ? "flex h-[60vh] overflow-hidden"
-              : "max-h-[60vh] overflow-y-auto p-4",
+              ? "flex h-screen-60 overflow-hidden"
+              : "max-h-screen-60 overflow-y-auto p-4",
           )}
         >
           {activeTab === "diagram" ? (

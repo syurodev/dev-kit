@@ -111,7 +111,7 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
             </EmptyDescription>
           </Empty>
         ) : (
-          <ul ref={trashListRef} className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
+          <ul ref={trashListRef} className="grid grid-cols-note-cards gap-5 px-6 pb-6">
             {shown.map((note) => {
               const days = daysUntilPurge(note.purgesAt);
               return (

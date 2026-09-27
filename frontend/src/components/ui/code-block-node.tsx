@@ -154,7 +154,7 @@ export function CodeBlockElement({
       {...props}
     >
       <div className="relative rounded-md bg-muted/50">
-        <pre className="overflow-x-auto p-8 pr-4 text-code-12 [tab-size:2] print:break-inside-avoid">
+        <pre className="overflow-x-auto p-8 pr-4 text-code-12 tab-size-2 print:break-inside-avoid">
           <code>{props.children}</code>
         </pre>
 
@@ -230,7 +230,7 @@ function CodeBlockCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[200px] p-0"
+        className="w-50 p-0"
         onCloseAutoFocus={() => setSearchValue('')}
       >
         <Command shouldFilter={false}>
@@ -242,7 +242,7 @@ function CodeBlockCombobox({
           />
           <CommandEmpty>No language found.</CommandEmpty>
 
-          <CommandList className="h-[344px] overflow-y-auto">
+          <CommandList className="h-86 overflow-y-auto">
             <CommandGroup>
               {items.map((language) => (
                 <CommandItem

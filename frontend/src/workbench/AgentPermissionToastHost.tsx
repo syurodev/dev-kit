@@ -108,7 +108,6 @@ export function AgentPermissionToastHost({
   useEffect(() => {
     if (current) setHeld(current);
     // Keyed by id: `current` is a fresh object every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId, current?.kind]);
 
   // Nothing rendered until a request has actually been shown, so a window with

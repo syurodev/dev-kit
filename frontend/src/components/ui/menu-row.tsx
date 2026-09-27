@@ -15,7 +15,7 @@ import { Kbd } from "@/components/ui/kbd"
  * flex row. Both menu components use this, so they cannot drift apart.
  */
 export const MENU_ROW = cn(
-  "relative grid h-7 w-full min-w-[200px] cursor-pointer grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-2 text-body-13 outline-none select-none transition-colors",
+  "relative grid h-7 w-full min-w-50 cursor-pointer grid-cols-menu-row items-center gap-x-2 rounded-sm px-2 text-body-13 outline-none select-none transition-colors",
   "bg-transparent text-text-primary",
   "focus:bg-state-soft hover:bg-state-soft data-open:bg-state-soft",
   "data-disabled:pointer-events-none data-disabled:opacity-50",
@@ -25,7 +25,7 @@ export const MENU_ROW = cn(
 /** The destructive tone, for either menu's item. */
 export const MENU_ROW_DESTRUCTIVE = cn(
   "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
-  "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
+  "data-[variant=destructive]:focus:bg-feedback-danger-soft data-[variant=destructive]:hover:bg-feedback-danger-soft data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
   "data-[variant=destructive]:*:[svg]:text-status-danger"
 )
 

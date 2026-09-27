@@ -19,10 +19,10 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain('data-slot="alert"')
-      expect(html).toContain("h-[72px]")
+      expect(html).toContain("h-18")
       expect(html).toContain("border-status-info")
-      expect(html).toContain("bg-[rgba(178,213,229,0.08)]")
-      expect(html).toContain("backdrop-blur-[12px]")
+      expect(html).toContain("bg-status-info/8")
+      expect(html).toContain("backdrop-blur-md")
       expect(html).toContain("text-title-13")
       expect(html).toContain("text-body-12")
       expect(html).toContain("gap-1")
@@ -39,7 +39,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain("border-status-success")
-      expect(html).toContain("bg-[rgba(153,225,217,0.12)]")
+      expect(html).toContain("bg-status-success/12")
     })
 
     it("renders Warning variant with status-warning border and raw warning bg", () => {
@@ -53,7 +53,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain("border-status-warning")
-      expect(html).toContain("bg-[rgba(241,254,200,0.1)]")
+      expect(html).toContain("bg-status-warning/10")
     })
 
     it("renders Error variant with status-danger border and raw error bg", () => {
@@ -67,7 +67,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain("border-status-danger")
-      expect(html).toContain("bg-[rgba(216,120,134,0.12)]")
+      expect(html).toContain("bg-status-danger/12")
     })
   })
 
@@ -77,7 +77,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
 
       expect(html).toContain('data-slot="step-progress"')
       expect(html).toContain("grid-cols-4")
-      expect(html).toContain("max-w-[600px]")
+      expect(html).toContain("max-w-150")
       // Figma 29:40 has no fill, no blur and no inset highlight. This is the
       // one component in 05/06 outside the shared glass recipe.
       expect(html).not.toContain("backdrop-blur")
@@ -100,12 +100,12 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain('data-slot="loading-status"')
-      expect(html).toContain("w-[320px]")
+      expect(html).toContain("w-80")
       expect(html).toContain("h-12")
       expect(html).toContain("rounded-lg")
       expect(html).toContain("bg-glass-float")
       expect(html).toContain("border-glass-border")
-      expect(html).toContain("backdrop-blur-[12px]")
+      expect(html).toContain("backdrop-blur-md")
       // Spinner is grey --icon-secondary #c6c8c2
       expect(html).toContain("text-icon-secondary")
       expect(html).toContain("text-body-13-medium")
@@ -119,10 +119,10 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       )
 
       expect(html).toContain('data-slot="recovery-key-field"')
-      expect(html).toContain("h-[132px]")
+      expect(html).toContain("h-33")
       expect(html).toContain("rounded-float")
       expect(html).toContain("bg-glass-panel")
-      expect(html).toContain("backdrop-blur-[20px]")
+      expect(html).toContain("backdrop-blur-float")
       expect(html).toContain("border-glass-border")
       expect(html).toContain("RECOVERY KEY · SHOWN ONCE")
       expect(html).toContain("text-code-12-medium")
@@ -135,23 +135,23 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       const html = renderToString(<SecurityNotice type="secure" />)
 
       expect(html).toContain('data-slot="security-notice"')
-      expect(html).toContain("h-[72px]")
+      expect(html).toContain("h-18")
       expect(html).toContain("border-status-success")
-      expect(html).toContain("bg-[rgba(153,225,217,0.12)]")
+      expect(html).toContain("bg-status-success/12")
       expect(html).toContain("text-title-14")
       expect(html).toContain("items-center")
-      expect(html).toContain("backdrop-blur-[12px]")
+      expect(html).toContain("backdrop-blur-md")
     })
 
     it("renders Irreversible type with 84px height, accent bar, and glass-panel bg", () => {
       const html = renderToString(<SecurityNotice type="irreversible" />)
 
-      expect(html).toContain("h-[84px]")
+      expect(html).toContain("h-21")
       expect(html).toContain("border-glass-border")
       expect(html).toContain("bg-glass-panel")
       expect(html).toContain('data-slot="security-notice-accent-bar"')
       expect(html).toContain("h-10")
-      expect(html).toContain("w-[3px]")
+      expect(html).toContain("w-0.75")
       expect(html).toContain("rounded-2xs")
       expect(html).toContain("bg-status-recovery")
     })

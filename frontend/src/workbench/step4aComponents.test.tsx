@@ -104,7 +104,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain("hover:bg-state-soft");
       // A control in the drag region that hands its mousedown to the window
       // move is a control you cannot click.
-      expect(html).toContain("[--wails-draggable:no-drag]");
+      expect(html).toContain("wails-no-drag");
     });
   });
 
@@ -157,7 +157,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain('aria-label="New tab"');
       expect(html).toContain("size-(--control-height-sm)");
       expect(html).toContain("rounded-md");
-      expect(html).toContain("size-[13px]");
+      expect(html).toContain("size-3.25");
       // Trailing spacer: flex-1 h-2
       expect(html).toContain("flex-1 h-2");
     });
@@ -275,10 +275,10 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         </TooltipProvider>,
       );
 
-      // Separate layer at radius 8, drawn outside pill (-inset-[2px]), border-2
+      // Separate layer at radius 8, drawn outside pill (-inset-0.5), border-2
       expect(html).toContain("rounded-md");
-      expect(html).toContain("-inset-[2px]");
-      expect(html).toContain("border-[var(--border-focus,#b2d5e5)]");
+      expect(html).toContain("-inset-0.5");
+      expect(html).toContain("border-border-focus");
     });
   });
 
@@ -300,7 +300,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           />
         </TooltipProvider>,
       );
-      expect(html.match(/\[--wails-draggable:no-drag\]/g)?.length).toBe(3);
+      expect(html.match(/wails-no-drag/g)?.length).toBe(3);
       expect(html.match(/aria-current="page"/g)?.length).toBe(1);
       expect(html).toContain('aria-label="Database"');
       expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="Notes"/);
@@ -327,11 +327,11 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         );
       const away = draw("git");
       // Two buttons for three members: the members are behind the peek, not on the bar.
-      expect(away.match(/\[--wails-draggable:no-drag\]/g)?.length).toBe(2);
+      expect(away.match(/wails-no-drag/g)?.length).toBe(2);
       expect(away).toContain('aria-label="Infra"');
       expect(away).not.toContain('aria-label="Kafka"');
       // The notch is what says there is more behind the button.
-      expect(away).toContain("clip-path");
+      expect(away).toContain("clip-triangle-br");
       expect(away.match(/aria-current="page"/g)?.length).toBe(1);
 
       const inside = draw("kafka");
@@ -361,7 +361,7 @@ describe("a module with no tabs", () => {
     // the pill has to clip — without this it is a plain button in a round hole.
     expect(html).toContain("rounded-full");
     expect(html).toContain("overflow-hidden");
-    expect(html).toContain("group-hover/button:scale-[15]");
+    expect(html).toContain("group-hover/button:scale-1500");
   });
 
   it("says so plainly when there is no module at all", () => {

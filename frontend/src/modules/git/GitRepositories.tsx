@@ -60,7 +60,7 @@ export function RepositoryRow({ repo }: { repo: Repository }) {
     <span className="flex min-w-0 flex-1 items-center gap-3">
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{repo.name}</span>
       {line.branch ? (
-        <span className="max-w-[14rem] min-w-0 shrink truncate text-xs text-fg-muted" title={line.branch}>
+        <span className="max-w-56 min-w-0 shrink truncate text-xs text-fg-muted" title={line.branch}>
           {line.branch}
         </span>
       ) : null}
@@ -126,7 +126,7 @@ export function RepositoryList({
                 <span className="min-w-0 truncate text-body-13 text-text-primary">{repo.name}</span>
                 {line.branch ? (
                   <StatePill
-                    className="max-w-[24rem] min-w-0 font-mono"
+                    className="max-w-96 min-w-0 font-mono"
                     title={line.branch}
                     icon={<GitBranch className="size-(--icon-12) shrink-0" aria-hidden />}
                   >

@@ -27,7 +27,7 @@ export function LayerLegend({ plan = false }: { plan?: boolean }) {
         <button
           type="button"
           aria-label="Show layer legend"
-          className="flex items-center gap-1.5 rounded-control border border-glass-border bg-glass-float px-2 py-1.25 text-label-11-caps text-text-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.3)] backdrop-blur-md hover:text-text-primary"
+          className="flex items-center gap-1.5 rounded-control border border-glass-border bg-glass-float px-2 py-1.25 text-label-11-caps text-text-tertiary shadow-canvas-legend backdrop-blur-md hover:text-text-primary"
         >
           <Layers size={12} />
           Legend

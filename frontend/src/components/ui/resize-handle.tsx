@@ -58,7 +58,7 @@ export function ShellResizeHandle({
         // The shell's gap is 4px, too thin to aim at. An invisible band 2px
         // past each side makes the target 8 without widening the gap, and z-10
         // keeps it above the card edges it overlaps.
-        'z-10 before:absolute before:content-[""]',
+        'z-10 before:absolute',
         isVertical ? 'before:inset-y-0 before:-inset-x-0.5' : 'before:inset-x-0 before:-inset-y-0.5',
         // In rest state: completely empty (transparent, no border)
         'bg-transparent',
@@ -76,7 +76,7 @@ export function ShellResizeHandle({
             : 'inset-x-0 top-1/2 -translate-y-1/2 h-px',
           isResizing
             ? 'bg-ring opacity-100'
-            : 'bg-[rgba(178,213,229,0.16)]',
+            : 'bg-status-info/16',
           showHover
             ? 'opacity-100'
             : 'opacity-0 group-hover:opacity-100'
@@ -88,7 +88,7 @@ export function ShellResizeHandle({
         data-slot="resize-grip"
         className={cn(
           'pointer-events-none absolute inset-0 m-auto rounded-full bg-text-tertiary transition-opacity duration-150',
-          isVertical ? 'w-[3px] h-8' : 'h-[3px] w-8',
+          isVertical ? 'w-0.75 h-8' : 'h-0.75 w-8',
           showHover
             ? 'opacity-100'
             : 'opacity-0 group-hover:opacity-100'
@@ -102,7 +102,7 @@ export function ShellResizeHandle({
           // Figma 699:1104 insets the ring -2.5% / -37.5%, which on both an
           // 8x120 and a 120x8 handle works out to a uniform -3px, and gives it
           // no corner radius. It deliberately overflows the 8px gutter.
-          'pointer-events-none absolute -inset-[3px] border-2 border-[var(--border-focus,#b2d5e5)] transition-opacity duration-150',
+          'pointer-events-none absolute -inset-0.75 border-2 border-border-focus transition-opacity duration-150',
           showFocus
             ? 'opacity-100'
             : 'opacity-0 group-focus-visible:opacity-100'

@@ -151,7 +151,7 @@ export function FileDiffPane({
     <Dialog open={expanded} onOpenChange={setExpanded}>
       {/* No fixed height: DialogContent lays its children out in a h-fit
           body, so the dialog is as tall as the diff up to the cap below. */}
-      <DialogContent className="w-[min(1100px,92vw)] max-w-none gap-3 p-4 sm:max-w-none">
+      <DialogContent className="w-diff max-w-none gap-3 p-4 sm:max-w-none">
         <DialogHeader className="flex-row items-center gap-3 space-y-0 pr-8">
           <DialogTitle className="min-w-0 flex-1 truncate text-code-12 text-text-primary">{name}</DialogTitle>
           <span className="flex shrink-0 items-center gap-2 text-caption-11 whitespace-nowrap">{counts}</span>
@@ -160,7 +160,7 @@ export function FileDiffPane({
             becomes, changed lines facing each other. The right side takes
             the active emphasis: it is the one being decided on, or the one
             that won. */}
-        <div className="max-h-[70vh] overflow-auto select-text">
+        <div className="max-h-screen-70 overflow-auto select-text">
           <DiffSplitPanes
             pairs={pairs}
             runs={runs}

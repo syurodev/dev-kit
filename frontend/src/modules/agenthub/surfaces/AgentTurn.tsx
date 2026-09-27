@@ -150,7 +150,7 @@ export const AgentTurn = React.memo(function AgentTurn({
             }
             onRewind={rewindable ? () => onRewind?.(rewindable, false) : undefined}
           >
-            <div className="flex max-w-[80%] flex-col items-end gap-1.5">
+            <div className="flex max-w-4/5 flex-col items-end gap-1.5">
               {/* What the prompt carried besides words, by name: an image-only
                   prompt is still a turn, and the bubble says what it was. */}
               {turn.prompt.attachments?.length ? (
@@ -174,7 +174,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                   // off that min-content still forces the bubble open
                   // sideways even though break-words looks like it should
                   // have wrapped it. wrap-anywhere counts toward min-content,
-                  // so the bubble's own max-w-[80%] actually holds.
+                  // so the bubble's own max-w-4/5 actually holds.
                   className="rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap wrap-anywhere text-text-primary select-text"
                 >
                   {turn.prompt.text}

@@ -64,7 +64,6 @@ export function MediaToolbar({
     if (!open && isEditing) {
       FloatingMediaStore.set('isEditing', false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const element = useElement();
@@ -79,7 +78,7 @@ export function MediaToolbar({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         {isEditing ? (
-          <div className="flex w-[330px] flex-col">
+          <div className="flex w-82.5 flex-col">
             <div className="flex items-center">
               <div className="flex items-center pr-1 pl-2 text-muted-foreground">
                 <Link className="size-4" />

@@ -105,7 +105,7 @@ export function SystemStatusMenu({
               <button
                 type="button"
                 aria-label={statusLabel(status)}
-                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-status-danger hover:opacity-90 [--wails-draggable:no-drag]"
+                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-status-danger hover:opacity-90 wails-no-drag"
               >
                 {/* Full-bleed 28x28 attention graphic without radius wrapper */}
                 <svg
@@ -130,7 +130,7 @@ export function SystemStatusMenu({
               <button
                 type="button"
                 aria-label={statusLabel(status)}
-                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-action-primary hover:opacity-90 [--wails-draggable:no-drag]"
+                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-action-primary hover:opacity-90 wails-no-drag"
               >
                 {/* Full-bleed 28x28 active graphic without radius wrapper */}
                 <svg
@@ -157,7 +157,7 @@ export function SystemStatusMenu({
         <TooltipContent side="bottom">{statusLabel(status)}</TooltipContent>
       </Tooltip>
 
-      <DropdownMenuContent align="end" className="w-[260px]">
+      <DropdownMenuContent align="end" className="w-65">
         <DropdownMenuItem
           disabled={vault !== "locked"}
           onSelect={() => requestVaultUnlock()}

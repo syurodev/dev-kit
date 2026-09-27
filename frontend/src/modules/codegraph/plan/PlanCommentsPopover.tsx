@@ -207,7 +207,7 @@ export function PlanCommentsPopover({
       role="dialog"
       aria-label={`Comments on ${label}`}
       style={{ width: placement.width, height: placement.height }}
-      className="nowheel nopan flex flex-col overflow-hidden rounded-lg border border-glass-border bg-surface-raised shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      className="nowheel nopan flex flex-col overflow-hidden rounded-lg border border-glass-border bg-surface-raised shadow-canvas-popover"
     >
       <div className="flex shrink-0 items-center gap-2 px-5 pt-4 pb-3">
         <MessageSquare size={16} className="shrink-0 text-text-secondary" />

@@ -10,7 +10,7 @@ export const editorVariants = cva(
     'group/editor',
     'relative w-full cursor-text select-text overflow-x-hidden whitespace-break-spaces break-words',
     'rounded-md ring-offset-background focus-visible:outline-none',
-    'placeholder:text-muted-foreground/80 **:data-slate-placeholder:top-[auto_!important] **:data-slate-placeholder:text-muted-foreground/80 **:data-slate-placeholder:opacity-100!',
+    'placeholder:text-muted-foreground/80 **:data-slate-placeholder:top-auto! **:data-slate-placeholder:text-muted-foreground/80 **:data-slate-placeholder:opacity-100!',
     '[&_strong]:font-bold'
   ),
   {
@@ -27,7 +27,7 @@ export const editorVariants = cva(
       variant: {
         ai: 'w-full px-0 text-body-16 md:text-body-13',
         aiChat:
-          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-5 py-3 text-body-16 md:text-body-13',
+          'max-h-editor-compact w-full overflow-y-auto px-5 py-3 text-body-16 md:text-body-13',
         default:
           'size-full px-16 pt-4 pb-72 text-body-16 sm:px-(--space-editor-gutter)',
         demo: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-(--space-editor-gutter)',

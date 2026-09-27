@@ -66,7 +66,7 @@ export function BoardVerifyDialog({
 
   return (
     <Dialog open={!!board} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[560px]" showCloseButton={false}>
+      <DialogContent className="sm:max-w-140" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>How tasks close on {board?.name}</DialogTitle>
         </DialogHeader>

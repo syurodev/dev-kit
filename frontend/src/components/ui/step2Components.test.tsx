@@ -83,7 +83,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
       const html = renderToString(<Checkbox id="test-check" />)
 
       expect(html).toContain('data-slot="checkbox"')
-      expect(html).toContain("size-[18px]")
+      expect(html).toContain("size-4.5")
       expect(html).toContain("rounded-sm")
       expect(html).toContain("bg-white/6")
       expect(html).toContain("border-status-info/16")
@@ -114,7 +114,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
       const html = renderToString(<Switch id="dark-mode" />)
 
       expect(html).toContain('data-slot="switch"')
-      expect(html).toContain("h-[18px]")
+      expect(html).toContain("h-4.5")
       expect(html).toContain("w-8")
       expect(html).toContain("rounded-full")
       expect(html).toContain("bg-white/6")
@@ -134,7 +134,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
   })
 
   describe("Select (Figma 378:61, 378:70, 378:71)", () => {
-    it("renders SelectTrigger with max-w-[220px], height-md and text-body-13", () => {
+    it("renders SelectTrigger with max-w-55, height-md and text-body-13", () => {
       const html = renderToString(
         <Select defaultValue="postgres">
           <SelectTrigger>
@@ -144,7 +144,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
       )
 
       expect(html).toContain('data-slot="select-trigger"')
-      expect(html).toContain("max-w-[220px]")
+      expect(html).toContain("max-w-55")
       expect(html).toContain("h-(--control-height-md)")
       expect(html).toContain("rounded-md")
       expect(html).toContain("border-status-info/16")

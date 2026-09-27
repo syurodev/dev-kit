@@ -223,7 +223,7 @@ export function CodeIntelSection() {
         does the same for definition. Right-click an identifier for a context menu with the same actions, plus Cut
         and Copy.
       </p>
-      <div className="h-72 w-[560px] overflow-hidden rounded-md border border-border-subtle bg-surface-well">
+      <div className="h-72 w-140 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
         <CodeEditor value={source} onChange={setSource} extensions={extensions} />
       </div>
       <div className="flex flex-col gap-1 text-code-12 text-text-secondary">
@@ -246,7 +246,7 @@ export function CodeIntelSection() {
         This buffer is read-only and its provider only implements <code>references</code>: right-click{" "}
         <code>find</code> and the menu has just Find References and Copy — no definition rows, no Cut.
       </p>
-      <div className="h-32 w-[560px] overflow-hidden rounded-md border border-border-subtle bg-surface-well">
+      <div className="h-32 w-140 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
         <CodeEditor value={readOnlySource} onChange={() => {}} extensions={readOnlyExtensions} readOnly />
       </div>
     </section>

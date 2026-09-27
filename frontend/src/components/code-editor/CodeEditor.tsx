@@ -173,7 +173,6 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
     // Deliberately empty — see the function's doc comment. Every prop this
     // effect would otherwise need to depend on is instead applied by the
     // effects below, without remounting.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // External value changes (e.g. the consumer opened a different file) —

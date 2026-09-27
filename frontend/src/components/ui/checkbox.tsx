@@ -39,7 +39,7 @@ const Checkbox = React.forwardRef<
       disabled={disabled}
       data-slot="checkbox"
       className={cn(
-        "peer relative flex size-[18px] shrink-0 items-center justify-center rounded-sm border border-status-info/16 bg-white/6 transition-colors outline-none",
+        "peer relative flex size-4.5 shrink-0 items-center justify-center rounded-sm border border-status-info/16 bg-white/6 transition-colors outline-none",
         "focus-visible:border-(--stroke-1-5) focus-visible:border-status-info focus-visible:outline-none focus-visible:ring-0",
         "disabled:cursor-not-allowed disabled:text-text-tertiary disabled:opacity-50",
         "data-checked:bg-action-primary data-checked:text-action-primary-foreground",
@@ -66,7 +66,7 @@ const Checkbox = React.forwardRef<
       htmlFor={checkboxId}
       data-slot="checkbox-row"
       className={cn(
-        "inline-flex h-8 max-w-[220px] items-center gap-2 select-none cursor-pointer text-body-13 text-text-primary",
+        "inline-flex h-8 max-w-55 items-center gap-2 select-none cursor-pointer text-body-13 text-text-primary",
         disabled && "cursor-not-allowed text-text-tertiary opacity-50",
       )}
     >

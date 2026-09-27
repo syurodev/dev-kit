@@ -213,7 +213,7 @@ export function AgentQuestionCard({
                 an empty Previous column and a whole row for one ghost button.
                 With one question, skipping it and skipping them all are the
                 same click; only the one that declines is kept. */}
-            <QuestionnaireActions className="grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
+            <QuestionnaireActions className="grid-cols-question-actions">
               {form.fields.length > 1 ? (
                 <div className="col-start-1 row-start-1 -ml-2 justify-self-start">{skipAll("Skip all")}</div>
               ) : null}

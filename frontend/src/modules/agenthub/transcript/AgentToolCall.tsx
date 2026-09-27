@@ -426,7 +426,7 @@ export function AgentToolCall({
             <span
               data-testid="tool-call-result"
               className={cn(
-                "min-w-0 max-w-[50%] shrink truncate text-caption-11 whitespace-nowrap",
+                "min-w-0 max-w-1/2 shrink truncate text-caption-11 whitespace-nowrap",
                 state === "failed"
                   ? "text-status-danger"
                   : state === "done"

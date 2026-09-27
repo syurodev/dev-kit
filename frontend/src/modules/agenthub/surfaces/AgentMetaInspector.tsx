@@ -96,9 +96,9 @@ export function AgentMetaInspector({
         data-testid="agent-meta-inspector"
         showCloseButton={false}
         className={cn(
-          "w-136 max-w-[calc(100%-2rem)] gap-4 rounded-lg p-5 sm:max-w-136",
+          "w-136 max-w-gutter gap-4 rounded-lg p-5 sm:max-w-136",
           "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-lg",
-          "shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.5)] ring-0",
+          "shadow-inspector ring-0",
           className,
         )}
       >

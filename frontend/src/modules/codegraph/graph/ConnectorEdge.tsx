@@ -81,7 +81,7 @@ export function EdgeLabelPill({
   return (
     <span
       title={title}
-      className="block max-w-52 truncate rounded-full border px-2.25 py-1 text-code-11 shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+      className="block max-w-52 truncate rounded-full border px-2.25 py-1 text-code-11 shadow-canvas-chip"
       style={
         kind === "di"
           ? {

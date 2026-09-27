@@ -429,7 +429,7 @@ function Canvas({
             // behind the hint. The attribution stays — it is 19px tall, and
             // this is React Flow's 15px panel margin plus that plus a gap.
             <Panel position="bottom-right" style={{ marginBottom: 'var(--space-graph-bottom)' }}>
-              <div className="rounded-md border border-glass-border bg-surface-glass-floating px-3 py-2.25 text-label-12 text-text-secondary shadow-[0_6px_10px_rgba(0,0,0,0.35)] backdrop-blur-lg">
+              <div className="rounded-md border border-glass-border bg-surface-glass-floating px-3 py-2.25 text-label-12 text-text-secondary shadow-canvas-overlay backdrop-blur-lg">
                 {hint}
               </div>
             </Panel>

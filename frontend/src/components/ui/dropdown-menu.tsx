@@ -262,11 +262,11 @@ export function ShellMenuItemSpec({
       data-tone={tone}
       data-state={state}
       className={cn(
-        "grid w-[200px] h-7 grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-2 text-body-13 select-none cursor-pointer transition-colors",
+        "grid w-50 h-7 grid-cols-menu-row items-center gap-x-2 rounded-sm px-2 text-body-13 select-none cursor-pointer transition-colors",
         !isDanger && !isHover && "bg-transparent text-text-primary",
         !isDanger && isHover && "bg-state-soft text-text-primary",
         isDanger && !isHover && "bg-transparent text-status-danger",
-        isDanger && isHover && "bg-[var(--feedback-danger-soft)] text-status-danger",
+        isDanger && isHover && "bg-feedback-danger-soft text-status-danger",
         className
       )}
     >
@@ -317,7 +317,7 @@ function DropdownMenuSubContent({
           entirely. */}
       <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
-      className={cn("z-50 min-w-[96px] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-lg glass-float p-1 text-popover-foreground duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className )}
+      className={cn("z-50 min-w-24 origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-lg glass-float p-1 text-popover-foreground duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className )}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

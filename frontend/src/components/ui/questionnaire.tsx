@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils"
  * only uses on row 1.
  */
 export const QUESTIONNAIRE_CHOICE = cn(
-  "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-x-2.5 gap-y-0.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
+  "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-auto-fr-auto items-start gap-x-2.5 gap-y-0.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
   "hover:bg-state-soft",
   "has-[>input:focus-visible]:border-(length:--stroke-1-5) has-[>input:focus-visible]:border-status-info",
   "data-checked:border-status-info data-checked:bg-state-soft",
@@ -77,7 +77,7 @@ function QuestionnaireProgress({
     <QuestionnairePrimitive.Progress
       data-slot="questionnaire-progress"
       className={cn(
-        "min-h-[1lh] w-fit min-w-[14ch] text-caption-11 text-text-tertiary tabular-nums",
+        "min-h-line w-fit min-w-counter text-caption-11 text-text-tertiary tabular-nums",
         className
       )}
       {...props}
@@ -273,7 +273,7 @@ function QuestionnaireActions({
     <div
       data-slot="questionnaire-actions"
       className={cn(
-        "grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2",
+        "grid w-full grid-cols-fill-auto-auto items-center gap-2",
         className
       )}
       {...props}

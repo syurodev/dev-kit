@@ -691,12 +691,12 @@ export const TableElement = withHOC(
           >
             <div
               ref={dragIndicatorRef}
-              className="-translate-x-[1.5px] pointer-events-none absolute inset-y-0 z-36 hidden w-[3px] bg-ring/70"
+              className="-translate-x-1/2 pointer-events-none absolute inset-y-0 z-36 hidden w-0.75 bg-ring/70"
               contentEditable={false}
             />
             <div
               ref={hoverIndicatorRef}
-              className="-translate-x-[1.5px] pointer-events-none absolute inset-y-0 z-35 hidden w-[3px] bg-ring/80"
+              className="-translate-x-1/2 pointer-events-none absolute inset-y-0 z-35 hidden w-0.75 bg-ring/80"
               contentEditable={false}
             />
             <table
@@ -782,7 +782,7 @@ function TableFloatingToolbar({
 
   React.useEffect(() => {
     if (!isExpandedSelectionPending) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset the delayed toolbar gate when selection is no longer expanded.
+      // Reset the delayed toolbar gate when selection is no longer expanded.
       setIsExpandedSelectionToolbarReady(false);
 
       return;
@@ -907,7 +907,7 @@ function TableFloatingToolbarContent({
       {...props}
     >
       <Toolbar
-        className="scrollbar-hide flex w-auto max-w-[80vw] flex-row overflow-x-auto rounded-md glass-float p-1 print:hidden"
+        className="scrollbar-hide flex w-auto max-w-screen-80 flex-row overflow-x-auto rounded-md glass-float p-1 print:hidden"
         contentEditable={false}
       >
         <ToolbarGroup>
@@ -1026,7 +1026,7 @@ function TableBordersDropdownMenuContent(
 
   return (
     <DropdownMenuContent
-      className="min-w-[220px]"
+      className="min-w-55"
       onCloseAutoFocus={(e) => {
         e.preventDefault();
         editor.tf.focus();
@@ -1308,7 +1308,7 @@ export function TableCellElement({
         'before:size-full',
         'data-[table-cell-selected=true]:before:z-10',
         'data-[table-cell-selected=true]:before:bg-brand/5',
-        "before:absolute before:box-border before:select-none before:content-['']",
+        "before:absolute before:box-border before:select-none",
         borders.bottom?.size && 'before:border-b before:border-b-border',
         borders.right?.size && 'before:border-r before:border-r-border',
         borders.left?.size && 'before:border-l before:border-l-border',
@@ -1381,7 +1381,7 @@ const TableCellResizeControls = React.memo(function TableCellResizeControls({
       suppressContentEditableWarning={true}
     >
       <div
-        className="-top-2 -right-1 pointer-events-auto absolute z-40 h-[calc(100%_+_8px)] w-2 cursor-col-resize touch-none"
+        className="-top-2 -right-1 bottom-0 pointer-events-auto absolute z-40 w-2 cursor-col-resize touch-none"
         onPointerEnter={(event) => {
           setResizePreview(event, {
             colIndex,

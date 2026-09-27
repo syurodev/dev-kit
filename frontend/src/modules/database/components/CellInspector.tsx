@@ -48,7 +48,7 @@ export function CellInspector() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
+      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-screen-85 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
           <div className="flex items-center gap-2">

@@ -155,7 +155,7 @@ export function NoteHistoryPanel({
       </ScrollArea>
 
       {selected && (
-        <div className="flex min-h-0 flex-[2] flex-col border-t border-border-subtle">
+        <div className="flex min-h-0 flex-2 flex-col border-t border-border-subtle">
           <ScrollArea className="min-h-0 flex-1">
             <pre className="p-4 text-code-11">
               {diff.map((line, i) => (

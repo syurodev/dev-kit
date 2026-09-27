@@ -166,7 +166,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       );
       expect(html).toContain("w-2"); // 8px wide
       expect(html).toContain("w-px"); // 1px hairline
-      expect(html).toContain("w-[3px]"); // 3px grip width
+      expect(html).toContain("w-0.75"); // 3px grip width
       expect(html).toContain("h-8"); // 32px grip height
       expect(html).toContain("rounded-full");
       expect(html).toContain("bg-text-tertiary");
@@ -183,7 +183,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       );
       expect(html).toContain("h-2"); // 8px tall
       expect(html).toContain("h-px"); // 1px hairline
-      expect(html).toContain("h-[3px]"); // 3px grip height
+      expect(html).toContain("h-0.75"); // 3px grip height
       expect(html).toContain("w-8"); // 32px grip width
       expect(html).toContain("rounded-full");
       expect(html).toContain("bg-text-tertiary");
@@ -198,10 +198,10 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
         />
       );
       expect(html).toContain("border-2");
-      expect(html).toContain("border-[var(--border-focus,#b2d5e5)]");
+      expect(html).toContain("border-border-focus");
       // Figma 699:1104 insets the ring -2.5% / -37.5%, a uniform -3px on both
       // orientations, with no corner radius.
-      expect(html).toContain("-inset-[3px]");
+      expect(html).toContain("-inset-0.75");
       expect(html).not.toContain("rounded-sm");
     });
   });
@@ -215,11 +215,11 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
           body="Notification Body"
         />
       );
-      expect(html).toContain("w-[380px]");
+      expect(html).toContain("w-95");
       expect(html).toContain("rounded-float");
-      expect(html).toContain("backdrop-blur-[20px]");
+      expect(html).toContain("backdrop-blur-float");
       expect(html).toContain("bg-glass-float");
-      expect(html).toContain("shadow-[0_12px_16px_0_rgba(0,0,0,0.45)]");
+      expect(html).toContain("shadow-toast");
     });
 
     it("EXCEPTION: Toast has NO inset top highlight", () => {
@@ -292,9 +292,9 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
   describe("Shell / Command Palette (Figma 719:1475)", () => {
     it("verifies dimensions and glass material: 640 wide, rounded-14, blur 20, NO shadow, NO inset highlight", () => {
       const html = renderToString(<CommandPaletteStaticCard state="results" />);
-      expect(html).toContain("w-[640px]");
+      expect(html).toContain("w-160");
       expect(html).toContain("rounded-float");
-      expect(html).toContain("backdrop-blur-[20px]");
+      expect(html).toContain("backdrop-blur-float");
       expect(html).toContain("bg-glass-float");
       expect(html).toContain("shadow-none");
       expect(html).not.toContain("shadow-[inset_");
@@ -353,14 +353,14 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
           shortcut="⌘K"
         />
       );
-      expect(html).toContain("w-[200px]");
+      expect(html).toContain("w-50");
       expect(html).toContain("h-7"); // 28px
       expect(html).toContain("rounded-sm");
       expect(html).toContain("px-2");
       expect(html).toContain("gap-x-2");
       expect(html).toContain("text-body-13");
       // icon · label · shortcut, and the icon slot is there with no icon.
-      expect(html).toContain("grid-cols-[var(--icon-14)_minmax(0,1fr)_auto]");
+      expect(html).toContain("grid-cols-menu-row");
       expect(html).toContain('data-slot="menu-icon"');
       // The shortcut is a key cap.
       expect(html).toContain('data-slot="kbd"');
@@ -389,7 +389,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       const hoverHtml = renderToString(
         <ShellMenuItemSpec tone="danger" state="hover" label="Delete" />
       );
-      expect(hoverHtml).toContain("bg-[var(--feedback-danger-soft)]"); // 14% danger soft
+      expect(hoverHtml).toContain("bg-feedback-danger-soft"); // 14% danger soft
       expect(hoverHtml).toContain("text-status-danger");
     });
   });

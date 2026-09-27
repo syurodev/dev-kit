@@ -547,7 +547,7 @@ export function ResultGrid({
                         background:
                           "linear-gradient(var(--surface-well), var(--surface-well)), var(--surface-base)",
                       }}
-                      className="h-7 border-r border-b border-border-subtle px-2 text-right tabular-nums text-code-11 text-text-tertiary select-none group-hover:[background-image:linear-gradient(var(--state-soft),var(--state-soft)),linear-gradient(var(--surface-well),var(--surface-well))]"
+                      className="h-7 border-r border-b border-border-subtle px-2 text-right tabular-nums text-code-11 text-text-tertiary select-none group-hover:bg-state-soft-on-well"
                     >
                       {rowOffset + rowIndex + 1}
                     </td>
@@ -620,7 +620,7 @@ export function ResultGrid({
                             // than replace it, or hovering makes the cell
                             // see-through again.
                             offsets[position] !== undefined &&
-                              "group-hover:[background-image:linear-gradient(var(--state-soft),var(--state-soft)),linear-gradient(var(--surface-well),var(--surface-well))]",
+                              "group-hover:bg-state-soft-on-well",
                           )}
                           // The full value, and only when the cell is too
                           // narrow to show it. "Click to inspect cell" on
