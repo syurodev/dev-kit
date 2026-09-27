@@ -1,3 +1,4 @@
+import { SidebarInset } from "@/components/ui/sidebar-shell";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { CodeGraphFileEntry, CodeGraphGitState } from "@/bridge/codegraph";
@@ -31,7 +32,7 @@ export type FileFilter = { codeOnly: boolean; changed: boolean; inFlow: boolean 
  * The project's files (Figma `CodeGraph / Sidebar — 5 Files`): three toggles
  * over the tree — code only, changed only, only what the flow on screen
  * passes through — and git marks on each row. What depends on a file is the
- * Impact panel under its editor, not a card here.
+ * Impact popover in its editor toolbar, not a card here.
  */
 export function FilesTab({
   files,
@@ -130,13 +131,13 @@ export function FilesTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter files">
+      <SidebarInset className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter files">
         {toggle("codeOnly", "CODE", "Source code only, in any language — hides build files, config, resources and docs")}
         {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED", "Files with uncommitted changes (git status)")}
         {toggle("inFlow", "IN FLOW", "Files the flow in front passes through", flowFiles.size === 0 && !filter.inFlow)}
-      </div>
+      </SidebarInset>
       {nodes.length > 0 ? (
-        <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />
+        <TreeView nodes={nodes} keyboardNavigation revealNodeId={selectedFile} className="min-h-0 flex-1 scrollbar-gutter-stable" />
       ) : (
         <p className="min-h-0 flex-1 px-2 py-3 text-center text-body-12 text-text-tertiary">
           {files.length === 0 ? "No files yet — open a project." : "No files match."}

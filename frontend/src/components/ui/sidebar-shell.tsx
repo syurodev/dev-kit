@@ -2,7 +2,7 @@ import * as React from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { LazyMotion, domAnimation, m } from "framer-motion";
+import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { useResizableSize } from "@/workbench/useResizableSize";
 import {
   GAP_WIDTH,
@@ -16,6 +16,7 @@ import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 import { armBeside } from "@/stores/workbenchTabs";
+import { MOTION_FAST, MOTION_SLOW, noMotion } from "@/lib/motion";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -266,12 +267,14 @@ export function SidebarSearch({
   );
 }
 
-/**
- * The band a rail's search field and its adjacent actions sit in. One padding
- * for every rail, so the first row below it starts at the same y everywhere.
- */
+/** Content gutter, never a wrapper around a scroll viewport or whole rail. */
+export function SidebarInset({ className, ...props }: React.ComponentProps<"div">) {
+  return <div className={cn("min-w-0 px-1.5", className)} {...props} />;
+}
+
+/** Search and adjacent actions share the standard content gutter. */
 export function SidebarHeader({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center gap-1 pt-1.5 pb-1">{children}</div>;
+  return <SidebarInset className="flex shrink-0 items-center gap-1 pt-1.5 pb-1">{children}</SidebarInset>;
 }
 
 const MIN_SIDEBAR_WIDTH = 240;
@@ -293,6 +296,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
   const setSidebarWidth = usePanelWidthsStore((s) => s.setSidebarWidth);
   const columnWidths = usePanelWidthsStore((s) => s.columnWidths);
   const windowWidth = useWindowWidth();
+  const reduceMotion = useReducedMotion() ?? false;
 
   const registered = useSidebarContentStore((s) => s.content);
   // Every module visited this session keeps its rail mounted, hidden while
@@ -344,7 +348,11 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         // still had the hole; this is that note being paid. The *stored* width
         // stays unclamped, so widening the window restores the user's choice.
         animate={{ width: open ? Math.min(sidebarWidth, max) + GAP_WIDTH : 0 }}
-        transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
+        transition={isResizing || reduceMotion ? noMotion : {
+          type: "spring",
+          duration: open ? MOTION_SLOW : MOTION_FAST,
+          bounce: 0,
+        }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
         {/* Deliberately NOT the glass-panel treatment SplitPanelSlot and the
@@ -352,21 +360,14 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             card. glass-rail is the most transparent material — borderless,
             near-clear tint so the native vibrancy backdrop carries it, the way
             Finder/Notes sidebars sit closest to the desktop. */}
-        {/* Keep the shared titlebar background visible through the rail.
-
-            A 16px inset on both sides (px-4), none top or bottom: the rail's
-            rows start where the content card starts, as before. With no
-            inset, every rail's first control and its selected row ran flush
-            to the window edge while the views beside it sit well in from
-            theirs, and each module would have had to add the same margin on
-            its own. The shell owns it so every rail — and the next one —
-            gets the same. The cost is that a rail's scrollbar sits 16px in
-            from the sash rather than against it. */}
+        {/* The shell owns width, material and clipping, not content padding.
+            Scroll viewports reach the rail edge; headers and controls use
+            SidebarInset, while tree/list rows own their internal spacing. */}
         {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
             beside the focused group rather than in it. Armed on the way down,
             consumed by the openTab that click makes — no rail had to change. */}
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 glass-rail"
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden glass-rail"
           onClickCapture={(e) => {
             if (e.metaKey || e.ctrlKey) armBeside();
           }}

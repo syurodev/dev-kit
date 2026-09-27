@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
+import { SidebarHeader, SidebarInset, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CodeGraphEndpoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "./codegraphStore";
@@ -113,7 +114,11 @@ export function CodeGraphSidebar() {
   const fileFilter = useCodeGraphStore((s) => s.fileFilter);
   const fileExpanded = useCodeGraphStore((s) => s.fileExpanded);
   const subgraph = useCodeGraphStore((s) => (doc.root ? s.flows[doc.root]?.subgraph : undefined));
-  const buffers = useCodeGraphStore((s) => s.buffers);
+  // The rail needs dirty badges, not editor text. Further keystrokes in an
+  // already-dirty buffer must not rebuild the file tree.
+  const dirtyPaths = useCodeGraphStore(useShallow((s) =>
+    Object.keys(s.buffers).filter((path) => s.buffers[path].dirty),
+  ));
   const plan = useCodeGraphStore((s) => s.plan);
   const planBusy = useCodeGraphStore((s) => s.planBusy);
   const planError = useCodeGraphStore((s) => s.planError);
@@ -122,8 +127,8 @@ export function CodeGraphSidebar() {
   const services = useMemo(() => groupEndpoints(endpoints).length, [endpoints]);
   const flowFiles = useMemo(() => new Set((subgraph?.nodes ?? []).map((n) => n.filePath).filter(Boolean)), [subgraph]);
   const unsaved = useMemo(
-    () => new Set(Object.entries(buffers).flatMap(([path, b]) => (b.dirty ? [path] : []))),
-    [buffers],
+    () => new Set(dirtyPaths),
+    [dirtyPaths],
   );
   // A flow opened from @ has no endpoint; the endpoint it starts at is still it.
   const selectedEndpointId =
@@ -137,24 +142,26 @@ export function CodeGraphSidebar() {
   if (!projectPath) {
     return (
       <div className="flex h-full flex-col select-none">
-        <EmptyProject busy={busy} onOpenProject={onOpenProject} />
+        <SidebarInset><EmptyProject busy={busy} onOpenProject={onOpenProject} /></SidebarInset>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 select-none">
-      <ProjectHeader
-        projectPath={projectPath}
-        indexInfo={indexInfo}
-        counts={{ endpoints: endpoints.length, services }}
-        busy={busy}
-        onReindex={onReindex}
-        onOpenProject={onOpenProject}
-      />
+    <div className="flex h-full min-h-0 flex-col gap-3 select-none">
+      <SidebarInset>
+        <ProjectHeader
+          projectPath={projectPath}
+          indexInfo={indexInfo}
+          counts={{ endpoints: endpoints.length, services }}
+          busy={busy}
+          onReindex={onReindex}
+          onOpenProject={onOpenProject}
+        />
+      </SidebarInset>
 
       {indexInfo?.error && !busy ? (
-        <IndexErrorCard error={indexInfo.error} busy={busy} onRetry={onReindex} onAskAgent={askAgent} />
+        <SidebarInset><IndexErrorCard error={indexInfo.error} busy={busy} onRetry={onReindex} onAskAgent={askAgent} /></SidebarInset>
       ) : null}
 
       <SidebarHeader>
@@ -168,27 +175,29 @@ export function CodeGraphSidebar() {
       </SidebarHeader>
 
       {symbolMode ? null : (
-        <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as CodeGraphSidebarTab)} className="gap-0">
-          <TabsList className="w-full">
-            <TabsTrigger value="endpoints" className="flex-1">
-              Endpoints
-            </TabsTrigger>
-            <TabsTrigger value="files" className="flex-1">
-              Files
-            </TabsTrigger>
-            <TabsTrigger value="plan" className="flex-1 gap-1.5">
-              Plan
-              {attention > 0 ? (
-                <span
-                  aria-label={`${attention} need attention`}
-                  className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-status-danger px-1 text-code-11 text-action-primary-foreground"
-                >
-                  {attention}
-                </span>
-              ) : null}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <SidebarInset>
+          <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as CodeGraphSidebarTab)} className="gap-0">
+            <TabsList className="w-full">
+              <TabsTrigger value="endpoints" className="flex-1">
+                Endpoints
+              </TabsTrigger>
+              <TabsTrigger value="files" className="flex-1">
+                Files
+              </TabsTrigger>
+              <TabsTrigger value="plan" className="flex-1 gap-1.5">
+                Plan
+                {attention > 0 ? (
+                  <span
+                    aria-label={`${attention} need attention`}
+                    className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-status-danger px-1 text-code-11 text-action-primary-foreground"
+                  >
+                    {attention}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </SidebarInset>
       )}
 
       {symbolMode ? (

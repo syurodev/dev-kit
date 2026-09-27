@@ -12,9 +12,10 @@ ngay sau traffic lights, xem [Title bar](/dev-kit/title-bar).
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
-<Callout type="warn" title="Design only">
-Chưa có runtime. Grounded trên trang **07 App Shell** trong Figma (4 biến thể
-`Panel=Open/Closed × Sidebar=Open/Closed`, `_Slot / Sidebar Content`).
+<Callout type="info" title="Runtime và quy tắc bố cục">
+Sidebar đã có runtime trong `components/ui/sidebar-shell.tsx`. Quy tắc padding
+bên dưới được áp dụng cho shell và CodeGraph; các module khác dùng cùng quy tắc
+khi chỉnh sửa sidebar. Các phần thiết kế lịch sử phía sau cần đối chiếu runtime.
 </Callout>
 
 ```mermaid
@@ -38,6 +39,46 @@ primitive không quan tâm hình dạng nội dung bên trong:
 "đang mở" là cùng 1 hành động (`openPanel()`). Với Sidebar, **đăng ký nội
 dung** (module luôn làm, chạy nền) và **hiển thị/ẩn** (toggle global, user
 bấm) là **hai việc tách biệt** — xem mục Toggle bên dưới.
+
+## Phân chia padding và vùng cuộn
+
+Shell quản lý **chiều rộng, resize, nền, ẩn/hiện và clipping**. Shell không đặt
+padding ngang quanh nội dung module: padding ở đây sẽ đẩy cả scrollbar vào trong
+và làm tên file bị cắt sớm do cộng thêm với padding row và độ thụt cấp.
+
+| Lớp | Trách nhiệm | Quy tắc |
+|---|---|---|
+| `SidebarSurface` | Khung sidebar | Không `px-*`; không tự tạo vùng cuộn nội dung. |
+| Root của module | Chia header và body bằng flex | `min-h-0`, không padding ngang bao cả sidebar. |
+| Header, search, tabs, filter, action/footer cố định | Khoảng đệm nội dung | Dùng `SidebarInset`: **6px mỗi bên**. `SidebarHeader` đã dùng inset này, không bọc thêm. |
+| Scroll viewport | Cuộn list/tree | Chiếm toàn bộ chiều rộng, không bọc trong `SidebarInset`; scrollbar ở mép trong của rail, ngay trước resize handle. |
+| Tree/list row | Hit target, selection, icon, chữ | Primitive row tự quản lý padding và indentation; module không cộng thêm inset quanh tree. |
+| Nội dung thông thường bên trong scroller | Form/card/empty state | Có thể dùng inset **bên trong** viewport, không đặt ngoài viewport. |
+
+`SidebarInset` được export từ `frontend/src/components/ui/sidebar-shell.tsx`.
+Giữ con số 6px ở primitive này; không sao chép một giá trị riêng cho mỗi module.
+Nó chỉ sở hữu padding ngang, không sở hữu chiều cao, gap dọc hoặc overflow.
+
+```tsx
+<div className="flex h-full min-h-0 flex-col gap-3">
+  <SidebarInset><ProjectHeader /></SidebarInset>
+  <SidebarHeader><SidebarSearch {...searchProps} /></SidebarHeader>
+  <SidebarInset><Filters /></SidebarInset>
+  <TreeView nodes={nodes} className="min-h-0 flex-1" />
+</div>
+```
+
+`TreeView` đã có scroll viewport và virtualization; không bọc nó bằng một
+`overflow-y-auto` khác. Với danh sách thông thường, viewport có thể chứa
+`SidebarInset` bọc các card, nhưng scrollbar vẫn thuộc viewport ngoài cùng.
+Giữ phần dành cho scrollbar của hệ điều hành khi cần; không bù bằng negative
+margin hay `calc(100% + …)` để thoát padding của một ancestor.
+
+**Khi sửa module khác:** bỏ padding ngang ở root/wrapper bao scroller, chuyển
+inset xuống các khối chrome, giữ padding sẵn có của row và tránh bọc
+`SidebarHeader` hai lần. Kiểm tra sidebar ở 240px và 480px, cây nhiều cấp,
+selection/focus, scrollbar luôn hiện và overlay scrollbar. Tên dài được truncate
+kèm tooltip; không thu nhỏ chữ hoặc giảm hit target để che lỗi bố cục.
 
 ## Toggle: global, cần vault unlocked
 

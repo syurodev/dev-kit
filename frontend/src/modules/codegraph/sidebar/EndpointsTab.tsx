@@ -1,3 +1,4 @@
+import { SidebarInset } from "@/components/ui/sidebar-shell";
 import { useMemo } from "react";
 import { Bot, Boxes, CodeXml, Columns2, Copy, Ellipsis, Send, SquarePlus } from "lucide-react";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
@@ -151,7 +152,7 @@ export function EndpointsTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {methods.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter by method">
+        <SidebarInset className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter by method">
           <button
             type="button"
             aria-pressed={active.size === 0}
@@ -182,7 +183,7 @@ export function EndpointsTab({
               {m}
             </button>
           ))}
-        </div>
+        </SidebarInset>
       ) : null}
 
       {nodes.length > 0 ? (

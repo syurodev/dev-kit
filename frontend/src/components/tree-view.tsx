@@ -4,6 +4,7 @@ import {
   memo,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,7 @@ import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { treeKeyboardTarget, treePath } from "./treeNavigation";
 import { Chip } from "@/components/ui/chip";
 
 /**
@@ -374,7 +376,7 @@ export function TreeRowTag({ danger = false, children }: { danger?: boolean; chi
  * are: a scroll that brings a row into the window mounts it, and every row
  * already there renders nothing.
  */
-const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: boolean }) {
+const Row = memo(function Row({ row, copy = false, keyboard = false, focused = false, id }: { row: FlatRow; copy?: boolean; keyboard?: boolean; focused?: boolean; id?: string }) {
   const { node, level, open } = row;
   const hasCount = node.count !== undefined;
   const hasActions = node.actions != null;
@@ -382,6 +384,8 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
 
   const line = (
     <div
+      id={id}
+      data-tree-key={row.key}
       role={copy ? undefined : "treeitem"}
       aria-level={copy ? undefined : level + 1}
       aria-expanded={!copy && node.expandable ? open : undefined}
@@ -398,6 +402,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
           // The border is on every row, transparent until selected: a border
           // that appears would move the label 1px.
           "absolute inset-y-0 right-1 flex items-center gap-1 rounded-md border pr-1.5",
+          focused && "group-focus/tree:outline group-focus/tree:outline-1 group-focus/tree:outline-border-focus",
           node.selected
             // Tinted, and the border stays: --status-info is the mark that
             // clears 3:1 in every palette (themeContrast.test.ts), the tint
@@ -415,7 +420,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
         <RowTooltip title={node.title}>
         <button
           type="button"
-          tabIndex={copy ? -1 : undefined}
+          tabIndex={copy || keyboard ? -1 : undefined}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           onClick={() => {
             node.onSelect?.();
@@ -531,7 +536,19 @@ const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
  * to set state on every event and re-render every visible row with it:
  * 8.3–8.7ms of main thread a step, p95 15ms, in the harness.
  */
-export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; className?: string }) {
+export function TreeView({ nodes, className, keyboardNavigation = false, revealNodeId }: {
+  nodes: TreeNodeData[];
+  className?: string;
+  /** IDE-style arrows, Home/End, Space preview and Enter keep. */
+  keyboardNavigation?: boolean;
+  /** Reveal once when the target changes, without taking keyboard focus. */
+  revealNodeId?: string | null;
+}) {
+  const treeId = useId();
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const revealed = useRef<string | null>(null);
+  const expanding = useRef<{ id: string | null; nodes: Set<string> }>({ id: null, nodes: new Set() });
   const rowHeight = TREE_ROW_HEIGHT;
   const rows = useMemo(() => flattenTree(nodes), [nodes]);
   const pinnable = useMemo(
@@ -559,6 +576,28 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
         if (rect.height > 0) cb(rect);
       }),
   });
+
+  useEffect(() => {
+    if (expanding.current.id !== revealNodeId) expanding.current = { id: revealNodeId ?? null, nodes: new Set() };
+    if (!revealNodeId) { revealed.current = null; return; }
+    if (revealed.current === revealNodeId) return;
+    const path = treePath(nodes, revealNodeId);
+    if (!path) return;
+    const closed = path.slice(0, -1).filter((node) => node.expandable && !node.expanded);
+    if (closed.length) {
+      closed.forEach((node) => {
+        // Effects may replay before the parent publishes its expanded state.
+        if (expanding.current.nodes.has(node.id)) return;
+        expanding.current.nodes.add(node.id);
+        node.onToggle?.();
+      });
+      return;
+    }
+    const index = rows.findIndex((row) => !row.placeholder && row.node.id === revealNodeId);
+    if (index < 0) return;
+    virtualizer.scrollToIndex(index, { align: "auto" });
+    revealed.current = revealNodeId;
+  }, [revealNodeId, nodes, rows, virtualizer]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -621,7 +660,52 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
   return (
     <RowHeight.Provider value={rowHeight}>
     <div ref={scrollRef} className={cn("min-h-0 overflow-y-auto", className)}>
-      <div role="tree" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+      <div
+        ref={treeRef}
+        className="group/tree"
+        role="tree"
+        tabIndex={keyboardNavigation ? 0 : undefined}
+        aria-label={keyboardNavigation ? "Files" : undefined}
+        aria-activedescendant={keyboardNavigation && focusedKey && virtualizer.getVirtualItems().some((item) => rows[item.index].key === focusedKey) ? `${treeId}-${rows.findIndex((row) => row.key === focusedKey)}` : undefined}
+        onFocus={keyboardNavigation ? (event) => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-key]");
+          if (row) setFocusedKey(row.dataset.treeKey ?? null);
+          else if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            const selected = rows.find((item) => item.node.selected && !item.placeholder);
+            setFocusedKey(selected?.key ?? rows.find((item) => !item.placeholder)?.key ?? null);
+          }
+        } : undefined}
+        onKeyDown={keyboardNavigation ? (event) => {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " "].includes(event.key)) return;
+          // A row's action button keeps its own keyboard behavior.
+          if (event.target !== treeRef.current && !(event.target as HTMLElement).closest("[data-tree-key] button.flex-1")) return;
+          event.preventDefault();
+          let current = rows.findIndex((row) => row.key === focusedKey);
+          if (current < 0) current = rows.findIndex((row) => row.node.selected && !row.placeholder);
+          if (current < 0) current = rows.findIndex((row) => !row.placeholder);
+          const row = rows[current];
+          if (!row) return;
+          treeRef.current?.focus({ preventScroll: true });
+          setFocusedKey(row.key);
+          if (event.key === "Enter") {
+            if (row.node.expandable) row.node.onToggle?.();
+            else (row.node.onActivate ?? row.node.onSelect)?.();
+            return;
+          }
+          if (event.key === " ") { row.node.onSelect?.(); return; }
+          if ((event.key === "ArrowRight" && row.node.expandable && !row.open) || (event.key === "ArrowLeft" && row.open)) {
+            row.node.onToggle?.();
+            return;
+          }
+          const next = treeKeyboardTarget(rows, current, event.key);
+          if (next === null || next < 0) return;
+          setFocusedKey(rows[next].key);
+          virtualizer.scrollToIndex(next, { align: "auto" });
+          rows[next].node.onSelect?.();
+        } : undefined}
+        style={{ position: "relative", height: virtualizer.getTotalSize() }}
+      >
         {/* Pinned rows on a zero-height host stuck to the scroller's top.
             Copies for the eye and the pointer; the windowed rows are what
             assistive tech and the tab order see. Deepest first, so a schema
@@ -647,7 +731,7 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
               key={item.key}
               style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
             >
-              {row.placeholder ? <Placeholder row={row} /> : <Row row={row} />}
+              {row.placeholder ? <Placeholder row={row} /> : <Row row={row} keyboard={keyboardNavigation} focused={keyboardNavigation && row.key === focusedKey} id={`${treeId}-${item.index}`} />}
             </div>
           );
         })}

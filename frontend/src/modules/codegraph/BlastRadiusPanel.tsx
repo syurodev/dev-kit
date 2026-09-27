@@ -1,91 +1,120 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getCodeGraphBlastRadius } from "@/bridge/codegraph";
 import { errorMessage } from "@/bridge/errors";
+import { useCodeGraphStore } from "./codegraphStore";
 
-/**
- * What a change to the open file can break.
- *
- * File-scoped by nature — the backend answers per file — which is why this
- * lives beside the file tree rather than in the node inspector. Answering a
- * file question while a method is selected would be answering the wrong one.
- *
- * Not computed on open: it walks a transitive closure, and most of the time you
- * are editing without asking. Press the button when you want to know.
- */
-export function BlastRadiusPanel({
-  filePath,
-  onOpenFile,
-}: {
-  filePath: string;
-  onOpenFile: (path: string) => void;
-}) {
-  const [files, setFiles] = useState<string[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+type Props = { filePath: string; onOpenFile: (path: string) => void };
 
-  // A result belongs to the file it was asked about; carrying it to the next
-  // file would quietly attribute one file's dependents to another.
-  useEffect(() => {
-    setFiles(null);
-    setError("");
-  }, [filePath]);
-
-  async function load() {
-    setBusy(true);
-    setError("");
-    try {
-      setFiles(await getCodeGraphBlastRadius(filePath));
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+/** On-demand file impact; the portal leaves all of the editor's height available. */
+export function BlastRadiusPanel({ filePath, onOpenFile }: Props) {
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  const projectPath = useCodeGraphStore((s) => s.projectPath);
+  const indexedAt = useCodeGraphStore((s) => s.indexInfo?.indexedAt);
+  const indexing = useCodeGraphStore((s) => s.busy || Boolean(s.indexInfo?.indexing));
 
   return (
-    <div className="shrink-0 border-t border-border-subtle px-3 py-1.5">
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-6 shrink-0 px-2 text-label-12"
-          disabled={busy}
-          onClick={() => void load()}
-        >
-          {busy ? "Checking…" : "Impact"}
-        </Button>
-
-        {/* An empty list and a failed call look identical if both render as
-            nothing, so the no-dependents case says so in words. */}
-        {files?.length === 0 && (
-          <span className="text-caption-11 text-text-tertiary">
-            Nothing else depends on this file.
-          </span>
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button size="icon-sm" variant="ghost" aria-label="Show file impact">
+              <GitBranch className="size-3.5" aria-hidden="true" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>File impact</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" aria-labelledby={titleId} className="w-96 max-w-[calc(100vw-2rem)]">
+        <h2 id={titleId} className="text-body-13-medium">File impact</h2>
+        {open && (
+          <ImpactResult
+            key={JSON.stringify([projectPath, filePath, indexedAt, indexing])}
+            filePath={filePath}
+            projectPath={projectPath}
+            indexedAt={indexedAt}
+            indexing={indexing}
+            onOpenFile={(path) => {
+              setOpen(false);
+              onOpenFile(path);
+            }}
+          />
         )}
-        {files && files.length > 0 && (
-          <span className="text-code-11 text-status-warning">
-            {files.length} dependent file{files.length === 1 ? "" : "s"}
-          </span>
-        )}
-        {error && <span className="truncate text-caption-11 text-status-danger">{error}</span>}
-      </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
-      {files && files.length > 0 && (
-        <ul className="mt-1 max-h-32 overflow-y-auto">
-          {files.map((f) => (
-            <li key={f}>
-              <button
-                type="button"
-                onClick={() => onOpenFile(f)}
-                className="w-full truncate rounded px-1 py-0.5 text-left text-code-11 text-text-secondary hover:bg-surface-raised"
-              >
-                {f}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+// Keyed to the index as well as the file: a re-index cannot leave an old
+// dependency list visible, and a delayed bridge response cannot overwrite it.
+function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }: Props & {
+  projectPath: string;
+  indexedAt: number | undefined;
+  indexing: boolean;
+}) {
+  const [files, setFiles] = useState<string[] | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(100);
+  useEffect(() => {
+    if (indexing || !projectPath) return;
+    let active = true;
+    const current = () => {
+      const state = useCodeGraphStore.getState();
+      return active && state.projectPath === projectPath && state.indexInfo?.indexedAt === indexedAt
+        && !state.busy && !state.indexInfo?.indexing;
+    };
+    void getCodeGraphBlastRadius(filePath).then(
+      (result) => { if (current()) setFiles(result); },
+      (reason) => { if (current()) setError(errorMessage(reason)); },
+    );
+    return () => { active = false; };
+  }, [filePath, projectPath, indexedAt, indexing, attempt]);
+
+  if (error) return (
+    <div role="alert" className="flex flex-col items-start gap-2">
+      <p className="break-words text-body-12 text-status-danger">{error}</p>
+      <Button size="xs" variant="outline" onClick={() => { setError(""); setAttempt((n) => n + 1); }}>
+        Try again
+      </Button>
     </div>
+  );
+  if (!files) return (
+    <p role="status" className="text-body-12 text-text-tertiary">
+      {indexing ? "Waiting for the index…" : "Checking dependencies…"}
+    </p>
+  );
+  if (!files.length) return (
+    <p role="status" className="text-body-12 text-text-tertiary">Nothing else depends on this file.</p>
+  );
+  return (
+    <>
+      <p role="status" className="text-body-12 text-text-secondary tabular-nums">
+        {files.length} dependent file{files.length === 1 ? "" : "s"}
+      </p>
+      <ul className="max-h-64 overflow-y-auto [scrollbar-gutter:stable]">
+        {files.slice(0, visibleCount).map((path) => (
+          <li key={path}>
+            <button
+              type="button"
+              title={path}
+              onClick={() => onOpenFile(path)}
+              className="h-7 w-full truncate rounded px-2 text-left text-code-11 text-text-secondary transition-colors duration-(--motion-fast) hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-status-info"
+            >
+              {path}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {visibleCount < files.length && (
+        <Button size="xs" variant="ghost" onClick={() => setVisibleCount((n) => n + 100)}>
+          Show more ({files.length - visibleCount} remaining)
+        </Button>
+      )}
+    </>
   );
 }
