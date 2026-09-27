@@ -123,7 +123,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
   });
 
   describe("Tab Strip (Figma 449:325)", () => {
-    it("renders 48px height container with p-2, gap-2, new-tab button with 13px plus, and trailing spacer", () => {
+    it("renders a compact 40px strip with 4px vertical inset, new-tab button and trailing spacer", () => {
       const sampleTabs: WorkbenchTab[] = [
         {
           id: "notes:1",
@@ -148,9 +148,9 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         </TooltipProvider>,
       );
 
-      // Strip container is 48px (h-12), p-2, gap-2
-      expect(html).toContain("h-12");
-      expect(html).toContain("p-2");
+      // Compact shell: retain horizontal alignment while bringing content up.
+      expect(html).toContain("h-10");
+      expect(html).toContain("px-2 py-1");
       expect(html).toContain("gap-2");
       // New-tab button: the titlebar variant at icon-sm — 28x28, radius 8 —
       // with a 13px plus of its own.

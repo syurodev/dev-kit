@@ -272,11 +272,11 @@ function GroupCard({
           // on screen does — so unfolding shows it as it was.
           folded ? "hidden" : "flex min-h-0 flex-1 flex-col",
           module?.padded
-            ? // Half the gutter at the top when a tab strip is above, because
-              // the strip already ends in 8px of its own. Without a strip the
-              // section touches the card's edge and owes the full gutter.
+            ? // The tab strip already has a 4px bottom inset. Start content
+              // at the shell gutter when tabs are present; without a strip
+              // the section touches the card edge and owes the full gutter.
               module.tabs
-              ? "overflow-auto px-4 pb-4 pt-2"
+              ? "overflow-auto px-4 pb-4 pt-0"
               : "overflow-auto p-4"
             : "overflow-hidden p-0",
         )}
@@ -365,4 +365,3 @@ function GroupSash({
     />
   );
 }
-

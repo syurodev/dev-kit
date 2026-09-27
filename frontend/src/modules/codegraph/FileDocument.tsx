@@ -24,7 +24,7 @@ const onNavigate = (location: CodeLocation, { beside }: { beside: boolean }) =>
   openFile(location.path, location.line, { beside });
 
 /**
- * One file as a tab, open for editing, with what depends on it underneath.
+ * One file as a tab, open for editing, with file impact available in its toolbar.
  *
  * Each file is its own buffer, so opening another never asks to throw edits
  * away — the old single-editor pane had to, with a Discard dialog. Closing
@@ -92,20 +92,23 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4">
         <span className="min-w-0 truncate text-code-11 text-text-secondary" title={path}>
           {path}
         </span>
-        {buffer.dirty ? (
-          <span className="flex shrink-0 items-center gap-2">
-            <span className="text-code-11 text-status-warning">unsaved</span>
-            {!orphaned ? (
-              <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => void saveFile(path)}>
-                Save
-              </Button>
-            ) : null}
-          </span>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {buffer.dirty ? (
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="text-code-11 text-status-warning">unsaved</span>
+              {!orphaned ? (
+                <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => void saveFile(path)}>
+                  Save
+                </Button>
+              ) : null}
+            </span>
+          ) : null}
+          {!orphaned ? <BlastRadiusPanel key={path} filePath={path} onOpenFile={onOpenFile} /> : null}
+        </div>
       </div>
       {orphaned ? (
         <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2">
@@ -137,7 +140,6 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
           {buffer.error}
         </p>
       ) : null}
-      {!orphaned ? <BlastRadiusPanel key={path} filePath={path} onOpenFile={onOpenFile} /> : null}
     </div>
   );
 }
