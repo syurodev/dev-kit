@@ -380,6 +380,22 @@
     --border-subtle: color-mix(in srgb, var(--tint-border) 8%, transparent);
     --border-focus: var(--palette-candy-blue);
 
+    /* Syntax colours (components/code-editor/devkitSyntax.ts), for every
+       surface that colours code: editors, read-only blocks, Notes.
+       Derived from the ramp, so a family that says nothing about code gets
+       code in its own status colours, already contrast-checked. A family whose
+       editor has a palette of its own (Xcode's pink keywords and red strings)
+       sets these in theme/families.ts. Declared here, on :root, so the var()s
+       resolve against the family's ramp on the same element. */
+    --syntax-keyword: var(--brand-text);
+    --syntax-string: var(--status-success);
+    --syntax-number: var(--status-warning);
+    --syntax-type: var(--status-recovery);
+    --syntax-function: var(--status-info);
+    --syntax-definition: var(--text-primary);
+    --syntax-comment: var(--text-tertiary);
+    --syntax-meta: var(--text-tertiary);
+
     /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
        (same hue as the background, Apple-style — the lavender/orchid ambience
        comes from the vibrancy blobs BEHIND the glass, not from the tint);

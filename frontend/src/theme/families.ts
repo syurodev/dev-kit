@@ -1,5 +1,5 @@
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
-import type { MixToken, ThemeToken, TintToken } from "./tokens";
+import type { MixToken, SyntaxToken, ThemeToken, TintToken } from "./tokens";
 
 /**
  * One palette, in one mode: the tokens it overrides and nothing else.
@@ -8,7 +8,7 @@ import type { MixToken, ThemeToken, TintToken } from "./tokens";
  * does not have to restate a value it agrees with, and a token added to the
  * base later reaches every family for free.
  */
-export type ThemePalette = Partial<Record<TintToken | ThemeToken | MixToken, string>>;
+export type ThemePalette = Partial<Record<TintToken | ThemeToken | MixToken | SyntaxToken, string>>;
 
 /**
  * A family supplies BOTH modes.
@@ -751,7 +751,31 @@ const EVERFOREST: ThemeFamilyDefinition = {
   },
 };
 
-/** Xcode — Apple's familiar graphite editor and bright system-blue light mode. */
+/**
+ * Xcode — macOS chrome around Xcode's own "Default" editor palette.
+ *
+ * Two sources, because Xcode itself is two things. The chrome is macOS: the
+ * system grays for grounds and text, and the system colours for accent and
+ * status (blue, green, orange, red, purple). The code is Xcode's "Default
+ * (Dark)" / "Default (Light)" theme, Xcode 12 onwards — pink keywords, red
+ * strings, purple system types — read out of the .xccolortheme files.
+ *
+ * Where a published value misses the floor in themeContrast.test.ts, Apple's
+ * own Increased Contrast variant is used (dark: blue #409cff, red #ff6961,
+ * purple #da8fff; light: red #d70015, purple #8944ab), and only when that
+ * misses too is the colour taken darker or lighter in its own hue, exactly as
+ * far as the floor needs:
+ * - light: blue #007aff → #0067d7, green #248a3d → #207b36, orange #c93400 → #c83400
+ * - dark code: function #a167e6 → #b282eb (Xcode 11's own "other function"),
+ *   declaration #41a1c0 → #47a4c2, attribute #bf8555 → #c38d60, and comment
+ *   #6c7986 → #909aa4 — the one real move: Xcode's comment is 2.9:1 on these
+ *   grounds, fine for a gutter hint, not for text people read.
+ * Every light code colour is Xcode's exactly.
+ *
+ * The filled button is #0071e3, Apple's own button blue: system blue under
+ * white text is 3.7:1 (dark) and 4.0:1 (light), and white is what an Apple
+ * button says on.
+ */
 const XCODE: ThemeFamilyDefinition = {
   id: "xcode",
   label: "Xcode",
@@ -767,21 +791,31 @@ const XCODE: ThemeFamilyDefinition = {
     "--text-secondary": "#d1d1d6",
     "--text-tertiary": "#a1a1a8",
     "--icon-secondary": "#d1d1d6",
-    "--action-primary": "#64a8ff",
-    "--action-primary-foreground": "#171719",
-    ...states("#64a8ff", "dark"),
-    "--brand-text": "#64a8ff",
-    "--status-info": "#64a8ff",
-    "--status-success": "#69d18b",
-    "--status-warning": "#ffd166",
-    "--status-recovery": "#c5a3ff",
-    "--status-danger": "#ff7b72",
-    "--border-focus": "#64a8ff",
+    "--action-primary": "#0071e3",
+    "--action-primary-foreground": "#ffffff",
+    ...states("#0071e3", "dark"),
+    "--brand-text": "#409cff",
+    "--status-info": "#409cff",
+    "--status-success": "#30d158",
+    "--status-warning": "#ff9f0a",
+    "--status-recovery": "#da8fff",
+    "--status-danger": "#ff6961",
+    "--border-focus": "#409cff",
+    "--syntax-keyword": "#fc5fa3",
+    "--syntax-string": "#fc6a5d",
+    "--syntax-number": "#d0bf69",
+    "--syntax-type": "#d0a8ff",
+    "--syntax-function": "#b282eb",
+    "--syntax-definition": "#47a4c2",
+    "--syntax-comment": "#909aa4",
+    "--syntax-meta": "#c38d60",
   },
   light: {
     "--tint-veil": "#1c1c1e",
     "--tint-border": "#8e8e93",
-    "--background-app": "#e5e5ea",
+    // macOS's window background; systemGray5 (#e5e5ea) sat darker than the
+    // window Xcode actually draws, and cost every status colour contrast.
+    "--background-app": "#ececec",
     "--background-canvas": "#f2f2f7",
     "--surface-base": "#ffffff",
     "--surface-raised": "#f2f2f7",
@@ -790,16 +824,24 @@ const XCODE: ThemeFamilyDefinition = {
     "--text-secondary": "#3a3a3c",
     "--text-tertiary": "#545458",
     "--icon-secondary": "#3a3a3c",
-    "--action-primary": "#0066cc",
+    "--action-primary": "#0071e3",
     "--action-primary-foreground": "#ffffff",
-    ...states("#0066cc", "light"),
-    "--brand-text": "#0066cc",
-    "--status-info": "#0066cc",
-    "--status-success": "#248a3d",
-    "--status-warning": "#8a5a00",
-    "--status-recovery": "#8944b8",
-    "--status-danger": "#c5221f",
-    "--border-focus": "#0066cc",
+    ...states("#0071e3", "light"),
+    "--brand-text": "#0067d7",
+    "--status-info": "#0067d7",
+    "--status-success": "#207b36",
+    "--status-warning": "#c83400",
+    "--status-recovery": "#8944ab",
+    "--status-danger": "#d70015",
+    "--border-focus": "#0067d7",
+    "--syntax-keyword": "#9b2393",
+    "--syntax-string": "#c41a16",
+    "--syntax-number": "#1c00cf",
+    "--syntax-type": "#3900a0",
+    "--syntax-function": "#6c36a9",
+    "--syntax-definition": "#0f68a0",
+    "--syntax-comment": "#5d6c79",
+    "--syntax-meta": "#815f03",
   },
 };
 

@@ -95,8 +95,8 @@ describe("grammars", () => {
     const code = 'public final class Policy {\n  String name = "x"; // why\n}';
     const segments = tokenize(code, await loadParser("java"));
     const classOf = (text: string) => segments.find((segment) => segment.text === text)?.className ?? "";
-    expect(classOf("public")).toContain("text-(--brand-text)");
-    expect(classOf('"x"')).toContain("text-(--status-success)");
+    expect(classOf("public")).toContain("text-(--syntax-keyword)");
+    expect(classOf('"x"')).toContain("text-(--syntax-string)");
     expect(classOf("// why")).toContain("italic");
     expect(segments.map((segment) => segment.text).join("")).toBe(code);
   });
@@ -106,15 +106,15 @@ describe("grammars", () => {
       segments.find((segment) => segment.text.includes(text))?.className ?? "";
 
     const json = tokenize('{"name": "x", "n": 1}', await loadParser("json"));
-    expect(classOf(json, '"x"')).toContain("text-(--status-success)");
+    expect(classOf(json, '"x"')).toContain("text-(--syntax-string)");
     expect(classOf(json, "1")).not.toBe("");
 
     const yaml = tokenize("name: x # note\n", await loadParser("yaml"));
-    expect(classOf(yaml, "# note")).toContain("text-(--text-tertiary)");
+    expect(classOf(yaml, "# note")).toContain("text-(--syntax-comment)");
 
     const sql = tokenize("SELECT id FROM users WHERE name = 'x'", await loadParser("sql"));
-    expect(classOf(sql, "SELECT")).toContain("text-(--brand-text)");
-    expect(classOf(sql, "'x'")).toContain("text-(--status-success)");
+    expect(classOf(sql, "SELECT")).toContain("text-(--syntax-keyword)");
+    expect(classOf(sql, "'x'")).toContain("text-(--syntax-string)");
   });
 
   it("colours the grammars that come through the legacy stream adapter too", async () => {
@@ -122,8 +122,8 @@ describe("grammars", () => {
     // grammars; their tokens have to reach the same classes.
     const segments = tokenize('echo "hello" # greet\n', await loadParser("shell"));
     const classOf = (text: string) => segments.find((segment) => segment.text.includes(text))?.className ?? "";
-    expect(classOf('"hello"')).toContain("text-(--status-success)");
-    expect(classOf("# greet")).toContain("text-(--text-tertiary)");
+    expect(classOf('"hello"')).toContain("text-(--syntax-string)");
+    expect(classOf("# greet")).toContain("text-(--syntax-comment)");
   });
 });
 

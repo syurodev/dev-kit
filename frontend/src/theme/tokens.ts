@@ -91,9 +91,29 @@ export const MIX_TOKENS = [
   "--border-subtle",
 ] as const;
 
+/**
+ * Code colours. Optional for a family, unlike the tiers above: index.css
+ * derives every one from the ramp (`--syntax-keyword: var(--brand-text)` …),
+ * so a family that says nothing about code gets code in its own status
+ * colours. A family whose editor has a palette of its own — Xcode's pink
+ * keywords and red strings — sets them, and themeContrast.test.ts floors
+ * them like any other text.
+ */
+export const SYNTAX_TOKENS = [
+  "--syntax-keyword",
+  "--syntax-string",
+  "--syntax-number",
+  "--syntax-type",
+  "--syntax-function",
+  "--syntax-definition",
+  "--syntax-comment",
+  "--syntax-meta",
+] as const;
+
 export type TintToken = (typeof TINT_TOKENS)[number];
 export type ThemeToken = (typeof THEME_TOKENS)[number];
 export type MixToken = (typeof MIX_TOKENS)[number];
+export type SyntaxToken = (typeof SYNTAX_TOKENS)[number];
 
 /** Every custom property a complete theme may set. */
-export const CONTRACT = [...TINT_TOKENS, ...THEME_TOKENS, ...MIX_TOKENS] as const;
+export const CONTRACT = [...TINT_TOKENS, ...THEME_TOKENS, ...MIX_TOKENS, ...SYNTAX_TOKENS] as const;
