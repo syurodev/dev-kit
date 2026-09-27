@@ -1,4 +1,6 @@
 import { Chip } from "@/components/ui/chip";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage } from "@/components/code/languages";
 import type { KafkaMessage } from "@/bridge/kafka";
 import { formatOffset, prettyValue } from "./kafkaForm";
 
@@ -37,9 +39,11 @@ export function MessagePanel({
         ))}
       </dl>
       <span className="text-label-11-caps text-text-tertiary">Value</span>
-      <pre className="min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well px-3 py-2 text-code-12 whitespace-pre-wrap text-text-secondary select-text">
-        {value.text}
-      </pre>
+      <CodeBlock
+        code={value.text}
+        language={value.json ? "json" : detectLanguage(value.text)}
+        className="min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well px-3 py-2 text-code-12 whitespace-pre-wrap text-text-secondary select-text"
+      />
       <div className="flex items-center gap-2">
         <Chip>{value.json ? "json" : "raw"}</Chip>
       </div>

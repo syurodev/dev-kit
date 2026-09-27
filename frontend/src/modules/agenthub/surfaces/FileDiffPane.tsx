@@ -8,13 +8,8 @@ import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { changedRuns, diffStats, foldContext, sourceLines, splitPairs, wholeFileDiff } from "@/lib/diffHunks";
 import { lineDiff } from "@/modules/notes/noteDiff";
-import {
-  HIGHLIGHT_LIMIT,
-  languageForPath,
-  loadParser,
-  tokenizeLines,
-  type SyntaxSegment,
-} from "@/modules/agenthub/transcript/syntax";
+import { HIGHLIGHT_LIMIT, loadParser, tokenizeLines, type SyntaxSegment } from "@/components/code/highlight";
+import { languageForPath } from "@/components/code/languages";
 
 /** One file's two versions, however the surface came by them. */
 export type FileDiffView = {

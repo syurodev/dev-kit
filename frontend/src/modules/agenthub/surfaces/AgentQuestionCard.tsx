@@ -2,6 +2,8 @@ import type * as React from "react";
 import { useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage } from "@/components/code/languages";
 import { Button } from "@/components/ui/button";
 import {
   Questionnaire,
@@ -329,9 +331,11 @@ function QuestionField({ field, form }: { field: ElicitationField; form: Elicita
       )}
 
       {preview ? (
-        <pre className="max-h-40 max-w-full overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap wrap-anywhere text-text-secondary">
-          {preview}
-        </pre>
+        <CodeBlock
+          code={preview}
+          language={detectLanguage(preview)}
+          className="max-h-40 max-w-full overflow-auto rounded-md border border-border-subtle bg-surface-base p-2 text-code-11 whitespace-pre-wrap wrap-anywhere text-text-secondary"
+        />
       ) : null}
 
       <QuestionnaireError />

@@ -37,9 +37,6 @@ const BASELINE: Record<string, number> = {
   // The database module's ERD-style plan view reuses CodeGraph's diagram
   // primitives.
   "database -> codegraph": 1,
-  // git's syntax highlighting reuses agenthub's language-detection table
-  // rather than a second copy.
-  "git -> agenthub": 1,
   // Settings' agent runtime tab reads agenthub's runtime types to render its
   // install/version UI.
   "settings -> agenthub": 1,

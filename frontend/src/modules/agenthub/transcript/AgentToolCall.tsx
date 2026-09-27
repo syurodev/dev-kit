@@ -12,7 +12,8 @@ import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
-import { languageForPath, normalizeLanguage, parseListing } from "./syntax";
+import { languageForPath, normalizeLanguage } from "@/components/code/languages";
+import { parseListing } from "./syntax";
 import { renderToolResult } from "@/workbench/toolResultViews";
 
 export type AgentToolCallProps = {

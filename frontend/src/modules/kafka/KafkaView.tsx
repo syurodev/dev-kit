@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { json } from "@codemirror/lang-json";
+import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Loader2, PlugZap, Plus, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,7 +109,7 @@ export function KafkaView() {
 
   const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
 
-  const jsonExtension = useMemo(() => [json()], []);
+  const jsonExtension = useLanguageExtension("json");
   const profile = profiles.find((p) => p.id === selectedId);
 
   function onKeyDown(e: React.KeyboardEvent) {

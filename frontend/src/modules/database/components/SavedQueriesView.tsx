@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { CodeBlock } from "@/components/code/CodeBlock";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { copyText } from "../../../bridge/clipboard";
 import {
@@ -206,9 +207,11 @@ export function SavedQueriesView() {
                   </div>
                 </div>
 
-                <pre className="text-code-12 text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
-                  {query.sql}
-                </pre>
+                <CodeBlock
+                  code={query.sql}
+                  language="sql"
+                  className="text-code-12 text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap"
+                />
               </div>
             ))}
           </div>

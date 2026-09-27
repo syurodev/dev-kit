@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Folder, Save, Send, Terminal } from "lucide-react";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage, languageForContentType } from "@/components/code/languages";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +24,16 @@ import { ApiAuthPicker } from "./ApiAuthPicker";
 import { CollectionsDialog } from "./CollectionsDialog";
 import { RequestHistory } from "./RequestHistory";
 import { byFolderThenName, folderPath, foldersByPath, requestLabel } from "./collections";
+
+
+/**
+ * A response body's language: what the server said it is, then what it
+ * looks like — plenty of APIs send JSON as text/plain, or no type at all.
+ */
+function bodyLanguage(headers: Record<string, string> | null, body: string): string | undefined {
+  const contentType = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === "content-type")?.[1];
+  return languageForContentType(contentType) ?? detectLanguage(body);
+}
 
 /**
  * Compose and send. Auth is not a field here on purpose: the request carries
@@ -241,7 +253,11 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
               {response.bytes} bytes
               {response.truncated ? " · truncated" : ""}
             </div>
-            <pre className="whitespace-pre-wrap pt-2 font-mono text-xs">{response.body}</pre>
+            <CodeBlock
+              code={response.body}
+              language={bodyLanguage(response.headers, response.body)}
+              className="whitespace-pre-wrap pt-2 font-mono text-xs"
+            />
           </section>
         ) : null}
         {/* Keyed on the request so switching requests remounts it: a list of
@@ -320,7 +336,7 @@ function DraftView({
         <section className="pt-3">
           <h3 className="pb-1 font-medium text-fg-muted">Body</h3>
           {draft.bodyInferred ? (
-            <pre className="whitespace-pre-wrap font-mono">{draft.body}</pre>
+            <CodeBlock code={draft.body ?? ""} language={detectLanguage(draft.body ?? "")} className="whitespace-pre-wrap font-mono" />
           ) : (
             <p className="text-fg-muted">{draft.note}</p>
           )}

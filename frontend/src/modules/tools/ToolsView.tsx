@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import { Check, Copy, Eraser, Wrench } from "lucide-react";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage } from "@/components/code/languages";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
@@ -138,14 +140,16 @@ export function ToolsView() {
           </Button>
         )}
       </div>
-      <pre
+      {/* A formatted document, a decoded JWT or base64 that turned out to be
+          JSON reads as code; a hash or an encoded string stays plain. */}
+      <CodeBlock
         aria-label="tool-output"
+        code={error || output || " "}
+        language={error ? undefined : detectLanguage(output)}
         className={`${WELL} overflow-auto scrollbar-gutter-stable px-4 py-3 text-code-12 whitespace-pre-wrap break-all select-text ${
           error ? "text-status-danger" : "text-text-secondary"
         }`}
-      >
-        {error || output || " "}
-      </pre>
+      />
 
       <span className="shrink-0 text-code-11 text-text-tertiary">
         runs on this device · no vault, no network, nothing stored

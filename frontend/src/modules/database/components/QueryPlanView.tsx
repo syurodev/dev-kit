@@ -11,6 +11,8 @@ import {
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { detectLanguage } from "@/components/code/languages";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -186,9 +188,11 @@ export function QueryPlanView({
                 {copied ? <Check className="w-3 h-3 text-status-success" /> : <Copy className="w-3 h-3" />}
                 <span>{copied ? "Copied" : "Copy Raw"}</span>
               </Button>
-              <pre className="p-4 rounded-lg bg-surface-raised border border-border text-code-12 text-text-primary whitespace-pre overflow-x-auto">
-                {plan.raw || "No raw plan output"}
-              </pre>
+              <CodeBlock
+                code={plan.raw || "No raw plan output"}
+                language={detectLanguage(plan.raw)}
+                className="p-4 rounded-lg bg-surface-raised border border-border text-code-12 text-text-primary whitespace-pre overflow-x-auto"
+              />
             </div>
           )}
         </div>
