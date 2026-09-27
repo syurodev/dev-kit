@@ -123,6 +123,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `ErrAgentAPIKeyUnusable` → `agent_api_key_unusable`, which the UI sends to Settings
   rather than to a sign-in (the key wins at every spawn). `app.CodexAPIKey.Choose`
   refuses agent / user-terminal callers like sign-in does.
+- **A turn the vendor refuses is not a crash.** Codex's `usageLimitExceeded` →
+  `ErrAgentUsageLimit` (`agent_usage_limit`); a full context window, a spent budget or
+  any other failed turn → `ErrTurnFailed` (`agent_turn_failed`). Both carry Codex's own
+  sentence (`VendorError.Message` — the only place that says when a limit lifts), leave
+  the session `idle` rather than `error`, and are also reported as a session failure
+  (`codexTurnFailure`), the banner Claude's air `sessionFailure` fills. The banner lasts
+  one turn: the next prompt retires it (`transcript.ts`). `ErrProcessFailed` is for a
+  process that actually died.
 
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback

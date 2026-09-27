@@ -38,6 +38,17 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 			"agent_api_key_unusable: Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."},
 		{fmt.Errorf("invoke: %w", &agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: Codex is not signed in", agenthub.ErrAgentAuthRequired)}),
 			"agent_auth_required: Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."},
+		// A usage limit says so, in the vendor's own words — the only ones that
+		// say when it lifts — rather than "connection_failed: Agent process failed."
+		{fmt.Errorf("invoke: %w", &agenthub.VendorError{Agent: agenthub.AgentTypeCodex,
+			Err:     fmt.Errorf("%w: You've hit your usage limit.", agenthub.ErrAgentUsageLimit),
+			Message: "You've hit your usage limit. Upgrade to Pro or try again at 3:10 PM."}),
+			"agent_usage_limit: Codex usage limit reached. You've hit your usage limit. Upgrade to Pro or try again at 3:10 PM."},
+		{agenthub.ErrAgentUsageLimit, "agent_usage_limit: Usage limit reached."},
+		{&agenthub.VendorError{Agent: agenthub.AgentTypeCodex,
+			Err:     fmt.Errorf("%w: the conversation no longer fits: too long", agenthub.ErrTurnFailed),
+			Message: "too long"},
+			"agent_turn_failed: Codex couldn't finish the turn. too long"},
 		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailableInServerMode, "validation_failed: Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts."},

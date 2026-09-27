@@ -60,6 +60,18 @@ var (
 	// no DEVKIT_*_COMMAND override. Never a reason to try PATH or npx. Like
 	// ErrAgentAuthRequired, it arrives inside a VendorError.
 	ErrAgentNotInstalled = errors.New("agenthub.notInstalled")
+	// ErrAgentUsageLimit is a vendor refusing a turn because the account's
+	// allowance is spent. Nothing crashed: the process is up, the session is
+	// usable, and the next prompt after the window resets goes through. It
+	// arrives inside a VendorError whose Message is the vendor's own sentence,
+	// which is the only place that says when the limit lifts.
+	ErrAgentUsageLimit = errors.New("agenthub.usageLimit")
+	// ErrTurnFailed is a turn the vendor ended with an error of its own — the
+	// context window full, a budget spent, a provider error — while its
+	// process stays up. Not ErrProcessFailed: that read "Agent process failed"
+	// and offered Restart for a session that was working, and hid the one
+	// sentence (the vendor's) that said what to do.
+	ErrTurnFailed = errors.New("agenthub.turnFailed")
 )
 
 // VendorError is an error that is about one vendor rather than about Agent
@@ -70,6 +82,10 @@ var (
 type VendorError struct {
 	Agent AgentType
 	Err   error
+	// Message is the vendor's own words for the problem, meant for the person
+	// reading it ("You've hit your usage limit… try again at 3:10 PM."), when
+	// the vendor gave any. The bridge shows it; Err stays the internal detail.
+	Message string
 }
 
 func (e *VendorError) Error() string { return e.Err.Error() }
@@ -82,6 +98,23 @@ func vendorError(agent AgentType, err error) error {
 		return nil
 	}
 	return &VendorError{Agent: agent, Err: err}
+}
+
+// vendorMessageError is vendorError carrying the vendor's own message.
+func vendorMessageError(agent AgentType, err error, message string) error {
+	if err == nil {
+		return nil
+	}
+	return &VendorError{Agent: agent, Err: err, Message: message}
+}
+
+// ErrorVendorMessage is the vendor's own message an error carries, or "".
+func ErrorVendorMessage(err error) string {
+	var v *VendorError
+	if errors.As(err, &v) {
+		return v.Message
+	}
+	return ""
 }
 
 // ErrorVendor is the vendor an error names, or "" when it names none.

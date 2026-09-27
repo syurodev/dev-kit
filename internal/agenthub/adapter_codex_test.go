@@ -88,6 +88,9 @@ func runFakeCodex(scenario, logPath string) {
 		case "unauthorized":
 			notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "failed",
 				"error": map[string]any{"message": "401 Unauthorized", "codexErrorInfo": "unauthorized", "additionalDetails": nil}}})
+		case "usageLimit":
+			notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "failed",
+				"error": map[string]any{"message": "You've hit your usage limit. Try again at 3:10 PM.", "codexErrorInfo": "usageLimitExceeded", "additionalDetails": nil}}})
 		case "errorOnly":
 			notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": cmdItem})
 			notify("error", map[string]any{"threadId": thread, "turnId": turn, "willRetry": true,
@@ -779,6 +782,92 @@ func TestCodexFailedTurnAsksForSignIn(t *testing.T) {
 	}
 }
 
+// A usage limit is Codex refusing the turn, not Codex failing: the error
+// says so (and carries Codex's own sentence, which says when it lifts), the
+// session hears it as the failure banner Claude's sessionFailure fills, and
+// the process is left running for the prompt after the limit resets. It used
+// to reach the screen as "connection_failed — Agent process failed".
+func TestCodexUsageLimitIsAFailureNotACrash(t *testing.T) {
+	f := newCodexFixture(t, "usageLimit")
+	rt := f.open(t)
+	var log updateLog
+	rt.SetHandlers(RuntimeHandlers{OnUpdate: log.add})
+	_, err := rt.Prompt(context.Background(), TextPrompt("go"), nil)
+	if !errors.Is(err, ErrAgentUsageLimit) || errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("Prompt = %v, want ErrAgentUsageLimit and not ErrProcessFailed", err)
+	}
+	if got := ErrorVendor(err); got != AgentTypeCodex {
+		t.Fatalf("vendor = %q, want codex", got)
+	}
+	if got := ErrorVendorMessage(err); got != "You've hit your usage limit. Try again at 3:10 PM." {
+		t.Fatalf("vendor message = %q", got)
+	}
+
+	var failure *SessionFailure
+	log.mu.Lock()
+	for _, raw := range log.updates {
+		if up := ParseSessionUpdate(raw); up.Failure != nil {
+			failure = up.Failure
+		}
+	}
+	log.mu.Unlock()
+	if failure == nil {
+		t.Fatalf("no session failure was reported:\n%s", log.joined())
+	}
+	if failure.ID != "codex-usage-limit" || failure.Category != "usage_limit" || failure.Severity != "error" ||
+		!strings.Contains(failure.Details, "Try again at 3:10 PM") || len(failure.Actions) != 1 || failure.Actions[0] != "retry" {
+		t.Fatalf("failure = %+v", *failure)
+	}
+	if dead, _ := rt.(RuntimeLiveness).Dead(); dead {
+		t.Fatal("a usage limit must not kill the process")
+	}
+}
+
+// Each way Codex can end a turn with an error maps to the kind the UI acts
+// on, with Codex's message kept for the person reading it.
+func TestCodexTurnErrorKinds(t *testing.T) {
+	turn := func(kind, message string) *codexapp.TurnError {
+		return &codexapp.TurnError{Message: message, CodexErrorInfo: json.RawMessage(kind)}
+	}
+	cases := []struct {
+		name    string
+		in      *codexapp.TurnError
+		want    error
+		failure string
+		action  string
+	}{
+		{"usage limit", turn(`"usageLimitExceeded"`, "limit"), ErrAgentUsageLimit, "codex-usage-limit", "retry"},
+		{"context window", turn(`"contextWindowExceeded"`, "too long"), ErrTurnFailed, "codex-context-window", "new_session"},
+		{"budget", turn(`"sessionBudgetExceeded"`, "spent"), ErrTurnFailed, "codex-session-budget", "new_session"},
+		{"object-shaped kind", turn(`{"usageLimitExceeded":{"resetsAt":1}}`, "limit"), ErrAgentUsageLimit, "codex-usage-limit", "retry"},
+		{"anything else", turn(`"internalServerError"`, "boom"), ErrTurnFailed, "codex-turn-failed", "retry"},
+		{"no error at all", nil, ErrTurnFailed, "codex-turn-failed", "retry"},
+		{"sign-in", turn(`"unauthorized"`, "401"), ErrAgentAuthRequired, "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := codexTurnError(tc.in)
+			if !errors.Is(err, tc.want) || errors.Is(err, ErrProcessFailed) {
+				t.Fatalf("codexTurnError = %v, want %v", err, tc.want)
+			}
+			failure := codexTurnFailure(tc.in, 42)
+			if tc.failure == "" {
+				if failure != nil {
+					t.Fatalf("a sign-in has its own card; got failure %+v", *failure)
+				}
+				return
+			}
+			if failure == nil || failure.ID != tc.failure || failure.Revision != 42 ||
+				len(failure.Actions) != 1 || failure.Actions[0] != tc.action {
+				t.Fatalf("codexTurnFailure = %+v, want id %s action %s", failure, tc.failure, tc.action)
+			}
+			if tc.in != nil && failure.Details != tc.in.Message {
+				t.Fatalf("details = %q, want Codex's message %q", failure.Details, tc.in.Message)
+			}
+		})
+	}
+}
+
 // An error Codex will retry is only logged; one it will not ends the turn,
 // even when no turn/completed follows it.
 func TestCodexErrorWithoutCompletionEndsTheTurn(t *testing.T) {
@@ -789,7 +878,7 @@ func TestCodexErrorWithoutCompletionEndsTheTurn(t *testing.T) {
 	var log updateLog
 	rt.SetHandlers(RuntimeHandlers{OnUpdate: log.add})
 	_, err := rt.Prompt(context.Background(), TextPrompt("go"), nil)
-	if !errors.Is(err, ErrProcessFailed) || !strings.Contains(err.Error(), "usage limit") {
+	if !errors.Is(err, ErrAgentUsageLimit) || !strings.Contains(err.Error(), "usage limit") {
 		t.Fatalf("Prompt = %v", err)
 	}
 	if !strings.Contains(log.joined(), `"toolCallId":"cmd-1","status":"failed"`) {

@@ -58,6 +58,14 @@ const (
 	// API key chosen in Settings is gone or was refused, and it wins over
 	// the vendor's own sign-in at every spawn. The UI points at Settings.
 	codeAgentAPIKeyUnusable = "agent_api_key_unusable"
+	// codeAgentUsageLimit is the vendor refusing a turn because the account's
+	// allowance is spent — a wait or an upgrade, not a restart. The message
+	// is the vendor's own, which says when the limit lifts.
+	codeAgentUsageLimit = "agent_usage_limit"
+	// codeAgentTurnFailed is a turn the vendor ended with an error of its own
+	// while the agent stays up: the session is fine, the vendor's message says
+	// why this turn did not finish.
+	codeAgentTurnFailed = "agent_turn_failed"
 )
 
 var safeValidationMessages = map[string]struct{}{
@@ -275,6 +283,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeAgentAPIKeyUnusable, agentAPIKeyUnusableMessage(agenthub.ErrorVendor(err)), true)
 		case errors.Is(err, agenthub.ErrAgentAuthRequired):
 			return apperrors.New(codeAgentAuthRequired, agentAuthRequiredMessage(agenthub.ErrorVendor(err)), true)
+		case errors.Is(err, agenthub.ErrAgentUsageLimit):
+			return apperrors.New(codeAgentUsageLimit, agentUsageLimitMessage(agenthub.ErrorVendor(err), agenthub.ErrorVendorMessage(err)), true)
+		case errors.Is(err, agenthub.ErrTurnFailed):
+			return apperrors.New(codeAgentTurnFailed, agentTurnFailedMessage(agenthub.ErrorVendor(err), agenthub.ErrorVendorMessage(err)), true)
 		case errors.Is(err, agenthub.ErrUnsupported):
 			return apperrors.New(codeValidationFailed, "This agent doesn't support that.", true)
 		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
@@ -461,6 +473,41 @@ func agentAPIKeyUnusableMessage(agent agenthub.AgentType) string {
 		return "Codex can't use the API key chosen in Settings → Agents → Codex: it is gone from Accounts or was refused. Choose another, or go back to the ChatGPT sign-in."
 	}
 	return "The agent can't use the API key chosen for it in Settings → Agents. Choose another, or remove it."
+}
+
+// agentDisplayName is how a message names the vendor.
+func agentDisplayName(agent agenthub.AgentType) string {
+	switch agent {
+	case agenthub.AgentTypeClaude:
+		return "Claude"
+	case agenthub.AgentTypeCodex:
+		return "Codex"
+	}
+	return "The agent"
+}
+
+// agentUsageLimitMessage leads with what happened and then gives the
+// vendor's own sentence, which is the only one that says when the limit
+// lifts and what the plan offers.
+func agentUsageLimitMessage(agent agenthub.AgentType, vendorMessage string) string {
+	message := "Usage limit reached."
+	if agent != "" {
+		message = agentDisplayName(agent) + " usage limit reached."
+	}
+	if vendorMessage != "" {
+		message += " " + vendorMessage
+	}
+	return message
+}
+
+// agentTurnFailedMessage says the turn ended, not the agent: the session is
+// still there to prompt again.
+func agentTurnFailedMessage(agent agenthub.AgentType, vendorMessage string) string {
+	message := agentDisplayName(agent) + " couldn't finish the turn."
+	if vendorMessage != "" {
+		message += " " + vendorMessage
+	}
+	return message
 }
 
 // codexAPIKeyAccountMessage is what choosing an unusable account for Codex's

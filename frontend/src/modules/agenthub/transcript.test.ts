@@ -585,3 +585,44 @@ describe("prompt attachments and subagent origin", () => {
     expect("origin" in model.items[0]).toBe(false);
   });
 });
+
+describe("a session failure lasts one turn", () => {
+  const limit = {
+    id: "codex-usage-limit",
+    revision: 1,
+    category: "usage_limit",
+    severity: "error",
+    title: "Codex usage limit reached",
+    details: "You've hit your usage limit. Try again at 3:10 PM.",
+    actions: ["retry"],
+  };
+
+  // The banner is about the turn it was reported on. Once the user sends the
+  // next prompt, a limit that has since lifted must not keep saying it has
+  // not — and one that still holds is reported again on the new turn.
+  it("is shown until the next prompt, live", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: "user_message_chunk", content: { type: "text", text: "go" } });
+    model = applySessionUpdate(model, { kind: "session_info_update", failure: limit });
+    expect(model.failure?.id).toBe("codex-usage-limit");
+
+    model = applySessionUpdate(model, { kind: "user_message_chunk", content: { type: "text", text: "again" } });
+    expect(model.failure).toBeNull();
+  });
+
+  it("arrives at the same state on a reload", () => {
+    const row = (kind: string, payload: object, seq: number) => ({ id: `r${seq}`, kind, seq, payload: JSON.stringify(payload) });
+    const failed = initTranscript([
+      row("user_message_chunk", { kind: "user_message_chunk", content: { type: "text", text: "go" } }, 1),
+      row("session_info_update", { kind: "session_info_update", failure: limit }, 2),
+    ]);
+    expect(failed.failure?.id).toBe("codex-usage-limit");
+
+    const retried = initTranscript([
+      row("user_message_chunk", { kind: "user_message_chunk", content: { type: "text", text: "go" } }, 1),
+      row("session_info_update", { kind: "session_info_update", failure: limit }, 2),
+      row("user_message_chunk", { kind: "user_message_chunk", content: { type: "text", text: "again" } }, 3),
+    ]);
+    expect(retried.failure).toBeNull();
+  });
+});

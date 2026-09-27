@@ -1280,6 +1280,16 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			finalStatus = SessionStatusIdle
 			promptErr = ErrCancelled
 		}
+		// A turn the vendor refused — a usage limit, a full context window —
+		// is not a session that broke. The process is up and the next prompt
+		// may well work, so the session stays idle: "error" drew a "stopped …
+		// Restart" card over a conversation that had not stopped. The vendor's
+		// reason is on screen as the session failure the adapter reported.
+		refused := errors.Is(promptErr, ErrAgentUsageLimit) || errors.Is(promptErr, ErrTurnFailed)
+		if refused {
+			finalStatus = SessionStatusIdle
+			log.Printf("agenthub: invoke %s session %s: turn refused: %v", sess.AgentType, in.SessionID, promptErr)
+		}
 		if finalStatus == SessionStatusError {
 			log.Printf("agenthub: invoke %s session %s: %v", sess.AgentType, in.SessionID, promptErr)
 		}
