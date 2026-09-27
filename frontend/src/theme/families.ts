@@ -500,7 +500,7 @@ const NORD: ThemeFamilyDefinition = {
     "--tint-border": "#8f9baa",
     "--background-app": "#242933",
     "--background-canvas": "#2e3440",
-    "--surface-base": "#353c4a",
+    "--surface-base": "#333a48", // was #353c4a: a shade darker, so the well over it keeps Claude's mark at 3:1
     "--surface-raised": "#3b4252",
     "--surface-tinted": "#434c5e",
     "--text-primary": "#eceff4",
@@ -511,11 +511,11 @@ const NORD: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#242933",
     ...states("#88c0d0", "dark"),
     "--brand-text": "#8fcbdb",
-    "--status-info": "#81a1c1",
+    "--status-info": "#9db6cf", // was #81a1c1, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#a3be8c",
     "--status-warning": "#ebcb8b",
-    "--status-recovery": "#b48ead",
-    "--status-danger": "#bf616a",
+    "--status-recovery": "#c7aac2", // was #b48ead, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#dba5aa", // was #bf616a, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#88c0d0",
   },
   light: {
@@ -533,11 +533,11 @@ const NORD: ThemeFamilyDefinition = {
     "--action-primary": "#4b7898",
     "--action-primary-foreground": "#ffffff",
     ...states("#4b7898", "light"),
-    "--brand-text": "#426f8e",
-    "--status-info": "#35698f",
-    "--status-success": "#477238",
+    "--brand-text": "#3d6683", // was #426f8e, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#34668b", // was #35698f, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#436c35", // was #477238, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805600",
-    "--status-recovery": "#815d7e",
+    "--status-recovery": "#795776", // was #815d7e, deepened in its own hue to clear themeContrast.test.ts
     "--status-danger": "#a33f4a",
     "--border-focus": "#35698f",
   },
@@ -567,7 +567,7 @@ const SOLARIZED: ThemeFamilyDefinition = {
     "--status-success": "#91d59a",
     "--status-warning": "#f0ca63",
     "--status-recovery": "#d6a6d8",
-    "--status-danger": "#f0786b",
+    "--status-danger": "#f49c92", // was #f0786b, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#72c5dc",
   },
   light: {
@@ -615,11 +615,11 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#1d2021",
     ...states("#b8bb26", "dark"),
     "--brand-text": "#b8bb26",
-    "--status-info": "#83a598",
+    "--status-info": "#8eada1", // was #83a598, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#b8bb26",
     "--status-warning": "#fabd2f",
-    "--status-recovery": "#d3869b",
-    "--status-danger": "#fb4934",
+    "--status-recovery": "#d893a6", // was #d3869b, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#fc8375", // was #fb4934, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#83a598",
   },
   light: {
@@ -637,9 +637,9 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--action-primary": "#5b7500",
     "--action-primary-foreground": "#ffffff",
     ...states("#5b7500", "light"),
-    "--brand-text": "#5b7500",
-    "--status-info": "#176b85",
-    "--status-success": "#557000",
+    "--brand-text": "#526900", // was #5b7500, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#176983", // was #176b85, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#506900", // was #557000, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805600",
     "--status-recovery": "#8b435c",
     "--status-danger": "#b52b20",
@@ -690,11 +690,11 @@ const TOKYO_NIGHT: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#ffffff",
     ...states("#34548a", "light"),
     "--brand-text": "#34548a",
-    "--status-info": "#176b9b",
-    "--status-success": "#4d6f21",
-    "--status-warning": "#805600",
-    "--status-recovery": "#7144a3",
-    "--status-danger": "#ad304e",
+    "--status-info": "#145d87", // was #176b9b, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#43601d", // was #4d6f21, deepened in its own hue to clear themeContrast.test.ts
+    "--status-warning": "#785000", // was #805600, deepened in its own hue to clear themeContrast.test.ts
+    "--status-recovery": "#6e429f", // was #7144a3, deepened in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#9f2c48", // was #ad304e, deepened in its own hue to clear themeContrast.test.ts
     "--border-focus": "#34548a",
   },
 };
@@ -711,19 +711,19 @@ const EVERFOREST: ThemeFamilyDefinition = {
     "--surface-base": "#343f44",
     "--surface-raised": "#3d484d",
     "--surface-tinted": "#475258",
-    "--text-primary": "#d3c6aa",
-    "--text-secondary": "#c5bda4",
-    "--text-tertiary": "#a7b0a0",
+    "--text-primary": "#e5decd", // was #d3c6aa, lifted in its own hue to clear themeContrast.test.ts
+    "--text-secondary": "#cdc6b0", // was #c5bda4, lifted in its own hue to clear themeContrast.test.ts
+    "--text-tertiary": "#aeb6a7", // was #a7b0a0, lifted in its own hue to clear themeContrast.test.ts
     "--icon-secondary": "#c5bda4",
     "--action-primary": "#a7c080",
     "--action-primary-foreground": "#272e33",
     ...states("#a7c080", "dark"),
     "--brand-text": "#a7c080",
-    "--status-info": "#7fbbb3",
+    "--status-info": "#85beb7", // was #7fbbb3, lifted in its own hue to clear themeContrast.test.ts
     "--status-success": "#a7c080",
     "--status-warning": "#dbbc7f",
-    "--status-recovery": "#d699b6",
-    "--status-danger": "#e67e80",
+    "--status-recovery": "#dba4be", // was #d699b6, lifted in its own hue to clear themeContrast.test.ts
+    "--status-danger": "#eda0a1", // was #e67e80, lifted in its own hue to clear themeContrast.test.ts
     "--border-focus": "#7fbbb3",
   },
   light: {
@@ -741,12 +741,12 @@ const EVERFOREST: ThemeFamilyDefinition = {
     "--action-primary": "#55734b",
     "--action-primary-foreground": "#ffffff",
     ...states("#55734b", "light"),
-    "--brand-text": "#55734b",
-    "--status-info": "#327c78",
-    "--status-success": "#54751f",
+    "--brand-text": "#4f6a45", // was #55734b, deepened in its own hue to clear themeContrast.test.ts
+    "--status-info": "#2c6d69", // was #327c78, deepened in its own hue to clear themeContrast.test.ts
+    "--status-success": "#4e6c1d", // was #54751f, deepened in its own hue to clear themeContrast.test.ts
     "--status-warning": "#805700",
     "--status-recovery": "#8d4f70",
-    "--status-danger": "#b33f3d",
+    "--status-danger": "#ac3c3b", // was #b33f3d, deepened in its own hue to clear themeContrast.test.ts
     "--border-focus": "#327c78",
   },
 };
