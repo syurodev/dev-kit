@@ -262,6 +262,15 @@ export function applySessionUpdates(
       continue;
     }
 
+    // A new prompt starts a new turn, and a failure reported about the turn
+    // before it — a usage limit hit, a turn the vendor refused — no longer
+    // describes the session. If it still holds, the vendor reports it again
+    // on this one. Without this the banner outlived the limit it was about.
+    if ((kind === UpdateKind.UpdateUserMessageChunk || kind === "user_message_chunk") && failure) {
+      failure = null;
+      changed = true;
+    }
+
     if (kind === UpdateKind.UpdateSessionInfo || kind === "session_info_update") {
       // Three shapes share this kind, and the title is the view's business
       // rather than the transcript's (it renames the session). What is left is
@@ -543,6 +552,10 @@ export function initTranscript(
     // Reloading a session has to arrive at the same failure and goal the live
     // stream would have left behind; the rows are replayed oldest first, so
     // the last one wins here as it does there.
+    // As live: a new prompt retires the failure of the turn before it.
+    if (kind === UpdateKind.UpdateUserMessageChunk || kind === "user_message_chunk") {
+      model.failure = null;
+    }
     if (kind === UpdateKind.UpdateSessionInfo || kind === "session_info_update") {
       if (payload.failure) model.failure = payload.failure;
       if (payload.goal) model.goal = payload.goal;

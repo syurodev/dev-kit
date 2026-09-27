@@ -1073,7 +1073,59 @@ func (r *codexRuntime) outcome(t *codexTurn, end codexTurnEnd) (PromptOutcome, e
 	case codexapp.TurnInterrupted:
 		return PromptOutcome{StopReason: "cancelled", Meta: meta}, nil
 	}
+	// Said in the session before the error goes back: the banner is what the
+	// transcript keeps (a reload, the rail), where the error only reaches the
+	// caller of this one prompt.
+	if failure := codexTurnFailure(end.err, time.Now().Unix()); failure != nil {
+		r.emit([]codexUpdate{{Update: sessionFailureUpdate(*failure)}})
+	}
 	return PromptOutcome{}, codexTurnError(end.err)
+}
+
+// codexTurnFailure is a failed turn as the session-scoped failure the UI
+// shows above the composer — the same banner Claude's own sessionFailure
+// fills. Codex has no such channel, so without it a limit reached showed
+// only as "connection_failed — Agent process failed". nil for a sign-in:
+// that already has its own card and sign-in panel.
+//
+// revision is when it happened: a dismissed banner stays dismissed, and the
+// next limit hit (a new turn) is news again.
+func codexTurnFailure(e *codexapp.TurnError, revision int64) *SessionFailure {
+	message := ""
+	kind := ""
+	if e != nil {
+		message = strings.TrimSpace(e.Message)
+		kind = codexErrorKind(e.CodexErrorInfo)
+	}
+	failure := SessionFailure{Revision: int(revision), Severity: "error", Details: message}
+	switch kind {
+	case "unauthorized":
+		return nil
+	case "usageLimitExceeded":
+		failure.ID, failure.Category, failure.Title = "codex-usage-limit", "usage_limit", "Codex usage limit reached"
+		failure.Actions = []string{"retry"}
+	case "contextWindowExceeded":
+		failure.ID, failure.Category, failure.Title = "codex-context-window", "context_window", "The conversation no longer fits the model"
+		failure.Actions = []string{"new_session"}
+	case "sessionBudgetExceeded":
+		failure.ID, failure.Category, failure.Title = "codex-session-budget", "budget", "This session's budget is spent"
+		failure.Actions = []string{"new_session"}
+	default:
+		failure.ID, failure.Category, failure.Title = "codex-turn-failed", "turn_failed", "Codex couldn't finish the turn"
+		failure.Actions = []string{"retry"}
+	}
+	return &failure
+}
+
+// sessionFailureUpdate is a session_info_update carrying failure where the
+// air extension puts it, so update.go reads it like any vendor's.
+func sessionFailureUpdate(failure SessionFailure) json.RawMessage {
+	return marshalUpdate(map[string]any{
+		"sessionUpdate": string(UpdateSessionInfo),
+		"_meta": map[string]any{
+			"jetbrains": map[string]any{"air": map[string]any{"sessionFailure": failure}},
+		},
+	})
 }
 
 // codexUsageSince is what was used between two running totals.
@@ -1088,23 +1140,26 @@ func codexUsageSince(now, then codexapp.TokenUsageBreakdown) codexapp.TokenUsage
 }
 
 // codexTurnError maps a failed turn's error. unauthorized is a sign-in to
-// offer; the budget errors say what ran out; anything else carries Codex's
-// own message.
+// offer; a usage limit is its own kind, so the UI can say it rather than
+// "process failed"; anything else is a turn Codex ended while its process
+// stays up. Each carries Codex's own message, which is the part that says
+// what to do (and, for a limit, when it lifts).
 func codexTurnError(e *codexapp.TurnError) error {
 	if e == nil {
-		return fmt.Errorf("%w: the Codex turn failed", ErrProcessFailed)
+		return vendorError(AgentTypeCodex, fmt.Errorf("%w: the Codex turn failed", ErrTurnFailed))
 	}
+	message := strings.TrimSpace(e.Message)
 	switch codexErrorKind(e.CodexErrorInfo) {
 	case "unauthorized":
-		return vendorError(AgentTypeCodex, fmt.Errorf("%w: %s", ErrAgentAuthRequired, e.Message))
+		return vendorError(AgentTypeCodex, fmt.Errorf("%w: %s", ErrAgentAuthRequired, message))
 	case "usageLimitExceeded":
-		return fmt.Errorf("%w: Codex usage limit reached: %s", ErrProcessFailed, e.Message)
+		return vendorMessageError(AgentTypeCodex, fmt.Errorf("%w: %s", ErrAgentUsageLimit, message), message)
 	case "contextWindowExceeded":
-		return fmt.Errorf("%w: the conversation no longer fits the model's context window: %s", ErrProcessFailed, e.Message)
+		return vendorMessageError(AgentTypeCodex, fmt.Errorf("%w: the conversation no longer fits the model's context window: %s", ErrTurnFailed, message), message)
 	case "sessionBudgetExceeded":
-		return fmt.Errorf("%w: the session's budget is spent: %s", ErrProcessFailed, e.Message)
+		return vendorMessageError(AgentTypeCodex, fmt.Errorf("%w: the session's budget is spent: %s", ErrTurnFailed, message), message)
 	}
-	return fmt.Errorf("%w: %s", ErrProcessFailed, e.Message)
+	return vendorMessageError(AgentTypeCodex, fmt.Errorf("%w: %s", ErrTurnFailed, message), message)
 }
 
 // codexErrorKind reads codexErrorInfo, which is a bare string for most kinds

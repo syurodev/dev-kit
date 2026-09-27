@@ -90,7 +90,7 @@ type CreateParams = {
   /** The rest of a workspace's services — see chooseWorkspaceForDraft. */
   extraReadWritePaths?: string[];
 };
-type TurnInput = {
+export type TurnInput = {
   sessionId: string;
   text: string;
   attachments: string[];
@@ -148,6 +148,35 @@ export function shouldSteer(input: {
 /** A failure and its revision: the agent republishes one when it changes. */
 export function failureKey(failure: { id: string; revision: number }): string {
   return `${failure.id}:${failure.revision}`;
+}
+
+/**
+ * The turn Retry / Restart sends again: the one this view sent last, when it
+ * was for this session — it still has its files and images — and otherwise
+ * the session's last prompt as the transcript recorded it. The fallback is
+ * what makes the button work after a relaunch or on a session that failed in
+ * another window: the view's memory of its last turn is gone there, and
+ * Restart used to fall through to the empty composer and do nothing at all.
+ *
+ * A recorded prompt carries its words, not its files: the transcript keeps an
+ * attachment's name, not the path or bytes it was sent from. A prompt with no
+ * words has nothing to resend, and there is no retry (undefined).
+ */
+export function retryTurnFor(
+  sessionId: string,
+  last: TurnInput | null,
+  items: readonly { kind: string; text?: string; origin?: string }[],
+): TurnInput | undefined {
+  if (!sessionId) return undefined;
+  if (last?.sessionId === sessionId) return last;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    // A subagent's prompt is its parent's business, not this session's turn.
+    if (item.kind !== "user_message_chunk" || item.origin) continue;
+    const text = item.text?.trim() ?? "";
+    return text ? { sessionId, text, attachments: [], images: [], refs: [] } : undefined;
+  }
+  return undefined;
 }
 
 /** Renames a session. Throws, so the rename dialog stays open and says why. */
@@ -759,11 +788,16 @@ export function AgentHubView() {
     }
   }
 
+  function retryTurn(): TurnInput | undefined {
+    return retryTurnFor(activeSession?.id ?? "", lastTurn.current, transcriptModel.items);
+  }
+
   // The vendor's own hints for a failure, each mapped to the thing this app
   // already does for it.
   function handleFailureAction(action: string) {
     if (action === "retry") {
-      void handleSend(lastTurn.current?.sessionId === activeSession?.id ? (lastTurn.current ?? undefined) : undefined);
+      const retry = retryTurn();
+      if (retry) void handleSend(retry);
       return;
     }
     if (action === "new_session") {
@@ -978,6 +1012,7 @@ export function AgentHubView() {
   // rateLimit), so without this a rejected turn had no banner at all — just
   // the composer's context-meter popover, which nobody opens unprompted.
   const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
+  const retryable = retryTurn();
 
   return (
     <div
@@ -1085,13 +1120,9 @@ export function AgentHubView() {
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error || sandboxHint}
             errorCause={errorCause}
-            onRetrySession={() =>
-              void handleSend(
-                lastTurn.current?.sessionId === activeSession?.id
-                  ? (lastTurn.current ?? undefined)
-                  : undefined,
-              )
-            }
+            // No Retry at all rather than one that does nothing: with no turn
+            // to resend, the composer below is the way back in.
+            onRetrySession={retryable ? () => void handleSend(retryable) : undefined}
             onNewSession={() => void startNewDraft()}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
