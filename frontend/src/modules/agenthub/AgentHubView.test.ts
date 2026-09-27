@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { isNewSessionShortcut, renameAgentSession } from "./AgentHubView";
+import { isNewSessionShortcut, renameAgentSession, retryTurnFor, type TurnInput } from "./AgentHubView";
 import { submitRename } from "./surfaces/RenameSessionDialog";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { AppError } from "../../bridge/errors";
@@ -67,5 +67,37 @@ describe("renaming a session", () => {
 
     expect(shown).toBe("");
     expect(useAgentSessionsStore.getState().sessionsById.s1).toEqual({ ...session, title: "New name" });
+  });
+});
+
+// Restart on a session that failed before a relaunch did nothing: the view's
+// memory of its last turn was gone, and the fallback was an empty composer.
+describe("the turn Retry and Restart send again", () => {
+  const sent: TurnInput = { sessionId: "s1", text: "fix the build", attachments: ["/repo/a.ts"], images: [], refs: [] };
+  const items = [
+    { kind: "user_message_chunk", text: "first" },
+    { kind: "agent_message_chunk", text: "ok" },
+    { kind: "user_message_chunk", text: "write the tests", origin: "sub-1" },
+    { kind: "user_message_chunk", text: "  xin chào  " },
+    { kind: "agent_message_chunk", text: "…" },
+  ];
+
+  it("is the turn this view sent, files and all, when it was for this session", () => {
+    expect(retryTurnFor("s1", sent, items)).toBe(sent);
+  });
+
+  it("is the session's last recorded prompt otherwise", () => {
+    expect(retryTurnFor("s2", sent, items)).toEqual({ sessionId: "s2", text: "xin chào", attachments: [], images: [], refs: [] });
+    expect(retryTurnFor("s2", null, items)?.text).toBe("xin chào");
+  });
+
+  it("skips a subagent's prompt", () => {
+    expect(retryTurnFor("s2", null, items.slice(0, 3))?.text).toBe("first");
+  });
+
+  it("is nothing when there is no prompt with words to resend", () => {
+    expect(retryTurnFor("s2", null, [])).toBeUndefined();
+    expect(retryTurnFor("s2", null, [{ kind: "user_message_chunk", text: "" }])).toBeUndefined();
+    expect(retryTurnFor("", sent, items)).toBeUndefined();
   });
 });
