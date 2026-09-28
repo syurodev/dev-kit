@@ -13,6 +13,11 @@ export type AgentSubagentTrackerProps = {
   /** A turn is running. Only then is a subagent without an end still running. */
   live: boolean;
   onOpenFile?: (path: string, line?: number) => void;
+  /**
+   * "tray": the list only, for the composer tray's panel — the tray is the
+   * surface and its strip already counts them, so no card and no count line.
+   */
+  variant?: "card" | "tray";
   className?: string;
 };
 
@@ -28,7 +33,7 @@ export type AgentSubagentTrackerProps = {
  *
  * Nothing is drawn when none is running, so it costs an idle session nothing.
  */
-export function AgentSubagentTracker({ items, live, onOpenFile, className }: AgentSubagentTrackerProps) {
+export function AgentSubagentTracker({ items, live, onOpenFile, variant = "card", className }: AgentSubagentTrackerProps) {
   const { running, activity } = React.useMemo(
     () => (live ? runningSubagents(items) : { running: [], activity: {} }),
     [items, live],
@@ -39,11 +44,18 @@ export function AgentSubagentTracker({ items, live, onOpenFile, className }: Age
   return (
     <div
       data-testid="agent-subagent-tracker"
-      className={cn("glass-float glass-float-low flex w-full min-w-0 flex-col gap-1 rounded-xl p-2", className)}
+      className={cn(
+        "flex w-full min-w-0 flex-col gap-1 p-2",
+        variant === "card" && "glass-float glass-float-low rounded-xl",
+        variant === "tray" && "max-h-72 overflow-y-auto",
+        className,
+      )}
     >
-      <span className="px-1 text-caption-11 text-text-tertiary">
-        {running.length === 1 ? "1 subagent running" : `${running.length} subagents running`}
-      </span>
+      {variant === "card" ? (
+        <span className="px-1 text-caption-11 text-text-tertiary">
+          {running.length === 1 ? "1 subagent running" : `${running.length} subagents running`}
+        </span>
+      ) : null}
       {running.map(({ subagent, activity: rows }) => {
         const open = subagent.id === openId;
         const steps = stepCount(rows);
