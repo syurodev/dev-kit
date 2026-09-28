@@ -4,6 +4,7 @@ import { Boxes, Check, ChevronDown, Folder, FolderX, Plus, Search, X } from "luc
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useTrayCompact } from "./composer/ComposerTray";
 
 /** The last segment of a path — the folder a developer calls the project. */
 function projectLabel(path: string): string {
@@ -36,6 +37,7 @@ export function ProjectPicker({
   onChooseWorkspace,
   workspaceSelected = false,
   disabled = false,
+  variant = "row",
 }: {
   value: string;
   /** Known projects, most recent first. */
@@ -54,8 +56,14 @@ export function ProjectPicker({
   /** True while the draft holds the whole workspace rather than one folder. */
   workspaceSelected?: boolean;
   disabled?: boolean;
+  /** "tray": a chip in the composer tray's strip — its height and type, and icon-only when the tray is. */
+  variant?: "row" | "tray";
 }) {
   const [open, setOpen] = React.useState(false);
+  const tray = variant === "tray";
+  const iconOnly = useTrayCompact() && tray;
+  const label =
+    workspaceSelected && workspace ? `${workspace.name} (${workspace.paths.length})` : value ? projectLabel(value) : "No project";
   const [query, setQuery] = React.useState("");
   const pick = (action: () => void) => {
     setOpen(false);
@@ -75,9 +83,11 @@ export function ProjectPicker({
         <button
           type="button"
           data-testid="draft-project-picker"
-          title={value || undefined}
+          title={value || label}
+          aria-label={iconOnly ? label : undefined}
           className={cn(
-            "flex h-(--control-height-sm) min-w-0 max-w-60 items-center gap-1.5 rounded-md px-2 text-body-13 text-text-secondary outline-none",
+            "flex min-w-0 max-w-60 items-center gap-1.5 text-text-secondary outline-none",
+            tray ? "h-6 rounded-sm px-1.5 text-caption-11" : "h-(--control-height-sm) rounded-md px-2 text-body-13",
             "hover:bg-state-soft hover:text-text-primary focus-visible:ring-1 focus-visible:ring-status-info",
             "disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-state-soft",
           )}
@@ -89,13 +99,7 @@ export function ProjectPicker({
           ) : (
             <FolderX aria-hidden="true" className="size-3.5 shrink-0" />
           )}
-          <span className="min-w-0 truncate">
-            {workspaceSelected && workspace
-              ? `${workspace.name} (${workspace.paths.length})`
-              : value
-                ? projectLabel(value)
-                : "No project"}
-          </span>
+          {iconOnly ? null : <span className="min-w-0 truncate">{label}</span>}
           <ChevronDown aria-hidden="true" className="size-3 shrink-0 text-text-tertiary" />
         </button>
       </PopoverTrigger>

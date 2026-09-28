@@ -1,4 +1,7 @@
+import { ChevronDown } from "lucide-react";
+
 import { usePermissionDeadline } from "./usePermissionDeadline";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
@@ -29,6 +32,13 @@ export type AgentPermissionRequestProps = {
    * as a question waiting on you.
    */
   size?: "rail" | "wide";
+  /**
+   * Folds the request down into the composer tray's strip, to read the
+   * transcript that explains it. The agent keeps waiting: a request carries a
+   * deadline only when one is configured (Service.PermissionTimeout), and then
+   * the gate — not this card — closes it.
+   */
+  onMinimize?: () => void;
   className?: string;
 };
 
@@ -54,9 +64,14 @@ export type AgentPermissionRequestProps = {
  * Locked differs in three ways and only three: the env pill turns danger-toned,
  * a line appears saying the environment always asks, and Allow always is gone.
  *
- * DEVIATION: Figma draws no countdown. The gate fails closed after 60s
- * (interaction.DefaultTimeout) and the backend stamps expiresAt, so hiding the
- * clock would hide a denial that is about to happen on its own.
+ * DEVIATION: Figma draws no countdown. When a deadline is configured the
+ * backend stamps expiresAt and the gate fails closed at it, so hiding the clock
+ * would hide a denial that is about to happen on its own. By default there is
+ * none, and no clock is drawn (usePermissionDeadline).
+ *
+ * It lives in the composer tray now, on the tray's surface: no card border of
+ * its own, the one-line identity (the strip already names the folder), and a
+ * button that folds it into the strip.
  */
 export function AgentPermissionRequest({
   pending,
@@ -65,6 +80,7 @@ export function AgentPermissionRequest({
   busy = false,
   env: explicitEnv,
   size = "rail",
+  onMinimize,
   className,
 }: AgentPermissionRequestProps) {
   const { secondsLeft, expired } = usePermissionDeadline(pending);
@@ -125,12 +141,11 @@ export function AgentPermissionRequest({
       data-env={env}
       data-size={size}
       className={cn(
-        "flex w-full flex-col rounded-control border border-border-subtle bg-surface-raised",
-        // The pulsing dot and the clock carry the urgency; the card itself stays
-        // the app's ordinary raised surface. A tinted panel beside a tinted
-        // composer was one colour too many, and it was the wrong one — warning
-        // over a transcript reads as an error that already happened.
-        wide ? "gap-2 px-3 py-2.5" : "gap-3 p-3",
+        // The pulsing dot and the clock carry the urgency; the card itself is
+        // the tray's plain surface. A tinted panel was one colour too many,
+        // and the wrong one — warning over a transcript reads as an error that
+        // already happened.
+        "flex w-full min-w-0 flex-col gap-2 p-3",
         className,
       )}
     >
@@ -141,6 +156,24 @@ export function AgentPermissionRequest({
         secondsLeft={secondsLeft}
         expired={expired}
         testIdPrefix="permission"
+        dense
+        trailing={
+          onMinimize ? (
+            <ActionTooltip label="Minimize — read the conversation">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Minimize permission request"
+                data-testid="permission-minimize"
+                onClick={onMinimize}
+                className="shrink-0 text-text-tertiary hover:text-text-primary"
+              >
+                <ChevronDown />
+              </Button>
+            </ActionTooltip>
+          ) : undefined
+        }
       />
 
       {wide ? (

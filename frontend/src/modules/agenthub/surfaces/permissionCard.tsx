@@ -112,6 +112,7 @@ export function PermissionIdentity({
   expired,
   testIdPrefix,
   trailing,
+  dense = false,
 }: {
   /**
    * Who is asking. Structural rather than PendingPermission: a question from the
@@ -131,6 +132,12 @@ export function PermissionIdentity({
   testIdPrefix: string;
   /** Extra marks between the identity and the clock — the toast's queue pill. */
   trailing?: React.ReactNode;
+  /**
+   * One line: the agent and, for a subagent, its depth. For the composer
+   * tray, whose strip already says which folder this is — the second line
+   * repeated it at the cost of a row of a panel that has little height.
+   */
+  dense?: boolean;
 }) {
   const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
   const cwd = session?.projectPath || ".";
@@ -140,20 +147,8 @@ export function PermissionIdentity({
   const timed = secondsLeft !== undefined;
   const urgent = timed && !expired && secondsLeft <= URGENT_SECONDS;
 
-  return (
-    <div className="flex w-full items-start gap-3">
-      <AgentState status="awaiting" labelHidden pulse className="h-5" />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <p className="truncate text-body-13-medium text-text-primary">{agentTitle}</p>
-        {/* The path gives way from its start: the project is at the end. */}
-        <p className="flex min-w-0 gap-1 text-caption-11 text-text-tertiary">
-          <span className="shrink-0 whitespace-nowrap">{`depth ${depth} ·`}</span>
-          <span dir="rtl" className="min-w-0 truncate text-left" title={cwd}>
-            <bdi>{cwd}</bdi>
-          </span>
-        </p>
-      </div>
-      {trailing}
+  const marks = (
+    <>
       {env === "locked" ? (
         <span
           data-testid={`${testIdPrefix}-env-locked`}
@@ -177,6 +172,40 @@ export function PermissionIdentity({
           {expired ? "expired" : <NumberFlow value={secondsLeft} suffix="s" willChange />}
         </span>
       ) : null}
+    </>
+  );
+
+  if (dense) {
+    return (
+      <div className="flex w-full min-w-0 items-center gap-2">
+        <AgentState status="awaiting" labelHidden pulse className="h-5" />
+        {/* The folder is the strip's to show; it stays on hover here. */}
+        <p title={cwd} className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
+          {agentTitle}
+          {depth > 0 ? <span className="text-caption-11 font-normal text-text-tertiary">{` · subagent, depth ${depth}`}</span> : null}
+        </p>
+        {marks}
+        {/* Last in the row: a control after the facts about the request. */}
+        {trailing}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-full items-start gap-3">
+      <AgentState status="awaiting" labelHidden pulse className="h-5" />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="truncate text-body-13-medium text-text-primary">{agentTitle}</p>
+        {/* The path gives way from its start: the project is at the end. */}
+        <p className="flex min-w-0 gap-1 text-caption-11 text-text-tertiary">
+          <span className="shrink-0 whitespace-nowrap">{`depth ${depth} ·`}</span>
+          <span dir="rtl" className="min-w-0 truncate text-left" title={cwd}>
+            <bdi>{cwd}</bdi>
+          </span>
+        </p>
+      </div>
+      {trailing}
+      {marks}
     </div>
   );
 }

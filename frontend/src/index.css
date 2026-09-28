@@ -247,6 +247,15 @@
 
     --ease-in-strong: cubic-bezier(0.7, 0, 0.84, 0);
     --animate-spin-slow: spin 3s linear infinite;
+    /* Something working right now — the composer tray's subagent chip. Two
+       beats then a rest, so it reads as alive rather than as loading. */
+    --animate-heartbeat: heartbeat 1.6s var(--ease-out-strong) infinite;
+    @keyframes heartbeat {
+      0%, 40%, 100% { scale: 1; }
+      12% { scale: 1.25; }
+      24% { scale: 1.05; }
+      32% { scale: 1.18; }
+    }
 
     --transition-property-color-shadow: color, box-shadow;
     --transition-property-border-bg: border-color, background-color;
