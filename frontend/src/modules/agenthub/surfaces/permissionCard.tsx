@@ -112,7 +112,6 @@ export function PermissionIdentity({
   expired,
   testIdPrefix,
   trailing,
-  dense = false,
 }: {
   /**
    * Who is asking. Structural rather than PendingPermission: a question from the
@@ -132,22 +131,51 @@ export function PermissionIdentity({
   testIdPrefix: string;
   /** Extra marks between the identity and the clock — the toast's queue pill. */
   trailing?: React.ReactNode;
-  /**
-   * One line: the agent and, for a subagent, its depth. For the composer
-   * tray, whose strip already says which folder this is — the second line
-   * repeated it at the cost of a row of a panel that has little height.
-   */
-  dense?: boolean;
 }) {
   const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
   const cwd = session?.projectPath || ".";
   // Depth comes off the request, not the session: it is the caller's depth, and
   // a subagent's request carries a deeper one than the session it belongs to.
   const depth = pending.depth ?? session?.depth ?? 0;
+
+  return (
+    <div className="flex w-full items-start gap-3">
+      <AgentState status="awaiting" labelHidden pulse className="h-5" />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="truncate text-body-13-medium text-text-primary">{agentTitle}</p>
+        {/* The path gives way from its start: the project is at the end. */}
+        <p className="flex min-w-0 gap-1 text-caption-11 text-text-tertiary">
+          <span className="shrink-0 whitespace-nowrap">{`depth ${depth} ·`}</span>
+          <span dir="rtl" className="min-w-0 truncate text-left" title={cwd}>
+            <bdi>{cwd}</bdi>
+          </span>
+        </p>
+      </div>
+      {trailing}
+      <PermissionMarks env={env} secondsLeft={secondsLeft} expired={expired} testIdPrefix={testIdPrefix} />
+    </div>
+  );
+}
+
+/**
+ * The locked-environment pill and the deadline clock — the two facts about a
+ * request that are not who asked or what for. Shared by the identity block
+ * (toast, question toast) and the composer tray's permission card.
+ */
+export function PermissionMarks({
+  env,
+  secondsLeft,
+  expired,
+  testIdPrefix,
+}: {
+  env: PermissionEnv;
+  secondsLeft?: number;
+  expired?: boolean;
+  testIdPrefix: string;
+}) {
   const timed = secondsLeft !== undefined;
   const urgent = timed && !expired && secondsLeft <= URGENT_SECONDS;
-
-  const marks = (
+  return (
     <>
       {env === "locked" ? (
         <span
@@ -173,40 +201,6 @@ export function PermissionIdentity({
         </span>
       ) : null}
     </>
-  );
-
-  if (dense) {
-    return (
-      <div className="flex w-full min-w-0 items-center gap-2">
-        <AgentState status="awaiting" labelHidden pulse className="h-5" />
-        {/* The folder is the strip's to show; it stays on hover here. */}
-        <p title={cwd} className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
-          {agentTitle}
-          {depth > 0 ? <span className="text-caption-11 font-normal text-text-tertiary">{` · subagent, depth ${depth}`}</span> : null}
-        </p>
-        {marks}
-        {/* Last in the row: a control after the facts about the request. */}
-        {trailing}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex w-full items-start gap-3">
-      <AgentState status="awaiting" labelHidden pulse className="h-5" />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <p className="truncate text-body-13-medium text-text-primary">{agentTitle}</p>
-        {/* The path gives way from its start: the project is at the end. */}
-        <p className="flex min-w-0 gap-1 text-caption-11 text-text-tertiary">
-          <span className="shrink-0 whitespace-nowrap">{`depth ${depth} ·`}</span>
-          <span dir="rtl" className="min-w-0 truncate text-left" title={cwd}>
-            <bdi>{cwd}</bdi>
-          </span>
-        </p>
-      </div>
-      {trailing}
-      {marks}
-    </div>
   );
 }
 

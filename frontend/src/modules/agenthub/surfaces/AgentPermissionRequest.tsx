@@ -1,15 +1,14 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ShieldAlert } from "lucide-react";
 
 import { usePermissionDeadline } from "./usePermissionDeadline";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
-import { parsePermissionOptions } from "@/bridge/agenthub";
+import { parsePermissionOptions, permissionCommand, permissionDetail, permissionToolTitle } from "@/bridge/agenthub";
 import {
-  PermissionAsk,
-  PermissionIdentity,
   PermissionLockedNote,
+  PermissionMarks,
   allowAlwaysLabel,
   permissionChoices,
   permissionEnv,
@@ -69,10 +68,23 @@ export type AgentPermissionRequestProps = {
  * would hide a denial that is about to happen on its own. By default there is
  * none, and no clock is drawn (usePermissionDeadline).
  *
- * It lives in the composer tray now, on the tray's surface: no card border of
- * its own, the one-line identity (the strip already names the folder), and a
- * button that folds it into the strip.
+ * In the composer tray it reads like the question card beside it: one row
+ * saying what the agent wants to run, the command itself in a well the full
+ * width of the tray (a box squeezed beside three buttons cut a one-line
+ * `find` to two lines and an ellipsis), then the answers on their own row,
+ * Allow once last and filled. Who is asking is on the shield's tooltip — in a
+ * session's own tray that is the session — and named in the row only for a
+ * subagent, where it is the thing that decides the answer.
  */
+
+/** What the agent wants to do, as the card's heading. */
+function permissionHeading(params: unknown, command: string | undefined): string {
+  const title = permissionToolTitle(params);
+  // claude-agent-acp titles a Bash call with the command in backticks; the
+  // command is in the well below, so the heading says what kind of thing it is.
+  if (command !== undefined && title.replace(/^`|`$/g, "").trim() === command.trim()) return "Run a command";
+  return title;
+}
 export function AgentPermissionRequest({
   pending,
   session,
@@ -86,37 +98,31 @@ export function AgentPermissionRequest({
   const { secondsLeft, expired } = usePermissionDeadline(pending);
   const env = permissionEnv(pending.params, explicitEnv);
   const { once, always } = permissionChoices(parsePermissionOptions(pending.params));
+  const command = permissionCommand(pending.params);
+  const detail = command ? {} : permissionDetail(pending.params);
+  const heading = permissionHeading(pending.params, command);
+  const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
+  // The caller's depth, off the request: a subagent's is deeper than its session's.
+  const depth = pending.depth ?? session?.depth ?? 0;
+  const cwd = session?.projectPath || ".";
+  const askedBy = `Asked by ${agentTitle}${depth > 0 ? ` · subagent, depth ${depth}` : ""} · ${cwd}`;
 
   // Allow always is dropped whenever the environment is locked, whatever the
   // vendor offered — Figma: "env always wins".
   const showAllowAlways = env === "open" && Boolean(always);
-  const wide = size === "wide";
 
-  // Three buttons have to fit 248px of inner width in the rail, so the variant
-  // that shows all three squeezes its padding. Both are 32 tall.
-  const pad = !wide && showAllowAlways ? "px-2" : undefined;
   const actions = (
-    <div className={cn("flex items-center gap-2", wide ? "shrink-0" : "flex-wrap")}>
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="sm"
         disabled={busy || expired}
         data-testid="permission-deny"
         onClick={() => void onResolve(null)}
-        className={cn("border-border-subtle text-text-secondary", pad)}
+        className="text-text-secondary hover:text-text-primary"
       >
         Deny
-      </Button>
-      <Button
-        type="button"
-        size="sm"
-        disabled={busy || expired}
-        data-testid="permission-allow-once"
-        onClick={() => void onResolve(once ? once.optionId : "allow_once")}
-        className={pad}
-      >
-        Allow once
       </Button>
       {showAllowAlways && always ? (
         <Button
@@ -126,11 +132,20 @@ export function AgentPermissionRequest({
           disabled={busy || expired}
           data-testid="permission-allow-always"
           onClick={() => void onResolve(always.optionId)}
-          className={cn("border-border-subtle", pad)}
+          className="border-border-subtle"
         >
           {allowAlwaysLabel(always)}
         </Button>
       ) : null}
+      <Button
+        type="button"
+        size="sm"
+        disabled={busy || expired}
+        data-testid="permission-allow-once"
+        onClick={() => void onResolve(once ? once.optionId : "allow_once")}
+      >
+        Allow once
+      </Button>
     </div>
   );
 
@@ -140,58 +155,57 @@ export function AgentPermissionRequest({
       data-testid="agent-permission-request"
       data-env={env}
       data-size={size}
-      className={cn(
-        // The pulsing dot and the clock carry the urgency; the card itself is
-        // the tray's plain surface. A tinted panel was one colour too many,
-        // and the wrong one — warning over a transcript reads as an error that
-        // already happened.
-        "flex w-full min-w-0 flex-col gap-2 p-3",
-        className,
-      )}
+      className={cn("flex w-full min-w-0 flex-col gap-2 p-3", className)}
     >
-      <PermissionIdentity
-        pending={pending}
-        session={session}
-        env={env}
-        secondsLeft={secondsLeft}
-        expired={expired}
-        testIdPrefix="permission"
-        dense
-        trailing={
-          onMinimize ? (
-            <ActionTooltip label="Minimize — read the conversation">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Minimize permission request"
-                data-testid="permission-minimize"
-                onClick={onMinimize}
-                className="shrink-0 text-text-tertiary hover:text-text-primary"
-              >
-                <ChevronDown />
-              </Button>
-            </ActionTooltip>
-          ) : undefined
-        }
-      />
+      <div className="flex min-w-0 items-center gap-2">
+        <span title={askedBy} className="flex shrink-0 items-center text-status-warning">
+          <ShieldAlert className="size-4" aria-label={askedBy} />
+        </span>
+        <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary" title={heading}>
+          {heading}
+          {depth > 0 ? (
+            <span className="text-caption-11 font-normal text-text-tertiary">{` · ${agentTitle}, depth ${depth}`}</span>
+          ) : null}
+        </p>
+        <PermissionMarks env={env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
+        {onMinimize ? (
+          <ActionTooltip label="Minimize — read the conversation">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Minimize permission request"
+              data-testid="permission-minimize"
+              onClick={onMinimize}
+              className="shrink-0 text-text-tertiary hover:text-text-primary"
+            >
+              <ChevronDown />
+            </Button>
+          </ActionTooltip>
+        ) : null}
+      </div>
 
-      {wide ? (
-        <div className="flex w-full items-stretch gap-2">
-          <PermissionAsk pending={pending} className="min-h-8 flex-1" />
-          {actions}
-        </div>
-      ) : (
-        <>
-          <PermissionAsk pending={pending} className="w-full" />
-          {actions}
-        </>
-      )}
+      {detail.message ? (
+        <p data-testid="permission-message" className="line-clamp-3 text-body-13 text-text-secondary">
+          {detail.message}
+        </p>
+      ) : null}
+      {command || detail.args ? (
+        // The whole command, wrapped, scrolling past five lines — never cut
+        // with an ellipsis: what is allowed is exactly what is shown.
+        <pre
+          data-testid={command ? "permission-command" : "permission-args"}
+          className="max-h-28 min-w-0 overflow-y-auto rounded-md bg-surface-well px-2.5 py-1.5 text-code-12 whitespace-pre-wrap break-all text-text-primary"
+        >
+          {command ?? detail.args}
+        </pre>
+      ) : null}
 
       {/* What the edit is, not only which tool: the file as it would be. */}
       <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
       <PermissionLockedNote env={env} />
+      {actions}
     </div>
   );
 }
