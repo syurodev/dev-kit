@@ -1,12 +1,10 @@
 import * as React from "react";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useReducedMotion } from "framer-motion";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, Target, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { BorderBeam } from "border-beam";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,7 +32,6 @@ import { MENU_ROW } from "@/components/ui/menu-row";
 import { Command, CommandItem, CommandList } from "@/components/ui/command";
 import { commandName, commandQuery, filterCommands } from "../slashCommands";
 import { VendorIcon } from "./VendorIcon";
-import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
@@ -316,19 +313,6 @@ export type AgentComposerProps = {
 };
 
 /**
- * The app's resolved light/dark mode, read off <html> the way ThemeProvider
- * writes it. Not useTheme(): that throws outside the provider, and the beam's
- * own `theme="auto"` follows the OS, which is not the app's setting.
- */
-function useAppTheme(): "dark" | "light" {
-  return useSyncExternalStore(
-    onThemeChange,
-    () => (document.documentElement.dataset.theme === "light" ? "light" : "dark"),
-    () => "dark",
-  );
-}
-
-/**
  * Agent / Composer — Figma `963:2634`, Size Wide/Rail x State Idle/Streaming/
  * Attached.
  *
@@ -344,12 +328,14 @@ function useAppTheme(): "dark" | "light" {
  * circle and a 56px field it was 124 — a sixth of a laptop window spent on the
  * box you type into, covering the transcript it floats over.
  *
- * While a turn runs, a border beam travels the stop button — the control that
- * acts on the running turn, and where the pointer already is after sending.
- * Around the whole composer it was a moving edge around a field nobody is
- * typing in; on the button it points at the one thing you can do. Warm for
- * Claude, matching its mark in the rail; the library stills itself under
- * Reduce Motion.
+ * While a turn runs, a soft glow pulses outward around the whole input —
+ * the composer itself, not the send/stop control (the glyph morph there
+ * already says the button changed what it does). Coloured with
+ * `--status-running`, the same token the session switcher's status dot uses
+ * for "this agent is running" (AgentHubSwitcher.tsx), so it reads as the
+ * app's own state colour rather than a vendor's, in both themes for free —
+ * plain CSS driven by `[data-state="streaming"]`, stilled under
+ * `prefers-reduced-motion: reduce` (`.agent-composer-pulse` in index.css).
  *
  * The glyph morphs between send and stop (morphicons) instead of cutting from
  * one to the other: the button stays where it is and changes what it does, and
@@ -404,9 +390,7 @@ export function AgentComposer({
   agentName,
   className,
 }: AgentComposerProps) {
-  const theme = useAppTheme();
   const rail = size === "rail";
-  const reduce = useReducedMotion() ?? false;
 
   // The field grows with what is typed, from one line up to its max height,
   // then scrolls. Measured rather than `field-sizing: content`: that is
@@ -528,463 +512,456 @@ export function AgentComposer({
       : `Ask ${agentName ?? "agent"}…`);
 
   return (
-      <div
-        role="region"
-        aria-label="Agent prompt composer"
-        data-testid="agent-composer"
-        data-size={size}
-        data-state={effectiveState}
-        className={cn(
-          // relative: the slash-command list hangs off the top of this box.
-          "glass-float glass-float-low relative flex w-full flex-col gap-2 rounded-xl p-2",
-          // The rail's composer fills its panel, which the user sizes.
-          !rail && "max-w-274",
-          className,
-        )}
-      >
-        {attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0 ? (
-          <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
-            {refs.map((ref) => (
-              <AgentRefChip
-                key={`${ref.module}/${ref.kind}/${ref.id}`}
-                entityRef={ref}
-                onRemove={onRemoveRef ? () => onRemoveRef(ref) : undefined}
-              />
-            ))}
-            {attachedFiles.map((path) => (
-              // Removed by a named button, like an image: the whole 24px chip
-              // as the control removed the file on a click that said nothing.
-              <div key={path} className="flex min-w-0 items-center">
-                <AgentFileChip path={path} />
-                {onRemoveAttachment ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${path}`} onClick={() => onRemoveAttachment(path)}>
-                    <X aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-            {imageAttachments.map((image) => (
-              <div key={image.id} className="flex items-center gap-1 rounded-sm bg-surface-raised px-1 py-1">
-                <img src={image.previewUrl} alt={image.name} className="size-8 rounded-sm object-cover" />
-                <span className="max-w-32 truncate text-caption-11 text-text-secondary">{image.name}</span>
-                {onRemoveImage ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
-                    <X aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {queuedPrompts.length > 0 ? (
-          <div data-testid="composer-queued-prompts" className="flex w-full flex-wrap items-center gap-1 px-1">
-            {queuePaused ? (
-              // A turn failed or was cancelled with these still waiting. They do
-              // not go on their own — not even after a later turn succeeds.
-              <div data-testid="composer-queue-paused" className="flex min-w-0 max-w-full items-center gap-1 text-caption-11 text-text-secondary">
-                {/* One line: a long reason truncates and reads in full on hover,
-                    and Resume stays beside it. */}
-                <span className="min-w-0 truncate" title={queuePausedReason || undefined}>
-                  {queuePausedReason ? `Paused: ${queuePausedReason}` : "Paused"}
-                </span>
-                {onResumeQueued ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Resume queued prompts" className="shrink-0" onClick={onResumeQueued}>
-                    <Play aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-            {queuedPrompts.map((queued) => (
-              <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
-                <span className="shrink-0">Queued</span>
-                <span className="min-w-0 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
-                {onEditQueued ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>
-                    <Pencil aria-hidden="true" />
-                  </Button>
-                ) : null}
-                {onCancelQueued ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Cancel queued prompt" onClick={() => onCancelQueued(queued.id)}>
-                    <X aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {imageError ? <p data-testid="composer-image-error" className="px-1 text-caption-11 text-status-danger">{imageError}</p> : null}
-
-        {/* The list of commands the agent advertised, over the field while one
-            is being typed. Anchored to the composer rather than shown in a
-            popover: the field keeps focus throughout — the user is still
-            typing the name — and a popover would take it. onMouseDown is
-            prevented for the same reason, so clicking a command does not blur
-            the field underneath. Arrow keys, Enter and Escape are handled in
-            the textarea's own key handler; cmdk never sees them, so the
-            highlight is driven here rather than by its own value logic. */}
-        {commandListOpen ? (
-          <Command
-            shouldFilter={false}
-            value={highlighted?.name ?? ""}
-            data-testid="composer-command-list"
-            onMouseDown={(e) => e.preventDefault()}
-            className="absolute bottom-full left-0 z-10 mb-1 w-full max-w-full"
-          >
-            <CommandList>
-              {matches.map((command) => (
-                <CommandItem
-                  key={command.name}
-                  value={command.name}
-                  data-testid="composer-command-item"
-                  onSelect={() => acceptCommand(command)}
-                >
-                  <CommandIcon aria-hidden="true" />
-                  <span className="shrink-0 text-code-12">{commandName(command.name)}</span>
-                  {/* The description takes the free space so every hint lines
-                      up on the right. Not ml-auto: CommandItem's own check is
-                      already pushed that way, and two of them split the gap
-                      between themselves (same trap as TabSwitcher's). */}
-                  <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
-                    {command.description}
-                  </span>
-                  {command.input?.hint ? (
-                    <span className="shrink-0 text-caption-11 text-text-tertiary">{command.input.hint}</span>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandList>
-          </Command>
-        ) : null}
-
-        {/* A bare textarea, not the shared Textarea: that one brings a border,
-            a fill, a focus ring and its own radius, all of which this field
-            already provides around it. Overriding six properties to get back
-            to plain text is more code than plain text. */}
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          value={value}
-          disabled={disabled}
-          placeholder={inputPlaceholder}
-          aria-label="Agent prompt input"
-          data-testid="agent-composer-textarea"
-          onChange={(e) => onChange(e.target.value)}
-          onPaste={(e) => {
-            const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
-            if (image && onPasteImage) {
-              e.preventDefault();
-              onPasteImage(image);
-            }
-          }}
-          onDrop={(e) => {
-            const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
-            if (image && onDropImage) {
-              e.preventDefault();
-              onDropImage(image);
-            }
-          }}
-          onDragOver={(e) => {
-            if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
-          }}
-          onKeyDown={(e) =>
-            handleComposerKeyDown(e, {
-              streaming: isStreaming,
-              onSend,
-              onCancel,
-              commandList: {
-                open: commandListOpen,
-                onMove: (delta) =>
-                  setHighlight((current) => {
-                    const next = (current + delta) % matches.length;
-                    return next < 0 ? next + matches.length : next;
-                  }),
-                onAccept: () => acceptCommand(highlighted),
-                onClose: () => setDismissedQuery(query),
-              },
-            })
-          }
-          className={cn(
-            "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
-            // Floor is the old fixed height; ceiling is about eleven lines wide
-            // and seven in the rail, past which the field scrolls instead of
-            // pushing the composer up over the conversation.
-            rail ? "min-h-8 max-h-40" : "min-h-10 max-h-60",
-          )}
-        />
-
-        <div className="flex w-full items-center gap-1">
-          {onAgentChange ? (
-            <DropdownMenu {...menu("agent")}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  data-testid="composer-agent"
-                  className="gap-1.5 px-2 text-text-secondary"
-                >
-                  <VendorIcon vendor={agent} className="size-3.5" />
-                  <span className="text-body-13">{vendorInfo(agent).name}</span>
-                  <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
+    <div
+      role="region"
+      aria-label="Agent prompt composer"
+      data-testid="agent-composer"
+      data-size={size}
+      data-state={effectiveState}
+      className={cn(
+        // relative: the slash-command list hangs off the top of this box,
+        // and agent-composer-pulse's outward glow anchors to it.
+        "glass-float glass-float-low agent-composer-pulse relative flex w-full flex-col gap-2 rounded-xl p-2",
+        // The rail's composer fills its panel, which the user sizes.
+        !rail && "max-w-274",
+        className,
+      )}
+    >
+      {attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0 ? (
+        <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
+          {refs.map((ref) => (
+            <AgentRefChip
+              key={`${ref.module}/${ref.kind}/${ref.id}`}
+              entityRef={ref}
+              onRemove={onRemoveRef ? () => onRemoveRef(ref) : undefined}
+            />
+          ))}
+          {attachedFiles.map((path) => (
+            // Removed by a named button, like an image: the whole 24px chip
+            // as the control removed the file on a click that said nothing.
+            <div key={path} className="flex min-w-0 items-center">
+              <AgentFileChip path={path} />
+              {onRemoveAttachment ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${path}`} onClick={() => onRemoveAttachment(path)}>
+                  <X aria-hidden="true" />
                 </Button>
-              </DropdownMenuTrigger>
-              {/* No width: the rows (200px minimum) size it. At w-48 the check
-                  marking the current agent was cut in half at the edge. */}
-              <DropdownMenuContent side="top" align="start">
-                <DropdownMenuLabel>Agent</DropdownMenuLabel>
-                {agents.map((option) => (
-                  <DropdownMenuItem
-                    key={option}
-                    data-testid="composer-agent-option"
-                    icon={<VendorIcon vendor={option} className="size-3.5" />}
-                    detail={option === agent ? <Check className="size-3" aria-hidden="true" /> : undefined}
-                    onSelect={() => onAgentChange(option)}
-                  >
-                    <span>{vendorInfo(option).name}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              ) : null}
+            </div>
+          ))}
+          {imageAttachments.map((image) => (
+            <div key={image.id} className="flex items-center gap-1 rounded-sm bg-surface-raised px-1 py-1">
+              <img src={image.previewUrl} alt={image.name} className="size-8 rounded-sm object-cover" />
+              <span className="max-w-32 truncate text-caption-11 text-text-secondary">{image.name}</span>
+              {onRemoveImage ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
+                  <X aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {queuedPrompts.length > 0 ? (
+        <div data-testid="composer-queued-prompts" className="flex w-full flex-wrap items-center gap-1 px-1">
+          {queuePaused ? (
+            // A turn failed or was cancelled with these still waiting. They do
+            // not go on their own — not even after a later turn succeeds.
+            <div data-testid="composer-queue-paused" className="flex min-w-0 max-w-full items-center gap-1 text-caption-11 text-text-secondary">
+              {/* One line: a long reason truncates and reads in full on hover,
+                  and Resume stays beside it. */}
+              <span className="min-w-0 truncate" title={queuePausedReason || undefined}>
+                {queuePausedReason ? `Paused: ${queuePausedReason}` : "Paused"}
+              </span>
+              {onResumeQueued ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Resume queued prompts" className="shrink-0" onClick={onResumeQueued}>
+                  <Play aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
           ) : null}
-          {/* Each pill is its own menu trigger. One DropdownMenu with two
-              triggers is not a thing — they open different lists. */}
-          <AgentMenu
-            {...menu("context")}
-            mode="context"
-            contextFiles={contextFiles}
-            onSelectContext={onSelectContext}
-            onBrowseContext={onBrowseContext}
-          >
-            <ActionTooltip label="Add context" side="top">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={disabled}
-                data-testid="composer-attach-button"
-                className="text-text-secondary"
-              >
-                <AtSign aria-hidden="true" />
-              </Button>
-            </ActionTooltip>
-          </AgentMenu>
-          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand} {...menu("commands")}>
-            <ActionTooltip label="Commands" side="top">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={disabled}
-                data-testid="composer-menu-button"
-                className="text-text-secondary"
+          {queuedPrompts.map((queued) => (
+            <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
+              <span className="shrink-0">Queued</span>
+              <span className="min-w-0 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
+              {onEditQueued ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>
+                  <Pencil aria-hidden="true" />
+                </Button>
+              ) : null}
+              {onCancelQueued ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Cancel queued prompt" onClick={() => onCancelQueued(queued.id)}>
+                  <X aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {imageError ? <p data-testid="composer-image-error" className="px-1 text-caption-11 text-status-danger">{imageError}</p> : null}
+
+      {/* The list of commands the agent advertised, over the field while one
+          is being typed. Anchored to the composer rather than shown in a
+          popover: the field keeps focus throughout — the user is still
+          typing the name — and a popover would take it. onMouseDown is
+          prevented for the same reason, so clicking a command does not blur
+          the field underneath. Arrow keys, Enter and Escape are handled in
+          the textarea's own key handler; cmdk never sees them, so the
+          highlight is driven here rather than by its own value logic. */}
+      {commandListOpen ? (
+        <Command
+          shouldFilter={false}
+          value={highlighted?.name ?? ""}
+          data-testid="composer-command-list"
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute bottom-full left-0 z-10 mb-1 w-full max-w-full"
+        >
+          <CommandList>
+            {matches.map((command) => (
+              <CommandItem
+                key={command.name}
+                value={command.name}
+                data-testid="composer-command-item"
+                onSelect={() => acceptCommand(command)}
               >
                 <CommandIcon aria-hidden="true" />
-              </Button>
-            </ActionTooltip>
-          </AgentMenu>
-          {/* The objective the agent keeps working towards between turns. It
-              sits with the mode rather than in the ⌘ menu because it is the
-              same kind of thing: per-session state the agent applies to every
-              turn, not a command you run once. */}
-          {onSetGoal ? (
-            <ActionTooltip label={goal ? "Change what this session is working towards" : "Set what this session works towards"}>
+                <span className="shrink-0 text-code-12">{commandName(command.name)}</span>
+                {/* The description takes the free space so every hint lines
+                    up on the right. Not ml-auto: CommandItem's own check is
+                    already pushed that way, and two of them split the gap
+                    between themselves (same trap as TabSwitcher's). */}
+                <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
+                  {command.description}
+                </span>
+                {command.input?.hint ? (
+                  <span className="shrink-0 text-caption-11 text-text-tertiary">{command.input.hint}</span>
+                ) : null}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      ) : null}
+
+      {/* A bare textarea, not the shared Textarea: that one brings a border,
+          a fill, a focus ring and its own radius, all of which this field
+          already provides around it. Overriding six properties to get back
+          to plain text is more code than plain text. */}
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        value={value}
+        disabled={disabled}
+        placeholder={inputPlaceholder}
+        aria-label="Agent prompt input"
+        data-testid="agent-composer-textarea"
+        onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => {
+          const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
+          if (image && onPasteImage) {
+            e.preventDefault();
+            onPasteImage(image);
+          }
+        }}
+        onDrop={(e) => {
+          const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
+          if (image && onDropImage) {
+            e.preventDefault();
+            onDropImage(image);
+          }
+        }}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+        }}
+        onKeyDown={(e) =>
+          handleComposerKeyDown(e, {
+            streaming: isStreaming,
+            onSend,
+            onCancel,
+            commandList: {
+              open: commandListOpen,
+              onMove: (delta) =>
+                setHighlight((current) => {
+                  const next = (current + delta) % matches.length;
+                  return next < 0 ? next + matches.length : next;
+                }),
+              onAccept: () => acceptCommand(highlighted),
+              onClose: () => setDismissedQuery(query),
+            },
+          })
+        }
+        className={cn(
+          "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
+          // Floor is the old fixed height; ceiling is about eleven lines wide
+          // and seven in the rail, past which the field scrolls instead of
+          // pushing the composer up over the conversation.
+          rail ? "min-h-8 max-h-40" : "min-h-10 max-h-60",
+        )}
+      />
+
+      <div className="flex w-full items-center gap-1">
+        {onAgentChange ? (
+          <DropdownMenu {...menu("agent")}>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                data-testid="composer-goal"
-                data-set={goal ? "true" : "false"}
-                onClick={() => {
-                  setOpenMenu("");
-                  setGoalDraft(goal?.objective ?? "");
-                  setGoalOpen(true);
-                }}
-                className={cn("gap-1 px-2", goal ? "text-text-primary" : "text-text-secondary")}
+                data-testid="composer-agent"
+                className="gap-1.5 px-2 text-text-secondary"
               >
-                <Target className="size-3.5" aria-hidden="true" />
-                {goal ? <span className="max-w-32 truncate text-body-13">{goal.objective}</span> : null}
+                <VendorIcon vendor={agent} className="size-3.5" />
+                <span className="text-body-13">{vendorInfo(agent).name}</span>
+                <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
               </Button>
-            </ActionTooltip>
-          ) : null}
-          {onSetMode && modeChoices.length > 0 ? (
-            <DropdownMenu {...menu("mode")}>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
-                  <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-                  <span className="max-w-24 truncate text-body-13">{currentModeLabel}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
-                <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
-                {/* Descriptions come from the agent (ACP modes.availableModes) as
-                    full sentences, not the short trailing text DropdownMenuItem's
-                    `detail` is for — cramming one into a single h-7 row wrapped and
-                    overflowed onto the rows below it. Each choice gets its own
-                    two-line row instead: label, then a wrapped, muted description. */}
-                {modeChoices.map((choice) => (
-                  <DropdownMenuItem
-                    key={choice.value}
-                    data-testid="composer-mode-option"
-                    bare
-                    className={cn(MENU_ROW, "h-auto items-start py-1.5")}
-                    onSelect={() => selectComposerMode(choice, onSetMode, askBypass)}
-                  >
-                    <span aria-hidden className="flex size-(--icon-14) items-center justify-center pt-0.5">
-                      {choice.value === currentMode ? <Check className="size-3" aria-hidden="true" /> : null}
-                    </span>
-                    <span className="min-w-0 py-0.5">
-                      <div className="truncate">{modeLabel(choice)}</div>
-                      {choice.description ? (
-                        <div className="text-caption-11 text-text-tertiary">{choice.description}</div>
-                      ) : null}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          {onSetConfigOption && selectableOptions.length > 0 ? (
-            <DropdownMenu {...menu("config")}>
-              <DropdownMenuTrigger asChild>
-                <ActionTooltip label="Agent settings" side="top">
-                  <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
-                    <SlidersHorizontal aria-hidden="true" />
-                  </Button>
-                </ActionTooltip>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
-                <DropdownMenuLabel>Agent settings</DropdownMenuLabel>
-                {selectableOptions.map((option) => (
-                  <React.Fragment key={option.id}>
-                    <DropdownMenuLabel className="pt-2 text-body-13">{option.name || option.id}</DropdownMenuLabel>
-                    {option.options?.map((choice) => (
-                      <DropdownMenuItem
-                        key={`${option.id}-${choice.value}`}
-                        data-testid="composer-config-option"
-                        detail={String(option.currentValue) === choice.value ? <Check className="size-3" aria-hidden="true" /> : undefined}
-                        onSelect={() =>
-                          requestComposerChoice(
-                            isPermissionBypassChoice(choice, option),
-                            () => onSetConfigOption(option.id, choice.value),
-                            askBypass,
-                          )
-                        }
-                      >
-                        {choice.name || choice.value}
-                      </DropdownMenuItem>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <span className="min-w-0 flex-1" />
-          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
-          <BorderBeam
-            active={isStreaming && !reduce}
-            size="sm"
-            colorVariant={vendorInfo(vendor).beam}
-            theme={theme}
-            className="shrink-0 rounded-full"
-          >
-            {/* Glass, like the surface it sits on: a solid lime disc was the
-                loudest thing in the window at rest, for a button that does
-                nothing until there is something to send. */}
+            </DropdownMenuTrigger>
+            {/* No width: the rows (200px minimum) size it. At w-48 the check
+                marking the current agent was cut in half at the edge. */}
+            <DropdownMenuContent side="top" align="start">
+              <DropdownMenuLabel>Agent</DropdownMenuLabel>
+              {agents.map((option) => (
+                <DropdownMenuItem
+                  key={option}
+                  data-testid="composer-agent-option"
+                  icon={<VendorIcon vendor={option} className="size-3.5" />}
+                  detail={option === agent ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                  onSelect={() => onAgentChange(option)}
+                >
+                  <span>{vendorInfo(option).name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {/* Each pill is its own menu trigger. One DropdownMenu with two
+            triggers is not a thing — they open different lists. */}
+        <AgentMenu
+          {...menu("context")}
+          mode="context"
+          contextFiles={contextFiles}
+          onSelectContext={onSelectContext}
+          onBrowseContext={onBrowseContext}
+        >
+          <ActionTooltip label="Add context" side="top">
             <Button
               type="button"
-              variant="glass"
+              variant="ghost"
               size="icon-sm"
               disabled={disabled}
-              aria-label={isStreaming ? "Stop generating" : "Send message"}
-              data-testid="composer-send-button"
-              onClick={isStreaming ? onCancel : onSend}
-              className="rounded-full"
+              data-testid="composer-attach-button"
+              className="text-text-secondary"
             >
-              <MorphIcon
-                icon={isStreaming ? Square : ArrowUp}
-                size={14}
-                strokeWidth={2}
-                spring="snappy"
-                reducedMotion="user"
-              />
+              <AtSign aria-hidden="true" />
             </Button>
-          </BorderBeam>
-        </div>
-        {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
-            straight after picking the item does not confirm it. */}
-        <AlertDialog open={pendingBypass !== null} onOpenChange={(open) => !open && setPendingBypass(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Skip permission prompts?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {`${agentName ?? "The agent"} will edit files and run commands without asking you first, until you change this back.`}
-              </AlertDialogDescription>
-              {sandboxWarning ? (
-                <p data-testid="bypass-sandbox-warning" className="text-body-12 text-status-warning">
-                  {sandboxWarning}
-                </p>
-              ) : null}
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={() => pendingBypass?.apply()}>
-                Skip permissions
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Setting an objective is not a turn: the agent keeps it and applies
-            it to the turns that follow, so this asks and closes rather than
-            sending anything. Clearing it is the same call with nothing in it. */}
-        <Dialog open={goalOpen} onOpenChange={setGoalOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>What is this session working towards?</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                onSetGoal?.(goalDraft.trim());
-                setGoalOpen(false);
-              }}
+          </ActionTooltip>
+        </AgentMenu>
+        <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand} {...menu("commands")}>
+          <ActionTooltip label="Commands" side="top">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={disabled}
+              data-testid="composer-menu-button"
+              className="text-text-secondary"
             >
-              <Input
-                value={goalDraft}
-                onChange={(event) => setGoalDraft(event.target.value)}
-                maxLength={500}
-                autoFocus
-                placeholder="a green build on CI"
-                aria-label="Objective"
-                data-testid="composer-goal-input"
-              />
-              <p className="mt-2 text-caption-11 text-text-tertiary">
-                The agent keeps working towards this across turns until it is cleared.
-              </p>
-              <DialogFooter className="mt-4">
-                {goal ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    data-testid="composer-goal-clear"
-                    onClick={() => {
-                      onSetGoal?.("");
-                      setGoalOpen(false);
-                    }}
-                  >
-                    Clear goal
-                  </Button>
-                ) : null}
-                <Button type="button" variant="ghost" onClick={() => setGoalOpen(false)}>
-                  Cancel
+              <CommandIcon aria-hidden="true" />
+            </Button>
+          </ActionTooltip>
+        </AgentMenu>
+        {/* The objective the agent keeps working towards between turns. It
+            sits with the mode rather than in the ⌘ menu because it is the
+            same kind of thing: per-session state the agent applies to every
+            turn, not a command you run once. */}
+        {onSetGoal ? (
+          <ActionTooltip label={goal ? "Change what this session is working towards" : "Set what this session works towards"}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="composer-goal"
+              data-set={goal ? "true" : "false"}
+              onClick={() => {
+                setOpenMenu("");
+                setGoalDraft(goal?.objective ?? "");
+                setGoalOpen(true);
+              }}
+              className={cn("gap-1 px-2", goal ? "text-text-primary" : "text-text-secondary")}
+            >
+              <Target className="size-3.5" aria-hidden="true" />
+              {goal ? <span className="max-w-32 truncate text-body-13">{goal.objective}</span> : null}
+            </Button>
+          </ActionTooltip>
+        ) : null}
+        {onSetMode && modeChoices.length > 0 ? (
+          <DropdownMenu {...menu("mode")}>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
+                <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+                <span className="max-w-24 truncate text-body-13">{currentModeLabel}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
+              <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
+              {/* Descriptions come from the agent (ACP modes.availableModes) as
+                  full sentences, not the short trailing text DropdownMenuItem's
+                  `detail` is for — cramming one into a single h-7 row wrapped and
+                  overflowed onto the rows below it. Each choice gets its own
+                  two-line row instead: label, then a wrapped, muted description. */}
+              {modeChoices.map((choice) => (
+                <DropdownMenuItem
+                  key={choice.value}
+                  data-testid="composer-mode-option"
+                  bare
+                  className={cn(MENU_ROW, "h-auto items-start py-1.5")}
+                  onSelect={() => selectComposerMode(choice, onSetMode, askBypass)}
+                >
+                  <span aria-hidden className="flex size-(--icon-14) items-center justify-center pt-0.5">
+                    {choice.value === currentMode ? <Check className="size-3" aria-hidden="true" /> : null}
+                  </span>
+                  <span className="min-w-0 py-0.5">
+                    <div className="truncate">{modeLabel(choice)}</div>
+                    {choice.description ? (
+                      <div className="text-caption-11 text-text-tertiary">{choice.description}</div>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {onSetConfigOption && selectableOptions.length > 0 ? (
+          <DropdownMenu {...menu("config")}>
+            <DropdownMenuTrigger asChild>
+              <ActionTooltip label="Agent settings" side="top">
+                <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
+                  <SlidersHorizontal aria-hidden="true" />
                 </Button>
-                <Button type="submit" disabled={!goalDraft.trim()}>
-                  Set goal
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+              </ActionTooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
+              <DropdownMenuLabel>Agent settings</DropdownMenuLabel>
+              {selectableOptions.map((option) => (
+                <React.Fragment key={option.id}>
+                  <DropdownMenuLabel className="pt-2 text-body-13">{option.name || option.id}</DropdownMenuLabel>
+                  {option.options?.map((choice) => (
+                    <DropdownMenuItem
+                      key={`${option.id}-${choice.value}`}
+                      data-testid="composer-config-option"
+                      detail={String(option.currentValue) === choice.value ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                      onSelect={() =>
+                        requestComposerChoice(
+                          isPermissionBypassChoice(choice, option),
+                          () => onSetConfigOption(option.id, choice.value),
+                          askBypass,
+                        )
+                      }
+                    >
+                      {choice.name || choice.value}
+                    </DropdownMenuItem>
+                  ))}
+                </React.Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        <span className="min-w-0 flex-1" />
+        <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
+        {/* Glass, like the surface it sits on: a solid lime disc was the
+            loudest thing in the window at rest, for a button that does
+            nothing until there is something to send. */}
+        <Button
+          type="button"
+          variant="glass"
+          size="icon-sm"
+          disabled={disabled}
+          aria-label={isStreaming ? "Stop generating" : "Send message"}
+          data-testid="composer-send-button"
+          onClick={isStreaming ? onCancel : onSend}
+          className="shrink-0 rounded-full"
+        >
+          <MorphIcon
+            icon={isStreaming ? Square : ArrowUp}
+            size={14}
+            strokeWidth={2}
+            spring="snappy"
+            reducedMotion="user"
+          />
+        </Button>
       </div>
+      {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
+          straight after picking the item does not confirm it. */}
+      <AlertDialog open={pendingBypass !== null} onOpenChange={(open) => !open && setPendingBypass(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skip permission prompts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`${agentName ?? "The agent"} will edit files and run commands without asking you first, until you change this back.`}
+            </AlertDialogDescription>
+            {sandboxWarning ? (
+              <p data-testid="bypass-sandbox-warning" className="text-body-12 text-status-warning">
+                {sandboxWarning}
+              </p>
+            ) : null}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => pendingBypass?.apply()}>
+              Skip permissions
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Setting an objective is not a turn: the agent keeps it and applies
+          it to the turns that follow, so this asks and closes rather than
+          sending anything. Clearing it is the same call with nothing in it. */}
+      <Dialog open={goalOpen} onOpenChange={setGoalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>What is this session working towards?</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSetGoal?.(goalDraft.trim());
+              setGoalOpen(false);
+            }}
+          >
+            <Input
+              value={goalDraft}
+              onChange={(event) => setGoalDraft(event.target.value)}
+              maxLength={500}
+              autoFocus
+              placeholder="a green build on CI"
+              aria-label="Objective"
+              data-testid="composer-goal-input"
+            />
+            <p className="mt-2 text-caption-11 text-text-tertiary">
+              The agent keeps working towards this across turns until it is cleared.
+            </p>
+            <DialogFooter className="mt-4">
+              {goal ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  data-testid="composer-goal-clear"
+                  onClick={() => {
+                    onSetGoal?.("");
+                    setGoalOpen(false);
+                  }}
+                >
+                  Clear goal
+                </Button>
+              ) : null}
+              <Button type="button" variant="ghost" onClick={() => setGoalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!goalDraft.trim()}>
+                Set goal
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
