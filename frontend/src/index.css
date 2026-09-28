@@ -907,6 +907,47 @@
     0 2px 10px rgba(0, 0, 0, 0.14);
 }
 
+/* AgentComposer's "a turn is running" cue: a soft halo breathes outward from
+   the whole input, not the send/stop button — the glyph morph there already
+   says the control changed what it does. Coloured with `--status-running`,
+   the same token AgentHubSwitcher's session dot uses for "this agent is
+   running", so it reads as the app's own state colour rather than a
+   vendor's, and follows dark/light for free since that token already does.
+   `[data-state="streaming"]` (AgentComposer.tsx) toggles it; no JS theme
+   lookup needed. */
+.agent-composer-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--status-running) 45%, transparent),
+    0 0 16px 2px color-mix(in srgb, var(--status-running) 30%, transparent);
+  transition: opacity 0.5s ease;
+}
+
+.agent-composer-pulse[data-state="streaming"]::after {
+  opacity: 1;
+  animation: agent-composer-pulse-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes agent-composer-pulse-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--status-running) 45%, transparent),
+      0 0 16px 2px color-mix(in srgb, var(--status-running) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--status-running) 75%, transparent),
+      0 0 28px 6px color-mix(in srgb, var(--status-running) 55%, transparent);
+  }
+}
+
 /* Button's `glass` variant. A control rather than a surface, so it takes the
    float tier's blur and none of its box: no fill of its own beyond the wash
    below, no border (the ring is drawn by ::before), and no drop shadow — a
@@ -1770,5 +1811,9 @@
     }
     .value-blink {
         animation: none;
+    }
+    .agent-composer-pulse[data-state="streaming"]::after {
+        animation: none;
+        opacity: 0;
     }
 }
