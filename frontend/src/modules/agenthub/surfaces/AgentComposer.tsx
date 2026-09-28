@@ -594,6 +594,13 @@ export function AgentComposer({
       size="pulse-outside"
       colorVariant="mono"
       theme={theme}
+      // BorderBeam's own wrapper is the outermost element now, and the caller's
+      // className (AgentHubContent passes "min-w-0 flex-1") sizes the composer
+      // within ITS parent's flex row. Left on the inner div instead, it had
+      // nothing to say about the wrapper: a flex item with no flex-grow of its
+      // own shrinks to its content's width, and the composer rendered a third
+      // of the row wide with empty space beside it.
+      className={className}
     >
       <div
         role="region"
@@ -606,7 +613,6 @@ export function AgentComposer({
           "glass-float glass-float-low relative flex w-full flex-col gap-2 rounded-xl p-2",
           // The rail's composer fills its panel, which the user sizes.
           !rail && "max-w-274",
-          className,
         )}
       >
         {attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0 ? (
