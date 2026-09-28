@@ -171,8 +171,10 @@ canvas Code Graph.
 | **Tối đa 3 group**, mỗi group rộng ≥ 360px | Đủ cho so sánh; hơn nữa thì document nào cũng hẹp tới mức không đọc được |
 | Group trống ⇒ tự đóng; group cuối cùng không bao giờ đóng | Document area là anchor |
 
-Mỗi group hiện **icon + tên module** ở đầu tab strip khi có hơn một module trên
-màn hình — người dùng luôn biết sidebar đang nói về group nào.
+Không thêm nhãn module ở đầu group — nó tốn chỗ và lặp lại thứ đã có. Module
+của group đọc được từ **icon trên tab** (tab Code Graph mang icon Code Graph, tab
+note mang icon note), còn group đang focus — thứ quyết định sidebar — là group
+có **viền focus**.
 
 ### Nhóm module trên titlebar
 
