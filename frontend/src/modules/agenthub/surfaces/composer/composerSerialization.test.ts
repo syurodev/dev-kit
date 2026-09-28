@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { collectMentionKeys, serializeComposerValue } from "./composerSerialization";
+import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composerSerialization";
 
-const types = { mention: "mention", codeBlock: "code_block", codeLine: "code_line" };
+const types = { paragraph: "p", mention: "mention", codeBlock: "code_block", codeLine: "code_line" };
 
 describe("serializeComposerValue", () => {
   it("writes plain text exactly as composed, including a soft break", () => {
@@ -44,6 +44,45 @@ describe("serializeComposerValue", () => {
       { type: "p", children: [{ text: "after" }] },
     ];
     expect(serializeComposerValue(nodes, types)).toBe("before\n```\ncode\n```\nafter");
+  });
+});
+
+describe("deserializeComposerValue", () => {
+  // The composer re-reads its prompt whenever it changes from outside — most
+  // often a second composer on the same session. A lossy read there (markdown
+  // dropping a trailing space) was echoed back and ate every space typed.
+  it.each([
+    "hello ",
+    " leading",
+    "hello  world",
+    "a\nb",
+    "a\n\nb",
+    "trailing newline\n",
+    "- not a list",
+    "1. not a list",
+    "# not a heading",
+    "*",
+    "> not a quote",
+    "check @app.ts please",
+    "before\n```ts\nconst x = 1;\n\nconsole.log(x);\n```\nafter",
+    "```\ncode\n```",
+    "```\na\n```\n\n```\nb\n```",
+    "```ts\nnever closed",
+    "```\n```",
+    "`inline` and ``` mid-line",
+  ])("reads %j back exactly as it was written", (text) => {
+    expect(serializeComposerValue(deserializeComposerValue(text, types), types)).toBe(text);
+  });
+
+  it("reads a fenced block as a code block, language and all", () => {
+    expect(deserializeComposerValue("hi\n```go\nx := 1\n```", types)).toEqual([
+      { type: "p", children: [{ text: "hi" }] },
+      { type: "code_block", lang: "go", children: [{ type: "code_line", children: [{ text: "x := 1" }] }] },
+    ]);
+  });
+
+  it("reads an empty prompt as an empty document", () => {
+    expect(deserializeComposerValue("", types)).toEqual([]);
   });
 });
 

@@ -364,7 +364,8 @@ func (s *AppService) AgentHubSetConfigOption(ctx context.Context, id, optionID, 
 	return err
 }
 
-// AgentHubListContextFiles returns bounded prompt suggestions for one project.
+// AgentHubListContextFiles returns bounded prompt suggestions for one session:
+// its folder and the workspace folders it was granted, filtered by query.
 func (s *AppService) AgentHubListContextFiles(ctx context.Context, id, query string) ([]agenthub.ContextFile, error) {
 	opaqueID := hubSessionID(id)
 	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
@@ -375,6 +376,25 @@ func (s *AppService) AgentHubListContextFiles(ctx context.Context, id, query str
 			return nil, err
 		}
 		return svc.ListContextFiles(callCtx, id, query)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.ContextFile), nil
+}
+
+// AgentHubListDraftContextFiles is AgentHubListContextFiles for a draft, which
+// has no session to read its folders from: the draft's own folder first, then
+// the workspace's others.
+func (s *AppService) AgentHubListDraftContextFiles(ctx context.Context, roots []string, query string) ([]agenthub.ContextFile, error) {
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "session:new", map[string]any{
+		"action": "list_draft_context_files",
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListDraftContextFiles(callCtx, roots, query)
 	})
 	if err != nil {
 		return nil, err

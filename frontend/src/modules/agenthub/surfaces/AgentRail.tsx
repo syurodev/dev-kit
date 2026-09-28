@@ -43,6 +43,8 @@ export type AgentRailProps = {
   contextFiles?: ContextFileItem[];
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
+  /** What "@" finds for a query in the session's folders. */
+  onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   onBrowseContext?: () => void;
   attachedFiles?: string[];
   onRemoveAttachment?: (path: string) => void;
@@ -137,6 +139,7 @@ export function AgentRail({
   contextFiles = [],
   onSelectCommand,
   onSelectContext,
+  onSearchContext,
   onBrowseContext,
   attachedFiles = [],
   onRemoveAttachment,
@@ -385,6 +388,7 @@ export function AgentRail({
               contextFiles={contextFiles}
               onSelectCommand={onSelectCommand}
               onSelectContext={onSelectContext}
+              onSearchContext={onSearchContext}
               onBrowseContext={onBrowseContext}
               attachedFiles={attachedFiles}
               onRemoveAttachment={onRemoveAttachment}

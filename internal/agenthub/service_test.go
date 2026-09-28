@@ -1709,6 +1709,111 @@ func TestListContextFilesSkipsAnUnreadableFolder(t *testing.T) {
 	}
 }
 
+func writeContextFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func contextDescriptions(files []agenthub.ContextFile) []string {
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		out = append(out, file.Description)
+	}
+	return out
+}
+
+// "@" listed only the session's own folder: a session started on a workspace
+// could not mention a file in any of its other services.
+func TestListContextFilesCoversTheWorkspaceFolders(t *testing.T) {
+	ws := t.TempDir()
+	billing, refund := filepath.Join(ws, "billing"), filepath.Join(ws, "refund")
+	writeContextFile(t, filepath.Join(billing, "schema.sql"))
+	writeContextFile(t, filepath.Join(refund, "db", "schema.sql"))
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock, Cwd: billing, ExtraReadWritePaths: []string{refund},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := svc.ListContextFiles(context.Background(), sess.ID, "schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := contextDescriptions(files)
+	want := []string{"billing/schema.sql", "refund/db/schema.sql"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("descriptions = %v, want %v", got, want)
+	}
+	if files[1].Path != filepath.Join(refund, "db", "schema.sql") {
+		t.Fatalf("path = %q, want the absolute path in the other service", files[1].Path)
+	}
+}
+
+// The query was only ever applied to the first 100 files in name order, so in
+// a larger project most files could not be found by typing their name.
+func TestListContextFilesSearchesPastTheFirstHundred(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 150; i++ {
+		writeContextFile(t, filepath.Join(root, "a", fmt.Sprintf("f-%03d.ts", i)))
+	}
+	writeContextFile(t, filepath.Join(root, "z", "scheduler.ts"))
+	writeContextFile(t, filepath.Join(root, "schemas", "user.ts"))
+	writeContextFile(t, filepath.Join(root, "z", "reschedule.ts"))
+	svc, id := contextFilesService(t, root)
+	files, err := svc.ListContextFiles(context.Background(), id, "SCHE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A name that starts with it, then one that contains it, then a folder.
+	got := contextDescriptions(files)
+	want := []string{"z/scheduler.ts", "z/reschedule.ts", "schemas/user.ts"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("descriptions = %v, want %v", got, want)
+	}
+}
+
+func TestListDraftContextFilesListsTheNamedFolders(t *testing.T) {
+	ws := t.TempDir()
+	api, web := filepath.Join(ws, "api"), filepath.Join(ws, "web")
+	writeContextFile(t, filepath.Join(api, "main.go"))
+	writeContextFile(t, filepath.Join(web, "main.ts"))
+	svc := newTestService(t)
+	// A folder named twice is listed once; a relative path is not a folder
+	// anyone chose.
+	files, err := svc.ListDraftContextFiles(context.Background(), []string{api, web, api, "relative"}, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := contextDescriptions(files)
+	want := []string{"api/main.go", "web/main.ts"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("descriptions = %v, want %v", got, want)
+	}
+}
+
+// The folders are the caller's to name, so only the person may name them.
+func TestListDraftContextFilesRefusesAgentsAndTerminals(t *testing.T) {
+	svc := newTestService(t)
+	root := t.TempDir()
+	writeContextFile(t, filepath.Join(root, "secret.txt"))
+	for _, caller := range []identity.Caller{identity.Agent("some-session"), identity.UserTerminal()} {
+		ctx := identity.WithCaller(context.Background(), caller)
+		if _, err := svc.ListDraftContextFiles(ctx, []string{root}, ""); !errors.Is(err, agenthub.ErrPermissionDenied) {
+			t.Fatalf("%s: err = %v, want ErrPermissionDenied", caller, err)
+		}
+	}
+	ui := identity.WithCaller(context.Background(), identity.UI())
+	if files, err := svc.ListDraftContextFiles(ui, []string{root}, ""); err != nil || len(files) != 1 {
+		t.Fatalf("UI: files = %v, err = %v", files, err)
+	}
+}
+
 // TestAClosedSessionReopensOnTheNextPrompt pins what Close means now.
 //
 // It used to mean "gone": Invoke answered ErrSessionNotFound for a closed

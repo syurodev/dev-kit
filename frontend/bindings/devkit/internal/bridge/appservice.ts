@@ -337,10 +337,20 @@ export function AgentHubListCheckpoints(id: string): $CancellablePromise<agenthu
 }
 
 /**
- * AgentHubListContextFiles returns bounded prompt suggestions for one project.
+ * AgentHubListContextFiles returns bounded prompt suggestions for one session:
+ * its folder and the workspace folders it was granted, filtered by query.
  */
 export function AgentHubListContextFiles(id: string, query: string): $CancellablePromise<agenthub$0.ContextFile[] | null> {
     return $Call.ByID(3957701360, id, query);
+}
+
+/**
+ * AgentHubListDraftContextFiles is AgentHubListContextFiles for a draft, which
+ * has no session to read its folders from: the draft's own folder first, then
+ * the workspace's others.
+ */
+export function AgentHubListDraftContextFiles(roots: string[] | null, query: string): $CancellablePromise<agenthub$0.ContextFile[] | null> {
+    return $Call.ByID(1036287375, roots, query);
 }
 
 export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentType[] | null> {
