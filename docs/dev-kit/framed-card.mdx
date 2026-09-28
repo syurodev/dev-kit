@@ -86,9 +86,11 @@ hàng riêng nằm phía trên nó.
   ("API flow", "Commit", "Task"), không phải câu. Meta là **một** sự kiện
   ngắn: số lượng, trạng thái, SHA, thời gian. Nhiều hơn một sự kiện thì đưa
   xuống preview.
-- **Tối đa một hành động trên header**, luôn ở cuối, luôn là "mở ở chỗ
-  khác" (Reveal, Open, View diff, Try in API Client) — mũi tên `↗` nói điều
-  đó. Hành động đổi dữ liệu không đặt trên card.
+- **Tối đa một hành động trên header**, luôn ở cuối, và không bao giờ đổi
+  dữ liệu. Hai loại: **mở ở chỗ khác** (Reveal, Open, View diff, Review, Try
+  in API Client) — có mũi tên `↗`; và **Copy**, chỉ cho card mà preview chính
+  là thứ người ta cần lấy (code) — `opens={false}`, glyph `Copy` đứng trước
+  chữ, không có mũi tên.
 - **Danh sách mà mỗi dòng tự mở được thì không có hành động header** — không
   có "một thứ" để mở (ví dụ `Symbols`, `Endpoints`).
 - **Preview có padding hay flush.** Nội dung đơn (một dòng subject, method +
@@ -107,6 +109,9 @@ hàng riêng nằm phía trên nó.
 - **Preview không phải nơi cho dữ liệu nhạy cảm.** Card nào cũng chỉ hiện
   cái đủ để nhận ra đối tượng; body request/response, nội dung note đã giải
   mã… không vào preview (xem bảng ví dụ ở ToolResultView).
+- **Không có gì để xem trước thì không vẽ preview rỗng.** Ví dụ diff của
+  file nhị phân, quá lớn, hay không đổi: header (kèm ghi chú "binary file",
+  "too large to preview"…) đứng một mình, không có panel trống bên dưới.
 - **Không lồng card trong card.** Cần phân nhóm trong preview thì dùng
   dòng/khoảng cách, không dùng một `FramedCard` khác.
 
@@ -142,7 +147,7 @@ hàng riêng nằm phía trên nó.
 |---|---|
 | `FramedCard` | Surface và khung. Nhận mọi prop của `div` (`data-testid`…). |
 | `FramedCardHeader` | `icon?`, `title`, `meta?`, `action?`. |
-| `FramedCardAction` | Nút chữ trầm + `↗`. Luôn là "mở ở chỗ khác". |
+| `FramedCardAction` | Nút chữ trầm + `↗` (mở ở chỗ khác). `opens={false}` cho Copy: bỏ mũi tên, glyph đặt trong `children`. |
 | `FramedCardPreview` | `flush?` bỏ padding cho danh sách. Là `flex-col`; đặt `flex-row` qua `className` cho một dòng nhiều phần (status · text · size). |
 | `FramedCardRow` | `icon?`, `label`, `trailing?`, `detail?`, `onClick?`. Dòng 2 thụt ngang label khi có icon. |
 | `FramedCardMore` | `count` ≤ 0 thì không vẽ gì. |
@@ -152,6 +157,9 @@ hàng riêng nằm phía trên nó.
 | Nơi | Trạng thái |
 |---|---|
 | ToolResultView — 9 card (`ApiFlow`, `SymbolMatch`, `EndpointList`, `EndpointDraft`, `Send`, `GitCommit`, `GitDiff`, `Note`, `Task`) | Đã áp dụng. Thay `ToolResultRow`/`ToolResultList` (thiết kế theo `Agent / Row`) và card phẳng trước đó. |
+| Khối code của Agent Hub — `AgentCodeBlock`: file tool đọc (tên file + `lines a–b`, gutter số dòng), lệnh shell (`bash`), output của tool ("Output" + ngôn ngữ khi không phải text), code fence trong câu trả lời | Đã áp dụng. Header: tên file hoặc nhãn/ngôn ngữ + Copy. |
+| Diff một file — `FileDiffPane` (tool call sửa file, và diff trong thẻ hỏi quyền) | Đã áp dụng cho dạng có header: tên file + ghi chú + `+a −r`, hành động Review mở cả file hai cột. Dạng `headless` (ngăn kéo của Turn changes, nơi hàng đã là header) giữ nguyên. `DiffPane` dùng chung với module Git (Figma 08 Diff) không đổi. |
+| Terminal của tool call — `AgentToolTerminal` | Đã áp dụng: header "Terminal" + trạng thái (`running…`, `exit n` màu danger), preview là lệnh. |
 | Các card hiển thị một đối tượng kèm phần xem trước ở module khác | Cần rà từng chỗ trước khi đổi: chỉ đổi khi nội dung đúng dạng "tên + xem trước", không ép mọi khối thành card. |
 
 **Figma:** chưa có component tương ứng. Frame `Agent / Tool Result`

@@ -69,21 +69,24 @@ export function FramedCardHeader({ icon: Icon, title, meta, action, className }:
 }
 
 /**
- * The header's action: a quiet text button with the arrow that says it opens
- * something elsewhere. Quiet because the preview is the card's content; the
- * action is the way out of it.
+ * The header's action: a quiet text button. Quiet because the preview is the
+ * card's content; the action is the way out of it — or, for a preview whose
+ * content is the point (code), a way to take it: Copy. `opens` (the default)
+ * adds the arrow that says it opens something elsewhere; a copy has none,
+ * and carries its own glyph in `children`.
  */
 export function FramedCardAction({
   children,
+  opens = true,
   className,
   ...props
-}: Omit<React.ComponentProps<"button">, "type">) {
+}: Omit<React.ComponentProps<"button">, "type"> & { opens?: boolean }) {
   return (
     <button
       type="button"
       data-slot="framed-card-action"
       className={cn(
-        "-mr-(--space-micro) inline-flex h-(--control-height-xs) cursor-pointer items-center gap-(--space-micro) rounded-sm px-(--space-inline) text-caption-11 text-text-tertiary",
+        "-mr-(--space-micro) inline-flex h-(--control-height-xs) cursor-pointer items-center gap-(--space-micro) rounded-sm px-(--space-inline) text-caption-11 text-text-tertiary [&_svg]:size-(--icon-12) [&_svg]:shrink-0",
         "transition-colors duration-(--motion-fast) hover:bg-(--state-soft) hover:text-text-primary",
         "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
         className,
@@ -91,7 +94,7 @@ export function FramedCardAction({
       {...props}
     >
       {children}
-      <ArrowUpRight className="size-(--icon-12)" aria-hidden="true" />
+      {opens ? <ArrowUpRight aria-hidden="true" /> : null}
     </button>
   );
 }

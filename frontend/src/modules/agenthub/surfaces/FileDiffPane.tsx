@@ -1,7 +1,8 @@
 import * as React from "react";
-import { Maximize2 } from "lucide-react";
+import { FileDiff, Maximize2 } from "lucide-react";
 
-import { DiffLineRow, DiffPane, DiffSplitPanes } from "@/components/ui/diff";
+import { DiffLineRow, DiffSplitPanes } from "@/components/ui/diff";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -218,34 +219,44 @@ export function FileDiffPane({
     );
   }
 
+  // A Framed card (docs/dev-kit/framed-card.mdx), like every other block in
+  // a tool call: the file and its counts on the header, Review to open the
+  // whole file, the changed lines as the preview — rows tinted edge to edge.
   return (
-    <DiffPane
-      label={name || "diff"}
-      caps={false}
-      className={className}
-      bodyClassName="max-h-60"
-      meta={
-        <span className="flex shrink-0 items-center gap-2 text-caption-11 whitespace-nowrap">
-          {note ? <span className={diff.stale ? "text-status-warning" : "text-text-tertiary"}>{note}</span> : null}
-          {counts}
-          {expand}
-        </span>
-      }
-    >
-      {unchanged
-        ? null
-        : rows.map((row, i) => (
-        <DiffLineRow
-          key={i}
-          row={row}
-          segments={segmentsFor(row)}
-          // The side the line is from: a removed line's number is the one it
-          // has in the file as it was, everything else the one it has after.
-            lineNumber={row.kind === "gap" ? undefined : (row.kind === "removed" ? row.before : row.after) + 1}
-          />
-        ))}
-
+    <FramedCard data-slot="diff-pane" className={className}>
+      <FramedCardHeader
+        icon={FileDiff}
+        title={
+          <span className="text-code-11" title={diff.path}>
+            {name || "diff"}
+          </span>
+        }
+        meta={
+          <span className="flex items-center gap-(--space-inline)">
+            {note ? <span className={diff.stale ? "text-status-warning" : undefined}>{note}</span> : null}
+            {counts}
+          </span>
+        }
+        action={
+          unchanged ? undefined : (
+            <FramedCardAction
+              onClick={() => setExpanded(true)}
+              data-testid={`${testIdPrefix}-expand`}
+              aria-label={`Review the whole diff of ${name}`}
+            >
+              Review
+            </FramedCardAction>
+          )
+        }
+      />
+      {/* Nothing to draw (binary, too large, unchanged): the header's note says
+          which, and there is no empty panel under it. */}
+      {body && body.length > 0 ? (
+        <FramedCardPreview flush>
+          <div className="max-h-60 w-full overflow-auto select-text">{body}</div>
+        </FramedCardPreview>
+      ) : null}
       {dialog}
-    </DiffPane>
+    </FramedCard>
   );
 }

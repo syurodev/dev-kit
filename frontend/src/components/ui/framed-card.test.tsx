@@ -60,4 +60,11 @@ describe("FramedCard", () => {
     expect(bare).not.toContain("framed-card-more");
     expect(bare).not.toContain("framed-card-meta");
   });
+
+  it("marks an action that opens elsewhere with the arrow, and a copy without it", () => {
+    const opens = renderToString(<FramedCardAction>Reveal</FramedCardAction>);
+    const copy = renderToString(<FramedCardAction opens={false}>Copy</FramedCardAction>);
+    expect(opens).toContain("lucide-arrow-up-right");
+    expect(copy).not.toContain("lucide-arrow-up-right");
+  });
 });

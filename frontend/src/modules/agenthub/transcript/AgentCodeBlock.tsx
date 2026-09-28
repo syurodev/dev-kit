@@ -1,10 +1,13 @@
 import * as React from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Code2, Copy, FileCode, Terminal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { renderHighlighted, useHighlight } from "@/components/code/CodeBlock";
 
 export type AgentCodeBlockProps = {
+  /** The header's name when there is no file: "Output" for what a tool printed. Defaults to the language. */
+  label?: string;
   code: string;
   path?: string;
   language?: string;
@@ -34,12 +37,21 @@ export type AgentCodeBlockProps = {
  * The head is language, then path, then Copy. No collapse chevron: Figma draws
  * none and nothing in the transcript would wire one.
  */
+const SHELLS = new Set(["bash", "sh", "shell", "zsh", "console"]);
+
+/**
+ * A block of code — a fence in an answer, a command a tool ran, a file it
+ * read — as a Framed card (docs/dev-kit/framed-card.mdx): the header names it
+ * (the file when there is one, else the language) and carries Copy; the code
+ * is the preview. One shape for every block of code in a conversation.
+ */
 export function AgentCodeBlock({
   code,
   path,
   language,
   wrap = false,
   startLine,
+  label,
   className,
 }: AgentCodeBlockProps) {
   const [copied, setCopied] = React.useState(false);
@@ -60,64 +72,63 @@ export function AgentCodeBlock({
     startLine === undefined
       ? ""
       : Array.from({ length: code.split("\n").length }, (_, index) => startLine + index).join("\n");
+  const lang = language ?? "text";
+  const name = path ? path.split("/").pop() || path : "";
+  const lineCount = code.split("\n").length;
+  const range = startLine !== undefined ? `lines ${startLine}–${startLine + lineCount - 1}` : undefined;
+  const Icon = path ? FileCode : SHELLS.has(lang) ? Terminal : Code2;
 
   return (
-    <div
-      data-testid="agent-code-block"
-      className={cn(
-        "flex w-full max-w-full flex-col overflow-hidden rounded-control",
-        "border border-border-subtle bg-surface-raised",
-        className,
-      )}
-    >
-      <div className="flex w-full shrink-0 items-center gap-2 px-3 py-2">
-        <span className="shrink-0 text-code-11 whitespace-nowrap text-text-tertiary">
-          {language ?? "text"}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-code-11 text-text-secondary">
-          {path ?? ""}
-        </span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          data-testid="code-block-copy"
-          className="flex shrink-0 items-center gap-1 text-caption-11-medium text-text-tertiary hover:text-text-primary cursor-pointer"
-        >
-          {copied ? (
-            <Check className="size-3 text-status-success" aria-hidden="true" />
+    <FramedCard data-testid="agent-code-block" className={cn("max-w-full", className)}>
+      <FramedCardHeader
+        icon={Icon}
+        title={
+          path ? (
+            <span className="text-code-11" title={path}>
+              {name}
+            </span>
+          ) : label ? (
+            label
           ) : (
-            <Copy className="size-3" aria-hidden="true" />
-          )}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
-      </div>
-
-      {startLine !== undefined ? (
-        // One scroller for both columns, so the numbers stay beside their lines
-        // on the vertical axis; the gutter is sticky so it stays on the
-        // horizontal one. Lines keep their breaks: a listing is read as code.
-        <div data-testid="code-block-listing" className="flex max-h-80 w-full overflow-auto bg-surface-base text-code-12">
+            <span className="text-code-11">{lang}</span>
+          )
+        }
+        meta={path ? (range ?? lang) : label && lang !== "text" ? lang : range}
+        action={
+          <FramedCardAction opens={false} onClick={handleCopy} data-testid="code-block-copy">
+            {copied ? <Check className="text-status-success" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            {copied ? "Copied" : "Copy"}
+          </FramedCardAction>
+        }
+      />
+      <FramedCardPreview flush className="py-0">
+        {startLine !== undefined ? (
+          // One scroller for both columns, so the numbers stay beside their
+          // lines on the vertical axis; the gutter is sticky so it stays on the
+          // horizontal one. Lines keep their breaks: a listing is read as code.
+          <div data-testid="code-block-listing" className="flex max-h-80 w-full overflow-auto text-code-12">
+            <pre
+              aria-hidden="true"
+              data-testid="code-block-gutter"
+              className="sticky left-0 shrink-0 bg-surface-base py-(--space-inline) pr-(--space-control) pl-(--space-inline) text-right text-text-tertiary tabular-nums select-none"
+            >
+              {lineNumbers}
+            </pre>
+            <pre className="grow py-(--space-inline) pr-(--space-inline) text-text-primary select-text">
+              <code>{body}</code>
+            </pre>
+          </div>
+        ) : (
           <pre
-            aria-hidden="true"
-            data-testid="code-block-gutter"
-            className="sticky left-0 shrink-0 bg-surface-base py-3 pr-3 pl-3 text-right text-text-tertiary tabular-nums select-none"
+            className={cn(
+              "w-full p-(--space-inline) text-code-12 text-text-primary select-text",
+              wrap ? "max-h-80 overflow-y-auto whitespace-pre-wrap wrap-anywhere" : "overflow-x-auto",
+            )}
           >
-            {lineNumbers}
-          </pre>
-          <pre className="grow py-3 pr-3 text-text-primary select-text">
             <code>{body}</code>
           </pre>
-        </div>
-      ) : (
-        <pre
-          className={cn(
-            "w-full bg-surface-base p-3 text-code-12 text-text-primary select-text",
-            wrap ? "max-h-80 overflow-y-auto whitespace-pre-wrap wrap-anywhere" : "overflow-x-auto",
-          )}
-        >
-          <code>{body}</code>
-        </pre>
-      )}
-    </div>
+        )}
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

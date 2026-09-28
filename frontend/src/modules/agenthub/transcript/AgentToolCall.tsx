@@ -184,7 +184,17 @@ function ToolOutput({ text, path, testId }: { text: string; path?: string; testI
   const view = React.useMemo(() => formatToolOutput(text, path), [text, path]);
   return (
     <div data-testid={testId} className="w-full min-w-0">
-      <AgentCodeBlock code={view.code} language={view.language} wrap={view.wrap} startLine={view.startLine} />
+      {/* A numbered listing is a file the tool read: its card is named for the
+          file. Anything else (JSON, a log) is not that file, whatever path the
+          call touched. */}
+      <AgentCodeBlock
+        code={view.code}
+        language={view.language}
+        wrap={view.wrap}
+        startLine={view.startLine}
+        path={view.startLine !== undefined ? path : undefined}
+        label="Output"
+      />
     </div>
   );
 }
