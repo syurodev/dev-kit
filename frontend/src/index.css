@@ -914,18 +914,27 @@
    running", so it reads as the app's own state colour rather than a
    vendor's, and follows dark/light for free since that token already does.
    `[data-state="streaming"]` (AgentComposer.tsx) toggles it; no JS theme
-   lookup needed. */
+   lookup needed.
+
+   The composer sits 12px (`pb-3`) above AgentHubContent's own
+   `overflow-hidden` edge — the tightest clearance it has on any side, and a
+   fixed one regardless of window width, unlike the left/right margin. A
+   bloom reaching further than that got its bottom flatly cut off (visible
+   glow on three sides, a hard line on the fourth) rather than shrinking with
+   the space available. Kept within ~10px total (inset + spread + blur) at
+   the animation's own peak so it never has more to give than that edge has
+   room for. */
 .agent-composer-pulse::after {
   content: "";
   position: absolute;
-  inset: -10px;
+  inset: -2px;
   z-index: -1;
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--status-running) 45%, transparent),
-    0 0 16px 2px color-mix(in srgb, var(--status-running) 30%, transparent);
+    0 0 3px 1px color-mix(in srgb, var(--status-running) 30%, transparent);
   transition: opacity 0.5s ease;
 }
 
@@ -939,12 +948,12 @@
   100% {
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--status-running) 45%, transparent),
-      0 0 16px 2px color-mix(in srgb, var(--status-running) 30%, transparent);
+      0 0 3px 1px color-mix(in srgb, var(--status-running) 30%, transparent);
   }
   50% {
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--status-running) 75%, transparent),
-      0 0 28px 6px color-mix(in srgb, var(--status-running) 55%, transparent);
+      0 0 6px 2px color-mix(in srgb, var(--status-running) 55%, transparent);
   }
 }
 
