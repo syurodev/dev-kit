@@ -22,13 +22,13 @@ func NewLocalPTY(shellPath, workDir string, rows, cols int) (PTY, error) {
 // exactly env (nil inherits the app's). Unsandboxed, like the user typing it:
 // Agent Hub's sign-in uses it for the agent's own login command, which needs a
 // browser, a localhost callback and the keychain.
-func NewLocalCommandPTY(path string, args, env []string, workDir string, rows, cols int) (PTY, error) {
+func NewLocalCommandPTY(path string, args, env []string, workDir string, rows, cols int) (*localPTY, error) {
 	cmd := exec.Command(path, args...)
 	cmd.Env = env
 	return startLocal(cmd, workDir, rows, cols)
 }
 
-func startLocal(cmd *exec.Cmd, workDir string, rows, cols int) (PTY, error) {
+func startLocal(cmd *exec.Cmd, workDir string, rows, cols int) (*localPTY, error) {
 	cmd.Dir = workDir
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 	if err != nil {

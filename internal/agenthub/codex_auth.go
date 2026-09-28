@@ -180,6 +180,7 @@ func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string
 	}
 	work, err := codexScratchDir("devkit-codex-signin-")
 	if err != nil {
+		l.releaseLease()
 		return SignInFlow{}, err
 	}
 	s := &codexSignIn{work: work}
@@ -377,6 +378,7 @@ func (a *CodexAdapter) oneShot(ctx context.Context, call func(context.Context, *
 	}
 	work, err := codexScratchDir("devkit-codex-account-")
 	if err != nil {
+		l.releaseLease()
 		return err
 	}
 	defer os.RemoveAll(work)

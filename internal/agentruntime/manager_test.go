@@ -1,6 +1,7 @@
 package agentruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -176,12 +177,23 @@ func newTestManager(t *testing.T) *testManager {
 	}
 	tm.findClaude = func(context.Context) *MachineClaude { return nil }
 	tm.runNPM = func(ctx context.Context, _ string, args, _ []string, onLine func(string)) error {
-		if args[0] != "install" {
+		if args[0] != "install" && args[0] != "ci" {
 			onLine("11.6.0")
 			return nil
 		}
 		tm.npmCalls.Add(1)
 		prefix, spec := args[slices.Index(args, "--prefix")+1], args[3]
+		if args[0] == "ci" {
+			var pkg struct {
+				Dependencies map[string]string `json:"dependencies"`
+			}
+			if err := readJSON(filepath.Join(prefix, "package.json"), &pkg); err != nil {
+				t.Fatal(err)
+			}
+			for name, version := range pkg.Dependencies {
+				spec = name + "@" + version
+			}
+		}
 		if !slices.Contains(args, "--ignore-scripts") {
 			t.Errorf("npm install without --ignore-scripts: %v", args)
 		}
@@ -292,6 +304,146 @@ func TestInstallActivateRemoveKeepsPrevious(t *testing.T) {
 	}
 	if st.Previous != nil || st.Installing || st.DiskBytes == 0 || st.ClaudeBinary.Source != ClaudeBundled {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestIsDowngrade(t *testing.T) {
+	tm := newTestManager(t)
+	ctx := context.Background()
+
+	if got, err := tm.IsDowngrade(ClaudeACP, "0.76.0"); err != nil || got {
+		t.Fatalf("nothing installed yet: got %v, %v", got, err)
+	}
+	if _, err := tm.IsDowngrade(ClaudeACP, "not-a-version"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("invalid version: %v", err)
+	}
+	if _, err := tm.IsDowngrade("no-such-agent", "1.0.0"); !errors.Is(err, ErrUnknownAgent) {
+		t.Fatalf("unknown agent: %v", err)
+	}
+
+	if err := tm.Install(ctx, ClaudeACP, "0.76.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := tm.IsDowngrade(ClaudeACP, "0.76.0"); err != nil || got {
+		t.Fatalf("activating what is already current: got %v, %v", got, err)
+	}
+	if got, err := tm.IsDowngrade(ClaudeACP, "0.78.0"); err != nil || got {
+		t.Fatalf("moving to a newer version: got %v, %v", got, err)
+	}
+
+	if err := tm.Install(ctx, ClaudeACP, "0.78.0"); err != nil {
+		t.Fatal(err)
+	}
+	// 0.76.0 is now previous. Rolling back to it is the case Activate does not
+	// itself flag: the pointer swap would succeed either way.
+	if got, err := tm.IsDowngrade(ClaudeACP, "0.76.0"); err != nil || !got {
+		t.Fatalf("rolling back to the older previous: got %v, %v", got, err)
+	}
+}
+
+func TestRemoveRefusesAVersionStillAcquired(t *testing.T) {
+	tm := newTestManager(t)
+	ctx := context.Background()
+
+	if err := tm.Install(ctx, ClaudeACP, "0.76.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.Install(ctx, ClaudeACP, "0.78.0"); err != nil {
+		t.Fatal(err)
+	}
+	// 0.76.0 is now previous — removable, unless a session still holds it.
+	if err := tm.Activate(ClaudeACP, "0.76.0"); err != nil {
+		t.Fatal(err)
+	}
+	held, err := tm.ResolveLeased(ClaudeACP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := held.Release
+	if err := tm.Activate(ClaudeACP, "0.78.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.Remove(ClaudeACP, "0.76.0"); !errors.Is(err, ErrVersionInUse) {
+		t.Fatalf("Remove of an acquired version = %v, want ErrVersionInUse", err)
+	}
+	// A second session on the same version does not let the first session's
+	// end make Remove succeed underneath it.
+	if err := tm.Activate(ClaudeACP, "0.76.0"); err != nil {
+		t.Fatal(err)
+	}
+	held2, err := tm.ResolveLeased(ClaudeACP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release2 := held2.Release
+	if err := tm.Activate(ClaudeACP, "0.78.0"); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if err := tm.Remove(ClaudeACP, "0.76.0"); !errors.Is(err, ErrVersionInUse) {
+		t.Fatalf("Remove with one of two sessions still open = %v, want ErrVersionInUse", err)
+	}
+	release2()
+	if err := tm.Remove(ClaudeACP, "0.76.0"); err != nil {
+		t.Fatalf("Remove once every session released it: %v", err)
+	}
+	// Idempotent: a runtime's Close calling release twice must not underflow
+	// the count and let some other, unrelated hold of the same version look
+	// released too.
+	release()
+	release2()
+}
+
+// A subprocess smoke test for the lease guard; it makes no OS unlink claim.
+func TestRemoveRefusesRuntimeUsedByProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows already refuses to delete an open file; nothing new to demonstrate")
+	}
+	tm := codexTestManager(t, false, true)
+	ctx := context.Background()
+	if err := tm.Install(ctx, CodexCLI, "0.147.0"); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := tm.Resolve(CodexCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rt.Command, []byte("#!/bin/sh\nsleep 0.3\necho done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.Install(ctx, CodexCLI, "0.148.0"); err != nil {
+		t.Fatal(err) // 0.147.0 is now previous, and would otherwise be removable.
+	}
+
+	if err := tm.Activate(CodexCLI, rt.Version); err != nil {
+		t.Fatal(err)
+	}
+	held, err := tm.ResolveLeased(CodexCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := held.Release
+	if err := tm.Activate(CodexCLI, "0.148.0"); err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	cmd := exec.Command(rt.Command)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the guard under test: with the session's hold in place, Remove
+	// must refuse rather than let the OS decide whether the session survives.
+	if err := tm.Remove(CodexCLI, rt.Version); !errors.Is(err, ErrVersionInUse) {
+		t.Fatalf("Remove while a real process is running on this version = %v, want ErrVersionInUse", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("process failed even though Remove was refused: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "done") {
+		t.Fatalf("output = %q, want the process to have run to completion", got)
 	}
 }
 

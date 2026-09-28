@@ -310,7 +310,7 @@ func main() {
 	claudeOpts := agenthub.ClaudeOptions{
 		OnUnknownMethod: reportUnknownMethod,
 		Runtime: func() (agentruntime.Resolved, error) {
-			return runtimes.Resolve(agentruntime.ClaudeACP)
+			return runtimes.ResolveLeased(agentruntime.ClaudeACP)
 		},
 		// Declaring agentFileChangeReport switches on Claude's own native
 		// checkpointing for every session the process serves, which writes file
@@ -335,7 +335,7 @@ func main() {
 		// rules, is never the session's (Codex spec §6).
 		Home: filepath.Join(dataDir, "agent-homes", "codex"),
 		Runtime: func() (agentruntime.Resolved, error) {
-			return runtimes.Resolve(agentruntime.CodexCLI)
+			return runtimes.ResolveLeased(agentruntime.CodexCLI)
 		},
 		// An Accounts token chosen in Settings → Agents → Codex, resolved at
 		// spawn; none means Codex's own ChatGPT sign-in. Read through the

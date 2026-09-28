@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"io"
 	"os/exec"
+	"sync"
 	"time"
 )
 
 // Proc wraps a started exec.Cmd.
 type Proc struct {
+	waitOnce  sync.Once
+	waitErr   error
 	cmd       *exec.Cmd
 	stdoutBuf *bytes.Buffer
 	stderrBuf *bytes.Buffer
@@ -56,7 +59,8 @@ func (p *Proc) Output() (stdout, stderr []byte) {
 }
 
 func (p *Proc) Wait() error {
-	return p.cmd.Wait()
+	p.waitOnce.Do(func() { p.waitErr = p.cmd.Wait() })
+	return p.waitErr
 }
 
 func (p *Proc) Kill() error {

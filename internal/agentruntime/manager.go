@@ -48,28 +48,33 @@ type Manager struct {
 	RegistryURL string
 	HTTPClient  *http.Client
 
-	// Seams for tests: npm without the network, node and claude without the
-	// machine.
+	// Seams for tests: npm and managed Node without the network, and optional
+	// machine Claude without probing the host.
 	runNPM     func(ctx context.Context, npm string, args, env []string, onLine func(string)) error
 	findNode   func(ctx context.Context) (nodeInstall, []Requirement)
 	findClaude func(ctx context.Context) *MachineClaude
 
-	// mu guards installing and every read-modify-write of the state files.
+	// mu guards installing, inUse and every read-modify-write of the state files.
 	// Held briefly: an install takes it only to activate, never around npm.
+	nodeMu     sync.Mutex
 	mu         sync.Mutex
 	installing map[string]bool
+	// inUse protects artifacts until every process using them has exited.
+	inUse map[string]map[string]int
 }
 
 // New returns a Manager rooted at root (normally <dataDir>/runtimes).
 func New(root string) *Manager {
-	return &Manager{
+	m := &Manager{
 		root:        root,
 		RegistryURL: DefaultRegistryURL,
 		runNPM:      runStreaming,
-		findNode:    locateNode,
 		findClaude:  locateMachineClaude,
 		installing:  map[string]bool{},
+		inUse:       map[string]map[string]int{},
 	}
+	m.findNode = m.installNode
+	return m
 }
 
 type currentFile struct {
@@ -127,7 +132,10 @@ func (m *Manager) Status(ctx context.Context, agentID string) (Status, error) {
 	cur := m.readCurrent(agentID)
 	m.mu.Unlock()
 
-	_, reqs := m.findNode(ctx)
+	var reqs []Requirement
+	if _, ok := nodeChecksums[nodePlatform()]; !ok {
+		reqs = append(reqs, Requirement{Name: "platform", Problem: "Managed runtime is unavailable for " + nodePlatform()})
+	}
 	st := Status{
 		Agent:         agentID,
 		TestedVersion: agent.TestedVersion,
@@ -136,6 +144,10 @@ func (m *Manager) Status(ctx context.Context, agentID string) (Status, error) {
 		Installing:    installing,
 		Requirements:  reqs,
 		DiskBytes:     dirSize(m.agentDir(agentID)),
+	}
+	// Readiness is about the installed runtime, not whether global npm exists.
+	if st.Current != nil && len(agent.NativeEntry) == 0 && !isExecutable(st.Current.NodePath) {
+		st.Requirements = append(st.Requirements, Requirement{Name: "runtime", Problem: "Node for this install is missing. Reinstall the agent to use DevKit-managed Node."})
 	}
 	// An agent with no BundledClaude globs (Codex) never runs a Claude
 	// binary at all, bundled or machine-picked, so there is nothing here to
@@ -216,6 +228,9 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 	node, reqs := m.findNode(ctx)
 	for _, req := range reqs {
 		if !req.Met {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fail(ErrRequirementNotMet, req.Problem)
 		}
 	}
@@ -243,9 +258,17 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 		}
 	})
 
+	locked, err := prepareRuntimeLock(agent, version, staging)
+	if err != nil {
+		return err
+	}
 	var npmError string
 	args := []string{"install", "--prefix", staging, agent.Package + "@" + version,
 		"--ignore-scripts", "--no-audit", "--no-fund", "--omit=dev", "--no-update-notifier"}
+	if locked {
+		args = append([]string{"ci", "--prefix", staging}, args[4:]...)
+	}
+	args = append(args, "--include=optional", "--registry=https://registry.npmjs.org")
 	if err := m.runNPM(ctx, node.NPM, args, env, func(line string) {
 		line = sanitizeReason(line)
 		if npmError == "" {
@@ -295,6 +318,9 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 	defer m.mu.Unlock()
 	activated, err = m.activateStaged(agentID, staging, version)
 	if err != nil {
+		if errors.Is(err, ErrVersionInUse) {
+			return err
+		}
 		return fail(ErrInstallFailed, "could not activate the new version")
 	}
 	return nil
@@ -304,6 +330,9 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 // current.json at it. activated reports whether staging is gone, which is
 // true even when only the current.json write failed. Caller holds m.mu.
 func (m *Manager) activateStaged(agent, staging, version string) (activated bool, err error) {
+	if m.inUse[agent][version] > 0 {
+		return false, ErrVersionInUse
+	}
 	dest := filepath.Join(m.agentDir(agent), version)
 	var trash string
 	if _, err := os.Stat(dest); err == nil {
@@ -396,6 +425,33 @@ func firstExecutable(dir string, patterns []string) string {
 	return ""
 }
 
+// IsDowngrade reports whether activating version would move the agent to an
+// older release than what is current now, by semver — not whether it is
+// safe.
+//
+// Activate itself performs no compatibility check: it is a pointer swap
+// (rename current.json's target), nothing more. A session's on-disk history
+// is written by whatever version was current when it ran, and an older
+// version's SDK is not guaranteed to read a newer one's session format. This
+// lets a caller (the bridge, the UI) warn before that trade-off instead of
+// Activate silently succeeding and calling that "rollback" done. false with
+// no error also covers "nothing installed yet" and "version" being current.
+func (m *Manager) IsDowngrade(agentID, version string) (bool, error) {
+	if _, err := lookupAgent(agentID); err != nil {
+		return false, err
+	}
+	if !validVersion(version) {
+		return false, fail(ErrInvalidInput, "the version must look like 1.2.3")
+	}
+	m.mu.Lock()
+	cur := m.readCurrent(agentID)
+	m.mu.Unlock()
+	if cur.Version == "" || cur.Version == version {
+		return false, nil
+	}
+	return compareVersions(version, cur.Version) < 0, nil
+}
+
 // Activate points current.json at an installed version; the old current
 // becomes previous, which is what makes it a rollback.
 func (m *Manager) Activate(agentID, version string) error {
@@ -417,9 +473,59 @@ func (m *Manager) Activate(agentID, version string) error {
 	return writeJSON(filepath.Join(m.agentDir(agentID), "current.json"), currentFile{Version: version, Previous: cur.Version})
 }
 
-// Remove deletes an installed version other than the current one. Sessions
-// already running on it keep running on Unix; on Windows the delete may be
-// partial, and GCOnStartup finishes it.
+// acquireLocked pins a version before resolving or starting a process. Caller holds mu.
+func (m *Manager) acquireLocked(agentID, version string) func() {
+	if m.inUse[agentID] == nil {
+		m.inUse[agentID] = map[string]int{}
+	}
+	m.inUse[agentID][version]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			m.inUse[agentID][version]--
+			if m.inUse[agentID][version] == 0 {
+				delete(m.inUse[agentID], version)
+			}
+		})
+	}
+}
+
+// ResolveLeased selects and pins the current artifacts atomically with removal
+// and replacement. The caller must release on errors before spawn, or after the
+// process is reaped. Read-only inspection can use Resolve instead.
+func (m *Manager) ResolveLeased(agentID string) (Resolved, error) {
+	agent, err := lookupAgent(agentID)
+	if err != nil {
+		return Resolved{}, err
+	}
+	m.mu.Lock()
+	cur := m.readCurrent(agentID)
+	if cur.Version == "" {
+		m.mu.Unlock()
+		return Resolved{}, ErrNotInstalled
+	}
+	dir := filepath.Join(m.agentDir(agentID), cur.Version)
+	var mf installManifest
+	if readJSON(filepath.Join(dir, "install.json"), &mf) != nil {
+		m.mu.Unlock()
+		return Resolved{}, ErrNotInstalled
+	}
+	release := m.acquireLocked(agentID, cur.Version)
+	m.mu.Unlock()
+	rt, err := m.resolveAt(context.Background(), agent, dir, mf)
+	if err != nil {
+		release()
+		return Resolved{}, err
+	}
+	rt.Release = release
+	return rt, nil
+}
+
+// Remove refuses both the current version and artifacts held by a process.
+// Even on systems that retain an unlinked executable, lazy file/module loads
+// still need the installed directory to remain intact.
 func (m *Manager) Remove(agentID, version string) error {
 	if _, err := lookupAgent(agentID); err != nil {
 		return err
@@ -431,6 +537,9 @@ func (m *Manager) Remove(agentID, version string) error {
 	defer m.mu.Unlock()
 	cur := m.readCurrent(agentID)
 	if cur.Version == version {
+		return ErrVersionInUse
+	}
+	if m.inUse[agentID][version] > 0 {
 		return ErrVersionInUse
 	}
 	dir := filepath.Join(m.agentDir(agentID), version)
@@ -523,18 +632,11 @@ func (m *Manager) resolveAt(ctx context.Context, agent Agent, dir string, mf ins
 		return Resolved{}, ErrNotInstalled
 	}
 
-	// The node the install used, while it is still there. Probing on every
-	// session open would spawn a process per candidate; relocating only when
-	// it is gone (nvm uninstall, brew upgrade) costs that once.
+	// Older installs keep their recorded Node until explicitly reinstalled.
+	// Never silently switch to another host Node or download during session open.
 	node := mf.Node.Path
 	if !isExecutable(node) {
-		found, reqs := m.findNode(ctx)
-		for _, req := range reqs {
-			if req.Name == "node" && !req.Met {
-				return Resolved{}, fail(ErrRequirementNotMet, req.Problem)
-			}
-		}
-		node = found.Node
+		return Resolved{}, fail(ErrRequirementNotMet, "This runtime's Node is missing; reinstall the agent in Settings → Agents to use managed Node.")
 	}
 	if resolved, err := filepath.EvalSymlinks(node); err == nil {
 		node = resolved
@@ -569,6 +671,13 @@ func (m *Manager) resolveAt(ctx context.Context, agent Agent, dir string, mf ins
 // current and previous. Only safe before any session starts, which is the one
 // time main calls it.
 func (m *Manager) GCOnStartup() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, busy := range m.installing {
+		if busy {
+			return ErrInstallAlreadyRunning
+		}
+	}
 	var errs []error
 	for id := range agents {
 		dir := m.agentDir(id)
@@ -591,7 +700,7 @@ func (m *Manager) GCOnStartup() error {
 			}
 			leftover := strings.HasPrefix(name, ".staging-") || strings.HasPrefix(name, ".trash-")
 			stale := haveCurrent && validVersion(name) && name != cur.Version && name != cur.Previous
-			if leftover || stale {
+			if (leftover || stale) && m.inUse[id][name] == 0 {
 				if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
 					errs = append(errs, err)
 				}
@@ -686,12 +795,18 @@ func registryEntry(body []byte, agent Agent) (version, licenseURL string) {
 // runStreaming runs a program and hands each line of its combined output to
 // onLine, in order, returning only after the last line.
 func runStreaming(ctx context.Context, program string, args, env []string, onLine func(string)) error {
+	if strings.HasSuffix(program, "npm-cli.js") {
+		nodeDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(program))))
+		if runtime.GOOS != "windows" {
+			nodeDir = filepath.Join(filepath.Dir(nodeDir), "bin")
+		}
+		args = append([]string{program}, args...)
+		program = filepath.Join(nodeDir, exeName("node"))
+	}
 	cmd := exec.CommandContext(ctx, program, args...)
 	cmd.Env = env
-	// ponytail: cancelling kills npm itself. On Windows npm.cmd is cmd.exe
-	// running node, and that node can outlive it; WaitDelay keeps Wait from
-	// hanging on the pipe it still holds. A job object is the fix if an
-	// orphan ever keeps a staging tree locked.
+	// npm-cli.js runs directly under managed Node. Cancellation kills that
+	// process; scripts are disabled, so no install-script descendants run.
 	cmd.WaitDelay = 5 * time.Second
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw

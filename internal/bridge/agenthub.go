@@ -69,6 +69,12 @@ func (s *AppService) AgentHubStartSignIn(ctx context.Context, agent, methodID st
 		if err != nil {
 			return nil, err
 		}
+		owned := true
+		defer func() {
+			if owned && cmd.Release != nil {
+				cmd.Release()
+			}
+		}()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("%w: sign-in: home directory: %v", agenthub.ErrProcessFailed, err)
@@ -76,6 +82,10 @@ func (s *AppService) AgentHubStartSignIn(ctx context.Context, agent, methodID st
 		pty, err := terminal.NewLocalCommandPTY(cmd.Path, cmd.Args, cmd.Env, home, rows, cols)
 		if err != nil {
 			return nil, fmt.Errorf("%w: sign-in: start %s: %v", agenthub.ErrProcessFailed, cmd.Label, err)
+		}
+		owned = false
+		if cmd.Release != nil {
+			go func() { pty.Wait(); cmd.Release() }()
 		}
 		return s.container.Terminal.Register("builtin.agenthub", pty), nil
 	})

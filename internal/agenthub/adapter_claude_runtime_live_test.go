@@ -12,7 +12,7 @@ import (
 )
 
 // TestAgentRuntimeLiveInstall installs the tested claude-agent-acp for real —
-// the node and npm this machine has, the npm registry, ~250MB with the Claude
+// DevKit-managed Node/npm, the npm registry, ~250MB with the Claude
 // binary — into a temporary root, verifies it with the sandboxed initialize
 // probe, and probes the activated copy once more through Resolve.
 //
@@ -30,7 +30,7 @@ func TestAgentRuntimeLiveInstall(t *testing.T) {
 	manager := agentruntime.New(root)
 	manager.OnOutput = func(_, line string) { t.Log("npm: " + line) }
 	adapter := agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{
-		Runtime: func() (agentruntime.Resolved, error) { return manager.Resolve(agentruntime.ClaudeACP) },
+		Runtime: func() (agentruntime.Resolved, error) { return manager.ResolveLeased(agentruntime.ClaudeACP) },
 	})
 	manager.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
 		agentruntime.ClaudeACP: adapter.Probe,

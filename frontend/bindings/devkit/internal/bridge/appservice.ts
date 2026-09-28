@@ -574,6 +574,16 @@ export function AgentRuntimeInstall(agent: string, version: string): $Cancellabl
 }
 
 /**
+ * AgentRuntimeIsDowngrade reports whether activating version would move the
+ * agent to an older release than what is current now, so the UI can confirm
+ * before a rollback: Activate itself is a pointer swap with no compatibility
+ * check of its own (agentruntime.Manager.IsDowngrade).
+ */
+export function AgentRuntimeIsDowngrade(agent: string, version: string): $CancellablePromise<boolean> {
+    return $Call.ByID(3897960488, agent, version);
+}
+
+/**
  * AgentRuntimeRemove deletes an installed version other than the current one.
  */
 export function AgentRuntimeRemove(agent: string, version: string): $CancellablePromise<agentruntime$0.Status> {

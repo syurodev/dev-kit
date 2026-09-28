@@ -122,20 +122,28 @@ func (a *ClaudeAdapter) runner() SandboxRunner {
 // buildSandbox resolves the agent binary and returns the jail Policy + Cmd.
 // Exported for unit tests via same-package access.
 func (a *ClaudeAdapter) buildSandbox(spec OpenSpec) (sandbox.Policy, sandbox.Cmd, error) {
+	pol, cmd, l, err := a.resolveSandbox(spec)
+	l.releaseLease()
+	return pol, cmd, err
+}
+
+// resolveSandbox retains the resolved artifact lease for open to transfer to
+// the process. buildSandbox is inspection-only and releases it immediately.
+func (a *ClaudeAdapter) resolveSandbox(spec OpenSpec) (sandbox.Policy, sandbox.Cmd, launch, error) {
 	workDir, err := filepath.Abs(spec.Cwd)
 	if err != nil {
-		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: resolve project: %v", ErrProcessFailed, err)
+		return sandbox.Policy{}, sandbox.Cmd{}, launch{}, fmt.Errorf("%w: resolve project: %v", ErrProcessFailed, err)
 	}
 	if st, err := os.Stat(workDir); err != nil || !st.IsDir() {
-		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: project path", ErrProcessFailed)
+		return sandbox.Policy{}, sandbox.Cmd{}, launch{}, fmt.Errorf("%w: project path", ErrProcessFailed)
 	}
 
 	l, err := a.resolveCommand()
 	if err != nil {
-		return sandbox.Policy{}, sandbox.Cmd{}, err
+		return sandbox.Policy{}, sandbox.Cmd{}, launch{}, err
 	}
 	pol, cmd := sandboxFor(workDir, l, spec)
-	return pol, cmd, nil
+	return pol, cmd, l, nil
 }
 
 // launch is a resolved agent command and what the jail needs for it to run.
@@ -144,7 +152,14 @@ type launch struct {
 	args []string
 	ro   []string
 	// env is merged over claudeEnvAllowlist; a key here wins.
-	env map[string]string
+	env     map[string]string
+	release func()
+}
+
+func (l launch) releaseLease() {
+	if l.release != nil {
+		l.release()
+	}
 }
 
 // sandboxFor is the one place the Claude jail policy is written, shared by
@@ -213,10 +228,11 @@ func (a *ClaudeAdapter) resolveCommand() (launch, error) {
 
 func runtimeLaunch(rt agentruntime.Resolved) launch {
 	return launch{
-		path: rt.Command,
-		args: append([]string(nil), rt.Args...),
-		ro:   uniqueAbsPaths(append([]string{rt.Command}, rt.ReadOnlyPaths...)...),
-		env:  rt.Env,
+		path:    rt.Command,
+		args:    append([]string(nil), rt.Args...),
+		ro:      uniqueAbsPaths(append([]string{rt.Command}, rt.ReadOnlyPaths...)...),
+		env:     rt.Env,
+		release: rt.Release,
 	}
 }
 
@@ -564,10 +580,16 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		return nil, err
 	}
 
-	pol, cmd, err := a.buildSandbox(spec)
+	pol, cmd, l, err := a.resolveSandbox(spec)
 	if err != nil {
 		return nil, err
 	}
+	owned := true
+	defer func() {
+		if owned {
+			l.releaseLease()
+		}
+	}()
 	// What the jail is about to run, for the log: a session that fails to open
 	// says only "Agent process failed" to the UI, and without this there is no
 	// way to tell a wrong node from a missing grant. Paths only — the env
@@ -592,11 +614,14 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	// anything else again is otherwise indistinguishable from bwrap silently
 	// failing to reach the exec at all.
 	log.Printf("agenthub: claude: sandboxed process started, pid=%d", proc.PID())
+	owned = false
 
 	stdin := proc.StdinWriter()
 	stdout := proc.StdoutReader()
 	if stdin == nil || stdout == nil {
 		_ = proc.Kill()
+		_ = proc.Wait()
+		l.releaseLease()
 		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
 
@@ -615,7 +640,12 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	rt.serveDone = make(chan struct{})
 	go func() {
 		defer close(rt.serveDone)
-		rt.noteServeExit(conn.Serve(serveCtx))
+		serveErr := conn.Serve(serveCtx)
+		_ = conn.Close()
+		_ = proc.Kill()
+		_ = proc.Wait()
+		l.releaseLease()
+		rt.noteServeExit(serveErr)
 	}()
 
 	cleanup := func() {
@@ -827,6 +857,7 @@ func (a *ClaudeAdapter) AuthMethods(ctx context.Context) ([]AuthMethod, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer l.releaseLease()
 	return a.authMethodsFor(ctx, l)
 }
 
@@ -838,13 +869,20 @@ func (a *ClaudeAdapter) SignInCommand(ctx context.Context, methodID string) (Sig
 	if err != nil {
 		return SignInCommand{}, err
 	}
+	owned := true
+	defer func() {
+		if owned {
+			l.releaseLease()
+		}
+	}()
 	methods, err := a.authMethodsFor(ctx, l)
 	if err != nil {
 		return SignInCommand{}, err
 	}
 	for _, m := range methods {
 		if m.ID == methodID {
-			return SignInCommand{Path: m.Command, Args: m.Args, Env: signInEnv(l.env), Label: m.Label}, nil
+			owned = false
+			return SignInCommand{Release: l.release, Path: m.Command, Args: m.Args, Env: signInEnv(l.env), Label: m.Label}, nil
 		}
 	}
 	return SignInCommand{}, ErrAuthMethodUnknown
@@ -886,6 +924,7 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
 	if stdin == nil || stdout == nil {
 		_ = proc.Kill()
+		_ = proc.Wait()
 		return acp.InitializeResult{}, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
 
@@ -901,6 +940,7 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 		_ = conn.Close()
 		_ = proc.Kill()
 		<-serveDone
+		_ = proc.Wait()
 	}()
 
 	// Same shape as open's handshake: the process exiting ends the wait at

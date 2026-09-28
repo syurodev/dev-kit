@@ -32,10 +32,11 @@ type AuthMethod struct {
 // SignInCommand is an AuthMethod ready to start: the environment is resolved
 // here, not in the UI, and never crosses the bridge.
 type SignInCommand struct {
-	Path  string
-	Args  []string
-	Env   []string
-	Label string
+	Release func() // call after the terminal process exits, or if it cannot start
+	Path    string
+	Args    []string
+	Env     []string
+	Label   string
 }
 
 // AuthProvider is a vendor adapter that can list its sign-ins without a session.

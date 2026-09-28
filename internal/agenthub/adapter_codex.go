@@ -317,6 +317,12 @@ type codexProcess struct {
 // outlives ctx on purpose, as Claude's does: a session's lifetime belongs to
 // its runtime, not to the request that opened it.
 func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store string, h codexapp.Handler, listen ...int) (*codexProcess, error) {
+	owned := true
+	defer func() {
+		if owned {
+			l.releaseLease()
+		}
+	}()
 	pol, cmd, err := a.jail(workDir, l, spec, store, listen...)
 	if err != nil {
 		return nil, err
@@ -331,14 +337,17 @@ func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store stri
 	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
 	if stdin == nil || stdout == nil {
 		_ = proc.Kill()
+		_ = proc.Wait()
 		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
+	owned = false
 	p := &codexProcess{proc: proc, serveDone: make(chan struct{})}
 	p.conn = codexapp.NewConn(&stdioPipe{r: stdout, w: stdin}, h)
 	var serveCtx context.Context
 	serveCtx, p.cancelServe = context.WithCancel(context.Background())
 	go func() {
 		defer close(p.serveDone)
+		defer l.releaseLease()
 		p.serveErr = p.conn.Serve(serveCtx)
 		p.reap()
 	}()
@@ -478,6 +487,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 	}
 	key, err := a.apiKey(ctx)
 	if err != nil {
+		l.releaseLease()
 		return nil, err
 	}
 	store := codexStoreFile

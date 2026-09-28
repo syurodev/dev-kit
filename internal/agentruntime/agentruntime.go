@@ -131,6 +131,8 @@ func validVersion(v string) bool { return versionPattern.MatchString(v) }
 
 // Resolved is everything a sandboxed launch needs, all absolute.
 type Resolved struct {
+	// Release is an idempotent artifact lease, present only from ResolveLeased.
+	Release func()   `json:"-"`
 	Command string   // node
 	Args    []string // [entry]
 	// ReadOnlyPaths are what the jail must be able to read for Command to run:

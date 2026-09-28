@@ -138,6 +138,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
   const info: VendorInfo = vendorInfo(vendor);
   const rt = useAgentRuntime(info.runtimeId);
   const [confirmLatest, setConfirmLatest] = useState(false);
+ const [downgrade, setDowngrade] = useState<{version: string; install: boolean} | null>(null);
   const s = rt.status;
 
   if (!s) {
@@ -186,7 +187,11 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
             </Button>
           ) : null}
           {current && current.version !== testedVersion ? (
-            <Button type="button" size="sm" disabled={rt.busy} onClick={() => rt.install()}>
+            <Button type="button" size="sm" disabled={rt.busy} onClick={() => {
+              if (compareVersions(current.version, testedVersion) > 0) {
+                setDowngrade({ version: testedVersion, install: true });
+              } else rt.install();
+            }}>
               <Download />
               {/* Off an untested newer version this is a step back, and says so. */}
               {compareVersions(current.version, testedVersion) > 0
@@ -224,7 +229,11 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
                 variant="outline"
                 size="sm"
                 disabled={rt.busy}
-                onClick={() => rt.activate(previous.version)}
+                onClick={() => {
+                  if (current && compareVersions(previous.version, current.version) < 0) {
+                    setDowngrade({ version: previous.version, install: false });
+                  } else rt.activate(previous.version);
+                }}
               >
                 <RotateCcw />
                 {`Switch back to ${previous.version}`}
@@ -251,7 +260,8 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
       </div>
 
       <div className="flex flex-col gap-2.5">
-        <SubLabel>REQUIREMENTS</SubLabel>
+        <SubLabel>RUNTIME</SubLabel>
+ <p className="text-caption-11 text-text-tertiary">DevKit downloads Node and npm when installing an agent. No global CLI or Node installation is required. Reinstall an older agent installation to switch it to managed Node.</p>
         <RuntimeRequirements requirements={s.requirements} />
       </div>
 
@@ -296,12 +306,24 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
         </div>
       ) : null}
 
+      <AlertDialog open={downgrade !== null} onOpenChange={(open) => { if (!open) setDowngrade(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{`Switch to ${downgrade?.version ?? "an older version"}?`}</AlertDialogTitle>
+            <AlertDialogDescription>Existing running sessions keep their runtime. An older runtime may not be able to resume sessions saved by a newer version. Your session data will be kept.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (downgrade) { if (downgrade.install) rt.install(downgrade.version); else rt.activate(downgrade.version); } setDowngrade(null); }}>Switch version</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={confirmLatest} onOpenChange={setConfirmLatest}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{`Install ${latestVersion ?? "the latest version"}?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              {`DevKit has not tested this version; it was tested with ${testedVersion}. If it misbehaves, switch back from this page.`}
+              {`DevKit has not tested this version; it was tested with ${testedVersion}. Its dependencies are resolved at install time. Older versions may not read sessions saved by newer versions.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {s.licenseUrl ? (

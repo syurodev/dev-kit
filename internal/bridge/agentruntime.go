@@ -96,6 +96,29 @@ func (s *AppService) AgentRuntimeRemove(agent, version string) (agentruntime.Sta
 		})
 }
 
+// AgentRuntimeIsDowngrade reports whether activating version would move the
+// agent to an older release than what is current now, so the UI can confirm
+// before a rollback: Activate itself is a pointer swap with no compatibility
+// check of its own (agentruntime.Manager.IsDowngrade).
+func (s *AppService) AgentRuntimeIsDowngrade(agent, version string) (bool, error) {
+	id := agentRuntimeID(agent)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "runtime:"+id, map[string]any{
+		"action":  "runtime_is_downgrade",
+		"agent":   id,
+		"version": version,
+	}, func(callCtx context.Context) (any, error) {
+		manager := s.container.AgentRuntimes
+		if manager == nil {
+			return nil, errAgentRuntimesUnavailable
+		}
+		return manager.IsDowngrade(agent, version)
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
 // AgentRuntimeSetClaudeBinary chooses the Claude Code the Claude agent runs:
 // "bundled" with the adapter (default) or "machine", the user's own install.
 func (s *AppService) AgentRuntimeSetClaudeBinary(source string) (agentruntime.Status, error) {
