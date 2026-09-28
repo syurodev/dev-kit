@@ -1,14 +1,17 @@
 import * as React from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, Target, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
 import { MorphIcon } from "morphicons/react";
+import { KEYS, createSlateEditor } from "platejs";
+import { Plate, usePlateEditor } from "platejs/react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { Editor } from "@/components/ui/editor";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -36,6 +39,9 @@ import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
+import { ComposerEditorKit } from "./composer/composerEditorKit";
+import { ComposerMentionFilesContext } from "./composer/ContextMention";
+import { collectMentionKeys, serializeComposerValue } from "./composer/composerSerialization";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
@@ -165,6 +171,24 @@ export function heldChoice() {
   };
 }
 
+/**
+ * The field's placeholder for its current state. A pure function, not read
+ * back off the rendered field: Plate shows a placeholder only when the
+ * document is genuinely empty (a real `<span data-slate-placeholder>`, not
+ * an always-present `placeholder=""` HTML attribute the way a `<textarea>`'s
+ * was), so a non-empty `value` in a test would no longer find this string in
+ * the markup at all — checking the computation directly is what the
+ * existing `commandQuery`/`composerModeChoices` pattern already does for
+ * exactly this reason.
+ */
+export function composerDefaultPlaceholder(
+  placeholder: string | undefined,
+  isStreaming: boolean,
+  agentName: string | undefined,
+): string {
+  return placeholder ?? (isStreaming ? `${agentName ?? "Agent"} is working…` : `Ask ${agentName ?? "agent"}…`);
+}
+
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
   return key === "Escape" && streaming && !composing;
 }
@@ -187,7 +211,7 @@ export type ComposerCommandList = {
 };
 
 /**
- * The textarea's shortcuts. While an IME composition is open (Vietnamese,
+ * The field's shortcuts. While an IME composition is open (Vietnamese,
  * Japanese, Chinese input) Enter picks the candidate and Escape drops it, so
  * neither may send or cancel the turn. WebKit — the webview on macOS — reports
  * the keydown that commits a composition as keyCode 229 with isComposing
@@ -200,16 +224,22 @@ export function handleComposerKeyDown(
     onSend,
     onCancel,
     commandList,
+    insideCodeBlock = false,
+    comboboxOpen = false,
   }: {
     streaming: boolean;
     onSend: () => void;
     onCancel: () => void;
     /** The slash-command list, while it is open over the field. */
     commandList?: ComposerCommandList;
+    /** Enter continues the code line, the way any code editor's does, instead of sending. */
+    insideCodeBlock?: boolean;
+    /** Plate's own "@" mention popup is open; every key is its, same as an IME's. */
+    comboboxOpen?: boolean;
   },
 ): void {
   const composing = Boolean(e.nativeEvent.isComposing) || e.keyCode === 229;
-  if (composing) return;
+  if (composing || comboboxOpen) return;
   // An open list owns these keys, and has to be asked before anything else:
   // Enter picks the command instead of sending a half-typed "/comp", and
   // Escape closes the list instead of cancelling the turn that is running
@@ -242,6 +272,7 @@ export function handleComposerKeyDown(
     return;
   }
   if (e.key === "Enter" && !e.shiftKey) {
+    if (insideCodeBlock) return; // a newline in the code, not a send
     e.preventDefault();
     onSend();
   }
@@ -392,40 +423,75 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const rail = size === "rail";
 
-  // The field grows with what is typed, from one line up to its max height,
-  // then scrolls. Measured rather than `field-sizing: content`: that is
-  // Chromium's, and the webview on macOS and Linux is WebKit. Reset to auto
-  // first so a field that was taller can shrink back when text is deleted.
-  // Not animated — this changes on every keystroke, and motion there is noise.
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fit = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-  useLayoutEffect(fit, [value, rail]);
-  useEffect(() => {
-    if (focusRequest > 0) textareaRef.current?.focus();
-  }, [focusRequest]);
+  // A Plate document, not a bare string: it is what lets "@" mention a file
+  // as an atomic chip and ``` become a highlighted, editable code block
+  // (composerEditorKit.ts). It grows with what is typed on its own —
+  // contentEditable reflows naturally, unlike a <textarea>'s fixed intrinsic
+  // height — so none of the old manual `scrollHeight` measuring survives;
+  // `min-h-*`/`max-h-*` on <Editor> below is the floor and the ceiling past
+  // which it scrolls instead.
+  //
+  // The prop contract stays a plain string, though: `value`/`onChange` are
+  // still the string every other caller (AgentHubView's draft state, queued
+  // prompts, slash commands) already reads and writes. The Plate document is
+  // internal, synced out on every edit (serializeComposerValue, not
+  // `editor.api.markdown.serialize` — see composerEditorKit.ts for why) and
+  // synced in only when `value` changes for a reason other than the editor's
+  // own last emission — comparing against what it last emitted is what keeps
+  // ordinary typing (and IME composition) from being re-parsed into a fresh
+  // document on every keystroke, which would fight Slate's own state.
+  const [initialValue] = useState(() =>
+    value ? createSlateEditor({ plugins: ComposerEditorKit }).api.markdown.deserialize(value) : [],
+  );
+  const editor = usePlateEditor({ plugins: ComposerEditorKit, value: initialValue });
+  const mentionType = editor.getType(KEYS.mention);
+  const codeBlockType = editor.getType(KEYS.codeBlock);
+  const codeLineType = editor.getType(KEYS.codeLine);
 
-  // And again when the field's width changes. The split panel opens by
-  // animating from zero width, and a field measured mid-slide wrapped its
-  // placeholder a word a line — an empty composer stuck at its ceiling until
-  // something was typed. Width only: the height this sets would otherwise
-  // trigger the observer it is answering.
+  const lastEmittedRef = useRef<string | null>(value);
+  const isExternalResetRef = useRef(false);
+  const mentionKeysRef = useRef<Set<string>>(collectMentionKeys(initialValue, mentionType));
+
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    let width = el.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      fit();
+    if (value === lastEmittedRef.current) return;
+    lastEmittedRef.current = value;
+    isExternalResetRef.current = true;
+    editor.tf.setValue(value ? editor.api.markdown.deserialize(value) : []);
+  }, [value, editor]);
+
+  useEffect(() => {
+    if (focusRequest > 0) editor.tf.focus({ edge: "end" });
+  }, [focusRequest, editor]);
+
+  function handleEditorChange() {
+    const current = collectMentionKeys(editor.children, mentionType);
+    if (isExternalResetRef.current) {
+      isExternalResetRef.current = false;
+    } else {
+      // A mention's chip is deleted like any other atomic node — backspace,
+      // cut, select-and-delete. When one disappears from the document, drop
+      // it from attachedFiles too, so removing the visible tag is enough;
+      // an external reset (clear-on-send, load-for-edit) never had these to
+      // begin with, so it is excluded rather than read as removing them all.
+      for (const path of mentionKeysRef.current) {
+        if (!current.has(path)) onRemoveAttachment?.(path);
+      }
+    }
+    mentionKeysRef.current = current;
+
+    const serialized = serializeComposerValue(editor.children, {
+      mention: mentionType,
+      codeBlock: codeBlockType,
+      codeLine: codeLineType,
     });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+    lastEmittedRef.current = serialized;
+    onChange(serialized);
+  }
+
+  const mentionFiles = useMemo(
+    () => ({ files: contextFiles, onSelect: onSelectContext }),
+    [contextFiles, onSelectContext],
+  );
 
   // The slash-command list. What is typed decides whether it is open, so there
   // is no "opened" flag to fall out of step with the field — only the highlight
@@ -446,7 +512,7 @@ export function AgentComposer({
     if (!command) return;
     setDismissedQuery(null);
     onSelectCommand?.(command.name);
-    textareaRef.current?.focus();
+    editor.tf.focus();
   }
 
   const isStreaming = streaming || state === "streaming";
@@ -505,11 +571,7 @@ export function AgentComposer({
     (option) => option !== modeOption && option.options && option.options.length > 0,
   );
 
-  const inputPlaceholder =
-    placeholder ??
-    (isStreaming
-      ? `${agentName ?? "Agent"} is working…`
-      : `Ask ${agentName ?? "agent"}…`);
+  const inputPlaceholder = composerDefaultPlaceholder(placeholder, isStreaming, agentName);
 
   return (
     <div
@@ -641,61 +703,75 @@ export function AgentComposer({
         </Command>
       ) : null}
 
-      {/* A bare textarea, not the shared Textarea: that one brings a border,
-          a fill, a focus ring and its own radius, all of which this field
-          already provides around it. Overriding six properties to get back
-          to plain text is more code than plain text. */}
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={value}
-        disabled={disabled}
-        placeholder={inputPlaceholder}
-        aria-label="Agent prompt input"
-        data-testid="agent-composer-textarea"
-        onChange={(e) => onChange(e.target.value)}
-        onPaste={(e) => {
-          const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
-          if (image && onPasteImage) {
-            e.preventDefault();
-            onPasteImage(image);
-          }
-        }}
-        onDrop={(e) => {
-          const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
-          if (image && onDropImage) {
-            e.preventDefault();
-            onDropImage(image);
-          }
-        }}
-        onDragOver={(e) => {
-          if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
-        }}
-        onKeyDown={(e) =>
-          handleComposerKeyDown(e, {
-            streaming: isStreaming,
-            onSend,
-            onCancel,
-            commandList: {
-              open: commandListOpen,
-              onMove: (delta) =>
-                setHighlight((current) => {
-                  const next = (current + delta) % matches.length;
-                  return next < 0 ? next + matches.length : next;
-                }),
-              onAccept: () => acceptCommand(highlighted),
-              onClose: () => setDismissedQuery(query),
-            },
-          })
-        }
-        className={cn(
-          "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
-          // Floor is the old fixed height; ceiling is about eleven lines wide
-          // and seven in the rail, past which the field scrolls instead of
-          // pushing the composer up over the conversation.
-          rail ? "min-h-8 max-h-40" : "min-h-10 max-h-60",
-        )}
-      />
+      {/* Plate, not a bare textarea: this is what "@" mentions a file inline
+          and ``` becomes a highlighted, editable code block
+          (composerEditorKit.ts). `variant="none"` drops Editor's own
+          document padding/type size so this still reads as a plain field,
+          the way the bare textarea it replaces did. */}
+      <ComposerMentionFilesContext.Provider value={mentionFiles}>
+        <Plate editor={editor} onChange={handleEditorChange}>
+          <Editor
+            variant="none"
+            disabled={disabled}
+            placeholder={inputPlaceholder}
+            aria-label="Agent prompt input"
+            data-testid="agent-composer-textarea"
+            onPaste={(e) => {
+              const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
+              if (image && onPasteImage) {
+                e.preventDefault();
+                onPasteImage(image);
+              }
+            }}
+            onDrop={(e) => {
+              const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
+              if (image && onDropImage) {
+                e.preventDefault();
+                onDropImage(image);
+              }
+            }}
+            onDragOver={(e) => {
+              if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+            }}
+            onKeyDown={(e) => {
+              const insideCodeBlock = editor.api.some({ match: { type: codeBlockType } });
+              if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
+                // Plate registers no default behaviour for Shift+Enter (only
+                // plain Enter inserts a break); left alone it would fall to
+                // contentEditable's own unreliable native handling. Inside a
+                // code block Enter is already a plain newline either way.
+                e.preventDefault();
+                editor.tf.insertSoftBreak();
+                return;
+              }
+              handleComposerKeyDown(e, {
+                streaming: isStreaming,
+                onSend,
+                onCancel,
+                insideCodeBlock,
+                comboboxOpen: editor.api.some({ match: { type: editor.getType(KEYS.mentionInput) } }),
+                commandList: {
+                  open: commandListOpen,
+                  onMove: (delta) =>
+                    setHighlight((current) => {
+                      const next = (current + delta) % matches.length;
+                      return next < 0 ? next + matches.length : next;
+                    }),
+                  onAccept: () => acceptCommand(highlighted),
+                  onClose: () => setDismissedQuery(query),
+                },
+              });
+            }}
+            className={cn(
+              "w-full overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
+              // Floor is the old fixed height; ceiling is about eleven lines wide
+              // and seven in the rail, past which the field scrolls instead of
+              // pushing the composer up over the conversation.
+              rail ? "min-h-8 max-h-40" : "min-h-10 max-h-60",
+            )}
+          />
+        </Plate>
+      </ComposerMentionFilesContext.Provider>
 
       <div className="flex w-full items-center gap-1">
         {onAgentChange ? (
