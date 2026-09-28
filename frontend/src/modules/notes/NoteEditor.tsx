@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bold,
   Code,
+  Columns2,
   FileText,
   Folder,
   Italic,
@@ -11,6 +12,7 @@ import {
   Palette,
   PanelRight,
   History,
+  StretchHorizontal,
   Strikethrough,
   Tag,
   Trash2,
@@ -34,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSplitPanel } from "@/components/ui/split-panel";
+import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
   deleteNote,
@@ -51,6 +54,7 @@ import { useModuleAction } from "../../stores/moduleActions";
 import { NoteHistoryPanel } from "./NoteHistoryPanel";
 import { useNotesSidebar } from "./useNotesSidebar";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
+import { useNoteWidthStore } from "../../stores/noteWidth";
 import { tabKey, useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
@@ -253,6 +257,9 @@ export function NoteEditor({ params }: NoteEditorProps) {
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
   const bumpNotesRefresh = useNotesRefreshStore((state) => state.bump);
+  const fullWidthNotes = useNoteWidthStore((state) => state.fullWidth);
+  const toggleFullWidth = useNoteWidthStore((state) => state.toggleFullWidth);
+  const isFullWidth = fullWidthNotes.includes(noteId);
   const hasEditedRef = useRef(false);
 
   function onBack() {
@@ -634,8 +641,10 @@ export function NoteEditor({ params }: NoteEditorProps) {
         <EditorContainer className="min-h-0 flex-1 overflow-y-auto">
           {/* Editor Content (424:3473): the crumb sits on the writing column's
               own left edge, 20 down; the column starts at 56; 720 wide. No
-              header bar — the tab strip above is the header. */}
-          <div className="mx-auto w-full max-w-180 px-6 pt-5 pb-24">
+              header bar — the tab strip above is the header. Full width
+              (noteWidth.ts) drops that 720px ceiling, Notion's per-page
+              toggle. */}
+          <div className={cn("mx-auto w-full px-6 pt-5 pb-24", !isFullWidth && "max-w-180")}>
             <div className="flex h-4 items-center gap-2 text-code-11 text-text-tertiary">
               <button
                 type="button"
@@ -658,6 +667,15 @@ export function NoteEditor({ params }: NoteEditorProps) {
               <span className="ml-auto shrink-0">
                 {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null}
               </span>
+              <button
+                type="button"
+                aria-label={isFullWidth ? "Switch to default width" : "Switch to full width"}
+                title={isFullWidth ? "Default width" : "Full width"}
+                className="shrink-0 hover:text-text-primary"
+                onClick={() => toggleFullWidth(noteId)}
+              >
+                {isFullWidth ? <Columns2 className="size-3.25" /> : <StretchHorizontal className="size-3.25" />}
+              </button>
               <button
                 type="button"
                 aria-label="Delete note"
