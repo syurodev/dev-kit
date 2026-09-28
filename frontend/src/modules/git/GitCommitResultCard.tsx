@@ -1,27 +1,35 @@
 import { GitCommitHorizontal } from "lucide-react";
-import { ToolResultCard } from "@/components/ui/tool-result-card";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
 import type { CommitResult } from "./commitResult";
 
-/**
- * ToolResultView for `git.commit` (docs/dev-kit/tool-result-view.mdx).
- * "View diff" goes through the existing `git.reveal` intent, by the full
- * SHA (not the short form — precise, and CommitView reads any revision
- * string git accepts).
- */
+/** `git.commit` — the commit made: its subject, its SHA, and a way to its diff. */
 export function GitCommitResultCard({ commit }: { commit: CommitResult }) {
   return (
-    <ToolResultCard
-      icon={GitCommitHorizontal}
-      title={`${commit.short} ${commit.subject}`}
-      actionLabel="View diff"
-      onAction={() =>
-        void dispatchIntent(
-          "git.reveal",
-          { module: "git", kind: "commit", id: commit.sha, label: commit.short },
-          { placement: "beside" },
-        )
-      }
-    />
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
+        icon={GitCommitHorizontal}
+        title="Commit"
+        meta={<span className="text-code-11">{commit.short}</span>}
+        action={
+          <FramedCardAction
+            onClick={() =>
+              void dispatchIntent(
+                "git.reveal",
+                { module: "git", kind: "commit", id: commit.sha, label: commit.short },
+                { placement: "beside" },
+              )
+            }
+          >
+            View diff
+          </FramedCardAction>
+        }
+      />
+      <FramedCardPreview>
+        <p className="min-w-0 truncate text-body-13 text-text-primary" title={commit.subject}>
+          {commit.subject}
+        </p>
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

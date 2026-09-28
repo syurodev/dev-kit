@@ -444,7 +444,10 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain('data-testid="code-block-gutter"');
       expect(html).toMatch(/aria-hidden="true"[^>]*>1\n2\n3</);
       expect(html).toContain("public final class ArbitrationPolicy {}");
-      expect(html).toContain(">java<");
+      // The card is named for the file read, with the lines it holds; the
+      // extension already says the language.
+      expect(html).toContain(">ArbitrationPolicy.java<");
+      expect(html.replace(/<!-- -->/g, "")).toContain("lines 1–3");
     });
 
     it("renders a registered ToolResultView instead of the JSON block", () => {

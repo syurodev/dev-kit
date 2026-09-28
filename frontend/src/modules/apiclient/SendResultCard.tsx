@@ -1,5 +1,6 @@
 import { Send } from "lucide-react";
-import { ToolResultCard } from "@/components/ui/tool-result-card";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
+import { cn } from "@/lib/utils";
 import { dispatchIntent } from "@/workbench/intents";
 import type { SendResult } from "./sendResult";
 
@@ -8,32 +9,47 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+/** The status's tone: 2xx went through, 4xx was refused, 5xx broke. */
+function statusTone(status: number): string {
+  if (status >= 500) return "text-status-danger";
+  if (status >= 400) return "text-status-warning";
+  if (status >= 200 && status < 300) return "text-status-success";
+  return "text-text-primary";
+}
+
 /**
- * ToolResultView for `api.send` (docs/dev-kit/tool-result-view.mdx). Status,
- * timing and size only — never the body, which can carry real response data
- * from a request actually sent. "Open" goes through the existing
- * `api.reveal` intent to the saved request, not the response.
+ * `api.send` — how the request went: status, time, size. Never the body: the
+ * request was really sent, and what came back may be real data.
  */
 export function SendResultCard({ response, requestId }: { response: SendResult; requestId: string }) {
-  const parts = [
-    `${response.status} ${response.statusText}`.trim(),
-    `${response.durationMs} ms`,
-    formatBytes(response.bytes),
-  ];
-  if (response.truncated) parts.push("truncated");
-
   return (
-    <ToolResultCard
-      icon={Send}
-      title={parts.join(" · ")}
-      actionLabel="Open"
-      onAction={() =>
-        void dispatchIntent(
-          "api.reveal",
-          { module: "apiclient", kind: "request", id: requestId, label: requestId },
-          { placement: "beside" },
-        )
-      }
-    />
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
+        icon={Send}
+        title="Response"
+        meta={`${response.durationMs} ms`}
+        action={
+          <FramedCardAction
+            onClick={() =>
+              void dispatchIntent(
+                "api.reveal",
+                { module: "apiclient", kind: "request", id: requestId, label: requestId },
+                { placement: "beside" },
+              )
+            }
+          >
+            Open
+          </FramedCardAction>
+        }
+      />
+      <FramedCardPreview className="flex-row items-baseline gap-(--space-inline)">
+        <span className={cn("text-code-12-medium tabular-nums", statusTone(response.status))}>{response.status}</span>
+        <span className="min-w-0 flex-1 truncate text-body-13 text-text-primary">{response.statusText}</span>
+        <span className="shrink-0 text-caption-11 text-text-tertiary tabular-nums">
+          {formatBytes(response.bytes)}
+          {response.truncated ? " · truncated" : ""}
+        </span>
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

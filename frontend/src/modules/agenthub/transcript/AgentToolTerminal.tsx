@@ -1,6 +1,7 @@
 import { Terminal as TerminalIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { FramedCard, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 
 export type AgentToolTerminalProps = {
   /** The command that ran. Figma puts it in the head — it is the identity. */
@@ -36,34 +37,22 @@ export function AgentToolTerminal({
     ? "running…"
     : failed
       ? `exit ${typeof exitCode === "number" ? exitCode : 1}`
-      : "";
+      : undefined;
 
+  // A Framed card like every other block in a tool call: the header says it is
+  // a terminal and how it went, the preview is what ran.
   return (
-    <div
-      data-testid="agent-tool-terminal"
-      data-state={status}
-      className={cn(
-        "flex w-full max-w-full flex-col gap-2 rounded-control bg-surface-raised p-3",
-        className,
-      )}
-    >
-      <div className="flex w-full items-center gap-2">
-        <TerminalIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">
+    <FramedCard data-testid="agent-tool-terminal" data-state={status} className={cn("max-w-full", className)}>
+      <FramedCardHeader
+        icon={TerminalIcon}
+        title="Terminal"
+        meta={label ? <span className={failed ? "text-status-danger" : undefined}>{label}</span> : undefined}
+      />
+      <FramedCardPreview>
+        <p className="min-w-0 break-all whitespace-pre-wrap text-code-12 text-text-primary">
           {command || terminalId || "terminal"}
-        </span>
-        {label ? (
-          <span
-            className={cn(
-              "shrink-0 text-caption-11 whitespace-nowrap",
-              failed ? "text-status-danger" : "text-text-secondary",
-            )}
-          >
-            {label}
-          </span>
-        ) : null}
-      </div>
-
-    </div>
+        </p>
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

@@ -8,13 +8,15 @@ description: Cơ chế cho phép mỗi module đăng ký cách hiển thị riê
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="info" title="Đã triển khai">
-Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, `ToolResultCard`, nối
-vào `AgentToolCall.tsx`) cộng renderer cho mọi tool ở bảng "Ví dụ cụ thể" bên
-dưới — bao gồm 3 intent thêm mới cho vòng này: `notes.reveal`, `git.reveal`,
-`api.reveal`. Mục **"Theo dõi real-time"** ở cuối trang vẫn chưa thiết kế, cố
-tình treo lại để thảo luận riêng sau. Kết quả dạng bảng lớn (`db.query`,
-`kafka.peekMessages`, `codegraph.getBlastRadius`) cố tình chưa làm — dữ liệu
-lớn dễ vướng `ToolRawPreviewLimit` và có thể nhạy cảm, cần bàn phạm vi riêng.
+Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, card dùng chung
+[Framed card](/dev-kit/framed-card), nối vào `AgentToolCall.tsx`) cộng
+renderer cho mọi tool ở bảng "Ví dụ cụ thể" bên dưới — bao gồm 3 intent thêm
+mới cho vòng này: `notes.reveal`, `git.reveal`, `api.reveal`. Hình họa theo
+contract của Framed card — xem mục "Nhất quán với cái đã có". Mục **"Theo dõi real-time"** ở
+cuối trang vẫn chưa thiết kế, cố tình treo lại để thảo luận riêng sau. Kết
+quả dạng bảng lớn (`db.query`, `kafka.peekMessages`,
+`codegraph.getBlastRadius`) cố tình chưa làm — dữ liệu lớn dễ vướng
+`ToolRawPreviewLimit` và có thể nhạy cảm, cần bàn phạm vi riêng.
 </Callout>
 
 ## Mục đích sinh ra
@@ -199,15 +201,26 @@ bảng, dễ vướng `ToolRawPreviewLimit`); `vault.*`, `accounts.*` (nhạy c�
 tool ghi/phá hủy như `notes.delete`, `git.push`, `kafka.publishMessage` (giữ
 JSON thô để thấy đúng agent đã làm gì, không tô vẽ).
 
-**Nhất quán với cái đã có:** cùng ngôn ngữ hình họa với
-`AgentFileChip`/`AgentRefChip` — nền `bg-(--state-soft)`, bo `rounded-sm`,
-icon 12px mờ. Không phải "Shared / Entity Chip" theo Figma (vẫn chưa được
-thiết kế riêng cho từng kind) — chỉ là card giản lược, giống vai trò tạm thời
-của `AgentRefChip` với `agent.attach`. Khung dùng chung là
-`ToolResultCard`, ở `frontend/src/components/ui/tool-result-card.tsx` — vùng
-dùng chung mọi module đã import (`Shimmer`, `AnimatedCollapse`...), không
-phải trong `modules/agenthub`, để một renderer module khác đăng ký không
-phải import ngược vào Agent Hub chỉ để dùng khung card.
+**Nhất quán với cái đã có:** mọi card là một
+[Framed card](/dev-kit/framed-card) — header (icon, tên, một sự kiện ngắn,
+một hành động "mở ở chỗ khác") ôm lấy một preview lõm vào bằng khung 4px —
+cài đặt duy nhất ở `frontend/src/components/ui/framed-card.tsx` (vùng chung
+mọi module đã import, không phải trong `modules/agenthub`, để một renderer
+module khác đăng ký không phải import ngược vào Agent Hub chỉ để dùng khung
+card). Card đơn (`ApiFlow`, `Task`, `Note`, `GitCommit`, `Send`,
+`EndpointDraft`) đặt hành động trên header; card danh sách mà mỗi dòng tự mở
+được (`SymbolMatch`, `EndpointList`) không có hành động header, mỗi
+`FramedCardRow` là một lối vào.
+
+Thay cho thiết kế trước đó — `ToolResultRow`/`ToolResultList` dựng theo
+`Agent / Row` (Figma page **17 Agent Hub**, frame
+[`Agent / Tool Result`](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1336-3174)).
+Frame đó chưa được vẽ lại theo Framed card; xem mục Figma của trang Framed
+card.
+
+Một giá trị (SHA, method HTTP, id, status code) luôn ở `text-code-*` (Geist
+Mono) — không viết như văn xuôi, đúng nguyên tắc "Geist Mono cho đường dẫn,
+id, lệnh" của `design-system.mdx`.
 
 **Trạng thái:** card kế thừa `state` (running/done/failed) từ `ToolCall`
 giống hàng generic — đang chạy thì không có `rawOutput` để render nên vẫn
