@@ -144,6 +144,13 @@ func main() {
 	container.Tasks.OnChanged = func(boardID, taskID string) {
 		emitAppEvent("tasks:changed", map[string]any{"boardId": boardID, "taskId": taskID})
 	}
+	// Same reasoning as Tasks above: an MCP tool creating or updating a note
+	// must reach the dashboard/rail's react-query cache without the user
+	// having to search (which only "fixed" it by hitting an uncached query
+	// key, not by refreshing the stale one).
+	container.Notes.OnChanged = func(id string) {
+		emitAppEvent("notes:changed", map[string]any{"id": id})
+	}
 	// Query consoles are files, DataGrip-style: one .sql per console, with the
 	// connection it belongs to on the first line. Not vault items — those are
 	// the saved queries, which are named, deliberate and synced, and are

@@ -75,7 +75,12 @@ func (s *Service) CreateFolder(name, color string, tags []string) (Folder, error
 	if err != nil {
 		return Folder{}, err
 	}
-	return folderFrom(record)
+	folder, err := folderFrom(record)
+	if err != nil {
+		return Folder{}, err
+	}
+	s.changed(record.ID)
+	return folder, nil
 }
 
 func (s *Service) ListFolders() ([]Folder, error) {
@@ -125,7 +130,12 @@ func (s *Service) UpdateFolder(id, name, color string, tags []string) (Folder, e
 	if err != nil {
 		return Folder{}, err
 	}
-	return folderFrom(record)
+	folder, err := folderFrom(record)
+	if err != nil {
+		return Folder{}, err
+	}
+	s.changed(id)
+	return folder, nil
 }
 
 func decodeFolderMetadata(record vaultitem.Record) (folderMetadata, error) {
@@ -197,5 +207,9 @@ func (s *Service) DeleteFolder(id string) error {
 			return err
 		}
 	}
-	return s.store.Delete(id)
+	if err := s.store.Delete(id); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
