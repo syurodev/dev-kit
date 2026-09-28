@@ -47,6 +47,8 @@ export type AgentHubContentProps = {
   contextFiles?: ContextFileItem[];
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
+  /** What "@" finds for a query — the draft's folders, or the session's. */
+  onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   configOptions?: ConfigOption[];
   mode?: string | null;
   availableModes?: SessionMode[];
@@ -195,6 +197,7 @@ export function AgentHubContent({
   contextFiles = [],
   onSelectCommand,
   onSelectContext,
+  onSearchContext,
   configOptions = [],
   mode = null,
   availableModes = [],
@@ -268,7 +271,8 @@ export function AgentHubContent({
     pendingPermission = null;
     pendingElicitation = null;
     queuedPrompts = [];
-    attachments = [];
+    // attachments are not cleared: the view passes the draft's own ("@" picks
+    // them before there is a session), the way it passes its images.
     refs = [];
     items = [];
     usage = null;
@@ -579,6 +583,7 @@ export function AgentHubContent({
               contextFiles={contextFiles}
               onSelectCommand={onSelectCommand}
               onSelectContext={onSelectContext}
+              onSearchContext={onSearchContext}
               configOptions={configOptions}
               mode={mode}
               availableModes={availableModes}

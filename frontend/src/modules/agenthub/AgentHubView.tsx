@@ -30,6 +30,7 @@ import {
   agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubListContextFiles,
+  agentHubListDraftContextFiles,
   CLAUDE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
@@ -245,6 +246,9 @@ export function AgentHubView() {
     cwd: string;
     parent: AgentSession | null;
     images: AgentImageAttachment[];
+    // Files picked with "@" before there is a session to attach them to; they
+    // go with the first message.
+    attachments: string[];
     // The rest of a workspace's services, when "grant every service" was
     // picked instead of one folder — see chooseWorkspaceForDraft.
     extraReadWritePaths: string[];
@@ -438,7 +442,7 @@ export function AgentHubView() {
 
   /** Starts a draft in a folder that is already known — a project row, a parent. */
   function startDraft(cwd: string, parent: AgentSession | null) {
-    setDraft({ cwd, parent, images: [], extraReadWritePaths: [] });
+    setDraft({ cwd, parent, images: [], attachments: [], extraReadWritePaths: [] });
     setDraftPrompt("");
     setError("");
     setErrorReason("");
@@ -586,6 +590,10 @@ export function AgentHubView() {
   }
 
   function handleRemoveAttachment(path: string) {
+    if (draft) {
+      setDraft((current) => current && { ...current, attachments: current.attachments.filter((p) => p !== path) });
+      return;
+    }
     if (!activeSession) return;
     setAttachments((prev) => ({
       ...prev,
@@ -645,7 +653,30 @@ export function AgentHubView() {
     removeQueuedPrompt(activeSession.id, queued.id);
   }
 
+  /**
+   * What "@" finds for a query. A draft names its folders itself — the one it
+   * will work in, then the workspace's others — since there is no session row
+   * to read them from yet; a session's are read from its row. A draft with no
+   * folder picked (a scratch session to be) has nothing to search.
+   */
+  function searchContext(query: string) {
+    if (draft) {
+      return draft.cwd
+        ? agentHubListDraftContextFiles([draft.cwd, ...draft.extraReadWritePaths], query)
+        : Promise.resolve([]);
+    }
+    return activeSession ? agentHubListContextFiles(activeSession.id, query) : Promise.resolve([]);
+  }
+
   function handleSelectContext(path: string) {
+    // The draft first: activeSession falls back to the first session even
+    // while a draft is on screen, and the file belongs to the draft's message.
+    if (draft) {
+      setDraft((current) =>
+        current && !current.attachments.includes(path) ? { ...current, attachments: [...current.attachments, path] } : current,
+      );
+      return;
+    }
     if (!activeSession) return;
     setAttachments((prev) => {
       const current = prev[activeSession.id] ?? [];
@@ -1081,13 +1112,14 @@ export function AgentHubView() {
             }}
             onSend={() => {
               if (!draft) return void handleSend();
-              if (!draftPrompt.trim() && draft.images.length === 0) return;
+              if (!draftPrompt.trim() && draft.images.length === 0 && draft.attachments.length === 0) return;
               void handleCreateSession({
                 vendor: draftAgent,
                 cwd: draft.cwd,
                 parentSessionId: draft.parent?.id,
                 prompt: draftPrompt.trim(),
                 images: draft.images,
+                attachments: draft.attachments,
                 extraReadWritePaths: draft.extraReadWritePaths,
               });
             }}
@@ -1128,7 +1160,8 @@ export function AgentHubView() {
             errorDetail={
               errorCause === "authRequired" && activeSession ? signInFor(activeSession.agentType) : undefined
             }
-            attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
+            attachments={draft ? draft.attachments : activeSession ? attachments[activeSession.id] ?? [] : []}
+            onSearchContext={searchContext}
             imageAttachments={draft ? draft.images : activeSession ? images[activeSession.id] ?? [] : []}
             onRemoveImage={handleRemoveImage}
             refs={activeSession ? refs[activeSession.id] ?? [] : []}

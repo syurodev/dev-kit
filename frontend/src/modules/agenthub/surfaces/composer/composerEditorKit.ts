@@ -1,12 +1,11 @@
 import remarkGfm from "remark-gfm";
 import { MarkdownPlugin } from "@platejs/markdown";
-import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
-import { KEYS, type SlateEditor } from "platejs";
+import { MentionPlugin } from "@platejs/mention/react";
 import { ParagraphPlugin } from "platejs/react";
 
 import { CodeBlockKit } from "@/components/editor/plugins/code-block-kit";
 import { ParagraphElement } from "@/components/ui/paragraph-node";
-import { ContextMentionElement, ContextMentionInputElement } from "./ContextMention";
+import { ContextMentionElement } from "./ContextMention";
 
 /**
  * The composer's own tiny Plate kit — a paragraph, the code block CodeGraph
@@ -16,8 +15,10 @@ import { ContextMentionElement, ContextMentionInputElement } from "./ContextMent
  * toggles, and pulling in Notes' full ~2200-line document kit for two
  * plugins would make the composer a rich-text document editor it isn't.
  *
- * MarkdownPlugin is used only to DESERIALIZE (load a plain string into the
- * editor on an external reset — see AgentComposer's `lastEmittedRef`). The
+ * MarkdownPlugin reads pasted text; it is NOT how the composer loads its own
+ * prompt string (`deserializeComposerValue`, composerSerialization.ts) —
+ * markdown drops a trailing space, a leading "- " and blank lines, and the
+ * composer re-reads its prompt whenever it changes from outside. The
  * outgoing direction is `serializeComposerValue` (composerSerialization.ts),
  * not `editor.api.markdown.serialize()`: the markdown serializer escapes a
  * soft line break as a trailing backslash (commonmark's hard-break syntax),
@@ -28,14 +29,16 @@ import { ContextMentionElement, ContextMentionInputElement } from "./ContextMent
 export const ComposerEditorKit = [
   ParagraphPlugin.withComponent(ParagraphElement),
   ...CodeBlockKit,
-  MentionPlugin.configure({
-    options: {
-      // Same guard SlashPlugin uses in Notes: don't open a combobox mid-code.
-      triggerQuery: (editor: SlateEditor) =>
-        !editor.api.some({ match: { type: editor.getType(KEYS.codeBlock) } }),
-    },
-  }).withComponent(ContextMentionElement),
-  MentionInputPlugin.withComponent(ContextMentionInputElement),
+  // The chip only. "@" never opens Plate's combobox: that combobox types into
+  // an <input> of its own, and moving focus there mid-composition lost the
+  // letter an input method was composing (mentionQuery.ts). AgentComposer
+  // reads "@query" off the text before the caret and lists the files itself,
+  // with the field keeping focus.
+  // A space after the chip at the end of a line, so the next word is not
+  // glued to the file name in what is sent ("@schema.sqlplease").
+  MentionPlugin.configure({ options: { triggerQuery: () => false, insertSpaceAfterMention: true } }).withComponent(
+    ContextMentionElement,
+  ),
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],

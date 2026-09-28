@@ -613,10 +613,23 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 
 const maxContextSuggestions = 100
 
-// ListContextFiles returns a small, deterministic set of files below the
-// session project. It is deliberately not a repository listing: the composer
-// needs useful nearby suggestions, while the native picker remains the escape
-// hatch for an exact path.
+// contextWalkBudget bounds how many entries one listing reads. A query that
+// matches almost nothing would otherwise walk every folder of a large
+// workspace on each keystroke the composer sends.
+const contextWalkBudget = 50_000
+
+// contextSkipDirs are trees nobody mentions a file from: build output,
+// dependencies, caches. Skipped below a root, never as the root itself.
+var contextSkipDirs = map[string]bool{
+	".git": true, "node_modules": true, "vendor": true, "target": true, "dist": true, "build": true,
+	".next": true, ".turbo": true, ".cache": true, ".venv": true, "__pycache__": true, ".idea": true,
+}
+
+// ListContextFiles returns the files an "@" in the session's composer can
+// mention: below the session's folder and every workspace folder it was
+// granted (ExtraReadWritePaths), filtered by query. It is deliberately not a
+// repository listing: the composer needs useful suggestions for what is being
+// typed, while the native picker remains the escape hatch for an exact path.
 func (s *Service) ListContextFiles(ctx context.Context, id, query string) ([]ContextFile, error) {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return nil, err
@@ -625,58 +638,154 @@ func (s *Service) ListContextFiles(ctx context.Context, id, query string) ([]Con
 	if err != nil {
 		return nil, err
 	}
-	root := filepath.Clean(sess.ProjectPath)
+	return listContextFiles(ctx, append([]string{sess.ProjectPath}, sess.ExtraReadWritePaths...), query)
+}
+
+// ListDraftContextFiles is ListContextFiles for a session not created yet:
+// the draft names its folders (the one it will work in, then the workspace's
+// others) because there is no session row to read them from. The person's
+// only — the folders are the caller's to choose, so a caller stamped as an
+// agent or a terminal MCP client, which could name any folder on the machine,
+// is refused.
+func (s *Service) ListDraftContextFiles(ctx context.Context, roots []string, query string) ([]ContextFile, error) {
+	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
+		return nil, fmt.Errorf("%w: a draft's files are listed for the person, from the app", ErrPermissionDenied)
+	}
+	return listContextFiles(ctx, roots, query)
+}
+
+// listContextFiles walks each root in order. With no query it keeps the first
+// maxContextSuggestions files found; with one it keeps every file whose path
+// contains it (up to the walk budget) and returns the best matches first — a
+// name that starts with the query, then a name that contains it, then a path
+// that does — so "sche" finds schema.sql before a file in a schemas/ folder.
+// A file's Description is its path below its root, prefixed with the root's
+// name when there is more than one root, so two services' README.md differ.
+func listContextFiles(ctx context.Context, roots []string, query string) ([]ContextFile, error) {
+	roots = contextRoots(roots)
 	needle := strings.ToLower(strings.TrimSpace(query))
-	paths := make([]string, 0, maxContextSuggestions)
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			// One unreadable folder costs only its own subtree. Returning the
-			// error failed the whole listing, so a single permission-denied
-			// directory left the composer with no suggestions at all.
-			if path == root {
-				return walkErr
-			}
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+	type match struct {
+		file ContextFile
+		rank int
+	}
+	var matches []match
+	// A workspace folder inside another is walked twice; its files are listed once.
+	seen := make(map[string]bool)
+	visited := 0
+	full := func() bool { return needle == "" && len(matches) >= maxContextSuggestions }
+	for i, root := range roots {
+		if full() || visited >= contextWalkBudget {
+			break
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if len(paths) >= maxContextSuggestions {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				// One unreadable folder costs only its own subtree. Returning the
+				// error failed the whole listing, so a single permission-denied
+				// directory left the composer with no suggestions at all.
+				if path == root {
+					return walkErr
+				}
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// SkipAll, not SkipDir: SkipDir returned for a file skips only the
 			// rest of that directory, so the walk still went through the
 			// whole tree after the cap.
-			return filepath.SkipAll
-		}
-		if entry.IsDir() {
-			name := entry.Name()
-			if path != root && (name == ".git" || name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build") {
-				return filepath.SkipDir
+			if full() || visited >= contextWalkBudget {
+				return filepath.SkipAll
 			}
+			visited++
+			if entry.IsDir() {
+				if path != root && contextSkipDirs[entry.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil || rel == "." || seen[path] {
+				return nil
+			}
+			rel = filepath.ToSlash(rel)
+			shown := rel
+			if len(roots) > 1 {
+				shown = filepath.Base(root) + "/" + rel
+			}
+			rank := contextMatchRank(entry.Name(), shown, needle)
+			if rank < 0 {
+				return nil
+			}
+			seen[path] = true
+			matches = append(matches, match{
+				file: ContextFile{Path: path, Name: entry.Name(), Description: shown, Kind: "file"},
+				rank: rank,
+			})
 			return nil
+		})
+		if err != nil {
+			// A missing or unreadable primary folder is the listing's failure;
+			// one of the workspace's other folders is only its own.
+			if i == 0 || ctx.Err() != nil {
+				return nil, err
+			}
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil || rel == "." {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if needle != "" && !strings.Contains(strings.ToLower(rel), needle) {
-			return nil
-		}
-		paths = append(paths, rel)
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	sort.Strings(paths)
-	out := make([]ContextFile, 0, len(paths))
-	for _, rel := range paths {
-		out = append(out, ContextFile{Path: filepath.Join(root, filepath.FromSlash(rel)), Name: filepath.Base(rel), Description: rel, Kind: "file"})
+	sort.SliceStable(matches, func(a, b int) bool {
+		if matches[a].rank != matches[b].rank {
+			return matches[a].rank < matches[b].rank
+		}
+		if needle != "" && len(matches[a].file.Description) != len(matches[b].file.Description) {
+			return len(matches[a].file.Description) < len(matches[b].file.Description)
+		}
+		return matches[a].file.Description < matches[b].file.Description
+	})
+	if len(matches) > maxContextSuggestions {
+		matches = matches[:maxContextSuggestions]
+	}
+	out := make([]ContextFile, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m.file)
 	}
 	return out, nil
+}
+
+// contextMatchRank orders a file for a query: 0 its name starts with it, 1 its
+// name contains it, 2 only its path does, -1 not a match. Everything is 0 for
+// no query.
+func contextMatchRank(name, path, needle string) int {
+	if needle == "" {
+		return 0
+	}
+	lowerName := strings.ToLower(name)
+	switch {
+	case strings.HasPrefix(lowerName, needle):
+		return 0
+	case strings.Contains(lowerName, needle):
+		return 1
+	case strings.Contains(strings.ToLower(path), needle):
+		return 2
+	}
+	return -1
+}
+
+// contextRoots cleans the folders to list: absolute only, never "/" (a walk
+// of the whole machine), each once.
+func contextRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if root == "" || !filepath.IsAbs(root) {
+			continue
+		}
+		clean := filepath.Clean(root)
+		if clean != string(filepath.Separator) && !slices.Contains(out, clean) {
+			out = append(out, clean)
+		}
+	}
+	return out
 }
 
 // ListVendorTypes returns registered adapter types in stable order.

@@ -257,18 +257,34 @@ export function agentHubSetConfigOption(
   return callBridge(() => AppService.AgentHubSetConfigOption(sessionId, optionId, value) as Promise<void>);
 }
 
+function contextFileFromRaw(file: RawContextFile): AgentContextFile {
+  return {
+    path: file.path,
+    name: file.name,
+    description: file.description ?? undefined,
+    kind: (file.kind as AgentContextFile["kind"]) ?? undefined,
+  };
+}
+
+/** What "@" can mention in a session: its folder and its workspace's others, filtered by query. */
 export function agentHubListContextFiles(
   sessionId: string,
   query = "",
 ): Promise<AgentContextFile[]> {
   return callBridge(async () => {
     const files = await AppService.AgentHubListContextFiles(sessionId, query);
-    return (files ?? []).map((file: RawContextFile) => ({
-      path: file.path,
-      name: file.name,
-      description: file.description ?? undefined,
-      kind: (file.kind as AgentContextFile["kind"]) ?? undefined,
-    }));
+    return (files ?? []).map(contextFileFromRaw);
+  });
+}
+
+/** agentHubListContextFiles for a draft: the folders it will work in, its own first. */
+export function agentHubListDraftContextFiles(
+  roots: string[],
+  query = "",
+): Promise<AgentContextFile[]> {
+  return callBridge(async () => {
+    const files = await AppService.AgentHubListDraftContextFiles(roots, query);
+    return (files ?? []).map(contextFileFromRaw);
   });
 }
 

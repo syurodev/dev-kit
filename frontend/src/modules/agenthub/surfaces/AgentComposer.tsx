@@ -1,12 +1,13 @@
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "framer-motion";
-import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, Target, X } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, FileCode, Pencil, Play, SlidersHorizontal, Target, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { KEYS, createSlateEditor } from "platejs";
+import { KEYS, type Path } from "platejs";
+import { getMentionOnSelectItem } from "@platejs/mention";
 import { Plate, usePlateEditor } from "platejs/react";
 import { BorderBeam } from "border-beam";
 
@@ -43,8 +44,8 @@ import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
-import { ComposerMentionFilesContext } from "./composer/ContextMention";
-import { collectMentionKeys, serializeComposerValue } from "./composer/composerSerialization";
+import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
+import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composer/composerSerialization";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
@@ -204,7 +205,7 @@ type ComposerKeyEvent = {
   preventDefault: () => void;
 };
 
-/** The open slash-command list, as the textarea's key handler sees it. */
+/** The open list over the field — slash commands or "@" files — as its key handler sees it. */
 export type ComposerCommandList = {
   open: boolean;
   /** Moves the highlight by one, wrapping at both ends. */
@@ -228,7 +229,6 @@ export function handleComposerKeyDown(
     onCancel,
     commandList,
     insideCodeBlock = false,
-    comboboxOpen = false,
   }: {
     streaming: boolean;
     onSend: () => void;
@@ -237,12 +237,10 @@ export function handleComposerKeyDown(
     commandList?: ComposerCommandList;
     /** Enter continues the code line, the way any code editor's does, instead of sending. */
     insideCodeBlock?: boolean;
-    /** Plate's own "@" mention popup is open; every key is its, same as an IME's. */
-    comboboxOpen?: boolean;
   },
 ): void {
   const composing = Boolean(e.nativeEvent.isComposing) || e.keyCode === 229;
-  if (composing || comboboxOpen) return;
+  if (composing) return;
   // An open list owns these keys, and has to be asked before anything else:
   // Enter picks the command instead of sending a half-typed "/comp", and
   // Escape closes the list instead of cancelling the turn that is running
@@ -320,6 +318,13 @@ export type AgentComposerProps = {
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
+  /**
+   * Answers what "@" is being typed: the files matching a query, best first
+   * (agentHubListContextFiles and its draft twin). Asked again as the query
+   * changes, so a large workspace is searched rather than cut to a prefix.
+   * Without it "@" filters `contextFiles` locally.
+   */
+  onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   onBrowseContext?: () => void;
   /** Sends /compact from the context popover. Omit when the agent offers no such command. */
   onCompact?: () => void;
@@ -345,6 +350,42 @@ export type AgentComposerProps = {
   agentName?: string;
   className?: string;
 };
+
+/**
+ * The lists that open from the field — "/" commands and "@" files — as a tray
+ * growing out of the top of the composer, not a popup floating over the
+ * transcript: inset from the composer's sides by at least its corner radius,
+ * rounded on top only, and flush with its top edge, so the list reads as part
+ * of the input it belongs to.
+ *
+ * Opaque, not the palette's glass: the list sits inside the composer, which is
+ * itself a backdrop-filter surface, and a backdrop filter nested in another
+ * one only blurs its parent's own content — so the palette's 62% glass let the
+ * transcript's text show straight through the rows. Rows are the menus' 28px,
+ * not the palette's 40px, and there is no trailing check: the highlight is
+ * already the row's background.
+ */
+const COMPOSER_LIST =
+  "absolute inset-x-3 bottom-full z-10 w-auto max-w-none rounded-t-xl rounded-b-none border-b-0 bg-surface-base";
+const COMPOSER_LIST_BODY = "max-h-64 gap-0 p-1";
+const COMPOSER_LIST_ROW = "h-7 gap-2 rounded-sm px-2 [&_svg:not([class*='size-'])]:size-3.5";
+
+/** The folder a listed file sits in, as the list shows it beside the name. */
+function contextFileFolder(file: ContextFileItem): string {
+  const shown = file.description ?? file.path;
+  const name = file.name || shown.split("/").pop() || "";
+  return shown.endsWith("/" + name) ? shown.slice(0, -name.length - 1) : shown === name ? "" : shown;
+}
+
+/** The node types the composer's document is read and written with. */
+function composerTypes(editor: { getType: (key: string) => string }) {
+  return {
+    paragraph: editor.getType(KEYS.p),
+    mention: editor.getType(KEYS.mention),
+    codeBlock: editor.getType(KEYS.codeBlock),
+    codeLine: editor.getType(KEYS.codeLine),
+  };
+}
 
 /**
  * The app's resolved light/dark mode, read off <html> the way ThemeProvider
@@ -416,6 +457,7 @@ export function AgentComposer({
   onEditQueued,
   onSelectCommand,
   onSelectContext,
+  onSearchContext,
   onBrowseContext,
   onCompact,
   agents = [],
@@ -451,27 +493,38 @@ export function AgentComposer({
   // prompts, slash commands) already reads and writes. The Plate document is
   // internal, synced out on every edit (serializeComposerValue, not
   // `editor.api.markdown.serialize` — see composerEditorKit.ts for why) and
-  // synced in only when `value` changes for a reason other than the editor's
-  // own last emission — comparing against what it last emitted is what keeps
-  // ordinary typing (and IME composition) from being re-parsed into a fresh
-  // document on every keystroke, which would fight Slate's own state.
-  const [initialValue] = useState(() =>
-    value ? createSlateEditor({ plugins: ComposerEditorKit }).api.markdown.deserialize(value) : [],
-  );
-  const editor = usePlateEditor({ plugins: ComposerEditorKit, value: initialValue });
-  const mentionType = editor.getType(KEYS.mention);
-  const codeBlockType = editor.getType(KEYS.codeBlock);
-  const codeLineType = editor.getType(KEYS.codeLine);
+  // synced in (deserializeComposerValue, its exact inverse) only when `value`
+  // changes for a reason other than the editor's own last emission —
+  // comparing against what it last emitted is what keeps ordinary typing (and
+  // IME composition) from being re-parsed into a fresh document on every
+  // keystroke, which would fight Slate's own state.
+  //
+  // A value synced in is never written back out. Two composers can hold the
+  // same session's prompt (the Agent Hub tab and the companion rail, both
+  // mounted), and each one's edit is the other's external change: when the
+  // re-read was lossy (markdown dropped a trailing space) and echoed back,
+  // the mirror trimmed every space out from under the one being typed in,
+  // and reset its document — and its caret — on the way.
+  const editor = usePlateEditor({
+    plugins: ComposerEditorKit,
+    value: (created) => deserializeComposerValue(value, composerTypes(created)) as never,
+  });
+  const types = composerTypes(editor);
 
   const lastEmittedRef = useRef<string | null>(value);
   const isExternalResetRef = useRef(false);
-  const mentionKeysRef = useRef<Set<string>>(collectMentionKeys(initialValue, mentionType));
+  // Nothing read from a string is a mention ("@label" stays text), so the
+  // first document holds none.
+  const mentionKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
     lastEmittedRef.current = value;
+    // Already showing it (another composer typed the same thing): replacing
+    // an identical document would only throw away the caret.
+    if (serializeComposerValue(editor.children, composerTypes(editor)) === value) return;
     isExternalResetRef.current = true;
-    editor.tf.setValue(value ? editor.api.markdown.deserialize(value) : []);
+    editor.tf.setValue(deserializeComposerValue(value, composerTypes(editor)) as never);
   }, [value, editor]);
 
   useEffect(() => {
@@ -479,34 +532,112 @@ export function AgentComposer({
   }, [focusRequest, editor]);
 
   function handleEditorChange() {
-    const current = collectMentionKeys(editor.children, mentionType);
+    const nextMention = readMention();
+    setMention((prev) =>
+      prev && nextMention && prev.query === nextMention.query && prev.start === nextMention.start && prev.path.join() === nextMention.path.join()
+        ? prev
+        : nextMention,
+    );
+    const current = collectMentionKeys(editor.children, types.mention);
     if (isExternalResetRef.current) {
+      // The document now says what `value` says; there is nothing to report.
+      // An external reset (clear-on-send, load-for-edit, the other composer)
+      // also never had these mentions' chips to begin with, so it is not read
+      // as removing them all.
       isExternalResetRef.current = false;
-    } else {
-      // A mention's chip is deleted like any other atomic node — backspace,
-      // cut, select-and-delete. When one disappears from the document, drop
-      // it from attachedFiles too, so removing the visible tag is enough;
-      // an external reset (clear-on-send, load-for-edit) never had these to
-      // begin with, so it is excluded rather than read as removing them all.
-      for (const path of mentionKeysRef.current) {
-        if (!current.has(path)) onRemoveAttachment?.(path);
-      }
+      mentionKeysRef.current = current;
+      return;
+    }
+    // A mention's chip is deleted like any other atomic node — backspace,
+    // cut, select-and-delete. When one disappears from the document, drop
+    // it from attachedFiles too, so removing the visible tag is enough.
+    for (const path of mentionKeysRef.current) {
+      if (!current.has(path)) onRemoveAttachment?.(path);
     }
     mentionKeysRef.current = current;
 
-    const serialized = serializeComposerValue(editor.children, {
-      mention: mentionType,
-      codeBlock: codeBlockType,
-      codeLine: codeLineType,
-    });
+    const serialized = serializeComposerValue(editor.children, types);
+    // Plate reports selection moves as changes too; only text is news.
+    if (serialized === lastEmittedRef.current) return;
     lastEmittedRef.current = serialized;
     onChange(serialized);
   }
 
-  const mentionFiles = useMemo(
-    () => ({ files: contextFiles, onSelect: onSelectContext }),
-    [contextFiles, onSelectContext],
-  );
+  // The "@" file list — the slash-command list's twin, below. The "@query"
+  // before the caret decides whether it is open (mentionQuery.ts says why it
+  // is read off the text and never takes the focus); what it lists is asked
+  // of onSearchContext as the query changes, the previous answer staying up
+  // until the next one lands so the list does not flicker on each letter.
+  const [mention, setMention] = useState<{ path: Path; start: number; end: number; query: string } | null>(null);
+  const [mentionDismissedAt, setMentionDismissedAt] = useState<string | null>(null);
+  const [mentionFiles, setMentionFiles] = useState<ContextFileItem[] | null>(null);
+  const [mentionHighlight, setMentionHighlight] = useState(0);
+  const mentionQuery = disabled ? null : mention?.query ?? null;
+  // Read through refs, not effect dependencies: both are new on most renders
+  // (an inline callback, a defaulted `[]`), and re-running the search on each
+  // one reset the highlight under the arrow keys and asked again forever.
+  const searchContextRef = useRef(onSearchContext);
+  searchContextRef.current = onSearchContext;
+  const contextFilesRef = useRef(contextFiles);
+  contextFilesRef.current = contextFiles;
+  useEffect(() => {
+    setMentionHighlight(0);
+    if (mentionQuery === null) {
+      setMentionFiles(null);
+      return;
+    }
+    const search = searchContextRef.current;
+    if (!search) {
+      setMentionFiles(filterContextFiles(contextFilesRef.current, mentionQuery));
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(
+      () => {
+        search(mentionQuery)
+          .then((files) => live && setMentionFiles(files))
+          .catch(() => live && setMentionFiles([]));
+      },
+      mentionQuery ? 120 : 0,
+    );
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [mentionQuery]);
+  // Where this "@" is, so Escape puts away this one and not the next one typed.
+  const mentionKey = mention ? `${mention.path.join(".")}:${mention.start}` : null;
+  const mentionListOpen = mentionQuery !== null && mentionKey !== mentionDismissedAt;
+  const mentionHighlighted = mentionFiles?.[Math.min(mentionHighlight, mentionFiles.length - 1)];
+  // The arrow keys move a highlight cmdk does not own (the field keeps the
+  // keys), so cmdk never scrolls it into view: past the eighth row it went on
+  // moving out of sight.
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    mentionListRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [mentionHighlighted]);
+
+  /** The "@query" before the caret, if one is being typed outside a code block. */
+  function readMention() {
+    const selection = editor.selection;
+    if (!selection || !editor.api.isCollapsed()) return null;
+    if (editor.api.some({ match: { type: types.codeBlock } })) return null;
+    const { path, offset } = selection.anchor;
+    const leaf = editor.api.node(path)?.[0] as { text?: unknown } | undefined;
+    if (typeof leaf?.text !== "string") return null;
+    const found = mentionQueryBefore(leaf.text.slice(0, offset));
+    return found ? { path, start: found.start, end: offset, query: found.query } : null;
+  }
+
+  function acceptMention(file: ContextFileItem | undefined) {
+    if (!file || !mention) return;
+    // The "@query" becomes the chip: select it, delete it, insert in its place.
+    editor.tf.select({ anchor: { path: mention.path, offset: mention.start }, focus: { path: mention.path, offset: mention.end } });
+    editor.tf.delete();
+    getMentionOnSelectItem()(editor, { key: file.path, text: file.name || file.path });
+    onSelectContext?.(file.path);
+    editor.tf.focus();
+  }
 
   // The slash-command list. What is typed decides whether it is open, so there
   // is no "opened" flag to fall out of step with the field — only the highlight
@@ -522,6 +653,10 @@ export function AgentComposer({
     setHighlight(0);
   }, [query]);
   const highlighted = matches[Math.min(highlight, matches.length - 1)];
+  const commandListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    commandListRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [highlighted]);
 
   function acceptCommand(command: AvailableCommand | undefined) {
     if (!command) return;
@@ -588,6 +723,82 @@ export function AgentComposer({
 
   const inputPlaceholder = composerDefaultPlaceholder(placeholder, isStreaming, agentName);
 
+  // The "/" list: the commands the agent advertised, while one is being typed.
+  // Anchored to the composer rather than a popover: the field keeps focus throughout — the
+  // user is still typing the name — and a popover would take it. onMouseDown
+  // is prevented for the same reason, so clicking a command does not blur the
+  // field underneath. Arrow keys, Enter and Escape are handled in the field's
+  // own key handler; cmdk never sees them, so the highlight is driven here
+  // rather than by its own value logic.
+  const commandList = (
+    <Command
+      shouldFilter={false}
+      value={highlighted?.name ?? ""}
+      data-testid="composer-command-list"
+      onMouseDown={(e) => e.preventDefault()}
+      className={COMPOSER_LIST}
+    >
+      <CommandList ref={commandListRef} className={COMPOSER_LIST_BODY}>
+        {matches.map((command) => (
+          <CommandItem
+            key={command.name}
+            value={command.name}
+            data-testid="composer-command-item"
+            indicator={false}
+            className={COMPOSER_LIST_ROW}
+            onSelect={() => acceptCommand(command)}
+          >
+            <CommandIcon aria-hidden="true" />
+            <span className="shrink-0 text-code-12">{commandName(command.name)}</span>
+            {/* The description takes the free space so every hint lines up on the right. */}
+            <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">{command.description}</span>
+            {command.input?.hint ? (
+              <span className="shrink-0 text-caption-11 text-text-tertiary">{command.input.hint}</span>
+            ) : null}
+          </CommandItem>
+        ))}
+      </CommandList>
+    </Command>
+  );
+  // The "@" list, for the same reasons (mentionQuery.ts). "No files" is said
+  // rather than showing nothing, so an "@" that finds nothing does not look
+  // like an "@" that did nothing.
+  const mentionList = (
+    <Command
+      shouldFilter={false}
+      value={mentionHighlighted?.path ?? ""}
+      data-testid="composer-mention-list"
+      onMouseDown={(e) => e.preventDefault()}
+      className={COMPOSER_LIST}
+    >
+      <CommandList ref={mentionListRef} className={COMPOSER_LIST_BODY}>
+        {!mentionFiles?.length ? (
+          <p className="flex h-7 items-center px-2 text-body-13 text-text-tertiary">
+            {mentionQuery ? `No files match “${mentionQuery}”` : "No files"}
+          </p>
+        ) : (
+          mentionFiles.map((file) => (
+            <CommandItem
+              key={file.path}
+              value={file.path}
+              data-testid="composer-mention-item"
+              indicator={false}
+              className={COMPOSER_LIST_ROW}
+              title={file.description ?? file.path}
+              onSelect={() => acceptMention(file)}
+            >
+              <FileCode aria-hidden="true" className="text-text-tertiary" />
+              <span className="max-w-[60%] shrink-0 truncate">{file.name || file.path}</span>
+              {/* The folder, not the path again: the name is already beside it. */}
+              <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
+                {contextFileFolder(file)}
+              </span>
+            </CommandItem>
+          ))
+        )}
+      </CommandList>
+    </Command>
+  );
   return (
     <BorderBeam
       active={isStreaming && !reduce}
@@ -609,7 +820,7 @@ export function AgentComposer({
         data-size={size}
         data-state={effectiveState}
         className={cn(
-          // relative: the slash-command list hangs off the top of this box.
+          // relative: the "/" and "@" lists hang off the top of this box.
           "glass-float glass-float-low relative flex w-full flex-col gap-2 rounded-xl p-2",
           // The rail's composer fills its panel, which the user sizes.
           !rail && "max-w-274",
@@ -685,56 +896,15 @@ export function AgentComposer({
             ))}
           </div>
         ) : null}
+        {commandListOpen ? commandList : null}
+        {mentionListOpen && mentionFiles !== null ? mentionList : null}
         {imageError ? <p data-testid="composer-image-error" className="px-1 text-caption-11 text-status-danger">{imageError}</p> : null}
-
-        {/* The list of commands the agent advertised, over the field while one
-            is being typed. Anchored to the composer rather than shown in a
-            popover: the field keeps focus throughout — the user is still
-            typing the name — and a popover would take it. onMouseDown is
-            prevented for the same reason, so clicking a command does not blur
-            the field underneath. Arrow keys, Enter and Escape are handled in
-            the textarea's own key handler; cmdk never sees them, so the
-            highlight is driven here rather than by its own value logic. */}
-        {commandListOpen ? (
-          <Command
-            shouldFilter={false}
-            value={highlighted?.name ?? ""}
-            data-testid="composer-command-list"
-            onMouseDown={(e) => e.preventDefault()}
-            className="absolute bottom-full left-0 z-10 mb-1 w-full max-w-full"
-          >
-            <CommandList>
-              {matches.map((command) => (
-                <CommandItem
-                  key={command.name}
-                  value={command.name}
-                  data-testid="composer-command-item"
-                  onSelect={() => acceptCommand(command)}
-                >
-                  <CommandIcon aria-hidden="true" />
-                  <span className="shrink-0 text-code-12">{commandName(command.name)}</span>
-                  {/* The description takes the free space so every hint lines
-                      up on the right. Not ml-auto: CommandItem's own check is
-                      already pushed that way, and two of them split the gap
-                      between themselves (same trap as TabSwitcher's). */}
-                  <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
-                    {command.description}
-                  </span>
-                  {command.input?.hint ? (
-                    <span className="shrink-0 text-caption-11 text-text-tertiary">{command.input.hint}</span>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandList>
-          </Command>
-        ) : null}
 
         {/* Plate, not a bare textarea: this is what "@" mentions a file inline
             and ``` becomes a highlighted, editable code block
             (composerEditorKit.ts). `variant="none"` drops Editor's own
             document padding/type size so this still reads as a plain field,
             the way the bare textarea it replaces did. */}
-        <ComposerMentionFilesContext.Provider value={mentionFiles}>
           <Plate editor={editor} onChange={handleEditorChange}>
             <Editor
               variant="none"
@@ -760,7 +930,7 @@ export function AgentComposer({
                 if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
               }}
               onKeyDown={(e) => {
-                const insideCodeBlock = editor.api.some({ match: { type: codeBlockType } });
+                const insideCodeBlock = editor.api.some({ match: { type: types.codeBlock } });
                 if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
                   // Plate registers no default behaviour for Shift+Enter (only
                   // plain Enter inserts a break); left alone it would fall to
@@ -770,22 +940,40 @@ export function AgentComposer({
                   editor.tf.insertSoftBreak();
                   return;
                 }
+                if (e.key === "Escape" && mentionListOpen && !mentionFiles?.length && !e.nativeEvent.isComposing) {
+                  // "No files" has nothing to pick, so the list's keys stay the
+                  // field's — except Escape, which must still put it away.
+                  e.preventDefault();
+                  setMentionDismissedAt(mentionKey);
+                  return;
+                }
                 handleComposerKeyDown(e, {
                   streaming: isStreaming,
                   onSend,
                   onCancel,
                   insideCodeBlock,
-                  comboboxOpen: editor.api.some({ match: { type: editor.getType(KEYS.mentionInput) } }),
-                  commandList: {
-                    open: commandListOpen,
-                    onMove: (delta) =>
-                      setHighlight((current) => {
-                        const next = (current + delta) % matches.length;
-                        return next < 0 ? next + matches.length : next;
-                      }),
-                    onAccept: () => acceptCommand(highlighted),
-                    onClose: () => setDismissedQuery(query),
-                  },
+                  commandList: mentionListOpen
+                    ? {
+                        open: (mentionFiles?.length ?? 0) > 0,
+                        onMove: (delta) =>
+                          setMentionHighlight((current) => {
+                            const count = mentionFiles?.length ?? 0;
+                            const next = (current + delta) % count;
+                            return next < 0 ? next + count : next;
+                          }),
+                        onAccept: () => acceptMention(mentionHighlighted),
+                        onClose: () => setMentionDismissedAt(mentionKey),
+                      }
+                    : {
+                        open: commandListOpen,
+                        onMove: (delta) =>
+                          setHighlight((current) => {
+                            const next = (current + delta) % matches.length;
+                            return next < 0 ? next + matches.length : next;
+                          }),
+                        onAccept: () => acceptCommand(highlighted),
+                        onClose: () => setDismissedQuery(query),
+                      },
                 });
               }}
               className={cn(
@@ -797,7 +985,6 @@ export function AgentComposer({
               )}
             />
           </Plate>
-        </ComposerMentionFilesContext.Provider>
 
         <div className="flex w-full items-center gap-1">
           {onAgentChange ? (

@@ -219,6 +219,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       contextFiles={contextFiles}
       onSelectCommand={selectCommand}
       onSelectContext={selectContext}
+      onSearchContext={(query) => (session ? agentHubListContextFiles(session.id, query) : Promise.resolve([]))}
       attachedFiles={attachments}
       onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
       imageAttachments={images}
