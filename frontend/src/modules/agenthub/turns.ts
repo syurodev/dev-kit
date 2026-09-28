@@ -100,8 +100,7 @@ function joinMessage(parts: TranscriptItem[]): TranscriptItem {
     text: parts.map((part) => part.text ?? "").join(""),
     updatedAt: last.updatedAt ?? last.createdAt ?? parts[0].updatedAt,
   };
-  // A copy: the caller keeps growing the array it passed.
-  joined.set(parts[0], { parts: parts.slice(), item });
+  joined.set(parts[0], { parts, item });
   return item;
 }
 
@@ -151,14 +150,17 @@ function splitFlow(items: TranscriptItem[]): {
   for (const item of items) {
     if (item.subagent?.id) known.add(item.subagent.id);
   }
-  const main: TranscriptItem[] = [];
-  const activity = new Map<string, TranscriptItem[]>();
-  const pending = new Map<TranscriptItem[], TranscriptItem[]>();
-  const push = (list: TranscriptItem[], item: TranscriptItem) => {
-    const run = pending.get(list);
+  // Each list holds runs of pieces while it is built, joined once at the end:
+  // joining as each piece arrived asked the cache for [a, b] and then
+  // [a, b, c], so the next grouping's [a, b] missed and minted a new item —
+  // and every turn holding a message in three pieces lost its identity on
+  // every update, which re-rendered the whole transcript per streamed token.
+  const mainRuns: TranscriptItem[][] = [];
+  const activityRuns = new Map<string, TranscriptItem[][]>();
+  const push = (runs: TranscriptItem[][], item: TranscriptItem) => {
+    const run = runs[runs.length - 1];
     const last = run?.[run.length - 1];
     if (
-      run &&
       last &&
       CHUNK_KINDS.has(String(item.kind)) &&
       item.kind === last.kind &&
@@ -166,28 +168,28 @@ function splitFlow(items: TranscriptItem[]): {
       item.messageId === last.messageId
     ) {
       run.push(item);
-      list[list.length - 1] = joinMessage(run);
       return;
     }
-    list.push(item);
-    pending.set(list, [item]);
+    runs.push([item]);
   };
 
   for (const item of items) {
     if (isEmptyToolRow(item)) continue;
     const origin = item.origin;
     if (origin && known.has(origin)) {
-      let list = activity.get(origin);
-      if (!list) {
-        list = [];
-        activity.set(origin, list);
+      let runs = activityRuns.get(origin);
+      if (!runs) {
+        runs = [];
+        activityRuns.set(origin, runs);
       }
-      push(list, item);
+      push(runs, item);
       continue;
     }
-    push(main, item);
+    push(mainRuns, item);
   }
-  return { main, activity };
+  const activity = new Map<string, TranscriptItem[]>();
+  for (const [origin, runs] of activityRuns) activity.set(origin, runs.map(joinMessage));
+  return { main: mainRuns.map(joinMessage), activity };
 }
 
 export type LiveSubagent = { subagent: Subagent; activity: TranscriptItem[] };

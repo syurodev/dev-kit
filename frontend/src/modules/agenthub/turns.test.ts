@@ -104,6 +104,27 @@ describe("groupTurns with subagents running in the same pipe", () => {
     expect(more[0].subagents.a1.map((r) => r.toolCall?.id)).toEqual(["t1", "t2"]);
   });
 
+  it("keeps an earlier turn whose message came in three pieces while a later one streams", () => {
+    // Joining piece by piece cached [a, b] and then [a, b, c]; the next
+    // grouping missed and every such turn re-rendered on every token.
+    const items = [
+      row("user_message_chunk"),
+      spawn("a1"),
+      said("a", "m1"),
+      step("t1", "a1"),
+      said("b", "m1"),
+      step("t2", "a1"),
+      said("c", "m1"),
+      row("user_message_chunk"),
+      said("live", "m2"),
+    ];
+    const first = groupTurns(items);
+    const last = items[items.length - 1];
+    const next = groupTurns([...items.slice(0, -1), { ...last, text: "live more" }], first);
+    expect(next[0]).toBe(first[0]);
+    expect(next[0].answer[0].text).toBe("abc");
+  });
+
   it("keeps a re-joined message's identity while its pieces are unchanged", () => {
     const items = [row("user_message_chunk"), spawn("a1"), said("a", "m1"), step("t1", "a1"), said("b", "m1")];
     const first = groupTurns(items);

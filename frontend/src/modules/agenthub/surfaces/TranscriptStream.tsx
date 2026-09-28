@@ -168,9 +168,11 @@ export function TranscriptStream({
   const onCopyRef = useRef(onCopy);
   const onEditPromptRef = useRef(onEditPrompt);
   const onOpenFileRef = useRef(onOpenFile);
+  const onRewindRef = useRef(onRewind);
   onCopyRef.current = onCopy;
   onEditPromptRef.current = onEditPrompt;
   onOpenFileRef.current = onOpenFile;
+  onRewindRef.current = onRewind;
   const stableOnCopy = useMemo(
     () => (onCopy ? (text: string) => onCopyRef.current?.(text) : undefined),
     [Boolean(onCopy)],
@@ -182,6 +184,16 @@ export function TranscriptStream({
   const stableOnOpenFile = useMemo(
     () => (onOpenFile ? (path: string, line?: number) => onOpenFileRef.current?.(path, line) : undefined),
     [Boolean(onOpenFile)],
+  );
+  // Both callers pass this as an inline arrow. Handed to every AgentTurn as
+  // it came, it was a new function per streamed token, so memo let no turn
+  // skip — a long session re-rendered all of its history on every token.
+  const stableOnRewind = useMemo(
+    () =>
+      onRewind
+        ? (promptMessageId: string, editAfter: boolean) => onRewindRef.current?.(promptMessageId, editAfter)
+        : undefined,
+    [Boolean(onRewind)],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion() ?? false;
@@ -447,7 +459,7 @@ export function TranscriptStream({
         vendor={vendor}
         checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
         loadFileDiff={loadFileDiff}
-        onRewind={onRewind}
+        onRewind={stableOnRewind}
         onInspect={setInspecting}
         onCopy={stableOnCopy}
         onEditPrompt={stableOnEditPrompt}
