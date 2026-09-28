@@ -670,11 +670,13 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).not.toContain("Send to reopen this session");
     });
 
-    it("sends with a glass button, not a solid disc", () => {
+    it("sends with a plain solid button, not glass", () => {
       const html = renderToString(
         <AgentComposer value="" onChange={() => {}} onSend={() => {}} onCancel={() => {}} />,
       );
-      expect(html).toContain("glass-button");
+      const tag = html.match(/<button[^>]*data-testid="composer-send-button"[^>]*>/)?.[0] ?? "";
+      expect(tag).toContain('data-variant="default"');
+      expect(tag).not.toContain("glass-button");
     });
   });
 
