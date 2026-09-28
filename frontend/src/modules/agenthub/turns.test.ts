@@ -2,8 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import {
   activityOf,
+  currentStep,
   formatElapsed,
   groupTurns,
+  runningSubagents,
+  stepCount,
   stepLabel,
   stepSummary,
   workedFor,
@@ -16,6 +19,120 @@ const row = (kind: string, extra: Partial<TranscriptItem> = {}): TranscriptItem 
   id: `r${++seq}`,
   kind,
   ...extra,
+});
+
+describe("groupTurns with subagents running in the same pipe", () => {
+  // Shapes from a captured claude-agent-acp session: a subagent's rows carry
+  // its id as origin, and land between the chunks of the lead agent's message.
+  const spawn = (id: string) =>
+    row("subagent_spawned", { subagent: { id, name: `agent ${id}`, task: "do it" } });
+  const said = (text: string, messageId: string, origin?: string) =>
+    row("agent_message_chunk", { text, messageId, ...(origin ? { origin } : {}) });
+  const step = (id: string, origin?: string) =>
+    row("tool_call", { toolCall: { id, title: `Read ${id}.lua`, kind: "read" }, ...(origin ? { origin } : {}) });
+
+  it("keeps a subagent's rows out of the lead agent's account", () => {
+    const [turn] = groupTurns([
+      row("user_message_chunk", { text: "go" }),
+      spawn("a1"),
+      said("I'll start by reading.", "m-sub", "a1"),
+      step("t1", "a1"),
+      said("Report: done.", "m-sub-2", "a1"),
+      said("Both agents are done.", "m-lead"),
+    ]);
+
+    expect(turn.work.map((r) => r.subagent?.id ?? r.text)).toEqual(["a1"]);
+    expect(turn.answer.map((r) => r.text)).toEqual(["Both agents are done."]);
+    expect(turn.subagents.a1.map((r) => r.text ?? r.toolCall?.id)).toEqual(["I'll start by reading.", "t1", "Report: done."]);
+  });
+
+  it("puts a message back together when a subagent's row landed in the middle of it", () => {
+    const [turn] = groupTurns([
+      row("user_message_chunk", { text: "go" }),
+      spawn("a1"),
+      said("Trong lúc chờ, tôi sửa một ghi nhớ đ", "m1"),
+      step("t1", "a1"),
+      said("ã sai.", "m1"),
+    ]);
+
+    expect(turn.answer.map((r) => r.text)).toEqual(["Trong lúc chờ, tôi sửa một ghi nhớ đã sai."]);
+  });
+
+  it("does not join two messages that only happen to be next to each other", () => {
+    const [turn] = groupTurns([row("user_message_chunk"), said("One.", "m1"), said("Two.", "m2")]);
+    expect(turn.answer.map((r) => r.text)).toEqual(["One.", "Two."]);
+  });
+
+  it("keeps a row whose subagent is not in view in the flow", () => {
+    // Its spawn is on an older page that has not loaded: dropping the row would
+    // make it vanish until then.
+    const [turn] = groupTurns([row("user_message_chunk"), step("t1", "gone"), said("ok", "m1")]);
+    expect(turn.work.map((r) => r.toolCall?.id)).toEqual(["t1"]);
+  });
+
+  it("drops the Agent tool's empty update and keeps other bare rows", () => {
+    const [turn] = groupTurns([
+      row("user_message_chunk"),
+      row("tool_call_update", { toolCall: { id: "spawner", name: "Agent" } }),
+      spawn("a1"),
+      row("tool_call", { toolCall: { id: "bare" } }),
+      said("ok", "m1"),
+    ]);
+    expect(turn.work.map((r) => r.toolCall?.id ?? r.subagent?.id)).toEqual(["a1", "bare"]);
+  });
+
+  it("gathers a nested subagent's rows with the turn that spawned its parent", () => {
+    const [turn] = groupTurns([
+      row("user_message_chunk"),
+      spawn("a1"),
+      row("subagent_spawned", { subagent: { id: "a2", name: "inner" }, origin: "a1" }),
+      step("t2", "a2"),
+      said("done", "m1"),
+    ]);
+    expect(Object.keys(turn.subagents).sort()).toEqual(["a1", "a2"]);
+    expect(turn.subagents.a2.map((r) => r.toolCall?.id)).toEqual(["t2"]);
+  });
+
+  it("keeps a turn's identity when its subagents did nothing new", () => {
+    const items = [row("user_message_chunk"), spawn("a1"), step("t1", "a1"), said("ok", "m1")];
+    const first = groupTurns(items);
+    const again = groupTurns([...items], first);
+    expect(again[0]).toBe(first[0]);
+
+    const more = groupTurns([...items, step("t2", "a1")], first);
+    expect(more[0]).not.toBe(first[0]);
+    expect(more[0].subagents.a1.map((r) => r.toolCall?.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("keeps a re-joined message's identity while its pieces are unchanged", () => {
+    const items = [row("user_message_chunk"), spawn("a1"), said("a", "m1"), step("t1", "a1"), said("b", "m1")];
+    const first = groupTurns(items);
+    const again = groupTurns([...items], first);
+    expect(again[0].answer[0]).toBe(first[0].answer[0]);
+    expect(again[0]).toBe(first[0]);
+  });
+});
+
+describe("runningSubagents", () => {
+  it("lists the subagents without an end, nested ones after their parent, with what each did", () => {
+    const { running, activity } = runningSubagents([
+      row("subagent_spawned", { subagent: { id: "a1", name: "one" } }),
+      // Spawn and state update, paired into one row the way the transcript model pairs them.
+      row("subagent_spawned", { subagent: { id: "a2", name: "two", state: "completed" } }),
+      row("subagent_spawned", { subagent: { id: "a3", name: "inner" }, origin: "a1" }),
+      row("tool_call", { origin: "a1", toolCall: { id: "t1", kind: "read", title: "Read x.lua" } }),
+    ]);
+    expect(running.map((entry) => entry.subagent.id)).toEqual(["a1", "a3"]);
+    expect(running[0].activity.map((r) => r.subagent?.id ?? r.toolCall?.id)).toEqual(["a3", "t1"]);
+    expect(Object.keys(activity).sort()).toEqual(["a1"]);
+  });
+
+  it("says what a subagent is doing now in its step's own words", () => {
+    expect(currentStep([])).toBe("Starting");
+    expect(currentStep([row("tool_call", { toolCall: { id: "t", kind: "read", title: "Read src/a.lua" } })])).toBe("Read a.lua");
+    expect(currentStep([row("agent_message_chunk", { text: "Done." })])).toBe("Writing");
+    expect(stepCount([row("agent_message_chunk"), row("tool_call", { toolCall: { id: "t" } })])).toBe(1);
+  });
 });
 
 describe("groupTurns", () => {
@@ -217,7 +334,15 @@ describe("stepLabel", () => {
     [{ kind: "fetch", title: 'Search "claude code hooks"' }, "Searched the web for", "claude code hooks"],
     [{ kind: "search", title: 'grep -n "PreToolUse" internal' }, "Searched for", '-n "PreToolUse" internal'],
     [{ kind: "execute", title: "go test ./internal/agenthub/" }, "Ran", "go test ./internal/agenthub/"],
-    [{ kind: "other", title: "mcp__devkit__db_listProfiles" }, "mcp__devkit__db_listProfiles", ""],
+    [{ kind: "other", title: "mcp__devkit__db_listProfiles" }, "Db list profiles", "devkit"],
+    [{ kind: "other", title: "mcp__devkit__tasks_transition" }, "Tasks transition", "devkit"],
+    [{ kind: "execute", title: "cd /work/kong-plugin && pongo run" }, "Ran", "pongo run"],
+    [{ kind: "execute", title: "cd /work/kong-plugin\ndocker info" }, "Ran", "docker info"],
+    [
+      { kind: "execute", title: "cd /work\ndocker info", rawInput: { command: "cd /work\ndocker info", description: "Check docker" } },
+      "Check docker",
+      "",
+    ],
   ])("%o reads as a verb and its object", (call, verb, object) => {
     expect(stepLabel({ id: "x", ...call })).toEqual({ verb, object });
   });

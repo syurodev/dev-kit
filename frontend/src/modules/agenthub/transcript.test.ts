@@ -584,6 +584,22 @@ describe("prompt attachments and subagent origin", () => {
     // The session's own rows carry no origin key at all.
     expect("origin" in model.items[0]).toBe(false);
   });
+
+  it("keeps a subagent's tool calls and nested spawns tagged, live and reloaded", () => {
+    // Without it a subagent's steps could not be told from the lead agent's,
+    // and read as the session's own work (turns.ts splitFlow).
+    let live = createInitialTranscriptModel();
+    live = applySessionUpdate(live, { kind: "tool_call", origin: "a0549d", toolCall: { id: "t1", title: "Read x.lua", kind: "read" } });
+    live = applySessionUpdate(live, { kind: "tool_call_update", origin: "a0549d", toolCall: { id: "t1", status: "completed" } });
+    live = applySessionUpdate(live, { kind: "subagent_spawned", origin: "a0549d", subagent: { id: "inner", name: "inner" } });
+    expect(live.items.map((item) => item.origin)).toEqual(["a0549d", "a0549d"]);
+
+    const reloaded = initTranscript([
+      { ID: "r1", Seq: 1, Kind: "tool_call", ToolCallID: "t1", Payload: { origin: "a0549d", toolCall: { id: "t1", title: "Read x.lua" } }, CreatedAt: "2026-09-17T00:00:00Z" },
+      { ID: "r2", Seq: 2, Kind: "subagent_spawned", Payload: { origin: "a0549d", subagent: { id: "inner" } }, CreatedAt: "2026-09-17T00:00:01Z" },
+    ]);
+    expect(reloaded.items.map((item) => item.origin)).toEqual(["a0549d", "a0549d"]);
+  });
 });
 
 describe("a session failure lasts one turn", () => {

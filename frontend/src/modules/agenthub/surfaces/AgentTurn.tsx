@@ -9,7 +9,7 @@ import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem } from "../types";
 import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
-import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
+import { activityOf, stepCount, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
   AgentPlan,
   AgentSubagent,
@@ -200,7 +200,14 @@ export const AgentTurn = React.memo(function AgentTurn({
             if (segment.kind === "plan") {
               return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
             }
-            return <StepGroup key={segment.id} items={segment.items} onOpenFile={onOpenFile} />;
+            return (
+              <StepGroup
+                key={segment.id}
+                items={segment.items}
+                subagents={turn.subagents}
+                onOpenFile={onOpenFile}
+              />
+            );
           })}
         </div>
       ) : null}
@@ -267,12 +274,17 @@ export const AgentTurn = React.memo(function AgentTurn({
  */
 const LONG_RUN = 8;
 
+export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
+
 export function StepGroup({
   items,
+  subagents,
   onOpenFile,
   defaultOpen = false,
 }: {
   items: TranscriptItem[];
+  /** What each subagent in `items` did, by id — see Turn.subagents. */
+  subagents?: ActivityById;
   onOpenFile?: (path: string, line?: number) => void;
   /** Lets a caller (a unit test, mainly) start it expanded. */
   defaultOpen?: boolean;
@@ -281,7 +293,7 @@ export function StepGroup({
   const long = items.length > LONG_RUN;
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing.
-  if (items.length === 1) return <StepRow item={items[0]} onOpenFile={onOpenFile} />;
+  if (items.length === 1) return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
   return (
     <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
       <button
@@ -313,7 +325,7 @@ export function StepGroup({
         >
           <div className={cn("flex w-full flex-col gap-2", long && "pb-8")}>
             {items.map((item) => (
-              <StepRow key={item.id} item={item} onOpenFile={onOpenFile} />
+              <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
             ))}
           </div>
         </div>
@@ -323,7 +335,15 @@ export function StepGroup({
 }
 
 /** One step, as a row. */
-function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (path: string, line?: number) => void }) {
+function StepRow({
+  item,
+  subagents,
+  onOpenFile,
+}: {
+  item: TranscriptItem;
+  subagents?: ActivityById;
+  onOpenFile?: (path: string, line?: number) => void;
+}) {
   switch (String(item.kind)) {
     case "agent_thought_chunk": {
       const raw = item.raw as Record<string, unknown> | undefined;
@@ -336,8 +356,14 @@ function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (pat
       );
     }
     case "subagent_spawned":
-    case "subagent_state_update":
-      return item.subagent ? <AgentSubagent variant="row" subagent={item.subagent} /> : null;
+    case "subagent_state_update": {
+      if (!item.subagent) return null;
+      const activity = subagents?.[item.subagent.id];
+      if (!activity?.length) return <AgentSubagent variant="row" subagent={item.subagent} />;
+      return (
+        <SubagentStep subagent={item.subagent} activity={activity} subagents={subagents} onOpenFile={onOpenFile} />
+      );
+    }
     case "async_task_spawned":
     case "async_task_progress":
     case "async_task_state_update":
@@ -352,6 +378,134 @@ function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (pat
         />
       );
   }
+}
+
+/**
+ * A subagent and, when opened, everything it did: the brief it was given, what
+ * it said along the way, its steps folded the way the turn's own are, and the
+ * report it came back with.
+ *
+ * Nested rather than in the turn's own flow: its rows arrive interleaved with
+ * the lead agent's (see turns.ts splitFlow), and read in arrival order a pair
+ * of parallel subagents turned one account into three talking over each
+ * other. The lead agent reads the report and says what matters in its own
+ * words, so the report is the subagent's detail, not the answer.
+ */
+function SubagentStep({
+  subagent,
+  activity,
+  subagents,
+  onOpenFile,
+}: {
+  subagent: NonNullable<TranscriptItem["subagent"]>;
+  activity: TranscriptItem[];
+  subagents?: ActivityById;
+  onOpenFile?: (path: string, line?: number) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const steps = React.useMemo(() => stepCount(activity), [activity]);
+  return (
+    <div data-testid="subagent-step" data-state={open ? "expanded" : "collapsed"} className="flex w-full min-w-0 flex-col">
+      <AgentSubagent
+        variant="row"
+        subagent={subagent}
+        steps={steps}
+        expanded={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
+      <AnimatedCollapse open={open} className="pt-2">
+        <SubagentActivity subagent={subagent} activity={activity} subagents={subagents} onOpenFile={onOpenFile} />
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+/**
+ * What a subagent did, in the order it did it: the brief, its words, its steps
+ * folded into runs, its report. The body of SubagentStep, and of a running
+ * subagent followed from AgentSubagentTracker.
+ */
+export function SubagentActivity({
+  subagent,
+  activity,
+  subagents,
+  onOpenFile,
+  brief = true,
+  live = false,
+}: {
+  subagent: NonNullable<TranscriptItem["subagent"]>;
+  activity: TranscriptItem[];
+  subagents?: ActivityById;
+  onOpenFile?: (path: string, line?: number) => void;
+  /** Off where there is no room for a page of instructions above the live steps. */
+  brief?: boolean;
+  /**
+   * Being watched as it runs: every step as its own row. Folded into runs, the
+   * step it is on right now sat behind a "Read files, ran commands" line.
+   */
+  live?: boolean;
+}) {
+  const segments = React.useMemo(() => workSegments(activity), [activity]);
+  return (
+    // The rule sits under the row's 14px icon, so the nesting reads as
+    // belonging to that line. No w-full: with the margin that would be the
+    // column plus 6px, and the report ran past the edge. A flex column's child
+    // stretches anyway.
+    <div
+      data-testid="subagent-activity"
+      className="ml-1.5 flex min-w-0 flex-col gap-3 border-l border-border-subtle pl-4"
+    >
+      {brief && subagent.task ? <SubagentBrief text={subagent.task} /> : null}
+      {segments.map((segment) => {
+        if (segment.kind === "text") return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
+        if (segment.kind === "plan") return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
+        if (live) {
+          return (
+            <div key={segment.id} className="flex w-full min-w-0 flex-col gap-2">
+              {segment.items.map((item) => (
+                <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+              ))}
+            </div>
+          );
+        }
+        return <StepGroup key={segment.id} items={segment.items} subagents={subagents} onOpenFile={onOpenFile} />;
+      })}
+    </div>
+  );
+}
+
+/**
+ * What the lead agent told the subagent to do. Briefs run to pages — context,
+ * tables, the files to read — so the first few lines stand for it until asked.
+ */
+function SubagentBrief({ text }: { text: string }) {
+  const [full, setFull] = React.useState(false);
+  // A guess from the text rather than a measurement: a brief of a few short
+  // lines fits the well, and a toggle that reveals nothing is a lie.
+  const long = text.length > 280 || text.split("\n").length > 4;
+  const clamped = long && !full;
+  const fade = "linear-gradient(to bottom, black calc(100% - var(--space-page)), transparent)";
+  return (
+    <div data-testid="subagent-brief" className="flex w-full min-w-0 flex-col gap-1">
+      <span className="text-caption-11 text-text-tertiary">Brief</span>
+      <div
+        className={cn("w-full min-w-0 text-text-secondary", clamped && "max-h-24 overflow-hidden")}
+        style={clamped ? { maskImage: fade, WebkitMaskImage: fade } : undefined}
+      >
+        <AgentProse text={text} />
+      </div>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setFull((value) => !value)}
+          aria-expanded={full}
+          className="self-start cursor-pointer text-caption-11 text-text-tertiary underline decoration-border-subtle hover:text-text-secondary"
+        >
+          {full ? "Show less" : "Show full brief"}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /**

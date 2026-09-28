@@ -187,6 +187,35 @@ describe("Agent Hub Transcript Leaves", () => {
   });
 
   describe("AgentToolCall", () => {
+    it("names a shell step by its description and keeps the whole command in its body", () => {
+      // Shape of a captured claude-agent-acp Bash call while it runs: the title
+      // is the command, starting with a `cd`, and the content is the
+      // description again.
+      const command = "cd /home/me/kong-plugin\ndocker info >/dev/null && echo UP";
+      const html = renderToString(
+        <AgentToolCall
+          variant="row"
+          defaultExpanded
+          call={{
+            id: "b1",
+            kind: "execute",
+            name: "Bash",
+            title: command,
+            status: "in_progress",
+            rawInput: { command, description: "Verify docker is up" },
+            content: [{ type: "content", content: { type: "text", text: "Verify docker is up" } }],
+          }}
+        />,
+      );
+      const head = html.match(/<button[^>]*data-testid="tool-call-toggle"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+      expect(head).toContain("Verify docker is up");
+      expect(head).not.toContain("cd /home/me");
+      expect(html).toContain('data-testid="tool-call-command"');
+      expect(html).toContain("docker info");
+      // The description is the label; it is not repeated as the output.
+      expect(html.split("Verify docker is up").length - 1).toBe(1);
+    });
+
     it("renders completed tool call with locations and diff", () => {
       const html = renderToString(
         <AgentToolCall

@@ -23,6 +23,7 @@ import { AgentSessionFailure } from "./AgentSessionFailure";
 import { PermissionPresence } from "./permissionCard";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { AgentSwarmStrip } from "./AgentSwarmStrip";
+import { AgentSubagentTracker } from "./AgentSubagentTracker";
 import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
@@ -349,6 +350,10 @@ export function AgentRail({
               the synthetic rate-limit one, which carries no actions — a
               vendor failure with a real action (sign-in, retry) needs the
               Hub's own flows for those, not yet threaded through the rail. */}
+          {/* The rail has no sidebar and a 320px transcript: without this, a
+              subagent working in the background had nowhere to show itself. */}
+          <AgentSubagentTracker items={items} live={streaming} onOpenFile={onOpenFile} className="mx-4 mb-1 w-auto" />
+
           {failure ? (
             <div className="px-4 pb-1">
               <AgentSessionFailure

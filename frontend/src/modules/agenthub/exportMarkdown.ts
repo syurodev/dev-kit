@@ -57,6 +57,15 @@ function turnToMarkdown(turn: Turn, number: number): string[] {
     for (const text of said) out.push("", text);
   }
 
+  // What each subagent came back with, under its own name: its rows are kept
+  // out of the turn's flow (turns.ts), so without this a report would be lost
+  // from the export rather than attributed to the lead agent as it once was.
+  for (const item of turn.work) {
+    const id = item.subagent?.id;
+    const report = id ? subagentReport(turn.subagents[id] ?? []) : "";
+    if (report) out.push("", `**${item.subagent?.name || "Subagent"} reported:**`, "", ...quote(report));
+  }
+
   const answer = turn.answer
     .map((item) => item.text?.trim() ?? "")
     .filter(Boolean)
@@ -101,6 +110,17 @@ export function stepLine(item: TranscriptItem): string | undefined {
       return `${inlineCode(title)}${status}`;
     }
   }
+}
+
+/** What a subagent said after its last step — the report it ended on. */
+export function subagentReport(activity: TranscriptItem[]): string {
+  const said: string[] = [];
+  for (let index = activity.length - 1; index >= 0; index -= 1) {
+    const row = activity[index];
+    if (String(row.kind) !== "agent_message_chunk") break;
+    if (row.text?.trim()) said.unshift(row.text.trim());
+  }
+  return said.join("\n\n");
 }
 
 function quote(text: string): string[] {

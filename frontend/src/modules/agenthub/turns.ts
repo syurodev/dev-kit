@@ -1,6 +1,6 @@
 import type { OrbState } from "thinking-orbs";
 
-import type { ToolCall, TranscriptItem } from "./types";
+import type { Subagent, ToolCall, TranscriptItem } from "./types";
 
 /**
  * One exchange: what you asked, what the agent did about it, and what it said.
@@ -22,7 +22,16 @@ export type Turn = {
   answer: TranscriptItem[];
   /** Rows this build does not model, retained for forward-compatible history. */
   notes: TranscriptItem[];
+  /**
+   * What each subagent this turn spawned did, by subagent id — its narration,
+   * its steps and its report, nested subagents' included. Those rows arrive
+   * interleaved with the session's own (Claude streams parallel subagents into
+   * the same pipe), so they are kept here rather than in `work`.
+   */
+  subagents: Readonly<Record<string, TranscriptItem[]>>;
 };
+
+const NO_SUBAGENTS: Readonly<Record<string, TranscriptItem[]>> = Object.freeze({});
 
 const WORK_KINDS = new Set([
   "agent_thought_chunk",
@@ -52,6 +61,7 @@ type TurnDraft = {
   work: TranscriptItem[];
   answer: TranscriptItem[];
   notes: TranscriptItem[];
+  subagents: Readonly<Record<string, TranscriptItem[]>>;
 };
 
 function sameItems(left: TranscriptItem[], right: TranscriptItem[]): boolean {
@@ -60,6 +70,204 @@ function sameItems(left: TranscriptItem[], right: TranscriptItem[]): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function sameSubagents(
+  left: Readonly<Record<string, TranscriptItem[]>>,
+  right: Readonly<Record<string, TranscriptItem[]>>,
+): boolean {
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => right[key] === left[key]);
+}
+
+const CHUNK_KINDS = new Set(["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"]);
+
+/**
+ * One message that other rows landed in the middle of, as the pieces it
+ * arrived in. The joined item is kept per first piece so a message whose
+ * pieces did not change keeps its identity across regroupings.
+ */
+const joined = new WeakMap<TranscriptItem, { parts: TranscriptItem[]; item: TranscriptItem }>();
+
+function joinMessage(parts: TranscriptItem[]): TranscriptItem {
+  if (parts.length === 1) return parts[0];
+  const cached = joined.get(parts[0]);
+  if (cached && sameItems(cached.parts, parts)) return cached.item;
+  const last = parts[parts.length - 1];
+  const item: TranscriptItem = {
+    ...parts[0],
+    text: parts.map((part) => part.text ?? "").join(""),
+    updatedAt: last.updatedAt ?? last.createdAt ?? parts[0].updatedAt,
+  };
+  // A copy: the caller keeps growing the array it passed.
+  joined.set(parts[0], { parts: parts.slice(), item });
+  return item;
+}
+
+/** Claude's subagent-spawning tool, under its current and its older name. */
+const SUBAGENT_TOOLS = new Set(["Agent", "Task"]);
+
+/**
+ * A row that says nothing. claude-agent-acp answers its Agent tool (what
+ * spawned a subagent) with a bare tool_call_update and never the tool_call it
+ * updates; the subagent's own row already tells that story, and this one drew
+ * as "Used a tool" beside it.
+ */
+function isEmptyToolRow(item: TranscriptItem): boolean {
+  const call = item.toolCall;
+  if (!call || !SUBAGENT_TOOLS.has(call.name ?? "")) return false;
+  return (
+    !call.title &&
+    !call.kind &&
+    !call.status &&
+    !call.content?.length &&
+    !call.locations?.length &&
+    call.rawInput === undefined &&
+    call.rawOutput === undefined
+  );
+}
+
+/**
+ * The session's own rows, in order, with a message split by other rows put
+ * back together; and every subagent's rows, by subagent id.
+ *
+ * Claude runs subagents in the session's own pipe: their narration, tool calls
+ * and reports arrive interleaved with the lead agent's, tagged only by origin.
+ * Drawn in arrival order, a parallel pair of subagents put sixty steps and four
+ * reports into the lead agent's account, and cut its own sentences mid-word
+ * wherever one of their rows arrived — "tôi sửa một ghi nhớ đ" | a Bash call |
+ * "ã sai." — which the recorder keeps as separate rows, so a reload showed the
+ * same cuts. A message is one message: its pieces share a messageId.
+ *
+ * A row whose origin names no subagent in view (its spawn is on an older page
+ * not loaded yet) stays in the flow rather than disappearing.
+ */
+function splitFlow(items: TranscriptItem[]): {
+  main: TranscriptItem[];
+  activity: Map<string, TranscriptItem[]>;
+} {
+  const known = new Set<string>();
+  for (const item of items) {
+    if (item.subagent?.id) known.add(item.subagent.id);
+  }
+  const main: TranscriptItem[] = [];
+  const activity = new Map<string, TranscriptItem[]>();
+  const pending = new Map<TranscriptItem[], TranscriptItem[]>();
+  const push = (list: TranscriptItem[], item: TranscriptItem) => {
+    const run = pending.get(list);
+    const last = run?.[run.length - 1];
+    if (
+      run &&
+      last &&
+      CHUNK_KINDS.has(String(item.kind)) &&
+      item.kind === last.kind &&
+      item.messageId &&
+      item.messageId === last.messageId
+    ) {
+      run.push(item);
+      list[list.length - 1] = joinMessage(run);
+      return;
+    }
+    list.push(item);
+    pending.set(list, [item]);
+  };
+
+  for (const item of items) {
+    if (isEmptyToolRow(item)) continue;
+    const origin = item.origin;
+    if (origin && known.has(origin)) {
+      let list = activity.get(origin);
+      if (!list) {
+        list = [];
+        activity.set(origin, list);
+      }
+      push(list, item);
+      continue;
+    }
+    push(main, item);
+  }
+  return { main, activity };
+}
+
+export type LiveSubagent = { subagent: Subagent; activity: TranscriptItem[] };
+
+/**
+ * The subagents still running, in the order they were spawned (nested ones
+ * after their parent), each with what it has done so far — and every
+ * subagent's activity by id, for drawing a nested one inside it.
+ *
+ * A subagent with no state yet is running: its spawn carries none, and only
+ * the state update that ends it says otherwise. Callers ask only while the
+ * session is live, since a subagent cut off with its session never gets one.
+ */
+export function runningSubagents(items: TranscriptItem[]): {
+  running: LiveSubagent[];
+  activity: Readonly<Record<string, TranscriptItem[]>>;
+} {
+  const { main, activity } = splitFlow(items);
+  const running: LiveSubagent[] = [];
+  const seen = new Set<string>();
+  const visit = (rows: TranscriptItem[]) => {
+    for (const row of rows) {
+      const subagent = row.subagent;
+      if (!subagent?.id || seen.has(subagent.id)) continue;
+      seen.add(subagent.id);
+      const rowsOf = activity.get(subagent.id) ?? [];
+      if ((subagent.state ?? "running") === "running") running.push({ subagent, activity: rowsOf });
+      visit(rowsOf);
+    }
+  };
+  visit(main);
+  return { running, activity: Object.fromEntries(activity) };
+}
+
+/**
+ * What a subagent is doing now, as a line: its last step's own label, or that
+ * it is writing when its last row is words — the report, most often.
+ */
+export function currentStep(activity: TranscriptItem[]): string {
+  const last = activity[activity.length - 1];
+  if (!last) return "Starting";
+  const kind = String(last.kind);
+  if (kind === "agent_message_chunk") return "Writing";
+  if (kind === "agent_thought_chunk") return "Thinking";
+  if (last.subagent) return `Running ${last.subagent.name || "a subagent"}`;
+  if (last.toolCall) {
+    const { verb, object } = stepLabel(last.toolCall);
+    return object ? `${verb} ${object}` : verb;
+  }
+  return "Working";
+}
+
+/** How many steps — everything but its words — a subagent has taken. */
+export function stepCount(activity: TranscriptItem[]): number {
+  return activity.filter((row) => String(row.kind) !== "agent_message_chunk").length;
+}
+
+/** The activity of every subagent in `work`, and of the subagents those spawned. */
+function subagentsOf(
+  work: TranscriptItem[],
+  activity: Map<string, TranscriptItem[]>,
+  prior: Readonly<Record<string, TranscriptItem[]>> | undefined,
+): Readonly<Record<string, TranscriptItem[]>> {
+  if (activity.size === 0) return NO_SUBAGENTS;
+  let out: Record<string, TranscriptItem[]> | null = null;
+  const visit = (rows: TranscriptItem[]) => {
+    for (const row of rows) {
+      const id = row.subagent?.id;
+      if (!id || out?.[id]) continue;
+      const rowsOf = activity.get(id);
+      if (!rowsOf) continue;
+      out ??= {};
+      // The previous grouping's array when nothing in it changed, so the turn
+      // around it can keep its identity too.
+      out[id] = prior?.[id] && sameItems(prior[id], rowsOf) ? prior[id] : rowsOf;
+      visit(rowsOf);
+    }
+  };
+  visit(work);
+  return out ?? NO_SUBAGENTS;
 }
 
 /**
@@ -73,12 +281,13 @@ export function groupTurns(items: TranscriptItem[], previous: Turn[] = []): Turn
   const drafts: TurnDraft[] = [];
   let current: TurnDraft | null = null;
   const open = (id: string, prompt?: TranscriptItem): TurnDraft => {
-    const turn: TurnDraft = { id, prompt, work: [], answer: [], notes: [] };
+    const turn: TurnDraft = { id, prompt, work: [], answer: [], notes: [], subagents: NO_SUBAGENTS };
     drafts.push(turn);
     return turn;
   };
 
-  for (const item of items) {
+  const { main, activity } = splitFlow(items);
+  for (const item of main) {
     const kind = String(item.kind);
     if (kind === "user_message_chunk") {
       current = open(item.id, item);
@@ -104,15 +313,17 @@ export function groupTurns(items: TranscriptItem[], previous: Turn[] = []): Turn
   }
   return drafts.map((draft, index) => {
     const prior = shift < 0 ? undefined : previous[index - shift];
+    const matched = prior?.id === draft.id ? prior : undefined;
+    draft.subagents = subagentsOf(draft.work, activity, matched?.subagents);
     if (
-      prior &&
-      prior.id === draft.id &&
-      prior.prompt === draft.prompt &&
-      sameItems(prior.work, draft.work) &&
-      sameItems(prior.answer, draft.answer) &&
-      sameItems(prior.notes, draft.notes)
+      matched &&
+      matched.prompt === draft.prompt &&
+      sameItems(matched.work, draft.work) &&
+      sameItems(matched.answer, draft.answer) &&
+      sameItems(matched.notes, draft.notes) &&
+      sameSubagents(matched.subagents, draft.subagents)
     ) {
-      return prior;
+      return matched;
     }
     return draft;
   });
@@ -292,9 +503,28 @@ export function stepSummary(items: TranscriptItem[]): string {
  * and a Bash call titled with the command itself. A file is named by its last
  * segment — the path relative to the project is noise at a glance, and the row
  * opens onto the full location. A title in no known shape is shown whole.
+ *
+ * A command is named by what it is for when the agent said so: Claude sends a
+ * Bash call's own `description` ("Verify docker, pongo and created files"),
+ * and a command's first line is usually `cd` into the project — six rows in a
+ * captured session read "Ran cd /home/…/kong-plugin" and nothing else. The
+ * command itself is in the row's body. Without a description, a leading `cd`
+ * is dropped for the same reason.
+ *
+ * An MCP tool is titled with its wire name, `mcp__devkit__tasks_transition`;
+ * it reads as the tool's own words and, quieter, the server it is on.
  */
 export function stepLabel(call: ToolCall): { verb: string; object: string } {
   const title = call.title?.trim() ?? "";
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(title || (call.name ?? ""));
+  if (mcp) {
+    const words = mcp[2]
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_.]+/g, " ")
+      .trim()
+      .toLowerCase();
+    return { verb: words.charAt(0).toUpperCase() + words.slice(1), object: mcp[1] };
+  }
   const [, head = "", rest = ""] = /^(\S+)\s+([\s\S]+)$/.exec(title) ?? [];
   const file = (path: string) =>
     path.replace(/\s\((?:from line \d+|\d+ - \d+)\)$/, "").split("/").pop() || path;
@@ -314,6 +544,25 @@ export function stepLabel(call: ToolCall): { verb: string; object: string } {
     case "grep":
       return { verb: "Searched for", object: rest };
   }
-  if (call.kind?.toLowerCase() === "execute" && title) return { verb: "Ran", object: title };
+  if (call.kind?.toLowerCase() === "execute") {
+    const description = commandDescription(call);
+    if (description) return { verb: description, object: "" };
+    if (title) return { verb: "Ran", object: title.replace(LEADING_CD, "") || title };
+  }
   return { verb: title || "Used a tool", object: "" };
+}
+
+/** `cd <dir> &&`, `cd <dir>;` or `cd <dir>` on a line of its own, at the start. */
+const LEADING_CD = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;|\n)\s*/;
+
+/** The command a shell tool call ran, when its input says. */
+export function toolCommand(call: ToolCall): string {
+  const input = call.rawInput as { command?: unknown } | null | undefined;
+  return typeof input?.command === "string" ? input.command : "";
+}
+
+/** What the agent said a command was for (Claude's Bash `description`). */
+export function commandDescription(call: ToolCall): string {
+  const input = call.rawInput as { description?: unknown } | null | undefined;
+  return typeof input?.description === "string" ? input.description.trim() : "";
 }
