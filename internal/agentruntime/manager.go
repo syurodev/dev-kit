@@ -268,7 +268,7 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 	if locked {
 		args = append([]string{"ci", "--prefix", staging}, args[4:]...)
 	}
-	args = append(args, "--include=optional", "--registry=https://registry.npmjs.org")
+	args = append(args, "--include=optional")
 	if err := m.runNPM(ctx, node.NPM, args, env, func(line string) {
 		line = sanitizeReason(line)
 		if npmError == "" {

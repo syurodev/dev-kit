@@ -439,6 +439,13 @@ func devkitBaseCapabilities() map[string]any {
 // other step of the evaluation order. See runPreToolUseHook.
 func sessionNewMeta(hookCommand string) json.RawMessage {
 	options := map[string]any{"settingSources": []string{}}
+	body := map[string]any{
+		"systemPrompt": map[string]any{
+			"type":   "preset",
+			"preset": "claude_code",
+			"append": devkitSystemPrompt,
+		},
+	}
 	if hookCommand != "" {
 		options["settings"] = map[string]any{
 			"hooks": map[string]any{
@@ -456,14 +463,15 @@ func sessionNewMeta(hookCommand string) json.RawMessage {
 			},
 		}
 	}
-	body, err := json.Marshal(map[string]any{"claudeCode": map[string]any{"options": options}})
+	body["claudeCode"] = map[string]any{"options": options}
+	encoded, err := json.Marshal(body)
 	if err != nil {
 		// Only static, marshalable values go in above; a failure here would be
 		// a programming error, and dropping the hook silently is worse than
 		// dropping the whole _meta loudly at the next line.
 		return json.RawMessage(`{"claudeCode":{"options":{"settingSources":[]}}}`)
 	}
-	return body
+	return encoded
 }
 
 // devkitHookCommand is the path to DevKit's own binary as the agent sees it.

@@ -536,10 +536,11 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 	var thread codexapp.ThreadStartResponse
 	if resume != "" {
 		if err := p.conn.Call(hsCtx, codexapp.MethodThreadResume, codexapp.ThreadResumeParams{
-			ThreadID:          resume,
-			Cwd:               workDir,
-			ApprovalPolicy:    codexApprovalPolicy(codexModeAsk),
-			ApprovalsReviewer: codexapp.ReviewerUser,
+			ThreadID:              resume,
+			Cwd:                   workDir,
+			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
+			ApprovalsReviewer:     codexapp.ReviewerUser,
+			DeveloperInstructions: devkitSystemPrompt,
 		}, &thread); err != nil {
 			return fail(p.failure("thread/resume", err))
 		}
@@ -552,9 +553,10 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 	} else {
 		// No sandbox field: externalSandbox exists only per turn (spec §4.3).
 		if err := p.conn.Call(hsCtx, codexapp.MethodThreadStart, codexapp.ThreadStartParams{
-			Cwd:               workDir,
-			ApprovalPolicy:    codexApprovalPolicy(codexModeAsk),
-			ApprovalsReviewer: codexapp.ReviewerUser,
+			Cwd:                   workDir,
+			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
+			ApprovalsReviewer:     codexapp.ReviewerUser,
+			DeveloperInstructions: devkitSystemPrompt,
 		}, &thread); err != nil {
 			return fail(p.failure("thread/start", err))
 		}

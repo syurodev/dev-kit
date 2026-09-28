@@ -490,6 +490,9 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	if ts.ApprovalPolicy != "untrusted" || ts.ApprovalsReviewer != "user" || ts.Cwd != f.cwd {
 		t.Errorf("thread/start = %+v", ts)
 	}
+	if ts.DeveloperInstructions != devkitSystemPrompt {
+		t.Error("thread/start did not carry DevKit's developer instructions")
+	}
 	if rt.ACPSessionID() != "th-new" {
 		t.Errorf("ACPSessionID = %q", rt.ACPSessionID())
 	}
@@ -904,6 +907,9 @@ func TestCodexLoadResumesTheThread(t *testing.T) {
 	_ = json.Unmarshal(resume[0], &p)
 	if p.ThreadID != "th-old" || p.ApprovalPolicy != "untrusted" || p.ApprovalsReviewer != "user" {
 		t.Fatalf("thread/resume = %+v", p)
+	}
+	if p.DeveloperInstructions != devkitSystemPrompt {
+		t.Error("thread/resume did not carry DevKit's developer instructions")
 	}
 	if _, err := f.adapter.Load(context.Background(), OpenSpec{Cwd: f.cwd}, ""); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("Load with no id = %v", err)
