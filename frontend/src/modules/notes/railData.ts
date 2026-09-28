@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { listFolders, listNotes, listTrashedNotes, type NoteFolder, type NoteSummary } from "../../bridge/notes";
+import {
+  listFolders,
+  listNotes,
+  listTrashedNotes,
+  onNotesChanged,
+  type NoteFolder,
+  type NoteSummary,
+} from "../../bridge/notes";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { useNotesSidebarStore } from "./notesSidebarStore";
@@ -88,6 +95,16 @@ export function useNotesRailData(): void {
   useEffect(() => {
     invalidateNotesOnce(queryClient, refreshToken);
   }, [queryClient, refreshToken]);
+
+  // A note or folder can change from outside this window entirely — an MCP
+  // tool, another tab — so the rail's own save/delete calling bump() is not
+  // enough. Same bump(), just a second trigger for it, for as long as the
+  // rail is mounted.
+  useEffect(() => {
+    return onNotesChanged(() => {
+      useNotesRefreshStore.getState().bump();
+    });
+  }, []);
 
   useEffect(() => {
     setData({ notes, folders, counts: countNotes(notes, folders) });

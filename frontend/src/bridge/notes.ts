@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
@@ -307,5 +308,22 @@ export function setNoteOrganization(
   return callBridge(async () => {
     const n = await AppService.NotesSetOrganization(id, folderId, tags, color);
     return mapSummary(n);
+  });
+}
+
+export const NOTES_CHANGED_EVENT = "notes:changed";
+
+/**
+ * Fires after any successful write to a note or a folder — an MCP tool
+ * creating or updating a note, a person editing in another tab — so the
+ * dashboard and rail can refresh without the user having to search (which
+ * only "fixed" it by hitting an uncached query key, not by refreshing the
+ * stale one). The id is a note's or a folder's; nothing here says which, the
+ * same way Tasks' onTasksChanged carries ids only. Returns an unsubscribe
+ * function.
+ */
+export function onNotesChanged(cb: (e: { id: string }) => void): () => void {
+  return Events.On(NOTES_CHANGED_EVENT, (ev) => {
+    cb({ id: String(ev.data?.id ?? "") });
   });
 }

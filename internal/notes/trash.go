@@ -37,7 +37,11 @@ func (s *Service) Delete(id string) error {
 		return nil
 	}
 	meta.DeletedAt = time.Now().UTC().Format(time.RFC3339)
-	return s.writeMeta(id, meta)
+	if err := s.writeMeta(id, meta); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
 
 // Restore takes a note back out of the trash.
@@ -50,7 +54,11 @@ func (s *Service) Restore(id string) error {
 		return nil
 	}
 	meta.DeletedAt = ""
-	return s.writeMeta(id, meta)
+	if err := s.writeMeta(id, meta); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
 
 // Purge deletes a note for good. It does not check whether the note was in the
@@ -76,7 +84,11 @@ func (s *Service) Purge(id string) error {
 			return err
 		}
 	}
-	return s.store.Delete(id)
+	if err := s.store.Delete(id); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
 
 // EmptyTrash purges every trashed note.

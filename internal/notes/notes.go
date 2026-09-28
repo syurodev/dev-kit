@@ -77,6 +77,25 @@ type Note struct {
 type Service struct {
 	store Store
 	links LinkIndex
+
+	// OnChanged fires after every successful write a client needs to learn
+	// about without polling — the notes list, the sidebar rail, the folder
+	// tree. The payload is the id of whatever changed (a note or a folder),
+	// never a title or body. nil is a no-op, so a test that does not care
+	// never has to wire one. main.go is the only caller that sets it,
+	// straight to an app-event emit — never call this while holding a lock,
+	// and never block on it. Without it, a note an MCP tool created or
+	// updated was invisible until something else (e.g. a search) forced a
+	// refetch of the stale react-query cache.
+	OnChanged func(id string)
+}
+
+// changed is the one call site for OnChanged, so every write notifies the
+// same way rather than each one checking nil for itself.
+func (s *Service) changed(id string) {
+	if s.OnChanged != nil {
+		s.OnChanged(id)
+	}
 }
 
 func NewService(store Store) *Service {
@@ -114,7 +133,12 @@ func (s *Service) Create(title string, body string, folderID string, tags []stri
 	if err != nil {
 		return Summary{}, err
 	}
-	return s.toSummary(record, folderMap)
+	summary, err := s.toSummary(record, folderMap)
+	if err != nil {
+		return Summary{}, err
+	}
+	s.changed(record.ID)
+	return summary, nil
 }
 
 func (s *Service) List() ([]Summary, error) {
@@ -205,7 +229,9 @@ func (s *Service) Update(id, title, body string) (Note, error) {
 	if err != nil {
 		return Note{}, err
 	}
-	return noteFrom(record, meta, body, folderMap), nil
+	note := noteFrom(record, meta, body, folderMap)
+	s.changed(id)
+	return note, nil
 }
 
 func (s *Service) SetOrganization(id, folderID string, tags []string, color string) (Summary, error) {
@@ -249,7 +275,12 @@ func (s *Service) SetOrganization(id, folderID string, tags []string, color stri
 	if err != nil {
 		return Summary{}, err
 	}
-	return s.toSummary(record, folderMap)
+	summary, err := s.toSummary(record, folderMap)
+	if err != nil {
+		return Summary{}, err
+	}
+	s.changed(id)
+	return summary, nil
 }
 
 // Search matches notes by query (case-insensitive). Titles, effective tags, and
