@@ -1,31 +1,36 @@
 import { KanbanSquare } from "lucide-react";
-import { ToolResultRow } from "@/components/ui/tool-result-card";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
 import type { TaskResult } from "./taskResult";
 
-/**
- * ToolResultView shared by tasks.create, tasks.get, tasks.update and
- * tasks.transition (docs/dev-kit/tool-result-view.mdx) — all four answer
- * with the same Task shape. The whole row opens it through the existing
- * `tasks.reveal` intent.
- */
+/** `tasks.create` / `get` / `update` / `transition` — all four answer with a Task, so one card: key, title, status. */
 export function TaskResultCard({ task }: { task: TaskResult }) {
   return (
-    <ToolResultRow
-      icon={KanbanSquare}
-      label={
-        <>
-          <span className="text-code-12-medium">{task.key}</span> {task.title}
-        </>
-      }
-      trailing={task.status}
-      onClick={() =>
-        void dispatchIntent(
-          "tasks.reveal",
-          { module: "tasks", kind: "task", id: task.id, label: task.key },
-          { placement: "beside" },
-        )
-      }
-    />
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
+        icon={KanbanSquare}
+        title="Task"
+        meta={task.status}
+        action={
+          <FramedCardAction
+            onClick={() =>
+              void dispatchIntent(
+                "tasks.reveal",
+                { module: "tasks", kind: "task", id: task.id, label: task.key },
+                { placement: "beside" },
+              )
+            }
+          >
+            Open
+          </FramedCardAction>
+        }
+      />
+      <FramedCardPreview className="flex-row items-baseline gap-(--space-inline)">
+        <span className="shrink-0 text-code-12-medium text-text-secondary">{task.key}</span>
+        <span className="min-w-0 truncate text-body-13 text-text-primary" title={task.title}>
+          {task.title}
+        </span>
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

@@ -1,5 +1,5 @@
 import { FileDiff } from "lucide-react";
-import { ToolResultRow } from "@/components/ui/tool-result-card";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardMore, FramedCardPreview, FramedCardRow } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
 import type { DiffChange } from "./diffResult";
 
@@ -14,49 +14,64 @@ function fileName(path: string): string {
   return path.split("/").pop() || path;
 }
 
-/** A commit can touch many files; the row shows this many and counts the rest. */
 const MAX_ROWS = 8;
 
+/** Added and removed line counts, each in its own colour; a binary file counts -1 and shows none. */
+function LineCounts({ added, removed }: { added: number; removed: number }) {
+  return (
+    <>
+      {added > 0 ? <span className="text-status-success">+{added}</span> : null}
+      {added > 0 && removed > 0 ? " " : null}
+      {removed > 0 ? <span className="text-status-danger">−{removed}</span> : null}
+    </>
+  );
+}
+
 /**
- * ToolResultView for `git.diff` (docs/dev-kit/tool-result-view.mdx). File
- * names and line counts, not the diff itself — AgentToolDiff already owns
- * showing a full diff inline. Only clickable for a call against a specific
- * revision (`rev` non-empty): the work tree diff has no view of its own to
- * reopen faithfully (see git.reveal in manifest.ts), so the row renders
- * plain, not a button, when `rev` is empty.
+ * `git.diff` — which files changed and by how much, not the diff itself
+ * (AgentToolDiff is for that). View diff only when the tool diffed a revision:
+ * a work-tree diff has no view that shows again what the tool saw.
  */
 export function GitDiffResultCard({ changes, rev }: { changes: DiffChange[]; rev: string }) {
   const added = changes.reduce((sum, c) => sum + Math.max(c.added, 0), 0);
   const removed = changes.reduce((sum, c) => sum + Math.max(c.removed, 0), 0);
   const shown = changes.slice(0, MAX_ROWS);
-
   return (
-    <div className="flex w-full min-w-0 flex-col gap-1">
-      <ToolResultRow
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
         icon={FileDiff}
-        label={`${changes.length} file${changes.length === 1 ? "" : "s"} changed`}
-        trailing={`+${added} -${removed}`}
-        onClick={
-          rev
-            ? () =>
+        title={`${changes.length} file${changes.length === 1 ? "" : "s"} changed`}
+        meta={<LineCounts added={added} removed={removed} />}
+        action={
+          rev ? (
+            <FramedCardAction
+              onClick={() =>
                 void dispatchIntent(
                   "git.reveal",
                   { module: "git", kind: "commit", id: rev, label: rev },
                   { placement: "beside" },
                 )
-            : undefined
+              }
+            >
+              View diff
+            </FramedCardAction>
+          ) : undefined
         }
       />
-      <ul className="flex flex-col gap-0.5 pl-4.5">
+      <FramedCardPreview flush>
         {shown.map((change) => (
-          <li key={change.path} className="truncate text-code-12 text-text-tertiary">
-            <span className="text-text-tertiary/70">{KIND_MARK[change.kind]}</span> {fileName(change.path)}
-          </li>
+          <FramedCardRow
+            key={change.path}
+            label={
+              <span className="text-code-12" title={change.path}>
+                <span className="text-text-tertiary">{KIND_MARK[change.kind]}</span> {fileName(change.path)}
+              </span>
+            }
+            trailing={<LineCounts added={change.added} removed={change.removed} />}
+          />
         ))}
-        {changes.length > MAX_ROWS ? (
-          <li className="text-code-12 text-text-tertiary/70">+{changes.length - MAX_ROWS} more</li>
-        ) : null}
-      </ul>
-    </div>
+        <FramedCardMore count={changes.length - shown.length} />
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

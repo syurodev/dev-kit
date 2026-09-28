@@ -1,26 +1,36 @@
 import { FileText } from "lucide-react";
-import { ToolResultRow } from "@/components/ui/tool-result-card";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
 import type { NoteResult } from "./noteResult";
 
 /**
- * ToolResultView shared by notes.create and notes.update
- * (docs/dev-kit/tool-result-view.mdx) — title only, never the note's
- * decrypted body/preview (see noteResult.ts). The whole row opens it
- * through the existing `notes.reveal` intent.
+ * `notes.create` / `notes.update` — the note's title only. Not its preview or
+ * body: that is decrypted vault data, and less of it on screen than the raw
+ * JSON used to show is the point.
  */
 export function NoteResultCard({ note }: { note: NoteResult }) {
   return (
-    <ToolResultRow
-      icon={FileText}
-      label={note.title || "Untitled"}
-      onClick={() =>
-        void dispatchIntent(
-          "notes.reveal",
-          { module: "notes", kind: "note", id: note.id, label: note.title },
-          { placement: "beside" },
-        )
-      }
-    />
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
+        icon={FileText}
+        title="Note"
+        action={
+          <FramedCardAction
+            onClick={() =>
+              void dispatchIntent(
+                "notes.reveal",
+                { module: "notes", kind: "note", id: note.id, label: note.title },
+                { placement: "beside" },
+              )
+            }
+          >
+            Open
+          </FramedCardAction>
+        }
+      />
+      <FramedCardPreview>
+        <p className="min-w-0 truncate text-body-13 text-text-primary">{note.title || "Untitled"}</p>
+      </FramedCardPreview>
+    </FramedCard>
   );
 }

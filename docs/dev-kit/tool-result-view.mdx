@@ -8,11 +8,11 @@ description: Cơ chế cho phép mỗi module đăng ký cách hiển thị riê
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="info" title="Đã triển khai">
-Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, `ToolResultRow` +
-`ToolResultList`, nối vào `AgentToolCall.tsx`) cộng renderer cho mọi tool ở
-bảng "Ví dụ cụ thể" bên dưới — bao gồm 3 intent thêm mới cho vòng này:
-`notes.reveal`, `git.reveal`, `api.reveal`. Hình họa đã có spec thật trong
-Figma — xem mục "Nhất quán với cái đã có". Mục **"Theo dõi real-time"** ở
+Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, card dùng chung
+[Framed card](/dev-kit/framed-card), nối vào `AgentToolCall.tsx`) cộng
+renderer cho mọi tool ở bảng "Ví dụ cụ thể" bên dưới — bao gồm 3 intent thêm
+mới cho vòng này: `notes.reveal`, `git.reveal`, `api.reveal`. Hình họa theo
+contract của Framed card — xem mục "Nhất quán với cái đã có". Mục **"Theo dõi real-time"** ở
 cuối trang vẫn chưa thiết kế, cố tình treo lại để thảo luận riêng sau. Kết
 quả dạng bảng lớn (`db.query`, `kafka.peekMessages`,
 `codegraph.getBlastRadius`) cố tình chưa làm — dữ liệu lớn dễ vướng
@@ -201,33 +201,26 @@ bảng, dễ vướng `ToolRawPreviewLimit`); `vault.*`, `accounts.*` (nhạy c�
 tool ghi/phá hủy như `notes.delete`, `git.push`, `kafka.publishMessage` (giữ
 JSON thô để thấy đúng agent đã làm gì, không tô vẽ).
 
-**Nhất quán với cái đã có:** không còn là card giản lược tự đoán nữa — có
-spec thật trong Figma, page **17 Agent Hub**, frame
-[`Agent / Tool Result`](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1336-3174),
-dựng lại nguyên mẫu `Agent / Row` (`906:35`, dòng agent trong swarm list) —
-đúng component đã có sẵn cho "một dòng, click được, có phân cấp 2 dòng chữ",
-thay vì dựng mới một ngôn ngữ hình họa riêng. Hai khung dùng chung, cả hai ở
-`frontend/src/components/ui/tool-result-card.tsx` (vùng chung mọi module đã
-import, không phải trong `modules/agenthub`, để một renderer module khác
-đăng ký không phải import ngược vào Agent Hub chỉ để dùng khung card):
+**Nhất quán với cái đã có:** mọi card là một
+[Framed card](/dev-kit/framed-card) — header (icon, tên, một sự kiện ngắn,
+một hành động "mở ở chỗ khác") ôm lấy một preview lõm vào bằng khung 4px —
+cài đặt duy nhất ở `frontend/src/components/ui/framed-card.tsx` (vùng chung
+mọi module đã import, không phải trong `modules/agenthub`, để một renderer
+module khác đăng ký không phải import ngược vào Agent Hub chỉ để dùng khung
+card). Card đơn (`ApiFlow`, `Task`, `Note`, `GitCommit`, `Send`,
+`EndpointDraft`) đặt hành động trên header; card danh sách mà mỗi dòng tự mở
+được (`SymbolMatch`, `EndpointList`) không có hành động header, mỗi
+`FramedCardRow` là một lối vào.
 
-- **`ToolResultRow`** — một kết quả đơn (`ApiFlowResultCard`,
-  `TaskResultCard`, `NoteResultCard`, `GitCommitResultCard`,
-  `SendResultCard`, `EndpointDraftResultCard`). Dòng 1: icon 12px +
-  `text-icon-secondary`, label chính `text-body-13-medium text-text-primary`
-  chiếm hết chỗ còn lại, trailing ngắn bên phải (`text-caption-11
-  text-text-tertiary`) — một status, một mã HTTP, một SHA. Dòng 2 (tuỳ chọn):
-  chi tiết mờ, thụt vào ngang icon. Không nền lúc rest (đúng theo `Agent /
-  Row`), `hover:bg-(--state-soft)` khi có `onClick` — hành động chính của
-  card giờ là click cả dòng, không còn link gạch chân riêng.
-- **`ToolResultList`** — nhiều kết quả cùng dạng (`SymbolMatchResultCard`,
-  `EndpointListResultCard`) — khung `bg-(--state-soft) rounded-sm` giống
-  `AgentFileChip`, chứa nhiều `ToolResultRow` bên trong, mỗi row tự có hover
-  riêng.
+Thay cho thiết kế trước đó — `ToolResultRow`/`ToolResultList` dựng theo
+`Agent / Row` (Figma page **17 Agent Hub**, frame
+[`Agent / Tool Result`](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1336-3174)).
+Frame đó chưa được vẽ lại theo Framed card; xem mục Figma của trang Framed
+card.
 
-Một giá trị (SHA, method HTTP, id) trong label hay trailing luôn ở
-`text-code-*` (Geist Mono) — không viết như văn xuôi, đúng nguyên tắc "Geist
-Mono cho đường dẫn, id, lệnh" của `design-system.mdx`.
+Một giá trị (SHA, method HTTP, id, status code) luôn ở `text-code-*` (Geist
+Mono) — không viết như văn xuôi, đúng nguyên tắc "Geist Mono cho đường dẫn,
+id, lệnh" của `design-system.mdx`.
 
 **Trạng thái:** card kế thừa `state` (running/done/failed) từ `ToolCall`
 giống hàng generic — đang chạy thì không có `rawOutput` để render nên vẫn

@@ -1,0 +1,161 @@
+---
+title: Framed card — card có header và preview
+description: Contract của kiểu card "header ôm preview" dùng chung toàn DevKit — giải phẫu, token radius/spacing/màu, quy tắc nội dung và cách áp dụng — kèm hiện trạng và nơi sẽ áp dụng tiếp.
+---
+
+# Framed card — card có header và preview
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="info" title="Một cài đặt, mọi module">
+Cài đặt duy nhất: `frontend/src/components/ui/framed-card.tsx`
+(`FramedCard`, `FramedCardHeader`, `FramedCardAction`, `FramedCardPreview`,
+`FramedCardRow`, `FramedCardMore`). Nằm trong UI kit dùng chung, không trong
+module nào, để module nào cũng dùng được mà không import ngược vào module
+khác. Trang này là contract; đổi hình dạng card thì đổi ở cả hai chỗ.
+</Callout>
+
+## Khi nào dùng
+
+Một kết quả hay một đối tượng cần **tên** và **một phần nội dung xem trước**
+đặt cạnh nhau, trong một luồng đọc (transcript, danh sách, panel): "đây là
+API flow, và đây là bốn bước của nó"; "đây là commit, và đây là subject".
+Header nói nó là gì và cho một lối ra (mở ở chỗ khác); preview cho thấy đủ
+để không cần mở.
+
+Áp dụng đầu tiên: 9 card của [ToolResultView](/dev-kit/tool-result-view).
+Kiểu card này sẽ được áp dụng dần lên toàn hệ thống — xem
+[Áp dụng](#áp-dụng).
+
+**Không dùng cho:** control (nút, input, chip — card không phải thứ bấm được
+như một khối); danh sách chính của một view (row của tree/table đã có quy
+ước riêng); dialog và popover (đã có surface nổi riêng); nội dung dài cần
+cuộn cả trang (dùng panel, không nhét vào preview).
+
+## Giải phẫu
+
+```
+╭──────────────────────────────────────────────╮  card     rounded-float (14) · bg-surface-raised · p-(--space-micro) (4)
+│ ⑂  API flow  4 steps              Reveal ↗   │  header   h-(--control-height-sm) (28) · px-(--space-inline) (8)
+│ ╭──────────────────────────────────────────╮ │
+│ │ 1. POST /refunds   refund.controller.ts:42│ │  preview  rounded-control (10) · bg-surface-base
+│ │ 2. RefundController.create         …:48   │ │           p-(--space-inline) (8), hoặc flush cho danh sách
+│ │ 3. RefundService.issue             …:71   │ │
+│ ╰──────────────────────────────────────────╯ │
+╰──────────────────────────────────────────────╯
+   └─ khung 4px bao ba phía: header "ôm" preview
+```
+
+Card là **một** surface nổi (`surface-raised`). Header nằm trên surface đó;
+preview là một panel lõm vào, mang màu nền của trang (`surface-base`), được
+surface của card bao quanh ở ba phía với độ dày `--space-micro` (4px). Khung
+4px là thứ làm header đọc như tiêu đề **của** preview, chứ không phải một
+hàng riêng nằm phía trên nó.
+
+## Token
+
+| Thuộc tính | Token | Giá trị | Vì sao |
+|---|---|---|---|
+| Bo góc card | `rounded-float` | 14 | Container (thang 14–18 của [design system](/dev-kit/design-system)) |
+| Bo góc preview | `rounded-control` | 10 | = 14 − khung 4 |
+| Khung | `p-(--space-micro)` | 4 | Đủ thấy là viền, không đủ thành khoảng trống |
+| Chiều cao header | `h-(--control-height-sm)` | 28 | Thẳng hàng với toolbar quanh nó |
+| Padding ngang header | `px-(--space-inline)` | 8 | 4 + 8 = 12 = `--space-control` tính từ mép card |
+| Padding preview | `p-(--space-inline)` | 8 | 4 + 8 = 12, cùng mép với header |
+| Nền card | `bg-surface-raised` | — | Surface đục; hai theme đều có |
+| Nền preview | `bg-surface-base` | — | Màu nền trang: preview "lõm" xuống |
+| Icon header | `size-(--icon-12)` `text-icon-secondary` | 12 | |
+| Tiêu đề | `text-label-12 text-text-secondary` | | Tên, không phải câu |
+| Meta | `text-caption-11 text-text-tertiary tabular-nums` | | Một sự kiện ngắn, không xuống dòng |
+| Hành động | `h-(--control-height-xs)` `text-caption-11` + `ArrowUpRight` 12 | 24 | Nút chữ trầm, hover `bg-(--state-soft)` |
+| Chữ trong preview | `text-body-13 text-text-primary`; giá trị máy `text-code-12` | | |
+
+### Hai quy tắc hình học
+
+1. **Bo góc lồng nhau, không chọn tay.** `radius(card) = radius(preview) + khung`.
+   Với khung 4: 14 = 10 + 4 — hai đường cong song song, cả hai đều nằm trên
+   thang radius. Đổi một bên thì đổi bên kia; đừng thêm bậc radius mới cho
+   vừa (xem luật "giá trị ngoài thang là dấu hiệu canh mắt" của design system).
+2. **Một mép trái cho mọi nội dung.** Icon header, chữ trong preview có
+   padding, và chữ của `FramedCardRow` trong preview flush đều cách mép card
+   **12px** (`--space-control`): 4 (khung) + 8 (padding của phần đó).
+
+## Quy tắc nội dung
+
+- **Header: icon · tiêu đề · meta · một hành động.** Tiêu đề là danh từ
+  ("API flow", "Commit", "Task"), không phải câu. Meta là **một** sự kiện
+  ngắn: số lượng, trạng thái, SHA, thời gian. Nhiều hơn một sự kiện thì đưa
+  xuống preview.
+- **Tối đa một hành động trên header**, luôn ở cuối, luôn là "mở ở chỗ
+  khác" (Reveal, Open, View diff, Try in API Client) — mũi tên `↗` nói điều
+  đó. Hành động đổi dữ liệu không đặt trên card.
+- **Danh sách mà mỗi dòng tự mở được thì không có hành động header** — không
+  có "một thứ" để mở (ví dụ `Symbols`, `Endpoints`).
+- **Preview có padding hay flush.** Nội dung đơn (một dòng subject, method +
+  URL, status) dùng preview mặc định. Danh sách dùng `flush` với
+  `FramedCardRow`: hover của dòng tràn hết chiều ngang preview, bo góc
+  preview cắt nó, nên danh sách đọc như nội dung của preview chứ không như
+  các nút đặt lên trên.
+- **Danh sách có giới hạn.** Hiện tối đa N dòng rồi `FramedCardMore`
+  ("+N more", không bấm được). N do card quyết định theo dữ liệu (6 bước,
+  8 file, 10 match).
+- **Giá trị máy ở Geist Mono** (`text-code-*`): SHA, method HTTP, đường dẫn,
+  key task, status code. Đúng nguyên tắc chung của design system.
+- **Màu trạng thái chỉ trên con số mang trạng thái**: status HTTP (2xx
+  success, 4xx warning, 5xx danger), `+`/`−` của diff. Card và header không
+  bao giờ đổi màu theo trạng thái.
+- **Preview không phải nơi cho dữ liệu nhạy cảm.** Card nào cũng chỉ hiện
+  cái đủ để nhận ra đối tượng; body request/response, nội dung note đã giải
+  mã… không vào preview (xem bảng ví dụ ở ToolResultView).
+- **Không lồng card trong card.** Cần phân nhóm trong preview thì dùng
+  dòng/khoảng cách, không dùng một `FramedCard` khác.
+
+## Surface và motion
+
+- **Đục, không glass.** Card nằm trong luồng nội dung, không phải lớp nổi —
+  đúng quy tắc 7.1 của [Smoothness](/dev-kit/smoothness): dữ liệu nằm trên
+  bề mặt đục. `surface-raised`/`surface-base` đều là token hai theme.
+- **Motion chỉ ở chỗ bấm được**: `transition-colors` `--motion-fast` trên
+  hành động và dòng có `onClick`. Card không animate khi xuất hiện — nó đi
+  vào cùng hàng tool call chứa nó (mục 4.4 của Smoothness).
+
+## API
+
+```tsx
+<FramedCard>
+  <FramedCardHeader
+    icon={Workflow}
+    title="API flow"
+    meta="4 steps"
+    action={<FramedCardAction onClick={reveal}>Reveal</FramedCardAction>}
+  />
+  <FramedCardPreview flush>
+    {steps.map((step, i) => (
+      <FramedCardRow key={i} label={step.label} trailing={`${file}:${line}`} detail={step.summary} />
+    ))}
+    <FramedCardMore count={hidden} />
+  </FramedCardPreview>
+</FramedCard>
+```
+
+| Phần | Ghi chú |
+|---|---|
+| `FramedCard` | Surface và khung. Nhận mọi prop của `div` (`data-testid`…). |
+| `FramedCardHeader` | `icon?`, `title`, `meta?`, `action?`. |
+| `FramedCardAction` | Nút chữ trầm + `↗`. Luôn là "mở ở chỗ khác". |
+| `FramedCardPreview` | `flush?` bỏ padding cho danh sách. Là `flex-col`; đặt `flex-row` qua `className` cho một dòng nhiều phần (status · text · size). |
+| `FramedCardRow` | `icon?`, `label`, `trailing?`, `detail?`, `onClick?`. Dòng 2 thụt ngang label khi có icon. |
+| `FramedCardMore` | `count` ≤ 0 thì không vẽ gì. |
+
+## Áp dụng
+
+| Nơi | Trạng thái |
+|---|---|
+| ToolResultView — 9 card (`ApiFlow`, `SymbolMatch`, `EndpointList`, `EndpointDraft`, `Send`, `GitCommit`, `GitDiff`, `Note`, `Task`) | Đã áp dụng. Thay `ToolResultRow`/`ToolResultList` (thiết kế theo `Agent / Row`) và card phẳng trước đó. |
+| Các card hiển thị một đối tượng kèm phần xem trước ở module khác | Cần rà từng chỗ trước khi đổi: chỉ đổi khi nội dung đúng dạng "tên + xem trước", không ép mọi khối thành card. |
+
+**Figma:** chưa có component tương ứng. Frame `Agent / Tool Result`
+(page 17 Agent Hub, `1336:3174`) vẽ theo thiết kế `Agent / Row` cũ và cần
+vẽ lại theo contract này — nguồn sự thật của design system là Figma, nên
+component "Card / Framed" cần được thêm vào page 01 Foundations hoặc trang
+component dùng chung trước khi áp dụng rộng.
