@@ -249,7 +249,12 @@ func isProtectedHomePath(candidate, home string) bool {
 // tool rewriting it could loosen the agent's own permission rules), and the
 // other projects' transcripts.
 func isAgentOwnedClaudePath(rel string) bool {
-	if rel == "/CLAUDE.md" {
+	claudeMemoryFile := "/CLAUDE.md"
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		rel = strings.ToLower(rel)
+		claudeMemoryFile = "/claude.md"
+	}
+	if rel == claudeMemoryFile {
 		return true
 	}
 	parts := strings.Split(strings.TrimPrefix(rel, "/"), "/")

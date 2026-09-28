@@ -513,6 +513,25 @@ func TestSessionNewCutsOffUserSettings(t *testing.T) {
 	}
 }
 
+func TestSessionNewAppendsDevKitPromptToClaudeCodePreset(t *testing.T) {
+	var wire struct {
+		SystemPrompt struct {
+			Type   string `json:"type"`
+			Preset string `json:"preset"`
+			Append string `json:"append"`
+		} `json:"systemPrompt"`
+	}
+	if err := json.Unmarshal(sessionNewMeta(""), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if wire.SystemPrompt.Type != "preset" || wire.SystemPrompt.Preset != "claude_code" {
+		t.Fatalf("systemPrompt = %+v, want the Claude Code preset", wire.SystemPrompt)
+	}
+	if wire.SystemPrompt.Append != devkitSystemPrompt {
+		t.Fatal("session/new did not append DevKit's prompt")
+	}
+}
+
 func TestSessionNewInstallsThePreToolUseHook(t *testing.T) {
 	// Measured against the real agent: session/new._meta accepts a settings
 	// object with a command hook, the hook fires before the tool runs, and its
@@ -1202,6 +1221,9 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 			Cwd        string `json:"cwd"`
 			McpServers []any  `json:"mcpServers"`
 			Meta       struct {
+				SystemPrompt struct {
+					Append string `json:"append"`
+				} `json:"systemPrompt"`
 				ClaudeCode struct {
 					Options struct {
 						SettingSources []string `json:"settingSources"`
@@ -1238,11 +1260,19 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 	if sources := fork.Params.Meta.ClaudeCode.Options.SettingSources; sources == nil || len(sources) != 0 {
 		t.Errorf("settingSources = %v, want an empty list", sources)
 	}
+	if fork.Params.Meta.SystemPrompt.Append != devkitSystemPrompt {
+		t.Error("fork did not carry DevKit's prompt")
+	}
 
 	// And the load names the branch, not the source.
 	var load struct {
 		Params struct {
 			SessionID string `json:"sessionId"`
+			Meta      struct {
+				SystemPrompt struct {
+					Append string `json:"append"`
+				} `json:"systemPrompt"`
+			} `json:"_meta"`
 		} `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(frames[2]), &load); err != nil {
@@ -1250,6 +1280,9 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 	}
 	if load.Params.SessionID != "forked-1" {
 		t.Errorf("session/load asked for %q, want the branch", load.Params.SessionID)
+	}
+	if load.Params.Meta.SystemPrompt.Append != devkitSystemPrompt {
+		t.Error("session/load did not carry DevKit's prompt")
 	}
 }
 

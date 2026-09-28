@@ -138,7 +138,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
   const info: VendorInfo = vendorInfo(vendor);
   const rt = useAgentRuntime(info.runtimeId);
   const [confirmLatest, setConfirmLatest] = useState(false);
- const [downgrade, setDowngrade] = useState<{version: string; install: boolean} | null>(null);
+  const [downgrade, setDowngrade] = useState<{ version: string; install: boolean } | null>(null);
   const s = rt.status;
 
   if (!s) {
@@ -187,11 +187,18 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
             </Button>
           ) : null}
           {current && current.version !== testedVersion ? (
-            <Button type="button" size="sm" disabled={rt.busy} onClick={() => {
-              if (compareVersions(current.version, testedVersion) > 0) {
-                setDowngrade({ version: testedVersion, install: true });
-              } else rt.install();
-            }}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={rt.busy}
+              onClick={() => {
+                if (compareVersions(current.version, testedVersion) > 0) {
+                  setDowngrade({ version: testedVersion, install: true });
+                } else {
+                  rt.install();
+                }
+              }}
+            >
               <Download />
               {/* Off an untested newer version this is a step back, and says so. */}
               {compareVersions(current.version, testedVersion) > 0
@@ -306,15 +313,33 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
         </div>
       ) : null}
 
-      <AlertDialog open={downgrade !== null} onOpenChange={(open) => { if (!open) setDowngrade(null); }}>
+      <AlertDialog
+        open={downgrade !== null}
+        onOpenChange={(open) => {
+          if (!open) setDowngrade(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{`Switch to ${downgrade?.version ?? "an older version"}?`}</AlertDialogTitle>
-            <AlertDialogDescription>Existing running sessions keep their runtime. An older runtime may not be able to resume sessions saved by a newer version. Your session data will be kept.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Existing running sessions keep their runtime. An older runtime may not be able to resume sessions saved by
+              a newer version. Your session data will be kept.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (downgrade) { if (downgrade.install) rt.install(downgrade.version); else rt.activate(downgrade.version); } setDowngrade(null); }}>Switch version</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (downgrade) {
+                  if (downgrade.install) rt.install(downgrade.version);
+                  else rt.activate(downgrade.version);
+                }
+                setDowngrade(null);
+              }}
+            >
+              Switch version
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

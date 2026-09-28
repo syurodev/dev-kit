@@ -82,18 +82,20 @@ type InitializeResponse struct {
 // SandboxMode (read-only / workspace-write / danger-full-access) with no
 // external variant. externalSandbox is sent on every turn/start instead.
 type ThreadStartParams struct {
-	Cwd               string `json:"cwd,omitempty"`
-	ApprovalPolicy    string `json:"approvalPolicy,omitempty"`
-	ApprovalsReviewer string `json:"approvalsReviewer,omitempty"`
-	Model             string `json:"model,omitempty"`
+	Cwd                   string `json:"cwd,omitempty"`
+	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
+	ApprovalsReviewer     string `json:"approvalsReviewer,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	DeveloperInstructions string `json:"developerInstructions,omitempty"`
 }
 
 type ThreadResumeParams struct {
-	ThreadID          string `json:"threadId"`
-	Cwd               string `json:"cwd,omitempty"`
-	ApprovalPolicy    string `json:"approvalPolicy,omitempty"`
-	ApprovalsReviewer string `json:"approvalsReviewer,omitempty"`
-	Model             string `json:"model,omitempty"`
+	ThreadID              string `json:"threadId"`
+	Cwd                   string `json:"cwd,omitempty"`
+	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
+	ApprovalsReviewer     string `json:"approvalsReviewer,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	DeveloperInstructions string `json:"developerInstructions,omitempty"`
 }
 
 type Thread struct {

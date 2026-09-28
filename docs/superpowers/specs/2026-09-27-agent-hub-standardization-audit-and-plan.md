@@ -2,8 +2,8 @@
 
 Date: 2026-09-27. This document replaces the initial audit's incorrect completion claims.
 Scope of this change: artifact lifecycle protection, managed Node, reproducible tested
-installs, rollback UX, and verification. Claude authentication/home migration remains
-separate; this change does not move or copy credentials or session history.
+installs, rollback UX, DevKit host instructions, and verification. Claude authentication/home
+migration remains separate; this change does not move or copy credentials or session history.
 
 ## Corrected baseline
 
@@ -78,8 +78,8 @@ The repository embeds package.json and package-lock.json for the tested releases
 | Codex | @openai/codex | 0.147.0 | native platform binary; managed Node only during install |
 
 A tested install copies these files into staging BEFORE running `npm ci --ignore-scripts`
-with optional platform dependencies included. The registry is explicitly npmjs.org;
-lockfile integrity covers the dependency artifacts. Upgrading a tested version requires
+with optional platform dependencies included. The committed lockfile's resolved URLs and
+integrity values freeze the tested artifacts. Upgrading a tested version requires
 regenerating/reviewing its lock and running live handshake checks.
 
 The existing user-selected UNTESTED version flow remains available. It uses npm install,
@@ -98,6 +98,21 @@ The warning accurately says older runtimes may not read newer session data. IsDo
 remains an informational backend API; neither it nor confirmation proves storage-format
 compatibility. There is no automatic session-format migration or rollback guarantee.
 
+### 5. DevKit host instructions
+
+Every Agent Hub session receives the same DevKit prompt in addition to its vendor's own
+instructions. The prompt explains DevKit's tool boundary, workspace discovery, managed
+connections, task/branch rules, credential handling, confirmation behavior and delegation.
+It does not enumerate a fabricated live tool schema; the agent is told to use only tools it
+actually sees and to account for host-added tool-name prefixes.
+
+Claude receives it through claude-agent-acp's `_meta.systemPrompt` as an append to the
+`claude_code` preset. The same metadata is sent by `session/new`, `session/load` and both
+halves of DevKit's fork path. Codex receives it through `developerInstructions` on both
+`thread/start` and `thread/resume`. These channels are supported by the pinned Claude ACP
+0.78.0 and Codex 0.147.0 protocols; neither replaces the vendor's base prompt or repository
+AGENTS.md / CLAUDE.md instructions.
+
 ## Verification
 
 Added regression coverage for:
@@ -108,6 +123,7 @@ Added regression coverage for:
 - concurrent process waiters observing the same exit;
 - lockfile present before npm ci, pinned SDK and dependency integrity;
 - download checksum mismatch/cancellation and archive traversal/symlink handling.
+- prompt injection on Claude new/fork and Codex start/resume wire payloads.
 
 Live opt-in test `TestManagedRuntimesWithoutGlobalNode` sets PATH to an empty directory,
 installs both vendors into a temporary root, and executes their real binaries. It passed
@@ -121,7 +137,6 @@ implementation handoff; cross-platform and authenticated model turns are not imp
 - Claude config/auth/history still use their existing paths and supported flows. A separate
   migration must preserve old session access and must not copy credentials automatically.
 - API-key selection through Accounts for Claude is not added here.
-- Host instructions/DevKit onboarding are not added here.
 - Downgrade compatibility and keeping old runtime versions for dormant sessions remain
   separate work; current/previous retention does not guarantee every historical resume.
 - Untested versions are explicitly outside the frozen tested-release contract.
