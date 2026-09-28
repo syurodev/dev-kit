@@ -42,6 +42,20 @@ describe("transcriptToMarkdown", () => {
     expect(md.split("## Turn ")).toHaveLength(3);
   });
 
+  it("writes a subagent's report under its own name, not as the lead agent's words", () => {
+    const md = transcriptToMarkdown([
+      { id: "p", kind: "user_message_chunk", text: "go" },
+      { id: "s", kind: "subagent_spawned", subagent: { id: "a1", name: "Vectors", state: "completed" } },
+      { id: "n", kind: "agent_message_chunk", text: "Reading first.", messageId: "x1", origin: "a1" },
+      { id: "t", kind: "tool_call", origin: "a1", toolCall: { id: "t", title: "Read a.lua", kind: "read" } },
+      { id: "r", kind: "agent_message_chunk", text: "32 tests green.", messageId: "x2", origin: "a1" },
+      { id: "m", kind: "agent_message_chunk", text: "All done.", messageId: "y1" },
+    ]);
+    expect(md).toContain("**Vectors reported:**\n\n> 32 tests green.");
+    expect(md).not.toContain("Reading first.");
+    expect(md).toContain("**Agent:**\n\nAll done.");
+  });
+
   it("handles a title with nothing in it and a transcript with nothing in it", () => {
     expect(transcriptToMarkdown([], { title: "  " })).toBe("# Agent session\n");
   });

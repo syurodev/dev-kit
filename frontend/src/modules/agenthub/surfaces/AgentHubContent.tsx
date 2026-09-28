@@ -27,6 +27,7 @@ import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
+import { AgentSubagentTracker } from "./AgentSubagentTracker";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentSessionFailure } from "./AgentSessionFailure";
@@ -521,6 +522,14 @@ export function AgentHubContent({
               </div>
             ) : null}
           </PermissionPresence>
+          {/* Inside the measured layer, so the transcript pads its foot for it
+              too. See AgentSubagentTracker. */}
+          <AgentSubagentTracker
+            items={items}
+            live={!draft && streaming}
+            onOpenFile={onOpenFile}
+            className="pointer-events-auto mx-auto mb-2 max-w-180"
+          />
           {/* Where the draft will work, changeable until the first message
               fixes it. A child works where its parent does, so its folder is
               shown and not offered. */}

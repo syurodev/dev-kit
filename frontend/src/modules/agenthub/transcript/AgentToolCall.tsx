@@ -7,7 +7,7 @@ import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { agentHubToolCallDetail } from "../../../bridge/agenthub";
 import { parsePayload } from "../transcript";
 import type { ToolCall } from "../types";
-import { isCompaction, stepLabel } from "../turns";
+import { commandDescription, isCompaction, stepLabel, toolCommand } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
@@ -221,7 +221,16 @@ export function AgentToolCall({
   const fullOutput = fullCall ? toolOutputText(fullCall.rawOutput) : null;
 
   const locations = call.locations ?? [];
-  const content = fullCall?.content ?? call.content ?? [];
+  // The command a row labelled by its purpose ran — and for any shell call, the
+  // whole of it: a title is one truncated line, and heredocs are most of what
+  // agents run.
+  const command = call.kind?.toLowerCase() === "execute" ? toolCommand(call) : "";
+  const description = commandDescription(call);
+  // While a Bash call runs, Claude's content is its description again — the
+  // row's label already says it.
+  const content = (fullCall?.content ?? call.content ?? []).filter(
+    (item) => !(description && item.type === "content" && item.content?.text?.trim() === description),
+  );
   // ToolResultView (docs/dev-kit/tool-result-view.mdx): the module that owns
   // this tool gets first say over how its result looks, in place of the
   // JSON below. Reads from fullCall when "Show full output" has loaded it,
@@ -238,7 +247,8 @@ export function AgentToolCall({
       : null;
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
-  const hasBody = locations.length > 0 || content.length > 0 || canLoadFull || Boolean(toolResultNode);
+  const hasBody =
+    Boolean(command) || locations.length > 0 || content.length > 0 || canLoadFull || Boolean(toolResultNode);
   // rawOutput is `unknown` off the wire — an object stringifies to
   // "[object Object]", which is worse than saying nothing.
   const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
@@ -301,6 +311,12 @@ export function AgentToolCall({
         open={expanded}
         className={cn("flex w-full min-w-0 flex-col gap-2", variant === "row" && "pt-2")}
       >
+      {command ? (
+        <div data-testid="tool-call-command" className="w-full min-w-0">
+          <AgentCodeBlock code={command} language="bash" wrap />
+        </div>
+      ) : null}
+
       {locations.length > 0 ? (
         <div className="flex w-full flex-wrap items-center gap-1">
           {locations.map((loc, idx) => (
@@ -374,7 +390,15 @@ export function AgentToolCall({
           <>
             <KindIcon className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
             <span className="flex min-w-0 items-baseline gap-1">
-              <span className={cn("shrink-0", state === "failed" ? "text-status-danger" : "text-text-secondary")}>
+              {/* A verb holds its width beside what it acted on; alone, it is a
+                  whole sentence (a command's description) and has to be able
+                  to truncate like one. */}
+              <span
+                className={cn(
+                  object ? "shrink-0" : "min-w-0 truncate",
+                  state === "failed" ? "text-status-danger" : "text-text-secondary",
+                )}
+              >
                 {verb}
               </span>
               {object ? (

@@ -1,5 +1,5 @@
 import { Shimmer } from "@/components/ui/shimmer";
-import { GitBranch } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
@@ -8,6 +8,14 @@ export type AgentSubagentProps = {
   subagent: Subagent;
   /** `row` is one step inside a turn's work: its name, what it was told, how it ended. */
   variant?: "card" | "row";
+  /** How many steps it took, when its activity is known. Row variant only. */
+  steps?: number;
+  /**
+   * Makes the row the toggle for what the subagent did, which the caller
+   * draws underneath. Row variant only; without it the row is a plain line.
+   */
+  expanded?: boolean;
+  onToggle?: () => void;
   className?: string;
 };
 
@@ -34,23 +42,62 @@ const STATE_DOT: Record<string, string> = {
   cancelled: "bg-text-tertiary",
 };
 
-export function AgentSubagent({ subagent, variant = "card", className }: AgentSubagentProps) {
+export function AgentSubagent({
+  subagent,
+  variant = "card",
+  steps,
+  expanded = false,
+  onToggle,
+  className,
+}: AgentSubagentProps) {
   const state = subagent.state ?? "running";
 
   if (variant === "row") {
-    return (
-      <div
-        data-testid="agent-subagent"
-        data-variant="row"
-        data-state={state}
-        className={cn("flex w-full min-w-0 items-center gap-2 text-body-13", className)}
-      >
+    const contents = (
+      <>
         <GitBranch className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
-        <span className="shrink-0 text-text-secondary">{subagent.name || "Subagent"}</span>
-        {subagent.task ? <span className="min-w-0 truncate text-text-tertiary">{subagent.task}</span> : null}
+        <span className="min-w-0 truncate text-text-secondary">{subagent.name || "Subagent"}</span>
+        {/* The task is a whole brief — "Repo: …, branch …" is its first line,
+            and a first line is all a row has room for. Where the row opens,
+            the brief is inside it in full, so it is not repeated here. */}
+        {!onToggle && subagent.task ? (
+          <span className="min-w-0 truncate text-text-tertiary">{subagent.task}</span>
+        ) : null}
+        {steps ? (
+          <span className="shrink-0 text-text-tertiary">
+            {steps === 1 ? "1 step" : `${steps} steps`}
+          </span>
+        ) : null}
         {/* The state as a word, not a dot: a coloured dot on its own is a
             meaning only some people can read. */}
         <Shimmer active={state === "running"} className="ml-auto shrink-0 text-text-tertiary">{state}</Shimmer>
+        {onToggle ? (
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast)",
+              expanded && "rotate-90",
+            )}
+          />
+        ) : null}
+      </>
+    );
+    const rowClass = cn("flex w-full min-w-0 items-center gap-2 text-left text-body-13", className);
+    return onToggle ? (
+      <button
+        type="button"
+        data-testid="agent-subagent"
+        data-variant="row"
+        data-state={state}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className={cn(rowClass, "cursor-pointer hover:text-text-primary")}
+      >
+        {contents}
+      </button>
+    ) : (
+      <div data-testid="agent-subagent" data-variant="row" data-state={state} className={rowClass}>
+        {contents}
       </div>
     );
   }

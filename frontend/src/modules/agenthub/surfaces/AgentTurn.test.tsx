@@ -135,6 +135,28 @@ describe("StepGroup", () => {
     expect(html).not.toContain("internal/agenthub/hook.go");
   });
 
+  it("draws a subagent that did something as a closed toggle over its steps", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "go" },
+      { id: "s", kind: "subagent_spawned", subagent: { id: "a1", name: "Write the handler", task: "Repo: /work\n\nBrief…" } },
+      { id: "n", kind: "agent_message_chunk", text: "I'll start by reading.", messageId: "m-sub", origin: "a1" },
+      { id: "t1", kind: "tool_call", origin: "a1", toolCall: { id: "t1", kind: "read", title: "Read secret-step.lua", status: "completed" } },
+      { id: "t2", kind: "tool_call", origin: "a1", toolCall: { id: "t2", kind: "read", title: "Read b.lua", status: "completed" } },
+      { id: "a", kind: "agent_message_chunk", text: "Done.", messageId: "m-lead" },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+
+    const row = html.match(/<button[^>]*data-testid="agent-subagent"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+    expect(row).toContain('aria-expanded="false"');
+    expect(row).toContain("Write the handler");
+    expect(row).toContain("2 steps");
+    // The brief's first line is not what a row should say.
+    expect(row).not.toContain("Repo: /work");
+    // Its steps and narration are behind the row, not in the lead agent's account.
+    expect(html).not.toContain("secret-step.lua");
+    expect(html).not.toContain("start by reading");
+  });
+
   it("draws a single step as its row alone", () => {
     const html = renderToString(<StepGroup items={[{ id: "t", kind: "agent_thought_chunk", text: "hm" }]} />);
     // "Thought" over a row reading "Thought" was the same word twice.
