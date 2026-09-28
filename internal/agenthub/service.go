@@ -1364,6 +1364,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 // recorder batches its writes anyway — a reload lands within one flush cadence
 // of what the live event said.
 func (s *Service) handleUpdate(ctx context.Context, sessionID string, update json.RawMessage) SessionUpdate {
+	logAgentUpdate(sessionID, update)
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
