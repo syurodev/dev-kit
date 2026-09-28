@@ -344,12 +344,11 @@ function useAppTheme(): "dark" | "light" {
  * circle and a 56px field it was 124 — a sixth of a laptop window spent on the
  * box you type into, covering the transcript it floats over.
  *
- * While a turn runs, a border beam travels the stop button — the control that
- * acts on the running turn, and where the pointer already is after sending.
- * Around the whole composer it was a moving edge around a field nobody is
- * typing in; on the button it points at the one thing you can do. Warm for
- * Claude, matching its mark in the rail; the library stills itself under
- * Reduce Motion.
+ * While a turn runs, a pulsing beam blooms outward around the whole input —
+ * the composer itself, not the send/stop control (the glyph morph there
+ * already says the button changed what it does). Mono, so it reads as system
+ * chrome rather than a per-vendor colour, and follows the app's own
+ * dark/light theme; the library stills itself under Reduce Motion.
  *
  * The glyph morphs between send and stop (morphicons) instead of cutting from
  * one to the other: the button stays where it is and changes what it does, and
@@ -528,6 +527,12 @@ export function AgentComposer({
       : `Ask ${agentName ?? "agent"}…`);
 
   return (
+    <BorderBeam
+      active={isStreaming && !reduce}
+      size="pulse-outside"
+      colorVariant="mono"
+      theme={theme}
+    >
       <div
         role="region"
         aria-label="Agent prompt composer"
@@ -880,35 +885,27 @@ export function AgentComposer({
           ) : null}
           <span className="min-w-0 flex-1" />
           <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
-          <BorderBeam
-            active={isStreaming && !reduce}
-            size="sm"
-            colorVariant={vendorInfo(vendor).beam}
-            theme={theme}
+          {/* Glass, like the surface it sits on: a solid lime disc was the
+              loudest thing in the window at rest, for a button that does
+              nothing until there is something to send. */}
+          <Button
+            type="button"
+            variant="glass"
+            size="icon-sm"
+            disabled={disabled}
+            aria-label={isStreaming ? "Stop generating" : "Send message"}
+            data-testid="composer-send-button"
+            onClick={isStreaming ? onCancel : onSend}
             className="shrink-0 rounded-full"
           >
-            {/* Glass, like the surface it sits on: a solid lime disc was the
-                loudest thing in the window at rest, for a button that does
-                nothing until there is something to send. */}
-            <Button
-              type="button"
-              variant="glass"
-              size="icon-sm"
-              disabled={disabled}
-              aria-label={isStreaming ? "Stop generating" : "Send message"}
-              data-testid="composer-send-button"
-              onClick={isStreaming ? onCancel : onSend}
-              className="rounded-full"
-            >
-              <MorphIcon
-                icon={isStreaming ? Square : ArrowUp}
-                size={14}
-                strokeWidth={2}
-                spring="snappy"
-                reducedMotion="user"
-              />
-            </Button>
-          </BorderBeam>
+            <MorphIcon
+              icon={isStreaming ? Square : ArrowUp}
+              size={14}
+              strokeWidth={2}
+              spring="snappy"
+              reducedMotion="user"
+            />
+          </Button>
         </div>
         {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
             straight after picking the item does not confirm it. */}
@@ -986,5 +983,6 @@ export function AgentComposer({
           </DialogContent>
         </Dialog>
       </div>
+    </BorderBeam>
   );
 }

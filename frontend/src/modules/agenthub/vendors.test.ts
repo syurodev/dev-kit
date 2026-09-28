@@ -34,7 +34,5 @@ describe("vendor table", () => {
   test("names are what the person reads", () => {
     expect(vendorInfo("claude").name).toBe("Claude");
     expect(vendorInfo("codex").name).toBe("Codex");
-    expect(vendorInfo("claude").beam).toBe("sunset");
-    expect(vendorInfo("codex").beam).toBe("ocean");
   });
 });

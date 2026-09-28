@@ -23,8 +23,6 @@ export type VendorInfo = {
   /** The runtime's name in Settings and the install panel. */
   runtimeName: string;
   signIn: VendorSignIn;
-  /** The streaming border's colour — Claude's is warm, like its mark. */
-  beam: "sunset" | "ocean";
 };
 
 export const CLAUDE_INFO: VendorInfo = {
@@ -33,7 +31,6 @@ export const CLAUDE_INFO: VendorInfo = {
   runtimeId: CLAUDE_AGENT,
   runtimeName: "Claude Agent",
   signIn: "terminal",
-  beam: "sunset",
 };
 
 export const CODEX_INFO: VendorInfo = {
@@ -42,7 +39,6 @@ export const CODEX_INFO: VendorInfo = {
   runtimeId: CODEX_AGENT,
   runtimeName: "Codex",
   signIn: "inApp",
-  beam: "ocean",
 };
 
 const KNOWN: Record<string, VendorInfo> = {
@@ -63,5 +59,5 @@ export function vendorInfo(id: string | null | undefined): VendorInfo {
   const known = KNOWN[key.toLowerCase()];
   if (known) return known;
   const name = key ? key.charAt(0).toUpperCase() + key.slice(1) : "Agent";
-  return { id: key, name, runtimeId: "", runtimeName: name, signIn: "none", beam: "ocean" };
+  return { id: key, name, runtimeId: "", runtimeName: name, signIn: "none" };
 }
