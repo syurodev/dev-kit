@@ -862,6 +862,13 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
   transcript as Markdown" — kéo toàn bộ trang, không chỉ cửa sổ đang xem.
 - Composer hỗ trợ file picker/context bounded và paste/drop PNG, JPEG, GIF, WebP
   tối đa 3,75 MiB (5 MiB khi base64: giới hạn mỗi ảnh của Claude trên Bedrock/Vertex; API trực tiếp cho 10 MB, DevKit không biết agent đăng nhập qua đâu nên theo mức thấp). Ảnh được gửi transient như ACP image block, không lưu transcript.
+  Ô nhập tự nó là một Plate editor nhỏ (`AgentComposer.tsx` → `surfaces/composer/`),
+  không còn `<textarea>` thường: gõ `@` giữa câu mở popup tag file inline (chip
+  atomic, cùng cơ chế `attachedFiles`/`onSelectContext` như nút "Add context" —
+  không đổi gì ở backend/ACP), và ` ``` ` tạo code block có syntax highlight
+  ngay trong lúc soạn (tái dùng `CodeBlockKit` của Notes). Nội dung gửi đi vẫn
+  là plain string y hệt gõ tay (`serializeComposerValue`, không qua
+  `editor.api.markdown.serialize` — serializer đó chèn `\` cho soft break).
 - **Sandbox vendor phải tắt khi spawn qua DevKit.** Trên macOS sandbox không
   lồng được (`sandbox_apply: Operation not permitted`, đo 2026-09-05); Claude
   Code `/sandbox` / Codex sandbox bật bên trong jail DevKit làm mọi lệnh bash
