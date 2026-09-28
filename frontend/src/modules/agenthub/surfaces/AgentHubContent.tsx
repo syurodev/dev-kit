@@ -27,13 +27,10 @@ import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
-import { AgentSubagentTracker } from "./AgentSubagentTracker";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentSessionFailure } from "./AgentSessionFailure";
-import { AgentPermissionRequest } from "./AgentPermissionRequest";
-import { AgentQuestionCard } from "./AgentQuestionCard";
-import { PermissionPresence } from "./permissionCard";
+import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
@@ -286,6 +283,42 @@ export function AgentHubContent({
   // component that tests render with fixed items, and a fetch inside it would
   // make every one of those hit the bridge.
   const checkpoints = useSessionCheckpoints(session?.id ?? "");
+  // The composer tray: where this work is, what runs under it, and — one at a
+  // time, in the tray's panel — the permission or question the agent is
+  // waiting on. They used to stack above the composer as separate cards.
+  const tray = useAgentTray({
+    size: "wide",
+    session,
+    projectPath: draft ? draft.projectPath : session?.projectPath ?? "",
+    live: !draft && streaming,
+    items,
+    onOpenFile,
+    // The draft's folder, changeable until the first message fixes it. A
+    // child works where its parent does, so its folder is shown and not
+    // offered.
+    leading:
+      draft && onProjectChange && onChooseProject ? (
+        <ProjectPicker
+          variant="tray"
+          value={draft.projectPath}
+          projects={projects}
+          onChange={onProjectChange}
+          onChooseFolder={onChooseProject}
+          workspace={workspace}
+          onChooseWorkspace={onChooseWorkspace}
+          workspaceSelected={Boolean(draft.workspaceSelected)}
+          disabled={Boolean(draft.parentName)}
+        />
+      ) : undefined,
+    permission:
+      pendingPermission && onResolvePermission
+        ? { pending: pendingPermission, onResolve: onResolvePermission, busy: permissionBusy }
+        : null,
+    question:
+      pendingElicitation && onRespondElicitation
+        ? { pending: pendingElicitation, onRespond: onRespondElicitation, busy: elicitationBusy, error: elicitationError }
+        : null,
+  });
   // Which turn the rewind confirmation is about, and whether the user came in
   // through the pencil. "" means closed; the dialog plans for itself, so
   // nothing is planned for a turn nobody asked about.
@@ -307,14 +340,20 @@ export function AgentHubContent({
   // The floating composer's height, measured, so the transcript can pad its
   // foot by exactly that much. A fixed guess is wrong the moment a file is
   // attached and the composer grows a row of chips.
+  //
+  // Written straight onto the element as a CSS variable, not kept in state:
+  // the composer tray animates its height, and a setState per frame of that
+  // re-rendered this whole view — transcript included — sixty times a second,
+  // which is what made the tray stutter.
   const composerRef = React.useRef<HTMLDivElement>(null);
-  const [composerHeight, setComposerHeight] = React.useState(0);
+  const conversationRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const el = composerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) =>
-      setComposerHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)),
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+      conversationRef.current?.style.setProperty("--composer-inset", `${height}px`);
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, [effectiveState]);
@@ -376,10 +415,11 @@ export function AgentHubContent({
         // call is the evidence for the error.
         <div
           data-testid={isError ? "agent-hub-content-error" : "agent-hub-content-conversation"}
+          ref={conversationRef}
           className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
-          // How much of the transcript's foot the composer covers; the stream
-          // pads by it so the last line of an answer scrolls clear.
-          style={{ "--composer-inset": `${composerHeight}px` } as React.CSSProperties}
+          // How much of the transcript's foot the composer covers (set by the
+          // observer above); the stream pads by it so the last line of an
+          // answer scrolls clear.
         >
           <div className="min-h-0 flex-1 overflow-hidden">
             {draft ? (
@@ -484,76 +524,11 @@ export function AgentHubContent({
               </AgentSessionError>
             </div>
           ) : null}
-          {/* Above the composer, in the same reading column: the request is
-              answered where the conversation that raised it is, and the
-              transcript pads by this whole block (composerRef measures it), so
-              nothing it covers is unreachable. */}
-          <PermissionPresence
-            pendingId={onResolvePermission ? pendingPermission?.id : null}
-            className="pointer-events-auto mx-auto w-full max-w-180"
-          >
-            {pendingPermission && onResolvePermission ? (
-              <div className="pb-3">
-                <AgentPermissionRequest
-                  pending={pendingPermission}
-                  session={session}
-                  onResolve={onResolvePermission}
-                  busy={permissionBusy}
-                  size="wide"
-                />
-              </div>
-            ) : null}
-          </PermissionPresence>
-          {/* The question waits behind a permission rather than beside it: the
-              permission is the one with a clock, and two cards stacked over a
-              composer leave no transcript to read the evidence in. */}
-          <PermissionPresence
-            pendingId={onRespondElicitation && !(pendingPermission && onResolvePermission) ? pendingElicitation?.id : null}
-            className="pointer-events-auto mx-auto w-full max-w-180"
-          >
-            {pendingElicitation && onRespondElicitation ? (
-              // Capped and scrolled: four questions with previews would
-              // otherwise push the composer off the bottom of the window.
-              <div className="max-h-screen-60 overflow-y-auto pb-3">
-                <AgentQuestionCard
-                  pending={pendingElicitation}
-                  session={session}
-                  onRespond={onRespondElicitation}
-                  busy={elicitationBusy}
-                  error={elicitationError}
-                  size="wide"
-                />
-              </div>
-            ) : null}
-          </PermissionPresence>
-          {/* Inside the measured layer, so the transcript pads its foot for it
-              too. See AgentSubagentTracker. */}
-          <AgentSubagentTracker
-            items={items}
-            live={!draft && streaming}
-            onOpenFile={onOpenFile}
-            className="pointer-events-auto mx-auto mb-2 max-w-180"
-          />
-          {/* Where the draft will work, changeable until the first message
-              fixes it. A child works where its parent does, so its folder is
-              shown and not offered. */}
-          {draft && onProjectChange && onChooseProject ? (
-            <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-1 px-2 pb-1">
-              <ProjectPicker
-                value={draft.projectPath}
-                projects={projects}
-                onChange={onProjectChange}
-                onChooseFolder={onChooseProject}
-                workspace={workspace}
-                onChooseWorkspace={onChooseWorkspace}
-                workspaceSelected={Boolean(draft.workspaceSelected)}
-                disabled={Boolean(draft.parentName)}
-              />
-            </div>
-          ) : null}
           <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"
+              trayStrip={tray.strip}
+              trayPanel={tray.panel}
               value={promptValue}
               onChange={onPromptChange}
               onSend={onSend}

@@ -17,13 +17,10 @@ import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionChec
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
-import { AgentPermissionRequest } from "./AgentPermissionRequest";
-import { AgentQuestionCard } from "./AgentQuestionCard";
 import { AgentSessionFailure } from "./AgentSessionFailure";
-import { PermissionPresence } from "./permissionCard";
+import { useAgentTray } from "./composer/agentTray";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { AgentSwarmStrip } from "./AgentSwarmStrip";
-import { AgentSubagentTracker } from "./AgentSubagentTracker";
 import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
@@ -203,10 +200,31 @@ export function AgentRail({
   const isPendingForActiveSession =
     pendingPermission && activeSession && pendingPermission.sessionId === activeSession.id;
   const isQuestionForActiveSession =
-    !isPendingForActiveSession &&
-    pendingElicitation &&
-    activeSession &&
-    pendingElicitation.sessionId === activeSession.id;
+    pendingElicitation && activeSession && pendingElicitation.sessionId === activeSession.id;
+  // The same tray the Hub tab's composer has: the rail has no sidebar and a
+  // 320px transcript, so this is where a subagent working in the background,
+  // a permission or a question shows itself. Icon-only by default here.
+  const tray = useAgentTray({
+    size: "rail",
+    session: activeSession,
+    projectPath: activeSession?.projectPath ?? "",
+    live: streaming,
+    items,
+    onOpenFile,
+    permission:
+      isPendingForActiveSession && pendingPermission
+        ? { pending: pendingPermission, onResolve: onResolvePermission ?? (() => {}), busy: permissionBusy }
+        : null,
+    question:
+      isQuestionForActiveSession && pendingElicitation
+        ? {
+            pending: pendingElicitation,
+            onRespond: onRespondElicitation ?? (() => {}),
+            busy: elicitationBusy,
+            error: elicitationError,
+          }
+        : null,
+  });
 
   return (
     <section
@@ -275,41 +293,6 @@ export function AgentRail({
           data-testid="agent-rail-conversation"
           className="flex flex-1 flex-col min-h-0 min-w-0"
         >
-          {/* Inline Permission Request if pending */}
-          <PermissionPresence
-            pendingId={isPendingForActiveSession ? pendingPermission?.id : null}
-            className="shrink-0"
-          >
-            {isPendingForActiveSession && pendingPermission ? (
-              <div data-testid="rail-inline-permission" className="px-6 pt-2">
-                <AgentPermissionRequest
-                  pending={pendingPermission}
-                  session={activeSession}
-                  onResolve={onResolvePermission ?? (() => {})}
-                  busy={permissionBusy}
-                />
-              </div>
-            ) : null}
-          </PermissionPresence>
-
-          <PermissionPresence
-            pendingId={isQuestionForActiveSession ? pendingElicitation?.id : null}
-            className="shrink-0"
-          >
-            {isQuestionForActiveSession && pendingElicitation ? (
-              <div data-testid="rail-inline-question" className="max-h-screen-60 overflow-y-auto px-6 pt-2">
-                <AgentQuestionCard
-                  pending={pendingElicitation}
-                  session={activeSession}
-                  onRespond={onRespondElicitation ?? (() => {})}
-                  busy={elicitationBusy}
-                  error={elicitationError}
-                  size="rail"
-                />
-              </div>
-            ) : null}
-          </PermissionPresence>
-
           {/* Transcript Area */}
           <div className="flex-1 min-h-0 overflow-hidden">
             <TranscriptStream
@@ -353,9 +336,6 @@ export function AgentRail({
               the synthetic rate-limit one, which carries no actions — a
               vendor failure with a real action (sign-in, retry) needs the
               Hub's own flows for those, not yet threaded through the rail. */}
-          {/* The rail has no sidebar and a 320px transcript: without this, a
-              subagent working in the background had nowhere to show itself. */}
-          <AgentSubagentTracker items={items} live={streaming} onOpenFile={onOpenFile} className="mx-4 mb-1 w-auto" />
 
           {failure ? (
             <div className="px-4 pb-1">
@@ -376,6 +356,8 @@ export function AgentRail({
           <div className="shrink-0 px-4 pt-1">
             <AgentComposer
               size="rail"
+              trayStrip={tray.strip}
+              trayPanel={tray.panel}
               value={promptValue}
               onChange={onPromptChange}
               onSend={onSend}

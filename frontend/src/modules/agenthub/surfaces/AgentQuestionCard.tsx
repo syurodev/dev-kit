@@ -1,13 +1,13 @@
 import type * as React from "react";
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, CircleHelp } from "lucide-react";
 
 import { CodeBlock } from "@/components/code/CodeBlock";
 import { detectLanguage } from "@/components/code/languages";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Questionnaire,
-  QuestionnaireActions,
   QuestionnaireChoice,
   QuestionnaireChoiceDescription,
   QuestionnaireChoices,
@@ -32,7 +32,6 @@ import {
   type ElicitationField,
   type ElicitationForm,
 } from "../elicitation";
-import { PermissionIdentity } from "./permissionCard";
 
 export type AgentQuestionCardProps = {
   pending: PendingElicitation;
@@ -41,36 +40,39 @@ export type AgentQuestionCardProps = {
   busy?: boolean;
   /** Why the last answer did not land, if it did not. */
   error?: string;
-  /** "rail" is always one question at a time; "wide" shows up to two at once. */
+  /** Where it is shown. Both are one question at a time; only the attribute differs. */
   size?: "rail" | "wide";
+  /**
+   * Folds the card down into the composer tray's strip so the transcript can
+   * be read. The agent is still waiting — folding is not an answer.
+   */
+  onMinimize?: () => void;
   className?: string;
 };
 
-/** Two questions fit side by side in the reader's head; three is a form, and a form goes step by step. */
-const ALL_AT_ONCE_MAX = 2;
-
 /**
- * The row of Skip/Previous/Next/Submit buttons, pinned to the bottom of
- * whichever ancestor scrolls this card (both AgentHubContent and AgentRail
- * cap it at max-h-[60vh] and scroll). A long description otherwise fills
- * that box on its own, and the card reads as if it ended with no way to
- * answer — sticky plus the card's own background keeps the way out on
- * screen while the question above it scrolls underneath. The negative
- * margin/matching padding cancel out to the card's own edges (p-3 on rail,
- * px-3 py-3 on wide) so the bar's seam lines up with the card's border.
+ * The step controls, pinned to the bottom of whichever ancestor scrolls this
+ * card (the tray caps its panel and scrolls): a long description otherwise
+ * pushes them below the fold with nothing to say they exist. The negative
+ * margins cancel the card's p-3 so the bar spans it edge to edge, on the
+ * tray's own surface.
  */
-const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 border-t border-border-subtle bg-surface-raised px-3 py-2";
+const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 flex items-center gap-1 bg-surface-base px-3 pt-1 pb-3";
+
+/** A choice as a compact row — the tray has little height to give, and a boxed row per choice spent most of it on borders. */
+const CHOICE = "min-h-8 border-transparent bg-transparent px-2 py-1.5 data-checked:border-transparent";
 
 /**
  * Agent / Question — a question the agent is waiting on (AskUserQuestion, an
- * MCP server's form, the refusal-fallback prompt), asked in the conversation it
- * came out of, the way a permission is.
+ * MCP server's form, the refusal-fallback prompt), asked in the composer tray
+ * of the conversation it came out of, the way a permission is.
  *
- * Reads top-down like the permission card: who is asking (the same identity
- * block, without a clock — a question has no deadline), what they said, then
- * the questions. How the questions are laid out follows how many there are: up
- * to two are shown together with one Submit; three or more go one at a time
- * with Previous / Skip / Next, as does anything in the narrow rail.
+ * One question at a time, always: showing two together read as one form with
+ * two answers, and a stack of them left no transcript to read the reason in.
+ * The top row is what the agent said and where the steps are (2/3); then the
+ * question and its choices as plain rows; then back, skip and next. Who is
+ * asking is in the icon's tooltip — in a session's own tray it is that session,
+ * and the row it took was the tray's to give.
  *
  * There is always a way out that does not require an answer. Skip all declines
  * — the tool runs on with no answers and the turn continues — and a field this
@@ -85,18 +87,15 @@ export function AgentQuestionCard({
   busy = false,
   error,
   size = "wide",
+  onMinimize,
   className,
 }: AgentQuestionCardProps) {
   const form = useMemo(() => parseElicitationForm(pending.params, pending.message), [pending.params, pending.message]);
   const forms = useRef<(HTMLFormElement | null)[]>([]);
-  const stepwise = size === "rail" || form.fields.length > ALL_AT_ONCE_MAX;
-  const wide = size === "wide";
-  // Folded per question, not per card: the next question the agent asks is
-  // new, and arrives open. Folding only hides the form — it stays mounted, so
-  // answers already picked and the step reached are there on unfolding.
-  const [collapsedId, setCollapsedId] = useState<string | null>(null);
-  const collapsed = collapsedId === pending.id;
-  const summary = form.fields[0]?.label || form.message || "Question from the agent";
+  const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
+  const depth = pending.depth ?? session?.depth ?? 0;
+  const askedBy = `Asked by ${agentTitle}${depth > 0 ? ` · subagent, depth ${depth}` : ""}`;
+  const many = form.fields.length > 1;
 
   function submit() {
     if (busy) return;
@@ -123,73 +122,54 @@ export function AgentQuestionCard({
     </Button>
   );
 
+  const header = (progress: React.ReactNode) => (
+    <div className="flex min-w-0 items-start gap-2">
+      <span title={askedBy} className="flex h-5 shrink-0 items-center text-icon-secondary">
+        <CircleHelp className="size-4" aria-label={askedBy} />
+      </span>
+      <p data-testid="question-message" className="line-clamp-3 min-w-0 flex-1 text-body-13 whitespace-pre-wrap text-text-secondary">
+        {form.message || `${agentTitle} is asking`}
+      </p>
+      {progress}
+      {onMinimize ? (
+        <ActionTooltip label="Minimize — read the conversation">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Minimize question"
+            data-testid="question-minimize"
+            onClick={onMinimize}
+            className="shrink-0 text-text-tertiary hover:text-text-primary"
+          >
+            <ChevronDown />
+          </Button>
+        </ActionTooltip>
+      ) : null}
+    </div>
+  );
+
   return (
     <div
       role="group"
       aria-label="Question from the agent"
       data-testid="agent-question-card"
       data-size={size}
-      data-layout={stepwise ? "stepwise" : "all"}
+      data-layout="stepwise"
       data-flavor={form.flavor}
-      className={cn(
-        "flex w-full flex-col rounded-control border border-border-subtle bg-surface-raised",
-        wide ? "gap-3 px-3 py-3" : "gap-3 p-3",
-        className,
-      )}
+      className={cn("flex w-full min-w-0 flex-col gap-2 p-3", className)}
     >
-      <PermissionIdentity
-        pending={pending}
-        session={session}
-        env="open"
-        testIdPrefix="question"
-        trailing={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "Expand question" : "Collapse question"}
-            data-testid="question-collapse"
-            onClick={() => setCollapsedId(collapsed ? null : pending.id)}
-            className="text-text-tertiary hover:text-text-primary"
-          >
-            {collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
-          </Button>
-        }
-      />
-
-      {collapsed ? (
-        // Folded: one line saying what is being asked, and the whole line
-        // unfolds it. The agent is still waiting — folding is not an answer.
-        <button
-          type="button"
-          data-testid="question-collapsed-summary"
-          onClick={() => setCollapsedId(null)}
-          className="-mt-1 flex min-w-0 items-center gap-2 text-left text-caption-11 text-text-tertiary hover:text-text-primary"
-        >
-          <span className="shrink-0">
-            {form.fields.length > 1 ? `${form.fields.length} questions` : "1 question"} waiting
-          </span>
-          <span aria-hidden>·</span>
-          <span className="min-w-0 truncate text-text-secondary">{summary}</span>
-        </button>
-      ) : null}
-
-      <div hidden={collapsed} className="contents">
-      {form.message ? (
-        <p data-testid="question-message" className="text-body-13 whitespace-pre-wrap text-text-primary">
-          {form.message}
-        </p>
-      ) : null}
-
       {form.fields.length === 0 ? (
-        <div className={cn(ACTIONS_BAR, "flex items-center justify-end gap-2")}>
-          {skipAll("Skip")}
-          <Button type="button" size="sm" disabled={busy} data-testid="question-submit" onClick={submit}>
-            Continue
-          </Button>
-        </div>
-      ) : stepwise ? (
+        <>
+          {header(null)}
+          <div className={cn(ACTIONS_BAR, "justify-end")}>
+            {skipAll("Skip")}
+            <Button type="button" size="sm" disabled={busy} data-testid="question-submit" onClick={submit}>
+              Continue
+            </Button>
+          </div>
+        </>
+      ) : (
         <Questionnaire
           key={pending.id}
           ref={(node) => {
@@ -198,67 +178,47 @@ export function AgentQuestionCard({
           shortcuts="numbers"
           onSubmit={onFormSubmit}
           aria-label="Questions"
+          className="gap-2"
         >
-          {form.fields.length > 1 ? <QuestionnaireProgress /> : null}
+          {header(many ? <QuestionnaireProgress className="h-5 shrink-0 leading-5" /> : null)}
           {form.fields.map((field) => (
             <QuestionField key={field.key} field={field} form={form} />
           ))}
-          {/* Sticky to the scroll container the card is shown in (rail and
-              wide both cap it at max-h-[60vh] and scroll): a description long
-              enough to fill that box otherwise pushes Previous/Skip/Next below
-              the fold with nothing to say they exist — the card just looks
-              like it ended without them. */}
-          <div className={ACTIONS_BAR}>
-            {/* One row: Skip all at the far left, the step's own controls at
-                the right. It used to be two — Previous/Skip/Next, then Skip
-                all alone on a second line — which on the first question left
-                an empty Previous column and a whole row for one ghost button.
-                With one question, skipping it and skipping them all are the
+          <div data-testid="question-actions" className={ACTIONS_BAR}>
+            {/* With one question, skipping it and skipping them all are the
                 same click; only the one that declines is kept. */}
-            <QuestionnaireActions className="grid-cols-question-actions">
-              {form.fields.length > 1 ? (
-                <div className="col-start-1 row-start-1 -ml-2 justify-self-start">{skipAll("Skip all")}</div>
-              ) : null}
-              <QuestionnairePrevious disabled={busy} className="col-start-3" />
-              {form.fields.length > 1 ? (
-                <QuestionnaireSkip disabled={busy} className="col-start-4" />
-              ) : (
-                <div className="col-start-4 row-start-1 justify-self-end">{skipAll("Skip")}</div>
-              )}
-              <QuestionnaireNext disabled={busy} className="col-start-5" />
-              <QuestionnaireSubmit disabled={busy} data-testid="question-submit" className="col-start-5" />
-            </QuestionnaireActions>
+            {skipAll(many ? "Skip all" : "Skip")}
+            <span className="flex-1" />
+            <QuestionnairePrevious
+              disabled={busy}
+              size="icon-sm"
+              aria-label="Previous question"
+              className="col-start-auto row-start-auto justify-self-auto"
+            >
+              <ArrowLeft />
+            </QuestionnairePrevious>
+            {many ? (
+              <QuestionnaireSkip disabled={busy} className="col-start-auto row-start-auto justify-self-auto text-text-tertiary">
+                Skip
+              </QuestionnaireSkip>
+            ) : null}
+            <QuestionnaireNext
+              disabled={busy}
+              size="icon-sm"
+              aria-label="Next question"
+              className="col-start-auto row-start-auto justify-self-auto rounded-full"
+            >
+              <ArrowRight />
+            </QuestionnaireNext>
+            <QuestionnaireSubmit
+              disabled={busy}
+              data-testid="question-submit"
+              className="col-start-auto row-start-auto justify-self-auto"
+            />
           </div>
         </Questionnaire>
-      ) : (
-        <>
-          {form.fields.map((field, index) => (
-            // One Root per question: the primitive shows only its active item,
-            // and these are meant to be read together. Enter / ⌘Enter in any of
-            // them submits the lot.
-            <Questionnaire
-              key={`${pending.id}:${field.key}`}
-              ref={(node) => {
-                forms.current[index] = node;
-              }}
-              shortcuts="numbers"
-              onSubmit={onFormSubmit}
-            >
-              <QuestionField field={field} form={form} />
-            </Questionnaire>
-          ))}
-          <div className={cn(ACTIONS_BAR, "flex items-center justify-end gap-2")}>
-            {skipAll("Skip")}
-            <Button type="button" size="sm" disabled={busy} data-testid="question-submit" onClick={submit}>
-              Submit
-            </Button>
-          </div>
-        </>
       )}
 
-      </div>
-
-      {/* Outside the folded part: a failed answer is news even when folded. */}
       {error ? (
         <p role="alert" className="text-caption-11 text-status-danger">
           {error}
@@ -297,11 +257,12 @@ function QuestionField({ field, form }: { field: ElicitationField; form: Elicita
       ) : null}
 
       {field.kind === "single" || field.kind === "multi" || field.kind === "boolean" ? (
-        <QuestionnaireChoices>
+        <QuestionnaireChoices className="gap-0.5">
           {(field.kind === "boolean" ? BOOLEAN_CHOICES : field.choices).map((choice) => (
             <QuestionnaireChoice
               key={choice.value}
               value={choice.value}
+              className={CHOICE}
               onChange={(event) => {
                 if (event.target.checked) setPreview(choice.preview);
                 else if (field.kind === "multi" && preview === choice.preview) setPreview(undefined);

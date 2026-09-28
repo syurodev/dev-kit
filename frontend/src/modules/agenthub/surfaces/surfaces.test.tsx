@@ -1508,7 +1508,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
       expect(html).toContain("data-state=\"Conversation\"");
       expect(html).toContain("Rail Agent");
-      expect(html).toContain("data-testid=\"rail-inline-permission\"");
+      // In the composer tray's panel, over the rail's composer.
+      expect(html).toContain("data-testid=\"composer-tray-panel\"");
+      expect(html).toContain("data-testid=\"agent-permission-request\"");
       expect(html).toContain("Execute shell command");
       // Figma 909:28 fixes the label. The vendor's optionId is what gets sent,
       // but a vendor must not be able to reword the button on a security
@@ -1902,23 +1904,26 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       createdAt: new Date().toISOString(),
     });
 
-    it("shows up to two questions together in the wide card, with one Submit and a Skip", () => {
+    // Two used to be shown together, which read as one form with two answers.
+    it("asks one question at a time even when there are only two, with progress", () => {
       const html = renderToString(<AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} />);
       expect(html).toContain('data-testid="agent-question-card"');
-      expect(html).toContain('data-layout="all"');
-      expect(html).toContain("Asking Agent");
-      expect(html).toContain("Question number 0?");
-      expect(html).toContain("Question number 1?");
-      // One Root per question, because the primitive shows only its active
-      // item. (Which item is active is decided in a layout effect, so a server
-      // render cannot show it; one form each is what makes both visible.)
-      expect(html.match(/data-slot="questionnaire"/g)).toHaveLength(2);
-      expect(html.match(/data-testid="question-other"/g)).toHaveLength(2);
+      expect(html).toContain('data-layout="stepwise"');
+      // Who is asking is on the icon, not a row of its own.
+      expect(html).toContain("Asked by Asking Agent");
+      expect(html.match(/data-slot="questionnaire"/g)).toHaveLength(1);
+      expect(html).toContain('data-slot="questionnaire-progress"');
       expect(html).toContain('data-testid="question-skip-all"');
       expect(html).toContain('data-testid="question-submit"');
-      // A question has no deadline, so the identity block draws no clock.
+      // A question has no deadline, so no clock is drawn.
       expect(html).not.toContain('data-testid="question-seconds"');
-      expect(html).not.toContain("questionnaire-progress");
+    });
+
+    it("has no progress and one Skip for a single question", () => {
+      const html = renderToString(<AgentQuestionCard pending={question(1)} session={session} onRespond={() => {}} />);
+      expect(html).not.toContain('data-slot="questionnaire-progress"');
+      expect(html).toContain(">Skip<");
+      expect(html).not.toContain("Skip all");
     });
 
     it("goes one question at a time from three, with progress and a way to skip everything", () => {
@@ -1931,17 +1936,20 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     // Skip all used to sit alone on a second row under Previous/Skip/Next.
     it("keeps every step control, Skip all included, on one row", () => {
       const html = renderToString(<AgentQuestionCard pending={question(3)} session={session} onRespond={() => {}} />);
-      const actions = html.slice(html.indexOf('data-slot="questionnaire-actions"'));
-      const row = actions.slice(0, actions.indexOf("</div></div>") + 1);
+      const start = html.indexOf('data-testid="question-actions"');
+      const row = html.slice(start, html.indexOf("</div>", html.indexOf('data-slot="questionnaire-submit"', start)));
       expect(row).toContain('data-testid="question-skip-all"');
+      expect(row).toContain('data-slot="questionnaire-previous"');
       expect(row).toContain('data-slot="questionnaire-next"');
     });
 
-    it("can be folded, and starts open", () => {
-      const html = renderToString(<AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} />);
-      expect(html).toContain('data-testid="question-collapse"');
-      expect(html).toContain('aria-expanded="true"');
-      expect(html).not.toContain('data-testid="question-collapsed-summary"');
+    it("can be minimized into the tray's strip when the tray offers it", () => {
+      const withMinimize = renderToString(
+        <AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} onMinimize={() => {}} />,
+      );
+      expect(withMinimize).toContain('data-testid="question-minimize"');
+      const without = renderToString(<AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} />);
+      expect(without).not.toContain('data-testid="question-minimize"');
     });
 
     it("is always stepwise in the rail, even for one question", () => {
@@ -2023,6 +2031,8 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       const both = content(true);
       expect(both).toContain('data-testid="agent-permission-request"');
       expect(both).not.toContain('data-testid="agent-question-card"');
+      // Waiting behind the permission, the question still says it is there.
+      expect(both).toContain('data-testid="tray-question"');
 
       const rail = renderToString(
         <AgentRail
@@ -2036,7 +2046,8 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onRespondElicitation={() => {}}
         />,
       );
-      expect(rail).toContain('data-testid="rail-inline-question"');
+      expect(rail).toContain('data-testid="composer-tray-panel"');
+      expect(rail).toContain('data-testid="agent-question-card"');
       expect(rail).toContain('data-size="rail"');
     });
   });
