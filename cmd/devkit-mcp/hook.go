@@ -76,7 +76,87 @@ func preToolUseDecision(raw []byte) map[string]any {
 	if hit := protectedPathHit(toolName, toolInput); hit != "" {
 		return hookDenyDecision(agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.")
 	}
+	if sub := shellGitWrite(toolName, toolInput); sub != "" {
+		return hookDenyDecision(gitRedirects[sub])
+	}
 	return nil
+}
+
+// gitRedirects is what the agent is told instead of running a git write in
+// the shell. A deny reason is read by the model as the tool's result, so it
+// says what to call rather than only what was refused.
+var gitRedirects = map[string]string{
+	"commit": "DevKit runs git commits itself: stage with mcp__devkit__git_stage and commit with " +
+		"mcp__devkit__git_commit (pass `repo` for another service; mcp__devkit__git_repos lists them). " +
+		"The shell skips the branch guards and the task trailer DevKit applies.",
+	"push": "DevKit pushes for you: use mcp__devkit__git_push. It pushes a branch recorded on a task you " +
+		"hold (mcp__devkit__tasks_setFields) and asks the user where the remote requires it — the shell skips both.",
+}
+
+// shellGitWrite reports which git write a shell command runs — "commit" or
+// "push" — or "".
+//
+// These two are the ones DevKit's prompt says go through its tools, and the
+// prompt alone did not hold: a real session committed with `git commit`
+// against it. They are also the two whose rules a shell bypasses — a guarded
+// branch's confirmation, the task trailer, the push-only-your-task's-branch
+// rule — so refusing them here is enforcing those rules, not a preference.
+// Everything else git does (status, diff, log, add, stash…) stays the
+// agent's to run as it likes.
+//
+// It reads the command the way a person skimming it would: split into simple
+// commands at the shell's separators, each one's leading environment
+// assignments and wrappers (sudo, env, time…) dropped, git's own global
+// options skipped to reach the subcommand. It is not a shell parser and does
+// not try to be — `sh -c "git commit"` or an alias gets through, and the
+// prompt and DevKit's tools are the rule; this is the backstop for the plain
+// spelling, which is what an agent actually writes.
+func shellGitWrite(toolName string, input map[string]any) string {
+	if toolName != "Bash" {
+		return ""
+	}
+	command, _ := input["command"].(string)
+	for _, segment := range shellSegments(command) {
+		if sub := gitSubcommand(strings.Fields(segment)); sub == "commit" || sub == "push" {
+			return sub
+		}
+	}
+	return ""
+}
+
+// shellSegments splits a command line at ; && || | & newlines and the openings
+// of subshells and command substitutions.
+func shellSegments(command string) []string {
+	replacer := strings.NewReplacer("&&", "\n", "||", "\n", ";", "\n", "|", "\n", "&", "\n",
+		"$(", "\n", "(", "\n", ")", "\n", "`", "\n", "{", "\n", "}", "\n")
+	return strings.Split(replacer.Replace(command), "\n")
+}
+
+var shellWrappers = map[string]bool{"sudo": true, "env": true, "command": true, "exec": true, "time": true, "nohup": true, "then": true, "do": true, "else": true}
+
+// gitGlobalOptionsWithValue take the next word as their value.
+var gitGlobalOptionsWithValue = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true, "--exec-path": true}
+
+func gitSubcommand(words []string) string {
+	word := func(i int) string { return strings.Trim(words[i], `"'`) }
+	i := 0
+	// VAR=value and wrappers before the command itself.
+	for i < len(words) && (shellWrappers[word(i)] || (strings.Contains(word(i), "=") && !strings.HasPrefix(word(i), "-"))) {
+		i++
+	}
+	if i == len(words) || filepath.Base(word(i)) != "git" {
+		return ""
+	}
+	for i++; i < len(words); i++ {
+		switch w := word(i); {
+		case gitGlobalOptionsWithValue[w]:
+			i++
+		case strings.HasPrefix(w, "-"):
+		default:
+			return w
+		}
+	}
+	return ""
 }
 
 func hookDenyDecision(reason string) map[string]any {

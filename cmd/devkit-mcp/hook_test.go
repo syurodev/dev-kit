@@ -166,3 +166,46 @@ func TestPreToolUseDecisionAcceptsMaximumPayload(t *testing.T) {
 		t.Fatalf("maximum-size unrelated payload was denied: %v", decision)
 	}
 }
+
+// Git writes in the shell are sent to DevKit's tools; everything else git does
+// is the agent's to run. The first case is the command a real session ran.
+func TestShellGitWriteIsRedirected(t *testing.T) {
+	cases := []struct {
+		command string
+		want    string
+	}{
+		{"cd /home/u/fsap/kong-plugin\ngit commit -F - <<'MSG'\nfeat: x\nMSG", "commit"},
+		{"git add a.lua && git commit -m 'x'", "commit"},
+		{"git -C /w/kong-plugin commit -am x", "commit"},
+		{"GIT_AUTHOR_NAME=x git -c user.email=y commit -m z", "commit"},
+		{"git push origin feature/x", "push"},
+		{"sudo /usr/bin/git push", "push"},
+		{"(cd repo; git push -u origin HEAD)", "push"},
+		{"git status && git diff --stat", ""},
+		{"git log --oneline -5 | head", ""},
+		{"git add -A", ""},
+		{"git commit-tree HEAD^{tree}", ""},
+		{`echo "remember to git commit"`, ""},
+		{`grep -rn "git push" docs/`, ""},
+	}
+	for _, c := range cases {
+		if got := shellGitWrite("Bash", map[string]any{"command": c.command}); got != c.want {
+			t.Errorf("%q = %q, want %q", c.command, got, c.want)
+		}
+	}
+	if shellGitWrite("Read", map[string]any{"command": "git push"}) != "" {
+		t.Error("only Bash runs commands")
+	}
+}
+
+// The deny names the tool to call: a model reads the reason as the result.
+func TestShellGitWriteDenyNamesTheTool(t *testing.T) {
+	decision := preToolUseDecision([]byte(`{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}`))
+	out, _ := decision["hookSpecificOutput"].(map[string]any)
+	if out["permissionDecision"] != "deny" || !strings.Contains(out["permissionDecisionReason"].(string), "mcp__devkit__git_commit") {
+		t.Fatalf("decision = %v", decision)
+	}
+	if preToolUseDecision([]byte(`{"tool_name":"Bash","tool_input":{"command":"git status"}}`)) != nil {
+		t.Fatal("a read-only git command was not left alone")
+	}
+}

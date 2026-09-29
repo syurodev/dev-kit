@@ -145,6 +145,20 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   one turn: the next prompt retires it (`transcript.ts`). `ErrProcessFailed` is for a
   process that actually died.
 
+- **The prompt DevKit appends is rendered per vendor and per session**
+  (`internal/agenthub/devkit_prompt.go`). `{{tool.name}}` placeholders become the names the
+  model actually sees — `mcp__devkit__git_commit` for Claude, DevKit's own name plus a
+  "your host may reformat it" note for Codex — and `TestPromptNamesOnlyRealTools` fails if
+  one names no MCP tool. It says which vendor defaults DevKit replaces (git writes, code
+  structure, saved connections, the task board) and that this takes precedence: the old,
+  descriptive version lost to Claude Code's own prompt every time. `Service.SessionBrief`
+  (`app.AgentSessionBrief`) puts the session's workspace folders and which it may write
+  in the prompt instead of asking the agent to go and look.
+- **Claude's PreToolUse hook refuses `git commit` / `git push` in Bash**
+  (`cmd/devkit-mcp/hook.go`, `shellGitWrite`) with a reason naming the DevKit tool to call:
+  the shell skips branch guards, the task trailer and the push rule. Other git commands
+  are left alone. It reads plain spellings (`-C`, env prefixes, chains), not `sh -c`.
+
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
 and server mode's bridge has no authentication, so a session could approve itself.

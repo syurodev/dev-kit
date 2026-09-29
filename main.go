@@ -544,6 +544,12 @@ func main() {
 	agentSvc.ProtectedPaths = func() []string {
 		return agenthub.ProtectDataDir(dataDir, filepath.Base(runtimesDir))
 	}
+	// The prompt says where each session is — its workspace's folders and
+	// which it may write — so the agent starts from DevKit's view of the
+	// work instead of its shell's.
+	if container.Workspace != nil {
+		agentSvc.SessionBrief = app.AgentSessionBrief(container.Workspace)
+	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —
 	// without this reset, Invoke refuses the sessions with ErrSessionBusy
