@@ -17,12 +17,18 @@ export type ConnectorEdgeData = {
    * whole reason the plan canvas shows labels at all.
    */
   label?: string;
+  /** Off the flow through the hovered card (focus.ts): its label fades with it. */
+  dimmed?: boolean;
+  /** On that flow: drawn in the primary ink, so the chain reads as one line. */
+  lit?: boolean;
 };
 
 export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   const kind = (data as ConnectorEdgeData | undefined)?.kind ?? "call";
   const showLabel = (data as ConnectorEdgeData | undefined)?.showLabel ?? false;
   const label = (data as ConnectorEdgeData | undefined)?.label;
+  const dimmed = (data as ConnectorEdgeData | undefined)?.dimmed ?? false;
+  const lit = (data as ConnectorEdgeData | undefined)?.lit ?? false;
   const dashed = kind === "di";
 
   const [path, labelX, labelY] = getSmoothStepPath({
@@ -37,15 +43,16 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
         path={path}
         markerEnd={markerEnd}
         style={{
-          stroke: "var(--icon-secondary)",
-          strokeWidth: EDGE.strokeWidth,
+          stroke: lit ? "var(--text-primary)" : "var(--icon-secondary)",
+          strokeWidth: lit ? EDGE.strokeWidth + 0.5 : EDGE.strokeWidth,
+          transition: "stroke 150ms, stroke-width 150ms",
           strokeDasharray: dashed ? EDGE.dashArray : undefined,
         }}
       />
       {showLabel && (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan pointer-events-none absolute"
+            className={`nodrag nopan pointer-events-none absolute transition-opacity duration-150${dimmed ? " opacity-15" : ""}`}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             <EdgeLabelPill kind={dashed ? "di" : "call"} title={label}>
