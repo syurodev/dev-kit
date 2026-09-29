@@ -260,7 +260,7 @@ func TestCloseDoesNotWaitForAnOpenInFlight(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not cancel the open's analysis")
 	}
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrNoActiveProject) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrNoActiveProject) {
 		t.Fatalf("after Close = %v, want ErrNoActiveProject", err)
 	}
 }
@@ -380,7 +380,7 @@ func TestRestoreLastProjectReturnsBeforeTheAnalysisFinishes(t *testing.T) {
 		t.Fatalf("root while opening = %q, want %q", next.ProjectRoot(), root)
 	}
 	<-analyzer.entered
-	if _, err := next.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := next.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("queries during the restore = %v, want ErrIndexNotReady", err)
 	}
 	close(analyzer.release)
@@ -403,7 +403,7 @@ func TestPlanAndCommentsWorkWhileTheIndexRefreshes(t *testing.T) {
 	}
 
 	run := svc.prepareReindex(t.Context()) // a re-index is now in flight
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("graph queries must still wait: %v", err)
 	}
 	if err := svc.CommentPlanNode(t.Context(), "pn-1", "use the existing table"); err != nil {

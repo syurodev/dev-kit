@@ -4,7 +4,7 @@ import {
   codeGraphProjectRoot,
   waitForCodeGraphIndexReady,
   openCodeGraphProject,
-  listCodeGraphEndpoints,
+  listCodeGraphEntryPoints,
   getCodeGraphNeighbors,
   getCodeGraphCodeSnippet,
   listCodeGraphFiles,
@@ -14,7 +14,7 @@ import {
   writeCodeGraphFile,
   onCodeGraphIndexUpdated,
   onCodeGraphProjectChanged,
-  type CodeGraphEndpoint,
+  type CodeGraphEntryPoint,
   type CodeGraphSubgraph,
   type CodeGraphSymbolMatch,
 } from "@/bridge/codegraph";
@@ -27,7 +27,7 @@ import {
 } from "@/bridge/codegraphPlan";
 import { errorMessage, toAppError } from "@/bridge/errors";
 import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } from "./codegraphStore";
-import { isNoPlanError, isProjectChangedError } from "./codegraphErrors";
+import { isNoPlanError, isProjectChangedError, isUnsupportedProjectError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -37,7 +37,7 @@ import {
   closeProjectDocuments,
   describeDocument,
   keepTab,
-  openEndpointFlow,
+  openEntryPointFlow,
   openFileDoc,
   openPlanDoc,
   openNodeFlow,
@@ -50,7 +50,7 @@ import { symbolDisplay } from "./sidebar/sidebarModel";
  *
  * Every action that awaits takes a token from codeGraphRequests first and
  * checks it after each await: a response to a request the user has since
- * superseded — a second endpoint clicked, the project switched — is dropped
+ * superseded — a second entry point clicked, the project switched — is dropped
  * rather than painted over the newer answer.
  */
 const set = useCodeGraphStore.getState().set;
@@ -63,12 +63,12 @@ const NEIGHBOR_DEPTH = 3;
  * What the sidebar says after an index.
  *
  * A monorepo indexes as one graph, so without a module count four services
- * look exactly like one project that happens to have a lot of endpoints. Said
+ * look exactly like one project that happens to have a lot of entry points. Said
  * only when there is more than one — "1 module" is noise on the common case.
  */
-export function indexedStatus(moduleCount: number, endpointCount: number): string {
+export function indexedStatus(moduleCount: number, entryCount: number): string {
   const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";
-  return `Indexed. ${modules}${endpointCount} endpoint(s) found.`;
+  return `Indexed. ${modules}${entryCount} entry point(s) found.`;
 }
 
 /**
@@ -171,7 +171,7 @@ function switchProject(root: string) {
   closeProjectDocuments((path) => path in dirty);
   set({
     projectPath: root,
-    endpoints: [],
+    entryPoints: [],
     files: [],
     flows: {},
     buffers: dirty,
@@ -197,6 +197,15 @@ function switchProject(root: string) {
   });
 }
 
+/**
+ * A project no analyzer reads has no entry points, and that tab is where the
+ * sidebar starts: its files are the project, so that is where it lands.
+ * A tab the person chose themselves (the plan) is left alone.
+ */
+function filesTabIfOnEntries(): { activeTab?: "files" } {
+  return snapshot().activeTab === "entries" ? { activeTab: "files" } : {};
+}
+
 export async function reindex(path: string) {
   const sameProject = path === snapshot().projectPath;
   if (!sameProject) switchProject(path);
@@ -206,14 +215,23 @@ export async function reindex(path: string) {
     status: "Indexing…",
     error: "",
     errorCode: "",
-    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true },
+    // unsupported cleared: the open about to run decides it afresh (a build
+    // file may have been added since), and until then the line is "Indexing…".
+    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true, unsupported: false },
   });
   try {
     const detected = await openCodeGraphProject(path);
     if (!current()) return;
-    const list = await listCodeGraphEndpoints();
+    if (detected.unsupported) {
+      // Open for its files, with no graph to ask for: the tree is the whole
+      // of it, and nothing here is an error.
+      set({ entryPoints: [], status: "", ...filesTabIfOnEntries() });
+      await loadFiles();
+      return;
+    }
+    const list = await listCodeGraphEntryPoints();
     if (!current()) return;
-    set({ endpoints: list });
+    set({ entryPoints: list });
     await loadFiles();
     if (!current()) return;
     set({ status: indexedStatus(detected.modules.length, list.length) });
@@ -223,7 +241,7 @@ export async function reindex(path: string) {
     if (!current()) return;
     const failure = toAppError(e);
     set({
-      endpoints: [],
+      entryPoints: [],
       files: [],
       status: "",
       error: failure.message,
@@ -386,15 +404,15 @@ export async function loadFlow(root: string, force = false) {
 
 export type OpenDocOptions = { preview?: boolean; beside?: boolean };
 
-/** An endpoint's call flow, in the preview tab unless told otherwise. */
-export function viewFlow(endpoint: CodeGraphEndpoint, options?: OpenDocOptions) {
-  openEndpointFlow(endpoint, options);
-  void loadFlow(endpoint.entryNode);
+/** An entry point's call flow, in the preview tab unless told otherwise. */
+export function viewFlow(entry: CodeGraphEntryPoint, options?: OpenDocOptions) {
+  openEntryPointFlow(entry, options);
+  void loadFlow(entry.entryNode);
 }
 
 /**
  * A symbol from the sidebar's @ search, drawn as the root of its own graph —
- * a class or method reached without an endpoint in front of it.
+ * a class or method reached without an entry point in front of it.
  */
 export function viewSymbol(match: CodeGraphSymbolMatch, options?: OpenDocOptions) {
   openNodeFlow(match.nodeId, symbolDisplay(match).name, options);
@@ -568,14 +586,27 @@ async function refreshOpenFlows() {
 export async function refreshAfterReindex() {
   const current = begin("refresh");
   try {
-    await waitForCodeGraphIndexReady();
+    let unsupported = false;
+    try {
+      await waitForCodeGraphIndexReady();
+    } catch (e) {
+      if (!isUnsupportedProjectError(e)) throw e;
+      unsupported = true;
+    }
     if (!current()) return;
-    const endpoints = await listCodeGraphEndpoints();
-    if (!current()) return;
-    set({ endpoints, error: "", errorCode: "" });
-    await loadFiles();
-    if (!current()) return;
-    await refreshOpenFlows();
+    if (unsupported) {
+      // A restored or agent-opened project no analyzer reads: its files, and
+      // no graph. The same answer reindex gives, by the other route in.
+      set({ entryPoints: [], error: "", errorCode: "", ...filesTabIfOnEntries() });
+      await loadFiles();
+    } else {
+      const entryPoints = await listCodeGraphEntryPoints();
+      if (!current()) return;
+      set({ entryPoints, error: "", errorCode: "" });
+      await loadFiles();
+      if (!current()) return;
+      await refreshOpenFlows();
+    }
   } catch (e) {
     if (current()) {
       const message = errorMessage(e);

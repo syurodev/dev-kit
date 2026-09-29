@@ -249,8 +249,8 @@ func TestTypeScriptAnalyzerFindsNestRoutes(t *testing.T) {
 		byID[node.ID] = node
 	}
 	routes := map[string]string{}
-	for _, endpoint := range result.Endpoints {
-		routes[endpoint.HTTPMethod+" "+endpoint.Path] = byID[endpoint.EntryNode].Label
+	for _, endpoint := range result.EntryPoints {
+		routes[endpoint.Verb+" "+endpoint.Target] = byID[endpoint.EntryNode].Label
 	}
 
 	for route, want := range map[string]string{
@@ -262,8 +262,8 @@ func TestTypeScriptAnalyzerFindsNestRoutes(t *testing.T) {
 			t.Errorf("%s -> %q, want %q; all: %v", route, routes[route], want, routes)
 		}
 	}
-	if len(result.Endpoints) != 3 {
-		t.Errorf("endpoints = %d, want 3; %v", len(result.Endpoints), routes)
+	if len(result.EntryPoints) != 3 {
+		t.Errorf("endpoints = %d, want 3; %v", len(result.EntryPoints), routes)
 	}
 }
 
@@ -376,8 +376,8 @@ export async function GET() {
 	})
 
 	routes := map[string]bool{}
-	for _, endpoint := range result.Endpoints {
-		routes[endpoint.HTTPMethod+" "+endpoint.Path] = true
+	for _, endpoint := range result.EntryPoints {
+		routes[endpoint.Verb+" "+endpoint.Target] = true
 	}
 	for _, want := range []string{"GET /api/users", "POST /api/users", "GET /api/health"} {
 		if !routes[want] {

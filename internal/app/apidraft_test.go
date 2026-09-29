@@ -11,7 +11,7 @@ import (
 
 func TestDraftPutsEachParameterWhereItBelongs(t *testing.T) {
 	draft := draftFor(
-		codegraph.Endpoint{ID: "e1", HTTPMethod: "post", Path: "/refunds/{id}"},
+		codegraph.EntryPoint{ID: "e1", Verb: "post", Target: "/refunds/{id}"},
 		[]codegraph.Param{
 			{Name: "id", Type: "String", Source: codegraph.ParamSourcePath},
 			{Name: "pageSize", Type: "int", Source: codegraph.ParamSourceQuery, WireName: "page_size"},
@@ -73,19 +73,19 @@ func TestDraftPutsEachParameterWhereItBelongs(t *testing.T) {
 // {} for all of them would read as "the DTO is empty", which is the one thing
 // none of them means.
 func TestDraftSaysWhyThereIsNoBody(t *testing.T) {
-	noTypes := draftFor(codegraph.Endpoint{ID: "e", HTTPMethod: "GET", Path: "/x"},
+	noTypes := draftFor(codegraph.EntryPoint{ID: "e", Verb: "GET", Target: "/x"},
 		[]codegraph.Param{{Name: "conf"}, {Name: "ctx"}})
 	if noTypes.BodyInferred || noTypes.Body != "" || noTypes.Note != apiclient.NoteNoDeclaredTypes {
 		t.Fatalf("a language with no declared types: %+v", noTypes)
 	}
 
-	declaredNone := draftFor(codegraph.Endpoint{ID: "e", HTTPMethod: "GET", Path: "/x"},
+	declaredNone := draftFor(codegraph.EntryPoint{ID: "e", Verb: "GET", Target: "/x"},
 		[]codegraph.Param{{Name: "id", Source: codegraph.ParamSourcePath}})
 	if declaredNone.Note != apiclient.NoteNoBodyDeclared {
 		t.Fatalf("a handler with no body: %+v", declaredNone)
 	}
 
-	unreadable := draftFor(codegraph.Endpoint{ID: "e", HTTPMethod: "POST", Path: "/x"},
+	unreadable := draftFor(codegraph.EntryPoint{ID: "e", Verb: "POST", Target: "/x"},
 		[]codegraph.Param{{Name: "charge", Type: "com.stripe.Charge", Source: codegraph.ParamSourceBody}})
 	if unreadable.BodyInferred || unreadable.Body != "" || unreadable.Note != apiclient.NoteBodyNotReadable {
 		t.Fatalf("a body type outside the project: %+v", unreadable)
@@ -95,8 +95,8 @@ func TestDraftSaysWhyThereIsNoBody(t *testing.T) {
 // A Lua endpoint reaches here with no typed parameters at all, and method and
 // path are still most of what Try in API Client is for.
 func TestDraftFromAnUntypedEndpointStillHasMethodAndPath(t *testing.T) {
-	draft := draftFor(codegraph.Endpoint{
-		ID: "ACCESS · rate-limit", HTTPMethod: "", Path: "/consumers/:username/plugins",
+	draft := draftFor(codegraph.EntryPoint{
+		ID: "ACCESS · rate-limit", Verb: "", Target: "/consumers/:username/plugins",
 	}, nil)
 	if draft.Method != "GET" {
 		t.Fatalf("an endpoint with no method should draft as GET: %q", draft.Method)

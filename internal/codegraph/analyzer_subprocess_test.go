@@ -45,8 +45,8 @@ func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
 	if err := result.Validate(); err != nil {
 		t.Fatalf("analyzer produced an inconsistent graph: %v", err)
 	}
-	if len(result.Endpoints) != 1 || result.Endpoints[0].Path != "/refunds" {
-		t.Fatalf("unexpected endpoints: %+v", result.Endpoints)
+	if len(result.EntryPoints) != 1 || result.EntryPoints[0].Target != "/refunds" {
+		t.Fatalf("unexpected endpoints: %+v", result.EntryPoints)
 	}
 
 	// The analyzer derives file-level dependencies from resolved call edges:

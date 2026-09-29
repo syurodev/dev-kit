@@ -272,8 +272,8 @@ func TestLuaAnalyzerFindsKongEntryPoints(t *testing.T) {
 	for _, node := range result.Nodes {
 		byID[node.ID] = node
 	}
-	for _, endpoint := range result.Endpoints {
-		found[endpoint.HTTPMethod+" "+endpoint.Path] = byID[endpoint.EntryNode].Label
+	for _, endpoint := range result.EntryPoints {
+		found[endpoint.Verb+" "+endpoint.Target] = byID[endpoint.EntryNode].Label
 	}
 
 	// A plugin phase is an entry point with no route of its own: the phase is
@@ -292,8 +292,24 @@ func TestLuaAnalyzerFindsKongEntryPoints(t *testing.T) {
 	if got := found["GET /rate-limit/status"]; got == "" {
 		t.Errorf("expected the Admin API route; endpoints: %v", found)
 	}
+	// What each one is, and what it is listed under. The phases are a plugin's,
+	// in the order Kong runs them; the Admin API is HTTP, under its plugin.
+	byTarget := map[string]EntryPoint{}
+	for _, entry := range result.EntryPoints {
+		byTarget[entry.Verb+" "+entry.Target] = entry
+	}
+	access, log, admin := byTarget["ACCESS rate-limit"], byTarget["LOG rate-limit"], byTarget["GET /rate-limit/status"]
+	if access.Kind != EntryKindPlugin || access.Group != "rate-limit" || access.Owner != "kong.plugins.rate-limit.handler" {
+		t.Errorf("ACCESS = %+v, want a plugin entry under rate-limit", access)
+	}
+	if access.Order == 0 || log.Order <= access.Order {
+		t.Errorf("phase order: ACCESS %d, LOG %d — Kong runs access before log", access.Order, log.Order)
+	}
+	if admin.Kind != EntryKindHTTP || admin.Group != "rate-limit" {
+		t.Errorf("Admin API route = %+v, want http under rate-limit", admin)
+	}
 	// schema.lua declares no entry point and must not invent one.
-	for _, endpoint := range result.Endpoints {
+	for _, endpoint := range result.EntryPoints {
 		if strings.Contains(byID[endpoint.EntryNode].FilePath, "schema.lua") {
 			t.Errorf("schema.lua should declare no endpoint, got %+v", endpoint)
 		}
@@ -444,8 +460,8 @@ return app
 	})
 
 	found := map[string]bool{}
-	for _, endpoint := range result.Endpoints {
-		found[endpoint.HTTPMethod+" "+endpoint.Path] = true
+	for _, endpoint := range result.EntryPoints {
+		found[endpoint.Verb+" "+endpoint.Target] = true
 	}
 	if !found["GET /health"] || !found["POST /orders"] {
 		t.Errorf("expected both Lapis routes, got %v", found)
@@ -531,9 +547,9 @@ func TestLuaAnalyzerIsDeterministic(t *testing.T) {
 			t.Fatalf("node %d differs between runs: %q then %q", i, first.Nodes[i].ID, second.Nodes[i].ID)
 		}
 	}
-	for i := range first.Endpoints {
-		if first.Endpoints[i].ID != second.Endpoints[i].ID {
-			t.Fatalf("endpoint %d differs between runs: %q then %q", i, first.Endpoints[i].ID, second.Endpoints[i].ID)
+	for i := range first.EntryPoints {
+		if first.EntryPoints[i].ID != second.EntryPoints[i].ID {
+			t.Fatalf("endpoint %d differs between runs: %q then %q", i, first.EntryPoints[i].ID, second.EntryPoints[i].ID)
 		}
 	}
 }

@@ -131,12 +131,33 @@ type Edge struct {
 	Kind string `json:"kind"` // "call" | "di"
 }
 
-// Endpoint is one detected HTTP entry point (e.g. a @GetMapping method).
-type Endpoint struct {
-	ID         string `json:"id"`
-	HTTPMethod string `json:"httpMethod"`
-	Path       string `json:"path"`
-	EntryNode  string `json:"entryNode"` // Node.ID of the controller method
+// EntryPoint is where a flow starts because something outside the code calls
+// in. An HTTP route is the common case, not the only one: a Kong plugin phase,
+// a message or event pattern, a gRPC method, a GraphQL field, a WebSocket
+// message and a scheduled job are entry points too, and Kind says which.
+type EntryPoint struct {
+	ID string `json:"id"`
+	// Verb is what the chip says: GET, ACCESS, EVENT, GRPC, CRON…
+	Verb string `json:"verb"`
+	// Target is what the entry point answers to: a URL, a Kong plugin's name,
+	// a message pattern, a gRPC "Service/Method", a schedule.
+	Target    string `json:"target"`
+	EntryNode string `json:"entryNode"` // Node.ID of the handler
+	// Kind is one of the EntryKind* constants.
+	Kind string `json:"kind"`
+	// Service is the top-level bucket in a folder that holds several — the
+	// Java service package. Empty when there is only one.
+	Service string `json:"service"`
+	// Owner identifies what declares the entry point (a class FQN, a module
+	// path) and Group is how it reads as a heading: a class's simple name, a
+	// Kong plugin's name, a Next route. Owner is the key — two classes may
+	// share a simple name.
+	Owner string `json:"owner"`
+	Group string `json:"group"`
+	// Order sorts entry points within a group where order means something:
+	// a Kong plugin's phases, in the order Kong runs them. Zero means none,
+	// and the reader sorts by Target.
+	Order int `json:"order"`
 }
 
 // FlowStep is one hop in an API flow.
@@ -148,10 +169,10 @@ type FlowStep struct {
 	Params   []Param `json:"params"`
 }
 
-// ApiFlow is the full call chain discovered for one endpoint.
+// ApiFlow is the full call chain discovered for one entry point.
 type ApiFlow struct {
-	EndpointID string     `json:"endpointId"`
-	Steps      []FlowStep `json:"steps"`
+	EntryPointID string     `json:"entryPointId"`
+	Steps        []FlowStep `json:"steps"`
 }
 
 // NeighborFilter narrows a GetNeighbors query. Layers, when non-empty,
@@ -332,13 +353,13 @@ type DataFlowTrace struct {
 type AnalysisResult struct {
 	Nodes            []Node           `json:"nodes"`
 	Edges            []Edge           `json:"edges"`
-	Endpoints        []Endpoint       `json:"endpoints"`
+	EntryPoints      []EntryPoint     `json:"entryPoints"`
 	FileDependencies []FileDependency `json:"fileDependencies"`
 	FieldAccesses    []FieldAccess    `json:"fieldAccesses"`
 	CallSites        []CallSite       `json:"callSites"`
 }
 
-// Validate checks internal consistency: every Edge and Endpoint must
+// Validate checks internal consistency: every Edge and EntryPoint must
 // reference a Node.ID that is actually present in Nodes. Catches analyzer
 // bugs at the boundary instead of as a confusing failure three layers later.
 func (r AnalysisResult) Validate() error {
@@ -363,9 +384,9 @@ func (r AnalysisResult) Validate() error {
 			return fmt.Errorf("codegraph: call site references unknown node %q", c.To)
 		}
 	}
-	for _, ep := range r.Endpoints {
+	for _, ep := range r.EntryPoints {
 		if !ids[ep.EntryNode] {
-			return fmt.Errorf("codegraph: endpoint %q references unknown entry node %q", ep.ID, ep.EntryNode)
+			return fmt.Errorf("codegraph: entry point %q references unknown entry node %q", ep.ID, ep.EntryNode)
 		}
 	}
 	return nil
@@ -397,8 +418,8 @@ type Store interface {
 	IndexedAnalyzer(ctx context.Context) (string, error)
 	SetIndexedAnalyzer(ctx context.Context, identity string) error
 	HasIndex(ctx context.Context) (bool, error)
-	ListEndpoints(ctx context.Context) ([]Endpoint, error)
-	GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error)
+	ListEntryPoints(ctx context.Context) ([]EntryPoint, error)
+	GetEntryPoint(ctx context.Context, endpointID string) (EntryPoint, error)
 	GetNode(ctx context.Context, nodeID string) (Node, error)
 	// GetNodes is GetNode for many IDs at once; missing IDs are absent from
 	// the map rather than an error.

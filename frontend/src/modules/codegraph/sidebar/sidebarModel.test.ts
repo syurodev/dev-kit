@@ -1,54 +1,87 @@
 import { describe, expect, it } from "bun:test";
+import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 import {
   classifyIndexError,
-  controllerOf,
-  filterEndpoints,
-  groupEndpoints,
+  filterEntryPoints,
+  groupEntryPoints,
   indexStatusLine,
-  methodsIn,
   planSummary,
   projectLabel,
   relativeTime,
   serviceIndexLine,
+  servicesIn,
   symbolDisplay,
+  verbsIn,
 } from "./sidebarModel";
 
-const ep = (httpMethod: string, path: string, entryNode: string) => ({ id: `${httpMethod} ${path}`, httpMethod, path, entryNode });
+const ep = (verb: string, target: string, over: Partial<CodeGraphEntryPoint> = {}): CodeGraphEntryPoint => ({
+  id: `${verb} ${target}`,
+  verb,
+  target,
+  entryNode: "",
+  kind: "http",
+  service: "",
+  owner: "",
+  group: "",
+  order: 0,
+  ...over,
+});
+const refund = { service: "refund", owner: "com.acme.refund.web.RefundController", group: "RefundController" };
+const refundAdmin = { service: "refund", owner: "com.acme.refund.web.RefundAdminController", group: "RefundAdminController" };
+const order = { service: "order", owner: "com.acme.order.web.OrderController", group: "OrderController" };
 
-const endpoints = [
-  ep("POST", "/refunds", "com.acme.refund.web.RefundController.create(com.acme.refund.RefundRequest)"),
-  ep("GET", "/refunds/{id}", "com.acme.refund.web.RefundController.get(java.lang.String)"),
-  ep("GET", "/admin/refunds", "com.acme.refund.web.RefundAdminController.list()"),
-  ep("DELETE", "/orders/{id}", "com.acme.order.web.OrderController.delete(java.util.UUID)"),
-  ep("GET", "/orders/{id}", "com.acme.order.web.OrderController.get(java.util.UUID)"),
+const java = [
+  ep("POST", "/refunds", refund),
+  ep("GET", "/refunds/{id}", refund),
+  ep("GET", "/admin/refunds", refundAdmin),
+  ep("DELETE", "/orders/{id}", order),
+  ep("GET", "/orders/{id}", order),
 ];
 
-describe("endpoints", () => {
-  it("finds the controller class, parameters and module suffix aside", () => {
-    expect(controllerOf("com.acme.web.UsersController.getUser(java.lang.String)")).toEqual({
-      id: "com.acme.web.UsersController",
-      fqn: "com.acme.web.UsersController",
-      name: "UsersController",
-    });
-    expect(controllerOf("com.acme.Health [orders].check()").name).toBe("Health");
+// A Kong repository: two plugins' phases, and one plugin's Admin API.
+const plugin = (phase: string, name: string, order: number) =>
+  ep(phase, name, { kind: "plugin", owner: `kong.plugins.${name}.handler`, group: name, order });
+const kong = [
+  plugin("LOG", "rate-limit", 15),
+  plugin("ACCESS", "rate-limit", 6),
+  plugin("HEADER_FILTER", "rate-limit", 11),
+  plugin("ACCESS", "auth", 6),
+  ep("GET", "/rate-limit/status", { owner: "kong.plugins.rate-limit.api", group: "rate-limit" }),
+];
+
+describe("entry points", () => {
+  it("groups by service, then by what declares them, in REST order", () => {
+    const [http] = groupEntryPoints(java);
+    expect(http.services.map((s) => [s.label, s.count])).toEqual([["order", 2], ["refund", 3]]);
+    expect(http.services[1].owners.map((o) => o.label)).toEqual(["RefundAdminController", "RefundController"]);
+    expect(http.services[0].owners[0].entries.map((e) => e.verb)).toEqual(["GET", "DELETE"]);
+    expect(servicesIn(java)).toBe(2);
   });
 
-  it("groups by the package segment after the shared prefix, then by controller", () => {
-    const groups = groupEndpoints(endpoints);
-    expect(groups.map((g) => [g.label, g.count])).toEqual([["order", 2], ["refund", 3]]);
-    expect(groups[1].controllers.map((c) => c.name)).toEqual(["RefundAdminController", "RefundController"]);
-    expect(groups[0].controllers[0].endpoints.map((e) => e.httpMethod)).toEqual(["GET", "DELETE"]);
+  it("puts a Kong plugin's phases under it in the order Kong runs them, apart from its Admin API", () => {
+    const groups = groupEntryPoints(kong);
+    expect(groups.map((g) => [g.label, g.count])).toEqual([["HTTP", 1], ["Kong plugins", 4]]);
+    const plugins = groups[1].services[0].owners;
+    expect(plugins.map((o) => o.label)).toEqual(["auth", "rate-limit"]);
+    expect(plugins[1].entries.map((e) => e.verb)).toEqual(["ACCESS", "HEADER_FILTER", "LOG"]);
+    expect(servicesIn(kong)).toBe(0);
   });
 
-  it("puts one package's controllers in a single group", () => {
-    expect(groupEndpoints(endpoints.slice(0, 3))).toHaveLength(1);
+  it("offers a chip per verb present — HTTP first, phases in run order", () => {
+    expect(verbsIn(java)).toEqual(["GET", "POST", "DELETE"]);
+    expect(verbsIn(kong)).toEqual(["GET", "ACCESS", "HEADER_FILTER", "LOG"]);
   });
 
-  it("filters by method chips and by path or controller", () => {
-    expect(methodsIn(endpoints)).toEqual(["GET", "POST", "DELETE"]);
-    expect(filterEndpoints(endpoints, "", new Set(["DELETE"]))).toHaveLength(1);
-    expect(filterEndpoints(endpoints, "admin", new Set())).toHaveLength(1);
-    expect(filterEndpoints(endpoints, "ordercontroller", new Set())).toHaveLength(2);
+  it("filters by verb chips, and by target or what declares it", () => {
+    expect(filterEntryPoints(java, "", new Set(["DELETE"]))).toHaveLength(1);
+    expect(filterEntryPoints(java, "admin", new Set())).toHaveLength(1);
+    expect(filterEntryPoints(java, "ordercontroller", new Set())).toHaveLength(2);
+    expect(filterEntryPoints(kong, "rate", new Set(["ACCESS"]))).toHaveLength(1);
+  });
+
+  it("lists a kind it does not know under its own name, last", () => {
+    const groups = groupEntryPoints([ep("PAGE", "/about", { kind: "page", owner: "app/about", group: "/about" }), ...java]);
+    expect(groups.map((g) => g.label)).toEqual(["HTTP", "page"]);
   });
 });
 
@@ -56,23 +89,31 @@ describe("index status", () => {
   const now = 10_000_000;
   it("says when, how many, and how many services", () => {
     expect(relativeTime(now - 120_000, now)).toBe("2m ago");
-    expect(indexStatusLine({ indexedAt: now - 120_000, indexing: false, error: "" }, { endpoints: 142, services: 3 }, now)).toEqual({
+    expect(indexStatusLine({ indexedAt: now - 120_000, indexing: false, error: "" }, { entryPoints: 142, services: 3 }, now)).toEqual({
       tone: "ok",
-      text: "Indexed 2m ago · 142 endpoints · 3 services",
+      text: "Indexed 2m ago · 142 entry points · 3 services",
     });
   });
 
   it("says which index answers while a reopen refreshes it", () => {
     const refreshing = { indexedAt: now - 3_600_000, indexing: true, error: "", stale: true };
-    expect(indexStatusLine(refreshing, { endpoints: 5, services: 1 }, now)).toEqual({
+    expect(indexStatusLine(refreshing, { entryPoints: 5, services: 1 }, now)).toEqual({
       tone: "busy",
       text: "Refreshing · showing the index from 1h ago",
     });
-    expect(indexStatusLine({ ...refreshing, stale: false }, { endpoints: 5, services: 1 }, now).text).toBe("Indexing…");
+    expect(indexStatusLine({ ...refreshing, stale: false }, { entryPoints: 5, services: 1 }, now).text).toBe("Indexing…");
+  });
+
+  it("labels a project no analyzer reads, even over an optimistic indexing flag", () => {
+    // ProjectHeader forces indexing on while the open that finds this out runs.
+    expect(indexStatusLine({ indexedAt: 0, indexing: true, error: "", unsupported: true }, { entryPoints: 0, services: 1 }, now)).toEqual({
+      tone: "neutral",
+      text: "Not supported · files only",
+    });
   });
 
   it("keeps saying which index is on screen when a run failed", () => {
-    expect(indexStatusLine({ indexedAt: now - 2 * 3_600_000, indexing: false, error: "x" }, { endpoints: 1, services: 1 }, now).text).toBe(
+    expect(indexStatusLine({ indexedAt: now - 2 * 3_600_000, indexing: false, error: "x" }, { entryPoints: 1, services: 1 }, now).text).toBe(
       "Index failed · showing the index from 2h ago",
     );
   });
@@ -151,6 +192,10 @@ describe("serviceIndexLine", () => {
       "Not indexed — analyzer missing",
     );
     expect(serviceIndexLine({ ...base, state: "failed" }, now)?.text).toBe("Index failed");
-    expect(serviceIndexLine({ ...base, state: "unsupported" }, now)?.tone).toBe("failed");
+    // No analyzer for a folder is a label, not a failure: no red dot.
+    expect(serviceIndexLine({ ...base, state: "unsupported" }, now)).toEqual({
+      text: "Not supported · files only",
+      tone: "neutral",
+    });
   });
 });

@@ -6,6 +6,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { getCodeGraphBlastRadius } from "@/bridge/codegraph";
 import { errorMessage } from "@/bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
+import { isUnsupportedProjectError } from "./codegraphErrors";
+import { NOT_SUPPORTED } from "./sidebar/sidebarModel";
 
 type Props = { filePath: string; onOpenFile: (path: string) => void };
 
@@ -58,6 +60,7 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
 }) {
   const [files, setFiles] = useState<string[] | null>(null);
   const [error, setError] = useState("");
+  const [unsupported, setUnsupported] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [visibleCount, setVisibleCount] = useState(100);
   useEffect(() => {
@@ -70,11 +73,21 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
     };
     void getCodeGraphBlastRadius(filePath).then(
       (result) => { if (current()) setFiles(result); },
-      (reason) => { if (current()) setError(errorMessage(reason)); },
+      (reason) => {
+        if (!current()) return;
+        if (isUnsupportedProjectError(reason)) setUnsupported(true);
+        else setError(errorMessage(reason));
+      },
     );
     return () => { active = false; };
   }, [filePath, projectPath, indexedAt, indexing, attempt]);
 
+  // A fact about the project, not a failure: no retry to offer.
+  if (unsupported) return (
+    <p role="status" className="text-body-12 text-text-tertiary">
+      {NOT_SUPPORTED} — no analyzer reads this project, so what depends on this file is unknown.
+    </p>
+  );
   if (error) return (
     <div role="alert" className="flex flex-col items-start gap-2">
       <p className="break-words text-body-12 text-status-danger">{error}</p>

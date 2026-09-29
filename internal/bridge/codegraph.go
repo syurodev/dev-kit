@@ -12,7 +12,7 @@ import (
 // Returning the detection rather than just an error is what lets the UI say
 // how many modules were found. A repository of microservices is the case that
 // needs it: it indexes as one graph, and without a count it is indistinguishable
-// on screen from a single project that happens to have a lot of endpoints.
+// on screen from a single project that happens to have a lot of entry points.
 //
 // ctx is the call's own context: cancelling the frontend's promise cancels it
 // (the same mechanism DBQuery uses), and with it the analysis — an open of a
@@ -70,7 +70,7 @@ func (s *AppService) codeGraphRegistry() *codegraph.Registry {
 	return reg
 }
 
-func (s *AppService) CodeGraphListEndpoints(servicePath string) ([]codegraph.Endpoint, error) {
+func (s *AppService) CodeGraphListEntryPoints(servicePath string) ([]codegraph.EntryPoint, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
 		"service_path": servicePath,
 		"action":       "list_endpoints",
@@ -79,25 +79,25 @@ func (s *AppService) CodeGraphListEndpoints(servicePath string) ([]codegraph.End
 		if err != nil {
 			return nil, err
 		}
-		return svc.ListEndpoints(ctx)
+		return svc.ListEntryPoints(ctx)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.([]codegraph.Endpoint), nil
+	return result.([]codegraph.EntryPoint), nil
 }
 
-func (s *AppService) CodeGraphGetApiFlow(endpointID string, servicePath string) (codegraph.ApiFlow, error) {
+func (s *AppService) CodeGraphGetApiFlow(entryPointID string, servicePath string) (codegraph.ApiFlow, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
 		"service_path": servicePath,
 		"action":       "get_api_flow",
-		"endpoint_id":  endpointID,
+		"endpoint_id":  entryPointID,
 	}, func(ctx context.Context) (any, error) {
 		svc, err := s.codeGraphService(ctx, servicePath)
 		if err != nil {
 			return nil, err
 		}
-		return svc.GetApiFlow(ctx, endpointID)
+		return svc.GetApiFlow(ctx, entryPointID)
 	})
 	if err != nil {
 		return codegraph.ApiFlow{}, err

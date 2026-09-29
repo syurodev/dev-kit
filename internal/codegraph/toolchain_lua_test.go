@@ -156,9 +156,9 @@ func TestAnExplicitAnalyzerBeatsTheRegistry(t *testing.T) {
 	if err := service.OpenProjectDir(context.Background(), root); err != nil {
 		t.Fatalf("OpenProjectDir: %v", err)
 	}
-	endpoints, err := service.ListEndpoints(context.Background())
+	endpoints, err := service.ListEntryPoints(context.Background())
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
 	if len(endpoints) == 0 {
 		t.Error("expected the injected analyzer's result, not the Lua analyzer's")

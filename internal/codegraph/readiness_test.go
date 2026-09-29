@@ -16,7 +16,7 @@ func assertIndexBlocked(t *testing.T, svc *Service) {
 		t.Fatalf("wait returned before analyzer completed: %v", err)
 	}
 	for name, query := range map[string]func() error{
-		"endpoints":    func() error { _, e := svc.ListEndpoints(t.Context()); return e },
+		"endpoints":    func() error { _, e := svc.ListEntryPoints(t.Context()); return e },
 		"symbols":      func() error { _, e := svc.SearchSymbol(t.Context(), "Controller"); return e },
 		"blast radius": func() error { _, e := svc.GetBlastRadius(t.Context(), "Foo.java"); return e },
 		"trace":        func() error { _, e := svc.TraceDataFlow(t.Context(), "class", "clock"); return e },
@@ -83,7 +83,7 @@ func TestCachedStartupWaitsAndKeepsRevisionAcrossRestart(t *testing.T) {
 	if v, err := next.WaitForIndexReady(t.Context()); err != nil || v != 2 {
 		t.Fatalf("revision reset: %d %v", v, err)
 	}
-	endpoints, err := next.ListEndpoints(t.Context())
+	endpoints, err := next.ListEntryPoints(t.Context())
 	if err != nil || len(endpoints) != 0 {
 		t.Fatalf("stale endpoints: %+v %v", endpoints, err)
 	}
@@ -99,7 +99,7 @@ func TestFailedRefreshIsNotReadyAndDoesNotBumpRevision(t *testing.T) {
 	if _, err := svc.WaitForIndexReady(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("false ready after failure: %v", err)
 	}
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("served stale result: %v", err)
 	}
 	if v, err := svc.store.IndexVersion(t.Context()); err != nil || v != 1 {

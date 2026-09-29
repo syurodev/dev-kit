@@ -35,10 +35,11 @@ const (
 	codeOperationCancelled = "operation_cancelled"
 	codeInternalError      = "internal_error"
 	// codeUnsupportedProject is its own code rather than a validation failure
-	// so the UI can tell "you picked the wrong folder" from "analysis broke".
-	// The two need different offers: one is "pick another folder", the other is
-	// "try again", and offering a retry on a folder that will never analyze is
-	// a button that cannot work.
+	// so the UI can tell "no analyzer reads this project" from "analysis
+	// broke". The folder opens for its files either way; a graph query on it
+	// answers with this code, and the UI shows "files only" where it would
+	// otherwise offer a retry — on a folder that will never analyze, a button
+	// that cannot work.
 	codeUnsupportedProject = "unsupported_project"
 	// codeProjectChanged: the CodeGraph project is not the one the caller
 	// thinks is open. Its own code because the UI's answer is to re-read which
@@ -330,7 +331,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 		// from a failed analyze because it is not a failure: the user picked a
 		// folder, and the answer is which kinds of project CodeGraph reads.
 		case errors.Is(err, codegraph.ErrUnsupportedProject):
-			return apperrors.Wrap(codeUnsupportedProject, "No supported project found in that folder. CodeGraph reads Java, Lua and TypeScript projects — pick a folder holding a build file (pom.xml, build.gradle, a .rockspec, tsconfig.json) or Java, Lua or TypeScript sources.", true, codegraph.ErrUnsupportedProject)
+			// No language names: the list grows with every analyzer, and a
+			// message naming the ones that exist read as "this is a Java tool".
+			// The folder itself is fine — it is open for its files.
+			return apperrors.Wrap(codeUnsupportedProject, "CodeGraph has no analyzer for this project's language, so there is no graph to show. Its files, the editor and git status still work.", true, codegraph.ErrUnsupportedProject)
 		case errors.Is(err, codegraph.ErrToolchainIncomplete):
 			return apperrors.Wrap(codeConnectionFailed, "The CodeGraph analyzer cannot run: "+err.Error()+".", true, codegraph.ErrToolchainIncomplete)
 		case errors.Is(err, codegraph.ErrNoPlan):

@@ -20,9 +20,11 @@ func (nilStore) SetIndexedProject(context.Context, string) error    { return nil
 func (nilStore) IndexedAnalyzer(context.Context) (string, error)    { return "", nil }
 func (nilStore) SetIndexedAnalyzer(context.Context, string) error   { return nil }
 func (nilStore) HasIndex(context.Context) (bool, error)             { return false, nil }
-func (nilStore) ListEndpoints(context.Context) ([]Endpoint, error)  { return nil, ErrNoActiveProject }
-func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error) {
-	return Endpoint{}, ErrNoActiveProject
+func (nilStore) ListEntryPoints(context.Context) ([]EntryPoint, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) GetEntryPoint(context.Context, string) (EntryPoint, error) {
+	return EntryPoint{}, ErrNoActiveProject
 }
 func (nilStore) GetNode(context.Context, string) (Node, error) { return Node{}, ErrNoActiveProject }
 func (nilStore) GetNodes(context.Context, []string) (map[string]Node, error) {

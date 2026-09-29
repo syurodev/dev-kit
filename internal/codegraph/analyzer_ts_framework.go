@@ -32,10 +32,12 @@ type tsFramework interface {
 	// (a Nest API beside a Next dashboard), so this is not exclusive.
 	Detect(p *tsProject) bool
 
-	// Endpoints are the entry points one file declares. ID is left empty and
-	// filled in by the analyzer, which is the only thing that can see the
-	// whole project and so the only thing that can make an id unique.
-	Endpoints(p *tsProject, f *tsFile) []Endpoint
+	// EntryPoints are the entry points one file declares, with Kind set. ID
+	// is left empty and filled in by the analyzer, which is the only thing
+	// that can see the whole project and so the only thing that can make an
+	// id unique; Owner and Group may be left empty too, and then read as the
+	// handler's class, or its file when it has none.
+	EntryPoints(p *tsProject, f *tsFile) []EntryPoint
 
 	// Layer classifies one declaration, or returns "" for no opinion — which
 	// is the normal answer, and lets the generic fallback have it.
@@ -238,7 +240,7 @@ func tsPathJoin(parts ...string) string {
 	return "/" + strings.Join(segments, "/")
 }
 
-// tsSortEndpoints keeps the endpoint list stable between two identical runs.
-func tsSortEndpoints(endpoints []Endpoint) {
-	sort.SliceStable(endpoints, func(i, j int) bool { return endpoints[i].ID < endpoints[j].ID })
+// tsSortEntryPoints keeps the list stable between two identical runs.
+func tsSortEntryPoints(entries []EntryPoint) {
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 }

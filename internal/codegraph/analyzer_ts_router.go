@@ -1,7 +1,10 @@
 // internal/codegraph/analyzer_ts_router.go
 package codegraph
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // The Express family: every framework whose routes are registered by CALLING
 // a method on an app or a router.
@@ -38,8 +41,8 @@ var routerMethods = map[string]string{
 	"options": "OPTIONS", "all": "ANY",
 }
 
-func (routerFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
-	var endpoints []Endpoint
+func (routerFramework) EntryPoints(p *tsProject, f *tsFile) []EntryPoint {
+	var entries []EntryPoint
 	for _, call := range f.calls {
 		httpMethod, isRoute := routerMethods[call.Method]
 		if !isRoute {
@@ -48,8 +51,8 @@ func (routerFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
 		// The path is the guard. Every one of these names is a method on
 		// something else too — a Map has get, a cache has all — and a route is
 		// the only one of them whose first argument is a path.
-		path := call.StringArg(0)
-		if !strings.HasPrefix(path, "/") {
+		route := call.StringArg(0)
+		if !strings.HasPrefix(route, "/") {
 			continue
 		}
 		handler := p.handlerFor(f, call)
@@ -59,13 +62,18 @@ func (routerFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
 			// for it would put a symbol in the index that names nothing.
 			continue
 		}
-		endpoints = append(endpoints, Endpoint{
-			HTTPMethod: httpMethod,
-			Path:       path,
-			EntryNode:  handler.nodeID,
+		entries = append(entries, EntryPoint{
+			Verb:      httpMethod,
+			Target:    route,
+			EntryNode: handler.nodeID,
+			Kind:      EntryKindHTTP,
+			// The file that registers the route is its heading. The handler's
+			// own class, when it has one, is a detail of how it is written.
+			Owner: f.module,
+			Group: path.Base(f.rel),
 		})
 	}
-	return endpoints
+	return entries
 }
 
 // Layer: a file that registers routes is where this project is entered.

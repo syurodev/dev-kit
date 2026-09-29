@@ -121,8 +121,8 @@ type CodeGraphAPI interface {
 	// desktop app itself uses, so MCP and the UI share one index per project.
 	OpenProjectDir(ctx context.Context, projectPath string) error
 	ActiveDetection() codegraph.DetectedProject
-	ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error)
-	GetApiFlow(ctx context.Context, endpointID string) (codegraph.ApiFlow, error)
+	ListEntryPoints(ctx context.Context) ([]codegraph.EntryPoint, error)
+	GetApiFlow(ctx context.Context, entryPointID string) (codegraph.ApiFlow, error)
 	SearchSymbol(ctx context.Context, query string) ([]codegraph.SymbolMatch, error)
 	ListFiles(ctx context.Context) ([]codegraph.FileEntry, error)
 	ReadFile(ctx context.Context, relativePath string) (string, error)

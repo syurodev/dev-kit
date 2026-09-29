@@ -98,8 +98,8 @@ func nestRoleOf(class *tsDecl) nestRole {
 	return role
 }
 
-func (nestFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
-	var endpoints []Endpoint
+func (nestFramework) EntryPoints(p *tsProject, f *tsFile) []EntryPoint {
+	var entries []EntryPoint
 	for _, class := range f.decls {
 		if class.kind != "class" || class.owner != nil {
 			continue
@@ -109,17 +109,17 @@ func (nestFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
 			if method.owner != class {
 				continue
 			}
-			endpoints = append(endpoints, nestEntryPoints(role, class, method)...)
+			entries = append(entries, nestEntryPoints(role, class, method)...)
 		}
 	}
-	return endpoints
+	return entries
 }
 
 // nestEntryPoints is every entry point one method declares.
-func nestEntryPoints(role nestRole, class, method *tsDecl) []Endpoint {
-	var endpoints []Endpoint
-	add := func(kind, path string) {
-		endpoints = append(endpoints, Endpoint{HTTPMethod: kind, Path: path, EntryNode: method.nodeID})
+func nestEntryPoints(role nestRole, class, method *tsDecl) []EntryPoint {
+	var entries []EntryPoint
+	add := func(verb, target string) {
+		entries = append(entries, EntryPoint{Verb: verb, Target: target, EntryNode: method.nodeID, Kind: nestKindOf(verb)})
 	}
 
 	for _, decorator := range method.decorators {
@@ -154,7 +154,30 @@ func nestEntryPoints(role nestRole, class, method *tsDecl) []Endpoint {
 			add(nestScheduleDecorators[decorator.Name], nestScheduleName(decorator, class, method))
 		}
 	}
-	return endpoints
+	return entries
+}
+
+// nestKindOf is the kind each verb nestEntryPoints reports belongs to.
+func nestKindOf(verb string) string {
+	switch verb {
+	case "MESSAGE", "EVENT":
+		return EntryKindMessage
+	case "GRPC":
+		return EntryKindRPC
+	case "SOCKET":
+		return EntryKindSocket
+	}
+	for _, v := range nestGraphQLDecorators {
+		if v == verb {
+			return EntryKindGraphQL
+		}
+	}
+	for _, v := range nestScheduleDecorators {
+		if v == verb {
+			return EntryKindSchedule
+		}
+	}
+	return EntryKindHTTP
 }
 
 // nestPatternName is what to show beside an entry point that has no URL: the

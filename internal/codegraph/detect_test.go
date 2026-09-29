@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -100,10 +102,14 @@ func TestDetectRefusesAFolderWithNothingInIt(t *testing.T) {
 	}
 }
 
+type refusingAnalyzer struct{ t *testing.T }
+
+func (a refusingAnalyzer) Analyze(context.Context, string) (AnalysisResult, error) {
+	a.t.Error("the analyzer ran on a folder no toolchain recognised")
+	return AnalysisResult{}, nil
+}
+
 func TestDetectProjectRefusesWhenNoToolchainRecognisesTheFolder(t *testing.T) {
-	// The whole point: refusing here means never starting a subprocess to walk
-	// a stranger's Downloads folder and report the empty result as an empty
-	// project.
 	service := NewService(nilStore{}, NewSubprocessAnalyzer())
 	service.SetToolchains([]Toolchain{markerToolchain()})
 
@@ -113,8 +119,55 @@ func TestDetectProjectRefusesWhenNoToolchainRecognisesTheFolder(t *testing.T) {
 	if _, err := service.DetectProject(root); !errors.Is(err, ErrUnsupportedProject) {
 		t.Fatalf("expected ErrUnsupportedProject, got %v", err)
 	}
-	if err := service.OpenProject(context.Background(), root); !errors.Is(err, ErrUnsupportedProject) {
-		t.Fatalf("OpenProject must refuse before analyzing, got %v", err)
+}
+
+func TestOpenProjectBrowsesAFolderNoToolchainRecognises(t *testing.T) {
+	// A Terraform or Helm repository is somebody's real project. It opens for
+	// its files — and still never starts an analyzer, which was the point of
+	// refusing it before: no subprocess walks a folder that is not code.
+	service := NewService(nilStore{}, refusingAnalyzer{t})
+	service.SetToolchains([]Toolchain{markerToolchain()})
+
+	root := t.TempDir()
+	write(t, root, "main.tf", `resource "null_resource" "x" {}`)
+	write(t, root, "charts/api/values.yaml", "replicas: 2")
+
+	ctx := context.Background()
+	if err := service.OpenProject(ctx, root); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if got := service.ProjectRoot(); got != root {
+		t.Fatalf("ProjectRoot = %q, want %q", got, root)
+	}
+
+	files, err := service.ListFiles(ctx)
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	if !slices.Contains(paths, "main.tf") || !slices.Contains(paths, "charts/api/values.yaml") {
+		t.Fatalf("files = %v, want the folder's files", paths)
+	}
+	if text, err := service.ReadFile(ctx, "main.tf"); err != nil || !strings.Contains(text, "null_resource") {
+		t.Fatalf("ReadFile = %q, %v", text, err)
+	}
+
+	info, err := service.IndexInfo(ctx)
+	if err != nil {
+		t.Fatalf("IndexInfo: %v", err)
+	}
+	if !info.Unsupported || info.Error != "" || info.Indexing {
+		t.Fatalf("IndexInfo = %+v, want unsupported with no error and nothing running", info)
+	}
+	// A reason, not an empty graph an agent would read as "no endpoints here".
+	if _, err := service.WaitForIndexReady(ctx); !errors.Is(err, ErrUnsupportedProject) {
+		t.Fatalf("WaitForIndexReady = %v, want ErrUnsupportedProject", err)
+	}
+	if _, err := service.ListEntryPoints(ctx); !errors.Is(err, ErrUnsupportedProject) {
+		t.Fatalf("ListEntryPoints = %v, want ErrUnsupportedProject", err)
 	}
 }
 

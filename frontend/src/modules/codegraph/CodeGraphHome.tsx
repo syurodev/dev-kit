@@ -1,4 +1,4 @@
-import { FolderSearch, GitFork, RotateCcw, TriangleAlert } from "lucide-react";
+import { FolderOpen, FolderSearch, GitFork, RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CraftButton, CraftButtonIcon, CraftButtonLabel } from "@/components/ui/craft-button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -8,6 +8,7 @@ import { blockingAnalyzers } from "./analyzerGate";
 import { useCodeGraphStore } from "./codegraphStore";
 import { loadAnalyzerStatus, pickAndOpenProject, reindex } from "./codegraphActions";
 import { useProjectReady } from "./useDocument";
+import { NOT_SUPPORTED } from "./sidebar/sidebarModel";
 
 const snapshot = () => useCodeGraphStore.getState();
 
@@ -40,7 +41,8 @@ export function CodeGraphHome() {
   const busy = useCodeGraphStore((s) => s.busy || s.status.startsWith("Indexing"));
   const error = useCodeGraphStore((s) => s.error);
   const errorCode = useCodeGraphStore((s) => s.errorCode);
-  const endpointCount = useCodeGraphStore((s) => s.endpoints.length);
+  const entryCount = useCodeGraphStore((s) => s.entryPoints.length);
+  const unsupported = useCodeGraphStore((s) => s.indexInfo?.unsupported ?? false);
   const analyzerStatuses = useCodeGraphStore((s) => s.analyzerStatuses);
   // What the open project turned out to be written in, "" until the first
   // index answers (and for a project whose open failed before detection).
@@ -58,18 +60,27 @@ export function CodeGraphHome() {
       <EmptyState
         busy
         title="Analyzing codebase"
-        body="Indexing controllers, services and repositories. Endpoints appear in the sidebar when it finishes."
+        body="Indexing controllers, services and repositories. Entry points appear in the sidebar when it finishes."
       />
     );
   }
 
-  if (error && errorCode === "unsupported_project") {
-    // Nothing was analyzed and nothing is wrong with the analyzer — the
-    // folder simply is not a project. A retry here would be a button that
-    // cannot work; the only useful move is choosing somewhere else.
+  if (projectPath && (unsupported || errorCode === "unsupported_project")) {
+    // Not an error, so none of an error's clothes: no danger tone, no retry
+    // (it could never work) and no "choose another folder" (this one is
+    // fine). A Terraform or Helm repository is a project; CodeGraph just has
+    // no graph of it. What it does have is in the sidebar.
     return (
-      <EmptyState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
-        <Button onClick={pickAndOpenProject}>Choose another folder…</Button>
+      <EmptyState
+        icon={FolderOpen}
+        title={NOT_SUPPORTED}
+        body="CodeGraph has no analyzer for this project's language, so there is no graph to draw. Its files are in the sidebar — open one to read or edit it."
+      >
+        <ul className="flex w-64 flex-col gap-2">
+          <Hint keys="Click">Preview a file in this tab</Hint>
+          <Hint keys="Double-click">Keep it open</Hint>
+          <Hint keys={`${modKey()}-click`}>Open beside</Hint>
+        </ul>
       </EmptyState>
     );
   }
@@ -107,10 +118,10 @@ export function CodeGraphHome() {
   return (
     <EmptyState
       icon={GitFork}
-      title={endpointCount > 0 ? "Pick an endpoint to graph" : "No endpoints in this project"}
+      title={entryCount > 0 ? "Pick an entry point to graph" : "No entry points in this project"}
       body={
-        endpointCount > 0
-          ? "Each route, file and the plan opens as a tab of its own — keep a flow beside the code it passes through."
+        entryCount > 0
+          ? "Each entry point, file and the plan opens as a tab of its own — keep a flow beside the code it passes through."
           : "Type @ in the sidebar's search to graph any class or method instead."
       }
     >

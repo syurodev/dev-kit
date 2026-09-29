@@ -36,6 +36,10 @@ type IndexInfo struct {
 	Language string `json:"language"`
 	// Branch is the checked-out git branch, "" outside a work tree.
 	Branch string `json:"branch"`
+	// Unsupported is true when no analyzer recognised the project: it is open
+	// for its files — the tree, the editor, git status — and has no graph.
+	// Not an Error: nothing failed, and the UI must not offer a retry.
+	Unsupported bool `json:"unsupported"`
 }
 
 // IndexInfo reports the active project's index state. It needs the store open,
@@ -43,10 +47,11 @@ type IndexInfo struct {
 func (s *Service) IndexInfo(ctx context.Context) (IndexInfo, error) {
 	s.mu.RLock()
 	info := IndexInfo{
-		Indexing: s.index.busy(),
-		Stale:    s.index.stale,
-		Modules:  append([]string(nil), s.detected.Modules...),
-		Language: s.detected.Language,
+		Indexing:    s.index.busy(),
+		Stale:       s.index.stale,
+		Modules:     append([]string(nil), s.detected.Modules...),
+		Language:    s.detected.Language,
+		Unsupported: s.index.unsupported,
 	}
 	if s.index.err != nil {
 		info.Error = s.index.err.Error()

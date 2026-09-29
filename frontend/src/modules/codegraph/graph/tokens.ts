@@ -26,8 +26,8 @@ export function layerOf(raw: string): Layer {
  * on-accent text. Reads the same in the sidebar rows and the canvas header,
  * which is the point of a chip.
  */
-export function methodChipClass(method: string): string {
-  switch (method.toUpperCase()) {
+export function verbChipClass(verb: string): string {
+  switch (verb.toUpperCase()) {
     case "GET":
       return "bg-status-info text-action-primary-foreground";
     case "POST":

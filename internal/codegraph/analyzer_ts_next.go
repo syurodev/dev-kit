@@ -33,23 +33,28 @@ var nextRouteExports = map[string]bool{
 	"DELETE": true, "HEAD": true, "OPTIONS": true,
 }
 
-func (nextFramework) Endpoints(p *tsProject, f *tsFile) []Endpoint {
+func (nextFramework) EntryPoints(p *tsProject, f *tsFile) []EntryPoint {
 	route, ok := nextRoutePath(f.rel)
 	if !ok {
 		return nil
 	}
-	var endpoints []Endpoint
+	var entries []EntryPoint
 	for _, decl := range f.decls {
 		if decl.owner != nil || decl.kind != "method" || !nextRouteExports[decl.name] {
 			continue
 		}
-		endpoints = append(endpoints, Endpoint{
-			HTTPMethod: decl.name,
-			Path:       route,
-			EntryNode:  decl.nodeID,
+		entries = append(entries, EntryPoint{
+			Verb:      decl.name,
+			Target:    route,
+			EntryNode: decl.nodeID,
+			Kind:      EntryKindHTTP,
+			// A route file IS the grouping: GET and POST of /api/users sit
+			// under the route they share, not under "route.ts".
+			Owner: f.module,
+			Group: route,
 		})
 	}
-	return endpoints
+	return entries
 }
 
 func (nextFramework) Layer(p *tsProject, f *tsFile, d *tsDecl) string {

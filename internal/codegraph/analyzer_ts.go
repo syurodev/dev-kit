@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -166,7 +167,7 @@ func (a *tsAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisR
 	if err := tsEmitCalls(ctx, conn, project, &result); err != nil {
 		return AnalysisResult{}, err
 	}
-	tsSortEndpoints(result.Endpoints)
+	tsSortEntryPoints(result.EntryPoints)
 	return result, nil
 }
 
@@ -619,9 +620,10 @@ func tsApplyFrameworks(p *tsProject, result *AnalysisResult) {
 	used := map[string]bool{}
 	for _, file := range p.files {
 		for _, framework := range active {
-			for _, endpoint := range framework.Endpoints(p, file) {
-				endpoint.ID = luaEndpointID(endpoint.HTTPMethod+" "+endpoint.Path, file.module, used)
-				result.Endpoints = append(result.Endpoints, endpoint)
+			for _, entry := range framework.EntryPoints(p, file) {
+				entry.ID = luaEntryPointID(entry.Verb+" "+entry.Target, file.module, used)
+				tsOwnEntryPoint(&entry, file)
+				result.EntryPoints = append(result.EntryPoints, entry)
 			}
 			result.Edges = append(result.Edges, framework.Edges(p, file)...)
 		}
@@ -629,6 +631,31 @@ func tsApplyFrameworks(p *tsProject, result *AnalysisResult) {
 			decl.layer = tsLayerFor(active, p, file, decl)
 		}
 	}
+}
+
+// tsOwnEntryPoint says what declares an entry point, when its framework did
+// not: the handler's class — `UsersController` — or, for a function outside
+// any class, its file. Node ids cannot be cut at a dot here the way a Java
+// one can, because a module path has dots of its own (`users.controller`).
+func tsOwnEntryPoint(entry *EntryPoint, file *tsFile) {
+	if entry.Owner != "" {
+		return
+	}
+	for _, decl := range file.decls {
+		if decl.nodeID != entry.EntryNode {
+			continue
+		}
+		if decl.kind == "class" {
+			entry.Owner, entry.Group = decl.label, decl.name
+			return
+		}
+		if decl.owner != nil {
+			entry.Owner, entry.Group = decl.owner.label, decl.owner.name
+			return
+		}
+		break
+	}
+	entry.Owner, entry.Group = file.module, path.Base(file.rel)
 }
 
 // tsLayerFor asks each framework in turn and takes the first opinion, falling

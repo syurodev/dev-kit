@@ -830,8 +830,8 @@ export function CodeGraphFindReferences(filePath: string, line: number, identifi
     return $Call.ByID(1051923404, filePath, line, identifier, servicePath);
 }
 
-export function CodeGraphGetApiFlow(endpointID: string, servicePath: string): $CancellablePromise<codegraph$0.ApiFlow> {
-    return $Call.ByID(3432526133, endpointID, servicePath);
+export function CodeGraphGetApiFlow(entryPointID: string, servicePath: string): $CancellablePromise<codegraph$0.ApiFlow> {
+    return $Call.ByID(3432526133, entryPointID, servicePath);
 }
 
 export function CodeGraphGetBlastRadius(filePath: string, servicePath: string): $CancellablePromise<string[] | null> {
@@ -871,8 +871,8 @@ export function CodeGraphIndexInfo(servicePath: string): $CancellablePromise<cod
     return $Call.ByID(1381036455, servicePath);
 }
 
-export function CodeGraphListEndpoints(servicePath: string): $CancellablePromise<codegraph$0.Endpoint[] | null> {
-    return $Call.ByID(1712846729, servicePath);
+export function CodeGraphListEntryPoints(servicePath: string): $CancellablePromise<codegraph$0.EntryPoint[] | null> {
+    return $Call.ByID(1106464996, servicePath);
 }
 
 export function CodeGraphListFields(nodeID: string, servicePath: string): $CancellablePromise<codegraph$0.FieldRef[] | null> {
@@ -893,7 +893,7 @@ export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellableP
  * Returning the detection rather than just an error is what lets the UI say
  * how many modules were found. A repository of microservices is the case that
  * needs it: it indexes as one graph, and without a count it is indistinguishable
- * on screen from a single project that happens to have a lot of endpoints.
+ * on screen from a single project that happens to have a lot of entry points.
  * 
  * ctx is the call's own context: cancelling the frontend's promise cancels it
  * (the same mechanism DBQuery uses), and with it the analysis — an open of a

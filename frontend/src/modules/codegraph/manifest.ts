@@ -4,7 +4,7 @@ import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { parseApiFlow } from "./apiFlowResult";
-import { parseEndpointMatches, parseSymbolMatches } from "./searchResult";
+import { parseEntryPointMatches, parseSymbolMatches } from "./searchResult";
 
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
@@ -39,7 +39,7 @@ export const codegraphModule: ModuleManifest = {
     },
   ],
   // The rail belongs to the module, not to whichever document is open: a
-  // file tab and no flow still needs its endpoints.
+  // file tab and no flow still needs its entry points.
   sidebar: lazy(() => import("./CodeGraphSidebar").then(({ CodeGraphSidebar }) => ({ default: CodeGraphSidebar }))),
   views: [
     {
@@ -67,7 +67,7 @@ export const codegraphModule: ModuleManifest = {
     },
   ],
   paletteSearch: {
-    noun: "endpoints, files and symbols",
+    noun: "entry points, files and symbols",
     search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
   },
 };
@@ -87,7 +87,9 @@ registerIntent("codegraph.reveal", async (ref, { placement }) => {
       return;
     case "endpoint": {
       const { useCodeGraphStore } = await import("./codegraphStore");
-      const ep = useCodeGraphStore.getState().endpoints.find((e) => e.id === ref.id);
+      // "endpoint" is the ref kind agents and saved transcripts use for any
+      // entry point, HTTP or not.
+      const ep = useCodeGraphStore.getState().entryPoints.find((e) => e.id === ref.id);
       if (ep) actions.viewFlow(ep, { preview: false, beside });
       return;
     }
@@ -116,7 +118,7 @@ registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
   return createElement(
     Suspense,
     { fallback: null },
-    createElement(LazyApiFlowResultCard, { flow: parsed.flow, endpointId: parsed.endpointId }),
+    createElement(LazyApiFlowResultCard, { flow: parsed.flow, entryPointId: parsed.entryPointId }),
   );
 });
 
@@ -134,11 +136,11 @@ registerToolResultView("codegraph.searchSymbol", ({ rawOutput }) => {
   return createElement(Suspense, { fallback: null }, createElement(LazySymbolMatchResultCard, { matches }));
 });
 
-const LazyEndpointListResultCard = lazy(() =>
-  import("./EndpointListResultCard").then(({ EndpointListResultCard }) => ({ default: EndpointListResultCard })),
+const LazyEntryPointListResultCard = lazy(() =>
+  import("./EntryPointListResultCard").then(({ EntryPointListResultCard }) => ({ default: EntryPointListResultCard })),
 );
 registerToolResultView("codegraph.listEndpoints", ({ rawOutput }) => {
-  const endpoints = parseEndpointMatches(rawOutput);
-  if (!endpoints) return null;
-  return createElement(Suspense, { fallback: null }, createElement(LazyEndpointListResultCard, { endpoints }));
+  const entries = parseEntryPointMatches(rawOutput);
+  if (!entries) return null;
+  return createElement(Suspense, { fallback: null }, createElement(LazyEntryPointListResultCard, { entries }));
 });
