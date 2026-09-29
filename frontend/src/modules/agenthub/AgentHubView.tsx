@@ -324,7 +324,12 @@ export function AgentHubView() {
   const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Record<string, AgentContextFile[]>>({});
 
-  const [busy, setBusy] = useState(false);
+  // Per session: a turn's invoke resolves only when the turn ends, so one
+  // flag for the whole view left every other tab showing Stop and queueing
+  // what was typed there until that one turn finished.
+  const [sendingBySession, setSendingBySession] = useState<Record<string, boolean>>({});
+  // Creating a session from the draft; the draft's own Send waits on it.
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
@@ -333,6 +338,17 @@ export function AgentHubView() {
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
     [sessions, activeSessionId],
   );
+  const activeSending = activeSession ? Boolean(sendingBySession[activeSession.id]) : false;
+
+  function setSending(sessionId: string, sending: boolean) {
+    setSendingBySession((prev) => {
+      if (Boolean(prev[sessionId]) === sending) return prev;
+      const next = { ...prev };
+      if (sending) next[sessionId] = true;
+      else delete next[sessionId];
+      return next;
+    });
+  }
 
   // A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive
   // 2) leaves its refs here rather than reaching into this component
@@ -490,7 +506,7 @@ export function AgentHubView() {
   }
 
   async function handleCreateSession(params: CreateParams) {
-    setBusy(true);
+    setCreating(true);
     setError("");
     setErrorReason("");
     setErrorCause(undefined);
@@ -551,7 +567,7 @@ export function AgentHubView() {
         setSandboxHint(sandboxUnavailableMessage());
       }
     } finally {
-      setBusy(false);
+      setCreating(false);
     }
   }
 
@@ -748,6 +764,7 @@ export function AgentHubView() {
     const attachedImages = retry ? retry.images : images[session.id] ?? [];
     const attachedRefs = retry ? retry.refs : refs[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
+    const busy = Boolean(sendingBySession[session.id]);
     // A prompt with attachments and no words is a turn: "look at these".
     if (!text && attached.length === 0 && attachedImages.length === 0 && attachedRefs.length === 0) return;
     // While the agent is working, a message goes INTO the turn rather than
@@ -779,7 +796,7 @@ export function AgentHubView() {
     if (!retry) setPrompt(session.id, "");
     const turn = { sessionId: session.id, text, attachments: attached, images: attachedImages, refs: attachedRefs };
     lastTurn.current = turn;
-    setBusy(true);
+    setSending(session.id, true);
     setError("");
     setAuthRetry(null);
     try {
@@ -795,7 +812,7 @@ export function AgentHubView() {
       reportError(e);
       if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
     } finally {
-      setBusy(false);
+      setSending(session.id, false);
     }
   }
 
@@ -1104,7 +1121,7 @@ export function AgentHubView() {
               setAuthRetry(null);
             }}
             draftNotice={draftNotice}
-            sendDisabled={draft ? busy || draftBlocked : false}
+            sendDisabled={draft ? creating || draftBlocked : false}
             promptValue={draft ? draftPrompt : activePrompt}
             onPromptChange={(val) => {
               if (draft) setDraftPrompt(val);
@@ -1149,7 +1166,9 @@ export function AgentHubView() {
                 void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [], images: [], refs: [] });
               }
             }}
-            streaming={busy || activeSession?.status === "running"}
+            // A draft has no turn to stop — the session behind it is a different one,
+            // and Stop would cancel that. Its Send waits on sendDisabled instead.
+            streaming={!draft && (activeSending || activeSession?.status === "running")}
             errorMessage={errorReason || error || sandboxHint}
             errorCause={errorCause}
             // No Retry at all rather than one that does nothing: with no turn
