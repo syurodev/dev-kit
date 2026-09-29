@@ -21,13 +21,19 @@ const (
 	maxFlowSteps = 500
 )
 
-func (s *Service) ListEndpoints(ctx context.Context) ([]Endpoint, error) {
+func (s *Service) ListEntryPoints(ctx context.Context) ([]EntryPoint, error) {
 	store, release, err := s.activeStore()
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	return store.ListEndpoints(ctx)
+	entries, err := store.ListEntryPoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries = completeEntryPoints(entries)
+	sortEntryPoints(entries)
+	return entries, nil
 }
 
 func (s *Service) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error) {
@@ -42,13 +48,13 @@ func (s *Service) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch
 // GetApiFlow walks the call graph from the endpoint's entry node, in Go
 // (not SQL), so the traversal — including cycle protection — is testable
 // without a database.
-func (s *Service) GetApiFlow(ctx context.Context, endpointID string) (ApiFlow, error) {
+func (s *Service) GetApiFlow(ctx context.Context, entryPointID string) (ApiFlow, error) {
 	store, release, err := s.activeStore()
 	if err != nil {
 		return ApiFlow{}, err
 	}
 	defer release()
-	ep, err := store.GetEndpoint(ctx, endpointID)
+	ep, err := store.GetEntryPoint(ctx, entryPointID)
 	if err != nil {
 		return ApiFlow{}, err
 	}
@@ -56,7 +62,7 @@ func (s *Service) GetApiFlow(ctx context.Context, endpointID string) (ApiFlow, e
 	if err != nil {
 		return ApiFlow{}, err
 	}
-	return ApiFlow{EndpointID: endpointID, Steps: steps}, nil
+	return ApiFlow{EntryPointID: entryPointID, Steps: steps}, nil
 }
 
 // walkFlow returns the call chain below rootNodeID, depth-first in call order.

@@ -10,14 +10,20 @@ export type ApiFlowStep = {
 
 /** Mirrors internal/codegraph/codegraph.go: ApiFlow — codegraph.getApiFlow's rawOutput. */
 export type ApiFlow = {
-  endpointId: string;
+  entryPointId: string;
   steps: ApiFlowStep[];
 };
 
-function isApiFlow(value: unknown): value is ApiFlow {
-  if (!value || typeof value !== "object") return false;
+/**
+ * The flow, whichever way it was written: `entryPointId` today, `endpointId`
+ * in a transcript from before entry points had their name.
+ */
+function toApiFlow(value: unknown): ApiFlow | null {
+  if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
-  return typeof v.endpointId === "string" && Array.isArray(v.steps);
+  const id = v.entryPointId ?? v.endpointId;
+  if (typeof id !== "string" || !Array.isArray(v.steps)) return null;
+  return { entryPointId: id, steps: v.steps as ApiFlowStep[] };
 }
 
 /**
@@ -27,8 +33,8 @@ function isApiFlow(value: unknown): value is ApiFlow {
  * renderer, or one with nothing to show, falls back to JSON rather than
  * rendering something guessed).
  */
-export function parseApiFlow(rawOutput: unknown): { flow: ApiFlow; endpointId: string } | null {
-  const parsed = parseToolOutput(rawOutput);
-  if (!isApiFlow(parsed) || parsed.steps.length === 0) return null;
-  return { flow: parsed, endpointId: parsed.endpointId };
+export function parseApiFlow(rawOutput: unknown): { flow: ApiFlow; entryPointId: string } | null {
+  const flow = toApiFlow(parseToolOutput(rawOutput));
+  if (!flow || flow.steps.length === 0) return null;
+  return { flow, entryPointId: flow.entryPointId };
 }

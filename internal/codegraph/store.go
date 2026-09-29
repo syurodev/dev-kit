@@ -33,11 +33,16 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
-CREATE TABLE IF NOT EXISTS endpoints (
+CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
-	http_method TEXT NOT NULL,
-	path TEXT NOT NULL,
-	entry_node TEXT NOT NULL
+	verb TEXT NOT NULL,
+	target TEXT NOT NULL,
+	entry_node TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT '',
+	service TEXT NOT NULL DEFAULT '',
+	owner TEXT NOT NULL DEFAULT '',
+	grp TEXT NOT NULL DEFAULT '',
+	ord INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS file_dependencies (
 	file_path TEXT NOT NULL,
@@ -183,6 +188,30 @@ func migrateSchema(db *sql.DB) error {
 			return fmt.Errorf("codegraph: add params column: %w", err)
 		}
 	}
+	return migrateEndpointsTable(db)
+}
+
+// migrateEndpointsTable moves an index written when entry points were called
+// endpoints (and were only HTTP routes) into entry_points. The rows are
+// copied rather than dropped: a reopen serves the stored index while it
+// re-indexes, and an empty list for those seconds would read as "this project
+// has none". What they lack — kind, owner, group — completeEntryPoints fills
+// on read.
+func migrateEndpointsTable(db *sql.DB) error {
+	var legacy int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'endpoints'`).Scan(&legacy); err != nil {
+		return fmt.Errorf("codegraph: inspect endpoints table: %w", err)
+	}
+	if legacy == 0 {
+		return nil
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO entry_points (id, verb, target, entry_node)
+		SELECT id, http_method, path, entry_node FROM endpoints`); err != nil {
+		return fmt.Errorf("codegraph: copy endpoints: %w", err)
+	}
+	if _, err := db.Exec(`DROP TABLE endpoints`); err != nil {
+		return fmt.Errorf("codegraph: drop endpoints: %w", err)
+	}
 	return nil
 }
 
@@ -198,7 +227,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies", "field_accesses", "call_sites"} {
+	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -218,7 +247,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	// A duplicate node ID is an analyzer bug — two declarations it resolved to
 	// the same signature — but it is one node, and failing the whole index
 	// over it left the user with nothing at all. First-seen wins, the same rule
-	// as endpoints below; every edge that names the ID still points at a node
+	// as entry points below; every edge that names the ID still points at a node
 	// that exists, so the graph stays consistent.
 	nodeStmt, err := insert(`INSERT INTO nodes (id, label, kind, layer, file_path, line, end_line, summary, params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
@@ -252,28 +281,28 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
-	// An endpoint's ID is its HTTP method and path, the same string the UI
+	// An entry point's ID is its verb and target, the same string the UI
 	// addresses it by — so two entry points that map to the identical route
 	// collide on insert. That is not always an analyzer bug: a Feign-style
 	// client interface declaring the same route its own controller serves,
 	// or a content-negotiation overload (same path, different `produces`)
 	// this best-effort extractor does not distinguish, both produce it on
 	// an entirely valid project. First-seen wins, in the analyzer's own file
-	// order — deterministic, and losing one entry from the endpoint list
+	// order — deterministic, and losing one entry from the list
 	// beats losing the whole index over it.
-	endpointStmt, err := insert(`INSERT INTO endpoints (id, http_method, path, entry_node) VALUES (?, ?, ?, ?)`)
+	entryStmt, err := insert(`INSERT INTO entry_points (id, verb, target, entry_node, kind, service, owner, grp, ord) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer endpointStmt.Close()
-	seenEndpoints := make(map[string]bool, len(result.Endpoints))
-	for _, ep := range result.Endpoints {
-		if seenEndpoints[ep.ID] {
+	defer entryStmt.Close()
+	seenEntries := make(map[string]bool, len(result.EntryPoints))
+	for _, ep := range result.EntryPoints {
+		if seenEntries[ep.ID] {
 			continue
 		}
-		seenEndpoints[ep.ID] = true
-		if _, err := endpointStmt.ExecContext(ctx, ep.ID, ep.HTTPMethod, ep.Path, ep.EntryNode); err != nil {
-			return fmt.Errorf("codegraph: insert endpoint %q: %w", ep.ID, err)
+		seenEntries[ep.ID] = true
+		if _, err := entryStmt.ExecContext(ctx, ep.ID, ep.Verb, ep.Target, ep.EntryNode, ep.Kind, ep.Service, ep.Owner, ep.Group, ep.Order); err != nil {
+			return fmt.Errorf("codegraph: insert entry point %q: %w", ep.ID, err)
 		}
 	}
 
@@ -418,34 +447,34 @@ func (s *sqliteStore) SetIndexedAnalyzer(ctx context.Context, identity string) e
 	return nil
 }
 
-func (s *sqliteStore) ListEndpoints(ctx context.Context) ([]Endpoint, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, http_method, path, entry_node FROM endpoints ORDER BY path`)
+func (s *sqliteStore) ListEntryPoints(ctx context.Context) ([]EntryPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, verb, target, entry_node, kind, service, owner, grp, ord FROM entry_points ORDER BY target`)
 	if err != nil {
-		return nil, fmt.Errorf("codegraph: ListEndpoints: %w", err)
+		return nil, fmt.Errorf("codegraph: ListEntryPoints: %w", err)
 	}
 	defer rows.Close()
 
-	var out []Endpoint
+	var out []EntryPoint
 	for rows.Next() {
-		var ep Endpoint
-		if err := rows.Scan(&ep.ID, &ep.HTTPMethod, &ep.Path, &ep.EntryNode); err != nil {
-			return nil, fmt.Errorf("codegraph: scan endpoint: %w", err)
+		var ep EntryPoint
+		if err := rows.Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order); err != nil {
+			return nil, fmt.Errorf("codegraph: scan entry point: %w", err)
 		}
 		out = append(out, ep)
 	}
 	return out, rows.Err()
 }
 
-func (s *sqliteStore) GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error) {
-	var ep Endpoint
+func (s *sqliteStore) GetEntryPoint(ctx context.Context, entryPointID string) (EntryPoint, error) {
+	var ep EntryPoint
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, http_method, path, entry_node FROM endpoints WHERE id = ?`, endpointID,
-	).Scan(&ep.ID, &ep.HTTPMethod, &ep.Path, &ep.EntryNode)
+		`SELECT id, verb, target, entry_node, kind, service, owner, grp, ord FROM entry_points WHERE id = ?`, entryPointID,
+	).Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order)
 	if err == sql.ErrNoRows {
-		return Endpoint{}, ErrNodeNotFound
+		return EntryPoint{}, ErrNodeNotFound
 	}
 	if err != nil {
-		return Endpoint{}, fmt.Errorf("codegraph: GetEndpoint: %w", err)
+		return EntryPoint{}, fmt.Errorf("codegraph: GetEntryPoint: %w", err)
 	}
 	return ep, nil
 }

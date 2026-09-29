@@ -3,11 +3,40 @@ import { callBridge } from "./client";
 import { toAppError } from "./errors";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
-export type CodeGraphEndpoint = {
+/**
+ * What calls in — mirrors Go's EntryKind* (internal/codegraph/entrypoints.go).
+ * Open-ended: a kind this build does not know still lists, under its own name.
+ */
+export type CodeGraphEntryKind =
+  | "http"
+  | "graphql"
+  | "rpc"
+  | "message"
+  | "socket"
+  | "schedule"
+  | "plugin"
+  | (string & {});
+
+/**
+ * Where a flow starts because something outside the code calls in — an HTTP
+ * route, a Kong plugin phase, a message pattern, a cron job… Mirrors Go's
+ * EntryPoint.
+ */
+export type CodeGraphEntryPoint = {
   id: string;
-  httpMethod: string;
-  path: string;
+  /** What the chip says: GET, ACCESS, EVENT, GRPC, CRON… */
+  verb: string;
+  /** What it answers to: a URL, a plugin's name, a pattern, a schedule. */
+  target: string;
   entryNode: string;
+  kind: CodeGraphEntryKind;
+  /** The top-level bucket when a folder holds several services; "" when one. */
+  service: string;
+  /** What declares it (the grouping key), and how that reads as a heading. */
+  owner: string;
+  group: string;
+  /** Run order within the group where it means something (Kong phases); 0 = none. */
+  order: number;
 };
 
 export type CodeGraphFlowStep = {
@@ -17,7 +46,7 @@ export type CodeGraphFlowStep = {
 };
 
 export type CodeGraphApiFlow = {
-  endpointId: string;
+  entryPointId: string;
   steps: CodeGraphFlowStep[];
 };
 
@@ -67,23 +96,28 @@ export async function openCodeGraphProject(path: string): Promise<CodeGraphDetec
   });
 }
 
-export async function listCodeGraphEndpoints(servicePath = ""): Promise<CodeGraphEndpoint[]> {
+export async function listCodeGraphEntryPoints(servicePath = ""): Promise<CodeGraphEntryPoint[]> {
   return callBridge(async () => {
-    const list = await AppService.CodeGraphListEndpoints(servicePath);
+    const list = await AppService.CodeGraphListEntryPoints(servicePath);
     return (list ?? []).map((e) => ({
       id: e.id,
-      httpMethod: e.httpMethod,
-      path: e.path,
+      verb: e.verb,
+      target: e.target,
       entryNode: e.entryNode,
+      kind: e.kind || "http",
+      service: e.service,
+      owner: e.owner,
+      group: e.group,
+      order: e.order,
     }));
   });
 }
 
-export async function getCodeGraphApiFlow(endpointId: string, servicePath = ""): Promise<CodeGraphApiFlow> {
+export async function getCodeGraphApiFlow(entryPointId: string, servicePath = ""): Promise<CodeGraphApiFlow> {
   return callBridge(async () => {
-    const flow = await AppService.CodeGraphGetApiFlow(endpointId, servicePath);
+    const flow = await AppService.CodeGraphGetApiFlow(entryPointId, servicePath);
     return {
-      endpointId: flow.endpointId,
+      entryPointId: flow.entryPointId,
       steps: (flow.steps ?? []).map((s) => ({
         label: s.label,
         filePath: s.filePath,

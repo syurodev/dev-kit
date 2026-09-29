@@ -106,11 +106,31 @@ func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (Ana
 		return AnalysisResult{}, fmt.Errorf("codegraph: read analyzer output: %w", err)
 	}
 
-	var result AnalysisResult
-	if err := json.Unmarshal(data, &result); err != nil {
+	var out subprocessOutput
+	if err := json.Unmarshal(data, &out); err != nil {
 		return AnalysisResult{}, fmt.Errorf("codegraph: parse analyzer output: %w", err)
 	}
+	result := out.AnalysisResult
+	for _, ep := range out.Endpoints {
+		result.EntryPoints = append(result.EntryPoints, EntryPoint{
+			ID: ep.ID, Verb: ep.HTTPMethod, Target: ep.Path, EntryNode: ep.EntryNode, Kind: EntryKindHTTP,
+		})
+	}
 	return result, nil
+}
+
+// subprocessOutput is the file the Java analyzer writes. Its endpoints are
+// HTTP routes and keep the jar's own field names: a jar already installed
+// beside an older or newer DevKit must still read, so the wire format is the
+// jar's, and only this is translated.
+type subprocessOutput struct {
+	AnalysisResult
+	Endpoints []struct {
+		ID         string `json:"id"`
+		HTTPMethod string `json:"httpMethod"`
+		Path       string `json:"path"`
+		EntryNode  string `json:"entryNode"`
+	} `json:"endpoints"`
 }
 
 // maxAnalyzerOutput is how much of a subprocess's output is kept for an error

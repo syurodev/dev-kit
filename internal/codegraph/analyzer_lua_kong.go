@@ -79,12 +79,12 @@ var (
 // with endpoints is a controller, and what a controller requires is, in the
 // absence of any other evidence, this project's service layer.
 func classifyLuaLayers(modules []*luaModule, index *luaIndex, result *AnalysisResult) {
-	endpointIDs := map[string]bool{}
+	entryIDs := map[string]bool{}
 	for _, module := range modules {
-		endpoints := module.endpoints(endpointIDs)
-		result.Endpoints = append(result.Endpoints, endpoints...)
+		entries := module.entryPoints(entryIDs)
+		result.EntryPoints = append(result.EntryPoints, entries...)
 		switch {
-		case len(endpoints) > 0:
+		case len(entries) > 0:
 			module.layer = "controller"
 		case module.isRepository():
 			module.layer = "repository"
@@ -110,40 +110,47 @@ func classifyLuaLayers(modules []*luaModule, index *luaIndex, result *AnalysisRe
 	}
 }
 
-// endpoints is every entry point one file declares.
-func (m *luaModule) endpoints(used map[string]bool) []Endpoint {
-	var found []Endpoint
-	add := func(httpMethod, routePath, entryNode string) {
-		id := luaEndpointID(httpMethod+" "+routePath, m.dotted, used)
-		found = append(found, Endpoint{ID: id, HTTPMethod: httpMethod, Path: routePath, EntryNode: entryNode})
+// entryPoints is every entry point one file declares.
+func (m *luaModule) entryPoints(used map[string]bool) []EntryPoint {
+	var found []EntryPoint
+	add := func(ep EntryPoint) {
+		ep.ID = luaEntryPointID(ep.Verb+" "+ep.Target, m.dotted, used)
+		ep.Owner = m.dotted
+		found = append(found, ep)
 	}
 
 	// A Kong plugin: phase functions on the table the file returns.
 	if m.isKongHandler() {
 		name := m.kongPluginName()
-		for _, phase := range kongPhases {
+		for i, phase := range kongPhases {
 			if fn := m.exports[phase]; fn != nil {
-				// The phase is the method and the plugin is the path. A Kong
+				// The phase is the verb and the plugin is the target. A Kong
 				// plugin serves no route of its own — it runs inside every
 				// route — so "ACCESS · rate-limiting" is the true shape of its
-				// entry point, and inventing a URL for it would not be.
-				add(strings.ToUpper(phase), name, fn.nodeID)
+				// entry point, and inventing a URL for it would not be. The
+				// phases read in the order Kong runs them.
+				add(EntryPoint{
+					Verb: strings.ToUpper(phase), Target: name, EntryNode: fn.nodeID,
+					Kind: EntryKindPlugin, Group: name, Order: i + 1,
+				})
 			}
 		}
 	}
 
 	// Kong's Admin API: a table keyed by route, each holding one function per
-	// HTTP method.
+	// HTTP method. It belongs to the plugin whose api.lua it is.
 	for _, fn := range m.order {
 		route, httpMethod, ok := luaRouteFromDecl(fn.decl)
 		if !ok {
 			continue
 		}
-		add(httpMethod, route, fn.nodeID)
+		add(EntryPoint{Verb: httpMethod, Target: route, EntryNode: fn.nodeID, Kind: EntryKindHTTP, Group: m.kongPluginName()})
 	}
 
 	// Lapis: routes declared as calls on the app.
-	found = append(found, m.lapisEndpoints(used)...)
+	for _, ep := range m.lapisEntryPoints() {
+		add(ep)
+	}
 	return found
 }
 
@@ -248,7 +255,7 @@ func luaRouteFromDecl(decl string) (routePath, httpMethod string, ok bool) {
 	return routePath, httpMethod, true
 }
 
-// lapisEndpoints reads routes declared as calls on a Lapis app: `app:get("/x",
+// lapisEntryPoints reads routes declared as calls on a Lapis app: `app:get("/x",
 // handler)`, with the optional route name Lapis allows in front of the path.
 //
 // The entry node is the handler when it names a function this file declared,
@@ -256,8 +263,8 @@ func luaRouteFromDecl(decl string) (routePath, httpMethod string, ok bool) {
 // which is not a fudge: a closure has no node, and the calls inside it are
 // already attributed to the module, so a flow starting there walks the right
 // body.
-func (m *luaModule) lapisEndpoints(used map[string]bool) []Endpoint {
-	var found []Endpoint
+func (m *luaModule) lapisEntryPoints() []EntryPoint {
+	var found []EntryPoint
 	for _, stmt := range m.chunk.Block {
 		lua.Walk(stmt, func(node lua.Node) bool {
 			call, ok := node.(*lua.MethodCallExpr)
@@ -285,18 +292,19 @@ func (m *luaModule) lapisEndpoints(used map[string]bool) []Endpoint {
 					entry = fn.nodeID
 				}
 			}
-			id := luaEndpointID(httpMethod+" "+routePath, m.dotted, used)
-			found = append(found, Endpoint{ID: id, HTTPMethod: httpMethod, Path: routePath, EntryNode: entry})
+			found = append(found, EntryPoint{
+				Verb: httpMethod, Target: routePath, EntryNode: entry, Kind: EntryKindHTTP, Group: m.dotted,
+			})
 			return true
 		})
 	}
 	return found
 }
 
-// luaEndpointID mirrors the Java analyzer's: "<METHOD> <path>", qualified with
+// luaEntryPointID mirrors the Java analyzer's: "<METHOD> <path>", qualified with
 // the module when two files claim the same route rather than dropping the
 // second. Nothing parses the result; it only has to be stable and unique.
-func luaEndpointID(base, module string, used map[string]bool) string {
+func luaEntryPointID(base, module string, used map[string]bool) string {
 	if !used[base] {
 		used[base] = true
 		return base
@@ -340,9 +348,9 @@ func (m *luaModule) matchesNames(names map[string]bool) bool {
 	return false
 }
 
-// sortEndpoints keeps the index's endpoint list stable across runs. The
+// sortLuaEntryPoints keeps the index's entry points stable across runs. The
 // analyzer walks files in path order already; this is the belt to that
 // suspenders, since a map is involved in deciding which ones exist.
-func sortEndpoints(endpoints []Endpoint) {
-	sort.SliceStable(endpoints, func(i, j int) bool { return endpoints[i].ID < endpoints[j].ID })
+func sortLuaEntryPoints(entries []EntryPoint) {
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 }

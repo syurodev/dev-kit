@@ -20,7 +20,7 @@ export function EmptyProject({
         <h2 className="text-title-14 text-text-primary">No project open</h2>
         <p className="text-body-12 text-text-tertiary">
           {services.length > 0
-            ? "Pick a service below to index its endpoints, call flow and files. Nothing leaves this machine."
+            ? "Pick a service below to index its entry points, call flow and files. Nothing leaves this machine."
             : loaded
               ? "This workspace has no services yet. Add one from the workspace switcher in the title bar."
               : "Reading the workspace…"}

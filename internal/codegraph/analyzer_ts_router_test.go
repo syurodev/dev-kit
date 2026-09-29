@@ -46,8 +46,8 @@ export default app;
 		byID[node.ID] = node
 	}
 	entry := map[string]Node{}
-	for _, endpoint := range result.Endpoints {
-		entry[endpoint.HTTPMethod+" "+endpoint.Path] = byID[endpoint.EntryNode]
+	for _, endpoint := range result.EntryPoints {
+		entry[endpoint.Verb+" "+endpoint.Target] = byID[endpoint.EntryNode]
 	}
 
 	for _, want := range []string{"GET /health", "POST /users", "GET /users/:id", "DELETE /admin/:id"} {
@@ -90,7 +90,7 @@ export function readPath() {
 `,
 	})
 
-	if len(result.Endpoints) != 0 {
+	if len(result.EntryPoints) != 0 {
 		t.Errorf("a Map lookup is not a route, got %v", tsRoutes(result))
 	}
 }

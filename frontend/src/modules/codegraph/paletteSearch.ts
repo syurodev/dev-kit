@@ -1,6 +1,6 @@
 import { CodeXml, FileCode2, SquareFunction, Workflow } from "lucide-react";
 import { rank } from "@/workbench/palette/match";
-import type { CodeGraphEndpoint, CodeGraphFileEntry, CodeGraphSymbolMatch } from "@/bridge/codegraph";
+import type { CodeGraphEntryPoint, CodeGraphFileEntry, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import type { PaletteSearchGroup } from "../registry";
 import { symbolDisplay } from "./sidebar/sidebarModel";
 
@@ -18,20 +18,20 @@ function directoryOf(path: string): string {
 }
 
 export type CodeGraphPaletteData = {
-  endpoints: CodeGraphEndpoint[];
+  entryPoints: CodeGraphEntryPoint[];
   files: CodeGraphFileEntry[];
   /** Only ever non-empty when the query passed MIN_SYMBOL_QUERY. */
   symbols: CodeGraphSymbolMatch[];
 };
 
 export type CodeGraphPaletteActions = {
-  openEndpoint: (endpoint: CodeGraphEndpoint) => void;
+  openEntryPoint: (entry: CodeGraphEntryPoint) => void;
   openFile: (path: string) => void;
   openSymbol: (match: CodeGraphSymbolMatch) => void;
 };
 
 /**
- * The pure half: endpoints, files and symbols already fetched, turned into
+ * The pure half: entry points, files and symbols already fetched, turned into
  * groups for `query`. Nothing is offered for an empty query — a project's
  * file list alone can run into the thousands, and that is not a shortlist.
  */
@@ -45,20 +45,20 @@ export function buildGroups(
 
   const groups: PaletteSearchGroup[] = [];
 
-  const endpoints = rank(
+  const entryPoints = rank(
     trimmed,
-    data.endpoints,
-    (ep) => ({ title: `${ep.httpMethod} ${ep.path}`, others: [ep.path] }),
+    data.entryPoints,
+    (ep) => ({ title: `${ep.verb} ${ep.target}`, others: [ep.target, ep.group] }),
     LIMIT,
   );
-  if (endpoints.length > 0) {
+  if (entryPoints.length > 0) {
     groups.push({
-      heading: "ENDPOINTS",
-      items: endpoints.map((ep) => ({
-        id: `endpoint:${ep.id}`,
-        title: `${ep.httpMethod} ${ep.path}`,
+      heading: "ENTRY POINTS",
+      items: entryPoints.map((ep) => ({
+        id: `entry:${ep.id}`,
+        title: `${ep.verb} ${ep.target}`,
         icon: Workflow,
-        run: () => actions.openEndpoint(ep),
+        run: () => actions.openEntryPoint(ep),
       })),
     });
   }
@@ -108,7 +108,7 @@ export function buildGroups(
 }
 
 /**
- * Code Graph's contribution to the command palette: endpoints, files and
+ * Code Graph's contribution to the command palette: entry points, files and
  * symbols of the project in front.
  *
  * `ensureStarted` wires the module up from wherever it has not run yet this
@@ -134,12 +134,12 @@ export async function searchPalette(query: string, signal: AbortSignal): Promise
     const state = useCodeGraphStore.getState();
     if (!state.projectPath) return [];
 
-    let endpoints = state.endpoints;
-    if (endpoints.length === 0) {
+    let entryPoints = state.entryPoints;
+    if (entryPoints.length === 0) {
       try {
-        endpoints = await bridge.listCodeGraphEndpoints();
+        entryPoints = await bridge.listCodeGraphEntryPoints();
       } catch {
-        endpoints = [];
+        entryPoints = [];
       }
       if (signal.aborted) return [];
     }
@@ -166,9 +166,9 @@ export async function searchPalette(query: string, signal: AbortSignal): Promise
 
     return buildGroups(
       query,
-      { endpoints, files, symbols },
+      { entryPoints, files, symbols },
       {
-        openEndpoint: (ep) => actions.viewFlow(ep, { preview: false }),
+        openEntryPoint: (ep) => actions.viewFlow(ep, { preview: false }),
         openFile: (path) => actions.openFile(path, null, { preview: false }),
         openSymbol: (match) => actions.viewSymbol(match, { preview: false }),
       },

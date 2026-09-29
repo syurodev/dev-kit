@@ -154,7 +154,7 @@ func (a luaAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisR
 		module.emitDependencies(&result)
 		module.resolveCalls(index, &result)
 	}
-	sortEndpoints(result.Endpoints)
+	sortLuaEntryPoints(result.EntryPoints)
 	return result, nil
 }
 

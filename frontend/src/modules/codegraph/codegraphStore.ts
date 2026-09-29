@@ -6,7 +6,7 @@ import type {
 } from "@/bridge/codegraphPlan";
 import type {
   CodeGraphCodeSnippet,
-  CodeGraphEndpoint,
+  CodeGraphEntryPoint,
   CodeGraphFileEntry,
   CodeGraphGitState,
   CodeGraphIndexInfo,
@@ -16,7 +16,7 @@ import type {
 
 /**
  * One flow document: the graph drawn from a root node, as a tab of its own
- * (documents.ts). Keyed by root node id, so two tabs of endpoints handled by
+ * (documents.ts). Keyed by root node id, so two tabs of entry points handled by
  * the same method share one fetch.
  */
 export type FlowDoc = {
@@ -66,7 +66,7 @@ export type PlanTaskChip = { id: string; key: string; title: string; status: str
 
 type CodeGraphState = {
   projectPath: string;
-  endpoints: CodeGraphEndpoint[];
+  entryPoints: CodeGraphEntryPoint[];
   status: string;
   /** Why the project could not be analyzed, or "". */
   error: string;
@@ -95,7 +95,7 @@ type CodeGraphState = {
   snippetError: string;
 
   /** The sidebar's section. Documents are tabs now; this only picks the rail's list. */
-  activeTab: "endpoints" | "files" | "plan";
+  activeTab: "entries" | "files" | "plan";
 
   /** Per-node status plus the aggregate, recomputed by Go on every read. */
   plan: CodeGraphPlanProgress | null;
@@ -133,9 +133,9 @@ type CodeGraphState = {
   indexInfo: CodeGraphIndexInfo | null;
   /** Changed files of the project, for the Files tab's marks and filter. */
   gitStatus: Record<string, CodeGraphGitState>;
-  /** Method chips on in the Endpoints tab; empty means all. */
-  methodFilter: string[];
-  /** Service and controller groups folded shut, by key. */
+  /** Verb chips on in the Entry points tab; empty means all. */
+  verbFilter: string[];
+  /** Kind, service and owner groups folded shut, by key. */
   collapsedGroups: string[];
   /** Folders open in the Files tab. */
   fileExpanded: string[];
@@ -160,7 +160,7 @@ type CodeGraphState = {
  */
 export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   projectPath: "",
-  endpoints: [],
+  entryPoints: [],
   status: "",
   error: "",
   errorCode: "",
@@ -174,7 +174,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   snippetLoading: false,
   snippetError: "",
 
-  activeTab: "endpoints",
+  activeTab: "entries",
   plan: null,
   planEdges: [],
   planBusy: false,
@@ -188,7 +188,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   analyzerStatuses: null,
   indexInfo: null,
   gitStatus: {},
-  methodFilter: [],
+  verbFilter: [],
   collapsedGroups: [],
   fileExpanded: [],
   fileFilter: { codeOnly: true, changed: false, inFlow: false },

@@ -10,11 +10,11 @@ function fileName(path: string): string {
 const MAX_STEPS = 6;
 
 /**
- * `codegraph.getApiFlow` — the chain from the endpoint down, one step per row
+ * `codegraph.getApiFlow` — the chain from the entry point down, one step per row
  * with where it lives. Reveal opens the whole flow in Code Graph, beside the
  * conversation.
  */
-export function ApiFlowResultCard({ flow, endpointId }: { flow: ApiFlow; endpointId: string }) {
+export function ApiFlowResultCard({ flow, entryPointId }: { flow: ApiFlow; entryPointId: string }) {
   const first = flow.steps[0];
   const shown = flow.steps.slice(0, MAX_STEPS);
   return (
@@ -28,7 +28,7 @@ export function ApiFlowResultCard({ flow, endpointId }: { flow: ApiFlow; endpoin
             onClick={() =>
               void dispatchIntent(
                 "codegraph.reveal",
-                { module: "codegraph", kind: "endpoint", id: endpointId, label: first?.label ?? endpointId },
+                { module: "codegraph", kind: "endpoint", id: entryPointId, label: first?.label ?? entryPointId },
                 { placement: "beside" },
               )
             }

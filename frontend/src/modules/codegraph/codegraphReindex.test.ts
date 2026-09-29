@@ -30,7 +30,7 @@ let indexInfo: typeof bridge.codeGraphIndexInfo = async () => {
 let listFiles: typeof bridge.listCodeGraphFiles = async () => {
   throw noActiveProject;
 };
-let listEndpoints: typeof bridge.listCodeGraphEndpoints = async () => {
+let listEntryPoints: typeof bridge.listCodeGraphEntryPoints = async () => {
   throw noActiveProject;
 };
 
@@ -39,7 +39,7 @@ mock.module("@/bridge/codegraph", () => ({
   openCodeGraphProject: (path: string) => openProject(path),
   codeGraphIndexInfo: () => indexInfo(),
   listCodeGraphFiles: () => listFiles(),
-  listCodeGraphEndpoints: () => listEndpoints(),
+  listCodeGraphEntryPoints: () => listEntryPoints(),
   codeGraphGitStatus: async () => {
     throw noActiveProject;
   },
@@ -78,11 +78,11 @@ describe("reindex, a project whose analyzer is not configured", () => {
 
 describe("reindex, a folder no analyzer reads", () => {
   it("opens it for its files, labelled, with nothing reported as an error", async () => {
-    let askedForEndpoints = false;
+    let askedForEntryPoints = false;
     openProject = async () => ({ language: "", label: "", modules: [], unsupported: true });
     listFiles = async () => [{ path: "main.tf", isDir: false }];
-    listEndpoints = async () => {
-      askedForEndpoints = true;
+    listEntryPoints = async () => {
+      askedForEntryPoints = true;
       return [];
     };
     indexInfo = async () => ({
@@ -94,7 +94,7 @@ describe("reindex, a folder no analyzer reads", () => {
       branch: "main",
       unsupported: true,
     });
-    useCodeGraphStore.setState({ activeTab: "endpoints" });
+    useCodeGraphStore.setState({ activeTab: "entries" });
 
     await reindex("/home/dev/tera");
     // The sidebar meta is read in reindex's finally, without being awaited.
@@ -107,7 +107,7 @@ describe("reindex, a folder no analyzer reads", () => {
     expect(state.status).toBe("");
     expect(state.files.map((f) => f.path)).toEqual(["main.tf"]);
     // Nothing to list, so nothing is asked — and the tree is where it lands.
-    expect(askedForEndpoints).toBe(false);
+    expect(askedForEntryPoints).toBe(false);
     expect(state.activeTab).toBe("files");
     expect(state.indexInfo?.unsupported).toBe(true);
     expect(state.indexInfo?.error).toBe("");

@@ -13,7 +13,7 @@ export type {
     Definition,
     DetectedProject,
     Edge,
-    Endpoint,
+    EntryPoint,
     Field,
     FieldRef,
     FileEntry,

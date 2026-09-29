@@ -120,9 +120,9 @@ func TestApiFlowReachesMethodsByTheirShortestRoute(t *testing.T) {
 		Edge{From: "x", To: "y", Kind: "call"},
 	)
 	svc := openWith(t, AnalysisResult{
-		Nodes:     nodes,
-		Edges:     edges,
-		Endpoints: []Endpoint{{ID: "GET /r", HTTPMethod: "GET", Path: "/r", EntryNode: "root"}},
+		Nodes:       nodes,
+		Edges:       edges,
+		EntryPoints: []EntryPoint{{ID: "GET /r", Verb: "GET", Target: "/r", EntryNode: "root"}},
 	})
 	flow, err := svc.GetApiFlow(t.Context(), "GET /r")
 	if err != nil {
@@ -149,9 +149,9 @@ func TestApiFlowIsCappedInSize(t *testing.T) {
 		edges = append(edges, Edge{From: "root", To: id, Kind: "call"})
 	}
 	svc := openWith(t, AnalysisResult{
-		Nodes:     nodes,
-		Edges:     edges,
-		Endpoints: []Endpoint{{ID: "GET /r", HTTPMethod: "GET", Path: "/r", EntryNode: "root"}},
+		Nodes:       nodes,
+		Edges:       edges,
+		EntryPoints: []EntryPoint{{ID: "GET /r", Verb: "GET", Target: "/r", EntryNode: "root"}},
 	})
 	flow, err := svc.GetApiFlow(t.Context(), "GET /r")
 	if err != nil {

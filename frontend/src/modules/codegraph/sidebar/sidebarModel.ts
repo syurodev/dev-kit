@@ -1,4 +1,4 @@
-import type { CodeGraphEndpoint, CodeGraphIndexInfo, CodeGraphSymbolMatch } from "@/bridge/codegraph";
+import type { CodeGraphEntryKind, CodeGraphEntryPoint, CodeGraphIndexInfo, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import type { CodeGraphPlanNode, CodeGraphPlanProgress } from "@/bridge/codegraphPlan";
 import type { ServiceIndexStatus } from "@/bridge/workspace";
 
@@ -8,31 +8,28 @@ import type { ServiceIndexStatus } from "@/bridge/workspace";
  * counts or phrases is derived here so it can be tested without a bridge.
  */
 
-// ── Endpoints ───────────────────────────────────────────────────────────────
-
-export type ControllerRef = { id: string; fqn: string; name: string };
+// ── Entry points ────────────────────────────────────────────────────────────
 
 /**
- * The controller class an endpoint's handler is declared in, from its entry
- * node id — `com.acme.web.UsersController.getUser(java.lang.String)`. Cut at
- * the parameter list first: parameter types have dots of their own. A class
- * that shares its FQN with one in another module carries ` [module]`, which is
- * kept in the id and dropped from what is shown.
- *
- * An inherited handler lands on the base class that declares it — that is
- * where the code is.
+ * Each kind of entry point, in the order the list shows them, and the heading
+ * over it. What calls in decides the kind — a client over HTTP, a broker,
+ * Kong's request cycle, a scheduler — and Go says which (entrypoints.go). A
+ * kind this build does not know still lists, last, under its own name.
  */
-export function controllerOf(entryNode: string): ControllerRef {
-  const head = entryNode.includes("(") ? entryNode.slice(0, entryNode.indexOf("(")) : entryNode;
-  const id = head.includes(".") ? head.slice(0, head.lastIndexOf(".")) : head;
-  const fqn = id.replace(/\s*\[[^\]]*\]$/, "");
-  return { id, fqn, name: fqn.slice(fqn.lastIndexOf(".") + 1) };
-}
-
-const packageOf = (fqn: string) => (fqn.includes(".") ? fqn.slice(0, fqn.lastIndexOf(".")).split(".") : []);
-
-export type ControllerGroup = { id: string; name: string; fqn: string; endpoints: CodeGraphEndpoint[] };
-export type ServiceGroup = { key: string; label: string; controllers: ControllerGroup[]; count: number };
+const KINDS: { kind: CodeGraphEntryKind; label: string }[] = [
+  { kind: "http", label: "HTTP" },
+  { kind: "graphql", label: "GraphQL" },
+  { kind: "rpc", label: "gRPC" },
+  { kind: "message", label: "Messages" },
+  { kind: "socket", label: "WebSocket" },
+  { kind: "schedule", label: "Scheduled" },
+  { kind: "plugin", label: "Kong plugins" },
+];
+const kindRank = (kind: string) => {
+  const i = KINDS.findIndex((k) => k.kind === kind);
+  return i === -1 ? KINDS.length : i;
+};
+export const kindLabel = (kind: string) => KINDS.find((k) => k.kind === kind)?.label ?? kind;
 
 const METHOD_ORDER = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const methodRank = (m: string) => {
@@ -40,71 +37,96 @@ const methodRank = (m: string) => {
   return i === -1 ? METHOD_ORDER.length : i;
 };
 
+/** Within a group: the order Go gave (Kong's phases), then target, then method. */
+function compareEntries(a: CodeGraphEntryPoint, b: CodeGraphEntryPoint): number {
+  return (
+    (a.order || Number.MAX_SAFE_INTEGER) - (b.order || Number.MAX_SAFE_INTEGER) ||
+    a.target.localeCompare(b.target) ||
+    methodRank(a.verb) - methodRank(b.verb) ||
+    a.verb.localeCompare(b.verb)
+  );
+}
+
+export type OwnerGroup = { key: string; label: string; owner: string; entries: CodeGraphEntryPoint[] };
+export type ServiceGroup = { key: string; label: string; owners: OwnerGroup[]; count: number };
+export type KindGroup = { key: string; kind: string; label: string; services: ServiceGroup[]; count: number };
+
 /**
- * Endpoints grouped by service, then controller.
- *
- * "Service" is the package segment right after the prefix every controller
- * shares — `com.acme.refund.web` and `com.acme.order.web` are the `refund` and
- * `order` services. The analyzer does not attach a build module to an
- * endpoint, and a package is what a reader recognises anyway. One service
- * comes back as one group: the caller skips the level rather than show a
- * single heading over everything.
+ * Entry points grouped by kind, then service, then what declares them — the
+ * class, the Kong plugin, the route file. Go decides the service and the
+ * owner; this only orders. A level with a single group is still returned as
+ * one: the caller skips it rather than show one heading over everything.
  */
-export function groupEndpoints(endpoints: CodeGraphEndpoint[]): ServiceGroup[] {
-  const byController = new Map<string, ControllerGroup>();
-  for (const ep of endpoints) {
-    const c = controllerOf(ep.entryNode);
-    let g = byController.get(c.id);
-    if (!g) {
-      g = { id: c.id, name: c.name, fqn: c.fqn, endpoints: [] };
-      byController.set(c.id, g);
+export function groupEntryPoints(entries: CodeGraphEntryPoint[]): KindGroup[] {
+  const kinds = new Map<string, KindGroup>();
+  for (const ep of entries) {
+    let k = kinds.get(ep.kind);
+    if (!k) {
+      k = { key: `kind:${ep.kind}`, kind: ep.kind, label: kindLabel(ep.kind), services: [], count: 0 };
+      kinds.set(ep.kind, k);
     }
-    g.endpoints.push(ep);
-  }
-  const controllers = [...byController.values()];
-  for (const c of controllers) {
-    c.endpoints.sort((a, b) => a.path.localeCompare(b.path) || methodRank(a.httpMethod) - methodRank(b.httpMethod));
-  }
-
-  const packages = controllers.map((c) => packageOf(c.fqn));
-  let shared = 0;
-  if (packages.length > 1) {
-    const shortest = Math.min(...packages.map((p) => p.length));
-    while (shared < shortest && packages.every((p) => p[shared] === packages[0][shared])) shared++;
-  }
-
-  const services = new Map<string, ServiceGroup>();
-  controllers.forEach((c, i) => {
-    const pkg = packages[i];
-    const key = pkg[shared] ?? pkg[pkg.length - 1] ?? "";
-    let s = services.get(key);
+    let s = k.services.find((x) => x.label === ep.service);
     if (!s) {
-      s = { key, label: key || "default", controllers: [], count: 0 };
-      services.set(key, s);
+      s = { key: `svc:${ep.kind}:${ep.service}`, label: ep.service, owners: [], count: 0 };
+      k.services.push(s);
     }
-    s.controllers.push(c);
-    s.count += c.endpoints.length;
-  });
-  const out = [...services.values()].sort((a, b) => a.label.localeCompare(b.label));
-  for (const s of out) s.controllers.sort((a, b) => a.name.localeCompare(b.name));
+    let o = s.owners.find((x) => x.owner === ep.owner);
+    if (!o) {
+      o = { key: `own:${ep.kind}:${ep.owner}`, label: ep.group || ep.owner, owner: ep.owner, entries: [] };
+      s.owners.push(o);
+    }
+    o.entries.push(ep);
+    s.count++;
+    k.count++;
+  }
+  const out = [...kinds.values()].sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || a.kind.localeCompare(b.kind));
+  for (const k of out) {
+    k.services.sort((a, b) => a.label.localeCompare(b.label));
+    for (const s of k.services) {
+      s.owners.sort((a, b) => a.label.localeCompare(b.label) || a.owner.localeCompare(b.owner));
+      for (const o of s.owners) o.entries.sort(compareEntries);
+    }
+  }
   return out;
 }
 
-/** The methods present, in the order the filter chips show them. */
-export function methodsIn(endpoints: CodeGraphEndpoint[]): string[] {
-  return [...new Set(endpoints.map((e) => e.httpMethod.toUpperCase()))].sort((a, b) => methodRank(a) - methodRank(b));
+/** How many services the list spans — 0 or 1 is one project, and says nothing. */
+export function servicesIn(entries: CodeGraphEntryPoint[]): number {
+  return new Set(entries.map((e) => e.service).filter(Boolean)).size;
 }
 
-/** The endpoint search: path, method or controller name. */
-export function filterEndpoints(endpoints: CodeGraphEndpoint[], query: string, methods: ReadonlySet<string>): CodeGraphEndpoint[] {
+/**
+ * The verbs present, in the order the filter chips show them: by kind, then
+ * the order a kind itself has — HTTP methods as REST reads them, Kong's phases
+ * as Kong runs them.
+ */
+export function verbsIn(entries: CodeGraphEntryPoint[]): string[] {
+  const rank = new Map<string, [number, number, number]>();
+  for (const e of entries) {
+    const verb = e.verb.toUpperCase();
+    const r: [number, number, number] = [kindRank(e.kind), e.order || Number.MAX_SAFE_INTEGER, methodRank(verb)];
+    const prev = rank.get(verb);
+    if (!prev || r[0] < prev[0] || (r[0] === prev[0] && r[1] < prev[1])) rank.set(verb, r);
+  }
+  return [...rank.entries()]
+    .sort(([va, a], [vb, b]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || va.localeCompare(vb))
+    .map(([verb]) => verb);
+}
+
+/** The list's search: target, verb, or what declares it. */
+export function filterEntryPoints(
+  entries: CodeGraphEntryPoint[],
+  query: string,
+  verbs: ReadonlySet<string>,
+): CodeGraphEntryPoint[] {
   const needle = query.trim().toLowerCase();
-  return endpoints.filter((ep) => {
-    if (methods.size > 0 && !methods.has(ep.httpMethod.toUpperCase())) return false;
+  return entries.filter((ep) => {
+    if (verbs.size > 0 && !verbs.has(ep.verb.toUpperCase())) return false;
     if (!needle) return true;
     return (
-      ep.path.toLowerCase().includes(needle) ||
-      ep.httpMethod.toLowerCase() === needle ||
-      controllerOf(ep.entryNode).name.toLowerCase().includes(needle)
+      ep.target.toLowerCase().includes(needle) ||
+      ep.verb.toLowerCase() === needle ||
+      ep.group.toLowerCase().includes(needle)
     );
   });
 }
@@ -163,7 +185,7 @@ export const NOT_SUPPORTED = "Not supported";
 /** The line under the project name, and the colour of its dot. */
 export function indexStatusLine(
   info: Pick<CodeGraphIndexInfo, "indexedAt" | "indexing" | "error" | "stale" | "unsupported"> | null,
-  counts: { endpoints: number; services: number },
+  counts: { entryPoints: number; services: number },
   now: number,
 ): { tone: IndexTone; text: string } {
   if (!info) return { tone: "busy", text: "Reading the index…" };
@@ -183,7 +205,7 @@ export function indexStatusLine(
   }
   const parts = [
     when ? `Indexed ${when}` : "Indexed",
-    `${counts.endpoints} endpoint${counts.endpoints === 1 ? "" : "s"}`,
+    `${counts.entryPoints} entry point${counts.entryPoints === 1 ? "" : "s"}`,
   ];
   if (counts.services > 1) parts.push(`${counts.services} services`);
   return { tone: "ok", text: parts.join(" · ") };

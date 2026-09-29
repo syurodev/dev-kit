@@ -166,8 +166,8 @@ func TestOpenProjectBrowsesAFolderNoToolchainRecognises(t *testing.T) {
 	if _, err := service.WaitForIndexReady(ctx); !errors.Is(err, ErrUnsupportedProject) {
 		t.Fatalf("WaitForIndexReady = %v, want ErrUnsupportedProject", err)
 	}
-	if _, err := service.ListEndpoints(ctx); !errors.Is(err, ErrUnsupportedProject) {
-		t.Fatalf("ListEndpoints = %v, want ErrUnsupportedProject", err)
+	if _, err := service.ListEntryPoints(ctx); !errors.Is(err, ErrUnsupportedProject) {
+		t.Fatalf("ListEntryPoints = %v, want ErrUnsupportedProject", err)
 	}
 }
 

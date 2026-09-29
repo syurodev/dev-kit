@@ -1,6 +1,6 @@
 import { getModule, viewIcon } from "@/modules/registry";
 import { moduleTabs, useWorkbenchTabsStore, type WorkbenchTab } from "@/stores/workbenchTabs";
-import type { CodeGraphEndpoint } from "@/bridge/codegraph";
+import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 
 /**
  * Code Graph's documents, each a tab.
@@ -37,13 +37,22 @@ function open(viewId: string, title: string, params: Record<string, unknown> | u
   });
 }
 
-export function openEndpointFlow(ep: CodeGraphEndpoint, options: OpenOptions = { preview: true }): string {
-  return open(FLOW_VIEW, `${ep.httpMethod} ${ep.path}`, { root: ep.entryNode, endpoint: ep.id }, options);
+export function openEntryPointFlow(ep: CodeGraphEntryPoint, options: OpenOptions = { preview: true }): string {
+  return open(FLOW_VIEW, `${ep.verb} ${ep.target}`, { root: ep.entryNode, entryPoint: ep.id }, options);
+}
+
+/**
+ * The entry point a flow tab was opened from. A tab restored from before
+ * entry points had their name carries it as `endpoint`.
+ */
+export function entryPointParam(params: Record<string, unknown> | undefined): string | undefined {
+  const id = params?.entryPoint ?? params?.endpoint;
+  return typeof id === "string" ? id : undefined;
 }
 
 /**
  * A flow from a node alone: a class or method from the @ search, or a node
- * another module points at — drawn without an endpoint in front of it.
+ * another module points at — drawn without an entry point in front of it.
  */
 export function openNodeFlow(nodeId: string, title: string, options: OpenOptions = { preview: true }): string {
   return open(FLOW_VIEW, title, { root: nodeId }, options);
@@ -64,7 +73,7 @@ export function keepTab(id: string) {
 }
 
 /** What a Code Graph tab shows, read off its view and params. */
-export type ActiveDoc = { kind: "home" | "flow" | "file" | "plan"; root?: string; endpoint?: string; path?: string };
+export type ActiveDoc = { kind: "home" | "flow" | "file" | "plan"; root?: string; entryPoint?: string; path?: string };
 
 export function describeDocument(tab: WorkbenchTab | null): ActiveDoc {
   const p = tab?.params ?? {};
@@ -73,7 +82,7 @@ export function describeDocument(tab: WorkbenchTab | null): ActiveDoc {
       return {
         kind: "flow",
         root: typeof p.root === "string" ? p.root : undefined,
-        endpoint: typeof p.endpoint === "string" ? p.endpoint : undefined,
+        entryPoint: entryPointParam(p),
       };
     case FILE_VIEW:
       return { kind: "file", path: typeof p.path === "string" ? p.path : undefined };

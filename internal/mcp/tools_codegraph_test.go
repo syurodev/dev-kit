@@ -13,7 +13,7 @@ import (
 type fakeCodeGraphAPI struct {
 	openProjectErr error
 	detection      codegraph.DetectedProject
-	endpoints      []codegraph.Endpoint
+	endpoints      []codegraph.EntryPoint
 	flow           codegraph.ApiFlow
 	matches        []codegraph.SymbolMatch
 	files          []codegraph.FileEntry
@@ -36,7 +36,7 @@ func (f fakeCodeGraphAPI) OpenProjectDir(ctx context.Context, projectPath string
 func (f fakeCodeGraphAPI) ActiveDetection() codegraph.DetectedProject {
 	return f.detection
 }
-func (f fakeCodeGraphAPI) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
+func (f fakeCodeGraphAPI) ListEntryPoints(ctx context.Context) ([]codegraph.EntryPoint, error) {
 	return f.endpoints, f.err
 }
 func (f fakeCodeGraphAPI) GetApiFlow(ctx context.Context, id string) (codegraph.ApiFlow, error) {
@@ -134,15 +134,15 @@ func TestToolCodeGraphOpenProjectPropagatesError(t *testing.T) {
 func TestToolCodeGraphListEndpoints(t *testing.T) {
 	deps := Deps{
 		Caller:    &fakeCaller{},
-		CodeGraph: fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "ep1", Path: "/orders"}}},
+		CodeGraph: fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "ep1", Target: "/orders"}}},
 	}
 	s := NewServer(deps)
 	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{})
 	if err != nil {
 		t.Fatalf("toolCodeGraphListEndpoints: %v", err)
 	}
-	endpoints, ok := unwrap(v).([]codegraph.Endpoint)
-	if !ok || len(endpoints) != 1 || endpoints[0].Path != "/orders" {
+	endpoints, ok := unwrap(v).([]codegraph.EntryPoint)
+	if !ok || len(endpoints) != 1 || endpoints[0].Target != "/orders" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }
@@ -248,7 +248,7 @@ type ctxRecordingCodeGraph struct {
 	seen *any
 }
 
-func (f ctxRecordingCodeGraph) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
+func (f ctxRecordingCodeGraph) ListEntryPoints(ctx context.Context) ([]codegraph.EntryPoint, error) {
 	*f.seen = ctx.Value(gatewayCtxKey{})
 	return nil, nil
 }
@@ -289,11 +289,11 @@ func (f *fakeCodeGraphServices) Focus(_ context.Context, path string) (CodeGraph
 // relative path, or one with no Registry wired, is refused.
 func TestToolCodeGraphServicePath(t *testing.T) {
 	services := &fakeCodeGraphServices{byPath: map[string]CodeGraphAPI{
-		"/ws/billing": fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "b", Path: "/refunds"}}},
+		"/ws/billing": fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "b", Target: "/refunds"}}},
 	}}
 	s := NewServer(Deps{
 		Caller:            &fakeCaller{},
-		CodeGraph:         fakeCodeGraphAPI{endpoints: []codegraph.Endpoint{{ID: "o", Path: "/orders"}}},
+		CodeGraph:         fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "o", Target: "/orders"}}},
 		CodeGraphServices: services,
 	})
 	path := func(in codeGraphServiceInput) string {
@@ -302,7 +302,7 @@ func TestToolCodeGraphServicePath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return unwrap(v).([]codegraph.Endpoint)[0].Path
+		return unwrap(v).([]codegraph.EntryPoint)[0].Target
 	}
 	if got := path(codeGraphServiceInput{}); got != "/orders" {
 		t.Fatalf("focused = %q", got)

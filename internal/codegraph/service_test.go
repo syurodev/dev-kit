@@ -44,7 +44,7 @@ func TestServiceQueriesFailBeforeOpenProject(t *testing.T) {
 	svc := newTestService(t, fakeAnalyzer{})
 	ctx := context.Background()
 
-	if _, err := svc.ListEndpoints(ctx); !errors.Is(err, ErrNoActiveProject) {
+	if _, err := svc.ListEntryPoints(ctx); !errors.Is(err, ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }
@@ -57,11 +57,11 @@ func TestServiceOpenProjectThenListEndpoints(t *testing.T) {
 		t.Fatalf("OpenProject: %v", err)
 	}
 
-	endpoints, err := svc.ListEndpoints(ctx)
+	endpoints, err := svc.ListEntryPoints(ctx)
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
-	if len(endpoints) != 1 || endpoints[0].Path != "/orders" {
+	if len(endpoints) != 1 || endpoints[0].Target != "/orders" {
 		t.Fatalf("unexpected endpoints: %+v", endpoints)
 	}
 }
@@ -75,7 +75,7 @@ func TestServiceOpenProjectSurfacesAnalyzerError(t *testing.T) {
 		t.Fatalf("expected wrapped analyzer error, got %v", err)
 	}
 	// A failed OpenProject must not leave a stale/partial index queryable.
-	if _, err := svc.ListEndpoints(context.Background()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(context.Background()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("expected ErrIndexNotReady after failed OpenProject, got %v", err)
 	}
 }
@@ -92,7 +92,7 @@ func TestServiceGetApiFlowWalksCallChain(t *testing.T) {
 			{From: "n1", To: "n2", Kind: "call"},
 			{From: "n2", To: "n3", Kind: "call"},
 		},
-		Endpoints: []Endpoint{{ID: "ep1", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"}},
+		EntryPoints: []EntryPoint{{ID: "ep1", Verb: "POST", Target: "/orders", EntryNode: "n1"}},
 	}
 	svc := newTestService(t, fakeAnalyzer{result: result})
 	ctx := context.Background()
@@ -126,7 +126,7 @@ func TestServiceGetApiFlowHandlesCycleWithoutHanging(t *testing.T) {
 			{From: "n1", To: "n2", Kind: "call"},
 			{From: "n2", To: "n1", Kind: "call"},
 		},
-		Endpoints: []Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/x", EntryNode: "n1"}},
+		EntryPoints: []EntryPoint{{ID: "ep1", Verb: "GET", Target: "/x", EntryNode: "n1"}},
 	}
 	svc := newTestService(t, fakeAnalyzer{result: result})
 	ctx := context.Background()
@@ -161,7 +161,7 @@ func TestServiceSearchSymbol(t *testing.T) {
 
 func TestNewServiceWithNilStorePlaceholderIsSafe(t *testing.T) {
 	svc := NewService(nilStore{}, fakeAnalyzer{})
-	if _, err := svc.ListEndpoints(context.Background()); !errors.Is(err, ErrNoActiveProject) {
+	if _, err := svc.ListEntryPoints(context.Background()); !errors.Is(err, ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject from nilStore-backed service, got %v", err)
 	}
 }
@@ -176,8 +176,8 @@ func TestServiceSetProjectPathSwapsStore(t *testing.T) {
 	if err := svc.OpenProject(ctx, "/fake/project"); err != nil {
 		t.Fatalf("OpenProject: %v", err)
 	}
-	if _, err := svc.ListEndpoints(ctx); err != nil {
-		t.Fatalf("ListEndpoints after SetProjectPath+OpenProject: %v", err)
+	if _, err := svc.ListEntryPoints(ctx); err != nil {
+		t.Fatalf("ListEntryPoints after SetProjectPath+OpenProject: %v", err)
 	}
 }
 
@@ -209,8 +209,8 @@ func TestServiceOpenProjectSetsProjectRoot(t *testing.T) {
 }
 
 // TestServiceConcurrentAccessIsRaceFree pits SetProjectPath/OpenProject
-// (writers of s.store/s.active) against ListEndpoints (a reader) running at
-// the same time. Before activeStore() existed, ListEndpoints read s.store
+// (writers of s.store/s.active) against ListEntryPoints (a reader) running at
+// the same time. Before activeStore() existed, ListEntryPoints read s.store
 // directly after releasing the lock from a separate requireActive() call —
 // `go test -race` flags that as a data race under this exact access pattern.
 // Errors from the concurrent calls are expected and ignored (a reader can
@@ -233,7 +233,7 @@ func TestServiceConcurrentAccessIsRaceFree(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			_, _ = svc.ListEndpoints(ctx)
+			_, _ = svc.ListEntryPoints(ctx)
 		}
 	}()
 	go func() {
@@ -638,9 +638,9 @@ func TestServiceOpenProjectStartsWatcherNonFatally(t *testing.T) {
 	}
 	t.Cleanup(func() { svc.Close() })
 
-	endpoints, err := svc.ListEndpoints(context.Background())
+	endpoints, err := svc.ListEntryPoints(context.Background())
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
 	if len(endpoints) == 0 {
 		t.Fatal("expected the project to still be usable despite the watcher failing to start")
@@ -1173,7 +1173,7 @@ func TestServiceGetApiFlowCarriesSummaryAndParams(t *testing.T) {
 				Params:  []Param{{Name: "request", Type: "CreateOrderRequest"}},
 			},
 		},
-		Endpoints: []Endpoint{{ID: "ep1", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"}},
+		EntryPoints: []EntryPoint{{ID: "ep1", Verb: "POST", Target: "/orders", EntryNode: "n1"}},
 	}
 	svc := newTestService(t, fakeAnalyzer{result: result})
 	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
@@ -1882,9 +1882,9 @@ func TestOpenProjectReusesThisProjectsStoredIndex(t *testing.T) {
 	if _, err := reopened.WaitForIndexReady(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	endpoints, err := reopened.ListEndpoints(context.Background())
+	endpoints, err := reopened.ListEntryPoints(context.Background())
 	if err != nil {
-		t.Fatalf("ListEndpoints straight after reopen: %v", err)
+		t.Fatalf("ListEntryPoints straight after reopen: %v", err)
 	}
 	if len(endpoints) == 0 {
 		t.Fatal("the stored index should be queryable the moment the project opens")

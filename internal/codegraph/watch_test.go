@@ -57,7 +57,7 @@ func TestIrrelevantChangesNeitherReindexNorBlockQueries(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Queries stay available throughout: a log file is not the index.
-		if _, err := svc.ListEndpoints(t.Context()); err != nil {
+		if _, err := svc.ListEntryPoints(t.Context()); err != nil {
 			t.Fatalf("a log write made the index unready: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)

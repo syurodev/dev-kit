@@ -93,8 +93,8 @@ export class MiscController {
 // tsRoutes is every endpoint as "METHOD path", for comparing whole sets.
 func tsRoutes(result AnalysisResult) []string {
 	var routes []string
-	for _, endpoint := range result.Endpoints {
-		routes = append(routes, endpoint.HTTPMethod+" "+endpoint.Path)
+	for _, endpoint := range result.EntryPoints {
+		routes = append(routes, endpoint.Verb+" "+endpoint.Target)
 	}
 	sort.Strings(routes)
 	return routes
@@ -118,6 +118,32 @@ func TestNestMicroserviceHandlersAreEntryPoints(t *testing.T) {
 	} {
 		if !strings.Contains(routes, want) {
 			t.Errorf("missing %q; got:\n%s", want, routes)
+		}
+	}
+}
+
+// Each entry point says what calls it, and sits under the class that declares
+// it — the list groups by both, and only an HTTP route goes to the API Client.
+func TestNestEntryPointsSayWhatCallsThem(t *testing.T) {
+	result := analyzeTS(t, nestMicroserviceFixture)
+	kinds := map[string]string{}
+	for _, entry := range result.EntryPoints {
+		kinds[entry.Verb] = entry.Kind
+		if entry.Owner == "" || entry.Group == "" {
+			t.Errorf("%s %s has no owner/group: %+v", entry.Verb, entry.Target, entry)
+		}
+	}
+	for verb, want := range map[string]string{
+		"MESSAGE": EntryKindMessage, "EVENT": EntryKindMessage, "GRPC": EntryKindRPC,
+		"SOCKET": EntryKindSocket, "QUERY": EntryKindGraphQL, "CRON": EntryKindSchedule,
+	} {
+		if kinds[verb] != want {
+			t.Errorf("%s kind = %q, want %q", verb, kinds[verb], want)
+		}
+	}
+	for _, entry := range result.EntryPoints {
+		if entry.Verb == "CRON" && entry.Group != "CleanupService" {
+			t.Errorf("cron job grouped under %q, want its class CleanupService", entry.Group)
 		}
 	}
 }
@@ -228,7 +254,7 @@ export class HelperService {
 `,
 	})
 
-	if len(result.Endpoints) != 0 {
+	if len(result.EntryPoints) != 0 {
 		t.Errorf("a provider declares no routes, got %v", tsRoutes(result))
 	}
 }

@@ -19,13 +19,13 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listEndpoints",
-		Description: "List HTTP endpoints detected in the active CodeGraph project",
+		Description: "List the entry points detected in the active CodeGraph project — where a flow starts because something outside the code calls in. kind says which: http (verb GET/POST…, target a URL), plugin (a Kong plugin phase: verb ACCESS/LOG…, target the plugin), message, rpc, graphql, socket, schedule. owner/group say what declares each one; order is the run order within a group where it means something (Kong phases). (The tool keeps its old name.)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListEndpoints)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getApiFlow",
-		Description: "Get the Controller -> Service -> Repository call chain for one endpoint",
+		Description: "Get the call chain below one entry point (Controller -> Service -> Repository for an HTTP route). endpointId is an id from codegraph.listEndpoints.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetApiFlow)
 
@@ -153,7 +153,7 @@ func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallTool
 		if err != nil {
 			return nil, err
 		}
-		return cg.ListEndpoints(ctx)
+		return cg.ListEntryPoints(ctx)
 	})
 	if err != nil {
 		return nil, nil, err

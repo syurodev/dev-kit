@@ -47,7 +47,7 @@ export function ProjectHeader({
 }: {
   projectPath: string;
   indexInfo: CodeGraphIndexInfo | null;
-  counts: { endpoints: number; services: number };
+  counts: { entryPoints: number; services: number };
   busy: boolean;
   onReindex: () => void;
   onOpenProject: (path: string) => void;

@@ -28,8 +28,8 @@ func sampleResult() AnalysisResult {
 			{ID: "n2", Label: "OrderService.process", Kind: "method", Layer: "service", FilePath: "OrderService.java", Line: 20, EndLine: 30},
 		},
 		Edges: []Edge{{From: "n1", To: "n2", Kind: "call"}},
-		Endpoints: []Endpoint{
-			{ID: "ep1", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"},
+		EntryPoints: []EntryPoint{
+			{ID: "ep1", Verb: "POST", Target: "/orders", EntryNode: "n1"},
 		},
 	}
 }
@@ -50,11 +50,11 @@ func TestStoreReplaceIndexThenListEndpoints(t *testing.T) {
 		t.Fatalf("expected HasIndex true after ReplaceIndex, got has=%v err=%v", has, err)
 	}
 
-	endpoints, err := store.ListEndpoints(ctx)
+	endpoints, err := store.ListEntryPoints(ctx)
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
-	if len(endpoints) != 1 || endpoints[0].Path != "/orders" {
+	if len(endpoints) != 1 || endpoints[0].Target != "/orders" {
 		t.Fatalf("unexpected endpoints: %+v", endpoints)
 	}
 }
@@ -72,18 +72,18 @@ func TestStoreReplaceIndexDedupesCollidingEndpointIDs(t *testing.T) {
 			{ID: "n1", Label: "OrderController.create", Kind: "method", Layer: "controller", FilePath: "Order.java", Line: 10, EndLine: 15},
 			{ID: "n2", Label: "OrderClient.create", Kind: "method", Layer: "client", FilePath: "OrderClient.java", Line: 5, EndLine: 8},
 		},
-		Endpoints: []Endpoint{
-			{ID: "POST /orders", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"},
-			{ID: "POST /orders", HTTPMethod: "POST", Path: "/orders", EntryNode: "n2"},
+		EntryPoints: []EntryPoint{
+			{ID: "POST /orders", Verb: "POST", Target: "/orders", EntryNode: "n1"},
+			{ID: "POST /orders", Verb: "POST", Target: "/orders", EntryNode: "n2"},
 		},
 	}
 	if err := store.ReplaceIndex(ctx, result); err != nil {
 		t.Fatalf("ReplaceIndex: %v", err)
 	}
 
-	endpoints, err := store.ListEndpoints(ctx)
+	endpoints, err := store.ListEntryPoints(ctx)
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
 	if len(endpoints) != 1 {
 		t.Fatalf("expected the colliding endpoint deduped to one, got: %+v", endpoints)
@@ -102,18 +102,18 @@ func TestStoreReplaceIndexIsWholesale(t *testing.T) {
 	}
 	// Second index has none of the first's endpoints — replace, not merge.
 	second := AnalysisResult{
-		Nodes:     []Node{{ID: "n9", Label: "Health.check", Kind: "method", Layer: "controller"}},
-		Endpoints: []Endpoint{{ID: "ep9", HTTPMethod: "GET", Path: "/health", EntryNode: "n9"}},
+		Nodes:       []Node{{ID: "n9", Label: "Health.check", Kind: "method", Layer: "controller"}},
+		EntryPoints: []EntryPoint{{ID: "ep9", Verb: "GET", Target: "/health", EntryNode: "n9"}},
 	}
 	if err := store.ReplaceIndex(ctx, second); err != nil {
 		t.Fatalf("second ReplaceIndex: %v", err)
 	}
 
-	endpoints, err := store.ListEndpoints(ctx)
+	endpoints, err := store.ListEntryPoints(ctx)
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
-	if len(endpoints) != 1 || endpoints[0].Path != "/health" {
+	if len(endpoints) != 1 || endpoints[0].Target != "/health" {
 		t.Fatalf("expected only the second index's endpoint to remain, got: %+v", endpoints)
 	}
 }
@@ -269,8 +269,8 @@ func TestStoreReplaceIndexClearsOldFileDependencies(t *testing.T) {
 
 	// Second index has no file dependencies at all — must fully replace, not merge.
 	second := AnalysisResult{
-		Nodes:     []Node{{ID: "n9", Label: "Health.check", Kind: "method", Layer: "controller"}},
-		Endpoints: []Endpoint{{ID: "ep9", HTTPMethod: "GET", Path: "/health", EntryNode: "n9"}},
+		Nodes:       []Node{{ID: "n9", Label: "Health.check", Kind: "method", Layer: "controller"}},
+		EntryPoints: []EntryPoint{{ID: "ep9", Verb: "GET", Target: "/health", EntryNode: "n9"}},
 	}
 	if err := store.ReplaceIndex(ctx, second); err != nil {
 		t.Fatalf("second ReplaceIndex: %v", err)
@@ -790,5 +790,54 @@ func TestStoreListFieldsNoAccesses(t *testing.T) {
 	}
 	if len(fields) != 0 {
 		t.Fatalf("expected no fields, got %+v", fields)
+	}
+}
+
+func TestStoreMovesLegacyEndpointsIntoEntryPoints(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE endpoints (
+		id TEXT PRIMARY KEY, http_method TEXT NOT NULL, path TEXT NOT NULL, entry_node TEXT NOT NULL);
+		INSERT INTO endpoints VALUES ('ACCESS rate-limit', 'ACCESS', 'rate-limit', 'kong.plugins.rate-limit.handler.access()')`); err != nil {
+		t.Fatalf("legacy schema: %v", err)
+	}
+	db.Close()
+
+	store, err := newSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("newSQLiteStore on legacy db: %v", err)
+	}
+	defer store.Close()
+	// A reopen serves the stored index while it refreshes: its rows must
+	// survive the move, not read as "no entry points" until the re-index.
+	entries, err := store.ListEntryPoints(context.Background())
+	if err != nil || len(entries) != 1 || entries[0].Verb != "ACCESS" || entries[0].Target != "rate-limit" {
+		t.Fatalf("ListEntryPoints = %+v, %v; want the legacy row", entries, err)
+	}
+	var legacy int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'endpoints'`).Scan(&legacy); err != nil || legacy != 0 {
+		t.Fatalf("legacy endpoints table still there (%d, %v)", legacy, err)
+	}
+}
+
+func TestStoreKeepsWhatAnEntryPointIs(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	want := EntryPoint{
+		ID: "ACCESS rate-limit", Verb: "ACCESS", Target: "rate-limit", EntryNode: "n1",
+		Kind: EntryKindPlugin, Owner: "kong.plugins.rate-limit.handler", Group: "rate-limit", Order: 6,
+	}
+	if err := store.ReplaceIndex(ctx, AnalysisResult{
+		Nodes:       []Node{{ID: "n1", Label: "access", Kind: "method", Layer: "controller", FilePath: "handler.lua", Line: 1, EndLine: 2}},
+		EntryPoints: []EntryPoint{want},
+	}); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+	got, err := store.GetEntryPoint(ctx, want.ID)
+	if err != nil || got != want {
+		t.Fatalf("GetEntryPoint = %+v, %v; want %+v", got, err, want)
 	}
 }

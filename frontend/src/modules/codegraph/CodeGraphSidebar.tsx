@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { SidebarHeader, SidebarInset, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { CodeGraphEndpoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
+import type { CodeGraphEntryPoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "./codegraphStore";
 import {
   askAgent,
@@ -20,13 +20,13 @@ import { MODULE, describeDocument } from "./documents";
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { EmptyProject } from "./sidebar/EmptyProject";
 import { IndexErrorCard } from "./sidebar/IndexErrorCard";
-import { EndpointsTab } from "./sidebar/EndpointsTab";
+import { EntryPointsTab } from "./sidebar/EntryPointsTab";
 import { SymbolResults } from "./sidebar/SymbolResults";
 import { FilesTab } from "./sidebar/FilesTab";
 import { PlanTab } from "./sidebar/PlanTab";
-import { groupEndpoints } from "./sidebar/sidebarModel";
+import { servicesIn } from "./sidebar/sidebarModel";
 
-export type CodeGraphSidebarTab = "endpoints" | "files" | "plan";
+export type CodeGraphSidebarTab = "entries" | "files" | "plan";
 
 const set = useCodeGraphStore.getState().set;
 const snapshot = () => useCodeGraphStore.getState();
@@ -34,7 +34,7 @@ const snapshot = () => useCodeGraphStore.getState();
 const PLACEHOLDER: Record<CodeGraphSidebarTab, string> = {
   // Short enough for the narrowest rail (240): the longer Figma wording was
   // cut mid-word there.
-  endpoints: "Search, or @ for symbols",
+  entries: "Search, or @ for symbols",
   files: "Search files…",
   plan: "Filter plan nodes…",
 };
@@ -53,20 +53,21 @@ const onToggleGroup = (key: string) => {
 // Structured, not pasted text: the ref rides to the agent as a devkit://
 // URI it resolves itself through codegraph.getApiFlow when it needs the
 // call chain, rather than a sentence frozen at the moment this was clicked
-// (docs/dev-kit/cross-module.mdx § Primitive 1).
-const onAskAboutEndpoint = (ep: CodeGraphEndpoint) =>
+// (docs/dev-kit/cross-module.mdx § Primitive 1). The ref kind stays
+// "endpoint" — it is what agents resolve, whatever kind of entry point.
+const onAskAboutEntryPoint = (ep: CodeGraphEntryPoint) =>
   void dispatchAttachIntent("agent.attach", [
     {
       module: "codegraph",
       kind: "endpoint",
       id: ep.id,
-      label: `${ep.httpMethod} ${ep.path}`,
+      label: `${ep.verb} ${ep.target}`,
       project: snapshot().projectPath,
     },
   ]);
-const onPreviewEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep);
-const onKeepEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false });
-const onEndpointBeside = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false, beside: true });
+const onPreviewEntryPoint = (ep: CodeGraphEntryPoint) => viewFlow(ep);
+const onKeepEntryPoint = (ep: CodeGraphEntryPoint) => viewFlow(ep, { preview: false });
+const onEntryPointBeside = (ep: CodeGraphEntryPoint) => viewFlow(ep, { preview: false, beside: true });
 // A search result is a deliberate pick, not browsing: it keeps its tab.
 const onOpenSymbolFile = (m: CodeGraphSymbolMatch) => {
   set({ activeTab: "files", query: "" });
@@ -89,13 +90,13 @@ const onOpenPlan = () => showPlan(undefined, { preview: false });
 
 /**
  * Figma `CodeGraph / Sidebar` (1192:69479): the project and how fresh its
- * index is, a search that reaches symbols with @, then Endpoints, Files or
+ * index is, a search that reaches symbols with @, then Entry points, Files or
  * Plan. Reads the module store itself — everything it shows is module state,
  * and the view only has to register it.
  */
 export function CodeGraphSidebar() {
   useEffect(ensureStarted, []);
-  // What the rail marks is the document in front: the flow's endpoint, the file.
+  // What the rail marks is the document in front: the flow's entry point, the file.
   const front = useWorkbenchTabsStore((s) => {
     const tabs = moduleTabs(s.modules, MODULE);
     return tabs.openTabs.find((t) => t.id === tabs.activeTabId) ?? null;
@@ -105,9 +106,9 @@ export function CodeGraphSidebar() {
   const busy = useCodeGraphStore((s) => s.busy);
   const activeTab = useCodeGraphStore((s) => s.activeTab);
   const query = useCodeGraphStore((s) => s.query);
-  const endpoints = useCodeGraphStore((s) => s.endpoints);
+  const entryPoints = useCodeGraphStore((s) => s.entryPoints);
   const indexInfo = useCodeGraphStore((s) => s.indexInfo);
-  const methodFilter = useCodeGraphStore((s) => s.methodFilter);
+  const verbFilter = useCodeGraphStore((s) => s.verbFilter);
   const collapsedGroups = useCodeGraphStore((s) => s.collapsedGroups);
   const files = useCodeGraphStore((s) => s.files);
   const gitStatus = useCodeGraphStore((s) => s.gitStatus);
@@ -124,20 +125,24 @@ export function CodeGraphSidebar() {
   const planError = useCodeGraphStore((s) => s.planError);
   const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
 
-  const services = useMemo(() => groupEndpoints(endpoints).length, [endpoints]);
+  const services = useMemo(() => servicesIn(entryPoints), [entryPoints]);
   const flowFiles = useMemo(() => new Set((subgraph?.nodes ?? []).map((n) => n.filePath).filter(Boolean)), [subgraph]);
   const unsaved = useMemo(
     () => new Set(dirtyPaths),
     [dirtyPaths],
   );
-  // A flow opened from @ has no endpoint; the endpoint it starts at is still it.
-  const selectedEndpointId =
-    doc.endpoint ?? (doc.root ? endpoints.find((ep) => ep.entryNode === doc.root)?.id : undefined) ?? null;
+  // A flow opened from @ has no entry point; the one it starts at is still it.
+  const selectedEntryPointId =
+    doc.entryPoint ?? (doc.root ? entryPoints.find((ep) => ep.entryNode === doc.root)?.id : undefined) ?? null;
   // The tab's badge: plan nodes that need someone to look.
   const attention = (plan?.nodes ?? []).filter(
     (n) => n.status === "implemented_diverged" || n.status === "pending_enhancement",
   ).length;
-  const symbolMode = activeTab === "endpoints" && query.startsWith("@");
+  // No analyzer reads the project: there are no entry points to list, and
+  // a tab for them would only say so. Files and Plan are what it has.
+  const unsupported = Boolean(indexInfo?.unsupported);
+  const tab: CodeGraphSidebarTab = unsupported && activeTab === "entries" ? "files" : activeTab;
+  const symbolMode = tab === "entries" && query.startsWith("@");
 
   if (!projectPath) {
     return (
@@ -153,7 +158,7 @@ export function CodeGraphSidebar() {
         <ProjectHeader
           projectPath={projectPath}
           indexInfo={indexInfo}
-          counts={{ endpoints: endpoints.length, services }}
+          counts={{ entryPoints: entryPoints.length, services }}
           busy={busy}
           onReindex={onReindex}
           onOpenProject={onOpenProject}
@@ -169,18 +174,20 @@ export function CodeGraphSidebar() {
           value={query}
           onChange={onQueryChange}
           onClear={onClearQuery}
-          placeholder={PLACEHOLDER[activeTab]}
-          aria-label={activeTab === "endpoints" ? "Search endpoints, or type @ for classes and methods" : PLACEHOLDER[activeTab]}
+          placeholder={PLACEHOLDER[tab]}
+          aria-label={tab === "entries" ? "Search entry points, or type @ for classes and methods" : PLACEHOLDER[tab]}
         />
       </SidebarHeader>
 
       {symbolMode ? null : (
         <SidebarInset>
-          <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as CodeGraphSidebarTab)} className="gap-0">
+          <Tabs value={tab} onValueChange={(v) => onTabChange(v as CodeGraphSidebarTab)} className="gap-0">
             <TabsList className="w-full">
-              <TabsTrigger value="endpoints" className="flex-1">
-                Endpoints
-              </TabsTrigger>
+              {unsupported ? null : (
+                <TabsTrigger value="entries" className="flex-1">
+                  Entry points
+                </TabsTrigger>
+              )}
               <TabsTrigger value="files" className="flex-1">
                 Files
               </TabsTrigger>
@@ -207,23 +214,22 @@ export function CodeGraphSidebar() {
           onOpenFile={onOpenSymbolFile}
           onClear={onClearQuery}
         />
-      ) : activeTab === "endpoints" ? (
-        <EndpointsTab
-          endpoints={endpoints}
+      ) : tab === "entries" ? (
+        <EntryPointsTab
+          entryPoints={entryPoints}
           query={query}
           busy={busy}
-          unsupported={Boolean(indexInfo?.unsupported)}
-          selectedEndpointId={selectedEndpointId}
-          methodFilter={methodFilter}
+          selectedEntryPointId={selectedEntryPointId}
+          verbFilter={verbFilter}
           collapsed={collapsedGroups}
-          onMethodFilter={(methods) => set({ methodFilter: methods })}
+          onVerbFilter={(verbs) => set({ verbFilter: verbs })}
           onToggleGroup={onToggleGroup}
-          onSelect={onPreviewEndpoint}
-          onKeep={onKeepEndpoint}
-          onOpenBeside={onEndpointBeside}
-          onAskAgent={onAskAboutEndpoint}
+          onSelect={onPreviewEntryPoint}
+          onKeep={onKeepEntryPoint}
+          onOpenBeside={onEntryPointBeside}
+          onAskAgent={onAskAboutEntryPoint}
         />
-      ) : activeTab === "files" ? (
+      ) : tab === "files" ? (
         <FilesTab
           files={files}
           query={query}
@@ -233,7 +239,7 @@ export function CodeGraphSidebar() {
           flowFiles={flowFiles}
           filter={fileFilter}
           onFilter={(next) => set({ fileFilter: next })}
-          unsupported={Boolean(indexInfo?.unsupported)}
+          unsupported={unsupported}
           expanded={fileExpanded}
           onToggleFolder={onToggleFolder}
           onSelectFile={onSelectFile}

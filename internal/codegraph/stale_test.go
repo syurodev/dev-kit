@@ -78,7 +78,7 @@ func TestReopenServesTheStoredIndexWhileItRefreshes(t *testing.T) {
 	indexProject(t, dbPath, root, &namedAnalyzer{id: "java|jar-1|build-1"})
 
 	svc, held := reopen(t, dbPath, root, "java|jar-1|build-1")
-	endpoints, err := svc.ListEndpoints(t.Context())
+	endpoints, err := svc.ListEntryPoints(t.Context())
 	if err != nil {
 		t.Fatalf("query during the refresh: %v — the stored index was written by this same analyzer and should be served", err)
 	}
@@ -106,14 +106,14 @@ func TestReopenWithAnotherAnalyzerWaitsForTheRefresh(t *testing.T) {
 	indexProject(t, dbPath, root, &namedAnalyzer{id: "java|jar-1|build-1"})
 
 	svc, held := reopen(t, dbPath, root, "java|jar-2|build-1")
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("err = %v, want ErrIndexNotReady until the new analyzer's refresh commits", err)
 	}
 	close(held.gate)
 	if _, err := svc.WaitForIndexReady(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ListEndpoints(t.Context()); err != nil {
+	if _, err := svc.ListEntryPoints(t.Context()); err != nil {
 		t.Fatalf("after the refresh: %v", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestReopenWithAnUnnamedAnalyzerWaitsForTheRefresh(t *testing.T) {
 	indexProject(t, dbPath, root, fakeAnalyzer{result: sampleResult()}) // stamps ""
 
 	svc, held := reopen(t, dbPath, root, "")
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("err = %v, want ErrIndexNotReady", err)
 	}
 	close(held.gate)
@@ -142,7 +142,7 @@ func TestAFailedRefreshStopsServingTheStoredIndex(t *testing.T) {
 	if _, err := svc.WaitForIndexReady(t.Context()); err == nil {
 		t.Fatal("want the refresh's failure")
 	}
-	if _, err := svc.ListEndpoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
+	if _, err := svc.ListEntryPoints(t.Context()); !errors.Is(err, ErrIndexNotReady) {
 		t.Fatalf("err = %v, want ErrIndexNotReady after a failed refresh", err)
 	}
 }

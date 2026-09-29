@@ -414,6 +414,29 @@ task build:analyzer:ts
 go test ./internal/lsp/ ./internal/codegraph/ -count=1
 ```
 
+### CodeGraph: entry points
+What the sidebar lists is `codegraph.EntryPoint` (`internal/codegraph/entrypoints.go`), not
+"endpoints": where a flow starts because something outside the code calls in. `Kind` says
+what calls in — `http`, `graphql`, `rpc`, `message`, `socket`, `schedule`, `plugin` (a Kong
+phase) — `Verb`/`Target` are the chip and what it answers to (`GET /users`,
+`ACCESS rate-limit`, `CRON 0 * * * *`), and `Service`/`Owner`/`Group`/`Order` place it in
+the list. The UI groups kind → service → owner and does no guessing of its own.
+
+- **An analyzer sets what it knows; `completeEntryPoints` fills the rest on every read**
+  (`Service.ListEntryPoints`): kind from the verb, owner/group from a Java node id, the Java
+  service from the package segment after the shared prefix. So an index written before
+  these fields existed reads the same as a new one. The store moved `endpoints` into
+  `entry_points` in place (rows copied, not dropped — a reopen serves the stored index).
+- **Kong phases are `plugin` entries under their plugin, `Order`ed as Kong runs them**; a
+  plugin's Admin API is `http` under the same plugin name.
+- **The Java jar's wire format is unchanged** (`endpoints`, `httpMethod`, `path`):
+  `analyzer_subprocess.go` translates it, so an installed jar keeps working with any DevKit.
+- **Kept stable on purpose**: the MCP tool names (`codegraph.listEndpoints`, `getApiFlow`'s
+  `endpointId` input — agents' allowlists name them), the entity-ref kind `"endpoint"`
+  (agents and saved transcripts resolve it), and the API Client's `EndpointDraft` (an HTTP
+  concept). Only `http` entries offer "Try in API Client". Tool-result cards read both the
+  new (`verb`/`target`, `entryPointId`) and the old field names, since transcripts outlive builds.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.
@@ -429,8 +452,8 @@ without it was worse.
   (`Service.openForBrowsing`): no analyzer and no watcher run, the tree/editor/git status
   work, `IndexInfo.Unsupported` is true, and graph queries and `WaitForIndexReady` answer
   `ErrUnsupportedProject` (bridge code `unsupported_project`). That is a state, not a
-  failure: the UI labels it "Not supported" (neutral tone) and never shows an error card
-  or a retry for it, and its messages name no language. Detection is skipped when no
+  failure: the UI labels it "Not supported" (neutral tone), hides the Entry points tab,
+  and never shows an error card or a retry for it; its messages name no language. Detection is skipped when no
   toolchain is registered — an empty registry knows nothing and must not refuse everything.
 - **A folder of microservices is one index, not none.** `ProjectAnalyzer` discovers every
   `src/main/java` below the root (skipping `target/`, `node_modules/`, dot-dirs; depth 6),

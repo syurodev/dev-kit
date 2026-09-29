@@ -20,18 +20,21 @@ func DraftFromEndpoint(ctx context.Context, graph *codegraph.Service, endpointID
 	if graph == nil || endpointID == "" {
 		return apiclient.EndpointDraft{}, apiclient.ErrNotFound
 	}
-	endpoints, err := graph.ListEndpoints(ctx)
+	entries, err := graph.ListEntryPoints(ctx)
 	if err != nil {
 		return apiclient.EndpointDraft{}, err
 	}
-	var endpoint codegraph.Endpoint
-	for _, candidate := range endpoints {
+	var endpoint codegraph.EntryPoint
+	for _, candidate := range entries {
 		if candidate.ID == endpointID {
 			endpoint = candidate
 			break
 		}
 	}
-	if endpoint.ID == "" {
+	// Only an HTTP route is a request the API Client can send. A Kong phase,
+	// a message pattern or a cron job has no URL, and a draft for one would
+	// be "ACCESS {{baseUrl}}rate-limiting".
+	if endpoint.ID == "" || endpoint.Kind != codegraph.EntryKindHTTP {
 		return apiclient.EndpointDraft{}, apiclient.ErrNotFound
 	}
 
@@ -45,15 +48,15 @@ func DraftFromEndpoint(ctx context.Context, graph *codegraph.Service, endpointID
 	return draftFor(endpoint, params), nil
 }
 
-func draftFor(endpoint codegraph.Endpoint, params []codegraph.Param) apiclient.EndpointDraft {
-	method := strings.ToUpper(endpoint.HTTPMethod)
+func draftFor(endpoint codegraph.EntryPoint, params []codegraph.Param) apiclient.EndpointDraft {
+	method := strings.ToUpper(endpoint.Verb)
 	if method == "" {
 		method = "GET"
 	}
 	draft := apiclient.EndpointDraft{Request: apiclient.Request{
-		Name:      method + " " + endpoint.Path,
+		Name:      method + " " + endpoint.Target,
 		Method:    method,
-		URL:       "{{baseUrl}}" + pathTemplate(endpoint.Path),
+		URL:       "{{baseUrl}}" + pathTemplate(endpoint.Target),
 		OriginRef: endpoint.ID,
 	}}
 

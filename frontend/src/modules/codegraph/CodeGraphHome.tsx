@@ -41,7 +41,7 @@ export function CodeGraphHome() {
   const busy = useCodeGraphStore((s) => s.busy || s.status.startsWith("Indexing"));
   const error = useCodeGraphStore((s) => s.error);
   const errorCode = useCodeGraphStore((s) => s.errorCode);
-  const endpointCount = useCodeGraphStore((s) => s.endpoints.length);
+  const entryCount = useCodeGraphStore((s) => s.entryPoints.length);
   const unsupported = useCodeGraphStore((s) => s.indexInfo?.unsupported ?? false);
   const analyzerStatuses = useCodeGraphStore((s) => s.analyzerStatuses);
   // What the open project turned out to be written in, "" until the first
@@ -60,7 +60,7 @@ export function CodeGraphHome() {
       <EmptyState
         busy
         title="Analyzing codebase"
-        body="Indexing controllers, services and repositories. Endpoints appear in the sidebar when it finishes."
+        body="Indexing controllers, services and repositories. Entry points appear in the sidebar when it finishes."
       />
     );
   }
@@ -118,10 +118,10 @@ export function CodeGraphHome() {
   return (
     <EmptyState
       icon={GitFork}
-      title={endpointCount > 0 ? "Pick an endpoint to graph" : "No endpoints in this project"}
+      title={entryCount > 0 ? "Pick an entry point to graph" : "No entry points in this project"}
       body={
-        endpointCount > 0
-          ? "Each route, file and the plan opens as a tab of its own — keep a flow beside the code it passes through."
+        entryCount > 0
+          ? "Each entry point, file and the plan opens as a tab of its own — keep a flow beside the code it passes through."
           : "Type @ in the sidebar's search to graph any class or method instead."
       }
     >

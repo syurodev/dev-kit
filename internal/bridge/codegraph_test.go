@@ -28,8 +28,8 @@ func (f fakeCodeGraphAnalyzer) Analyze(ctx context.Context, path string) (codegr
 func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 	s := newTestService(t)
 	result := codegraph.AnalysisResult{
-		Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
-		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+		Nodes:       []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+		EntryPoints: []codegraph.EntryPoint{{ID: "ep1", Verb: "GET", Target: "/a", EntryNode: "n1"}},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
@@ -38,11 +38,11 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
-	endpoints, err := s.CodeGraphListEndpoints("")
+	endpoints, err := s.CodeGraphListEntryPoints("")
 	if err != nil {
-		t.Fatalf("CodeGraphListEndpoints: %v", err)
+		t.Fatalf("CodeGraphListEntryPoints: %v", err)
 	}
-	if len(endpoints) != 1 || endpoints[0].Path != "/a" {
+	if len(endpoints) != 1 || endpoints[0].Target != "/a" {
 		t.Fatalf("unexpected endpoints: %+v", endpoints)
 	}
 }
@@ -50,8 +50,8 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 	s := newTestService(t)
 	result := codegraph.AnalysisResult{
-		Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
-		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+		Nodes:       []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+		EntryPoints: []codegraph.EntryPoint{{ID: "ep1", Verb: "GET", Target: "/a", EntryNode: "n1"}},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
@@ -67,9 +67,9 @@ func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	endpoints, err := s.CodeGraphListEndpoints("")
+	endpoints, err := s.CodeGraphListEntryPoints("")
 	if err != nil {
-		t.Fatalf("CodeGraphListEndpoints: %v", err)
+		t.Fatalf("CodeGraphListEntryPoints: %v", err)
 	}
 	if len(endpoints) != 1 {
 		t.Fatalf("expected 1 endpoint after re-index, got %d: %+v", len(endpoints), endpoints)
@@ -80,7 +80,7 @@ func TestCodeGraphListEndpointsBeforeOpenProjectFails(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{})
 
-	if _, err := s.CodeGraphListEndpoints(""); !errors.Is(err, codegraph.ErrNoActiveProject) {
+	if _, err := s.CodeGraphListEntryPoints(""); !errors.Is(err, codegraph.ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }
@@ -272,8 +272,8 @@ func TestCodeGraphOpenProjectReportsEveryModuleItFound(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{
 		result: codegraph.AnalysisResult{
-			Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
-			Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+			Nodes:       []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+			EntryPoints: []codegraph.EntryPoint{{ID: "ep1", Verb: "GET", Target: "/a", EntryNode: "n1"}},
 		},
 	})
 	s.container.ConfigDir = t.TempDir()
@@ -306,8 +306,8 @@ func TestCodeGraphOpenProjectBrowsesAFolderNoAnalyzerReads(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{
 		result: codegraph.AnalysisResult{
-			Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
-			Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+			Nodes:       []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+			EntryPoints: []codegraph.EntryPoint{{ID: "ep1", Verb: "GET", Target: "/a", EntryNode: "n1"}},
 		},
 	})
 	s.container.ConfigDir = t.TempDir()
@@ -331,7 +331,7 @@ func TestCodeGraphOpenProjectBrowsesAFolderNoAnalyzerReads(t *testing.T) {
 	// A graph query says why there is no graph, under its own code — so the UI
 	// shows "files only" rather than a failure with a retry that cannot work —
 	// and in words that do not assume any one language.
-	_, err = s.CodeGraphListEndpoints("")
+	_, err = s.CodeGraphListEntryPoints("")
 	if err == nil || !strings.HasPrefix(err.Error(), "unsupported_project:") {
 		t.Fatalf("expected the unsupported_project code, got %v", err)
 	}
@@ -381,12 +381,12 @@ func TestCodeGraphCancelAnalyzerBuildWithNothingBuilding(t *testing.T) {
 func TestCodeGraphServicePathReadsAnotherFolder(t *testing.T) {
 	s := newTestService(t)
 	focused := codegraph.AnalysisResult{
-		Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
-		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/focused", EntryNode: "n1"}},
+		Nodes:       []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+		EntryPoints: []codegraph.EntryPoint{{ID: "ep1", Verb: "GET", Target: "/focused", EntryNode: "n1"}},
 	}
 	other := codegraph.AnalysisResult{
-		Nodes:     []codegraph.Node{{ID: "n2", Label: "B.bar", Kind: "method", Layer: "controller"}},
-		Endpoints: []codegraph.Endpoint{{ID: "ep2", HTTPMethod: "POST", Path: "/other", EntryNode: "n2"}},
+		Nodes:       []codegraph.Node{{ID: "n2", Label: "B.bar", Kind: "method", Layer: "controller"}},
+		EntryPoints: []codegraph.EntryPoint{{ID: "ep2", Verb: "POST", Target: "/other", EntryNode: "n2"}},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: focused})
 	s.container.ConfigDir = t.TempDir()
@@ -400,14 +400,14 @@ func TestCodeGraphServicePathReadsAnotherFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.CodeGraphListEndpoints(otherDir)
+	got, err := s.CodeGraphListEntryPoints(otherDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Path != "/other" {
+	if len(got) != 1 || got[0].Target != "/other" {
 		t.Fatalf("named service endpoints = %+v, want /other", got)
 	}
-	if got, _ := s.CodeGraphListEndpoints(""); len(got) != 1 || got[0].Path != "/focused" {
+	if got, _ := s.CodeGraphListEntryPoints(""); len(got) != 1 || got[0].Target != "/focused" {
 		t.Fatalf("focused endpoints = %+v, want /focused", got)
 	}
 	if root := s.container.CodeGraph.ProjectRoot(); root != focusDir {

@@ -6,27 +6,27 @@ import { useSplitPanel } from "@/components/ui/split-panel";
 import { tabKey } from "@/stores/workbenchTabs";
 import { cn } from "@/lib/utils";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
-import { methodChipClass } from "./graph/tokens";
+import { verbChipClass } from "./graph/tokens";
 import { shortLabel } from "./graph/labels";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
 import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors, openFile } from "./codegraphActions";
-import { FLOW_VIEW, MODULE } from "./documents";
+import { entryPointParam, FLOW_VIEW, MODULE } from "./documents";
 import { useIsFrontDocument, useProjectReady } from "./useDocument";
 
 /**
- * One flow as a tab: the call graph behind an endpoint, or behind a class or
+ * One flow as a tab: the call graph behind an entry point, or behind a class or
  * method picked with @. Its inspector is a context pane of this tab — it
  * shows while this is the document in front and comes back when it is again.
  */
 export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   const root = typeof params?.root === "string" ? params.root : "";
-  const endpointId = typeof params?.endpoint === "string" ? params.endpoint : undefined;
+  const entryPointId = entryPointParam(params);
   const tabId = tabKey(MODULE, FLOW_VIEW, params);
 
   const ready = useProjectReady();
   const flow = useCodeGraphStore((s) => s.flows[root]);
-  const endpoint = useCodeGraphStore((s) => (endpointId ? s.endpoints.find((ep) => ep.id === endpointId) : undefined));
+  const entry = useCodeGraphStore((s) => (entryPointId ? s.entryPoints.find((ep) => ep.id === entryPointId) : undefined));
   const front = useIsFrontDocument(tabId);
 
   // A tab restored after a relaunch, or one whose flow a re-index dropped,
@@ -50,12 +50,12 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
           edges={subgraph.edges}
           onSelect={onSelect}
           header={
-            endpoint ? (
+            entry ? (
               <>
-                <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", methodChipClass(endpoint.httpMethod))}>
-                  {endpoint.httpMethod}
+                <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
+                  {entry.verb}
                 </span>
-                <span className="truncate text-title-16 text-text-primary">{endpoint.path}</span>
+                <span className="truncate text-title-16 text-text-primary">{entry.target}</span>
               </>
             ) : (
               <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
@@ -108,7 +108,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   return (
     <EmptyState
       busy
-      title={endpoint ? `Tracing ${endpoint.httpMethod} ${endpoint.path}` : "Tracing the flow"}
+      title={entry ? `Tracing ${entry.verb} ${entry.target}` : "Tracing the flow"}
       body={ready ? "Following the calls from the handler through services and repositories." : "Waiting for the project's index."}
     />
   );

@@ -9,11 +9,11 @@ export type SymbolMatch = {
   line: number;
 };
 
-/** Mirrors internal/codegraph/codegraph.go: Endpoint — codegraph.listEndpoints's rawOutput (a list). */
-export type EndpointMatch = {
+/** One row of codegraph.listEndpoints's rawOutput — internal/codegraph/codegraph.go: EntryPoint. */
+export type EntryPointMatch = {
   id: string;
-  httpMethod: string;
-  path: string;
+  verb: string;
+  target: string;
 };
 
 function isSymbolMatchList(value: unknown): value is SymbolMatch[] {
@@ -23,11 +23,18 @@ function isSymbolMatchList(value: unknown): value is SymbolMatch[] {
   );
 }
 
-function isEndpointList(value: unknown): value is EndpointMatch[] {
-  return (
-    Array.isArray(value) &&
-    value.every((v) => v && typeof v === "object" && typeof (v as Record<string, unknown>).httpMethod === "string")
-  );
+/**
+ * One row, whichever way it was written: `verb`/`target` today, and
+ * `httpMethod`/`path` in a transcript from before entry points had kinds —
+ * a transcript outlives the build that wrote it.
+ */
+function toEntryPointMatch(value: unknown): EntryPointMatch | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  const verb = v.verb ?? v.httpMethod;
+  const target = v.target ?? v.path;
+  if (typeof v.id !== "string" || typeof verb !== "string" || typeof target !== "string") return null;
+  return { id: v.id, verb, target };
 }
 
 /** Guards codegraph.searchSymbol's result before the Card component is imported. */
@@ -37,7 +44,9 @@ export function parseSymbolMatches(rawOutput: unknown): SymbolMatch[] | null {
 }
 
 /** Guards codegraph.listEndpoints's result before the Card component is imported. */
-export function parseEndpointMatches(rawOutput: unknown): EndpointMatch[] | null {
+export function parseEntryPointMatches(rawOutput: unknown): EntryPointMatch[] | null {
   const parsed = parseToolOutput(rawOutput);
-  return isEndpointList(parsed) && parsed.length > 0 ? parsed : null;
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const rows = parsed.map(toEntryPointMatch);
+  return rows.every((r): r is EntryPointMatch => r !== null) ? rows : null;
 }

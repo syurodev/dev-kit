@@ -81,13 +81,13 @@ func TestLuaFlowWalksTheWholeChain(t *testing.T) {
 	service, _ := openLuaProject(t, e2eFixture)
 	ctx := context.Background()
 
-	endpoints, err := service.ListEndpoints(ctx)
+	endpoints, err := service.ListEntryPoints(ctx)
 	if err != nil {
-		t.Fatalf("ListEndpoints: %v", err)
+		t.Fatalf("ListEntryPoints: %v", err)
 	}
-	var access Endpoint
+	var access EntryPoint
 	for _, endpoint := range endpoints {
-		if endpoint.HTTPMethod == "ACCESS" {
+		if endpoint.Verb == "ACCESS" {
 			access = endpoint
 		}
 	}
