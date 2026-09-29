@@ -7,6 +7,7 @@ import {
   type CodeGraphReference,
 } from "@/bridge/codegraph";
 import { shortLabel } from "./graph/labels";
+import { isUnsupportedProjectError } from "./codegraphErrors";
 
 /**
  * A node's own label is fully qualified ("com.acme.OrderService.create"),
@@ -42,6 +43,21 @@ function referenceToCodeLocation(reference: CodeGraphReference): CodeLocation {
 }
 
 /**
+ * A project no analyzer reads has no index to look anything up in. That is the
+ * same answer as "nothing found", not "the lookup failed": an editor tooltip
+ * saying "Could not look up" on every Terraform file would be a warning about
+ * nothing.
+ */
+async function orNothing<T>(lookup: Promise<T[]>): Promise<T[]> {
+  try {
+    return await lookup;
+  } catch (e) {
+    if (isUnsupportedProjectError(e)) return [];
+    throw e;
+  }
+}
+
+/**
  * codeIntel.ts's provider interface, backed by the codegraph index's
  * FindDefinitions (internal/codegraph/definitions.go). `request.line` is
  * passed straight through as the SAVED-file line codeIntel.ts already
@@ -51,7 +67,7 @@ function referenceToCodeLocation(reference: CodeGraphReference): CodeLocation {
 export function createCodeGraphIntelProvider(): CodeIntelProvider {
   return {
     async definition(request: CodeIntelRequest, signal: AbortSignal): Promise<CodeLocation[]> {
-      const definitions = await findCodeGraphDefinitions(request.path, request.line, request.identifier);
+      const definitions = await orNothing(findCodeGraphDefinitions(request.path, request.line, request.identifier));
       // findCodeGraphDefinitions wraps a Wails call that cannot itself be
       // cancelled (see callBridge) — checking here is the "as far as it can"
       // this provider can do: a result for a lookup nobody is waiting for
@@ -59,11 +75,11 @@ export function createCodeGraphIntelProvider(): CodeIntelProvider {
       return signal.aborted ? [] : definitions.map(toCodeLocation);
     },
     async implementation(request: CodeIntelRequest, signal: AbortSignal): Promise<CodeLocation[]> {
-      const implementations = await findCodeGraphImplementations(request.path, request.line, request.identifier);
+      const implementations = await orNothing(findCodeGraphImplementations(request.path, request.line, request.identifier));
       return signal.aborted ? [] : implementations.map(toCodeLocation);
     },
     async references(request: CodeIntelRequest, signal: AbortSignal): Promise<CodeLocation[]> {
-      const references = await findCodeGraphReferences(request.path, request.line, request.identifier);
+      const references = await orNothing(findCodeGraphReferences(request.path, request.line, request.identifier));
       return signal.aborted ? [] : references.map(referenceToCodeLocation);
     },
   };

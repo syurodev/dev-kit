@@ -3,6 +3,7 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -456,6 +457,9 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 	var detected DetectedProject
 	if len(s.toolchainList()) > 0 {
 		found, err := s.DetectProject(root)
+		if errors.Is(err, ErrUnsupportedProject) {
+			return s.openForBrowsing(generation, root)
+		}
 		if err != nil {
 			return fmt.Errorf("codegraph: open %q: %w", root, err)
 		}
@@ -551,6 +555,37 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 	}
 
 	s.startWatcherFor(generation, root)
+	return s.saveProjectFor(generation, root)
+}
+
+// openForBrowsing opens a folder no toolchain recognises for its files alone.
+//
+// Refusing it outright kept the analyzer away from folders that are not code,
+// which is still the point — but it also took away the file tree, the editor
+// and git status, none of which need an analyzer. An infrastructure repository
+// (Terraform, Helm charts, Kubernetes manifests) is somebody's real project;
+// "choose another folder" was the wrong answer to it.
+//
+// So nothing that analyzes runs: no analyzer, and no watcher, whose only job
+// is to re-run one. The project is active for files and the store it owns
+// (plans, comments); graph queries answer ErrUnsupportedProject.
+func (s *Service) openForBrowsing(generation uint64, root string) error {
+	s.mu.Lock()
+	if s.index.generation != generation {
+		s.mu.Unlock()
+		return nil // runOpen's deferred check reports the switch
+	}
+	s.detected = DetectedProject{}
+	s.index.unsupported = true
+	s.active = true
+	version := s.index.version
+	notify := s.OnIndexUpdated
+	s.mu.Unlock()
+	// The open is done, like any other: a restore at startup has nobody
+	// waiting on it, and the UI showing "opening" learns it finished here.
+	if notify != nil {
+		notify(version)
+	}
 	return s.saveProjectFor(generation, root)
 }
 

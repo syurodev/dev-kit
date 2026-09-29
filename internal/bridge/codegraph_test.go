@@ -302,7 +302,7 @@ func TestCodeGraphOpenProjectReportsEveryModuleItFound(t *testing.T) {
 	}
 }
 
-func TestCodeGraphOpenProjectRefusesAFolderThatIsNotAProject(t *testing.T) {
+func TestCodeGraphOpenProjectBrowsesAFolderNoAnalyzerReads(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{
 		result: codegraph.AnalysisResult{
@@ -318,14 +318,25 @@ func TestCodeGraphOpenProjectRefusesAFolderThatIsNotAProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := s.CodeGraphOpenProject(context.Background(), root)
-	if err == nil {
-		t.Fatal("a folder of text files is not a project")
+	t.Cleanup(func() { s.container.CodeGraph.Close() })
+
+	// Opens: its files are browsable without an analyzer.
+	if _, err := s.CodeGraphOpenProject(context.Background(), root); err != nil {
+		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
-	// Its own code, so the UI offers "choose another folder" rather than a
-	// retry that could never work.
-	if !strings.HasPrefix(err.Error(), "unsupported_project:") {
-		t.Fatalf("expected the unsupported_project code, got %q", err.Error())
+	files, err := s.CodeGraphListFiles("")
+	if err != nil || len(files) != 1 || files[0].Path != "notes.txt" {
+		t.Fatalf("CodeGraphListFiles = %v, %v", files, err)
+	}
+	// A graph query says why there is no graph, under its own code — so the UI
+	// shows "files only" rather than a failure with a retry that cannot work —
+	// and in words that do not assume any one language.
+	_, err = s.CodeGraphListEndpoints("")
+	if err == nil || !strings.HasPrefix(err.Error(), "unsupported_project:") {
+		t.Fatalf("expected the unsupported_project code, got %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "java") {
+		t.Fatalf("the message names a language: %q", err.Error())
 	}
 }
 

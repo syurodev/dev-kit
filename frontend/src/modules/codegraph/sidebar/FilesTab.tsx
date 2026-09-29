@@ -16,7 +16,7 @@ const TOGGLE = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 t
  * config, resources, lockfiles, docs.
  */
 const CODE =
-  /\.(java|kt|kts|groovy|scala|go|py|ts|tsx|js|jsx|mjs|cjs|rs|rb|php|cs|fs|swift|m|mm|c|h|cc|cpp|hpp|dart|ex|exs|erl|clj|lua|sql|proto|graphql|vue|svelte|sh)$/i;
+  /\.(java|kt|kts|groovy|scala|go|py|ts|tsx|js|jsx|mjs|cjs|rs|rb|php|cs|fs|swift|m|mm|c|h|cc|cpp|hpp|dart|ex|exs|erl|clj|lua|sql|proto|graphql|vue|svelte|sh|tf|tfvars|hcl|bicep|nix|rego|cue|jsonnet|libsonnet)$/i;
 
 const MARK_TONE: Record<CodeGraphGitState, string> = {
   M: "text-status-warning",
@@ -43,6 +43,7 @@ export function FilesTab({
   flowFiles,
   filter,
   onFilter,
+  unsupported = false,
   expanded,
   onToggleFolder,
   onSelectFile,
@@ -58,6 +59,13 @@ export function FilesTab({
   flowFiles: ReadonlySet<string>;
   filter: FileFilter;
   onFilter: (next: FileFilter) => void;
+  /**
+   * No analyzer reads the project. "Code" is drawn around the languages the
+   * analyzers read, and in a Helm chart or a folder of Kubernetes manifests
+   * the YAML is the code — so the filter would hide the whole project, and on
+   * by default it did. Here it neither applies nor shows.
+   */
+  unsupported?: boolean;
   /** Folders the user opened. A search opens the ones holding its matches too. */
   expanded: string[];
   onToggleFolder: (path: string) => void;
@@ -65,13 +73,14 @@ export function FilesTab({
   onKeepFile: (path: string) => void;
 }) {
   const changedCount = Object.keys(gitStatus).length;
+  const codeOnly = filter.codeOnly && !unsupported;
   const keepFile = useMemo(() => {
-    if (!filter.codeOnly && !filter.changed && !filter.inFlow) return undefined;
+    if (!codeOnly && !filter.changed && !filter.inFlow) return undefined;
     return (path: string) =>
-      (!filter.codeOnly || CODE.test(path)) &&
+      (!codeOnly || CODE.test(path)) &&
       (!filter.changed || path in gitStatus) &&
       (!filter.inFlow || flowFiles.has(path));
-  }, [filter, gitStatus, flowFiles]);
+  }, [codeOnly, filter.changed, filter.inFlow, gitStatus, flowFiles]);
   const shown = useMemo(() => filterFileEntries(files, query, keepFile), [files, query, keepFile]);
   const nodes = useMemo(() => {
     const open = new Set([...expanded, ...(shown.forceExpanded ?? [])]);
@@ -132,7 +141,9 @@ export function FilesTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <SidebarInset className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter files">
-        {toggle("codeOnly", "CODE", "Source code only, in any language — hides build files, config, resources and docs")}
+        {unsupported
+          ? null
+          : toggle("codeOnly", "CODE", "Source code only, in any language — hides build files, config, resources and docs")}
         {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED", "Files with uncommitted changes (git status)")}
         {toggle("inFlow", "IN FLOW", "Files the flow in front passes through", flowFiles.size === 0 && !filter.inFlow)}
       </SidebarInset>

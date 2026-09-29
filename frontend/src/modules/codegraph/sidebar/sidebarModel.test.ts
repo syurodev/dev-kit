@@ -71,6 +71,14 @@ describe("index status", () => {
     expect(indexStatusLine({ ...refreshing, stale: false }, { endpoints: 5, services: 1 }, now).text).toBe("Indexing…");
   });
 
+  it("labels a project no analyzer reads, even over an optimistic indexing flag", () => {
+    // ProjectHeader forces indexing on while the open that finds this out runs.
+    expect(indexStatusLine({ indexedAt: 0, indexing: true, error: "", unsupported: true }, { endpoints: 0, services: 1 }, now)).toEqual({
+      tone: "neutral",
+      text: "Not supported · files only",
+    });
+  });
+
   it("keeps saying which index is on screen when a run failed", () => {
     expect(indexStatusLine({ indexedAt: now - 2 * 3_600_000, indexing: false, error: "x" }, { endpoints: 1, services: 1 }, now).text).toBe(
       "Index failed · showing the index from 2h ago",
@@ -151,6 +159,10 @@ describe("serviceIndexLine", () => {
       "Not indexed — analyzer missing",
     );
     expect(serviceIndexLine({ ...base, state: "failed" }, now)?.text).toBe("Index failed");
-    expect(serviceIndexLine({ ...base, state: "unsupported" }, now)?.tone).toBe("failed");
+    // No analyzer for a folder is a label, not a failure: no red dot.
+    expect(serviceIndexLine({ ...base, state: "unsupported" }, now)).toEqual({
+      text: "Not supported · files only",
+      tone: "neutral",
+    });
   });
 });

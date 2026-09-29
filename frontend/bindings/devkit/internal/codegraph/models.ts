@@ -249,6 +249,13 @@ export interface IndexInfo {
      * Branch is the checked-out git branch, "" outside a work tree.
      */
     "branch": string;
+
+    /**
+     * Unsupported is true when no analyzer recognised the project: it is open
+     * for its files — the tree, the editor, git status — and has no graph.
+     * Not an Error: nothing failed, and the UI must not offer a retry.
+     */
+    "unsupported": boolean;
 }
 
 /**

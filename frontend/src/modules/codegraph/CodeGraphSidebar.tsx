@@ -212,6 +212,7 @@ export function CodeGraphSidebar() {
           endpoints={endpoints}
           query={query}
           busy={busy}
+          unsupported={Boolean(indexInfo?.unsupported)}
           selectedEndpointId={selectedEndpointId}
           methodFilter={methodFilter}
           collapsed={collapsedGroups}
@@ -232,6 +233,7 @@ export function CodeGraphSidebar() {
           flowFiles={flowFiles}
           filter={fileFilter}
           onFilter={(next) => set({ fileFilter: next })}
+          unsupported={Boolean(indexInfo?.unsupported)}
           expanded={fileExpanded}
           onToggleFolder={onToggleFolder}
           onSelectFile={onSelectFile}

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { dispatchIntent, hasIntent } from "@/workbench/intents";
 import type { CodeGraphEndpoint } from "@/bridge/codegraph";
 import { methodChipClass } from "../graph/tokens";
-import { filterEndpoints, groupEndpoints, methodsIn, type ControllerGroup } from "./sidebarModel";
+import { filterEndpoints, groupEndpoints, methodsIn, NOT_SUPPORTED, type ControllerGroup } from "./sidebarModel";
 
 /** Figma `CodeGraph / Sidebar / Method Chip` (1189:41359): Geist Mono 10, radius 6. */
 export const METHOD_CHIP = "inline-flex h-5.25 shrink-0 items-center justify-center rounded-sm px-1.5 text-code-11 font-semibold uppercase";
@@ -27,6 +27,8 @@ type Props = {
   endpoints: CodeGraphEndpoint[];
   query: string;
   busy: boolean;
+  /** No analyzer reads the project: there are no endpoints to find, and that is not "none found". */
+  unsupported?: boolean;
   selectedEndpointId: string | null;
   methodFilter: string[];
   collapsed: string[];
@@ -49,6 +51,7 @@ export function EndpointsTab({
   endpoints,
   query,
   busy,
+  unsupported = false,
   selectedEndpointId,
   methodFilter,
   collapsed,
@@ -190,7 +193,11 @@ export function EndpointsTab({
         <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />
       ) : !busy ? (
         <p className="px-2 py-3 text-center text-body-12 text-text-tertiary">
-          {endpoints.length === 0 ? "No endpoints found in this project." : "No endpoints match."}
+          {unsupported
+            ? `${NOT_SUPPORTED} — no analyzer reads this project, so it has no endpoints to list.`
+            : endpoints.length === 0
+              ? "No endpoints found in this project."
+              : "No endpoints match."}
         </p>
       ) : null}
     </div>

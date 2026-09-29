@@ -11,6 +11,15 @@ export function isProjectChangedError(error: unknown): boolean {
 }
 
 /**
+ * No analyzer reads this project's language (Go's ErrUnsupportedProject). Not
+ * a failure: the project is open for its files, it just has no graph, so
+ * callers show a "not supported" label rather than an error.
+ */
+export function isUnsupportedProjectError(error: unknown): boolean {
+  return toAppError(error).code === "unsupported_project";
+}
+
+/**
  * Having no plan is the normal state for most projects; Go reports it as a
  * validation failure reading "No active plan." Anything else from the plan
  * calls is a real failure and must not be dressed up as "no plan yet".

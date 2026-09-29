@@ -47,6 +47,11 @@ type indexState struct {
 	// (storedAnalyzerMatches). Cleared when that refresh finishes, either
 	// way — after it, readiness is the ordinary rule again.
 	stale bool
+	// unsupported says the open project is one no toolchain recognised, open
+	// for its files alone (Service.openForBrowsing): there is no index and
+	// there will not be one, so graph queries get ErrUnsupportedProject — a
+	// reason — rather than an empty answer an agent would take for a fact.
+	unsupported bool
 }
 
 // reset starts a new generation with nothing in flight: a project switch or
@@ -58,6 +63,7 @@ func (st *indexState) reset() {
 	st.pending = false
 	st.err = nil
 	st.stale = false
+	st.unsupported = false
 }
 
 func (st *indexState) busy() bool {
@@ -66,6 +72,9 @@ func (st *indexState) busy() bool {
 
 // readyErr is nil when queries may read the index.
 func (st *indexState) readyErr() error {
+	if st.unsupported {
+		return ErrUnsupportedProject
+	}
 	if st.err != nil || (st.busy() && !st.stale) {
 		return ErrIndexNotReady
 	}
@@ -492,8 +501,15 @@ func (s *Service) WaitForIndexReady(ctx context.Context) (int, error) {
 		busy := s.index.busy()
 		indexErr := s.index.err
 		version := s.index.version
+		unsupported := s.index.unsupported
 		s.mu.RUnlock()
 
+		if unsupported {
+			// Open, and as ready as it will get: its files are there, a graph
+			// is not. Said as the reason rather than as ErrIndexNotReady, which
+			// would promise an index that is coming.
+			return 0, ErrUnsupportedProject
+		}
 		if !busy {
 			if indexErr != nil {
 				return 0, fmt.Errorf("%w: %v", ErrIndexNotReady, indexErr)

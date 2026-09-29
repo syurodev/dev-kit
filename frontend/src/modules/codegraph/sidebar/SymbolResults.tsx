@@ -4,7 +4,8 @@ import { shortcut } from "@/lib/shortcut";
 import { searchCodeGraphSymbol, type CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import { errorMessage } from "@/bridge/errors";
 import { LAYERS, layerOf } from "../graph/tokens";
-import { symbolDisplay } from "./sidebarModel";
+import { NOT_SUPPORTED, symbolDisplay } from "./sidebarModel";
+import { isUnsupportedProjectError } from "../codegraphErrors";
 
 /** A query past this many characters waits this long for the next keystroke. */
 const DEBOUNCE_MS = 180;
@@ -42,6 +43,8 @@ export function SymbolResults({
   // null until the index answers: "no matches" must not flash before it has.
   const [matches, setMatches] = useState<CodeGraphSymbolMatch[] | null>(null);
   const [error, setError] = useState("");
+  // No analyzer reads the project: a label, not an error (see isUnsupportedProjectError).
+  const [unsupported, setUnsupported] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState(0);
   const needle = query.trim();
@@ -56,8 +59,16 @@ export function SymbolResults({
     setLoading(true);
     const t = window.setTimeout(() => {
       searchCodeGraphSymbol(needle)
-        .then((m) => live && (setMatches(m), setError(""), setCursor(0)))
-        .catch((e) => live && setError(errorMessage(e)))
+        .then((m) => live && (setMatches(m), setError(""), setUnsupported(false), setCursor(0)))
+        .catch((e) => {
+          if (!live) return;
+          if (isUnsupportedProjectError(e)) {
+            setUnsupported(true);
+            setError("");
+          } else {
+            setError(errorMessage(e));
+          }
+        })
         .finally(() => live && setLoading(false));
     }, DEBOUNCE_MS);
     return () => {
@@ -132,6 +143,10 @@ export function SymbolResults({
         {section("Methods", methods, classes.length)}
         {!needle ? (
           <p className="px-2 py-3 text-body-12 text-text-tertiary">Type a class or method name after @.</p>
+        ) : unsupported ? (
+          <p role="status" className="px-2 py-3 text-body-12 text-text-tertiary">
+            {NOT_SUPPORTED} — no analyzer reads this project, so it has no classes or methods to search.
+          </p>
         ) : error ? (
           <p role="alert" className="px-2 py-3 text-body-12 text-status-danger">{error}</p>
         ) : matches !== null && !loading && ordered.length === 0 ? (

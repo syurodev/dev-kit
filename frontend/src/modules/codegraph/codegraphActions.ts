@@ -27,7 +27,7 @@ import {
 } from "@/bridge/codegraphPlan";
 import { errorMessage, toAppError } from "@/bridge/errors";
 import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } from "./codegraphStore";
-import { isNoPlanError, isProjectChangedError } from "./codegraphErrors";
+import { isNoPlanError, isProjectChangedError, isUnsupportedProjectError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -197,6 +197,15 @@ function switchProject(root: string) {
   });
 }
 
+/**
+ * A project no analyzer reads has no endpoints, and the endpoints tab is where
+ * the sidebar starts: its files are the project, so that is where it lands.
+ * A tab the person chose themselves (the plan) is left alone.
+ */
+function filesTabIfOnEndpoints(): { activeTab?: "files" } {
+  return snapshot().activeTab === "endpoints" ? { activeTab: "files" } : {};
+}
+
 export async function reindex(path: string) {
   const sameProject = path === snapshot().projectPath;
   if (!sameProject) switchProject(path);
@@ -206,11 +215,20 @@ export async function reindex(path: string) {
     status: "Indexing…",
     error: "",
     errorCode: "",
-    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true },
+    // unsupported cleared: the open about to run decides it afresh (a build
+    // file may have been added since), and until then the line is "Indexing…".
+    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true, unsupported: false },
   });
   try {
     const detected = await openCodeGraphProject(path);
     if (!current()) return;
+    if (detected.unsupported) {
+      // Open for its files, with no graph to ask for: the tree is the whole
+      // of it, and nothing here is an error.
+      set({ endpoints: [], status: "", ...filesTabIfOnEndpoints() });
+      await loadFiles();
+      return;
+    }
     const list = await listCodeGraphEndpoints();
     if (!current()) return;
     set({ endpoints: list });
@@ -568,14 +586,27 @@ async function refreshOpenFlows() {
 export async function refreshAfterReindex() {
   const current = begin("refresh");
   try {
-    await waitForCodeGraphIndexReady();
+    let unsupported = false;
+    try {
+      await waitForCodeGraphIndexReady();
+    } catch (e) {
+      if (!isUnsupportedProjectError(e)) throw e;
+      unsupported = true;
+    }
     if (!current()) return;
-    const endpoints = await listCodeGraphEndpoints();
-    if (!current()) return;
-    set({ endpoints, error: "", errorCode: "" });
-    await loadFiles();
-    if (!current()) return;
-    await refreshOpenFlows();
+    if (unsupported) {
+      // A restored or agent-opened project no analyzer reads: its files, and
+      // no graph. The same answer reindex gives, by the other route in.
+      set({ endpoints: [], error: "", errorCode: "", ...filesTabIfOnEndpoints() });
+      await loadFiles();
+    } else {
+      const endpoints = await listCodeGraphEndpoints();
+      if (!current()) return;
+      set({ endpoints, error: "", errorCode: "" });
+      await loadFiles();
+      if (!current()) return;
+      await refreshOpenFlows();
+    }
   } catch (e) {
     if (current()) {
       const message = errorMessage(e);

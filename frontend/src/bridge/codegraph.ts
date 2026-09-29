@@ -1,5 +1,6 @@
 import { Events } from "@wailsio/runtime";
 import { callBridge } from "./client";
+import { toAppError } from "./errors";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 export type CodeGraphEndpoint = {
@@ -39,16 +40,29 @@ export type CodeGraphDetectedProject = {
    * A repository of microservices has one entry per service.
    */
   modules: string[];
+  /**
+   * No analyzer reads this project: it is open for its files and has no
+   * graph. Not a failure — see IndexInfo.unsupported in Go.
+   */
+  unsupported: boolean;
 };
 
 export async function openCodeGraphProject(path: string): Promise<CodeGraphDetectedProject> {
   return callBridge(async () => {
     const detected = await AppService.CodeGraphOpenProject(path);
-    await AppService.CodeGraphWaitForIndexReady("");
+    let unsupported = false;
+    try {
+      await AppService.CodeGraphWaitForIndexReady("");
+    } catch (e) {
+      // The folder opened; there is simply no index to wait for.
+      if (toAppError(e).code !== "unsupported_project") throw e;
+      unsupported = true;
+    }
     return {
       language: detected.language,
       label: detected.label,
       modules: detected.modules ?? [],
+      unsupported,
     };
   });
 }
@@ -385,6 +399,12 @@ export type CodeGraphIndexInfo = {
   language: string;
   /** The checked-out git branch, "" outside a work tree. */
   branch: string;
+  /**
+   * No analyzer reads this project: open for its files, no graph. Shown as a
+   * "not supported" label, never as an error. Optional because the UI builds
+   * optimistic copies of this.
+   */
+  unsupported?: boolean;
 };
 
 export function codeGraphIndexInfo(servicePath = ""): Promise<CodeGraphIndexInfo> {
@@ -398,6 +418,7 @@ export function codeGraphIndexInfo(servicePath = ""): Promise<CodeGraphIndexInfo
       modules: info.modules ?? [],
       language: info.language ?? "",
       branch: info.branch,
+      unsupported: info.unsupported ?? false,
     };
   });
 }

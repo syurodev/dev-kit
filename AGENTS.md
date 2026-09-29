@@ -425,10 +425,13 @@ without it was worse.
   for Lua that includes `handler.lua`, so a repository of Kong plugins reads as one module
   per plugin. First toolchain to claim the folder wins, and Java is ahead of Lua because
   its markers are build files while Lua's fallback is "any folder holding a .lua".
-  Unrecognised folders get `ErrUnsupportedProject`, which the UI renders as "choose another
-  folder" rather than as a failed analysis (its own bridge code, `unsupported_project`, so
-  the two are not confused). Detection is skipped when no toolchain is registered — an empty
-  registry knows nothing and must not refuse everything.
+  An unrecognised folder (Terraform, Helm, manifests…) still opens, **for its files only**
+  (`Service.openForBrowsing`): no analyzer and no watcher run, the tree/editor/git status
+  work, `IndexInfo.Unsupported` is true, and graph queries and `WaitForIndexReady` answer
+  `ErrUnsupportedProject` (bridge code `unsupported_project`). That is a state, not a
+  failure: the UI labels it "Not supported" (neutral tone) and never shows an error card
+  or a retry for it, and its messages name no language. Detection is skipped when no
+  toolchain is registered — an empty registry knows nothing and must not refuse everything.
 - **A folder of microservices is one index, not none.** `ProjectAnalyzer` discovers every
   `src/main/java` below the root (skipping `target/`, `node_modules/`, dot-dirs; depth 6),
   falling back to the root itself for a bare folder of `.java` files. All roots go into one

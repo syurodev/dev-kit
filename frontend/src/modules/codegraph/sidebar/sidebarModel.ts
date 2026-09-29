@@ -136,7 +136,7 @@ export function serviceIndexLine(
         tone: "failed",
       };
     case "unsupported":
-      return { text: "No analyzer for this folder", tone: "failed" };
+      return { text: `${NOT_SUPPORTED} · files only`, tone: "neutral" };
     default:
       return null;
   }
@@ -154,15 +154,22 @@ export function relativeTime(at: number, now: number): string {
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
-export type IndexTone = "ok" | "busy" | "failed";
+/** `neutral` is a state, not an outcome: no analyzer reads the project, which is nobody's failure. */
+export type IndexTone = "ok" | "busy" | "failed" | "neutral";
+
+/** What a project no analyzer reads is labelled — a fact about it, not an error. */
+export const NOT_SUPPORTED = "Not supported";
 
 /** The line under the project name, and the colour of its dot. */
 export function indexStatusLine(
-  info: Pick<CodeGraphIndexInfo, "indexedAt" | "indexing" | "error" | "stale"> | null,
+  info: Pick<CodeGraphIndexInfo, "indexedAt" | "indexing" | "error" | "stale" | "unsupported"> | null,
   counts: { endpoints: number; services: number },
   now: number,
 ): { tone: IndexTone; text: string } {
   if (!info) return { tone: "busy", text: "Reading the index…" };
+  // Before indexing: nothing runs for such a project, and an optimistic
+  // "indexing" from the open that found out must not outlive the answer.
+  if (info.unsupported) return { tone: "neutral", text: `${NOT_SUPPORTED} · files only` };
   const when = info.indexedAt ? relativeTime(info.indexedAt, now) : "";
   // A reopen answering from the stored index while it refreshes: say which
   // index is on screen, the way a failed run does, rather than "Indexing…"

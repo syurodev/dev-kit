@@ -28,6 +28,7 @@ const DOT: Record<IndexTone, string> = {
   ok: "bg-status-success",
   busy: "bg-status-info animate-pulse",
   failed: "bg-status-danger",
+  neutral: "bg-text-tertiary",
 };
 
 const CARD = "rounded-lg border border-border-subtle bg-surface-raised";
