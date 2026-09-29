@@ -3,6 +3,9 @@ package mcp
 import (
 	"context"
 
+	"devkit/internal/apperrors"
+	"devkit/internal/workspace"
+
 	gitservice "devkit/internal/git"
 	"devkit/internal/gitparse"
 	"devkit/internal/identity"
@@ -41,14 +44,47 @@ type TaskBranches interface {
 	BranchesForSession(sessionID string) []string
 }
 
+// gitRepoInput is the argument every git tool shares: which repository.
+type gitRepoInput struct {
+	Repo string `json:"repo,omitempty" jsonschema:"optional; which repository: a folder name from workspace.list or git.repos (e.g. kong-plugin) or an absolute path. Defaults to your session's working directory — from a terminal, to the repository open in DevKit"`
+}
+
+// gitStatusResult is git.status's answer, naming the repository it read so an
+// agent never has to guess which one "the work tree" was.
+type gitStatusResult struct {
+	Repo string `json:"repo,omitempty"`
+	gitservice.Status
+}
+
+// repoMeta adds the repository asked for to an audit line.
+func repoMeta(repo string, extra map[string]any) map[string]any {
+	if repo == "" {
+		return extra
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra["repo"] = repo
+	return extra
+}
+
 func (s *Server) registerGit(ms *sdk.Server) {
 	if s.deps.Git == nil {
 		return
 	}
 
 	sdk.AddTool(ms, &sdk.Tool{
-		Name:        "git.status",
-		Description: "What changed in the work tree, the branch, and how far ahead or behind it is",
+		Name: "git.repos",
+		Description: "The repositories of your workspace — one per folder — with branch, ahead/behind and how " +
+			"many files changed. `cwd` marks the one every git tool uses when you pass no `repo`; `granted` the ones " +
+			"you may write. Pass a name from here as `repo` to any git tool to work in another service",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolGitRepos)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.status",
+		Description: "What changed in the work tree, the branch, and how far ahead or behind it is. " +
+			"`repo` in the answer says which repository that was",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolGitStatus)
 
@@ -133,9 +169,14 @@ func (s *Server) registerGit(ms *sdk.Server) {
 	// person's decision.
 }
 
-func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:status", meta("status", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.Status(ctx)
+func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, in gitRepoInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:status", meta("status", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, repo, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		status, err := git.Status(ctx)
+		return gitStatusResult{Repo: repo, Status: status}, err
 	})
 	if err != nil {
 		return nil, nil, err
@@ -144,13 +185,18 @@ func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, _ st
 }
 
 type gitDiffInput struct {
+	gitRepoInput
 	Rev    string `json:"rev,omitempty"`
 	Staged bool   `json:"staged,omitempty"`
 }
 
 func (s *Server) toolGitDiff(ctx context.Context, _ *sdk.CallToolRequest, in gitDiffInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:diff", meta("diff", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.Diff(ctx, in.Rev, in.Staged)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:diff", meta("diff", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.Diff(ctx, in.Rev, in.Staged)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -159,12 +205,17 @@ func (s *Server) toolGitDiff(ctx context.Context, _ *sdk.CallToolRequest, in git
 }
 
 type gitLimitInput struct {
+	gitRepoInput
 	Limit int `json:"limit,omitempty"`
 }
 
 func (s *Server) toolGitLog(ctx context.Context, _ *sdk.CallToolRequest, in gitLimitInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:log", meta("log", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.Log(ctx, in.Limit)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:log", meta("log", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.Log(ctx, in.Limit)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -173,13 +224,18 @@ func (s *Server) toolGitLog(ctx context.Context, _ *sdk.CallToolRequest, in gitL
 }
 
 type gitTaskKeyInput struct {
+	gitRepoInput
 	Key   string `json:"key"`
 	Limit int    `json:"limit,omitempty"`
 }
 
 func (s *Server) toolGitCommitsForTask(ctx context.Context, _ *sdk.CallToolRequest, in gitTaskKeyInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:log", meta("commits_for_task", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.CommitsForTask(ctx, in.Key, in.Limit)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:log", meta("commits_for_task", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.CommitsForTask(ctx, in.Key, in.Limit)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -187,9 +243,13 @@ func (s *Server) toolGitCommitsForTask(ctx context.Context, _ *sdk.CallToolReque
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolGitBranchList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:branches", meta("branches", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.Branches(ctx)
+func (s *Server) toolGitBranchList(ctx context.Context, _ *sdk.CallToolRequest, in gitRepoInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:branches", meta("branches", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.Branches(ctx)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -198,13 +258,18 @@ func (s *Server) toolGitBranchList(ctx context.Context, _ *sdk.CallToolRequest, 
 }
 
 type gitBranchCreateInput struct {
+	gitRepoInput
 	Name string `json:"name"`
 	From string `json:"from,omitempty"`
 }
 
 func (s *Server) toolGitBranchCreate(ctx context.Context, _ *sdk.CallToolRequest, in gitBranchCreateInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:branches", meta("create_branch", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.CreateBranch(ctx, in.Name, in.From)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:branches", meta("create_branch", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.CreateBranch(ctx, in.Name, in.From)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -213,12 +278,17 @@ func (s *Server) toolGitBranchCreate(ctx context.Context, _ *sdk.CallToolRequest
 }
 
 type gitNameInput struct {
+	gitRepoInput
 	Name string `json:"name"`
 }
 
 func (s *Server) toolGitCheckout(ctx context.Context, _ *sdk.CallToolRequest, in gitNameInput) (*sdk.CallToolResult, any, error) {
-	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:branches", meta("checkout", nil), func(ctx context.Context) (any, error) {
-		return nil, s.deps.Git.Checkout(ctx, in.Name)
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:branches", meta("checkout", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return nil, git.Checkout(ctx, in.Name)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -227,6 +297,7 @@ func (s *Server) toolGitCheckout(ctx context.Context, _ *sdk.CallToolRequest, in
 }
 
 type gitPathsInput struct {
+	gitRepoInput
 	Paths []string `json:"paths"`
 	// Turn marks these as one agent turn's paths: ones it changed and changed
 	// back are dropped rather than staged as empty entries.
@@ -234,11 +305,15 @@ type gitPathsInput struct {
 }
 
 func (s *Server) toolGitStage(ctx context.Context, _ *sdk.CallToolRequest, in gitPathsInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:stage", meta("stage", nil), func(ctx context.Context) (any, error) {
-		if in.Turn {
-			return s.deps.Git.StageTurn(ctx, in.Paths)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:stage", meta("stage", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
 		}
-		return in.Paths, s.deps.Git.Stage(ctx, in.Paths)
+		if in.Turn {
+			return git.StageTurn(ctx, in.Paths)
+		}
+		return in.Paths, git.Stage(ctx, in.Paths)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -247,6 +322,7 @@ func (s *Server) toolGitStage(ctx context.Context, _ *sdk.CallToolRequest, in gi
 }
 
 type gitCommitInput struct {
+	gitRepoInput
 	Message string `json:"message"`
 	// TaskKey adds the `Task: <key>` trailer, which is the entire link between
 	// a commit and a task: nothing stores a SHA.
@@ -254,8 +330,12 @@ type gitCommitInput struct {
 }
 
 func (s *Server) toolGitCommit(ctx context.Context, _ *sdk.CallToolRequest, in gitCommitInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:commit", meta("commit", nil), func(ctx context.Context) (any, error) {
-		return s.deps.Git.Commit(ctx, gitservice.CommitInput{
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:commit", meta("commit", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.Commit(ctx, gitservice.CommitInput{
 			Message: in.Message, TaskKey: in.TaskKey, ByAgent: true,
 		})
 	})
@@ -266,12 +346,17 @@ func (s *Server) toolGitCommit(ctx context.Context, _ *sdk.CallToolRequest, in g
 }
 
 type gitStashInput struct {
+	gitRepoInput
 	Message string `json:"message,omitempty"`
 }
 
 func (s *Server) toolGitStash(ctx context.Context, _ *sdk.CallToolRequest, in gitStashInput) (*sdk.CallToolResult, any, error) {
-	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:stash", meta("stash", nil), func(ctx context.Context) (any, error) {
-		return nil, s.deps.Git.Stash(ctx, in.Message)
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:stash", meta("stash", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return nil, git.Stash(ctx, in.Message)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -280,6 +365,7 @@ func (s *Server) toolGitStash(ctx context.Context, _ *sdk.CallToolRequest, in gi
 }
 
 type gitPushInput struct {
+	gitRepoInput
 	Remote string `json:"remote,omitempty"`
 	Branch string `json:"branch,omitempty"`
 }
@@ -296,11 +382,15 @@ func (s *Server) toolGitPush(ctx context.Context, _ *sdk.CallToolRequest, in git
 	if remote == "" {
 		remote = "origin"
 	}
-	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:push", "remote:"+remote, meta("push", map[string]any{
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:push", "remote:"+remote, meta("push", repoMeta(in.Repo, map[string]any{
 		"remote": remote,
 		"branch": in.Branch,
-	}), func(ctx context.Context) (any, error) {
-		return nil, s.deps.Git.Push(ctx, gitservice.PushInput{
+	})), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return nil, git.Push(ctx, gitservice.PushInput{
 			Remote: remote, Branch: in.Branch, ByAgent: true, TaskBranches: allowed,
 		})
 	})
@@ -311,16 +401,21 @@ func (s *Server) toolGitPush(ctx context.Context, _ *sdk.CallToolRequest, in git
 }
 
 type gitConflictInput struct {
+	gitRepoInput
 	// Path reads one file's three versions; empty lists the conflicted paths.
 	Path string `json:"path,omitempty"`
 }
 
 func (s *Server) toolGitConflicts(ctx context.Context, _ *sdk.CallToolRequest, in gitConflictInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:conflicts", meta("conflicts", nil), func(ctx context.Context) (any, error) {
-		if in.Path == "" {
-			return s.deps.Git.Conflicts(ctx)
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:conflicts", meta("conflicts", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
 		}
-		return s.deps.Git.Conflict(ctx, in.Path)
+		if in.Path == "" {
+			return git.Conflicts(ctx)
+		}
+		return git.Conflict(ctx, in.Path)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -329,16 +424,80 @@ func (s *Server) toolGitConflicts(ctx context.Context, _ *sdk.CallToolRequest, i
 }
 
 type gitResolveInput struct {
+	gitRepoInput
 	Path   string `json:"path"`
 	Merged string `json:"merged"`
 }
 
 func (s *Server) toolGitResolve(ctx context.Context, _ *sdk.CallToolRequest, in gitResolveInput) (*sdk.CallToolResult, any, error) {
-	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:conflicts", meta("resolve", nil), func(ctx context.Context) (any, error) {
-		return nil, s.deps.Git.Resolve(ctx, in.Path, in.Merged)
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:conflicts", meta("resolve", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return nil, git.Resolve(ctx, in.Path, in.Merged)
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	return nil, structured(map[string]any{"resolved": in.Path}), nil
+}
+
+// GitRepoInfo is one row of git.repos.
+type GitRepoInfo struct {
+	gitservice.Repository
+	// Cwd marks the session's own repository — the default for every tool.
+	Cwd bool `json:"cwd,omitempty"`
+	// Granted says an agent may write here; always true for the person.
+	Granted bool `json:"granted"`
+}
+
+func (s *Server) toolGitRepos(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:status", meta("repos", nil), func(ctx context.Context) (any, error) {
+		return s.gitRepos(ctx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+func (s *Server) gitRepos(ctx context.Context) ([]GitRepoInfo, error) {
+	scope, err := s.gitScopeFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.GitRepos == nil {
+		return nil, apperrors.New("internal_error", "Git is not available for other repositories.", true)
+	}
+	paths := make([]string, 0, len(scope.folders))
+	names := map[string]string{}
+	for _, f := range scope.folders {
+		if _, seen := names[f.Path]; !seen {
+			paths = append(paths, f.Path)
+			names[f.Path] = f.Name
+		}
+	}
+	cwdFolder := scope.folderOf(scope.cwd)
+	if scope.agent && scope.cwd != "" && cwdFolder == "" {
+		// A session started outside every workspace still has a repository.
+		paths = append(paths, scope.cwd)
+		cwdFolder = scope.cwd
+	}
+	repos, err := s.deps.GitRepos.Summaries(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]GitRepoInfo, 0, len(repos))
+	for _, repo := range repos {
+		if name := names[repo.Path]; name != "" {
+			repo.Name = name
+		}
+		out = append(out, GitRepoInfo{
+			Repository: repo,
+			Cwd:        scope.agent && repo.Path == cwdFolder,
+			Granted:    !scope.agent || workspace.Covered(repo.Path, scope.granted),
+		})
+	}
+	return out, nil
 }

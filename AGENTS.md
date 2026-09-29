@@ -90,6 +90,19 @@ as production-verified against a real Claude Code session in cloud CI.
   workspaces its folders belong to; a terminal CLI on the shared socket sees them all.
   The primary-first order comes from `workspace.Service.ListServices` — the SQL
   repository alone sorts by name.
+- **Git tools act on the caller's repository, not only the one open in the app**
+  (`internal/mcp/git_repo.go`). Every `git.*` tool takes an optional `repo`: a folder name
+  from `workspace.list` / `git.repos`, an absolute path, or `./…`/`../…` from the cwd. With
+  none, an Agent Hub session gets its own `cwd`'s repository (the workspace folder holding
+  it — a subfolder commits in its service); the person's terminal keeps the repository
+  DevKit has open. An agent may READ any folder of its own workspaces and WRITE (stage,
+  commit, branch, checkout, stash, resolve, push) only folders its session is `granted`
+  (`git.repoNotGranted`); anything else is `git.repoOutsideWorkspace`. `git.repos` lists the
+  workspace's repositories with branch/ahead/behind/changed, `cwd` and `granted`, and
+  `git.status` answers with the `repo` it read. It works through `gitservice.Service.At` —
+  a view sharing guards, remotes, credentials and the confirmation gate, keyed by the
+  workspace folder like the Git view, so a guarded branch is guarded whichever way it is
+  reached — and never moves the app's open repository.
 - Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.

@@ -87,3 +87,63 @@ func TestRepositoriesWithNoneIsEmptyAndRefusesARelativeFolder(t *testing.T) {
 		t.Fatal("a relative folder was searched")
 	}
 }
+
+// A guard keyed by the repository it protects, the way the store keys them.
+type guardsFor map[string][]Guard
+
+func (g guardsFor) ListGuards(project string) ([]Guard, error) { return g[project], nil }
+
+// At works in another repository without moving the open one, and a guard on
+// that repository still asks: the view is not a way around it.
+func TestAtWorksInAnotherRepositoryUnderItsOwnGuards(t *testing.T) {
+	open, openDir := newRepo(t)
+	_, otherDir := newRepo(t)
+	ctx := context.Background()
+	confirm := &stubConfirm{allow: false}
+	open.SetConfirmer(confirm)
+	open.SetEnvs(stubEnvs{"prod": true})
+	open.SetGuards(guardsFor{otherDir: {{Pattern: "main", Env: "prod"}}})
+
+	other, err := open.At(ctx, otherDir)
+	if err != nil {
+		t.Fatalf("At: %v", err)
+	}
+	write(t, otherDir, "b.txt", "b\n")
+	if err := other.Stage(ctx, []string{"b.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Commit(ctx, CommitInput{Message: "on a guarded branch"}); err == nil {
+		t.Fatal("a refused guard let the commit through")
+	}
+	if confirm.asked != 1 {
+		t.Fatalf("the guard on the other repository asked %d times, want 1", confirm.asked)
+	}
+
+	// The open repository saw none of it.
+	if open.Project() != openDir {
+		t.Fatalf("At moved the open project to %q", open.Project())
+	}
+	status, err := open.Status(ctx)
+	if err != nil || len(status.Files) != 0 {
+		t.Fatalf("open repository status = %+v, %v; want clean", status, err)
+	}
+	if _, err := open.At(ctx, t.TempDir()); err != ErrNoRepository {
+		t.Fatalf("At on a plain folder = %v, want ErrNoRepository", err)
+	}
+}
+
+func TestSummariesReadEachFolderAndNameTheOneThatIsNot(t *testing.T) {
+	svc, dir := newRepo(t)
+	write(t, dir, "c.txt", "c\n")
+	plain := t.TempDir()
+	repos, err := svc.Summaries(context.Background(), []string{dir, plain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repos[0].Branch != "main" || repos[0].Changed != 1 || repos[0].Error != "" {
+		t.Errorf("repo summary = %+v", repos[0])
+	}
+	if repos[1].Error == "" {
+		t.Errorf("a folder that is no repository should say so: %+v", repos[1])
+	}
+}

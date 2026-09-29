@@ -13,7 +13,7 @@ import (
 // The claim the design makes: one answer to "what changed". Code Graph's file
 // tree reads the Git module rather than running a second git status, and it
 // follows the open project without anyone remembering to tell it.
-func TestGitWorkTreeFollowsTheOpenProject(t *testing.T) {
+func TestGitWorkTreeReadsCodeGraphsRootWithoutMovingGit(t *testing.T) {
 	ctx := context.Background()
 	svc := gitservice.NewService(ctx)
 	if !svc.Available() {
@@ -43,7 +43,15 @@ func TestGitWorkTreeFollowsTheOpenProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Nothing has opened the project on the Git service: the adapter does it.
+	// Git is pointed at another repository — the person pinned it there.
+	// Code Graph's markers still come from Code Graph's root…
+	pinned := t.TempDir()
+	if out, err := exec.Command(svc.Availability().Path, "-C", pinned, "init", "--template=").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := svc.Open(ctx, pinned); err != nil {
+		t.Fatal(err)
+	}
 	adapter := gitWorkTree{git: svc, roots: stubRoot(repo)}
 	changes, err := adapter.Changes(ctx)
 	if err != nil {
@@ -52,8 +60,9 @@ func TestGitWorkTreeFollowsTheOpenProject(t *testing.T) {
 	if changes["a.txt"] != "M" {
 		t.Fatalf("changes = %v, want a.txt modified", changes)
 	}
-	if svc.Project() != repo {
-		t.Fatalf("the adapter did not point git at the open project: %q", svc.Project())
+	// …and reading them does not drag Git back to it.
+	if svc.Project() != pinned {
+		t.Fatalf("reading Code Graph's changes moved git to %q, want it left on %q", svc.Project(), pinned)
 	}
 }
 

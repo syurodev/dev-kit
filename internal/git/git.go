@@ -190,6 +190,36 @@ func (s *Service) Open(ctx context.Context, projectPath string) error {
 	return nil
 }
 
+// At is this module pointed at one other work tree, leaving the open project
+// alone. The open project is the app's — the one the Git view shows and Code
+// Graph follows — and an agent working in another service of the workspace
+// must not have to move it, nor act on it by mistake because it is what
+// happened to be open.
+//
+// The view shares everything but the folder: guards, remotes, credentials and
+// the confirmation gate are looked up for projectPath exactly as they would be
+// had it been opened, so a guarded branch is guarded whichever way it is
+// reached. A folder that is not a work tree is ErrNoRepository.
+func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) {
+	if !s.availability.OK() {
+		return nil, ErrGitUnavailable
+	}
+	r := runner{git: s.availability.Path, work: projectPath}
+	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return nil, ErrNoRepository
+	}
+	return &Service{
+		availability: s.availability,
+		project:      projectPath,
+		runner:       r,
+		guards:       s.guards,
+		remotes:      s.remotes,
+		envs:         s.envs,
+		creds:        s.creds,
+		confirm:      s.confirm,
+	}, nil
+}
+
 // Reset lets go of the open project. A folder that is not a repository leaves
 // Open failing without touching what was open before, which is right for a
 // person typing a path and wrong for a module following the work folder: it

@@ -98,6 +98,30 @@ func (s *Service) Repositories(ctx context.Context, root string) ([]Repository, 
 	return repos, ctx.Err()
 }
 
+// Summaries reads the branch and change counts of each folder given, in the
+// order given, the way Repositories does for the ones it finds. A folder that
+// is not a work tree carries its Error rather than failing the rest.
+func (s *Service) Summaries(ctx context.Context, paths []string) ([]Repository, error) {
+	if !s.availability.OK() {
+		return nil, ErrGitUnavailable
+	}
+	repos := make([]Repository, len(paths))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, repoStatusWorkers)
+	for i, path := range paths {
+		repos[i] = Repository{Path: path, Name: filepath.Base(path)}
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(repo *Repository) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			s.summarise(ctx, repo)
+		}(&repos[i])
+	}
+	wg.Wait()
+	return repos, ctx.Err()
+}
+
 // summarise fills a repository's branch and counts, or its Error.
 func (s *Service) summarise(ctx context.Context, repo *Repository) {
 	ctx, cancel := context.WithTimeout(ctx, repoStatusTimeout)

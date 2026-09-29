@@ -1,0 +1,204 @@
+package mcp
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"devkit/internal/apperrors"
+	gitservice "devkit/internal/git"
+	"devkit/internal/identity"
+	"devkit/internal/workspace"
+)
+
+// GitRepos opens the Git module at one folder without moving the repository
+// the app has open. That one is the person's — the Git view shows it and it
+// follows Code Graph — and an agent working in another service of the
+// workspace must neither have to move it nor act on it because it happened to
+// be open.
+type GitRepos interface {
+	At(ctx context.Context, path string) (GitAPI, error)
+	Summaries(ctx context.Context, paths []string) ([]gitservice.Repository, error)
+}
+
+// GitReposOf adapts the Git service; *gitservice.Service.At returns the
+// concrete type, which an interface method cannot.
+func GitReposOf(svc *gitservice.Service) GitRepos {
+	if svc == nil {
+		return nil
+	}
+	return gitRepos{svc}
+}
+
+type gitRepos struct{ svc *gitservice.Service }
+
+func (g gitRepos) At(ctx context.Context, path string) (GitAPI, error) { return g.svc.At(ctx, path) }
+func (g gitRepos) Summaries(ctx context.Context, paths []string) ([]gitservice.Repository, error) {
+	return g.svc.Summaries(ctx, paths)
+}
+
+// gitScope is what a caller may reach: the workspace folders it can read, the
+// ones it may write, and where it stands.
+type gitScope struct {
+	agent bool
+	// cwd is an agent session's working directory, and its default repository.
+	cwd string
+	// folders are the workspace folders in reach: an agent's own workspaces,
+	// or every workspace for the person's terminal.
+	folders []WorkspaceFolder
+	// granted are the roots an agent may write; nil for the person, whose
+	// writes the tools' own gates (guards, the push rule) already cover.
+	granted []string
+}
+
+func (s *Server) gitScopeFor(ctx context.Context) (gitScope, error) {
+	caller, _ := identity.FromContext(ctx)
+	scope := gitScope{agent: caller.IsAgent()}
+	if scope.agent {
+		if s.deps.AgentHub == nil {
+			return gitScope{}, apperrors.New("internal_error", "Agent Hub is not available.", true)
+		}
+		session, err := s.deps.AgentHub.GetStatus(ctx, caller.SessionID)
+		if err != nil {
+			return gitScope{}, err
+		}
+		scope.cwd = session.ProjectPath
+		scope.granted = append([]string{session.ProjectPath}, session.ExtraReadWritePaths...)
+	}
+	if s.deps.Workspace != nil {
+		// workspace.list's own answer, so the names an agent reads there are
+		// the names it can pass here.
+		list, err := s.workspaceList(ctx)
+		if err != nil {
+			return gitScope{}, err
+		}
+		for _, ws := range list.Workspaces {
+			scope.folders = append(scope.folders, ws.Folders...)
+		}
+	}
+	return scope, nil
+}
+
+// folderOf is the workspace folder holding path — the deepest, for a service
+// nested in another — or "" when none does.
+func (g gitScope) folderOf(path string) string {
+	best := ""
+	for _, f := range g.folders {
+		if workspace.Within(path, f.Path) && len(f.Path) > len(best) {
+			best = f.Path
+		}
+	}
+	return best
+}
+
+// resolve turns a `repo` argument into a folder, or explains which it may be.
+func (g gitScope) resolve(repo string) (string, error) {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return g.cwd, nil
+	}
+	if filepath.IsAbs(repo) {
+		return filepath.Clean(repo), nil
+	}
+	var matches []string
+	for _, f := range g.folders {
+		if strings.EqualFold(f.Name, repo) || strings.EqualFold(filepath.Base(f.Path), repo) {
+			matches = append(matches, f.Path)
+		}
+	}
+	switch {
+	case len(matches) == 1:
+		return matches[0], nil
+	case len(matches) > 1:
+		return "", apperrors.New("git.repoAmbiguous",
+			"More than one workspace folder is called "+repo+": pass its absolute path ("+strings.Join(matches, ", ")+").", true)
+	case g.cwd != "" && (strings.ContainsRune(repo, '/') || strings.HasPrefix(repo, ".")):
+		// A path relative to where the agent stands: "../kong-plugin". A bare
+		// word is only ever a folder's name — joined onto the cwd it would
+		// name a folder inside this repository and quietly answer for it.
+		return filepath.Join(g.cwd, repo), nil
+	}
+	return "", g.unknown(repo)
+}
+
+func (g gitScope) unknown(repo string) error {
+	names := make([]string, 0, len(g.folders))
+	for _, f := range g.folders {
+		names = append(names, f.Name)
+	}
+	sort.Strings(names)
+	msg := repo + " is not a folder of your workspace."
+	if len(names) > 0 {
+		msg += " Known folders: " + strings.Join(names, ", ") + " (see workspace.list or git.repos)."
+	}
+	return apperrors.New("git.repoOutsideWorkspace", msg, true)
+}
+
+// gitFor is the repository a git tool acts on, and its path for the answer.
+//
+// An agent's default is its own working directory, so an agent that edits
+// files and then commits them commits them where it edited them, whatever the
+// app has open. It may read any folder of its workspace and write only the
+// folders its session was granted — the same rule its file tools live under.
+// The person's terminal keeps the old default (the repository DevKit has open)
+// and may name any workspace folder.
+func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, string, error) {
+	scope, err := s.gitScopeFor(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if strings.TrimSpace(repo) == "" && (!scope.agent || scope.cwd == "") {
+		return s.deps.Git, "", nil
+	}
+	target, err := scope.resolve(repo)
+	if err != nil {
+		return nil, "", err
+	}
+	folder := scope.folderOf(target)
+	if scope.agent {
+		switch {
+		case write && !workspace.Covered(target, scope.granted):
+			return nil, "", apperrors.New("git.repoNotGranted",
+				target+" is not a folder your session may write. Ask the person to add it to the session, "+
+					"or work in "+scope.cwd+".", false)
+		case !write && folder == "" && !workspace.Covered(target, scope.granted):
+			return nil, "", scope.unknown(repo)
+		}
+	} else if folder == "" {
+		return nil, "", scope.unknown(repo)
+	}
+	if s.deps.GitRepos == nil {
+		return nil, "", apperrors.New("internal_error", "Git is not available for other repositories.", true)
+	}
+	// Keyed by the workspace folder when it is the repository: that is the
+	// path the Git view opens a service at, so guards and remotes set there
+	// apply here too. A folder that merely holds repositories is not one, and
+	// then the path asked for is.
+	// A repository of its own inside the folder (a submodule, a nested
+	// checkout) is itself, not the folder around it.
+	candidates := []string{target}
+	if folder != "" && folder != target && workspace.Within(target, folder) && !hasGitDir(target) {
+		candidates = []string{folder, target}
+	}
+	for _, key := range candidates {
+		api, err := s.deps.GitRepos.At(ctx, key)
+		if errors.Is(err, gitservice.ErrNoRepository) {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		return api, key, nil
+	}
+	return nil, "", apperrors.New("git.notARepository", target+" is not inside a git repository.", true)
+}
+
+// hasGitDir reports whether path is the top of a work tree: a .git directory,
+// or the .git file a submodule or linked worktree has.
+func hasGitDir(path string) bool {
+	_, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil
+}

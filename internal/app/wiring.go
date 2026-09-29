@@ -243,12 +243,13 @@ func (t *TaskBranches) BranchesForSession(sessionID string) []string {
 // so there is one answer to "what changed" rather than two git processes
 // disagreeing about the same work tree.
 //
-// It also keeps the two pointed at the same repository. Opening a project is
-// Code Graph's event, and rather than adding a callback for the Git module to
-// subscribe to — a second thing to remember on every path that opens a
-// project — this notices the root has changed and follows it. A directory that
-// is not a work tree is not an error: Status then reports nothing and the file
-// tree simply draws no markers.
+// It reads Code Graph's own root through a view (Service.At) and never moves
+// the Git module: which repository Git has open is the work folder's decision
+// (WireWorkFolder), and a person who pointed Git at another repository must
+// not find it pulled back the next time Code Graph refreshes its sidebar —
+// which reopening here used to do on every IndexInfo. A directory that is not
+// a work tree is not an error: Status then reports nothing and the file tree
+// simply draws no markers.
 type gitWorkTree struct {
 	git   *gitservice.Service
 	roots projectRoot
@@ -259,14 +260,17 @@ type gitWorkTree struct {
 type projectRoot interface{ ProjectRoot() string }
 
 func (g gitWorkTree) Changes(ctx context.Context) (map[string]string, error) {
+	repo := g.git
 	if g.roots != nil {
 		if root := g.roots.ProjectRoot(); root != "" && root != g.git.Project() {
-			if err := g.git.Open(ctx, root); err != nil {
+			view, err := g.git.At(ctx, root)
+			if err != nil {
 				return map[string]string{}, nil
 			}
+			repo = view
 		}
 	}
-	status, err := g.git.Status(ctx)
+	status, err := repo.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
