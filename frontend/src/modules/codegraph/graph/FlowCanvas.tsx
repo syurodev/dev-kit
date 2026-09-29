@@ -29,6 +29,7 @@ import { CanvasToolbar } from "./CanvasToolbar";
 import { rankGraph } from "./rank";
 import { place } from "./place";
 import { shortLabel } from "./labels";
+import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
@@ -82,6 +83,33 @@ export function describeCounts({ shown, hidden, edges }: CanvasCounts): string {
 }
 
 const HIDDEN_STYLE = { opacity: 0 };
+
+// Every card and connector carries the transition, so a card fades back as
+// well as out: the class that dims is the only one that comes and goes.
+const NODE_FADE = "transition-opacity duration-150";
+const NODE_DIM = `${NODE_FADE} opacity-25`;
+const EDGE_FADE = "transition-opacity duration-150";
+const EDGE_DIM = `${EDGE_FADE} opacity-15`;
+
+/**
+ * One object per item and state, reused: React Flow re-renders a card whose
+ * object changed, so rebuilding every node on each hover would redraw the
+ * whole graph to dim part of it. Keyed weakly by the source object, so a
+ * layout or data change (new objects) simply misses.
+ */
+function variant<T extends object>(cache: WeakMap<T, Map<string, T>>, source: T, state: string, make: () => T): T {
+  let byState = cache.get(source);
+  if (!byState) cache.set(source, (byState = new Map()));
+  let made = byState.get(state);
+  if (!made) byState.set(state, (made = make()));
+  return made;
+}
+
+/** Card ids under the pointer or keyboard focus, from a React Flow node wrapper. */
+function nodeIdOf(target: EventTarget | null): string | null {
+  const el = (target as HTMLElement | null)?.closest?.(".react-flow__node");
+  return el?.getAttribute("data-id") ?? null;
+}
 
 export type FlowCanvasProps = {
   rootId: string;
@@ -303,12 +331,6 @@ function Canvas({
     };
   }, []);
 
-  // A node not yet placed sits at the origin: drawn invisibly (so it can be
-  // measured) and with no edges, instead of flashing over the graph.
-  const shownNodes = useMemo(
-    () => rfNodes.map((n) => (placedIds.has(n.id) ? n : { ...n, style: HIDDEN_STYLE })),
-    [rfNodes, placedIds],
-  );
 
   const flowEdges: Edge[] = useMemo(
     () =>
@@ -341,9 +363,43 @@ function Canvas({
       }),
     [edges, ranks, edgeLabel],
   );
+  // The card under the pointer (or focused from the keyboard), and the flow
+  // through it: what leads there and what it leads to stay lit, the rest
+  // dims, so one chain can be read in a graph of twenty. See focus.ts.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const focus = useMemo(
+    () => (focusedId && ranks.has(focusedId) ? flowThrough(focusedId, flowEdges) : null),
+    [focusedId, ranks, flowEdges],
+  );
+
+  // A node not yet placed sits at the origin: drawn invisibly (so it can be
+  // measured) and with no edges, instead of flashing over the graph.
+  const nodeVariants = useRef(new WeakMap<Node, Map<string, Node>>());
+  const shownNodes = useMemo(
+    () =>
+      rfNodes.map((n) => {
+        if (!placedIds.has(n.id)) return { ...n, style: HIDDEN_STYLE };
+        const className = focus && !focus.nodes.has(n.id) ? NODE_DIM : NODE_FADE;
+        return variant(nodeVariants.current, n, className, () => ({ ...n, className }));
+      }),
+    [rfNodes, placedIds, focus],
+  );
+
+  const edgeVariants = useRef(new WeakMap<Edge, Map<string, Edge>>());
   const shownEdges = useMemo(
-    () => flowEdges.filter((e) => placedIds.has(e.source) && placedIds.has(e.target)),
-    [flowEdges, placedIds],
+    () =>
+      flowEdges
+        .filter((e) => placedIds.has(e.source) && placedIds.has(e.target))
+        .map((e) => {
+          const state = focus === null ? "plain" : focus.edges.has(e.id) ? "lit" : "dimmed";
+          return variant(edgeVariants.current, e, state, () => ({
+            ...e,
+            className: state === "dimmed" ? EDGE_DIM : EDGE_FADE,
+            data: { ...e.data, dimmed: state === "dimmed", lit: state === "lit" },
+            markerEnd: { type: MarkerType.Arrow, color: state === "lit" ? "var(--text-primary)" : "var(--icon-secondary)" },
+          }));
+        }),
+    [flowEdges, placedIds, focus],
   );
 
   const counts: CanvasCounts = {
@@ -391,6 +447,12 @@ function Canvas({
         ref={viewport}
         className={placedIds.size > 0 || !placing ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}
         onKeyDown={onKeyDown}
+        // Keyboard focus lights a flow the way hovering does. Captured here:
+        // React Flow's node wrappers take no focus handlers of ours.
+        onFocus={(e) => setFocusedId(nodeIdOf(e.target))}
+        onBlur={(e) => {
+          if (!nodeIdOf(e.relatedTarget)) setFocusedId(null);
+        }}
       >
         <ReactFlow
           nodes={shownNodes}
@@ -410,6 +472,8 @@ function Canvas({
           // so it is never measured, and place() would wait for it forever.
           onlyRenderVisibleElements={!placing}
           onNodeClick={(_, node) => onSelect?.(node.id)}
+          onNodeMouseEnter={(_, node) => setFocusedId(node.id)}
+          onNodeMouseLeave={() => setFocusedId(null)}
           // A move with an event is the user's; fitView's own moves have none.
           onMoveStart={(event) => {
             if (event) userMoved.current = true;
