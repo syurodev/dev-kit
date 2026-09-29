@@ -103,7 +103,7 @@ describe("the subscription's rate limit", () => {
 });
 
 describe("steering a running turn", () => {
-  const base = { status: "running", text: "wait, use the other API", attachments: 0, images: 0, busy: false, retrying: false };
+  const base = { status: "running", text: "wait, use the other API", attachments: 0, images: 0, retrying: false };
 
   it("puts a mid-turn message into the turn", async () => {
     const { shouldSteer } = await import("./AgentHubView");
@@ -118,9 +118,8 @@ describe("steering a running turn", () => {
     // Files belong to a turn of their own.
     expect(shouldSteer({ ...base, attachments: 1 })).toBe(false);
     expect(shouldSteer({ ...base, images: 1 })).toBe(false);
-    // A retry replays a whole turn; a send already in flight owns the session.
+    // A retry replays a whole turn.
     expect(shouldSteer({ ...base, retrying: true })).toBe(false);
-    expect(shouldSteer({ ...base, busy: true })).toBe(false);
     expect(shouldSteer({ ...base, text: "" })).toBe(false);
   });
 });

@@ -125,6 +125,11 @@ export function isNewSessionShortcut(event: ShortcutKey, mac: boolean, overlayOp
  * it. Text only: steering carries content blocks, and files belong to a turn of
  * their own. Not while the agent waits on a permission — that turn is parked on
  * the user, and the card asking is already on screen.
+ *
+ * Not gated on this view's own send being in flight: that send lasts the whole
+ * turn — invoke resolves when the turn ends — so gating on it meant a turn
+ * typed here could never be steered. A turn that has not reached the agent
+ * yet answers "promptRequired" and the message goes to the queue instead.
  */
 export function shouldSteer(input: {
   status: string;
@@ -132,12 +137,10 @@ export function shouldSteer(input: {
   attachments: number;
   images: number;
   refs?: number;
-  busy: boolean;
   retrying: boolean;
 }): boolean {
   return (
     !input.retrying &&
-    !input.busy &&
     input.text.length > 0 &&
     input.attachments === 0 &&
     input.images === 0 &&
@@ -779,7 +782,6 @@ export function AgentHubView() {
         attachments: attached.length,
         images: attachedImages.length,
         refs: attachedRefs.length,
-        busy,
         retrying: Boolean(known),
       })
     ) {
