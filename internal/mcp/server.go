@@ -189,10 +189,14 @@ type Deps struct {
 	// (servicePath) instead of the focused project. Optional: nil leaves
 	// only the focused project, and a servicePath is refused.
 	CodeGraphServices CodeGraphServices
-	Tasks             TasksAPI     // optional nil until wired from main
-	Git               GitAPI       // optional nil until wired from main
-	Accounts          AccountsAPI  // optional nil until wired from main
-	API               APIClientAPI // optional nil until wired from main
+	Tasks             TasksAPI // optional nil until wired from main
+	Git               GitAPI   // optional nil until wired from main
+	// GitRepos lets the git tools work in a repository other than the one
+	// the app has open — an agent's own working directory, or a service it
+	// names. Optional nil: every tool then acts on Git alone.
+	GitRepos GitRepos
+	Accounts AccountsAPI  // optional nil until wired from main
+	API      APIClientAPI // optional nil until wired from main
 	// CodexHook records a lifecycle hook call from an external Codex CLI
 	// session — a session DevKit did not spawn. Optional nil until wired
 	// from main; codexsessions.Service is itself nil-safe, so a nil here

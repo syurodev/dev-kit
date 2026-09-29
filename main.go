@@ -855,7 +855,11 @@ func main() {
 		Workspace: container.Workspace,
 		Tasks:     container.Tasks,
 		Git:       container.Git,
-		Accounts:  container.Accounts,
+		// Each git tool acts on the caller's own repository (an agent's
+		// working directory, or the service it names), not only the one open
+		// in the Git view.
+		GitRepos: mcp.GitReposOf(container.Git),
+		Accounts: container.Accounts,
 		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
 		// not import app, and apiclient must not import codegraph.
 		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),
