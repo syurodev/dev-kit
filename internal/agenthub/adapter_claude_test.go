@@ -485,7 +485,7 @@ func TestSessionNewCutsOffUserSettings(t *testing.T) {
 	body, err := json.Marshal(acp.SessionNewRequest{
 		Cwd:        "/x",
 		McpServers: []any{},
-		Meta:       sessionNewMeta(""),
+		Meta:       sessionNewMeta("", devkitPrompt(claudeNaming, "")),
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -521,13 +521,13 @@ func TestSessionNewAppendsDevKitPromptToClaudeCodePreset(t *testing.T) {
 			Append string `json:"append"`
 		} `json:"systemPrompt"`
 	}
-	if err := json.Unmarshal(sessionNewMeta(""), &wire); err != nil {
+	if err := json.Unmarshal(sessionNewMeta("", devkitPrompt(claudeNaming, "")), &wire); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if wire.SystemPrompt.Type != "preset" || wire.SystemPrompt.Preset != "claude_code" {
 		t.Fatalf("systemPrompt = %+v, want the Claude Code preset", wire.SystemPrompt)
 	}
-	if wire.SystemPrompt.Append != devkitSystemPrompt {
+	if wire.SystemPrompt.Append != devkitPrompt(claudeNaming, "") {
 		t.Fatal("session/new did not append DevKit's prompt")
 	}
 }
@@ -560,7 +560,7 @@ func TestSessionNewInstallsThePreToolUseHook(t *testing.T) {
 			} `json:"options"`
 		} `json:"claudeCode"`
 	}
-	if err := json.Unmarshal(sessionNewMeta(devkitHookCommand(spec)), &wire); err != nil {
+	if err := json.Unmarshal(sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, "")), &wire); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -587,7 +587,7 @@ func TestSessionNewOmitsTheHookWhenDevKitIsNotInTheJail(t *testing.T) {
 	if got := devkitHookCommand(OpenSpec{}); got != "" {
 		t.Fatalf("hook command = %q, want empty", got)
 	}
-	if bytes.Contains(sessionNewMeta(""), []byte("PreToolUse")) {
+	if bytes.Contains(sessionNewMeta("", devkitPrompt(claudeNaming, "")), []byte("PreToolUse")) {
 		t.Fatal("hook installed without a binary to run")
 	}
 }
@@ -1260,7 +1260,7 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 	if sources := fork.Params.Meta.ClaudeCode.Options.SettingSources; sources == nil || len(sources) != 0 {
 		t.Errorf("settingSources = %v, want an empty list", sources)
 	}
-	if fork.Params.Meta.SystemPrompt.Append != devkitSystemPrompt {
+	if fork.Params.Meta.SystemPrompt.Append != devkitPrompt(claudeNaming, "") {
 		t.Error("fork did not carry DevKit's prompt")
 	}
 
@@ -1281,7 +1281,7 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 	if load.Params.SessionID != "forked-1" {
 		t.Errorf("session/load asked for %q, want the branch", load.Params.SessionID)
 	}
-	if load.Params.Meta.SystemPrompt.Append != devkitSystemPrompt {
+	if load.Params.Meta.SystemPrompt.Append != devkitPrompt(claudeNaming, "") {
 		t.Error("session/load did not carry DevKit's prompt")
 	}
 }

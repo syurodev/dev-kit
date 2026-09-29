@@ -44,6 +44,10 @@ type OpenSpec struct {
 	// deny list (~/.ssh, ~/.gnupg, ~/.aws, ~/.config/gcloud) and DenyReadPaths
 	// still hidden on top.
 	PrivateHome *bool
+	// Brief says where the session is — its workspace, its folders and which
+	// of them it may write — for the prompt (devkitPrompt). Service.SessionBrief
+	// fills it; empty, the prompt tells the agent to look instead.
+	Brief string
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).

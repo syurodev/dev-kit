@@ -540,7 +540,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Cwd:                   workDir,
 			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
-			DeveloperInstructions: devkitSystemPrompt,
+			DeveloperInstructions: devkitPrompt(neutralNaming, spec.Brief),
 		}, &thread); err != nil {
 			return fail(p.failure("thread/resume", err))
 		}
@@ -556,7 +556,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Cwd:                   workDir,
 			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
-			DeveloperInstructions: devkitSystemPrompt,
+			DeveloperInstructions: devkitPrompt(neutralNaming, spec.Brief),
 		}, &thread); err != nil {
 			return fail(p.failure("thread/start", err))
 		}

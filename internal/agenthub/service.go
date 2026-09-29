@@ -84,6 +84,12 @@ func sessionOpenSpec(sess AgentSession) OpenSpec {
 // resumed or forked session runs under the same jail an open would give it,
 // not a narrower one that happens to be easier to reach from that call site.
 func (s *Service) applySandboxExtras(spec *OpenSpec) {
+	// Not a sandbox setting, but it needs exactly this function's guarantee —
+	// every path that builds an OpenSpec — or a resumed session would come
+	// back without knowing where it is.
+	if s.SessionBrief != nil {
+		spec.Brief = s.SessionBrief(spec.Cwd, append([]string{spec.Cwd}, spec.ExtraReadWritePaths...))
+	}
 	if s.ProtectedPaths != nil {
 		spec.DenyReadPaths = append(spec.DenyReadPaths, s.ProtectedPaths()...)
 	}
@@ -257,6 +263,12 @@ type Service struct {
 	// applies to the next session without a restart. nil (the default wiring
 	// for tests) leaves the adapter's own jail: private home, no Docker.
 	SandboxExtras func() preferences.AgentSandboxSettings
+	// SessionBrief describes where a session is — its workspace, the folders
+	// in it and which of them the session may write — for the prompt, so the
+	// agent starts knowing its workspace rather than being asked to go and
+	// discover it. nil or "" leaves the prompt telling it to call
+	// workspace.list instead.
+	SessionBrief func(cwd string, granted []string) string
 	// ProtectedPaths lists what is hidden from every session whatever
 	// SandboxExtras shares — DevKit's data directory (ProtectDataDir). A
 	// function, read on every spawn, because the directory's contents are
