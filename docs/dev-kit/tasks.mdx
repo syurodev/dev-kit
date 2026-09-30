@@ -1064,23 +1064,41 @@ hiện tại luôn ở đầu và mở sẵn; board chưa gắn vào workspace n
 qua MCP thông qua event `tasks:changed` — không cần user refresh. Tìm kiếm
 (key/title/label) mở ép cây để hiện match và tất cả ancestor của nó.
 
-- **Description** dùng lại Plate editor của Notes
-  ([ADR-010](/dev-kit/architecture-decisions#adr-010-rich-text-plate-note-editor-not-markdown-only))
-  — cùng format markdown ở rest, không thêm editor thứ hai.
-- **Nút "New task" + filter** đăng ký vào title bar qua `useModuleAction`
-  ([Shell primitives](/dev-kit/shell-primitives)); panel filter đẩy vào
-  `SplitPanel`.
-- **Mỗi cột virtualize riêng** bằng `VirtualList` (helper opt-in đã thiết kế ở
-  [Sidebar § Hiệu năng](/dev-kit/sidebar#hiệu-năng-khi-nội-dung-sidebar-lớn)) —
-  board 2.000 task vẫn bounded DOM.
-- **Checklist subtask** trong detail và bộ đếm `2/5` trên card (FR-15b). Con
-  vẫn là task đầy đủ — có `key`, có status, mở được tab riêng của nó; checklist
-  chỉ là **một cách nhìn** vào `parent_id`, không phải một loại dữ liệu thứ hai.
-  Bộ đếm lấy theo `category`: xong = `terminal`, nên nó không cần biết board
-  đặt tên cột là gì.
-- **Kéo một card lên một card khác** = gán cha. Cùng lớp cross-list drag với
-  kéo giữa cột (xem gotcha dưới), thêm một loại drop target chứ không thêm
-  một cơ chế; thả lên một card đã có cha thì từ chối, vì một cấp là một cấp.
+**Hiện trạng (2026-09-30).** Mọi field sửa được ngay trong UI, mọi write đều
+optimistic (`modules/tasks/taskActions.ts`): board là dữ liệu cục bộ nên thay
+đổi hiện trong frame của cú click, câu trả lời của bridge chỉ xác nhận; bị từ
+chối thì đọc lại sự thật thay vì chạy một phép đảo ngược có thể sai.
+
+- **Board** — kéo-thả card giữa cột bằng `@dnd-kit/core` (pointer phải đi 4px
+  mới thành drag, nên click vẫn là click); menu `…` trên card có "Move to" cho
+  bàn phím. Move mang theo status card đang vẽ: ai đó đã chuyển trước thì
+  bridge trả `task_status_changed` và board đọc lại, không ghi đè. Card vẽ
+  priority, số dependency còn đang chờ (⌛), tiến độ subtask, label, branch.
+  Trong cột, sắp theo priority rồi tới tuổi. Task có status mà workflow không
+  còn thì vào cột "No column" thay vì biến mất. Filter (key/title/label,
+  priority, label, agent đang giữ) lọc local trên summary đã tải, đọc bản
+  `useDeferredValue` nên gõ không chờ cột render. "New task" mở dialog đặt tên.
+- **Detail** — title sửa tại chỗ; description là textarea (plain text — renderer
+  markdown nằm ở chunk Agent Hub, kéo vào đây thì mọi tab task đều phải trả);
+  panel thuộc tính: status, priority, assignee, labels, parent, **Depends on /
+  Blocks**, branch, plan node; checklist subtask (bấm chấm = done/reopen theo
+  `category`); verify runs có Cancel và output; tab Conversation (có composer,
+  ⌘↵) / Activity / History. Đọc bằng TanStack Query (stale-while-revalidate),
+  `tasks:changed` của chính task là thứ đọc lại.
+- **Dependency** là `blocked_by` đọc từ hai đầu: "Depends on" (task này chờ gì)
+  và "Blocks" (cái gì chờ task này). Service kiểm khi ghi (`checkBlockers`):
+  không tự phụ thuộc chính nó, blocker phải cùng board và trong scope của
+  caller, và **không được tạo vòng** (`tasks.dependencyCycle`) — A chờ B trong
+  khi B (hoặc thứ B chờ) chờ A là việc không bao giờ bắt đầu được. Picker ở UI
+  đã loại sẵn các lựa chọn tạo vòng. Blocker đã terminal không còn tính là
+  đang chờ; blocker không còn trên board hiện là "Unavailable task" để gỡ được.
+- `TasksSetFields` nhận một patch (`TaskFieldsPatch`): field vắng = giữ nguyên,
+  field có mặt = ghi đúng giá trị, kể cả `""`/`[]` — đó là cách xoá priority,
+  assignee hay dependency. Bản positional cũ đọc `""` là "không đổi" nên thứ đã
+  đặt từ UI không gỡ được. `TasksUnarchive` đứng cạnh `TasksArchive`.
+- **Chưa làm** so với thiết kế ban đầu: description bằng Plate editor, virtualize
+  từng cột (hiện render thẳng; ngưỡng review là ~200 card/cột), kéo card lên
+  card khác để gán cha, và thứ tự tay trong cột (cần field `rank`).
 
 <Callout type="warn" title="Gotcha: kéo-thả giữa hai cột không phải Reorder">
 `TabStrip` dùng framer-motion `Reorder` cho kéo-thả — nhưng `Reorder` chỉ sắp
@@ -1088,7 +1106,10 @@ xếp **trong một list**, không có khái niệm thả sang list khác. Board
 cross-list drag (card đi từ cột To do sang In progress), tức phải có drop
 target riêng cho từng cột. Đây là **dependency mới** (`dnd-kit`, hoặc tự viết
 pointer + drop zone), không phải "dùng lại `Reorder` như tab" — nhầm chỗ này
-sẽ tốn một lượt implement rồi phải làm lại.
+sẽ tốn một lượt implement rồi phải làm lại. Đã chọn `@dnd-kit/core` (có sẵn
+từ result grid của Database): mỗi cột là một `useDroppable`, card là
+`useDraggable`, thả xuống là `DragOverlay` không có drop animation vì card đã
+nằm ở cột mới (optimistic) và auto-animate đưa nó vào.
 </Callout>
 
 ### Sync & conflict
@@ -1138,7 +1159,9 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
 - Bộ đếm subtask đếm trạng thái, **không chặn**: đóng task cha khi con chưa
   xong vẫn được — cùng luật đã áp cho `blocked_by` và cho dữ kiện git (FR-20).
 - `blocked_by` chỉ để hiển thị và cho agent đọc; **không** chặn transition —
-  DevKit không tự quyết định thay người dùng rằng một việc chưa được làm.
+  DevKit không tự quyết định thay người dùng rằng một việc chưa được làm. Nó
+  được **kiểm khi ghi** (cùng board, không tự trỏ, không vòng), không phải khi
+  chuyển trạng thái.
 - Conflict trên task chỉ ours/theirs, không merge field-level (xem trên).
 - `key` không phản ánh thứ tự tạo (xem [Task key](#task-key--sinh-từ-id-không-dùng-counter)).
 - Lịch sử transition bounded 50 entry/task, chưa cấu hình được.

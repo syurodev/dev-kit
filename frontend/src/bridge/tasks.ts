@@ -161,22 +161,23 @@ export function updateTask(id: string, title: string, description: string): Prom
   return callBridge(async () => (await AppService.TasksUpdate(id, title, description)) as Task);
 }
 
+/**
+ * A metadata-only edit. A field left out is untouched; one that is present is
+ * written as given, so `""` and `[]` are how a priority, an assignee, a label
+ * or a blocker gets taken off again.
+ */
+export type TaskFieldsPatch = {
+  priority?: string;
+  assignee?: string;
+  parentId?: string;
+  branch?: string;
+  labels?: string[];
+  blockedBy?: string[];
+};
+
 /** Metadata-only: never reseals the description. */
-export function setTaskFields(
-  id: string,
-  fields: { priority?: string; assignee?: string; parentId?: string; branch?: string; labels?: string[] },
-): Promise<Task> {
-  return callBridge(
-    async () =>
-      (await AppService.TasksSetFields(
-        id,
-        fields.priority ?? "",
-        fields.assignee ?? "",
-        fields.parentId ?? "",
-        fields.branch ?? "",
-        fields.labels ?? null,
-      )) as Task,
-  );
+export function setTaskFields(id: string, patch: TaskFieldsPatch): Promise<Task> {
+  return callBridge(async () => (await AppService.TasksSetFields(id, patch)) as Task);
 }
 
 /**
@@ -195,6 +196,11 @@ export function transitionTask(
 
 export function archiveTask(id: string): Promise<Task> {
   return callBridge(async () => (await AppService.TasksArchive(id)) as Task);
+}
+
+/** Puts an archived task back on its board. */
+export function unarchiveTask(id: string): Promise<Task> {
+  return callBridge(async () => (await AppService.TasksUnarchive(id)) as Task);
 }
 
 export function deleteTask(id: string): Promise<void> {
@@ -289,6 +295,9 @@ export function progressOf(board: Board, children: Task[]): Progress {
     total: children.length,
   };
 }
+
+/** The code a move carries when it lost its race to someone else's move. */
+export const TASK_STATUS_CHANGED = "task_status_changed";
 
 export const TASKS_CHANGED_EVENT = "tasks:changed";
 

@@ -163,4 +163,44 @@ describe("TasksBoardView", () => {
     expect(html).toContain("To do");
     expect(html).toContain("Done");
   });
+
+  test("a task whose column is gone is still on the board", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: { b1: [task({ status: "removed-column" })] },
+    });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("No column");
+    expect(html).toContain("Refund flow");
+  });
+
+  test("a card waiting on an unfinished task says so; one waiting on a finished task does not", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [
+          task({ id: "t1", blockedBy: ["t2"] }),
+          task({ id: "t2", key: "PAY-def456", title: "Ledger", status: "todo" }),
+        ],
+      },
+    });
+    expect(render({ boardId: "b1" })).toContain("Waiting on unfinished tasks");
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [
+          task({ id: "t1", blockedBy: ["t2"] }),
+          task({ id: "t2", key: "PAY-def456", title: "Ledger", status: "done" }),
+        ],
+      },
+    });
+    expect(render({ boardId: "b1" })).not.toContain("Waiting on unfinished tasks");
+  });
+
+  test("New task opens a dialog rather than creating a placeholder card", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("New task");
+    expect(html).toContain("Filter tasks");
+  });
 });

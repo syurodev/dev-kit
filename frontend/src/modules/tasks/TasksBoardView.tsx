@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
@@ -7,71 +16,105 @@ import {
   createTask,
   createTasksFromPlan,
   onTasksChanged,
-  progressOf,
   setBoardVerify,
-  transitionTask,
   type Board,
   type Task,
 } from "@/bridge/tasks";
+import { cn } from "@/lib/utils";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { BoardVerifyDialog } from "./BoardVerifyDialog";
 import { canRunFromPlan, homeBoardOf } from "./boardHome";
+import { NewTaskDialog } from "./CreateDialogs";
+import { BoardColumn } from "./board/BoardColumn";
+import { BoardFilters } from "./board/BoardFilters";
+import { CARD_CLASS, TaskCardBody } from "./board/TaskCard";
+import { moveTo } from "./taskActions";
+import {
+  EMPTY_FILTER,
+  boardLabels,
+  columnsOf,
+  indexById,
+  openBlockers,
+  type TaskFilter,
+} from "./taskModel";
 import { useTasksStore } from "./tasksStore";
 
-function TaskCard({
-  task,
-  board,
-  siblings,
-  onMove,
-}: {
-  task: Task;
-  board: Board;
-  siblings: Task[];
-  onMove: (to: string) => void;
-}) {
-  const children = siblings.filter((candidate) => candidate.parentId === task.id);
-  const progress = children.length > 0 ? progressOf(board, children) : null;
+/** Subtasks by their parent, built once per render of the board. */
+function childrenByParent(tasks: readonly Task[]): Map<string, Task[]> {
+  const out = new Map<string, Task[]>();
+  for (const task of tasks) {
+    if (!task.parentId) continue;
+    const list = out.get(task.parentId);
+    if (list) list.push(task);
+    else out.set(task.parentId, [task]);
+  }
+  return out;
+}
+
+/**
+ * The columns and the drag between them. Its own component so the filter
+ * row's keystrokes and the board's header do not re-render every card — the
+ * columns read a deferred copy of the filter.
+ */
+function BoardColumns({ board, tasks, filter }: { board: Board; tasks: readonly Task[]; filter: TaskFilter }) {
+  const [dragging, setDragging] = useState<Task | null>(null);
+  // A press becomes a drag only after the pointer travels, so a click on a
+  // card still opens it (the same threshold the result grid's columns use).
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const deferred = useDeferredValue(filter);
+  const columns = columnsOf(board, tasks, deferred);
+  const byId = indexById(tasks);
+  const children = childrenByParent(tasks);
+
+  const onDragStart = (event: DragStartEvent) => {
+    setDragging((event.active.data.current?.task as Task | undefined) ?? null);
+  };
+  const onDragEnd = (event: DragEndEvent) => {
+    setDragging(null);
+    const task = event.active.data.current?.task as Task | undefined;
+    const to = event.over?.id;
+    if (!task || typeof to !== "string" || to === task.status) return;
+    if (!board.workflow.statuses.some((status) => status.id === to)) return;
+    // Optimistic, carrying the status the card was drawn in: a card someone
+    // else moved meanwhile is refused and the board re-reads, never overwritten.
+    void moveTo(task, to);
+  };
 
   return (
-    <li className="rounded-md border border-border-subtle bg-surface-well p-2">
-      <div className="flex items-baseline gap-2">
-        <code className="text-xs text-fg-muted">{task.key}</code>
-        {task.sessionId ? (
-          <span
-            className="size-1.5 rounded-full bg-emerald-500"
-            title="An agent session holds this task"
-            aria-label="Held by an agent"
-          />
-        ) : null}
+    <DndContext
+      sensors={sensors}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setDragging(null)}
+    >
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 transition-opacity duration-(--motion-fast)",
+          // A filter still catching up to the box is drawn faintly rather
+          // than blocking the keystroke (smoothness 6.5).
+          deferred !== filter && "opacity-80",
+        )}
+      >
+        {columns.map((column) => (
+          <BoardColumn key={column.id} column={column} board={board} childrenByParent={children} byId={byId} />
+        ))}
       </div>
-      <div className="pt-0.5 text-sm">{task.title}</div>
-      <div className="flex items-center gap-2 pt-1 text-xs text-fg-muted">
-        {progress ? (
-          // Counted by category, so a board that renamed its Done column still
-          // counts. It counts without blocking: the parent can still close.
-          <span>
-            {progress.done}/{progress.total}
-          </span>
+      {/* No drop animation: the card is already in its new column (optimistic)
+          by the time the overlay would fly there, and auto-animate brings it
+          in — two motions for one move would be one too many. */}
+      <DragOverlay dropAnimation={null}>
+        {dragging ? (
+          <div className={cn(CARD_CLASS, "w-70 cursor-grabbing border-status-info/40 shadow-2xl")}>
+            <TaskCardBody
+              task={dragging}
+              board={board}
+              subtasks={children.get(dragging.id) ?? []}
+              waitingOn={openBlockers(dragging, byId, board).length}
+            />
+          </div>
         ) : null}
-        {task.planNodeId ? (
-          <span title="Implements a Code Graph plan node">plan</span>
-        ) : null}
-        {task.branch ? <span className="truncate font-mono">{task.branch}</span> : null}
-        <div className="flex-1" />
-        <select
-          className="bg-transparent text-xs"
-          value={task.status}
-          aria-label={`Status of ${task.key}`}
-          onChange={(event) => onMove(event.target.value)}
-        >
-          {board.workflow.statuses.map((status) => (
-            <option key={status.id} value={status.id}>
-              {status.name}
-            </option>
-          ))}
-        </select>
-      </div>
-    </li>
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -92,6 +135,11 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
   // The board whose close rule is being edited, or null.
   const [editingVerify, setEditingVerify] = useState<Board | null>(null);
   const [error, setError] = useState("");
+  // Per board, so switching boards in this tab does not carry one board's
+  // filter onto another. Local on purpose: a filter is how this person is
+  // looking right now, not something the board is.
+  const [filters, setFilters] = useState<Record<string, TaskFilter>>({});
+  const [creating, setCreating] = useState(false);
   const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
 
   const { boards, tasksByBoard, storeError, refreshBoards, ensureBoardTasks, refreshBoard } =
@@ -186,18 +234,20 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
   if (!tasks) {
     return null;
   }
+  const filter = filters[board.id] ?? EMPTY_FILTER;
+  const shown = columnsOf(board, tasks, filter).reduce((sum, column) => sum + column.tasks.length, 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
-        <h2 className="min-w-0 truncate text-sm font-medium">{board.name}</h2>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
+        <h2 className="min-w-0 truncate text-title-14 text-text-primary">{board.name}</h2>
         {/* tasks:admin and UI-only: an agent can trigger the command and can
             never choose it. With no UI at all it was unreachable rather than
             protected, which is not the same thing. */}
         <Button
           variant="ghost"
           size="sm"
-          className="text-fg-muted"
+          className="text-text-tertiary"
           title={
             board.verify
               ? `DevKit runs ${board.verify.command} and the exit code decides`
@@ -235,31 +285,31 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
                 .catch((e: Error) => setError(e.message));
             }}
           >
-            <Workflow className="size-4" aria-hidden />
+            <Workflow aria-hidden />
             From plan
           </Button>
         ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            createTask({ boardId: board.id, title: "New task" })
-              .then(() => ensureBoardTasks(board.id))
-              .catch((e: Error) => setError(e.message));
-          }}
-        >
-          <Plus className="size-4" aria-hidden />
+        {/* A dialog for the title, not a card called "New task" that then
+            needs renaming — every one of those was a task nobody renamed. */}
+        <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
+          <Plus aria-hidden />
           New task
         </Button>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label="Reload"
           onClick={() => void ensureBoardTasks(board.id)}
         >
-          <RefreshCw className="size-4" aria-hidden />
+          <RefreshCw aria-hidden />
         </Button>
       </header>
+      <BoardFilters
+        filter={filter}
+        labels={boardLabels(tasks)}
+        shown={shown}
+        onChange={(next) => setFilters((current) => ({ ...current, [board.id]: next }))}
+      />
       <BoardVerifyDialog
         board={editingVerify}
         onClose={() => setEditingVerify(null)}
@@ -272,38 +322,16 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
             .catch((e: Error) => setError(e.message));
         }}
       />
-      {error ? <p className="px-3 py-1 text-xs text-red-500">{error}</p> : null}
-      <div className="flex min-h-0 flex-1 gap-3 overflow-auto p-3">
-        {board.workflow.statuses.map((status) => {
-          const column = tasks.filter(
-            (task) => task.status === status.id && task.parentId === "",
-          );
-          return (
-            <section key={status.id} className="flex w-64 shrink-0 flex-col gap-2">
-              <h3 className="text-xs font-medium text-fg-muted">
-                {status.name} ({column.length})
-              </h3>
-              <ul className="flex flex-col gap-2">
-                {column.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    board={board}
-                    siblings={tasks}
-                    onMove={(to) => {
-                      // The status the card was showing goes along, so a card
-                      // somebody else moved is refused rather than overwritten.
-                      transitionTask(task.id, to, task.status)
-                        .then(() => ensureBoardTasks(board.id))
-                        .catch((e: Error) => setError(e.message));
-                    }}
-                  />
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
+      <NewTaskDialog
+        boardName={creating ? board.name : null}
+        onClose={() => setCreating(false)}
+        onCreate={async (title) => {
+          const created = await createTask({ boardId: board.id, title });
+          useTasksStore.getState().upsertTask(created);
+        }}
+      />
+      {error ? <p className="px-3 py-1 text-body-12 text-status-danger">{error}</p> : null}
+      <BoardColumns board={board} tasks={tasks} filter={filter} />
     </div>
   );
 }

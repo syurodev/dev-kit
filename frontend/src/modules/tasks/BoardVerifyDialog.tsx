@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Board } from "@/bridge/tasks";
 import { useWorkspaceServices } from "@/stores/workspaceSwitcher";
 
@@ -38,6 +39,8 @@ import { useWorkspaceServices } from "@/stores/workspaceSwitcher";
  * one project must still run in the service its own board is bound to, not
  * wherever the switcher was last left.
  */
+const PRIMARY = "__primary__";
+
 export function BoardVerifyDialog({
   board,
   onClose,
@@ -96,23 +99,28 @@ export function BoardVerifyDialog({
             Runs in
           </label>
           {bound ? (
-            <select
-              id="verify-service"
-              className="w-full rounded-md border border-border-subtle bg-transparent px-2 py-1.5 text-sm"
-              value={service}
-              onChange={(e) => setService(e.target.value)}
+            // Radix Select refuses "" as a value, so the primary is PRIMARY
+            // here and "" on the board, where it has always meant the primary.
+            <Select
+              value={service || PRIMARY}
+              onValueChange={(value) => setService(value === PRIMARY ? "" : value)}
             >
-              <option value="">Primary ({primaryName})</option>
-              {services
-                .filter((candidate) => candidate.name !== primaryName)
-                .map((candidate) => (
-                  <option key={candidate.id} value={candidate.name}>
-                    {candidate.name}
-                  </option>
-                ))}
-            </select>
+              <SelectTrigger id="verify-service" className="w-full max-w-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PRIMARY}>Primary ({primaryName})</SelectItem>
+                {services
+                  .filter((candidate) => candidate.name !== primaryName)
+                  .map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.name}>
+                      {candidate.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           ) : (
-            <p className="text-code-11 text-amber-600">
+            <p className="text-code-11 text-status-warning">
               This board isn't linked to a workspace on this machine. Link it to a
               workspace (Tasks sidebar → Link to current workspace) before setting a command.
             </p>
