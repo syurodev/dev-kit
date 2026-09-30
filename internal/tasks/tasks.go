@@ -58,6 +58,10 @@ var (
 	// would silently swap the board's rule — an exit code decides — for a
 	// different one nobody agreed to, so this refuses instead.
 	ErrBoardUnbound = errors.New("tasks.boardUnbound")
+	// ErrDependencyCycle is a blocked_by list that would make a task wait,
+	// directly or through others, on itself — a set of tasks none of which
+	// can ever start.
+	ErrDependencyCycle = errors.New("tasks.dependencyCycle")
 )
 
 // Status is one column of a board.

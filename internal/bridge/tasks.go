@@ -176,31 +176,36 @@ func (s *AppService) TasksUpdate(id, title, description string) (tasks.Task, err
 	return result.(tasks.Task), nil
 }
 
+// TaskFieldsPatch is a metadata-only edit from the UI. A nil field is left
+// alone and a non-nil one is written as given — including "" or an empty
+// list, which is how a person clears a priority, an assignee or a blocker.
+// The positional form this replaced read "" as "unchanged", so nothing set
+// from the UI could ever be unset again.
+type TaskFieldsPatch struct {
+	Priority  *string   `json:"priority,omitempty"`
+	Assignee  *string   `json:"assignee,omitempty"`
+	ParentID  *string   `json:"parentId,omitempty"`
+	Branch    *string   `json:"branch,omitempty"`
+	Labels    *[]string `json:"labels,omitempty"`
+	BlockedBy *[]string `json:"blockedBy,omitempty"`
+}
+
 // TasksSetFields is the metadata-only path: it never reseals the description,
 // so moving a card or recording a branch is not a decrypt and re-encrypt.
-func (s *AppService) TasksSetFields(id, priority, assignee, parentID, branch string, labels []string) (tasks.Task, error) {
+func (s *AppService) TasksSetFields(id string, patch TaskFieldsPatch) (tasks.Task, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.tasks", "tasks:write", "task:"+opaqueID, map[string]any{
 		"action":  "set_fields",
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		fields := tasks.Fields{}
-		if priority != "" {
-			fields.Priority = &priority
-		}
-		if assignee != "" {
-			fields.Assignee = &assignee
-		}
-		if parentID != "" {
-			fields.ParentID = &parentID
-		}
-		if branch != "" {
-			fields.Branch = &branch
-		}
-		if labels != nil {
-			fields.Labels = &labels
-		}
-		return s.container.Tasks.SetFields(tasks.Caller{}, id, fields)
+		return s.container.Tasks.SetFields(tasks.Caller{}, id, tasks.Fields{
+			Priority:  patch.Priority,
+			Assignee:  patch.Assignee,
+			ParentID:  patch.ParentID,
+			Branch:    patch.Branch,
+			Labels:    patch.Labels,
+			BlockedBy: patch.BlockedBy,
+		})
 	})
 	if err != nil {
 		return tasks.Task{}, err
@@ -232,6 +237,22 @@ func (s *AppService) TasksArchive(id string) (tasks.Task, error) {
 		"task_id": opaqueID,
 	}, func(context.Context) (any, error) {
 		return s.container.Tasks.Archive(tasks.Caller{}, id)
+	})
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return result.(tasks.Task), nil
+}
+
+// TasksUnarchive puts an archived task back on its board. Archiving is the
+// recoverable way to hide a task, so the way back sits beside it.
+func (s *AppService) TasksUnarchive(id string) (tasks.Task, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.tasks", "tasks:write", "task:"+opaqueID, map[string]any{
+		"action":  "unarchive",
+		"task_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Tasks.Unarchive(tasks.Caller{}, id)
 	})
 	if err != nil {
 		return tasks.Task{}, err
