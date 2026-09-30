@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import type { Board, Task } from "@/bridge/tasks";
+import { SplitPanelProvider } from "@/components/ui/split-panel";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { useTasksStore } from "./tasksStore";
 import { TasksBoardView } from "./TasksBoardView";
@@ -68,7 +69,13 @@ afterAll(() => {
 });
 
 function render(params?: Record<string, unknown>): string {
-  return renderToString(<TasksBoardView params={params} />);
+  // The board opens a task in the module's right-hand pane, which the shell
+  // provides; the provider is all a server render needs of it.
+  return renderToString(
+    <SplitPanelProvider>
+      <TasksBoardView params={params} />
+    </SplitPanelProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -202,5 +209,13 @@ describe("TasksBoardView", () => {
     const html = render({ boardId: "b1" });
     expect(html).toContain("New task");
     expect(html).toContain("Filter tasks");
+  });
+
+  test("a card shows its task in the pane rather than opening a tab", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("PAY-abc123 Refund flow — show details");
+    // Nothing is picked until someone picks it.
+    expect(html).not.toContain('aria-current="true"');
   });
 });

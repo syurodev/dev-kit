@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import { Archive, Copy, Ellipsis, GitBranch, Hourglass, PanelRight } from "lucide-react";
+import { Archive, Copy, Ellipsis, GitBranch, Hourglass, Maximize2, PanelRight } from "lucide-react";
 import { toast } from "sonner";
 import { progressOf, type Board, type Task } from "@/bridge/tasks";
 import { Button } from "@/components/ui/button";
@@ -90,8 +90,8 @@ export const CARD_CLASS =
   "group/card relative flex w-full flex-col gap-1.5 rounded-md border border-border-subtle bg-surface-well p-2.5 text-left transition-colors duration-(--motion-fast)";
 
 /**
- * One card: dragged to move it, clicked to open it (a preview tab; double
- * click keeps the tab). The pointer has to travel before a press becomes a
+ * One card: dragged to move it, clicked to show it in the board's right-hand
+ * pane (double click opens it as its own tab). The pointer has to travel before a press becomes a
  * drag, so a click is still a click. The menu is the same move for a
  * keyboard, and for anyone who would rather not drag.
  */
@@ -100,11 +100,17 @@ export function TaskCard({
   board,
   subtasks,
   waitingOn,
+  selected,
+  onInspect,
 }: {
   task: Task;
   board: Board;
   subtasks: readonly Task[];
   waitingOn: number;
+  /** Shown in the board's right-hand pane. */
+  selected: boolean;
+  /** Show this task in the board's right-hand pane. */
+  onInspect: (task: Task) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, data: { task } });
 
@@ -114,15 +120,20 @@ export function TaskCard({
         ref={setNodeRef}
         {...attributes}
         {...listeners}
-        aria-label={`${title(task)} — open`}
-        onClick={() => openTaskDetail(task.id, title(task))}
+        aria-label={`${title(task)} — show details`}
+        aria-current={selected || undefined}
+        onClick={() => onInspect(task)}
         onDoubleClick={() => openTaskDetail(task.id, title(task), { preview: false })}
         onKeyDown={(event) => {
-          if (event.key === "Enter") openTaskDetail(task.id, title(task), { preview: false });
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onInspect(task);
+          }
         }}
         className={cn(
           CARD_CLASS,
           "cursor-pointer hover:border-status-info/40 focus-visible:border-status-info focus-visible:outline-none",
+          selected && "border-status-info bg-state-soft hover:border-status-info",
           // The original stays where it was, faded, while its overlay moves:
           // the column does not reflow under the pointer mid-drag.
           isDragging && "opacity-38",
@@ -160,11 +171,14 @@ export function TaskCard({
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            <DropdownMenuItem icon={<PanelRight aria-hidden />} onSelect={() => onInspect(task)}>
+              Show details
+            </DropdownMenuItem>
             <DropdownMenuItem
-              icon={<PanelRight aria-hidden />}
-              onSelect={() => openTaskDetail(task.id, title(task), { preview: false, beside: true })}
+              icon={<Maximize2 aria-hidden />}
+              onSelect={() => openTaskDetail(task.id, title(task), { preview: false })}
             >
-              Open beside
+              Open as tab
             </DropdownMenuItem>
             <DropdownMenuItem
               icon={<Copy aria-hidden />}

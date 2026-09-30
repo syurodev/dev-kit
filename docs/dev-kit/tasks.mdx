@@ -1078,7 +1078,16 @@ chối thì đọc lại sự thật thay vì chạy một phép đảo ngược
   còn thì vào cột "No column" thay vì biến mất. Filter (key/title/label,
   priority, label, agent đang giữ) lọc local trên summary đã tải, đọc bản
   `useDeferredValue` nên gõ không chờ cột render. "New task" mở dialog đặt tên.
-- **Detail** — title sửa tại chỗ; description là textarea (plain text — renderer
+- **Bấm card = xem trong pane phải của module** (`useSplitPanel`, rộng 460,
+  co board lại chứ không đè, kéo được bề rộng); bấm lại chính card đó hoặc `X`
+  thì đóng, double-click hoặc "Open as tab" mới mở tab `tasks.detail`. Pane một
+  module chỉ có một, nên **chỉ board tab đang hiển thị được lấp nó**
+  (`useModuleVisibility`) — board bị che giữ lựa chọn của nó và trả lại khi hiện
+  lại. Nội dung pane chỉ khoá theo task id: `TaskDetail` tự đọc và tự
+  subscribe, nên một lần sửa trong pane không đẩy lại nội dung pane.
+- **Detail** (`detail/TaskDetail.tsx`, cùng một component cho tab và pane —
+  `layout="page" | "panel"`; pane là một cột, thuộc tính nằm dưới phần chữ) —
+  title sửa tại chỗ; description là textarea (plain text — renderer
   markdown nằm ở chunk Agent Hub, kéo vào đây thì mọi tab task đều phải trả);
   panel thuộc tính: status, priority, assignee, labels, parent, **Depends on /
   Blocks**, branch, plan node; checklist subtask (bấm chấm = done/reopen theo

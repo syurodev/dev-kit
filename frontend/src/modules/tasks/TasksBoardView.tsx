@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,6 +12,8 @@ import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { useSplitPanel } from "@/components/ui/split-panel";
 import {
   createTask,
   createTasksFromPlan,
@@ -28,6 +30,7 @@ import { NewTaskDialog } from "./CreateDialogs";
 import { BoardColumn } from "./board/BoardColumn";
 import { BoardFilters } from "./board/BoardFilters";
 import { CARD_CLASS, TaskCardBody } from "./board/TaskCard";
+import { TaskDetail } from "./detail/TaskDetail";
 import { moveTo } from "./taskActions";
 import {
   EMPTY_FILTER,
@@ -38,6 +41,9 @@ import {
   type TaskFilter,
 } from "./taskModel";
 import { useTasksStore } from "./tasksStore";
+
+/** Room for a task's text and its property column, one above the other. */
+const INSPECTOR_WIDTH = 460;
 
 /** Subtasks by their parent, built once per render of the board. */
 function childrenByParent(tasks: readonly Task[]): Map<string, Task[]> {
@@ -56,7 +62,19 @@ function childrenByParent(tasks: readonly Task[]): Map<string, Task[]> {
  * row's keystrokes and the board's header do not re-render every card — the
  * columns read a deferred copy of the filter.
  */
-function BoardColumns({ board, tasks, filter }: { board: Board; tasks: readonly Task[]; filter: TaskFilter }) {
+function BoardColumns({
+  board,
+  tasks,
+  filter,
+  inspectedId,
+  onInspect,
+}: {
+  board: Board;
+  tasks: readonly Task[];
+  filter: TaskFilter;
+  inspectedId: string | null;
+  onInspect: (task: Task) => void;
+}) {
   const [dragging, setDragging] = useState<Task | null>(null);
   // A press becomes a drag only after the pointer travels, so a click on a
   // card still opens it (the same threshold the result grid's columns use).
@@ -96,7 +114,15 @@ function BoardColumns({ board, tasks, filter }: { board: Board; tasks: readonly 
         )}
       >
         {columns.map((column) => (
-          <BoardColumn key={column.id} column={column} board={board} childrenByParent={children} byId={byId} />
+          <BoardColumn
+            key={column.id}
+            column={column}
+            board={board}
+            childrenByParent={children}
+            byId={byId}
+            inspectedId={inspectedId}
+            onInspect={onInspect}
+          />
         ))}
       </div>
       {/* No drop animation: the card is already in its new column (optimistic)
@@ -175,6 +201,30 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
   useEffect(() => {
     if (board) void ensureBoardTasks(board.id);
   }, [board, ensureBoardTasks]);
+
+  // The task shown in the module's right-hand pane, remembered with the board
+  // it was picked on so switching this tab to another board does not keep
+  // showing a task from the last one.
+  const [inspected, setInspected] = useState<{ boardId: string; taskId: string } | null>(null);
+  const inspectedId = board && inspected?.boardId === board.id ? inspected.taskId : null;
+  const closeInspector = useCallback(() => setInspected(null), []);
+
+  // The pane (the shell's SplitPanel: it squeezes the board rather than
+  // covering it, and is resizable) is one per module, so only the board tab
+  // on screen may fill it — a board parked behind another tab keeps its pick
+  // and puts it back when it is shown again. The content is keyed by task id
+  // only; TaskDetail reads and subscribes by itself, so an edit in the pane
+  // never re-pushes it.
+  const visible = useModuleVisibility();
+  const { openPanel, closePanel } = useSplitPanel();
+  useEffect(() => {
+    if (!visible || !inspectedId) return;
+    openPanel(<TaskDetail key={inspectedId} taskId={inspectedId} layout="panel" onGone={closeInspector} />, {
+      width: INSPECTOR_WIDTH,
+      onClose: closeInspector,
+    });
+    return () => closePanel();
+  }, [visible, inspectedId, openPanel, closePanel, closeInspector]);
 
   // Its own subscription rather than leaning on the sidebar's: a board tab
   // outlives whatever else happens to be on screen beside it, and reloading
@@ -331,7 +381,17 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
         }}
       />
       {error ? <p className="px-3 py-1 text-body-12 text-status-danger">{error}</p> : null}
-      <BoardColumns board={board} tasks={tasks} filter={filter} />
+      <BoardColumns
+        board={board}
+        tasks={tasks}
+        filter={filter}
+        inspectedId={inspectedId}
+        onInspect={(task) =>
+          // A second click on the card being shown closes the pane: the card
+          // is the toggle, the way a row in a list-with-inspector behaves.
+          setInspected(task.id === inspectedId ? null : { boardId: board.id, taskId: task.id })
+        }
+      />
     </div>
   );
 }

@@ -19,11 +19,15 @@ export function BoardColumn({
   board,
   childrenByParent,
   byId,
+  inspectedId,
+  onInspect,
 }: {
   column: Column;
   board: Board;
   childrenByParent: ReadonlyMap<string, Task[]>;
   byId: ReadonlyMap<string, Task>;
+  inspectedId: string | null;
+  onInspect: (task: Task) => void;
 }) {
   const droppable = !!column.status;
   const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: !droppable });
@@ -51,6 +55,8 @@ export function BoardColumn({
             board={board}
             subtasks={childrenByParent.get(task.id) ?? EMPTY_ARRAY}
             waitingOn={openBlockers(task, byId, board).length}
+            selected={task.id === inspectedId}
+            onInspect={onInspect}
           />
         ))}
       </ul>
