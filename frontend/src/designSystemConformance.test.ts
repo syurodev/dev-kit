@@ -47,6 +47,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   "modules/settings": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
+  // Converted 2026-09-30 with the board/detail rewrite: the last Tailwind
+  // text sizes and the native select in the verify dialog went with it.
+  "modules/tasks": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },
   // Re-measured once comments stopped counting (see strip): rawHex 23 → 1, so
   // twenty-two of the "raw hexes" in the shared UI were notes ABOUT hexes. The

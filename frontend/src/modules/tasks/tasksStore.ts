@@ -5,6 +5,7 @@ import { errorMessage } from "@/bridge/errors";
 import { listBoards, listTasks, onTasksChanged, type Board, type Task } from "@/bridge/tasks";
 import { listWorkspaces, type Workspace } from "@/bridge/workspace";
 import { createBoardChangeDebouncer } from "./tasksTree";
+import { upsert, withStatus, type TaskView } from "./taskModel";
 
 /**
  * Data and fold state for the Tasks sidebar tree (tasksTree.ts builds the rows
@@ -33,6 +34,9 @@ export type TasksStoreState = {
   /** Keyed `${boardId}:${statusId}`: a status id is only unique within its board. */
   expandedStatuses: Record<string, boolean>;
   expandedTasks: Record<string, boolean>;
+  /** How each board is drawn — columns or a list. Persisted, per board. */
+  boardViews: Record<string, TaskView>;
+  setBoardView: (boardId: string, view: TaskView) => void;
 
   /**
    * Flips one row's fold state. Each takes the row's OWN `expanded` value —
@@ -61,6 +65,23 @@ export type TasksStoreState = {
   refreshBoard: (boardId: string) => Promise<void>;
 
   /**
+   * Writes one task the bridge just answered with into every loaded board it
+   * touches: replaced in place, moved between boards, dropped when archived.
+   * A write the user made shows in the frame after its answer, instead of
+   * after the debounced `tasks:changed` re-list that follows it.
+   */
+  upsertTask: (task: Task) => void;
+  /** Drops a deleted task from its board's loaded list. */
+  removeTask: (boardId: string, taskId: string) => void;
+  /**
+   * Moves a card before the bridge answers — the board is local data, so a
+   * drop that waits on a round trip is a drop that visibly hesitates. Returns
+   * the status it had, for the caller to put back if the move is refused, or
+   * null when there was nothing loaded to move.
+   */
+  moveTaskOptimistic: (boardId: string, taskId: string, to: string) => string | null;
+
+  /**
    * Subscribes to `tasks:changed` for as long as the sidebar is mounted.
    * Bursts are coalesced per board (createBoardChangeDebouncer, tasksTree.ts)
    * so an agent moving several subtasks in a row costs one refresh, not one
@@ -83,6 +104,10 @@ export const useTasksStore = create<TasksStoreState>()(
       expandedBoards: {},
       expandedStatuses: {},
       expandedTasks: {},
+      boardViews: {},
+
+      setBoardView: (boardId, view) =>
+        set((state) => ({ boardViews: { ...state.boardViews, [boardId]: view } })),
 
       toggleWorkspace: (id, expanded) =>
         set((state) => ({ expandedWorkspaces: { ...state.expandedWorkspaces, [id]: !expanded } })),
@@ -136,6 +161,41 @@ export const useTasksStore = create<TasksStoreState>()(
         await get().ensureBoardTasks(boardId);
       },
 
+      upsertTask: (task) =>
+        set((state) => {
+          const next: Record<string, Task[] | undefined> = { ...state.tasksByBoard };
+          let changed = false;
+          for (const [boardId, tasks] of Object.entries(state.tasksByBoard)) {
+            if (!tasks) continue;
+            if (boardId !== task.boardId && !tasks.some((candidate) => candidate.id === task.id)) continue;
+            next[boardId] = upsert(tasks, boardId, task);
+            changed = true;
+          }
+          return changed ? { tasksByBoard: next } : {};
+        }),
+
+      removeTask: (boardId, taskId) =>
+        set((state) => {
+          const tasks = state.tasksByBoard[boardId];
+          if (!tasks) return {};
+          return {
+            tasksByBoard: {
+              ...state.tasksByBoard,
+              [boardId]: tasks.filter((candidate) => candidate.id !== taskId),
+            },
+          };
+        }),
+
+      moveTaskOptimistic: (boardId, taskId, to) => {
+        const tasks = get().tasksByBoard[boardId];
+        const from = tasks?.find((candidate) => candidate.id === taskId)?.status;
+        if (!tasks || from === undefined) return null;
+        set((state) => ({
+          tasksByBoard: { ...state.tasksByBoard, [boardId]: withStatus(tasks, taskId, to) },
+        }));
+        return from;
+      },
+
       subscribeTasksChanged: () => {
         // A board-level event (taskId === "") may have changed the board's own
         // fields (name, verify, workspaceId) or the list itself, so it earns a
@@ -168,6 +228,7 @@ export const useTasksStore = create<TasksStoreState>()(
         expandedBoards: state.expandedBoards,
         expandedStatuses: state.expandedStatuses,
         expandedTasks: state.expandedTasks,
+        boardViews: state.boardViews,
       }),
     },
   ),

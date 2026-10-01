@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import type { Board, Task } from "@/bridge/tasks";
+import { SplitPanelProvider } from "@/components/ui/split-panel";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { useTasksStore } from "./tasksStore";
 import { TasksBoardView } from "./TasksBoardView";
@@ -68,7 +69,13 @@ afterAll(() => {
 });
 
 function render(params?: Record<string, unknown>): string {
-  return renderToString(<TasksBoardView params={params} />);
+  // The board opens a task in the module's right-hand pane, which the shell
+  // provides; the provider is all a server render needs of it.
+  return renderToString(
+    <SplitPanelProvider>
+      <TasksBoardView params={params} />
+    </SplitPanelProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -82,6 +89,7 @@ beforeEach(() => {
     expandedBoards: {},
     expandedStatuses: {},
     expandedTasks: {},
+    boardViews: {},
   });
   seed(useWorkspaceSwitcherStore, { currentId: null });
 });
@@ -162,5 +170,101 @@ describe("TasksBoardView", () => {
     expect(html).toContain("Refund flow");
     expect(html).toContain("To do");
     expect(html).toContain("Done");
+  });
+
+  test("a task whose column is gone is still on the board", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: { b1: [task({ status: "removed-column" })] },
+    });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("No column");
+    expect(html).toContain("Refund flow");
+  });
+
+  test("a card waiting on an unfinished task says so; one waiting on a finished task does not", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [
+          task({ id: "t1", blockedBy: ["t2"] }),
+          task({ id: "t2", key: "PAY-def456", title: "Ledger", status: "todo" }),
+        ],
+      },
+    });
+    expect(render({ boardId: "b1" })).toContain("Waiting on unfinished tasks");
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [
+          task({ id: "t1", blockedBy: ["t2"] }),
+          task({ id: "t2", key: "PAY-def456", title: "Ledger", status: "done" }),
+        ],
+      },
+    });
+    expect(render({ boardId: "b1" })).not.toContain("Waiting on unfinished tasks");
+  });
+
+  test("New task opens a dialog rather than creating a placeholder card", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("New task");
+    expect(html).toContain("Filter tasks");
+  });
+
+  test("a card shows its task in the pane rather than opening a tab", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("PAY-abc123 Refund flow — show details");
+    // Nothing is picked until someone picks it.
+    expect(html).not.toContain('aria-current="true"');
+  });
+
+  test("the header sums the board up, leaving out what is zero", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [task({ id: "t1", blockedBy: ["t2"] }), task({ id: "t2", key: "PAY-def456", status: "done" }), task({ id: "t3", key: "PAY-ghi789", blockedBy: ["t1"] })],
+      },
+    });
+    // Text only: the count and its word sit in separate spans.
+    const html = render({ boardId: "b1" }).replace(/<[^>]+>/g, "");
+    expect(html).toContain("1/3");
+    expect(html).toContain("1 waiting");
+    expect(html).not.toContain("in progress");
+    expect(html).not.toContain("with agents");
+  });
+
+  test("a column with work offers to add a task in place", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    // To do is open and full width; the empty Done is folded and offers none.
+    expect(html.match(/Add task/g)?.length).toBe(1);
+  });
+
+  test("an empty finished column is a narrow strip that can be expanded", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain('aria-label="Expand Done"');
+    expect(html).not.toContain("Nothing finished yet");
+  });
+
+  test("an empty open column keeps its full width", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task({ status: "done" })] } });
+    const html = render({ boardId: "b1" });
+    expect(html).not.toContain('aria-label="Expand To do"');
+    expect(html).toContain("No tasks");
+  });
+
+  test("a board remembered as a list draws rows, finished groups folded", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: { b1: [task(), task({ id: "t2", key: "PAY-def456", title: "Shipped thing", status: "done" })] },
+      boardViews: { b1: "list" },
+    });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("Refund flow");
+    expect(html).not.toContain("Shipped thing");
+    expect(html).not.toContain("Add task");
   });
 });

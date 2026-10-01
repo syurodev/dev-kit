@@ -13,6 +13,7 @@ import (
 	"devkit/internal/cloudconfig"
 	"devkit/internal/notes"
 	"devkit/internal/syncclient"
+	"devkit/internal/tasks"
 )
 
 func TestPublicErrorMapsCloudConfigUnavailable(t *testing.T) {
@@ -101,5 +102,21 @@ func TestPublicErrorMapsNotesColorToValidation(t *testing.T) {
 	}
 	if err := publicError("builtin.notes", notes.ErrTooManyTags); err == nil || err.Code != codeValidationFailed {
 		t.Fatalf("too many tags = %v, want validation_failed", err)
+	}
+}
+
+// A move that lost its race is something the board answers by showing where
+// the task is now, so it has its own code rather than the unexpected-error
+// fallback it used to fall through to.
+func TestPublicErrorMapsTaskStatusChanged(t *testing.T) {
+	err := publicError("builtin.tasks", fmt.Errorf("transition: %w", tasks.ErrStatusChanged))
+	if err == nil || err.Code != codeTaskStatusChanged {
+		t.Fatalf("public error = %v", err)
+	}
+	if got := publicError("builtin.tasks", tasks.ErrDependencyCycle); got == nil || got.Code != codeValidationFailed {
+		t.Fatalf("dependency cycle = %v", got)
+	}
+	if got := publicError("builtin.tasks", tasks.ErrParentHasParent); got == nil || got.Code != codeValidationFailed {
+		t.Fatalf("parent-has-parent = %v", got)
 	}
 }

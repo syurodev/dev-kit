@@ -49,6 +49,10 @@ const (
 	// fine, and the frontend tells the two apart to decide whether to offer a
 	// reconnect or just show what the engine said.
 	codeQueryFailed = "query_failed"
+	// A task move that lost its race: the card was moved somewhere else
+	// between being drawn and being dropped. Its own code because the board's
+	// answer is to show where the task is now, not to report a failure.
+	codeTaskStatusChanged = "task_status_changed"
 	// The three states of an agent runtime the UI answers with an action of
 	// its own: offer the install, show what Node is missing, show the log.
 	codeAgentNotInstalled  = "agent_not_installed"
@@ -152,6 +156,27 @@ func publicError(subject string, err error) *apperrors.AppError {
 	// refuses instead — this is what tells the person why, and what to do.
 	if errors.Is(err, tasks.ErrBoardUnbound) {
 		return apperrors.New(codeValidationFailed, "This board isn't linked to a workspace on this machine. Link it to a workspace to run its verify command.", true)
+	}
+	// The rest of the tasks sentinels are refusals a person can act on. Left
+	// to the fallback they all read "An unexpected error occurred.", which is
+	// what a board said when two people moved the same card.
+	if subject == "builtin.tasks" {
+		switch {
+		case errors.Is(err, tasks.ErrStatusChanged):
+			return apperrors.New(codeTaskStatusChanged, "This task was moved somewhere else in the meantime.", true)
+		case errors.Is(err, tasks.ErrNotFound):
+			return apperrors.New(codeValidationFailed, "That task or board no longer exists.", true)
+		case errors.Is(err, tasks.ErrDependencyCycle):
+			return apperrors.New(codeValidationFailed, "That dependency would make the task wait on itself.", true)
+		case errors.Is(err, tasks.ErrParentHasParent):
+			return apperrors.New(codeValidationFailed, "A subtask cannot have subtasks of its own.", true)
+		case errors.Is(err, tasks.ErrClaimed):
+			return apperrors.New(codeValidationFailed, "Another agent session holds this task.", true)
+		case errors.Is(err, tasks.ErrVerifying):
+			return apperrors.New(codeValidationFailed, "This task is already being verified.", true)
+		case errors.Is(err, tasks.ErrInvalid):
+			return apperrors.New(codeValidationFailed, "That change is not valid for this task.", true)
+		}
 	}
 	// Notes input an agent gets wrong over MCP as often as a person does in
 	// the UI. The message names what was given and what is accepted; as

@@ -148,6 +148,22 @@ export interface SyncStatusDTO {
 }
 
 /**
+ * TaskFieldsPatch is a metadata-only edit from the UI. A nil field is left
+ * alone and a non-nil one is written as given — including "" or an empty
+ * list, which is how a person clears a priority, an assignee or a blocker.
+ * The positional form this replaced read "" as "unchanged", so nothing set
+ * from the UI could ever be unset again.
+ */
+export interface TaskFieldsPatch {
+    "priority"?: string | null;
+    "assignee"?: string | null;
+    "parentId"?: string | null;
+    "branch"?: string | null;
+    "labels"?: string[] | null;
+    "blockedBy"?: string[] | null;
+}
+
+/**
  * VaultSearchResult is one cross-type search hit. Label is the item's plaintext
  * display name (note title or profile name); no secret content is included.
  */

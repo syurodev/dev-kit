@@ -2033,12 +2033,20 @@ export function TasksSearch(boardID: string, query: string): $CancellablePromise
  * TasksSetFields is the metadata-only path: it never reseals the description,
  * so moving a card or recording a branch is not a decrypt and re-encrypt.
  */
-export function TasksSetFields(id: string, priority: string, assignee: string, parentID: string, branch: string, labels: string[] | null): $CancellablePromise<tasks$0.Task> {
-    return $Call.ByID(99490969, id, priority, assignee, parentID, branch, labels);
+export function TasksSetFields(id: string, patch: $models.TaskFieldsPatch): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(99490969, id, patch);
 }
 
 export function TasksTransition(id: string, to: string, expectedStatus: string): $CancellablePromise<tasks$0.TransitionResult> {
     return $Call.ByID(2469073087, id, to, expectedStatus);
+}
+
+/**
+ * TasksUnarchive puts an archived task back on its board. Archiving is the
+ * recoverable way to hide a task, so the way back sits beside it.
+ */
+export function TasksUnarchive(id: string): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(1929448343, id);
 }
 
 export function TasksUpdate(id: string, title: string, description: string): $CancellablePromise<tasks$0.Task> {

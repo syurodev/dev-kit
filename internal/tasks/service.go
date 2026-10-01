@@ -508,7 +508,11 @@ func (s *Service) SetFields(caller Caller, id string, fields Fields) (Task, erro
 			meta.ParentID = *fields.ParentID
 		}
 		if fields.BlockedBy != nil {
-			meta.BlockedBy = *fields.BlockedBy
+			blockedBy, err := s.checkBlockers(caller, id, meta.BoardID, *fields.BlockedBy)
+			if err != nil {
+				return err
+			}
+			meta.BlockedBy = blockedBy
 		}
 		if fields.Branch != nil {
 			meta.Branch = *fields.Branch
@@ -617,4 +621,60 @@ func (s *Service) Delete(ctx context.Context, caller Caller, id string) error {
 	}
 	s.changed(boardID, id)
 	return nil
+}
+
+// checkBlockers validates a task's new blocked_by list and returns it without
+// duplicates. Each blocker must be another task on the same board, reached
+// through the caller's scope — a dependency is not a way to learn that a task
+// in another workspace exists — and the list must not close a loop: A waiting
+// on B while B (or anything B waits on) waits on A is work that can never
+// start, so it is refused rather than stored.
+func (s *Service) checkBlockers(caller Caller, id, boardID string, blockers []string) ([]string, error) {
+	out := make([]string, 0, len(blockers))
+	seen := map[string]bool{}
+	for _, blocker := range blockers {
+		if blocker == "" || seen[blocker] {
+			continue
+		}
+		if blocker == id {
+			return nil, ErrDependencyCycle
+		}
+		task, err := s.taskFor(caller, blocker)
+		if err != nil {
+			return nil, err
+		}
+		if task.BoardID != boardID {
+			return nil, ErrInvalid
+		}
+		seen[blocker] = true
+		out = append(out, blocker)
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	board, err := s.list(ListInput{BoardID: boardID, IncludeArchived: true})
+	if err != nil {
+		return nil, err
+	}
+	edges := make(map[string][]string, len(board))
+	for _, task := range board {
+		edges[task.ID] = task.BlockedBy
+	}
+	edges[id] = out
+	// Walk from each new blocker along blocked_by; reaching id again is a loop.
+	visited := map[string]bool{}
+	stack := append([]string(nil), out...)
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if current == id {
+			return nil, ErrDependencyCycle
+		}
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+		stack = append(stack, edges[current]...)
+	}
+	return out, nil
 }

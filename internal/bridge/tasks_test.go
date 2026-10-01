@@ -153,3 +153,76 @@ func TestTasksBoardSetVerifyStoresServiceAndKeepsProjectPath(t *testing.T) {
 		t.Fatalf("verify = %+v, want cleared", cleared.Verify)
 	}
 }
+
+// A patch writes exactly the fields it carries: a nil one is untouched and an
+// empty one clears. The positional form read "" as "leave it", so a priority
+// set from the UI could never be taken off again.
+func TestTasksSetFieldsClearsWhatThePatchCarries(t *testing.T) {
+	svc, _, ws := newBridgeWithTasksWorkspace(t)
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := svc.TasksCreate(board.ID, "Blocker", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.TasksCreate(board.ID, "Work", "", "high", "", []string{"ui"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assignee := "me"
+	blockedBy := []string{blocker.ID}
+	task, err = svc.TasksSetFields(task.ID, TaskFieldsPatch{Assignee: &assignee, BlockedBy: &blockedBy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Priority != "high" || len(task.Labels) != 1 {
+		t.Fatalf("fields the patch did not carry changed: %+v", task)
+	}
+	if task.Assignee != "me" || len(task.BlockedBy) != 1 || task.BlockedBy[0] != blocker.ID {
+		t.Fatalf("patch not applied: %+v", task)
+	}
+
+	empty := ""
+	none := []string{}
+	task, err = svc.TasksSetFields(task.ID, TaskFieldsPatch{Priority: &empty, Labels: &none, BlockedBy: &none})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Priority != "" || len(task.Labels) != 0 || len(task.BlockedBy) != 0 {
+		t.Fatalf("clearing did not clear: %+v", task)
+	}
+	if task.Assignee != "me" {
+		t.Fatalf("assignee was not in the patch but changed to %q", task.Assignee)
+	}
+}
+
+func TestTasksUnarchiveReturnsTheTaskToItsBoard(t *testing.T) {
+	svc, _, ws := newBridgeWithTasksWorkspace(t)
+	board, err := svc.TasksBoardCreate("DevKit", "DEV", "blue", ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.TasksCreate(board.ID, "Work", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TasksArchive(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if listed, _ := svc.TasksList(board.ID, "", "", "", false, 0); len(listed) != 0 {
+		t.Fatalf("archived task still listed: %d", len(listed))
+	}
+	back, err := svc.TasksUnarchive(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.ArchivedAt != "" {
+		t.Fatalf("still archived: %q", back.ArchivedAt)
+	}
+	if listed, _ := svc.TasksList(board.ID, "", "", "", false, 0); len(listed) != 1 {
+		t.Fatalf("unarchived task not listed: %d", len(listed))
+	}
+}

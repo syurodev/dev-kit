@@ -655,3 +655,71 @@ func assertSystemComment(t *testing.T, svc *Service, taskID, want string) {
 	}
 	t.Fatalf("no system comment containing %q in %+v", want, comments)
 }
+
+// A dependency that would loop back is refused: A waiting on B while B waits
+// on A is a pair of tasks neither of which can ever start.
+func TestSetFieldsRefusesDependencyCycles(t *testing.T) {
+	svc, board := newDependencyBoard(t)
+	a := mustCreate(t, svc, board.ID, "A")
+	b := mustCreate(t, svc, board.ID, "B")
+	c := mustCreate(t, svc, board.ID, "C")
+
+	// A depends on B, B depends on C: a chain, which is fine.
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{b.ID, b.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetFields(Caller{}, b.ID, Fields{BlockedBy: &[]string{c.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.Get(Caller{}, a.ID)
+	if len(got.BlockedBy) != 1 {
+		t.Fatalf("duplicates kept: %v", got.BlockedBy)
+	}
+	// C depending on A closes the loop A → B → C → A.
+	if _, err := svc.SetFields(Caller{}, c.ID, Fields{BlockedBy: &[]string{a.ID}}); !errors.Is(err, ErrDependencyCycle) {
+		t.Fatalf("cycle err = %v", err)
+	}
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{a.ID}}); !errors.Is(err, ErrDependencyCycle) {
+		t.Fatalf("self err = %v", err)
+	}
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{"missing"}}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing err = %v", err)
+	}
+	// Clearing is always allowed.
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A blocker has to be on the task's own board.
+func TestSetFieldsRefusesBlockersFromAnotherBoard(t *testing.T) {
+	svc, board := newDependencyBoard(t)
+	other, err := svc.CreateBoard("Other", "OTH", "", Workflow{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := mustCreate(t, svc, board.ID, "A")
+	elsewhere := mustCreate(t, svc, other.ID, "Elsewhere")
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{elsewhere.ID}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("cross-board err = %v", err)
+	}
+}
+
+func newDependencyBoard(t *testing.T) (*Service, Board) {
+	t.Helper()
+	svc, _ := newService(t)
+	board, err := svc.CreateBoard("Deps", "DEP", "", Workflow{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, board
+}
+
+func mustCreate(t *testing.T, svc *Service, boardID, title string) Task {
+	t.Helper()
+	task, err := svc.Create(Caller{}, CreateInput{BoardID: boardID, Title: title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return task
+}
