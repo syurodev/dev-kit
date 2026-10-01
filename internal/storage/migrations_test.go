@@ -179,8 +179,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 33 {
-		t.Fatalf("migration version = %d, want 33", version)
+	if version != 34 {
+		t.Fatalf("migration version = %d, want 34", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -627,7 +627,7 @@ func TestSessionWorkspaceMigrationKeepsAmbiguousRootsUnbound(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO workspace_services(id,workspace_id,name,path,name_source) VALUES ('unique-svc','w1','unique','/unique','folder')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 33`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version >= 33`); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(ctx, db); err != nil {
@@ -650,5 +650,63 @@ func TestSessionWorkspaceMigrationKeepsAmbiguousRootsUnbound(t *testing.T) {
 		if err := db.QueryRowContext(ctx, `SELECT workspace_id FROM agent_sessions WHERE id = ?`, id).Scan(&got); err != nil || got.Valid {
 			t.Fatalf("%s after workspace delete = %v, %v; want NULL", id, got, err)
 		}
+	}
+}
+
+// Existing workspaces acquire empty instructions without losing their folders;
+// text written afterwards survives reopening and repeating migrations.
+func TestWorkspaceInstructionsMigrationAndPersistence(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "devkit.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { db.Close() }()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE workspaces DROP COLUMN instructions`,
+		`DELETE FROM schema_migrations WHERE version >= 34`,
+		`INSERT INTO workspaces(id,name,root) VALUES ('existing','Existing','/root')`,
+		`INSERT INTO workspace_services(id,workspace_id,name,path,name_source) VALUES ('svc','existing','service','/root','folder')`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var instructions, root string
+	if err := db.QueryRowContext(ctx, `SELECT instructions, root FROM workspaces WHERE id='existing'`).Scan(&instructions, &root); err != nil {
+		t.Fatal(err)
+	}
+	if instructions != "" || root != "/root" {
+		t.Fatalf("migrated = %q, %q", instructions, root)
+	}
+	var folders int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_services WHERE workspace_id='existing'`).Scan(&folders); err != nil || folders != 1 {
+		t.Fatalf("folders = %d, %v", folders, err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE workspaces SET instructions=? WHERE id='existing'`, "Chỉ dùng DevKit.\nKeep this text."); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT instructions FROM workspaces WHERE id='existing'`).Scan(&instructions); err != nil {
+		t.Fatal(err)
+	}
+	if instructions != "Chỉ dùng DevKit.\nKeep this text." {
+		t.Fatalf("reopened instructions = %q", instructions)
 	}
 }

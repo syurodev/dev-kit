@@ -8,6 +8,11 @@ export interface Workspace {
     "id": string;
     "name": string;
     "root": string;
+
+    /**
+     * Instructions are machine-local text shared by all agents of this workspace.
+     */
+    "instructions": string;
 }
 
 /**

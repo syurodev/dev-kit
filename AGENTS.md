@@ -154,6 +154,13 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   descriptive version lost to Claude Code's own prompt every time. `Service.SessionBrief`
   (`app.AgentSessionBrief`) puts the session's workspace folders and which it may write
   in the prompt instead of asking the agent to go and look.
+- **Workspace instructions refresh each turn.** Create/Edit workspace stores `instructions`
+  locally (migration 34, UTF-8, max 32 KiB) together with its name and folders. `Service`
+  reads them by the session's persisted `WorkspaceID` before invoking the runtime and
+  prepends a context block with the current instructions and session brief. Claude and
+  Codex receive the same content; the user echo stays unchanged. Empty/unbound context
+  retires earlier workspace instructions; DevKit's rules retain precedence. User-authored
+  instructions are never passed through the tool-name placeholder renderer.
 - **Claude's PreToolUse hook refuses `git commit` / `git push` in Bash**
   (`cmd/devkit-mcp/hook.go`, `shellGitWrite`) with a reason naming the DevKit tool to call:
   the shell skips branch guards, the task trailer and the push rule. Other git commands

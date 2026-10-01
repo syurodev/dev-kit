@@ -30,9 +30,9 @@ export type WorkspaceResult = { workspace: Workspace; services: WorkspaceService
  * Each folder goes through auto-discovery — one service per nested git
  * checkout, or the folder itself — and the first is the primary.
  */
-export function createWorkspace(name: string, folders: string[]): Promise<WorkspaceResult> {
+export function createWorkspace(name: string, folders: string[], instructions: string): Promise<WorkspaceResult> {
   return callBridge(async () => {
-    const result = await AppService.WorkspaceCreate(name, folders);
+    const result = await AppService.WorkspaceCreate(name, folders, instructions);
     return { workspace: result.workspace, services: result.services ?? [] };
   });
 }
@@ -42,9 +42,9 @@ export function createWorkspace(name: string, folders: string[]): Promise<Worksp
  * primary. Paths already registered keep their service; new ones are
  * discovered and queued for indexing; missing ones are dropped.
  */
-export function updateWorkspace(id: string, name: string, paths: string[]): Promise<WorkspaceResult> {
+export function updateWorkspace(id: string, name: string, paths: string[], instructions: string): Promise<WorkspaceResult> {
   return callBridge(async () => {
-    const result = await AppService.WorkspaceUpdate(id, name, paths);
+    const result = await AppService.WorkspaceUpdate(id, name, paths, instructions);
     return { workspace: result.workspace, services: result.services ?? [] };
   });
 }

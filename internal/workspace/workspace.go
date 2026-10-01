@@ -10,6 +10,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"devkit/internal/vaultitem"
 )
@@ -19,6 +20,12 @@ var ErrWorkspaceNotFound = errors.New("workspace not found")
 
 // ErrNameRequired is CreateWorkspace or UpdateWorkspace given a blank name.
 var ErrNameRequired = errors.New("workspace name is required")
+
+// MaxInstructionsBytes bounds the workspace context passed to every agent turn.
+const MaxInstructionsBytes = 32 * 1024
+
+// ErrInvalidInstructions rejects oversized text and invalid UTF-8.
+var ErrInvalidInstructions = errors.New("workspace instructions must be valid UTF-8 and at most 32768 bytes")
 
 // Name sources for WorkspaceService.NameSource — see workspace.mdx's data
 // model. NameSourceConfig comes from spring.application.name
@@ -35,6 +42,8 @@ type Workspace struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Root string `json:"root"`
+	// Instructions are machine-local text shared by all agents of this workspace.
+	Instructions string `json:"instructions"`
 }
 
 // WorkspaceService is one persisted (name, path) entry belonging to a
@@ -75,6 +84,10 @@ type Repository interface {
 	// UpdateWorkspace writes ws's name and root, adds the services in add
 	// and removes those with an id in removeIDs, as one unit.
 	UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error
+	// UpdateWorkspaceWithInstructions also replaces instructions in the same write.
+	UpdateWorkspaceWithInstructions(ws Workspace, add []WorkspaceService, removeIDs []string) error
+	// SetInstructions updates only instructions, preserving concurrent folder edits.
+	SetInstructions(id, instructions string) error
 	// SetIndexOutcome records the index outcome of every service at path
 	// (one folder can be a service of two workspaces): state "" clears it.
 	SetIndexOutcome(path, state, reason string, missingToolchain bool) error
@@ -99,6 +112,27 @@ func NewService(repo Repository) *Service {
 // ListWorkspaces returns every registered workspace.
 func (s *Service) ListWorkspaces() ([]Workspace, error) {
 	return s.repo.ListWorkspaces()
+}
+
+// GetInstructions reads the current workspace context by stable identity.
+func (s *Service) GetInstructions(id string) (string, error) {
+	ws, err := s.workspace(id)
+	return ws.Instructions, err
+}
+
+// SetInstructions replaces the workspace instructions verbatim. Empty text clears them.
+func (s *Service) SetInstructions(id, instructions string) error {
+	if err := validateInstructions(instructions); err != nil {
+		return err
+	}
+	return s.repo.SetInstructions(id, instructions)
+}
+
+func validateInstructions(instructions string) error {
+	if !utf8.ValidString(instructions) || len(instructions) > MaxInstructionsBytes {
+		return ErrInvalidInstructions
+	}
+	return nil
 }
 
 // MatchingWorkspaceIDs lists every workspace containing path. A folder may
@@ -183,6 +217,14 @@ func (s *Service) AddWorkspace(name, root string) (Workspace, []WorkspaceService
 // folders afterwards (UpdateWorkspace), the order the Create project dialog
 // asks for them in.
 func (s *Service) CreateWorkspace(name string, folders []string) (Workspace, []WorkspaceService, error) {
+	return s.CreateWorkspaceWithInstructions(name, folders, "")
+}
+
+// CreateWorkspaceWithInstructions creates the complete workspace in one transaction.
+func (s *Service) CreateWorkspaceWithInstructions(name string, folders []string, instructions string) (Workspace, []WorkspaceService, error) {
+	if err := validateInstructions(instructions); err != nil {
+		return Workspace{}, nil, err
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Workspace{}, nil, ErrNameRequired
@@ -195,7 +237,7 @@ func (s *Service) CreateWorkspace(name string, folders []string) (Workspace, []W
 	if err != nil {
 		return Workspace{}, nil, err
 	}
-	ws := Workspace{ID: wsID, Name: name}
+	ws := Workspace{ID: wsID, Name: name, Instructions: instructions}
 	if len(services) > 0 {
 		ws.Root = services[0].Path
 	}
@@ -212,6 +254,18 @@ func (s *Service) CreateWorkspace(name string, folders []string) (Workspace, []W
 // folder to discover, which may bring several services; a registered path
 // not in the list is dropped. The first service is the new primary.
 func (s *Service) UpdateWorkspace(id, name string, paths []string) (Workspace, []WorkspaceService, error) {
+	return s.updateWorkspace(id, name, paths, nil)
+}
+
+// UpdateWorkspaceWithInstructions saves the complete workspace in one transaction.
+func (s *Service) UpdateWorkspaceWithInstructions(id, name string, paths []string, instructions string) (Workspace, []WorkspaceService, error) {
+	if err := validateInstructions(instructions); err != nil {
+		return Workspace{}, nil, err
+	}
+	return s.updateWorkspace(id, name, paths, &instructions)
+}
+
+func (s *Service) updateWorkspace(id, name string, paths []string, instructions *string) (Workspace, []WorkspaceService, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Workspace{}, nil, ErrNameRequired
@@ -267,7 +321,13 @@ func (s *Service) UpdateWorkspace(id, name string, paths []string) (Workspace, [
 	if len(ordered) > 0 {
 		ws.Root = ordered[0].Path
 	}
-	if err := s.repo.UpdateWorkspace(ws, added, removeIDs); err != nil {
+	if instructions == nil {
+		err = s.repo.UpdateWorkspace(ws, added, removeIDs)
+	} else {
+		ws.Instructions = *instructions
+		err = s.repo.UpdateWorkspaceWithInstructions(ws, added, removeIDs)
+	}
+	if err != nil {
 		return Workspace{}, nil, err
 	}
 	s.servicesAdded(added)

@@ -5,15 +5,16 @@ description: Registry (service name → path) cho multi-repo — nền chung c�
 
 # Workspace
 
-Workspace là một **danh sách có tên gồm các cặp `(service name → path trên đĩa)`**.
-Chỉ vậy. Nó nhỏ vì nó phải phục vụ ba consumer không liên quan nhau, và mỗi
-consumer chỉ cần một nửa của cặp đó:
+Workspace là một **danh sách có tên gồm các cặp `(service name → path trên đĩa)`**,
+kèm instructions chung cho các agent làm việc trong workspace đó. Registry phục vụ
+các consumer sau:
 
 | Consumer | Cần gì | Dùng làm gì |
 |---|---|---|
 | Sandbox | **path** | Dựng `WorkDir` / `ReadWritePaths` / `ReadOnlyPaths` cho từng agent |
 | CodeGraph | **path** | `ProjectDBPath` hash path → index riêng cho từng service |
 | Cross-service flow | **name** | Join outbound call của service A với inbound endpoint của service B |
+| Agent Hub | **ID, instructions** | Giữ context riêng cho từng workspace và cập nhật trước mỗi lượt |
 
 Không có khái niệm nào khác giải được cả ba. Đó là lý do workspace tồn tại
 như một registry riêng thay vì nhét vào Agent Hub hay CodeGraph.
@@ -79,6 +80,7 @@ tiên theo cách này: board gắn workspace qua `task_board_bindings` —
 | `workspace.id` | 24 lowercase hex (`vaultitem.NewID`) |
 | `workspace.name` | Tên do người đặt (bắt buộc khi tạo từ UI) |
 | `workspace.root` | Path của service **primary** — service đầu tiên trong danh sách; rỗng khi chưa có thư mục nào |
+| `workspace.instructions` | Văn bản UTF-8 do người dùng cấu hình; tối đa 32 KiB; rỗng khi chưa có instructions |
 | `service.name` | Tên logic — thứ xuất hiện trong URL giữa các service |
 | `service.path` | Path tuyệt đối tới repo |
 | `service.name_source` | `config` \| `folder` \| `manual` — xem phần dưới |
@@ -208,6 +210,28 @@ khác. Sidebar nhóm theo ID đã lưu, còn session không gắn workspace nhó
 thư mục. Các session cũ được migration gắn ID khi kết quả là duy nhất; trường
 hợp nhiều workspace vẫn không gắn để tránh đoán sai. Xoá workspace đặt ID về
 NULL, giữ session và transcript.
+
+### Instructions chung cho agent
+
+Create / Edit workspace có trường **Instructions** để ghi quy ước, quyết định kiến
+trúc và cách agent nên làm việc. Tên, thư mục và instructions được lưu trong cùng
+một transaction. Instructions nằm trong registry local, không sync và không tự
+ghi vào `AGENTS.md`, `CLAUDE.md` hay memory riêng của vendor.
+
+Trước mỗi lượt, Agent Hub đọc instructions bằng `workspace_id` đã lưu của session,
+rồi gửi context gồm instructions hiện tại và thông tin workspace / quyền ghi
+trước yêu cầu của người dùng. Claude và Codex nhận cùng nội dung. Các quy tắc DevKit
+được đưa vào khi mở session vẫn có ưu tiên; context mới thay thế context workspace
+của lượt trước. Xóa instructions cũng được báo rõ ở lượt tiếp theo. Nội dung
+instructions được giữ nguyên, không thay các placeholder tên tool trong văn bản
+người dùng.
+
+Thay đổi được áp dụng từ lượt tiếp theo của session đang mở, không cần khởi động
+lại agent. Lượt đang chạy giữ context đã nhận. Session con kế thừa workspace ID nên
+dùng cùng instructions; hai workspace có chung một project vẫn giữ instructions
+riêng. Đổi primary hoặc chọn workspace khác ở title bar không chuyển instructions
+của session. Session không gắn workspace không nhận instructions của workspace
+nào. Context tự thêm không xuất hiện như một tin nhắn người dùng trong transcript.
 
 ## Hai tầng index — chỗ quyết định chuyện lag
 

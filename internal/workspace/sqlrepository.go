@@ -17,7 +17,7 @@ func NewSQLRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
 }
 
-const selectWorkspaceColumns = "SELECT id, name, root FROM workspaces"
+const selectWorkspaceColumns = "SELECT id, name, root, instructions FROM workspaces"
 
 func (r *SQLRepository) ListWorkspaces() ([]Workspace, error) {
 	rows, err := r.db.QueryContext(context.Background(), selectWorkspaceColumns+" ORDER BY name")
@@ -28,7 +28,7 @@ func (r *SQLRepository) ListWorkspaces() ([]Workspace, error) {
 	workspaces := make([]Workspace, 0)
 	for rows.Next() {
 		var ws Workspace
-		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Root); err != nil {
+		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Root, &ws.Instructions); err != nil {
 			return nil, err
 		}
 		workspaces = append(workspaces, ws)
@@ -70,8 +70,8 @@ func (r *SQLRepository) CreateWorkspace(ws Workspace, services []WorkspaceServic
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO workspaces (id, name, root) VALUES (?, ?, ?)",
-		ws.ID, ws.Name, ws.Root,
+		"INSERT INTO workspaces (id, name, root, instructions) VALUES (?, ?, ?, ?)",
+		ws.ID, ws.Name, ws.Root, ws.Instructions,
 	); err != nil {
 		return err
 	}
@@ -116,6 +116,14 @@ func (r *SQLRepository) SetIndexOutcome(path, state, reason string, missingToolc
 // removes services in one transaction: the Edit project dialog saves as one
 // change, and half of it applied would be a list nobody asked for.
 func (r *SQLRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	return r.updateWorkspace(ws, add, removeIDs, false)
+}
+
+func (r *SQLRepository) UpdateWorkspaceWithInstructions(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	return r.updateWorkspace(ws, add, removeIDs, true)
+}
+
+func (r *SQLRepository) updateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string, withInstructions bool) error {
 	ctx := context.Background()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -123,7 +131,12 @@ func (r *SQLRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, re
 	}
 	defer tx.Rollback()
 
-	res, err := tx.ExecContext(ctx, "UPDATE workspaces SET name = ?, root = ? WHERE id = ?", ws.Name, ws.Root, ws.ID)
+	var res sql.Result
+	if withInstructions {
+		res, err = tx.ExecContext(ctx, "UPDATE workspaces SET name = ?, root = ?, instructions = ? WHERE id = ?", ws.Name, ws.Root, ws.Instructions, ws.ID)
+	} else {
+		res, err = tx.ExecContext(ctx, "UPDATE workspaces SET name = ?, root = ? WHERE id = ?", ws.Name, ws.Root, ws.ID)
+	}
 	if err != nil {
 		return err
 	}
@@ -144,4 +157,19 @@ func (r *SQLRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, re
 		}
 	}
 	return tx.Commit()
+}
+
+func (r *SQLRepository) SetInstructions(id, instructions string) error {
+	result, err := r.db.ExecContext(context.Background(), "UPDATE workspaces SET instructions = ? WHERE id = ?", instructions, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrWorkspaceNotFound
+	}
+	return nil
 }
