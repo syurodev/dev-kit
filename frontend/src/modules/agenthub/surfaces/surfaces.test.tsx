@@ -620,7 +620,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         projects: ["/Users/dev/billing-service"],
         onProjectChange: () => {},
         onChooseProject: () => {},
-        workspace: { name: "CHIRO", paths: ["/Users/dev/billing-service", "/Users/dev/api"] },
+        workspace: { id: "chiro", name: "CHIRO", paths: ["/Users/dev/billing-service", "/Users/dev/api"] },
         onChooseWorkspace: () => {},
       };
       const oneFolder = renderToString(

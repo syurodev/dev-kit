@@ -179,8 +179,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 32 {
-		t.Fatalf("migration version = %d, want 32", version)
+	if version != 33 {
+		t.Fatalf("migration version = %d, want 33", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -594,5 +594,61 @@ func TestTaskBoardBindingsNulledOnWorkspaceDelete(t *testing.T) {
 	}
 	if workspaceID.Valid {
 		t.Fatalf("workspace_id after deleting workspace = %q, want NULL", workspaceID.String)
+	}
+}
+
+func TestSessionWorkspaceMigrationKeepsAmbiguousRootsUnbound(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"w1", "w2"} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO workspaces(id,name,root) VALUES (?,?,?)`, id, id, "/shared"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO workspace_services(id,workspace_id,name,path,name_source) VALUES (?,?,?,?,?)`, id, id, id, "/shared", "folder"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range []struct{ id, path, parent string }{{"ambiguous", "/shared", ""}, {"unique", "/unique", ""}, {"child", "/unique/sub", "unique"}} {
+		var parent any
+		if row.parent != "" {
+			parent = row.parent
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO agent_sessions(id,agent_type,project_path,status,parent_session_id,depth,created_at,updated_at) VALUES (?,'mock',?,'idle',?,0,'2026-01-01','2026-01-01')`, row.id, row.path, parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workspace_services(id,workspace_id,name,path,name_source) VALUES ('unique-svc','w1','unique','/unique','folder')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 33`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct{ id, workspace string }{{"ambiguous", ""}, {"unique", "w1"}, {"child", "w1"}} {
+		var got sql.NullString
+		if err := db.QueryRowContext(ctx, `SELECT workspace_id FROM agent_sessions WHERE id = ?`, want.id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.String != want.workspace {
+			t.Errorf("%s workspace = %q, want %q", want.id, got.String, want.workspace)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = 'w1'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"unique", "child"} {
+		var got sql.NullString
+		if err := db.QueryRowContext(ctx, `SELECT workspace_id FROM agent_sessions WHERE id = ?`, id).Scan(&got); err != nil || got.Valid {
+			t.Fatalf("%s after workspace delete = %v, %v; want NULL", id, got, err)
+		}
 	}
 }

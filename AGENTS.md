@@ -586,7 +586,7 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   the synced board metadata. `workspace_id` is nullable; a row's mere presence
   means "this machine has considered the board", distinguishing never-considered
   from deliberately-unbound. Agents see only boards bound to workspaces in their
-  session's granted paths (via `workspace.SessionOwns`), getting `tasks.notFound`
+  session's selected `workspace_id`, getting `tasks.notFound`
   otherwise—no second-guessing, and no MCP tool may bind. `project_path` is
   read-only fallback for legacy boards; `verify.service` names a workspace service
   instead, traveling through sync unlike paths. `Considered` marker guards

@@ -128,6 +128,33 @@ func TestCreateWorkspace_NameFirstFoldersLater(t *testing.T) {
 	}
 }
 
+func TestMatchingWorkspaceIDsIncludesSharedService(t *testing.T) {
+	shared, a, b := t.TempDir(), t.TempDir(), t.TempDir()
+	svc := workspace.NewService(workspace.NewMemoryRepository())
+	first, _, err := svc.CreateWorkspace("first", []string{a, shared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := svc.CreateWorkspace("second", []string{b, shared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := svc.MatchingWorkspaceIDs(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || !(ids[0] == first.ID && ids[1] == second.ID || ids[0] == second.ID && ids[1] == first.ID) {
+		t.Fatalf("shared project matches = %v", ids)
+	}
+	if _, _, err := svc.UpdateWorkspace(first.ID, "first", []string{shared, a}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err = svc.MatchingWorkspaceIDs(shared)
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("after primary change: %v, %v", ids, err)
+	}
+}
+
 // Update keeps what is still listed (a manual name survives), discovers what
 // is new, drops what is gone, and makes the first entry the primary.
 func TestUpdateWorkspace_AddsRemovesAndReordersFolders(t *testing.T) {

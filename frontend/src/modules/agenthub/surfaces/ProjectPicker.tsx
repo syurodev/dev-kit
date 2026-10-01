@@ -34,7 +34,10 @@ export function ProjectPicker({
   onChange,
   onChooseFolder,
   workspace = null,
+  workspaceChoices = [],
   onChooseWorkspace,
+  onChooseWorkspaceContext,
+  selectedWorkspaceId = "",
   workspaceSelected = false,
   disabled = false,
   variant = "row",
@@ -51,8 +54,11 @@ export function ProjectPicker({
    * than picking one. A workspace's services do not necessarily share a root
    * `value` could cover, so this is not the same thing as picking `paths[0]`.
    */
-  workspace?: { name: string; paths: string[] } | null;
-  onChooseWorkspace?: (paths: string[]) => void;
+  workspace?: { id: string; name: string; paths: string[] } | null;
+  workspaceChoices?: { id: string; name: string; paths: string[] }[];
+  onChooseWorkspace?: (workspaceId: string, paths: string[]) => void;
+  onChooseWorkspaceContext?: (workspaceId: string) => void;
+  selectedWorkspaceId?: string;
   /** True while the draft holds the whole workspace rather than one folder. */
   workspaceSelected?: boolean;
   disabled?: boolean;
@@ -62,8 +68,11 @@ export function ProjectPicker({
   const [open, setOpen] = React.useState(false);
   const tray = variant === "tray";
   const iconOnly = useTrayCompact() && tray;
-  const label =
-    workspaceSelected && workspace ? `${workspace.name} (${workspace.paths.length})` : value ? projectLabel(value) : "No project";
+  const chosen = workspaceChoices.find((w) => w.id === selectedWorkspaceId) ?? (workspace?.id === selectedWorkspaceId ? workspace : null);
+  const matching = value ? workspaceChoices.filter((w) => w.paths.some((path) => value === path || value.startsWith(`${path.replace(/\/+$/, "")}/`))) : [];
+  const label = workspaceSelected && (chosen || (workspaceChoices.length === 0 && workspace))
+    ? `${(chosen || workspace)!.name} (${(chosen || workspace)!.paths.length})`
+    : value ? `${projectLabel(value)}${chosen ? ` · ${chosen.name}` : matching.length > 1 ? " · choose workspace" : ""}` : "No project";
   const [query, setQuery] = React.useState("");
   const pick = (action: () => void) => {
     setOpen(false);
@@ -131,7 +140,7 @@ export function ProjectPicker({
               <CommandPrimitive.Item
                 value={`${workspace.name} workspace all folders`}
                 data-testid="draft-project-workspace"
-                onSelect={() => pick(() => onChooseWorkspace(workspace.paths))}
+                onSelect={() => pick(() => onChooseWorkspace(workspace.id, workspace.paths))}
                 className={itemClass}
               >
                 <Boxes aria-hidden="true" className="size-3.5 shrink-0 text-icon-secondary" />
@@ -139,9 +148,21 @@ export function ProjectPicker({
                 <span className="min-w-0 flex-1 truncate text-text-tertiary">
                   all {workspace.paths.length} folders
                 </span>
-                {workspaceSelected ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+                {workspaceSelected && selectedWorkspaceId === workspace.id ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
               </CommandPrimitive.Item>
             ) : null}
+            {value && onChooseWorkspaceContext ? matching.map((w) => (
+                <CommandPrimitive.Item
+                  key={`context:${w.id}`}
+                  value={`${w.name} context ${w.id}`}
+                  onSelect={() => pick(() => onChooseWorkspaceContext(w.id))}
+                  className={itemClass}
+                >
+                  <Boxes aria-hidden="true" className="size-3.5 shrink-0 text-icon-secondary" />
+                  <span className="min-w-0 flex-1 truncate text-text-primary">Use {w.name} context</span>
+                  {selectedWorkspaceId === w.id ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+                </CommandPrimitive.Item>
+              )) : null}
             {projects.map((path) => (
               <CommandPrimitive.Item
                 key={path}

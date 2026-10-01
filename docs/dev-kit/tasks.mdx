@@ -972,7 +972,7 @@ làm thư mục), để test và bản build thiếu workspace không vỡ.
 | Caller | Thấy |
 |---|---|
 | UI | Board gắn vào `workspaceSwitcher.currentId`, cộng một nhóm **"Chưa gắn workspace"** với nút "Gắn vào workspace này" — board sync về từ máy khác nằm ở đó |
-| Phiên Agent Hub | Chỉ board gắn vào workspace chứa `cwd` / `granted` của phiên — đúng logic `workspace.list` đang dùng, tách thành `app.WorkspacesForSession` để hai chỗ không lệch nhau |
+| Phiên Agent Hub | Chỉ board gắn vào `workspace_id` đã chọn của phiên; project có thể thuộc nhiều workspace nhưng quyền file không tự mở thêm board của workspace khác |
 | CLI terminal trên socket chung | Tất cả — nhất quán với `workspace.list` |
 
 - Kiểm tra nằm ở **tầng Service**, qua một helper duy nhất

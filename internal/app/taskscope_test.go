@@ -43,12 +43,11 @@ func twoWorkspaces(t *testing.T) (ws *workspace.Service, a, b workspace.Workspac
 	return ws, a, b
 }
 
-// A session's own working directory is enough to own a workspace, with no
-// grant needed — the common case, one agent in one service.
+// A session's selected workspace, recorded when it is created, owns its board.
 func TestTaskScopeSessionWorkspacesByCwd(t *testing.T) {
 	ws, a, _ := twoWorkspaces(t)
 	scope := newTaskScope(ws, sessionHub{
-		"in-a": {ID: "in-a", ProjectPath: a.Root},
+		"in-a": {ID: "in-a", ProjectPath: a.Root, WorkspaceID: a.ID},
 	})
 
 	got := scope.SessionWorkspaces("in-a")
@@ -57,9 +56,7 @@ func TestTaskScopeSessionWorkspacesByCwd(t *testing.T) {
 	}
 }
 
-// A granted path beside the session's own cwd — the jail widening Agent Hub
-// gives a "whole workspace" session — must also count, even into a second
-// workspace the cwd itself is nowhere near.
+// A file grant does not select another workspace or expose its task board.
 func TestTaskScopeSessionWorkspacesByGrantedPath(t *testing.T) {
 	ws, _, b := twoWorkspaces(t)
 	scope := newTaskScope(ws, sessionHub{
@@ -67,8 +64,28 @@ func TestTaskScopeSessionWorkspacesByGrantedPath(t *testing.T) {
 	})
 
 	got := scope.SessionWorkspaces("granted-b")
-	if len(got) != 1 || got[0] != b.ID {
-		t.Fatalf("SessionWorkspaces(granted-b) = %v, want [%s]", got, b.ID)
+	if len(got) != 0 {
+		t.Fatalf("SessionWorkspaces(granted-b) = %v, want no board without an explicit workspace", got)
+	}
+}
+
+func TestTaskScopeSharedFolderUsesOnlySelectedWorkspace(t *testing.T) {
+	path := t.TempDir()
+	ws := workspace.NewService(workspace.NewMemoryRepository())
+	a, _, err := ws.AddWorkspace("A", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, err := ws.AddWorkspace("B", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := newTaskScope(ws, sessionHub{
+		"shared": {ID: "shared", ProjectPath: path, WorkspaceID: b.ID},
+	})
+	got := scope.SessionWorkspaces("shared")
+	if len(got) != 1 || got[0] != b.ID || got[0] == a.ID {
+		t.Fatalf("shared folder workspaces = %v, want only %s", got, b.ID)
 	}
 }
 
@@ -347,7 +364,7 @@ func TestWiredScopeHidesAnotherWorkspacesTaskFromAnAgent(t *testing.T) {
 	// sessionHub stands in for Agent Hub here — the same shape
 	// WireAgentLiveness wires *agenthub.Service through, exercised via the
 	// narrow agentSessions interface rather than a real hub.
-	hub := sessionHub{"agent-a": {ID: "agent-a", ProjectPath: wsA.Root}}
+	hub := sessionHub{"agent-a": {ID: "agent-a", ProjectPath: wsA.Root, WorkspaceID: wsA.ID}}
 	c.Tasks.SetScope(newTaskScope(c.Workspace, hub), db, storage.TableTaskBoardBindings)
 
 	boardA, err := c.Tasks.CreateBoard("Board A", "BA", "blue", tasks.Workflow{})

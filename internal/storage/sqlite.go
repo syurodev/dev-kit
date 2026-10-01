@@ -1127,7 +1127,38 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32})
+	m33 := Migration{
+		Version: 33,
+		Name:    "agent sessions workspace identity",
+		Up: func(ctx context.Context) error {
+			// Existing sessions cannot be assigned safely when their folder is
+			// in multiple workspaces. Keep those unbound for an explicit choice.
+			if err := addColumnIfNotExists(ctx, db, TableAgentSessions, "workspace_id", "TEXT NULL REFERENCES workspaces(id) ON DELETE SET NULL"); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `UPDATE agent_sessions SET workspace_id = (
+				SELECT MIN(ws.workspace_id) FROM workspace_services ws
+				WHERE agent_sessions.project_path = ws.path
+				   OR substr(agent_sessions.project_path, 1, length(ws.path) + 1) = ws.path || '/'
+				HAVING COUNT(DISTINCT ws.workspace_id) = 1
+			) WHERE workspace_id IS NULL AND parent_session_id IS NULL`); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, `WITH RECURSIVE lineage(id, root_id) AS (
+				SELECT id, id FROM agent_sessions WHERE parent_session_id IS NULL
+				UNION ALL
+				SELECT child.id, lineage.root_id FROM agent_sessions child
+				JOIN lineage ON child.parent_session_id = lineage.id
+			) UPDATE agent_sessions SET workspace_id = (
+				SELECT root.workspace_id FROM lineage
+				JOIN agent_sessions root ON root.id = lineage.root_id
+				WHERE lineage.id = agent_sessions.id
+			) WHERE parent_session_id IS NOT NULL`)
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33})
 	if err != nil {
 		return err
 	}

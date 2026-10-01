@@ -33,7 +33,7 @@ export function useAgentHubSidebar(args: {
   pendingCounts: Record<string, number>;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
-  onNewSessionIn: (projectPath: string, workspacePaths?: string[]) => void;
+  onNewSessionIn: (projectPath: string, workspaceId?: string, workspacePaths?: string[]) => void;
   onNewChildSession: (parent: AgentSession) => void;
   onCancelTurn: (session: AgentSession) => void;
   onCloseSession: (session: AgentSession) => void;
@@ -64,7 +64,7 @@ export function useAgentHubSidebar(args: {
   );
   const onNewSession = useCallback(() => handlers.current.onNewSession(), []);
   const onNewSessionIn = useCallback(
-    (projectPath: string, workspacePaths?: string[]) => handlers.current.onNewSessionIn(projectPath, workspacePaths),
+    (projectPath: string, workspaceId?: string, workspacePaths?: string[]) => handlers.current.onNewSessionIn(projectPath, workspaceId, workspacePaths),
     [],
   );
   const onNewChildSession = useCallback(

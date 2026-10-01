@@ -42,15 +42,18 @@ type WorkspaceInfo struct {
 type WorkspaceListResult struct {
 	// Cwd is the calling agent session's working directory; empty for a
 	// caller that is not an agent session.
-	Cwd        string          `json:"cwd,omitempty"`
-	Workspaces []WorkspaceInfo `json:"workspaces"`
+	Cwd string `json:"cwd,omitempty"`
+	// SelectedWorkspaceID is the session's context, even if another workspace
+	// lists the same folder. Empty for unbound or terminal callers.
+	SelectedWorkspaceID string          `json:"selectedWorkspaceId,omitempty"`
+	Workspaces          []WorkspaceInfo `json:"workspaces"`
 }
 
 func (s *Server) registerWorkspace(ms *sdk.Server) {
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "workspace.list",
 		Description: "List DevKit workspaces and their folders (one per service/repository), primary first. " +
-			"Called from an Agent Hub session, it returns only the workspace(s) the session's folders belong to, " +
+			"Called from an Agent Hub session, it returns its selected workspace, " +
 			"its working directory (cwd), and which folders the session may write (granted).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolWorkspaceList)
@@ -76,6 +79,7 @@ func (s *Server) toolWorkspaceList(ctx context.Context, _ *sdk.CallToolRequest, 
 func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error) {
 	var granted []string
 	cwd := ""
+	selectedWorkspaceID := ""
 	caller, _ := identity.FromContext(ctx)
 	if caller.IsAgent() {
 		if s.deps.AgentHub == nil {
@@ -86,6 +90,7 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 			return WorkspaceListResult{}, err
 		}
 		cwd = session.ProjectPath
+		selectedWorkspaceID = session.WorkspaceID
 		granted = append([]string{session.ProjectPath}, session.ExtraReadWritePaths...)
 	}
 
@@ -93,14 +98,17 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 	if err != nil {
 		return WorkspaceListResult{}, err
 	}
-	out := WorkspaceListResult{Cwd: cwd, Workspaces: []WorkspaceInfo{}}
+	out := WorkspaceListResult{Cwd: cwd, SelectedWorkspaceID: selectedWorkspaceID, Workspaces: []WorkspaceInfo{}}
 	for _, ws := range all {
+		if caller.IsAgent() && selectedWorkspaceID != "" && ws.ID != selectedWorkspaceID {
+			continue
+		}
 		services, err := s.deps.Workspace.ListServices(ws.ID)
 		if err != nil {
 			return WorkspaceListResult{}, err
 		}
 		info := WorkspaceInfo{ID: ws.ID, Name: ws.Name, Folders: make([]WorkspaceFolder, 0, len(services))}
-		mine := false
+		mine := selectedWorkspaceID != "" && ws.ID == selectedWorkspaceID
 		for _, svc := range services {
 			folder := WorkspaceFolder{Name: svc.Name, Path: svc.Path, Primary: svc.Path == ws.Root}
 			if caller.IsAgent() {
@@ -115,6 +123,11 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 			continue
 		}
 		out.Workspaces = append(out.Workspaces, info)
+	}
+	if caller.IsAgent() && selectedWorkspaceID == "" && len(out.Workspaces) > 1 {
+		// A legacy session in overlapping workspaces has no recorded choice.
+		// Returning both would ask the agent to guess its scope.
+		out.Workspaces = []WorkspaceInfo{}
 	}
 	return out, nil
 }

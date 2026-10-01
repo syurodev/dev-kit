@@ -35,7 +35,7 @@ func briefFixture() briefWorkspaces {
 }
 
 func TestAgentSessionBriefNamesTheWorkspaceAndWhatMayBeWritten(t *testing.T) {
-	brief := AgentSessionBrief(briefFixture())("/w/kong-plugin/kong", []string{"/w/kong-plugin/kong", "/w/auth"})
+	brief := AgentSessionBrief(briefFixture())("sec", "/w/kong-plugin/kong", []string{"/w/kong-plugin/kong", "/w/auth"})
 	for _, want := range []string{
 		`Workspace "fsap-security"`,
 		"- kong-plugin — /w/kong-plugin (primary, you are here, you may write only under your working directory)",
@@ -54,11 +54,11 @@ func TestAgentSessionBriefNamesTheWorkspaceAndWhatMayBeWritten(t *testing.T) {
 }
 
 func TestAgentSessionBriefOutsideEveryWorkspace(t *testing.T) {
-	brief := AgentSessionBrief(briefFixture())("/tmp/scratch", []string{"/tmp/scratch", "/opt/shared"})
-	if !strings.Contains(brief, "not part of a DevKit workspace") || !strings.Contains(brief, "/opt/shared") {
+	brief := AgentSessionBrief(briefFixture())("", "/tmp/scratch", []string{"/tmp/scratch", "/opt/shared"})
+	if !strings.Contains(brief, "no selected DevKit workspace") || !strings.Contains(brief, "/opt/shared") {
 		t.Errorf("brief = %s", brief)
 	}
-	if got := AgentSessionBrief(nil)("/w", nil); got != "" {
+	if got := AgentSessionBrief(nil)("", "/w", nil); got != "" {
 		t.Errorf("no workspaces: brief = %q, want none so the prompt asks", got)
 	}
 }

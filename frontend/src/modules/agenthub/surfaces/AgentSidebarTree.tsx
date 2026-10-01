@@ -72,7 +72,7 @@ export type AgentSidebarTreeProps = {
    * workspace row it also gets the workspace's folders, primary first, so the
    * session is the whole workspace's.
    */
-  onNewSessionIn?: (projectPath: string, workspacePaths?: string[]) => void;
+  onNewSessionIn?: (projectPath: string, workspaceId?: string, workspacePaths?: string[]) => void;
   /** Spawns a child of this session — the context menu's only creating action. */
   onNewChildSession?: (parent: AgentSession) => void;
   onCancelTurn?: (session: AgentSession) => void;
@@ -243,11 +243,6 @@ export type ProjectGroup = {
   workspace?: SidebarWorkspace;
 };
 
-/** Whether path is folder or inside it. */
-function within(path: string, folder: string): boolean {
-  return path === folder || path.startsWith(`${folder.replace(/\/+$/, "")}/`);
-}
-
 /**
  * Roots grouped by project, with each group's sessions counted through their
  * whole lineage — the count on a folder should say how many agents are in it,
@@ -263,11 +258,12 @@ export function groupByProject(
   workspaces: SidebarWorkspace[] = [],
 ): ProjectGroup[] {
   const workspaceByKey = new Map<string, SidebarWorkspace>();
-  // Every scratch folder is the same "no project" as far as the rail goes; a
-  // folder of a workspace is that workspace, the first listed winning.
-  const groupOf = (path: string) => {
+  // Every scratch folder is the same "no project". A session belongs only
+  // to its chosen workspace, even when its folder is shared by several.
+  const groupOf = (session: AgentSession) => {
+    const path = session.projectPath;
     if (scratchRoot && path.startsWith(`${scratchRoot}/`)) return scratchRoot;
-    const workspace = workspaces.find((w) => w.paths.some((folder) => within(path, folder)));
+    const workspace = workspaces.find((w) => w.id === session.workspaceId);
     if (!workspace) return path;
     const key = `workspace:${workspace.id}`;
     workspaceByKey.set(key, workspace);
@@ -277,7 +273,7 @@ export function groupByProject(
   const groups = new Map<string, AgentSession[]>();
   for (const session of sessions) {
     if (session.parentSessionId && byId.has(session.parentSessionId)) continue;
-    const key = groupOf(session.projectPath);
+    const key = groupOf(session);
     const list = groups.get(key) ?? [];
     list.push(session);
     groups.set(key, list);
@@ -536,7 +532,7 @@ export function AgentSidebarTree({
       const key = workspace ? `workspace:${workspace.id}` : `project:${group.path}`;
       const scratch = !workspace && Boolean(scratchRoot) && group.path === scratchRoot;
       const name = scratch ? "No project" : group.label || "No project";
-      const newIn = () => onNewSessionIn?.(group.path, workspace?.paths);
+      const newIn = () => onNewSessionIn?.(group.path, workspace?.id, workspace?.paths);
       return {
         id: key,
         label: name,

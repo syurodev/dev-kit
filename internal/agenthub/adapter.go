@@ -12,7 +12,8 @@ import (
 
 // OpenSpec is everything an adapter needs to spawn one session.
 type OpenSpec struct {
-	Cwd string
+	Cwd         string
+	WorkspaceID string
 	// AllowUnixSockets is the session's identity-bound MCP socket (see sandbox.Policy).
 	AllowUnixSockets []string
 	// McpServers is advertised to the agent via ACP session/new.mcpServers.
