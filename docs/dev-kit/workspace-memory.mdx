@@ -1,0 +1,87 @@
+---
+title: Workspace memory
+description: Kiến thức chung cho các agent, theo workspace ID và có lịch sử phiên bản.
+---
+
+# Workspace memory
+
+Memory lưu trong DevKit để Claude, Codex và các session con dùng cùng kiến thức
+của workspace. Dữ liệu gắn với `workspace.id`; đổi primary hoặc `cwd` không chuyển
+memory. Hai workspace chứa cùng project có memory riêng.
+
+Memory là dữ liệu tham khảo. Quy tắc làm việc nằm trong **Instructions** của
+workspace; memory không cấp quyền và không thay thế yêu cầu của người dùng.
+Prompt DevKit hướng dẫn agent lưu kiến thức lâu dài vào shared memory, tránh lưu
+kiến thức workspace vào memory riêng của vendor.
+
+## Dữ liệu và phiên bản
+
+Mỗi mục có `kind`, `title`, `summary`, `body`, revision và nguồn cập nhật:
+
+| Kind | Nội dung |
+| --- | --- |
+| `decision` | Quyết định kiến trúc và lý do |
+| `convention` | Quy ước dự án |
+| `knowledge` | Kiến thức về cách hệ thống hoạt động |
+| `handoff` | Ghi chú bàn giao giữa session |
+
+Title tối đa 256 byte, summary 1024 byte, body 32 KiB UTF-8; cả ba phải có nội dung.
+Summary ngắn, nêu sự kiện; body chứa chi tiết và dẫn chứng. Không lưu credential
+hoặc toàn bộ transcript vào memory.
+
+Migration 35 thêm `workspace_memory` và `workspace_memory_revisions`. Memory lưu
+local trong SQLite, ở dạng plaintext như workspace instructions, ngoài vault và
+sync. Xóa workspace xóa memory và lịch sử của nó. Xóa một mục memory là soft delete:
+`get` vẫn trả mục có `deleted: true`, còn list/search/context bỏ nó.
+
+Create bắt đầu từ revision 1. Update, delete và restore bắt buộc `expectedRevision`
+từ lần đọc hiện tại. Nếu session khác đã sửa, thao tác trả `memory.revisionConflict`;
+agent đọc lại và hòa giải nội dung trước khi thử lại. Mỗi lần ghi cập nhật mục hiện
+tại và thêm snapshot lịch sử trong cùng transaction. Restore sao chép một revision
+còn sống thành revision mới, không sửa lịch sử cũ; không thể chọn tombstone làm
+revision đích.
+
+Nguồn cập nhật do host xác định: nhãn caller, session ID và loại agent. Tool input
+không có trường để agent tự nhận mình là người dùng hoặc vendor khác. Audit chỉ ghi
+action, workspace/entry ID và revision, không ghi query hay nội dung memory.
+
+## Tool MCP
+
+| Tool | Hành động |
+| --- | --- |
+| `workspace.memory.list` | Danh sách metadata và summary, bỏ body |
+| `workspace.memory.search` | Tìm chuỗi trong title, summary hoặc body; trả summary |
+| `workspace.memory.get` | Đọc toàn bộ mục cùng revision, kể cả mục đã soft delete |
+| `workspace.memory.create` | Thêm mục mới |
+| `workspace.memory.update` | Thay nội dung với expectedRevision |
+| `workspace.memory.delete` | Soft delete với expectedRevision |
+| `workspace.memory.history` | Đọc các snapshot phiên bản |
+| `workspace.memory.restore` | Khôi phục targetRevision thành revision mới |
+
+Agent Hub luôn lấy workspace ID đã lưu của session. `workspaceId` khác workspace
+của session bị từ chối, và session không gắn workspace không dùng được memory.
+Terminal CLI phải truyền `workspaceId` rõ ràng; host không suy workspace từ cwd.
+Caller thiếu identity hoặc identity không hợp lệ bị từ chối. Các thao tác đi qua
+capability `workspace-memory:read` / `workspace-memory:write`.
+
+List/search/history dùng limit (mặc định 20, tối đa 100) và offset. List/search trả
+`hasMore`. Thứ tự list/search là cập nhật mới nhất trước; nếu dữ liệu thay đổi giữa
+hai trang, agent nên đọc lại để lấy danh sách hiện tại. History theo revision giảm
+dần. Search tìm chuỗi literal, không coi `%` hoặc `_` là wildcard; so chữ hoa/thường
+ASCII theo SQLite.
+
+## Context của mỗi lượt
+
+Agent Hub đọc snapshot trước mỗi lượt và đưa vào phần dữ liệu memory, sau
+Instructions và trước session brief. Snapshot JSON tối đa 8 KiB, gồm ID, kind,
+title, summary và revision của các mục cập nhật gần nhất; không chứa body. `omitted`
+cho biết có mục chưa đưa vào; agent dùng search/get để lấy thêm chi tiết. Snapshot
+mới thay snapshot cũ. Xóa mục hoặc xóa workspace có hiệu lực ở lượt tiếp theo.
+
+Claude và Codex nhận cùng snapshot; echo người dùng và attachments giữ nguyên.
+Lỗi đọc memory từ chối lượt trước khi ghi echo hoặc gọi vendor. Snapshot không ghi
+vào transcript như một tin nhắn người dùng.
+
+PR này cung cấp backend, MCP và context dùng chung. UI quản lý memory và lịch sử
+là bước tiếp theo; protocol fixtures kiểm tra adapter, chưa thay thế kiểm chứng
+một phiên vendor thật trên desktop.

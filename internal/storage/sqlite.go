@@ -1166,7 +1166,37 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34})
+	// Shared memory stays local, alongside workspace instructions. Every change
+	// retains its full immutable snapshot, including source attribution.
+	m35 := Migration{
+		Version: 35,
+		Name:    "shared workspace memory and revisions",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS workspace_memory (
+ id TEXT PRIMARY KEY,
+ workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL CHECK(revision > 0),
+ deleted INTEGER NOT NULL DEFAULT 0,
+ title TEXT NOT NULL,
+ summary TEXT NOT NULL,
+ body TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workspace_memory_workspace_updated ON workspace_memory(workspace_id, deleted, updated_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
+ entry_id TEXT NOT NULL REFERENCES workspace_memory(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL CHECK(revision > 0),
+ operation TEXT NOT NULL,
+ data TEXT NOT NULL,
+ PRIMARY KEY(entry_id, revision)
+);`)
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35})
 	if err != nil {
 		return err
 	}

@@ -36,6 +36,7 @@ import (
 	"devkit/internal/vaultitem"
 	"devkit/internal/workfolder"
 	"devkit/internal/workspace"
+	"devkit/internal/workspacememory"
 )
 
 // SyncService is the narrow runtime contract exposed to the bridge. Keeping it
@@ -127,6 +128,9 @@ type Container struct {
 	// SQL-backed one once the real database is open, same as Preferences
 	// and UIState below.
 	Workspace *workspace.Service
+	// WorkspaceMemory is local shared knowledge with revision history. main wires
+	// its SQL repository; ephemeral containers have no memory store.
+	WorkspaceMemory *workspacememory.Service
 	// CodexSessions stores what an external Codex CLI session reported through
 	// its lifecycle hooks — a session DevKit did not spawn and does not run.
 	// Nil in ephemeral containers, which leaves it read-only-empty: the MCP
@@ -239,14 +243,16 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},
-		// Workspace: choosing the folder and adding it are UI-only. The one
-		// MCP tool, workspace.list, only reads (ws:read workspace:list), and
-		// an agent session sees only the workspaces its own folders are in.
+		// Workspace registry mutations are UI-only; workspace.list reads the
+		// session's selected workspace. Shared memory has its own capability
+		// and every MCP operation resolves the persisted session workspace.
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "workspace:list"},
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "service:*"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:new"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "folder:choose"},
+		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:read", Scope: "workspace:*"},
+		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:active"},

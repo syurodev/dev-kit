@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -17,8 +18,16 @@ type contextAdapter struct {
 	*agenthub.MockAdapter
 	prompts         [][]acp.ContentBlock
 	opens           int
+	db              *sql.DB
 	deleteWorkspace func(string)
 }
+type typedContextAdapter struct {
+	*contextAdapter
+	vendor agenthub.AgentType
+}
+
+func (a *typedContextAdapter) Type() agenthub.AgentType { return a.vendor }
+
 type contextRuntime struct {
 	agenthub.SessionRuntime
 	owner *contextAdapter
@@ -51,7 +60,7 @@ func contextService(t *testing.T) (*agenthub.Service, *contextAdapter) {
 			t.Fatal(err)
 		}
 	}
-	a := &contextAdapter{MockAdapter: agenthub.NewMockAdapter()}
+	a := &contextAdapter{MockAdapter: agenthub.NewMockAdapter(), db: db}
 	a.deleteWorkspace = func(id string) {
 		t.Helper()
 		if _, err := db.Exec("DELETE FROM workspaces WHERE id=?", id); err != nil {
@@ -60,6 +69,8 @@ func contextService(t *testing.T) (*agenthub.Service, *contextAdapter) {
 	}
 	reg := agenthub.NewRegistry()
 	reg.Register(a)
+	reg.Register(&typedContextAdapter{contextAdapter: a, vendor: agenthub.AgentTypeClaude})
+	reg.Register(&typedContextAdapter{contextAdapter: a, vendor: agenthub.AgentTypeCodex})
 	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
 	svc.MatchingWorkspaces = func(string) ([]string, error) { return []string{"a", "b"}, nil }
 	return svc, a

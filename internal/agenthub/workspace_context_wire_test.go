@@ -15,7 +15,10 @@ import (
 func workspaceWireBlocks(t *testing.T) []acp.ContentBlock {
 	t.Helper()
 	svc := &Service{WorkspaceInstructions: func(string) (string, error) { return "Use workspace rules", nil }, SessionBrief: func(string, string, []string) string { return "Current primary: /new" }}
-	text, err := svc.workspaceTurnContext(AgentSession{WorkspaceID: "selected", ProjectPath: "/project"})
+	svc.WorkspaceMemory = func(context.Context, string) (string, error) {
+		return `{"entries":[{"id":"memory-1","summary":"Keep shared API compatibility","revision":1}],"omitted":false}`, nil
+	}
+	text, err := svc.workspaceTurnContext(context.Background(), AgentSession{WorkspaceID: "selected", ProjectPath: "/project"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +96,12 @@ func TestCodexWorkspaceContextPrecedesUserAndPreservesAttachments(t *testing.T) 
 
 func TestUnboundWorkspaceContextRetiresRulesWithoutResolvingByCwd(t *testing.T) {
 	svc := &Service{WorkspaceInstructions: func(string) (string, error) { t.Fatal("instructions queried for unbound session"); return "", nil }}
-	text, err := svc.workspaceTurnContext(AgentSession{ProjectPath: "/shared/project"})
-	if err != nil || !strings.Contains(text, "No workspace is selected") || !strings.Contains(text, "retire any previously") {
+	svc.WorkspaceMemory = func(context.Context, string) (string, error) {
+		t.Fatal("memory queried for unbound session")
+		return "", nil
+	}
+	text, err := svc.workspaceTurnContext(context.Background(), AgentSession{ProjectPath: "/shared/project"})
+	if err != nil || !strings.Contains(text, "No workspace is selected") || !strings.Contains(text, "retire any previously") || !strings.Contains(text, "Retire previously supplied workspace memory") {
 		t.Fatalf("text=%q err=%v", text, err)
 	}
 }

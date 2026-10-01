@@ -161,6 +161,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   Codex receive the same content; the user echo stays unchanged. Empty/unbound context
   retires earlier workspace instructions; DevKit's rules retain precedence. User-authored
   instructions are never passed through the tool-name placeholder renderer.
+- **Shared workspace memory is local and versioned** (`internal/workspacememory`,
+  migration 35). `workspace.memory.*` tools scope Hub agents by their persisted
+  workspace ID; terminal callers must supply an explicit ID. Update/delete/restore
+  require `expectedRevision`; CAS and immutable history snapshots commit atomically.
+  Source attribution comes from host identity, never tool input. Per-turn context
+  includes at most 8 KiB of live summaries, as reference data rather than instructions.
+  Soft-deleted entries remain readable/restorable; deleting the workspace cascades
+  entries and history. Plaintext SQLite storage is outside vault/sync, like workspace
+  instructions. Audit excludes memory text and query. UI management is a later phase.
 - **Claude's PreToolUse hook refuses `git commit` / `git push` in Bash**
   (`cmd/devkit-mcp/hook.go`, `shellGitWrite`) with a reason naming the DevKit tool to call:
   the shell skips branch guards, the task trailer and the push rule. Other git commands

@@ -214,8 +214,9 @@ type Deps struct {
 	AgentHub     AgentHubAPI // optional nil until wired from main
 	// Workspace answers workspace.list. Optional nil: the tool then says
 	// workspaces are not available.
-	Workspace WorkspaceAPI
-	Hub       *interaction.Hub // optional nil → headless
+	Workspace       WorkspaceAPI
+	WorkspaceMemory WorkspaceMemoryAPI
+	Hub             *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -255,6 +256,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerAPIClient(ms)
 	s.registerCodexHook(ms)
 	s.registerWorkspace(ms)
+	s.registerWorkspaceMemory(ms)
 	return ms
 }
 
