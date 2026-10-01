@@ -304,3 +304,13 @@ export function initials(name: string): string {
 }
 
 export type TaskView = "board" | "list";
+
+/**
+ * A finished column with nothing in it is drawn as a narrow strip: it holds
+ * no work to read, and five full lanes push the board into a sideways scroll
+ * on an ordinary window. Only terminal columns — an empty "To do" is a fact
+ * worth its full width ("nothing to start"), an empty "Won't do" is not.
+ */
+export function collapsesWhenEmpty(column: Column): boolean {
+  return column.status?.category === "terminal" && column.tasks.length === 0;
+}

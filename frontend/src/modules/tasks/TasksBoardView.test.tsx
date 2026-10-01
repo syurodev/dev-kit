@@ -235,11 +235,25 @@ describe("TasksBoardView", () => {
     expect(html).not.toContain("with agents");
   });
 
-  test("every status column offers to add a task in place, and an empty one says so", () => {
+  test("a column with work offers to add a task in place", () => {
     seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
     const html = render({ boardId: "b1" });
-    expect(html.match(/Add task/g)?.length).toBe(2);
-    expect(html).toContain("Nothing finished yet");
+    // To do is open and full width; the empty Done is folded and offers none.
+    expect(html.match(/Add task/g)?.length).toBe(1);
+  });
+
+  test("an empty finished column is a narrow strip that can be expanded", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain('aria-label="Expand Done"');
+    expect(html).not.toContain("Nothing finished yet");
+  });
+
+  test("an empty open column keeps its full width", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task({ status: "done" })] } });
+    const html = render({ boardId: "b1" });
+    expect(html).not.toContain('aria-label="Expand To do"');
+    expect(html).toContain("No tasks");
   });
 
   test("a board remembered as a list draws rows, finished groups folded", () => {

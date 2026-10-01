@@ -6,6 +6,7 @@ import {
   blockerCandidates,
   boardLabels,
   boardSummary,
+  collapsesWhenEmpty,
   columnsOf,
   dependentCandidates,
   dependentsOf,
@@ -225,5 +226,19 @@ describe("initials", () => {
     expect(initials("Ada Lovelace")).toBe("AL");
     expect(initials("jane.doe")).toBe("JD");
     expect(initials("  ")).toBe("");
+  });
+});
+
+describe("collapsesWhenEmpty", () => {
+  test("only an empty terminal column folds", () => {
+    const columns = columnsOf(board, [task("a", { status: "doing" })], EMPTY_FILTER);
+    expect(columns.map(collapsesWhenEmpty)).toEqual([false, false, true]);
+    const withDone = columnsOf(board, [task("a", { status: "done" })], EMPTY_FILTER);
+    expect(collapsesWhenEmpty(withDone[2])).toBe(false);
+  });
+
+  test("the no-column bucket never folds", () => {
+    const columns = columnsOf(board, [task("a", { status: "gone" })], EMPTY_FILTER);
+    expect(collapsesWhenEmpty(columns[columns.length - 1])).toBe(false);
   });
 });

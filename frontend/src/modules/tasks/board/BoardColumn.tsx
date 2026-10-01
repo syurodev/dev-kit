@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Plus } from "lucide-react";
+import { FoldHorizontal, Plus } from "lucide-react";
 import type { Board, Task } from "@/bridge/tasks";
 import { Button } from "@/components/ui/button";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { cn } from "@/lib/utils";
 import { StatusDot } from "../TaskBits";
 import { createIn } from "../taskActions";
-import { openBlockers, type Column } from "../taskModel";
+import { collapsesWhenEmpty, openBlockers, type Column } from "../taskModel";
 import { TaskCard } from "./TaskCard";
 
 const LIST_MOTION = { duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
@@ -94,6 +94,39 @@ export function BoardColumn({
   const status = column.status;
   const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: !status });
   const [listRef] = useAutoAnimate<HTMLUListElement>(LIST_MOTION);
+  // Opened by hand: an empty finished column someone wants to add to. Stays
+  // open for the life of the view rather than snapping shut under them the
+  // moment its last card is dragged out.
+  const [opened, setOpened] = useState(false);
+
+  if (collapsesWhenEmpty(column) && !opened) {
+    // Narrow but still a lane and still a drop target, full height so it is
+    // easy to hit — and it does not widen mid-drag, which would move every
+    // column to its right out from under the pointer.
+    return (
+      <section
+        ref={setNodeRef}
+        aria-label={column.name}
+        className={cn(
+          "flex w-10 shrink-0 flex-col rounded-lg border border-transparent bg-surface-well transition-colors duration-(--motion-fast)",
+          dragging && "border-dashed border-status-info/40",
+          isOver && "border-solid border-status-info/50 bg-state-soft",
+        )}
+      >
+        <button
+          type="button"
+          title={`${column.name} — empty. Click to expand`}
+          aria-label={`Expand ${column.name}`}
+          onClick={() => setOpened(true)}
+          className="flex flex-1 flex-col items-center gap-2 rounded-lg py-3 text-text-tertiary transition-colors duration-(--motion-fast) hover:text-text-secondary"
+        >
+          <StatusDot category={status?.category} />
+          <span className="text-label-12 writing-vertical">{column.name}</span>
+          <span className="rounded-full bg-state-soft px-1 text-caption-11 tabular-nums">0</span>
+        </button>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -110,6 +143,17 @@ export function BoardColumn({
         <span className="rounded-full bg-state-soft px-1.5 text-caption-11 text-text-tertiary tabular-nums">
           {column.tasks.length}
         </span>
+        {opened && collapsesWhenEmpty(column) ? (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label={`Collapse ${column.name}`}
+            className="ml-auto text-text-tertiary"
+            onClick={() => setOpened(false)}
+          >
+            <FoldHorizontal aria-hidden />
+          </Button>
+        ) : null}
       </h3>
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
         {column.tasks.map((task) => (

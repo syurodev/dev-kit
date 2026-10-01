@@ -1085,6 +1085,14 @@ chối thì đọc lại sự thật thay vì chạy một phép đảo ngược
   thêm tiếp, Esc dừng); lane rỗng vẽ một ô gạch (“No tasks”, “Drop here” khi
   đang kéo) cùng một kích thước. Thẻ luôn có footer: tiến độ subtask, thời gian
   cập nhật, avatar chữ tắt của assignee — mọi thẻ kết thúc trên cùng một dòng.
+- **Cột terminal rỗng thu thành dải hẹp** (`collapsesWhenEmpty`, rộng 40px, tên
+  viết dọc + `0`): không có việc gì để đọc, mà năm lane đầy đủ đẩy board sang
+  cuộn ngang ở cửa sổ bình thường. Chỉ cột **terminal** — "To do" rỗng là một
+  dữ kiện đáng giữ nguyên bề rộng. Dải vẫn là drop target cao hết lane và
+  **không nở ra giữa lúc kéo** (nở ra sẽ đẩy mọi cột bên phải khỏi dưới con
+  trỏ); có thẻ rơi vào thì nó thành lane bình thường. Bấm dải để mở tay (vd. để
+  "Add task" vào đó), có nút thu lại trên header; mở tay thì giữ mở suốt đời
+  view chứ không sập lại khi thẻ cuối bị kéo đi.
 - **Header** có tổng quan đếm theo `category` (`boardSummary`): progress
   done/total, đang làm, đang chờ dependency, agent đang giữ — số bằng 0 thì
   không hiện. Lệnh verify là dòng phụ dưới tên board.
