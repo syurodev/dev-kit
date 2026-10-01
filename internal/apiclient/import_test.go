@@ -84,7 +84,7 @@ const postmanCollection = `{
 
 func TestImportPostmanCollection(t *testing.T) {
 	svc := newService(t)
-	result, err := svc.ImportPostmanCollection(postmanCollection)
+	result, err := svc.Import("", postmanCollection, ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestImportPostmanCollection(t *testing.T) {
 		t.Fatalf("ping = %+v", ping)
 	}
 
-	if _, err := svc.ImportPostmanCollection(`{"hello": "world"}`); err == nil {
+	if _, err := svc.Import("", `{"hello": "world"}`, ImportOptions{}); err == nil {
 		t.Fatal("a non-collection was imported")
 	}
 }
@@ -150,7 +150,7 @@ func TestImportPostmanEnvironmentAndGlobals(t *testing.T) {
 		{"key": "baseUrl", "value": "https://dev.shop.test", "type": "default", "enabled": true},
 		{"key": "token", "value": "s3cret", "type": "secret", "enabled": true},
 		{"key": "old", "value": "x", "enabled": false}]}`
-	result, err := svc.ImportPostmanEnvironment(env, "dev")
+	result, err := svc.Import("postman", env, ImportOptions{EnvTag: "dev"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestImportPostmanEnvironmentAndGlobals(t *testing.T) {
 		strings.Join(envs[0].SecretVars, ",") != "token" || envs[0].Vars["old"] != "" {
 		t.Fatalf("environments = %+v", envs)
 	}
-	if _, err := svc.ImportPostmanEnvironment(env, "nope"); err == nil {
+	if _, err := svc.Import("postman", env, ImportOptions{EnvTag: "nope"}); err == nil {
 		t.Fatal("an unknown tag was accepted")
 	}
 
@@ -167,7 +167,7 @@ func TestImportPostmanEnvironmentAndGlobals(t *testing.T) {
 		t.Fatal(err)
 	}
 	globals := `{"name": "Globals", "_postman_variable_scope": "globals", "values": [{"key": "region", "value": "eu", "enabled": true}]}`
-	if _, err := svc.ImportPostmanEnvironment(globals, ""); err != nil {
+	if _, err := svc.Import("", globals, ImportOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	g, _ := svc.Globals()

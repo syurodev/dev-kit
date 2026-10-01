@@ -8,6 +8,7 @@ export {
 
 export type {
     ActiveProfileDTO,
+    ApiExportSaved,
     AuthStatusDTO,
     ConsoleDirectory,
     ExecuteCommandRequest,

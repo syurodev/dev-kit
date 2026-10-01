@@ -2,6 +2,9 @@ package bridge
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
 	"sync"
 
 	"devkit/internal/apiclient"
@@ -270,14 +273,30 @@ func (s *AppService) ApiParseCurl(command string) (apiclient.RequestInput, error
 	return result.(apiclient.RequestInput), nil
 }
 
-// ApiImportPostmanCollection reads a Postman v2 collection export into a new
-// collection. The audit line says how big it was, never what was in it.
-func (s *AppService) ApiImportPostmanCollection(data string) (apiclient.ImportResult, error) {
+// ApiFormats lists the file formats the API client reads and writes, and
+// what each can do — the window offers only what a format supports.
+func (s *AppService) ApiFormats() ([]apiclient.FormatInfo, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "formats",
+	}, func(context.Context) (any, error) {
+		return apiclient.Formats(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]apiclient.FormatInfo), nil
+}
+
+// ApiImport reads another tool's file into the vault; formatID empty detects
+// it. The audit line says the format and the size, never what was in it.
+func (s *AppService) ApiImport(formatID, data string, opts apiclient.ImportOptions) (apiclient.ImportResult, error) {
 	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:new", map[string]any{
-		"action": "import_postman_collection",
+		"action": "import",
+		"format": formatID,
+		"env":    opts.EnvTag,
 		"bytes":  len(data),
 	}, func(context.Context) (any, error) {
-		return s.container.APIClient.ImportPostmanCollection(data)
+		return s.container.APIClient.Import(formatID, data, opts)
 	})
 	if err != nil {
 		return apiclient.ImportResult{}, err
@@ -285,20 +304,71 @@ func (s *AppService) ApiImportPostmanCollection(data string) (apiclient.ImportRe
 	return result.(apiclient.ImportResult), nil
 }
 
-// ApiImportPostmanEnvironment reads a Postman environment (or globals) export.
-// Postman has no env tags, so the window asks for one.
-func (s *AppService) ApiImportPostmanEnvironment(data, envTag string) (apiclient.ImportResult, error) {
-	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "environment:new", map[string]any{
-		"action": "import_postman_environment",
-		"env":    envTag,
-		"bytes":  len(data),
+// ApiExport renders a collection, an environment or the globals in a format,
+// for the window to copy. No secret value and no credential is in it, in any
+// format: that is the exporter's rule, not the window's.
+func (s *AppService) ApiExport(scope apiclient.ExportScope, formatID string) (apiclient.ExportFile, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "export:"+string(scope.Kind), map[string]any{
+		"action": "export",
+		"kind":   string(scope.Kind),
+		"format": formatID,
 	}, func(context.Context) (any, error) {
-		return s.container.APIClient.ImportPostmanEnvironment(data, envTag)
+		return s.container.APIClient.Export(scope, formatID)
 	})
 	if err != nil {
-		return apiclient.ImportResult{}, err
+		return apiclient.ExportFile{}, err
 	}
-	return result.(apiclient.ImportResult), nil
+	return result.(apiclient.ExportFile), nil
+}
+
+// errNoSaveDialog is a save dialog that could not be shown.
+var errNoSaveDialog = errors.New("bridge.noSaveDialog")
+
+// ApiExportSaved is an export written to disk. Path is empty when the person
+// cancelled the save dialog.
+type ApiExportSaved struct {
+	Path     string   `json:"path"`
+	FileName string   `json:"fileName"`
+	Warnings []string `json:"warnings"`
+}
+
+// ApiExportToFile exports and asks where to save it, writing the file from
+// Go — the content never has to cross the bridge. 0o600: a collection holds
+// addresses and plain variables, which are the person's own business.
+func (s *AppService) ApiExportToFile(scope apiclient.ExportScope, formatID string) (ApiExportSaved, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "export:"+string(scope.Kind), map[string]any{
+		"action": "export_to_file",
+		"kind":   string(scope.Kind),
+		"format": formatID,
+	}, func(context.Context) (any, error) {
+		file, err := s.container.APIClient.Export(scope, formatID)
+		if err != nil {
+			return nil, err
+		}
+		dialogFunc := s.saveFileDialog
+		if dialogFunc == nil {
+			dialogFunc = defaultSaveFileDialog
+		}
+		path, err := dialogFunc(file.FileName)
+		if err != nil {
+			// Server mode has no native dialog at all; a desktop dialog that
+			// fails is rarer but reads the same to the person: use Copy.
+			return nil, fmt.Errorf("%w: %v", errNoSaveDialog, err)
+		}
+		saved := ApiExportSaved{FileName: file.FileName, Warnings: file.Warnings}
+		if path == "" {
+			return saved, nil
+		}
+		if err := os.WriteFile(path, []byte(file.Content), 0o600); err != nil {
+			return nil, err
+		}
+		saved.Path = path
+		return saved, nil
+	})
+	if err != nil {
+		return ApiExportSaved{}, err
+	}
+	return result.(ApiExportSaved), nil
 }
 
 // ---- collections -----------------------------------------------------

@@ -696,6 +696,32 @@ export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[]
 }
 
 /**
+ * ApiExport renders a collection, an environment or the globals in a format,
+ * for the window to copy. No secret value and no credential is in it, in any
+ * format: that is the exporter's rule, not the window's.
+ */
+export function ApiExport(scope: apiclient$0.ExportScope, formatID: string): $CancellablePromise<apiclient$0.ExportFile> {
+    return $Call.ByID(1400640604, scope, formatID);
+}
+
+/**
+ * ApiExportToFile exports and asks where to save it, writing the file from
+ * Go — the content never has to cross the bridge. 0o600: a collection holds
+ * addresses and plain variables, which are the person's own business.
+ */
+export function ApiExportToFile(scope: apiclient$0.ExportScope, formatID: string): $CancellablePromise<$models.ApiExportSaved> {
+    return $Call.ByID(2546155443, scope, formatID);
+}
+
+/**
+ * ApiFormats lists the file formats the API client reads and writes, and
+ * what each can do — the window offers only what a format supports.
+ */
+export function ApiFormats(): $CancellablePromise<apiclient$0.FormatInfo[] | null> {
+    return $Call.ByID(4080929506);
+}
+
+/**
  * ApiGlobals lists the global variables, secret values withheld.
  */
 export function ApiGlobals(): $CancellablePromise<apiclient$0.VarSet> {
@@ -711,19 +737,11 @@ export function ApiHistory(requestID: string, limit: number): $CancellablePromis
 }
 
 /**
- * ApiImportPostmanCollection reads a Postman v2 collection export into a new
- * collection. The audit line says how big it was, never what was in it.
+ * ApiImport reads another tool's file into the vault; formatID empty detects
+ * it. The audit line says the format and the size, never what was in it.
  */
-export function ApiImportPostmanCollection(data: string): $CancellablePromise<apiclient$0.ImportResult> {
-    return $Call.ByID(135786567, data);
-}
-
-/**
- * ApiImportPostmanEnvironment reads a Postman environment (or globals) export.
- * Postman has no env tags, so the window asks for one.
- */
-export function ApiImportPostmanEnvironment(data: string, envTag: string): $CancellablePromise<apiclient$0.ImportResult> {
-    return $Call.ByID(1540532960, data, envTag);
+export function ApiImport(formatID: string, data: string, opts: apiclient$0.ImportOptions): $CancellablePromise<apiclient$0.ImportResult> {
+    return $Call.ByID(1871601979, formatID, data, opts);
 }
 
 /**

@@ -109,8 +109,8 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 - Script trước/sau request (pre-request / test script chạy JS) — v1 chỉ có
   assertion khai báo đơn giản trong tab Tests.
 - Mock server, load test, chạy cả collection theo lịch.
-- Import OpenAPI — để sau; Code Graph đã là nguồn endpoint. (Import Postman v2
-  collection + environment đã có: đó là đường chuyển nhà của người dùng Postman.)
+- Định dạng OpenAPI/Insomnia/Bruno/HAR — để sau; chỗ cắm đã có (`formats`). Postman
+  v2.1 (đọc + ghi) và cURL script (ghi) đã có.
 - OAuth2 flow tương tác (authorization code) — v1 chỉ nhận token có sẵn.
 
 ### Acceptance criteria
@@ -264,9 +264,22 @@ này*, không phải của environment — nên draft từ Code Graph giờ sinh
 multipart luôn tự đặt vì boundary). `⌘↵` gửi **bản chưa lưu** (`ApiSendRequest`), có
 Cancel tới tận socket (`ApiCancelSend`).
 
-**Import**: dán cURL vào URL bar (hoặc Import → cURL) — đọc `-X/-H/-d/--data-*/-F/-u/-b/-G`,
-cả `$'…'` mà "Copy as cURL" của trình duyệt sinh ra; không chạy, không expand gì. Postman
-v2.0/v2.1 collection → collection + folder + request + biến collection; auth của Postman
+**Import / export theo định dạng, không gắn với một tool** (`interchange.go`): mọi định
+dạng chỉ chuyển qua lại với một mô hình trung gian (`Bundle`) và không bao giờ chạm vault;
+luật nằm một chỗ cho mọi định dạng — **không giá trị secret nào ra ngoài** (tên thì có,
+giá trị rỗng), **account đã bind ra ngoài thành biến giữ chỗ** (`{{github_work_token}}`),
+environment nhập vào **phải có tag** (người dùng chọn, hoặc tag ghi trong file mà máy này
+có; không thì từ chối trước khi ghi gì). Thêm một định dạng (Insomnia, Bruno, OpenAPI,
+HAR…) = một file `format_*.go` cài `Decoder` và/hoặc `Encoder` + một dòng trong
+`formats`; UI đọc danh sách định dạng từ Go nên không cần sửa. Hiện có: **Postman v2.1**
+(đọc + ghi collection, environment, globals; tag của environment đi trong tên
+`Tên [tag]` vì Postman không có chỗ khác) và **cURL script** (ghi collection thành file
+bash, mỗi request một hàm, chạy `./file.sh ten_request`; chạy file trống không gửi gì).
+Export ghi file từ Go (quyền 0600) qua hộp thoại lưu, hoặc Copy.
+
+**Dán cURL**: vào URL bar (hoặc Import → cURL) — đọc `-X/-H/-d/--data-*/-F/-u/-b/-G`,
+cả `$'…'` mà "Copy as cURL" của trình duyệt sinh ra; mở thành request nháp, không lưu.
+Postman v2.0/v2.1 collection → collection + folder + request + biến collection; auth của Postman
 (token nằm trên request) thành **header nó lẽ ra gửi** (`Authorization: Bearer {{token}}`),
 bind account là một click sau. Script pre-request/test không chạy, được đếm và báo.
 Environment/globals export của Postman → environment (người dùng chọn tag, vì Postman

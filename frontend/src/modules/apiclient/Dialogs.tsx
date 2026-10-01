@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { FileUp } from "lucide-react";
+import { Copy, Download, FileUp } from "lucide-react";
 import {
-  importPostmanCollection,
-  importPostmanEnvironment,
+  exportFile,
+  exportToFile,
+  importFile,
+  listFormats,
   parseCurl,
+  type ExportScope,
+  type FormatInfo,
   type ImportResult,
 } from "@/bridge/apiclient";
+import { copyText } from "@/bridge/clipboard";
 import { listEnvTags, type EnvTag } from "@/bridge/environments";
 import { errorMessage } from "@/bridge/errors";
 import {
@@ -132,7 +137,7 @@ export function ConfirmDialog({
   );
 }
 
-export type ImportKind = "curl" | "collection" | "environment";
+export type ImportKind = "curl" | "file";
 
 /** Reads a chosen file as text into the paste box. */
 function FilePicker({ onText }: { onText: (text: string, name: string) => void }) {
@@ -142,7 +147,6 @@ function FilePicker({ onText }: { onText: (text: string, name: string) => void }
       <input
         ref={input}
         type="file"
-        accept=".json,application/json"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -166,12 +170,28 @@ function summary(result: ImportResult): string {
   return parts.length ? parts.join(", ") : "nothing";
 }
 
+/** The formats Go registered, loaded once per open dialog. null until known. */
+function useFormats(open: boolean): FormatInfo[] | null {
+  const [formats, setFormats] = useState<FormatInfo[] | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    listFormats()
+      .then(setFormats)
+      .catch(() => setFormats([]));
+  }, [open]);
+  return formats;
+}
+
 /**
  * Bringing work in from elsewhere: a curl command (opens as a new, unsaved
- * request), a Postman collection export, a Postman environment or globals
- * export. Postman has no env tags, so an environment import asks for one —
- * the tag decides whether sending asks first, and guessing it is how a
- * production environment ends up ungated.
+ * request — a draft, not an import) or a file in any format Go can read,
+ * detected or chosen.
+ *
+ * The tag question is asked up front for any file, because a file may hold an
+ * environment and the tag decides whether sending asks first. "From the file"
+ * uses one the file names (DevKit writes it into an exported environment's
+ * name) when this machine has it, and the import is refused otherwise rather
+ * than guessing.
  */
 export function ImportDialog({
   open,
@@ -184,9 +204,11 @@ export function ImportDialog({
   onClose: () => void;
   onImported: (result: ImportResult | null) => void;
 }) {
+  const formats = useFormats(open);
   const [kind, setKind] = useState<ImportKind>(initialKind);
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [format, setFormat] = useState("");
   // null until the list answers, so the picker never offers "no tags" first.
   const [tags, setTags] = useState<EnvTag[] | null>(null);
   const [tag, setTag] = useState("");
@@ -198,38 +220,29 @@ export function ImportDialog({
     setKind(initialKind);
     setText("");
     setFileName("");
+    setFormat("");
+    setTag("");
     setError("");
     listEnvTags()
-      .then((list) => {
-        setTags(list);
-        // The safest tag that exists is the default: one that asks first.
-        setTag((current) => current || list.find((t) => !t.requiresConfirmation)?.name || list[0]?.name || "");
-      })
+      .then(setTags)
       .catch(() => setTags([]));
   }, [open, initialKind]);
 
+  const importable = (formats ?? []).filter((f) => f.canImport);
+
   async function run() {
-    switch (kind) {
-      case "curl": {
-        const request = await parseCurl(text);
-        openNewRequest(request);
-        onImported(null);
-        return;
-      }
-      case "collection": {
-        const result = await importPostmanCollection(text);
-        toast.success(`Imported “${result.name}”: ${summary(result)}`, {
-          description: result.warnings?.length ? result.warnings.join(" ") : undefined,
-        });
-        onImported(result);
-        return;
-      }
-      case "environment": {
-        const result = await importPostmanEnvironment(text, tag);
-        toast.success(`Imported “${result.name}”: ${summary(result)}`);
-        onImported(result);
-      }
+    if (kind === "curl") {
+      const request = await parseCurl(text);
+      openNewRequest(request);
+      onImported(null);
+      return;
     }
+    const result = await importFile(format, text, tag);
+    const label = formats?.find((f) => f.id === result.format)?.label ?? result.format;
+    toast.success(`Imported “${result.name}” from ${label}: ${summary(result)}`, {
+      description: result.warnings?.length ? result.warnings.join(" ") : undefined,
+    });
+    onImported(result);
   }
 
   return (
@@ -237,31 +250,41 @@ export function ImportDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Import</DialogTitle>
-          <DialogDescription>
-            Nothing is sent while importing. Scripts in a Postman collection are not run or kept.
-          </DialogDescription>
+          <DialogDescription>Nothing is sent while importing, and no script in a file is run or kept.</DialogDescription>
         </DialogHeader>
         <Tabs value={kind} onValueChange={(value) => setKind(value as ImportKind)} className="flex flex-col gap-3">
           <TabsList className="w-fit">
             <TabsTrigger value="curl">cURL</TabsTrigger>
-            <TabsTrigger value="collection">Postman collection</TabsTrigger>
-            <TabsTrigger value="environment">Postman environment</TabsTrigger>
+            <TabsTrigger value="file">File</TabsTrigger>
           </TabsList>
           <TabsContent value="curl" className="text-caption-11 text-text-tertiary">
             Paste a curl command — a browser’s “Copy as cURL” works. It opens as a new request you can edit before saving.
           </TabsContent>
-          <TabsContent value="collection" className="flex items-center gap-2 text-caption-11 text-text-tertiary">
-            <FilePicker onText={(value, name) => { setText(value); setFileName(name); }} />
-            <span className="truncate">{fileName || "A v2.0 or v2.1 collection export (.json), or paste it below."}</span>
-          </TabsContent>
-          <TabsContent value="environment" className="flex flex-col gap-2 text-caption-11 text-text-tertiary">
+          <TabsContent value="file" className="flex flex-col gap-2 text-caption-11 text-text-tertiary">
             <div className="flex items-center gap-2">
-              <FilePicker onText={(value, name) => { setText(value); setFileName(name); }} />
-              <span className="truncate">{fileName || "An environment or globals export (.json), or paste it below."}</span>
+              <FilePicker
+                onText={(value, name) => {
+                  setText(value);
+                  setFileName(name);
+                }}
+              />
+              <span className="truncate">{fileName || "Or paste the file below."}</span>
             </div>
             <label className="flex items-center gap-2">
-              <span className="shrink-0">Environment tag</span>
+              <span className="w-28 shrink-0">Format</span>
+              <NativeSelect size="sm" value={format} onChange={(event) => setFormat(event.target.value)} aria-label="Format">
+                <NativeSelectOption value="">Detect automatically</NativeSelectOption>
+                {importable.map((f) => (
+                  <NativeSelectOption key={f.id} value={f.id}>
+                    {f.label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="w-28 shrink-0">Environments go to</span>
               <NativeSelect size="sm" value={tag} onChange={(event) => setTag(event.target.value)} aria-label="Environment tag">
+                <NativeSelectOption value="">The tag in the file</NativeSelectOption>
                 {(tags ?? []).map((t) => (
                   <NativeSelectOption key={t.id} value={t.name}>
                     {t.name}
@@ -292,7 +315,7 @@ export function ImportDialog({
           </Button>
           <Button
             type="button"
-            disabled={!text.trim() || busy || (kind === "environment" && !tag)}
+            disabled={!text.trim() || busy}
             onClick={() => {
               setBusy(true);
               setError("");
@@ -304,6 +327,127 @@ export function ImportDialog({
           >
             {kind === "curl" ? "Open" : "Import"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Writing a collection, an environment or the globals out in any format that
+ * can hold it. What leaves is decided in Go for every format alike: no secret
+ * value (its name, empty), no credential (a variable in its place). The
+ * dialog says so before and repeats what the export reported after.
+ */
+export function ExportDialog({
+  scope,
+  title,
+  onClose,
+}: {
+  /** null is closed. */
+  scope: ExportScope | null;
+  title: string;
+  onClose: () => void;
+}) {
+  const open = scope !== null;
+  const formats = useFormats(open);
+  const [format, setFormat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [warnings, setWarnings] = useState<string[] | null>(null);
+
+  const usable = useMemo(
+    () => (formats ?? []).filter((f) => scope && (f.exports ?? []).includes(scope.kind)),
+    [formats, scope],
+  );
+  useEffect(() => {
+    if (!open) return;
+    setError("");
+    setWarnings(null);
+  }, [open]);
+  useEffect(() => {
+    if (usable.length && !usable.some((f) => f.id === format)) setFormat(usable[0].id);
+  }, [usable, format]);
+
+  function finish(fileWarnings: string[] | null, said: string) {
+    toast.success(said);
+    if (fileWarnings?.length) setWarnings(fileWarnings);
+    else onClose();
+  }
+
+  async function save() {
+    if (!scope) return;
+    const saved = await exportToFile(scope, format);
+    if (!saved.path) return;
+    finish(saved.warnings, `Saved ${saved.path}`);
+  }
+
+  async function copy() {
+    if (!scope) return;
+    const file = await exportFile(scope, format);
+    await copyText(file.content);
+    finish(file.warnings, `${file.fileName} copied`);
+  }
+
+  function attempt(work: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    work()
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Export {title}</DialogTitle>
+          <DialogDescription>
+            Secret values are never written — their names are, empty. A request that authenticates as an account names a
+            variable in the credential’s place.
+          </DialogDescription>
+        </DialogHeader>
+        {warnings ? (
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-caption-11 text-text-secondary">
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : (
+          <label className="flex items-center gap-2 text-caption-11 text-text-tertiary">
+            <span className="shrink-0">Format</span>
+            <NativeSelect size="sm" value={format} onChange={(event) => setFormat(event.target.value)} aria-label="Format">
+              {usable.map((f) => (
+                <NativeSelectOption key={f.id} value={f.id}>
+                  {f.label} (.{f.extension})
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+        )}
+        {error ? (
+          <p role="alert" className="text-caption-11 text-status-danger">
+            {error}
+          </p>
+        ) : null}
+        <DialogFooter>
+          {warnings ? (
+            <Button type="button" onClick={onClose}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="button" variant="outline" disabled={!format || busy} onClick={() => attempt(copy)}>
+                <Copy /> Copy
+              </Button>
+              <Button type="button" disabled={!format || busy} onClick={() => attempt(save)}>
+                <Download /> Save to file…
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

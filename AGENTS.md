@@ -559,8 +559,23 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   request, and `bodyMode` sets Content-Type unless a header row does.
   `ApiSendRequest` sends the editor's unsaved state; `ApiCancelSend` stops it.
   Plain `http://` is allowed to loopback always, elsewhere only with no bound
-  account on a tag that does not ask first (`ErrPlainHTTP`). cURL import
-  (`ParseCurl`) and Postman v2 collection/environment import run nothing.
+  account on a tag that does not ask first (`ErrPlainHTTP`). Pasting curl
+  (`ParseCurl`) opens a draft; it is not an import.
+- **Import/export is format-agnostic** (`internal/apiclient/interchange.go`).
+  Every format converts to or from one tool-neutral `Bundle` and never touches
+  the vault; `Service.Import` / `Service.Export` are the only code that turns a
+  Bundle into vault items or back, so the rules live once: no secret VALUE
+  leaves (names do, empty), an account binding leaves as placeholder variables
+  (`{{<account>_token}}`, named via the optional `AccountNamer`), an imported
+  environment needs a tag (the person's choice, else one the file carries that
+  this machine knows — else `ErrTagRequired`, before anything is written).
+  **Adding a format is a new `format_*.go` implementing `Decoder` and/or
+  `Encoder`, plus a line in `formats`**; it may not reach into the model — a
+  missing concept grows the Bundle tool-neutrally. Today: `postman` (read +
+  write; an environment's tag rides in its name as `Name [tag]`) and `curl`
+  (write: a bash script, one function per request, `set -u`, running the file
+  alone sends nothing). The window lists formats from `ApiFormats` and knows
+  none by name. Export is `api:read` scope `export:*`, UI only — no MCP tool.
   Agents get `api.sendAdhoc`, and every request/response they read has
   credential-named rows masked (`Request.ForAgent`). An ad-hoc send
   (`SendInput.Adhoc`) that carries a bound account or a secret variable asks

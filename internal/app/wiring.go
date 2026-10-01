@@ -129,6 +129,16 @@ func (r accountResolver) ResolveForRequest(_ context.Context, accountID, env str
 	return r.resolve(accountID, env, "apiclient")
 }
 
+// AccountLabel names an account for an export's placeholder variable. A
+// label is not a secret; an account that cannot be read is simply unnamed.
+func (r accountResolver) AccountLabel(id string) string {
+	account, err := r.accounts.Get(id)
+	if err != nil {
+		return ""
+	}
+	return account.Label
+}
+
 func (r accountResolver) ResolveForRemote(_ context.Context, accountID, env string) (string, string, error) {
 	return r.resolve(accountID, env, "git")
 }

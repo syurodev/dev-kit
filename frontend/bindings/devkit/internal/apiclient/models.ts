@@ -149,6 +149,65 @@ export interface Environment {
 }
 
 /**
+ * ExportFile is an export, ready to save.
+ */
+export interface ExportFile {
+    "fileName": string;
+    "content": string;
+
+    /**
+     * Warnings say what the file does not carry: secret values, accounts.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * ExportKind is what an export holds.
+ */
+export enum ExportKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ExportCollection = "collection",
+    ExportEnvironment = "environment",
+    ExportGlobals = "globals",
+};
+
+/**
+ * ExportScope is what to export: one collection (with everything below it),
+ * one environment, or the globals.
+ */
+export interface ExportScope {
+    "kind": ExportKind;
+
+    /**
+     * ID is the collection or environment; empty for globals.
+     */
+    "id": string;
+}
+
+/**
+ * FormatInfo describes a format to the window.
+ */
+export interface FormatInfo {
+    "id": string;
+    "label": string;
+
+    /**
+     * Extension is the file extension an export gets, without the dot.
+     */
+    "extension": string;
+    "canImport": boolean;
+
+    /**
+     * Exports lists what the format can write; empty when it cannot write.
+     */
+    "exports": ExportKind[] | null;
+}
+
+/**
  * HistoryEntry is one send. There is no body and no headers on purpose: either
  * side can carry a token, a body can be megabytes, and re-sending is one
  * click — so what would be bought by keeping them is small and what is risked
@@ -179,9 +238,20 @@ export interface HistoryEntry {
 }
 
 /**
+ * ImportOptions are the person's answers to what a file cannot say.
+ */
+export interface ImportOptions {
+    /**
+     * EnvTag is the tag for environments the file brings without one.
+     */
+    "envTag": string;
+}
+
+/**
  * ImportResult says what an import made and what it could not carry over.
  */
 export interface ImportResult {
+    "format": string;
     "collectionId"?: string;
     "environmentId"?: string;
     "name": string;

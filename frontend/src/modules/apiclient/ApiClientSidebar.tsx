@@ -14,6 +14,7 @@ import {
   Plus,
   SquarePlus,
   Trash2,
+  Upload,
   Variable,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -28,6 +29,7 @@ import {
   type ApiCollection,
   type ApiEnvironment,
   type ApiRequest,
+  type ExportScope,
 } from "@/bridge/apiclient";
 import { errorMessage } from "@/bridge/errors";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -40,7 +42,7 @@ import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "@
 import { TreeRowAction, TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { tagAsks, useApiClientStore } from "./apiclientStore";
-import { ConfirmDialog, ImportDialog, NameDialog } from "./Dialogs";
+import { ConfirmDialog, ExportDialog, ImportDialog, NameDialog } from "./Dialogs";
 import {
   closeTabByParams,
   MODULE,
@@ -131,6 +133,7 @@ export function ApiClientSidebar() {
   const [filter, setFilter] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [envOpen, setEnvOpen] = useState(true);
+  const [exporting, setExporting] = useState<{ scope: ExportScope; title: string } | null>(null);
 
   useEffect(() => {
     void refresh();
@@ -175,6 +178,12 @@ export function ApiClientSidebar() {
         onSelect: () => openVariables("collection", collection.id, `${collection.name} · variables`),
       },
       { kind: "item", icon: <Pencil />, label: "Rename…", onSelect: () => setDialog({ kind: "renameFolder", collection }) },
+      {
+        kind: "item",
+        icon: <Upload />,
+        label: "Export…",
+        onSelect: () => setExporting({ scope: { kind: "collection", id: collection.id }, title: collection.name }),
+      },
       { kind: "separator" },
       {
         kind: "item",
@@ -283,8 +292,8 @@ export function ApiClientSidebar() {
         <DropdownMenuItem onSelect={() => setImportKind("curl")}>
           <Download /> Import cURL…
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => setImportKind("collection")}>
-          <Download /> Import Postman…
+        <DropdownMenuItem onSelect={() => setImportKind("file")}>
+          <Download /> Import file…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -321,7 +330,7 @@ export function ApiClientSidebar() {
               <Button variant="outline" size="sm" onClick={() => openNewRequest()}>
                 <SquarePlus className="size-3" /> New request
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setImportKind("collection")}>
+              <Button variant="ghost" size="sm" onClick={() => setImportKind("file")}>
                 <Download className="size-3" /> Import…
               </Button>
             </EmptyContent>
@@ -352,7 +361,9 @@ export function ApiClientSidebar() {
           })
         }
         onDelete={(environment) => setDialog({ kind: "deleteEnvironment", environment })}
+        onExport={(scope, title) => setExporting({ scope, title })}
       />
+      <ExportDialog scope={exporting?.scope ?? null} title={exporting?.title ?? ""} onClose={() => setExporting(null)} />
 
       <NameDialog
         open={dialog?.kind === "newFolder"}
@@ -477,6 +488,7 @@ function EnvironmentsSection({
   onActivate,
   onDuplicate,
   onDelete,
+  onExport,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -486,15 +498,23 @@ function EnvironmentsSection({
   onActivate: (id: string) => void;
   onDuplicate: (environment: ApiEnvironment) => void;
   onDelete: (environment: ApiEnvironment) => void;
+  onExport: (scope: ExportScope, title: string) => void;
 }) {
   const nodes: TreeNodeData[] = [
-    {
-      id: "globals",
-      label: "Globals",
-      icon: <Globe />,
-      selected: selected === "globals:",
-      onSelect: () => openVariables("globals", "", "Globals"),
-    },
+    withMenus(
+      {
+        id: "globals",
+        label: "Globals",
+        icon: <Globe />,
+        selected: selected === "globals:",
+        onSelect: () => openVariables("globals", "", "Globals"),
+      },
+      "Globals",
+      [
+        { kind: "item", icon: <Variable />, label: "Edit variables", onSelect: () => openVariables("globals", "", "Globals") },
+        { kind: "item", icon: <Upload />, label: "Export…", onSelect: () => onExport({ kind: "globals", id: "" }, "Globals") },
+      ],
+    ),
     ...(environments ?? []).map((environment): TreeNodeData => {
       const active = environment.id === activeEnvironmentId;
       const actions: RowAction[] = [
@@ -506,6 +526,12 @@ function EnvironmentsSection({
           onSelect: () => openVariables("environment", environment.id, environment.name),
         },
         { kind: "item", icon: <Copy />, label: "Duplicate", onSelect: () => onDuplicate(environment) },
+        {
+          kind: "item",
+          icon: <Upload />,
+          label: "Export…",
+          onSelect: () => onExport({ kind: "environment", id: environment.id }, environment.name),
+        },
         { kind: "separator" },
         { kind: "item", icon: <Trash2 />, label: "Delete…", destructive: true, onSelect: () => onDelete(environment) },
       ];

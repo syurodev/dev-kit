@@ -419,6 +419,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
 	if subject == "builtin.apiclient" {
+		if errors.Is(err, errNoSaveDialog) {
+			return apperrors.Wrap(codeValidationFailed, "There is no save dialog here (a browser window has none) — use Copy instead.", true, err)
+		}
 		if message, ok := apiClientMessage(err); ok {
 			return apperrors.Wrap(codeValidationFailed, message, true, err)
 		}
@@ -584,8 +587,14 @@ func apiClientMessage(err error) (string, bool) {
 		return "This folder still holds " + strings.TrimPrefix(err.Error(), apiclient.ErrCollectionNotEmpty.Error()+": ") + ".", true
 	case errors.Is(err, apiclient.ErrNotCurl):
 		return "That does not read as a curl command.", true
-	case errors.Is(err, apiclient.ErrNotPostman):
-		return "That file is not a Postman v2 collection or a Postman environment export.", true
+	case errors.Is(err, apiclient.ErrUnknownFormat):
+		return "DevKit does not recognise that file's format.", true
+	case errors.Is(err, apiclient.ErrNotRecognised):
+		return "That file is not one the chosen format can read.", true
+	case errors.Is(err, apiclient.ErrFormatCannot):
+		return "That format cannot do this — pick another.", true
+	case errors.Is(err, apiclient.ErrTagRequired):
+		return "The file holds an environment with no env tag. Pick the tag it should go under — it decides whether sending asks first.", true
 	case errors.Is(err, apiclient.ErrInvalid):
 		return "Some of the request is missing or malformed — check the name, the URL and the environment's tag.", true
 	}

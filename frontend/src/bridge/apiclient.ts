@@ -109,6 +109,7 @@ export type ApiResponse = {
 };
 
 export type ImportResult = {
+  format: string;
   collectionId?: string;
   environmentId?: string;
   name: string;
@@ -246,12 +247,50 @@ export function looksLikeCurl(text: string): boolean {
   return /^\s*curl(\.exe)?\s/i.test(text);
 }
 
-export function importPostmanCollection(data: string): Promise<ImportResult> {
-  return callBridge(async () => (await AppService.ApiImportPostmanCollection(data)) as ImportResult);
+// ---- other tools' files ---------------------------------------------
+
+export type ExportKind = "collection" | "environment" | "globals";
+
+/**
+ * A file format the API client speaks, and what it can do. The list comes
+ * from Go; the window never knows a format by name, so adding one there
+ * needs nothing here.
+ */
+export type FormatInfo = {
+  id: string;
+  label: string;
+  extension: string;
+  canImport: boolean;
+  exports: ExportKind[] | null;
+};
+
+export type ExportScope = { kind: ExportKind; id: string };
+
+export type ExportFile = { fileName: string; content: string; warnings: string[] | null };
+
+export type ExportSaved = { path: string; fileName: string; warnings: string[] | null };
+
+export function listFormats(): Promise<FormatInfo[]> {
+  return callBridge(async () => ((await AppService.ApiFormats()) ?? []) as FormatInfo[]);
 }
 
-export function importPostmanEnvironment(data: string, envTag: string): Promise<ImportResult> {
-  return callBridge(async () => (await AppService.ApiImportPostmanEnvironment(data, envTag)) as ImportResult);
+/** Reads a file into the vault. An empty format id detects it. */
+export function importFile(formatId: string, data: string, envTag: string): Promise<ImportResult> {
+  return callBridge(async () => (await AppService.ApiImport(formatId, data, { envTag })) as ImportResult);
+}
+
+/** An export as text, for copying. Never holds a secret value or a credential. */
+// The bindings type the kind as a generated enum whose values are these
+// strings; the cast is the boundary.
+type BoundScope = Parameters<typeof AppService.ApiExport>[0];
+
+export function exportFile(scope: ExportScope, formatId: string): Promise<ExportFile> {
+  return callBridge(async () => (await AppService.ApiExport(scope as BoundScope, formatId)) as ExportFile);
+}
+
+/** An export written to a file the person picks; `path` is empty if they cancelled. */
+export function exportToFile(scope: ExportScope, formatId: string): Promise<ExportSaved> {
+  return callBridge(async () => (await AppService.ApiExportToFile(scope as BoundScope, formatId)) as ExportSaved);
 }
 
 /** {{name}} placeholders a set of variables cannot fill. */

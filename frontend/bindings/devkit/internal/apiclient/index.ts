@@ -4,6 +4,7 @@
 export {
     AuthKind,
     BodyMode,
+    ExportKind,
     Scope
 } from "./models.js";
 
@@ -12,7 +13,11 @@ export type {
     Collection,
     EndpointDraft,
     Environment,
+    ExportFile,
+    ExportScope,
+    FormatInfo,
     HistoryEntry,
+    ImportOptions,
     ImportResult,
     KV,
     KVList,

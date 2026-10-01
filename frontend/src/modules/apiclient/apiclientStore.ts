@@ -56,7 +56,7 @@ type ApiClientState = {
   /** Contents for a new tab to open with: an imported curl, a duplicate. */
   pending: Record<string, RequestInput>;
   /** The import dialog, open on one of its tabs; null when closed. */
-  importKind: "curl" | "collection" | "environment" | null;
+  importKind: "curl" | "file" | null;
   setImportKind: (kind: ApiClientState["importKind"]) => void;
 
   refresh: () => Promise<void>;
