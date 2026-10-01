@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -96,6 +94,73 @@ func (s *Service) CreateEnvironment(name, env string, vars map[string]string, se
 	return Environment{ID: record.ID, Name: name, Env: env, Vars: vars, SecretVars: sortedKeys(secrets)}, nil
 }
 
+// UpdateEnvironment renames an environment, moves it to another tag and
+// replaces its variables. The tag is checked like a new one: it is what
+// decides whether sending asks first.
+func (s *Service) UpdateEnvironment(id, name, env string, update VarsUpdate) (Environment, error) {
+	if strings.TrimSpace(name) == "" || env == "" {
+		return Environment{}, ErrInvalid
+	}
+	if s.envs != nil && !s.envs.Exists(env) {
+		return Environment{}, ErrInvalid
+	}
+	record, err := s.items.Get(id)
+	if err != nil || record.Type != vaultitem.ItemTypeAPIEnvironment {
+		return Environment{}, ErrNotFound
+	}
+	current, err := s.secretsOf(record)
+	if err != nil {
+		return Environment{}, err
+	}
+	vars, secrets, err := update.apply(current)
+	if err != nil {
+		return Environment{}, err
+	}
+	raw, err := json.Marshal(environmentMetadata{Name: name, Env: env, Vars: vars})
+	if err != nil {
+		return Environment{}, err
+	}
+	payload, err := json.Marshal(secrets)
+	if err != nil {
+		return Environment{}, err
+	}
+	if _, err := s.items.Update(id, KeyIDEnvironment, raw, payload); err != nil {
+		return Environment{}, err
+	}
+	return Environment{ID: id, Name: name, Env: env, Vars: vars, SecretVars: sortedKeys(secrets)}, nil
+}
+
+// DuplicateEnvironment copies an environment, secrets included — inside Go,
+// so the copy is made without any value crossing the bridge.
+func (s *Service) DuplicateEnvironment(id, name string) (Environment, error) {
+	record, err := s.items.Get(id)
+	if err != nil || record.Type != vaultitem.ItemTypeAPIEnvironment {
+		return Environment{}, ErrNotFound
+	}
+	var meta environmentMetadata
+	if err := decodeInto(record.Metadata, &meta); err != nil {
+		return Environment{}, err
+	}
+	secrets, err := s.secretsOf(record)
+	if err != nil {
+		return Environment{}, err
+	}
+	if strings.TrimSpace(name) == "" {
+		name = meta.Name + " copy"
+	}
+	return s.CreateEnvironment(name, meta.Env, meta.Vars, secrets)
+}
+
+// DeleteEnvironment removes an environment. Requests do not point at one —
+// the environment is picked per send — so nothing is left dangling.
+func (s *Service) DeleteEnvironment(id string) error {
+	record, err := s.items.Get(id)
+	if err != nil || record.Type != vaultitem.ItemTypeAPIEnvironment {
+		return ErrNotFound
+	}
+	return s.items.Delete(id)
+}
+
 // Environments lists them without any secret value.
 func (s *Service) Environments() ([]Environment, error) {
 	records, err := s.items.ListByType(vaultitem.ItemTypeAPIEnvironment)
@@ -119,17 +184,7 @@ func (s *Service) Environments() ([]Environment, error) {
 }
 
 func (s *Service) secretsOf(record vaultitem.Record) (map[string]string, error) {
-	payload, err := s.items.OpenPayload(record, KeyIDEnvironment)
-	if err != nil {
-		return nil, err
-	}
-	secrets := map[string]string{}
-	if len(payload) > 0 {
-		if err := json.Unmarshal(payload, &secrets); err != nil {
-			return nil, err
-		}
-	}
-	return secrets, nil
+	return openSecrets(s.items, record, KeyIDEnvironment)
 }
 
 func sortedKeys(m map[string]string) []string {
@@ -161,12 +216,13 @@ func (s *Service) EnvUsage(tag string) []string {
 
 // SaveRequest creates or replaces a request.
 func (s *Service) SaveRequest(req Request) (Request, error) {
-	if strings.TrimSpace(req.Name) == "" || req.Method == "" || req.URL == "" {
+	req = req.normalized()
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.URL) == "" {
 		return Request{}, ErrInvalid
 	}
 	meta := requestMetadata{
 		CollectionID: req.CollectionID, Name: req.Name,
-		Method: strings.ToUpper(req.Method), URLTemplate: req.URL,
+		Method: req.Method, URLTemplate: req.URL,
 		AccountID: req.Auth.AccountID, OriginRef: req.OriginRef,
 	}
 	raw, err := json.Marshal(meta)
@@ -174,7 +230,8 @@ func (s *Service) SaveRequest(req Request) (Request, error) {
 		return Request{}, err
 	}
 	payload, err := json.Marshal(requestPayload{
-		Query: req.Query, Headers: req.Headers, Body: req.Body, Auth: req.Auth,
+		Query: req.Query, Headers: req.Headers, PathVars: req.PathVars,
+		BodyMode: req.BodyMode, Body: req.Body, Form: req.Form, Auth: req.Auth,
 	})
 	if err != nil {
 		return Request{}, err
@@ -189,7 +246,6 @@ func (s *Service) SaveRequest(req Request) (Request, error) {
 		return Request{}, err
 	}
 	req.ID = record.ID
-	req.Method = meta.Method
 	req.CreatedAt, req.UpdatedAt = record.CreatedAt, record.UpdatedAt
 	return req, nil
 }
@@ -221,7 +277,7 @@ func (s *Service) Requests() ([]Request, error) {
 // Request returns one request in full.
 func (s *Service) Request(id string) (Request, error) {
 	record, err := s.items.Get(id)
-	if err != nil {
+	if err != nil || record.Type != vaultitem.ItemTypeAPIRequest {
 		return Request{}, ErrNotFound
 	}
 	var meta requestMetadata
@@ -243,11 +299,21 @@ func (s *Service) Request(id string) (Request, error) {
 			return req, err
 		}
 	}
-	req.Query, req.Headers, req.Body, req.Auth = body.Query, body.Headers, body.Body, body.Auth
-	return req, nil
+	req.Query, req.Headers, req.PathVars = body.Query, body.Headers, body.PathVars
+	req.BodyMode, req.Body, req.Form, req.Auth = body.BodyMode, body.Body, body.Form, body.Auth
+	return req.normalized(), nil
 }
 
-func (s *Service) DeleteRequest(id string) error { return s.items.Delete(id) }
+// DeleteRequest removes a request and what this machine remembers sending it.
+func (s *Service) DeleteRequest(id string) error {
+	if err := s.items.Delete(id); err != nil {
+		return err
+	}
+	if id != "" {
+		_ = s.ClearHistory(id)
+	}
+	return nil
+}
 
 // ---- sending ---------------------------------------------------------
 
@@ -259,51 +325,38 @@ type SendInput struct {
 	EnvironmentID string
 	// ForAgent bounds the response harder and is what the MCP path passes.
 	ForAgent bool
+	// Adhoc is a request an agent wrote itself rather than one a person
+	// saved. Its address is the agent's choice, so a credential or a secret
+	// variable in it is a person's call every time, on any environment.
+	Adhoc bool
 }
 
 // Send resolves variables, resolves the credential, gates on the environment
 // and makes the request.
+//
+// The request is whatever the caller holds — a saved one, or an editor's
+// unsaved state — and variables come from its collection, so an edit is sent
+// as typed without saving first.
 func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 	if in.EnvironmentID == "" {
 		return Response{}, ErrEnvRequired
 	}
-	record, err := s.items.Get(in.EnvironmentID)
-	if err != nil {
-		return Response{}, ErrNotFound
-	}
-	var envMeta environmentMetadata
-	if err := decodeInto(record.Metadata, &envMeta); err != nil {
-		return Response{}, err
-	}
-	secrets, err := s.secretsOf(record)
+	req := in.Request.normalized()
+	scope, err := s.resolve(req.CollectionID, in.EnvironmentID)
 	if err != nil {
 		return Response{}, err
 	}
-	vars := map[string]string{}
-	for key, value := range envMeta.Vars {
-		vars[key] = value
-	}
-	for key, value := range secrets {
-		vars[key] = value
-	}
+	vars := scope.vars
 
-	target := Interpolate(in.Request.URL, vars)
-	parsed, err := url.Parse(target)
+	target, err := targetURL(req, vars)
 	if err != nil {
-		return Response{}, ErrInvalid
-	}
-	if err := checkScheme(parsed); err != nil {
 		return Response{}, err
 	}
-
-	// Query parameters are folded in here, before the gate rather than after,
-	// only so that the URL history records is the one that would actually go
-	// out. The gate reads the host and the path, which this does not touch.
-	query := parsed.Query()
-	for key, value := range in.Request.Query {
-		query.Set(Interpolate(key, vars), Interpolate(value, vars))
+	gated := s.envs != nil && s.envs.RequiresConfirmation(scope.envTag)
+	withCredential := req.Auth.Kind != AuthNone && req.Auth.AccountID != ""
+	if err := checkScheme(target, gated, withCredential); err != nil {
+		return Response{}, err
 	}
-	parsed.RawQuery = query.Encode()
 
 	// From here the URL is known, so every outcome gets a line — including the
 	// two where nothing leaves. A history that lists only what succeeded
@@ -311,22 +364,41 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 	sentAt := time.Now()
 	note := func(status, bytes int, duration int64, failure string) {
 		s.record(HistoryEntry{
-			RequestID: in.Request.ID, EnvironmentID: in.EnvironmentID,
-			Method: strings.ToUpper(in.Request.Method), URL: parsed.String(),
+			RequestID: req.ID, EnvironmentID: in.EnvironmentID,
+			Method: req.Method, URL: target.String(),
 			Status: status, Bytes: bytes, DurationMS: duration,
 			Failure: failure, SentAt: sentAt,
 		})
 	}
 
+	// An agent's own request carrying a secret: the agent chose the host, so
+	// "send the token there" is not something the environment's tag can have
+	// already answered. Saved requests are the person's, and keep the tag's rule.
+	detail := "Send " + req.Method + " " + target.Path + "?"
+	ask := gated
+	if in.Adhoc {
+		var carries []string
+		if withCredential {
+			carries = append(carries, "the account "+req.Auth.AccountID)
+		}
+		for _, name := range secretsUsed(req, scope) {
+			carries = append(carries, "the secret {{"+name+"}}")
+		}
+		if len(carries) > 0 {
+			ask = true
+			detail = "An agent wants to send " + strings.Join(carries, ", ") + " to " + target.Host + " — " + req.Method + " " + target.Path + ". Allow?"
+		}
+	}
+
 	// The gate comes before anything leaves: env wins, every time, with no
 	// allow-always — the same rule the MCP confirmation policy already keeps.
-	if s.envs != nil && s.envs.RequiresConfirmation(envMeta.Env) {
+	if ask {
 		if s.confirm == nil {
 			return Response{}, ErrNotAllowed
 		}
 		allowed, err := s.confirm.Confirm(ctx,
-			strings.ToUpper(in.Request.Method)+" "+parsed.Host+" ("+envMeta.Env+")",
-			"Send "+strings.ToUpper(in.Request.Method)+" "+parsed.Path+"?")
+			req.Method+" "+target.Host+" ("+scope.envTag+")",
+			detail)
 		if err != nil {
 			return Response{}, err
 		}
@@ -336,26 +408,22 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 		}
 	}
 
-	body := Interpolate(in.Request.Body, vars)
-	var reader io.Reader
-	if body != "" {
-		reader = strings.NewReader(body)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, strings.ToUpper(in.Request.Method), parsed.String(), reader)
+	httpReq, err := buildHTTP(ctx, req, target, vars)
 	if err != nil {
 		return Response{}, err
 	}
-	for key, value := range in.Request.Headers {
-		httpReq.Header.Set(Interpolate(key, vars), Interpolate(value, vars))
-	}
-	if err := s.applyAuth(ctx, httpReq, in.Request.Auth, envMeta.Env); err != nil {
+	if err := s.applyAuth(ctx, httpReq, req.Auth, scope.envTag); err != nil {
 		return Response{}, err
 	}
 
 	started := time.Now()
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
-		note(0, 0, time.Since(started).Milliseconds(), err.Error())
+		failure := err.Error()
+		if ctx.Err() != nil {
+			failure = "cancelled"
+		}
+		note(0, 0, time.Since(started).Milliseconds(), failure)
 		return Response{}, err
 	}
 	defer resp.Body.Close()
@@ -374,17 +442,66 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Response, error) {
 	if truncated {
 		raw = raw[:limit]
 	}
-	headers := map[string]string{}
-	for key := range resp.Header {
-		headers[key] = resp.Header.Get(key)
-	}
 	duration := time.Since(started).Milliseconds()
 	note(resp.StatusCode, len(raw), duration, "")
-	return Response{
-		Status: resp.StatusCode, StatusText: resp.Status, Headers: headers,
+	out := Response{
+		Status: resp.StatusCode, StatusText: resp.Status,
 		Body: string(raw), Truncated: truncated, Bytes: len(raw),
 		DurationMS: duration,
-	}, nil
+	}
+	out.Headers, out.HeaderList = responseHeaders(resp.Header)
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		if location, locErr := resp.Location(); locErr == nil && originOf(location) != originOf(resp.Request.URL) {
+			out.RedirectBlocked = location.String()
+		}
+	}
+	if in.ForAgent {
+		out = out.ForAgent()
+	}
+	return out, nil
+}
+
+// secretsUsed names the secret variables a request would fill in, anywhere it
+// can hold one.
+func secretsUsed(req Request, scope resolvedScope) []string {
+	texts := []string{req.URL, req.Body}
+	for _, rows := range []KVList{req.Query, req.Headers, req.PathVars, req.Form} {
+		for _, row := range rows.Active() {
+			texts = append(texts, row.Key, row.Value)
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, text := range texts {
+		for _, match := range varPattern.FindAllStringSubmatch(text, -1) {
+			name := match[1]
+			if scope.secret[name] && !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// responseHeaders is both shapes of the response's headers.
+func responseHeaders(header http.Header) (map[string]string, KVList) {
+	names := make([]string, 0, len(header))
+	for name := range header {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	joined := make(map[string]string, len(names))
+	var list KVList
+	for _, name := range names {
+		values := header.Values(name)
+		joined[name] = strings.Join(values, ", ")
+		for _, value := range values {
+			list = append(list, KV{Key: name, Value: value})
+		}
+	}
+	return joined, list
 }
 
 // applyAuth resolves the bound account and builds the header. This is the only
@@ -416,49 +533,4 @@ func (s *Service) applyAuth(ctx context.Context, req *http.Request, auth Auth, e
 		return ErrInvalid
 	}
 	return nil
-}
-
-// checkScheme allows https, and http only on loopback — the same rule the
-// sync client keeps for a local mock server.
-func checkScheme(u *url.URL) error {
-	switch u.Scheme {
-	case "https":
-		return nil
-	case "http":
-		host := u.Hostname()
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-			return nil
-		}
-		return ErrSchemeInvalid
-	default:
-		return ErrSchemeInvalid
-	}
-}
-
-// CurlFor renders a request as cURL with the credential left as a shell
-// variable. A command with the real token in it is a command that ends up in
-// a chat, a ticket and a shell history.
-func CurlFor(req Request, vars map[string]string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "curl -X %s", strings.ToUpper(req.Method))
-	for key, value := range req.Headers {
-		fmt.Fprintf(&b, " \\\n  -H %q", Interpolate(key, vars)+": "+Interpolate(value, vars))
-	}
-	switch req.Auth.Kind {
-	case AuthBearer:
-		fmt.Fprintf(&b, " \\\n  -H %q", "Authorization: Bearer $DEVKIT_TOKEN")
-	case AuthBasic:
-		fmt.Fprintf(&b, " \\\n  -u %q", "$DEVKIT_USER:$DEVKIT_PASSWORD")
-	case AuthHeader:
-		name := req.Auth.Header
-		if name == "" {
-			name = "X-API-Key"
-		}
-		fmt.Fprintf(&b, " \\\n  -H %q", name+": $DEVKIT_TOKEN")
-	}
-	if req.Body != "" {
-		fmt.Fprintf(&b, " \\\n  --data %q", Interpolate(req.Body, vars))
-	}
-	fmt.Fprintf(&b, " \\\n  %q", Interpolate(req.URL, vars))
-	return b.String()
 }

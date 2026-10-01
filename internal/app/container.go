@@ -385,6 +385,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "request:list"},
 		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "request:*"},
 		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "environment:list"},
+		// Export is a read the window makes on the person's behalf; no MCP
+		// tool asks for it, so an agent cannot write the vault out to a file.
+		{SubjectID: "builtin.apiclient", Capability: "api:read", Scope: "export:*"},
 		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "request:new"},
 		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "request:*"},
 		{SubjectID: "builtin.apiclient", Capability: "api:write", Scope: "environment:*"},

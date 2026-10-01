@@ -13,6 +13,16 @@ export interface ActiveProfileDTO {
 }
 
 /**
+ * ApiExportSaved is an export written to disk. Path is empty when the person
+ * cancelled the save dialog.
+ */
+export interface ApiExportSaved {
+    "path": string;
+    "fileName": string;
+    "warnings": string[] | null;
+}
+
+/**
  * AuthStatusDTO deliberately omits all token material and refresh-token state.
  */
 export interface AuthStatusDTO {

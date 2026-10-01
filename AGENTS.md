@@ -541,7 +541,46 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   one-place edit and Copy as cURL emits `$DEVKIT_TOKEN`. The redirect policy
   compares the whole **origin**: comparing hostnames passed under httptest,
   where both servers are 127.0.0.1, and the test caught the credential
-  following a cross-service redirect.
+  following a cross-service redirect. A blocked redirect comes back as the 3xx
+  itself (`redirectBlocked` names where it pointed), not as an error.
+- **API client variables are Postman's three scopes**: globals (`api-globals`,
+  one item; two devices' copies merge and fold back into one on the next edit)
+  < collection, root folder first (both halves in the `api-collection` sealed
+  payload — its metadata keeps the old shape, because an older DevKit validates
+  metadata field by field and would refuse the whole pull) < environment.
+  `api-globals` is a new item type, so an older DevKit on another device stops
+  pulling once one exists, like every item type added before it. Secrets are write-only everywhere: an update names the
+  secrets to KEEP (`VarsUpdate.KeepSecrets`) and only new values cross the
+  bridge. Send still requires an environment — its tag is the gate — even when
+  every variable comes from elsewhere.
+- **A request is edited, not just sent.** `RequestInput` (no timestamps) is what
+  the bridge takes; query/headers/form are ordered `KVList` rows with `disabled`
+  (a stored map still decodes), `:name` path segments are `pathVars` on the
+  request, and `bodyMode` sets Content-Type unless a header row does.
+  `ApiSendRequest` sends the editor's unsaved state; `ApiCancelSend` stops it.
+  Plain `http://` is allowed to loopback always, elsewhere only with no bound
+  account on a tag that does not ask first (`ErrPlainHTTP`). Pasting curl
+  (`ParseCurl`) opens a draft; it is not an import.
+- **Import/export is format-agnostic** (`internal/apiclient/interchange.go`).
+  Every format converts to or from one tool-neutral `Bundle` and never touches
+  the vault; `Service.Import` / `Service.Export` are the only code that turns a
+  Bundle into vault items or back, so the rules live once: no secret VALUE
+  leaves (names do, empty), an account binding leaves as placeholder variables
+  (`{{<account>_token}}`, named via the optional `AccountNamer`), an imported
+  environment needs a tag (the person's choice, else one the file carries that
+  this machine knows — else `ErrTagRequired`, before anything is written).
+  **Adding a format is a new `format_*.go` implementing `Decoder` and/or
+  `Encoder`, plus a line in `formats`**; it may not reach into the model — a
+  missing concept grows the Bundle tool-neutrally. Today: `postman` (read +
+  write; an environment's tag rides in its name as `Name [tag]`) and `curl`
+  (write: a bash script, one function per request, `set -u`, running the file
+  alone sends nothing). The window lists formats from `ApiFormats` and knows
+  none by name. Export is `api:read` scope `export:*`, UI only — no MCP tool.
+  Agents get `api.sendAdhoc`, and every request/response they read has
+  credential-named rows masked (`Request.ForAgent`). An ad-hoc send
+  (`SendInput.Adhoc`) that carries a bound account or a secret variable asks
+  the person every time, on any tag: the agent chose the host, so the tag
+  cannot have answered "send this token there".
 - **Boards bind to workspaces through local `task_board_bindings`** (not synced):
   each machine maintains its own binding of board → workspace, never written into
   the synced board metadata. `workspace_id` is nullable; a row's mere presence

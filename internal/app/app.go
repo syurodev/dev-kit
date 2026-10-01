@@ -121,8 +121,8 @@ func RegisterBuiltins(container *Container) error {
 			Title:        "API Client",
 			Version:      "1.0.0",
 			APIVersion:   modules.CurrentAPIVersion,
-			Commands:     []string{"apiclient.new_request"},
-			Views:        []string{"apiclient.request"},
+			Commands:     []string{"apiclient.new_request", "apiclient.import"},
+			Views:        []string{"apiclient.request", "apiclient.variables"},
 			Capabilities: []string{"api:read", "api:write", "api:send"},
 		},
 		{

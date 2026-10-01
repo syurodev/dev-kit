@@ -36,13 +36,44 @@ export enum AuthKind {
 };
 
 /**
- * Collection groups requests.
+ * BodyMode is what the body is, which decides how it is encoded and the
+ * Content-Type it goes out with when the request does not set one itself.
+ */
+export enum BodyMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    BodyNone = "none",
+    BodyJSON = "json",
+    BodyText = "text",
+    BodyXML = "xml",
+
+    /**
+     * BodyURLEncoded and BodyMultipart read Form, not Body.
+     */
+    BodyURLEncoded = "urlencoded",
+    BodyMultipart = "multipart",
+};
+
+/**
+ * Collection groups requests. A collection with no parent is what Postman
+ * calls a collection; one with a parent is a folder in it. Both carry
+ * variables, and a nearer folder's win over its parents'.
  */
 export interface Collection {
     "id": string;
     "name": string;
     "parentId"?: string;
     "order": number;
+
+    /**
+     * Vars are the plain variables; SecretVars name the sealed ones, whose
+     * values are never returned.
+     */
+    "vars": { [_ in string]?: string } | null;
+    "secretVars": string[] | null;
 }
 
 /**
@@ -62,9 +93,12 @@ export interface EndpointDraft {
     "name": string;
     "method": string;
     "url": string;
-    "query"?: { [_ in string]?: string } | null;
-    "headers"?: { [_ in string]?: string } | null;
+    "query"?: KVList;
+    "headers"?: KVList;
+    "pathVars"?: KVList;
+    "bodyMode"?: BodyMode;
     "body"?: string;
+    "form"?: KVList;
     "auth": Auth;
 
     /**
@@ -115,6 +149,65 @@ export interface Environment {
 }
 
 /**
+ * ExportFile is an export, ready to save.
+ */
+export interface ExportFile {
+    "fileName": string;
+    "content": string;
+
+    /**
+     * Warnings say what the file does not carry: secret values, accounts.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * ExportKind is what an export holds.
+ */
+export enum ExportKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ExportCollection = "collection",
+    ExportEnvironment = "environment",
+    ExportGlobals = "globals",
+};
+
+/**
+ * ExportScope is what to export: one collection (with everything below it),
+ * one environment, or the globals.
+ */
+export interface ExportScope {
+    "kind": ExportKind;
+
+    /**
+     * ID is the collection or environment; empty for globals.
+     */
+    "id": string;
+}
+
+/**
+ * FormatInfo describes a format to the window.
+ */
+export interface FormatInfo {
+    "id": string;
+    "label": string;
+
+    /**
+     * Extension is the file extension an export gets, without the dot.
+     */
+    "extension": string;
+    "canImport": boolean;
+
+    /**
+     * Exports lists what the format can write; empty when it cannot write.
+     */
+    "exports": ExportKind[] | null;
+}
+
+/**
  * HistoryEntry is one send. There is no body and no headers on purpose: either
  * side can carry a token, a body can be megabytes, and re-sending is one
  * click — so what would be bought by keeping them is small and what is risked
@@ -145,6 +238,55 @@ export interface HistoryEntry {
 }
 
 /**
+ * ImportOptions are the person's answers to what a file cannot say.
+ */
+export interface ImportOptions {
+    /**
+     * EnvTag is the tag for environments the file brings without one.
+     */
+    "envTag": string;
+}
+
+/**
+ * ImportResult says what an import made and what it could not carry over.
+ */
+export interface ImportResult {
+    "format": string;
+    "collectionId"?: string;
+    "environmentId"?: string;
+    "name": string;
+    "folders": number;
+    "requests": number;
+    "variables": number;
+
+    /**
+     * Warnings are sentences, one per kind of thing left behind, with a count.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * KV is one row of a key/value table: a query parameter, a header, a form
+ * field, a path variable.
+ * 
+ * Disabled rather than Enabled so the zero value is a row that counts: an
+ * agent, an import or a request saved before rows could be switched off
+ * writes no flag at all, and every one of those means "send it".
+ */
+export interface KV {
+    "key": string;
+    "value": string;
+    "disabled"?: boolean;
+}
+
+/**
+ * KVList is an ordered table. A map was the first shape, and it could not say
+ * three things a person types every day: `ids=1&ids=2`, the order headers go
+ * out in, and "keep this row but do not send it for now".
+ */
+export type KVList = KV[] | null;
+
+/**
  * Request is one saved request.
  */
 export interface Request {
@@ -153,9 +295,12 @@ export interface Request {
     "name": string;
     "method": string;
     "url": string;
-    "query"?: { [_ in string]?: string } | null;
-    "headers"?: { [_ in string]?: string } | null;
+    "query"?: KVList;
+    "headers"?: KVList;
+    "pathVars"?: KVList;
+    "bodyMode"?: BodyMode;
     "body"?: string;
+    "form"?: KVList;
     "auth": Auth;
 
     /**
@@ -167,14 +312,127 @@ export interface Request {
 }
 
 /**
+ * RequestInput is a request as an editor holds it: everything but the
+ * timestamps, which are the store's to write. It is what the bridge takes,
+ * because a bound method with a time in its arguments fails in the binding
+ * layer unless the frontend invents an RFC3339 stamp.
+ */
+export interface RequestInput {
+    "id": string;
+    "collectionId": string;
+    "name": string;
+    "method": string;
+
+    /**
+     * URL is the address without its query: the query is Query, so the two
+     * can never disagree about what goes out. A URL that still carries one
+     * (an agent's, an old request's) keeps it, and Query is appended after.
+     */
+    "url": string;
+    "query"?: KVList;
+    "headers"?: KVList;
+
+    /**
+     * PathVars fill the :name segments of the path — the value of THIS call,
+     * such as the id of the refund being looked at, which belongs to the
+     * request rather than to any environment.
+     */
+    "pathVars"?: KVList;
+    "bodyMode"?: BodyMode;
+    "body"?: string;
+
+    /**
+     * Form is the body for urlencoded and multipart.
+     */
+    "form"?: KVList;
+    "auth": Auth;
+
+    /**
+     * OriginRef points back at the Code Graph endpoint this was drafted from.
+     */
+    "originRef"?: string;
+}
+
+/**
+ * ResolvedVar is one variable as a request would see it, after precedence.
+ */
+export interface ResolvedVar {
+    "name": string;
+
+    /**
+     * Value is empty for a secret.
+     */
+    "value": string;
+    "secret": boolean;
+    "scope": Scope;
+
+    /**
+     * ScopeName is the collection or environment it came from.
+     */
+    "scopeName": string;
+}
+
+/**
  * Response is what came back, already bounded.
  */
 export interface Response {
     "status": number;
     "statusText": string;
+
+    /**
+     * Headers is one value per name, repeated values joined by ", ". It is the
+     * shape tool-result cards and agents already read.
+     */
     "headers": { [_ in string]?: string } | null;
+
+    /**
+     * HeaderList is every header line as it came, in name order — the only
+     * place two Set-Cookie lines stay two.
+     */
+    "headerList": KVList;
     "body": string;
     "truncated": boolean;
     "bytes": number;
     "durationMs": number;
+
+    /**
+     * RedirectBlocked is where a redirect wanted to go when it was not
+     * followed because it left the origin. The 3xx is the response.
+     */
+    "redirectBlocked"?: string;
+}
+
+/**
+ * Scope names where a resolved variable came from.
+ */
+export enum Scope {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ScopeGlobal = "global",
+    ScopeCollection = "collection",
+    ScopeEnvironment = "environment",
+};
+
+/**
+ * VarSet is one scope's variables as the window sees them.
+ */
+export interface VarSet {
+    "vars": { [_ in string]?: string } | null;
+    "secretVars": string[] | null;
+}
+
+/**
+ * VarsUpdate is an edit to one scope's variables.
+ * 
+ * Secrets are write-only, so an editor cannot send back what it was never
+ * shown. It says instead which secret names to keep as they are; any
+ * existing secret neither kept nor given a new value is removed.
+ */
+export interface VarsUpdate {
+    "vars": { [_ in string]?: string } | null;
+    "secrets": { [_ in string]?: string } | null;
+    "keepSecrets": string[] | null;
 }

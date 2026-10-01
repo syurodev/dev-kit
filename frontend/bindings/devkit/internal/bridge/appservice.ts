@@ -617,6 +617,14 @@ export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentrunt
 }
 
 /**
+ * ApiCancelSend stops a send in flight. Stopping one that already finished is
+ * not an error: the person pressed Cancel as the answer arrived.
+ */
+export function ApiCancelSend(sendID: string): $CancellablePromise<void> {
+    return $Call.ByID(3975481650, sendID);
+}
+
+/**
  * ApiClearHistory forgets one request's sends, or every request's when the id
  * is empty.
  */
@@ -637,11 +645,12 @@ export function ApiCreateEnvironment(name: string, env: string, vars: { [_ in st
 }
 
 /**
- * ApiCurl renders a request as cURL with the credential left as a shell
- * variable, so the result is safe to paste into a ticket.
+ * ApiCurl renders what the editor holds as cURL, with the plain variables of
+ * its collection and environment filled in and the credential left as a shell
+ * variable — safe to paste into a ticket. A secret variable stays {{name}}.
  */
-export function ApiCurl(id: string, vars: { [_ in string]?: string } | null): $CancellablePromise<string> {
-    return $Call.ByID(3986395368, id, vars);
+export function ApiCurl($in: apiclient$0.RequestInput, environmentID: string): $CancellablePromise<string> {
+    return $Call.ByID(3986395368, $in, environmentID);
 }
 
 /**
@@ -650,6 +659,19 @@ export function ApiCurl(id: string, vars: { [_ in string]?: string } | null): $C
  */
 export function ApiDeleteCollection(id: string): $CancellablePromise<void> {
     return $Call.ByID(3684999301, id);
+}
+
+/**
+ * ApiDeleteCollectionTree removes a folder with everything inside. The window
+ * only offers it after showing what that is; it returns how many requests
+ * went with it.
+ */
+export function ApiDeleteCollectionTree(id: string): $CancellablePromise<number> {
+    return $Call.ByID(3936886709, id);
+}
+
+export function ApiDeleteEnvironment(id: string): $CancellablePromise<void> {
+    return $Call.ByID(178351990, id);
 }
 
 export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
@@ -665,8 +687,45 @@ export function ApiDraftFromEndpoint(endpointID: string): $CancellablePromise<ap
     return $Call.ByID(303944444, endpointID);
 }
 
+export function ApiDuplicateEnvironment(id: string, name: string): $CancellablePromise<apiclient$0.Environment> {
+    return $Call.ByID(185304144, id, name);
+}
+
 export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[] | null> {
     return $Call.ByID(3503140704);
+}
+
+/**
+ * ApiExport renders a collection, an environment or the globals in a format,
+ * for the window to copy. No secret value and no credential is in it, in any
+ * format: that is the exporter's rule, not the window's.
+ */
+export function ApiExport(scope: apiclient$0.ExportScope, formatID: string): $CancellablePromise<apiclient$0.ExportFile> {
+    return $Call.ByID(1400640604, scope, formatID);
+}
+
+/**
+ * ApiExportToFile exports and asks where to save it, writing the file from
+ * Go — the content never has to cross the bridge. 0o600: a collection holds
+ * addresses and plain variables, which are the person's own business.
+ */
+export function ApiExportToFile(scope: apiclient$0.ExportScope, formatID: string): $CancellablePromise<$models.ApiExportSaved> {
+    return $Call.ByID(2546155443, scope, formatID);
+}
+
+/**
+ * ApiFormats lists the file formats the API client reads and writes, and
+ * what each can do — the window offers only what a format supports.
+ */
+export function ApiFormats(): $CancellablePromise<apiclient$0.FormatInfo[] | null> {
+    return $Call.ByID(4080929506);
+}
+
+/**
+ * ApiGlobals lists the global variables, secret values withheld.
+ */
+export function ApiGlobals(): $CancellablePromise<apiclient$0.VarSet> {
+    return $Call.ByID(881701254);
 }
 
 /**
@@ -675,6 +734,22 @@ export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[]
  */
 export function ApiHistory(requestID: string, limit: number): $CancellablePromise<apiclient$0.HistoryEntry[] | null> {
     return $Call.ByID(3212882078, requestID, limit);
+}
+
+/**
+ * ApiImport reads another tool's file into the vault; formatID empty detects
+ * it. The audit line says the format and the size, never what was in it.
+ */
+export function ApiImport(formatID: string, data: string, opts: apiclient$0.ImportOptions): $CancellablePromise<apiclient$0.ImportResult> {
+    return $Call.ByID(1871601979, formatID, data, opts);
+}
+
+/**
+ * ApiParseCurl reads a pasted curl command into a request the editor opens.
+ * Nothing is saved and nothing is run.
+ */
+export function ApiParseCurl(command: string): $CancellablePromise<apiclient$0.RequestInput> {
+    return $Call.ByID(647925231, command);
 }
 
 export function ApiRequest(id: string): $CancellablePromise<apiclient$0.Request> {
@@ -694,13 +769,13 @@ export function ApiSaveCollection(id: string, name: string, parentID: string, or
 }
 
 /**
- * ApiSaveRequest takes the fields the window actually has rather than a whole
- * Request: that struct carries CreatedAt/UpdatedAt, and a bound method with a
- * time in its arguments fails in the binding layer unless the frontend invents
- * an RFC3339 stamp. Timestamps are the store's to write.
+ * ApiSaveRequest takes a RequestInput rather than a Request: that struct
+ * carries CreatedAt/UpdatedAt, and a bound method with a time in its arguments
+ * fails in the binding layer unless the frontend invents an RFC3339 stamp.
+ * Timestamps are the store's to write.
  */
-export function ApiSaveRequest(id: string, collectionID: string, name: string, method: string, url: string, query: { [_ in string]?: string } | null, headers: { [_ in string]?: string } | null, body: string, authKind: string, accountID: string, authHeader: string, originRef: string): $CancellablePromise<apiclient$0.Request> {
-    return $Call.ByID(3169872428, id, collectionID, name, method, url, query, headers, body, authKind, accountID, authHeader, originRef);
+export function ApiSaveRequest($in: apiclient$0.RequestInput): $CancellablePromise<apiclient$0.Request> {
+    return $Call.ByID(3169872428, $in);
 }
 
 /**
@@ -712,6 +787,44 @@ export function ApiSaveRequest(id: string, collectionID: string, name: string, m
  */
 export function ApiSend(id: string, environmentID: string): $CancellablePromise<apiclient$0.Response> {
     return $Call.ByID(3367835692, id, environmentID);
+}
+
+/**
+ * ApiSendRequest sends what the editor holds, saved or not — the same
+ * capability, gate and history as ApiSend. sendID names the send so
+ * ApiCancelSend can stop it; an empty one cannot be cancelled.
+ */
+export function ApiSendRequest($in: apiclient$0.RequestInput, environmentID: string, sendID: string): $CancellablePromise<apiclient$0.Response> {
+    return $Call.ByID(2005192277, $in, environmentID, sendID);
+}
+
+/**
+ * ApiSetCollectionVariables replaces a collection's (or folder's) variables.
+ */
+export function ApiSetCollectionVariables(id: string, update: apiclient$0.VarsUpdate): $CancellablePromise<apiclient$0.Collection> {
+    return $Call.ByID(1076306835, id, update);
+}
+
+export function ApiSetGlobals(update: apiclient$0.VarsUpdate): $CancellablePromise<apiclient$0.VarSet> {
+    return $Call.ByID(2204630142, update);
+}
+
+/**
+ * ApiUpdateEnvironment renames an environment, moves it to another tag and
+ * replaces its variables. Secret values travel one way: the update names the
+ * secrets to keep, and only new values cross the bridge.
+ */
+export function ApiUpdateEnvironment(id: string, name: string, env: string, update: apiclient$0.VarsUpdate): $CancellablePromise<apiclient$0.Environment> {
+    return $Call.ByID(2797893640, id, name, env, update);
+}
+
+/**
+ * ApiVariables is what a request in a collection would see under an
+ * environment, after precedence, secret values withheld — for showing where a
+ * {{name}} comes from and which have no value anywhere.
+ */
+export function ApiVariables(collectionID: string, environmentID: string): $CancellablePromise<apiclient$0.ResolvedVar[] | null> {
+    return $Call.ByID(255845091, collectionID, environmentID);
 }
 
 /**

@@ -7,10 +7,13 @@ import (
 	"errors"
 	"io/fs"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
+	"devkit/internal/apiclient"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
@@ -415,6 +418,27 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
+	if subject == "builtin.apiclient" {
+		if errors.Is(err, errNoSaveDialog) {
+			return apperrors.Wrap(codeValidationFailed, "There is no save dialog here (a browser window has none) — use Copy instead.", true, err)
+		}
+		if message, ok := apiClientMessage(err); ok {
+			return apperrors.Wrap(codeValidationFailed, message, true, err)
+		}
+		// A request that never got an answer: refused, timed out, no such
+		// host, a certificate the system does not trust. The network's own
+		// sentence is the whole point of an API client's error — but not the
+		// *url.Error around it, which quotes the address, and an address with
+		// variables filled in can carry a secret one.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			message := redactSecrets(urlErr.Err.Error())
+			if urlErr.Timeout() {
+				message = "The server did not answer within " + apiclient.DefaultTimeout.String() + "."
+			}
+			return apperrors.Wrap(codeConnectionFailed, message, true, err)
+		}
+	}
 	// The driver's own sentence — refused, timed out, wrong password, bad
 	// certificate — with anything that can hold a secret masked. A bare
 	// "Connection failed." left nobody able to act on it.
@@ -543,3 +567,36 @@ func agentTurnFailedMessage(agent agenthub.AgentType, vendorMessage string) stri
 // API key says: what would have worked, since the account itself is fine for
 // whatever else it is bound to.
 const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is not limited to an environment."
+
+// apiClientMessage words the API client's own refusals. Each is something the
+// person can act on, and the fallback would have called every one of them "An
+// unexpected error occurred."
+func apiClientMessage(err error) (string, bool) {
+	switch {
+	case errors.Is(err, apiclient.ErrEnvRequired):
+		return "Pick an environment first — its tag decides whether sending asks before it goes.", true
+	case errors.Is(err, apiclient.ErrSchemeInvalid):
+		return "Only http:// and https:// addresses can be sent.", true
+	case errors.Is(err, apiclient.ErrPlainHTTP):
+		return "Plain http:// is only allowed to this machine, or to a dev server when no account is bound and the environment does not ask before sending. Use https://.", true
+	case errors.Is(err, apiclient.ErrNotAllowed):
+		return "The request was not sent.", true
+	case errors.Is(err, apiclient.ErrNotFound):
+		return "That request, folder or environment no longer exists.", true
+	case errors.Is(err, apiclient.ErrCollectionNotEmpty):
+		return "This folder still holds " + strings.TrimPrefix(err.Error(), apiclient.ErrCollectionNotEmpty.Error()+": ") + ".", true
+	case errors.Is(err, apiclient.ErrNotCurl):
+		return "That does not read as a curl command.", true
+	case errors.Is(err, apiclient.ErrUnknownFormat):
+		return "DevKit does not recognise that file's format.", true
+	case errors.Is(err, apiclient.ErrNotRecognised):
+		return "That file is not one the chosen format can read.", true
+	case errors.Is(err, apiclient.ErrFormatCannot):
+		return "That format cannot do this — pick another.", true
+	case errors.Is(err, apiclient.ErrTagRequired):
+		return "The file holds an environment with no env tag. Pick the tag it should go under — it decides whether sending asks first.", true
+	case errors.Is(err, apiclient.ErrInvalid):
+		return "Some of the request is missing or malformed — check the name, the URL and the environment's tag.", true
+	}
+	return "", false
+}

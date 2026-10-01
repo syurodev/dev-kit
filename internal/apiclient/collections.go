@@ -47,25 +47,48 @@ func (s *Service) SaveCollection(c Collection) (Collection, error) {
 		}
 	}
 
-	raw, err := json.Marshal(collectionMetadata{
-		Name: c.Name, ParentID: c.ParentID, Order: c.Order,
-	})
-	if err != nil {
-		return Collection{}, err
-	}
-	var record vaultitem.Record
 	if c.ID == "" {
-		// A folder holds no secret, but a vault item must carry a valid
-		// envelope, so it seals an empty one rather than becoming a special
-		// case in sync.
-		record, err = s.items.Create(vaultitem.ItemTypeAPICollection, KeyIDCollection, raw, []byte{})
-	} else {
-		record, err = s.items.Update(c.ID, KeyIDCollection, raw, []byte{})
+		raw, err := json.Marshal(collectionMetadata{Name: c.Name, ParentID: c.ParentID, Order: c.Order})
+		if err != nil {
+			return Collection{}, err
+		}
+		// Secrets are set through SetCollectionVariables; a new folder starts
+		// with none. A folder with no variables still seals a payload rather
+		// than becoming a special case in sync.
+		payload, err := json.Marshal(collectionPayload{Vars: c.Vars})
+		if err != nil {
+			return Collection{}, err
+		}
+		record, err := s.items.Create(vaultitem.ItemTypeAPICollection, KeyIDCollection, raw, payload)
+		if err != nil {
+			return Collection{}, err
+		}
+		c.ID = record.ID
+		c.SecretVars = nil
+		return c, nil
 	}
+
+	// A rename or a move touches the metadata only: the variables and the
+	// sealed secrets stay what they were, so renaming a folder cannot empty it.
+	record, err := s.items.Get(c.ID)
+	if err != nil || record.Type != vaultitem.ItemTypeAPICollection {
+		return Collection{}, ErrNotFound
+	}
+	var meta collectionMetadata
+	if err := decodeInto(record.Metadata, &meta); err != nil {
+		return Collection{}, err
+	}
+	meta.Name, meta.ParentID, meta.Order = c.Name, c.ParentID, c.Order
+	raw, err := json.Marshal(meta)
 	if err != nil {
 		return Collection{}, err
 	}
-	c.ID = record.ID
+	if _, err := s.items.UpdateMetadata(c.ID, raw); err != nil {
+		return Collection{}, err
+	}
+	if sealed, openErr := s.collectionVars(record); openErr == nil {
+		c.Vars, c.SecretVars = sealed.Vars, sortedKeys(sealed.Secrets)
+	}
 	return c, nil
 }
 
@@ -81,9 +104,11 @@ func (s *Service) Collections() ([]Collection, error) {
 		if decodeInto(record.Metadata, &meta) != nil {
 			continue
 		}
-		out = append(out, Collection{
-			ID: record.ID, Name: meta.Name, ParentID: meta.ParentID, Order: meta.Order,
-		})
+		collection := Collection{ID: record.ID, Name: meta.Name, ParentID: meta.ParentID, Order: meta.Order}
+		if sealed, openErr := s.collectionVars(record); openErr == nil {
+			collection.Vars, collection.SecretVars = sealed.Vars, sortedKeys(sealed.Secrets)
+		}
+		out = append(out, collection)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Order != out[j].Order {
@@ -140,4 +165,67 @@ func (s *Service) CollectionContents(id string) ([]string, error) {
 		}
 	}
 	return holding, nil
+}
+
+// DeleteCollectionTree removes a folder with everything in it: its requests,
+// its subfolders and theirs. DeleteCollection refuses a full folder so a
+// tidying click cannot lose work; this is the other door, for the person who
+// has been shown what is inside and confirmed. It returns how many requests
+// went with it.
+func (s *Service) DeleteCollectionTree(id string) (int, error) {
+	if id == "" {
+		return 0, ErrInvalid
+	}
+	collections, err := s.Collections()
+	if err != nil {
+		return 0, err
+	}
+	found := false
+	children := map[string][]string{}
+	for _, collection := range collections {
+		children[collection.ParentID] = append(children[collection.ParentID], collection.ID)
+		if collection.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		return 0, ErrNotFound
+	}
+	// Breadth-first from the folder; the visited set ends a cycle a remote
+	// snapshot might still carry.
+	doomed := map[string]bool{}
+	order := []string{id}
+	for i := 0; i < len(order); i++ {
+		at := order[i]
+		if doomed[at] {
+			continue
+		}
+		doomed[at] = true
+		order = append(order, children[at]...)
+	}
+	requests, err := s.Requests()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, request := range requests {
+		if doomed[request.CollectionID] {
+			if err := s.DeleteRequest(request.ID); err != nil {
+				return removed, err
+			}
+			removed++
+		}
+	}
+	// Leaves first, so an interruption never leaves a child whose parent is
+	// gone — folderPath copes, but there is no reason to make it.
+	for i := len(order) - 1; i >= 0; i-- {
+		if !doomed[order[i]] {
+			continue
+		}
+		delete(doomed, order[i])
+		if err := s.items.Delete(order[i]); err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
 }

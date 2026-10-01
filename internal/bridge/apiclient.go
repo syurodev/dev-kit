@@ -2,10 +2,18 @@ package bridge
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"sync"
 
 	"devkit/internal/apiclient"
 	"devkit/internal/app"
 )
+
+// apiSends holds the cancel of every send in flight, by the id the window
+// gave it, so Cancel reaches the socket rather than only hiding a spinner.
+var apiSends sync.Map // sendID -> context.CancelFunc
 
 func (s *AppService) ApiRequests() ([]apiclient.Request, error) {
 	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
@@ -33,33 +41,20 @@ func (s *AppService) ApiRequest(id string) (apiclient.Request, error) {
 	return result.(apiclient.Request), nil
 }
 
-// ApiSaveRequest takes the fields the window actually has rather than a whole
-// Request: that struct carries CreatedAt/UpdatedAt, and a bound method with a
-// time in its arguments fails in the binding layer unless the frontend invents
-// an RFC3339 stamp. Timestamps are the store's to write.
-func (s *AppService) ApiSaveRequest(
-	id, collectionID, name, method, url string,
-	query, headers map[string]string,
-	body, authKind, accountID, authHeader, originRef string,
-) (apiclient.Request, error) {
+// ApiSaveRequest takes a RequestInput rather than a Request: that struct
+// carries CreatedAt/UpdatedAt, and a bound method with a time in its arguments
+// fails in the binding layer unless the frontend invents an RFC3339 stamp.
+// Timestamps are the store's to write.
+func (s *AppService) ApiSaveRequest(in apiclient.RequestInput) (apiclient.Request, error) {
 	scope := "request:new"
-	if id != "" {
-		scope = "request:" + recordID(id)
+	if in.ID != "" {
+		scope = "request:" + recordID(in.ID)
 	}
 	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", scope, map[string]any{
 		"action": "save",
-		"method": method,
+		"method": in.Method,
 	}, func(context.Context) (any, error) {
-		return s.container.APIClient.SaveRequest(apiclient.Request{
-			ID: id, CollectionID: collectionID, Name: name, Method: method,
-			URL: url, Query: query, Headers: headers, Body: body,
-			Auth: apiclient.Auth{
-				Kind:      apiclient.AuthKind(authKind),
-				AccountID: accountID,
-				Header:    authHeader,
-			},
-			OriginRef: originRef,
-		})
+		return s.container.APIClient.SaveRequest(in.Request())
 	})
 	if err != nil {
 		return apiclient.Request{}, err
@@ -105,6 +100,83 @@ func (s *AppService) ApiCreateEnvironment(name, env string, vars map[string]stri
 	return result.(apiclient.Environment), nil
 }
 
+// ApiUpdateEnvironment renames an environment, moves it to another tag and
+// replaces its variables. Secret values travel one way: the update names the
+// secrets to keep, and only new values cross the bridge.
+func (s *AppService) ApiUpdateEnvironment(id, name, env string, update apiclient.VarsUpdate) (apiclient.Environment, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "environment:"+recordID(id), map[string]any{
+		"action": "update_environment",
+		"env":    env,
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.UpdateEnvironment(id, name, env, update)
+	})
+	if err != nil {
+		return apiclient.Environment{}, err
+	}
+	return result.(apiclient.Environment), nil
+}
+
+func (s *AppService) ApiDuplicateEnvironment(id, name string) (apiclient.Environment, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "environment:new", map[string]any{
+		"action": "duplicate_environment",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.DuplicateEnvironment(id, name)
+	})
+	if err != nil {
+		return apiclient.Environment{}, err
+	}
+	return result.(apiclient.Environment), nil
+}
+
+func (s *AppService) ApiDeleteEnvironment(id string) error {
+	_, err := s.call(context.Background(), "builtin.apiclient", "api:write", "environment:"+recordID(id), map[string]any{
+		"action": "delete_environment",
+	}, func(context.Context) (any, error) {
+		return nil, s.container.APIClient.DeleteEnvironment(id)
+	})
+	return err
+}
+
+// ApiGlobals lists the global variables, secret values withheld.
+func (s *AppService) ApiGlobals() (apiclient.VarSet, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "environment:list", map[string]any{
+		"action": "globals",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.Globals()
+	})
+	if err != nil {
+		return apiclient.VarSet{}, err
+	}
+	return result.(apiclient.VarSet), nil
+}
+
+func (s *AppService) ApiSetGlobals(update apiclient.VarsUpdate) (apiclient.VarSet, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "environment:globals", map[string]any{
+		"action": "set_globals",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.SetGlobals(update)
+	})
+	if err != nil {
+		return apiclient.VarSet{}, err
+	}
+	return result.(apiclient.VarSet), nil
+}
+
+// ApiVariables is what a request in a collection would see under an
+// environment, after precedence, secret values withheld — for showing where a
+// {{name}} comes from and which have no value anywhere.
+func (s *AppService) ApiVariables(collectionID, environmentID string) ([]apiclient.ResolvedVar, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "environment:list", map[string]any{
+		"action": "variables",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.VariablesFor(collectionID, environmentID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]apiclient.ResolvedVar), nil
+}
+
 // ApiSend is its own capability: reading a request and firing it at a
 // production host are not the same permission.
 //
@@ -131,24 +203,172 @@ func (s *AppService) ApiSend(id, environmentID string) (apiclient.Response, erro
 	return result.(apiclient.Response), nil
 }
 
-// ApiCurl renders a request as cURL with the credential left as a shell
-// variable, so the result is safe to paste into a ticket.
-func (s *AppService) ApiCurl(id string, vars map[string]string) (string, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:"+opaqueID, map[string]any{
-		"action":     "curl",
-		"request_id": opaqueID,
+// ApiSendRequest sends what the editor holds, saved or not — the same
+// capability, gate and history as ApiSend. sendID names the send so
+// ApiCancelSend can stop it; an empty one cannot be cancelled.
+func (s *AppService) ApiSendRequest(in apiclient.RequestInput, environmentID, sendID string) (apiclient.Response, error) {
+	scope := "request:new"
+	if in.ID != "" {
+		scope = "request:" + recordID(in.ID)
+	}
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:send", scope, map[string]any{
+		"action":         "send",
+		"method":         in.Method,
+		"environment_id": recordID(environmentID),
+	}, func(ctx context.Context) (any, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		if sendID != "" {
+			apiSends.Store(sendID, cancel)
+			defer apiSends.Delete(sendID)
+		}
+		return s.container.APIClient.Send(ctx, apiclient.SendInput{
+			Request: in.Request(), EnvironmentID: environmentID,
+		})
+	})
+	if err != nil {
+		return apiclient.Response{}, err
+	}
+	return result.(apiclient.Response), nil
+}
+
+// ApiCancelSend stops a send in flight. Stopping one that already finished is
+// not an error: the person pressed Cancel as the answer arrived.
+func (s *AppService) ApiCancelSend(sendID string) {
+	if cancel, ok := apiSends.LoadAndDelete(sendID); ok {
+		cancel.(context.CancelFunc)()
+	}
+}
+
+// ApiCurl renders what the editor holds as cURL, with the plain variables of
+// its collection and environment filled in and the credential left as a shell
+// variable — safe to paste into a ticket. A secret variable stays {{name}}.
+func (s *AppService) ApiCurl(in apiclient.RequestInput, environmentID string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "curl",
 	}, func(context.Context) (any, error) {
-		req, err := s.container.APIClient.Request(id)
+		vars, err := s.container.APIClient.PlainVariables(in.CollectionID, environmentID)
 		if err != nil {
 			return nil, err
 		}
-		return apiclient.CurlFor(req, vars), nil
+		return apiclient.CurlFor(in.Request(), vars), nil
 	})
 	if err != nil {
 		return "", err
 	}
 	return result.(string), nil
+}
+
+// ApiParseCurl reads a pasted curl command into a request the editor opens.
+// Nothing is saved and nothing is run.
+func (s *AppService) ApiParseCurl(command string) (apiclient.RequestInput, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "parse_curl",
+	}, func(context.Context) (any, error) {
+		return apiclient.ParseCurl(command)
+	})
+	if err != nil {
+		return apiclient.RequestInput{}, err
+	}
+	return result.(apiclient.RequestInput), nil
+}
+
+// ApiFormats lists the file formats the API client reads and writes, and
+// what each can do — the window offers only what a format supports.
+func (s *AppService) ApiFormats() ([]apiclient.FormatInfo, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action": "formats",
+	}, func(context.Context) (any, error) {
+		return apiclient.Formats(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]apiclient.FormatInfo), nil
+}
+
+// ApiImport reads another tool's file into the vault; formatID empty detects
+// it. The audit line says the format and the size, never what was in it.
+func (s *AppService) ApiImport(formatID, data string, opts apiclient.ImportOptions) (apiclient.ImportResult, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:new", map[string]any{
+		"action": "import",
+		"format": formatID,
+		"env":    opts.EnvTag,
+		"bytes":  len(data),
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.Import(formatID, data, opts)
+	})
+	if err != nil {
+		return apiclient.ImportResult{}, err
+	}
+	return result.(apiclient.ImportResult), nil
+}
+
+// ApiExport renders a collection, an environment or the globals in a format,
+// for the window to copy. No secret value and no credential is in it, in any
+// format: that is the exporter's rule, not the window's.
+func (s *AppService) ApiExport(scope apiclient.ExportScope, formatID string) (apiclient.ExportFile, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "export:"+string(scope.Kind), map[string]any{
+		"action": "export",
+		"kind":   string(scope.Kind),
+		"format": formatID,
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.Export(scope, formatID)
+	})
+	if err != nil {
+		return apiclient.ExportFile{}, err
+	}
+	return result.(apiclient.ExportFile), nil
+}
+
+// errNoSaveDialog is a save dialog that could not be shown.
+var errNoSaveDialog = errors.New("bridge.noSaveDialog")
+
+// ApiExportSaved is an export written to disk. Path is empty when the person
+// cancelled the save dialog.
+type ApiExportSaved struct {
+	Path     string   `json:"path"`
+	FileName string   `json:"fileName"`
+	Warnings []string `json:"warnings"`
+}
+
+// ApiExportToFile exports and asks where to save it, writing the file from
+// Go — the content never has to cross the bridge. 0o600: a collection holds
+// addresses and plain variables, which are the person's own business.
+func (s *AppService) ApiExportToFile(scope apiclient.ExportScope, formatID string) (ApiExportSaved, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "export:"+string(scope.Kind), map[string]any{
+		"action": "export_to_file",
+		"kind":   string(scope.Kind),
+		"format": formatID,
+	}, func(context.Context) (any, error) {
+		file, err := s.container.APIClient.Export(scope, formatID)
+		if err != nil {
+			return nil, err
+		}
+		dialogFunc := s.saveFileDialog
+		if dialogFunc == nil {
+			dialogFunc = defaultSaveFileDialog
+		}
+		path, err := dialogFunc(file.FileName)
+		if err != nil {
+			// Server mode has no native dialog at all; a desktop dialog that
+			// fails is rarer but reads the same to the person: use Copy.
+			return nil, fmt.Errorf("%w: %v", errNoSaveDialog, err)
+		}
+		saved := ApiExportSaved{FileName: file.FileName, Warnings: file.Warnings}
+		if path == "" {
+			return saved, nil
+		}
+		if err := os.WriteFile(path, []byte(file.Content), 0o600); err != nil {
+			return nil, err
+		}
+		saved.Path = path
+		return saved, nil
+	})
+	if err != nil {
+		return ApiExportSaved{}, err
+	}
+	return result.(ApiExportSaved), nil
 }
 
 // ---- collections -----------------------------------------------------
@@ -190,6 +410,34 @@ func (s *AppService) ApiDeleteCollection(id string) error {
 		return nil, s.container.APIClient.DeleteCollection(id)
 	})
 	return err
+}
+
+// ApiSetCollectionVariables replaces a collection's (or folder's) variables.
+func (s *AppService) ApiSetCollectionVariables(id string, update apiclient.VarsUpdate) (apiclient.Collection, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:*", map[string]any{
+		"action": "collection_variables",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.SetCollectionVariables(id, update)
+	})
+	if err != nil {
+		return apiclient.Collection{}, err
+	}
+	return result.(apiclient.Collection), nil
+}
+
+// ApiDeleteCollectionTree removes a folder with everything inside. The window
+// only offers it after showing what that is; it returns how many requests
+// went with it.
+func (s *AppService) ApiDeleteCollectionTree(id string) (int, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:write", "request:*", map[string]any{
+		"action": "delete_collection_tree",
+	}, func(context.Context) (any, error) {
+		return s.container.APIClient.DeleteCollectionTree(id)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
 }
 
 // ---- history ---------------------------------------------------------

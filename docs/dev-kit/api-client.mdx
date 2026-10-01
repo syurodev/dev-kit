@@ -17,14 +17,13 @@ như query database trên `prod`.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Design only">
-Chưa có runtime: chưa có `internal/apiclient`, chưa có module
-`frontend/src/modules/apiclient/`, chưa có record type `api-*` trong
-`internal/vaultitem/schema.go`. Thiết kế UI:
+<Callout type="info" title="Đã có runtime">
+`internal/apiclient` + `frontend/src/modules/apiclient/` chạy được để dùng hằng ngày thay
+Postman: collection/folder/request, biến Globals/collection/environment, editor đầy đủ, import
+cURL và Postman. Phần chưa làm ở [Implementation status](/dev-kit/implementation-status) và
+mục [Dùng hằng ngày](#dùng-hằng-ngày-thay-postman) bên dưới. Thiết kế UI gốc:
 [Figma page 20 · API Client](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1197-2).
 Luật liên module (entity ref, intent) ở [Liên module](/dev-kit/cross-module).
-FR-14…16 phụ thuộc [Tài khoản](/dev-kit/accounts) — cũng chưa có runtime; chưa
-có Accounts thì auth quay về header tự do, phần còn lại không đổi.
 </Callout>
 
 ```mermaid
@@ -102,7 +101,7 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 | NFR-3 | Gate fail closed: headless / không ai trả lời trong 60s ⇒ không gửi (`interaction.DefaultTimeout`, như Agent Hub). |
 | NFR-4 | Body response cắt ở 5 MB khi hiển thị và 256 KB khi trả cho agent (kèm `truncated: true`); không treo UI với response lớn. |
 | NFR-5 | Timeout mặc định 30s, cancel được từ UI và từ ctx của MCP call. |
-| NFR-6 | Chỉ `http`/`https`. Không theo redirect sang host khác mà không báo (đổi host ⇒ dừng, hiện response 3xx). |
+| NFR-6 | Chỉ `http`/`https`. `http://` tới loopback luôn được; tới máy khác chỉ khi request **không** bind account và env tag **không** hỏi trước (`ErrPlainHTTP`) — dev server trong LAN/container là chuyện thường ngày, credential hay env cần xác nhận thì không đi plaintext. Không theo redirect sang origin khác (scheme + host + port): dừng và trả chính response 3xx, `redirectBlocked` nêu nơi nó trỏ tới. |
 
 ### Out of scope (v1)
 
@@ -110,7 +109,8 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 - Script trước/sau request (pre-request / test script chạy JS) — v1 chỉ có
   assertion khai báo đơn giản trong tab Tests.
 - Mock server, load test, chạy cả collection theo lịch.
-- Import OpenAPI/Postman collection — để sau; Code Graph đã là nguồn endpoint.
+- Định dạng OpenAPI/Insomnia/Bruno/HAR — để sau; chỗ cắm đã có (`formats`). Postman
+  v2.1 (đọc + ghi) và cURL script (ghi) đã có.
 - OAuth2 flow tương tác (authorization code) — v1 chỉ nhận token có sẵn.
 
 ### Acceptance criteria
@@ -183,9 +183,10 @@ Ba record type mới (thêm vào hai switch `IsSupportedItemType` và
 
 | Type | Metadata (plaintext) | Payload (mã hoá) |
 |---|---|---|
-| `api-collection` | `name`, `parent_id` (folder), `order` | — |
-| `api-request` | `collection_id`, `name`, `method`, `url_template`, `account_id` (optional), `origin_ref` (optional) | headers, query, body |
+| `api-collection` | `name`, `parent_id` (folder), `order` — không đổi | `{vars, secrets}`: biến của collection, **cả hai nửa** trong payload. Metadata giữ nguyên hình dạng vì bản DevKit cũ kiểm metadata từng field và sẽ từ chối cả lượt pull; payload cũ rỗng đọc thành "không có biến" |
+| `api-request` | `collection_id`, `name`, `method`, `url_template`, `account_id` (optional), `origin_ref` (optional) | `query`, `headers`, `path_vars`, `form` (danh sách `{key, value, disabled}` có thứ tự — payload cũ dạng map vẫn đọc được), `body_mode`, `body`, `auth` |
 | `api-environment` | `name`, `env` (env tag, bắt buộc), tên các biến không secret + giá trị | giá trị biến secret |
+| `api-globals` | `vars` | biến secret. Một item; hai máy cùng tạo trước lần sync đầu thì được gộp khi đọc và gộp lại thành một ở lần sửa kế tiếp |
 
 Mẫu là `db-profile`: metadata đủ để liệt kê/lọc mà không cần giải mã; thứ nhạy
 cảm nằm trong payload. `env` validate qua `EnvLookup.Exists`, và `DeleteTag`
@@ -244,6 +245,52 @@ UI**: request nháp sinh từ endpoint Lua hiện rõ "không suy được body 
 chứ không hiện một `{}` trống khiến người dùng tưởng DTO rỗng. Với cả ba, phần
 method + path + path param luôn có, nên `Try in API Client` vẫn có giá trị
 ngay từ v1.
+
+## Dùng hằng ngày thay Postman
+
+**Biến — ba tầng, gần nhất thắng**: Globals < collection (từ folder gốc xuống folder
+chứa request) < environment. Đúng thứ tự người dùng Postman đã quen. Mỗi tầng có biến
+thường và biến **secret**: secret nằm trong payload mã hoá, chỉ được *đặt* hoặc *giữ
+nguyên* (`VarsUpdate.keepSecrets`), không có method nào trả giá trị về — kể cả cho UI.
+`ApiVariables(collectionId, environmentId)` cho UI biết mỗi `{{name}}` đến từ đâu và cái
+nào không có giá trị ở đâu cả. Send **vẫn bắt buộc environment**: tag của nó là cổng
+xác nhận, kể cả khi mọi biến đến từ Globals hay collection.
+
+**Request là thứ để sửa**: một tab một request, sửa bản làm việc, `⌘S` mới ghi.
+URL bar và bảng Params là hai mặt của một dữ liệu (`url` không chứa query; query là các
+dòng). `:id` trong path là **path variable** của chính request — giá trị của *lần gọi
+này*, không phải của environment — nên draft từ Code Graph giờ sinh `/refunds/:id`.
+`bodyMode` quyết định cách encode và `Content-Type` (trừ khi có dòng header tự đặt;
+multipart luôn tự đặt vì boundary). `⌘↵` gửi **bản chưa lưu** (`ApiSendRequest`), có
+Cancel tới tận socket (`ApiCancelSend`).
+
+**Import / export theo định dạng, không gắn với một tool** (`interchange.go`): mọi định
+dạng chỉ chuyển qua lại với một mô hình trung gian (`Bundle`) và không bao giờ chạm vault;
+luật nằm một chỗ cho mọi định dạng — **không giá trị secret nào ra ngoài** (tên thì có,
+giá trị rỗng), **account đã bind ra ngoài thành biến giữ chỗ** (`{{github_work_token}}`),
+environment nhập vào **phải có tag** (người dùng chọn, hoặc tag ghi trong file mà máy này
+có; không thì từ chối trước khi ghi gì). Thêm một định dạng (Insomnia, Bruno, OpenAPI,
+HAR…) = một file `format_*.go` cài `Decoder` và/hoặc `Encoder` + một dòng trong
+`formats`; UI đọc danh sách định dạng từ Go nên không cần sửa. Hiện có: **Postman v2.1**
+(đọc + ghi collection, environment, globals; tag của environment đi trong tên
+`Tên [tag]` vì Postman không có chỗ khác) và **cURL script** (ghi collection thành file
+bash, mỗi request một hàm, chạy `./file.sh ten_request`; chạy file trống không gửi gì).
+Export ghi file từ Go (quyền 0600) qua hộp thoại lưu, hoặc Copy.
+
+**Dán cURL**: vào URL bar (hoặc Import → cURL) — đọc `-X/-H/-d/--data-*/-F/-u/-b/-G`,
+cả `$'…'` mà "Copy as cURL" của trình duyệt sinh ra; mở thành request nháp, không lưu.
+Postman v2.0/v2.1 collection → collection + folder + request + biến collection; auth của Postman
+(token nằm trên request) thành **header nó lẽ ra gửi** (`Authorization: Bearer {{token}}`),
+bind account là một click sau. Script pre-request/test không chạy, được đếm và báo.
+Environment/globals export của Postman → environment (người dùng chọn tag, vì Postman
+không có) hoặc gộp vào Globals.
+
+**Agent**: thêm `api.sendAdhoc` (gửi request chưa lưu, cùng luật gate với `api.send`).
+Khác một điểm: request do agent tự viết mà mang account đã bind hoặc biến secret thì
+**luôn hỏi người dùng**, trên mọi env tag — agent chọn host, nên tag không thể đã trả lời
+câu "gửi token này tới đó". Headless ⇒ từ chối.
+Mọi request/response trả cho agent che giá trị các dòng có tên kiểu credential
+(`Authorization`, `Cookie`, `*token*`, `*key*`…) trừ khi giá trị chỉ là `{{biến}}`.
 
 ## Known ceiling (v1)
 

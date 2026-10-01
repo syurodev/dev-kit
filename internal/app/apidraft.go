@@ -53,12 +53,19 @@ func draftFor(endpoint codegraph.EntryPoint, params []codegraph.Param) apiclient
 	if method == "" {
 		method = "GET"
 	}
+	path := pathTemplate(endpoint.Target)
 	draft := apiclient.EndpointDraft{Request: apiclient.Request{
 		Name:      method + " " + endpoint.Target,
 		Method:    method,
-		URL:       "{{baseUrl}}" + pathTemplate(endpoint.Target),
+		URL:       "{{baseUrl}}" + path,
 		OriginRef: endpoint.ID,
 	}}
+	// A path parameter is the value of this one call — the id of the refund
+	// being looked at — so it is a row on the request, empty until somebody
+	// fills it, rather than an environment variable every refund would share.
+	for _, name := range apiclient.PathVarNames(path) {
+		draft.PathVars = append(draft.PathVars, apiclient.KV{Key: name})
+	}
 
 	var body *codegraph.Param
 	typed := false
@@ -69,18 +76,12 @@ func draftFor(endpoint codegraph.EntryPoint, params []codegraph.Param) apiclient
 		}
 		switch param.Source {
 		case codegraph.ParamSourceQuery:
-			if draft.Query == nil {
-				draft.Query = map[string]string{}
-			}
 			// The value is the variable, not a guess at what belongs there:
 			// an environment fills it, and an empty string in the URL would
 			// send a parameter the caller never meant to send.
-			draft.Query[param.Wire()] = "{{" + param.Wire() + "}}"
+			draft.Query = append(draft.Query, apiclient.KV{Key: param.Wire(), Value: "{{" + param.Wire() + "}}"})
 		case codegraph.ParamSourceHeader:
-			if draft.Headers == nil {
-				draft.Headers = map[string]string{}
-			}
-			draft.Headers[param.Wire()] = "{{" + param.Wire() + "}}"
+			draft.Headers = append(draft.Headers, apiclient.KV{Key: param.Wire(), Value: "{{" + param.Wire() + "}}"})
 		case codegraph.ParamSourceBody:
 			if body == nil {
 				body = &params[i]
@@ -97,15 +98,29 @@ func draftFor(endpoint codegraph.EntryPoint, params []codegraph.Param) apiclient
 		draft.Note = apiclient.NoteBodyNotReadable
 	default:
 		draft.Body = bodySkeleton(*body)
+		draft.BodyMode = apiclient.BodyJSON
 		draft.BodyInferred = true
 	}
 	return draft
 }
 
-// pathTemplate turns a route's own placeholders into the API client's, so an
-// environment fills them: /refunds/{id} and /refunds/:id both become
-// /refunds/{{id}}.
+// pathTemplate turns a route's own placeholders into the API client's:
+// /refunds/{id} and /refunds/:id both become /refunds/:id, a path variable the
+// request fills. A placeholder that is only PART of a segment (/files/{name}.json)
+// becomes {{name}} instead — a path variable is a whole segment.
 func pathTemplate(path string) string {
+	segments := strings.Split(placeholders(path), "/")
+	for i, segment := range segments {
+		if strings.HasPrefix(segment, "{{") && strings.HasSuffix(segment, "}}") &&
+			strings.Count(segment, "{{") == 1 && len(segment) > 4 {
+			segments[i] = ":" + segment[2:len(segment)-2]
+		}
+	}
+	return strings.Join(segments, "/")
+}
+
+// placeholders rewrites every route placeholder as {{name}}.
+func placeholders(path string) string {
 	var out strings.Builder
 	for i := 0; i < len(path); {
 		switch {
