@@ -5,7 +5,7 @@ import { errorMessage } from "@/bridge/errors";
 import { listBoards, listTasks, onTasksChanged, type Board, type Task } from "@/bridge/tasks";
 import { listWorkspaces, type Workspace } from "@/bridge/workspace";
 import { createBoardChangeDebouncer } from "./tasksTree";
-import { upsert, withStatus } from "./taskModel";
+import { upsert, withStatus, type TaskView } from "./taskModel";
 
 /**
  * Data and fold state for the Tasks sidebar tree (tasksTree.ts builds the rows
@@ -34,6 +34,9 @@ export type TasksStoreState = {
   /** Keyed `${boardId}:${statusId}`: a status id is only unique within its board. */
   expandedStatuses: Record<string, boolean>;
   expandedTasks: Record<string, boolean>;
+  /** How each board is drawn — columns or a list. Persisted, per board. */
+  boardViews: Record<string, TaskView>;
+  setBoardView: (boardId: string, view: TaskView) => void;
 
   /**
    * Flips one row's fold state. Each takes the row's OWN `expanded` value —
@@ -101,6 +104,10 @@ export const useTasksStore = create<TasksStoreState>()(
       expandedBoards: {},
       expandedStatuses: {},
       expandedTasks: {},
+      boardViews: {},
+
+      setBoardView: (boardId, view) =>
+        set((state) => ({ boardViews: { ...state.boardViews, [boardId]: view } })),
 
       toggleWorkspace: (id, expanded) =>
         set((state) => ({ expandedWorkspaces: { ...state.expandedWorkspaces, [id]: !expanded } })),
@@ -221,6 +228,7 @@ export const useTasksStore = create<TasksStoreState>()(
         expandedBoards: state.expandedBoards,
         expandedStatuses: state.expandedStatuses,
         expandedTasks: state.expandedTasks,
+        boardViews: state.boardViews,
       }),
     },
   ),

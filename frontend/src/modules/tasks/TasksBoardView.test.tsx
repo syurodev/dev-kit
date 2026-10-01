@@ -89,6 +89,7 @@ beforeEach(() => {
     expandedBoards: {},
     expandedStatuses: {},
     expandedTasks: {},
+    boardViews: {},
   });
   seed(useWorkspaceSwitcherStore, { currentId: null });
 });
@@ -217,5 +218,39 @@ describe("TasksBoardView", () => {
     expect(html).toContain("PAY-abc123 Refund flow — show details");
     // Nothing is picked until someone picks it.
     expect(html).not.toContain('aria-current="true"');
+  });
+
+  test("the header sums the board up, leaving out what is zero", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: {
+        b1: [task({ id: "t1", blockedBy: ["t2"] }), task({ id: "t2", key: "PAY-def456", status: "done" }), task({ id: "t3", key: "PAY-ghi789", blockedBy: ["t1"] })],
+      },
+    });
+    // Text only: the count and its word sit in separate spans.
+    const html = render({ boardId: "b1" }).replace(/<[^>]+>/g, "");
+    expect(html).toContain("1/3");
+    expect(html).toContain("1 waiting");
+    expect(html).not.toContain("in progress");
+    expect(html).not.toContain("with agents");
+  });
+
+  test("every status column offers to add a task in place, and an empty one says so", () => {
+    seed(useTasksStore, { boards: [board()], tasksByBoard: { b1: [task()] } });
+    const html = render({ boardId: "b1" });
+    expect(html.match(/Add task/g)?.length).toBe(2);
+    expect(html).toContain("Nothing finished yet");
+  });
+
+  test("a board remembered as a list draws rows, finished groups folded", () => {
+    seed(useTasksStore, {
+      boards: [board()],
+      tasksByBoard: { b1: [task(), task({ id: "t2", key: "PAY-def456", title: "Shipped thing", status: "done" })] },
+      boardViews: { b1: "list" },
+    });
+    const html = render({ boardId: "b1" });
+    expect(html).toContain("Refund flow");
+    expect(html).not.toContain("Shipped thing");
+    expect(html).not.toContain("Add task");
   });
 });

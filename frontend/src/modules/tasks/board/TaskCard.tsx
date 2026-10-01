@@ -3,6 +3,7 @@ import { Archive, Copy, Ellipsis, GitBranch, Hourglass, Maximize2, PanelRight } 
 import { toast } from "sonner";
 import { progressOf, type Board, type Task } from "@/bridge/tasks";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { openTaskDetail } from "../documents";
-import { AgentHeld, PriorityIcon, StatusDot } from "../TaskBits";
+import { AgentHeld, AssigneeAvatar, PriorityIcon, StatusDot } from "../TaskBits";
+import { relativeTime } from "../taskModel";
 import { archive, moveTo } from "../taskActions";
 
 /** Labels shown on a card before the rest fold into "+n". */
@@ -42,7 +44,7 @@ export function TaskCardBody({
 }) {
   const progress = subtasks.length > 0 ? progressOf(board, [...subtasks]) : null;
   const labels = task.labels ?? [];
-  const hasMeta = !!progress || waitingOn > 0 || labels.length > 0 || !!task.branch;
+  const hasTags = waitingOn > 0 || labels.length > 0 || !!task.branch;
 
   return (
     <>
@@ -50,26 +52,23 @@ export function TaskCardBody({
         <span className="text-code-11 text-text-tertiary">{task.key}</span>
         {task.sessionId ? <AgentHeld className="size-(--icon-12)" /> : null}
         <span className="flex-1" />
-        {task.priority ? <PriorityIcon priority={task.priority} /> : null}
+        {/* Under the card's menu button, which takes this corner on hover. */}
+        {task.priority ? <PriorityIcon priority={task.priority} className="group-hover/card:invisible" /> : null}
       </div>
       <p className="line-clamp-2 text-body-13 text-text-primary">{task.title}</p>
-      {hasMeta ? (
+      {hasTags ? (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-caption-11 text-text-tertiary">
           {waitingOn > 0 ? (
-            <span className="inline-flex items-center gap-1 text-status-warning" title="Waiting on unfinished tasks">
+            <span
+              className="inline-flex h-5 items-center gap-1 rounded-sm bg-status-warning/10 px-1.5 text-status-warning"
+              title="Waiting on unfinished tasks"
+            >
               <Hourglass aria-hidden className="size-(--icon-12)" />
               <span className="tabular-nums">{waitingOn}</span>
             </span>
           ) : null}
-          {progress ? (
-            // Counted by category, so a board that renamed its Done column
-            // still counts. It counts without blocking: the parent can close.
-            <span className="tabular-nums" title="Subtasks done">
-              {progress.done}/{progress.total}
-            </span>
-          ) : null}
           {labels.slice(0, SHOWN_LABELS).map((label) => (
-            <span key={label} className="max-w-24 truncate rounded-sm bg-state-soft px-1.5">
+            <span key={label} className="inline-flex h-5 max-w-24 items-center truncate rounded-sm bg-state-soft px-1.5">
               {label}
             </span>
           ))}
@@ -82,12 +81,31 @@ export function TaskCardBody({
           ) : null}
         </div>
       ) : null}
+      {/* Always drawn, so every card ends on the same line: progress on the
+          left, who and when on the right. */}
+      <div className="flex h-5 items-center gap-2 text-caption-11 text-text-tertiary">
+        {progress ? (
+          // Counted by category, so a board that renamed its Done column
+          // still counts. It counts without blocking: the parent can close.
+          <span className="inline-flex items-center gap-1.5" title="Subtasks done">
+            <Progress value={(progress.done / progress.total) * 100} className="w-10" aria-hidden />
+            <span className="tabular-nums">
+              {progress.done}/{progress.total}
+            </span>
+          </span>
+        ) : null}
+        <span className="flex-1" />
+        <span className="tabular-nums" title={task.updatedAt}>
+          {relativeTime(task.updatedAt)}
+        </span>
+        <AssigneeAvatar name={task.assignee} />
+      </div>
     </>
   );
 }
 
 export const CARD_CLASS =
-  "group/card relative flex w-full flex-col gap-1.5 rounded-md border border-border-subtle bg-surface-well p-2.5 text-left transition-colors duration-(--motion-fast)";
+  "group/card relative flex w-full flex-col gap-1.5 rounded-md border border-border-subtle bg-surface-raised p-2.5 text-left transition-colors duration-(--motion-fast)";
 
 /**
  * One card: dragged to move it, clicked to show it in the board's right-hand
@@ -150,7 +168,7 @@ export function TaskCard({
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
-              className="absolute right-1.5 bottom-1.5 opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+              className="absolute top-1.5 right-1.5 opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
             >
               <Ellipsis aria-hidden />
             </Button>

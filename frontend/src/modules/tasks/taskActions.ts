@@ -2,12 +2,14 @@ import { toast } from "sonner";
 import {
   addComment,
   archiveTask,
+  createTask,
   deleteTask,
   setTaskFields,
   transitionTask,
   unarchiveTask,
   updateTask,
   TASK_STATUS_CHANGED,
+  type Board,
   type Comment,
   type Task,
   type TaskFieldsPatch,
@@ -168,6 +170,26 @@ export function comment(taskId: string, body: string): Promise<boolean> {
       queryClient.setQueryData<Comment[]>(key, (old) =>
         (old ?? []).filter((candidate) => candidate.id !== pending.id),
       );
+      toast.error(errorMessage(error));
+      return false;
+    },
+  );
+}
+
+/**
+ * A task made from a column's "Add task": created where every task starts
+ * (the board's first open column, which the service decides) and moved on to
+ * the column it was typed into when that is a different one. Two writes, but
+ * the board shows the card in its column from the first answer on.
+ */
+export function createIn(board: Board, statusId: string, title: string): Promise<boolean> {
+  return createTask({ boardId: board.id, title }).then(
+    (created) => {
+      useTasksStore.getState().upsertTask(created);
+      if (created.status !== statusId) void moveTo(created, statusId);
+      return true;
+    },
+    (error) => {
       toast.error(errorMessage(error));
       return false;
     },

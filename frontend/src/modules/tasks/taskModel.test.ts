@@ -5,11 +5,13 @@ import {
   UNKNOWN_COLUMN,
   blockerCandidates,
   boardLabels,
+  boardSummary,
   columnsOf,
   dependentCandidates,
   dependentsOf,
   dependsOn,
   indexById,
+  initials,
   openBlockers,
   parentCandidates,
   priorityLabel,
@@ -202,5 +204,26 @@ describe("small helpers", () => {
     expect(relativeTime("2026-09-30T09:00:00Z", now)).toBe("3h ago");
     expect(relativeTime("2026-09-28T12:00:00Z", now)).toBe("2d ago");
     expect(relativeTime("not a date", now)).toBe("");
+  });
+});
+
+describe("boardSummary", () => {
+  test("counts by category; finished work is neither blocked nor held", () => {
+    const tasks = [
+      task("a", { status: "doing", blockedBy: ["b"], sessionId: "s1" }),
+      task("b"),
+      task("c", { status: "done", sessionId: "s2", blockedBy: ["b"] }),
+      task("d", { parentId: "b", status: "done" }),
+    ];
+    expect(boardSummary(board, tasks)).toEqual({ total: 4, done: 2, active: 1, blocked: 1, heldByAgent: 1 });
+  });
+});
+
+describe("initials", () => {
+  test("one word, several words, separators, empty", () => {
+    expect(initials("syuro")).toBe("SY");
+    expect(initials("Ada Lovelace")).toBe("AL");
+    expect(initials("jane.doe")).toBe("JD");
+    expect(initials("  ")).toBe("");
   });
 });

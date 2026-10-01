@@ -1078,6 +1078,21 @@ chối thì đọc lại sự thật thay vì chạy một phép đảo ngược
   còn thì vào cột "No column" thay vì biến mất. Filter (key/title/label,
   priority, label, agent đang giữ) lọc local trên summary đã tải, đọc bản
   `useDeferredValue` nên gõ không chờ cột render. "New task" mở dialog đặt tên.
+- **Bố cục board** — mỗi cột là một lane có nền (`bg-surface-well`, thẻ
+  `bg-surface-raised`) kéo hết chiều cao, nên cột ngắn vẫn đọc ra là cột chứ
+  không phải vài thẻ trôi trên nền trống. Cuối mỗi lane có **"Add task"** tạo
+  thẳng vào cột đó (`createIn`: tạo ở cột open đầu tiên rồi chuyển sang, Enter
+  thêm tiếp, Esc dừng); lane rỗng vẽ một ô gạch (“No tasks”, “Drop here” khi
+  đang kéo) cùng một kích thước. Thẻ luôn có footer: tiến độ subtask, thời gian
+  cập nhật, avatar chữ tắt của assignee — mọi thẻ kết thúc trên cùng một dòng.
+- **Header** có tổng quan đếm theo `category` (`boardSummary`): progress
+  done/total, đang làm, đang chờ dependency, agent đang giữ — số bằng 0 thì
+  không hiện. Lệnh verify là dòng phụ dưới tên board.
+- **Board | List** — chuyển trong header, nhớ theo từng board (`boardViews`,
+  persist qua `ui_state`). List nhóm theo cột, hàng cao cố định `h-9`, nhóm
+  terminal gập sẵn (dài nhất và ít đọc nhất; nhóm gập không tốn hàng nào).
+- **Bảng thuộc tính** — nhãn trái, giá trị phải; control không viền tới khi
+  hover/focus, nên cột đọc như dữ kiện thay vì một form phải điền.
 - **Bấm card = xem trong pane phải của module** (`useSplitPanel`, rộng 460,
   co board lại chứ không đè, kéo được bề rộng); bấm lại chính card đó hoặc `X`
   thì đóng, double-click hoặc "Open as tab" mới mở tab `tasks.detail`. Pane một

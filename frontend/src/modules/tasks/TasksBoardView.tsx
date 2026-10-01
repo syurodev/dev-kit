@@ -8,12 +8,13 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
+import { KanbanSquare, Plus, RefreshCw, Rows3, Workflow } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { useSplitPanel } from "@/components/ui/split-panel";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   createTask,
   createTasksFromPlan,
@@ -29,16 +30,20 @@ import { canRunFromPlan, homeBoardOf } from "./boardHome";
 import { NewTaskDialog } from "./CreateDialogs";
 import { BoardColumn } from "./board/BoardColumn";
 import { BoardFilters } from "./board/BoardFilters";
+import { BoardList } from "./board/BoardList";
+import { BoardSummaryBar } from "./board/BoardSummary";
 import { CARD_CLASS, TaskCardBody } from "./board/TaskCard";
 import { TaskDetail } from "./detail/TaskDetail";
 import { moveTo } from "./taskActions";
 import {
   EMPTY_FILTER,
   boardLabels,
+  boardSummary,
   columnsOf,
   indexById,
   openBlockers,
   type TaskFilter,
+  type TaskView,
 } from "./taskModel";
 import { useTasksStore } from "./tasksStore";
 
@@ -66,12 +71,14 @@ function BoardColumns({
   board,
   tasks,
   filter,
+  view,
   inspectedId,
   onInspect,
 }: {
   board: Board;
   tasks: readonly Task[];
   filter: TaskFilter;
+  view: TaskView;
   inspectedId: string | null;
   onInspect: (task: Task) => void;
 }) {
@@ -98,6 +105,21 @@ function BoardColumns({
     void moveTo(task, to);
   };
 
+  if (view === "list") {
+    return (
+      <div className={cn("flex min-h-0 flex-1 flex-col", deferred !== filter && "opacity-80")}>
+        <BoardList
+          board={board}
+          columns={columns}
+          childrenByParent={children}
+          byId={byId}
+          inspectedId={inspectedId}
+          onInspect={onInspect}
+        />
+      </div>
+    );
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -107,7 +129,7 @@ function BoardColumns({
     >
       <div
         className={cn(
-          "flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 transition-opacity duration-(--motion-fast)",
+          "flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 transition-opacity duration-(--motion-fast)",
           // A filter still catching up to the box is drawn faintly rather
           // than blocking the keystroke (smoothness 6.5).
           deferred !== filter && "opacity-80",
@@ -122,6 +144,7 @@ function BoardColumns({
             byId={byId}
             inspectedId={inspectedId}
             onInspect={onInspect}
+            dragging={dragging !== null}
           />
         ))}
       </div>
@@ -168,7 +191,7 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
   const [creating, setCreating] = useState(false);
   const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
 
-  const { boards, tasksByBoard, storeError, refreshBoards, ensureBoardTasks, refreshBoard } =
+  const { boards, tasksByBoard, storeError, refreshBoards, ensureBoardTasks, refreshBoard, boardViews, setBoardView } =
     useTasksStore(
       useShallow((s) => ({
         boards: s.boards,
@@ -177,6 +200,8 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
         refreshBoards: s.refreshBoards,
         ensureBoardTasks: s.ensureBoardTasks,
         refreshBoard: s.refreshBoard,
+        boardViews: s.boardViews,
+        setBoardView: s.setBoardView,
       })),
     );
 
@@ -285,33 +310,55 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
     return null;
   }
   const filter = filters[board.id] ?? EMPTY_FILTER;
+  const view: TaskView = boardViews[board.id] ?? "board";
   const shown = columnsOf(board, tasks, filter).reduce((sum, column) => sum + column.tasks.length, 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
-        <h2 className="min-w-0 truncate text-title-14 text-text-primary">{board.name}</h2>
-        {/* tasks:admin and UI-only: an agent can trigger the command and can
-            never choose it. With no UI at all it was unreachable rather than
-            protected, which is not the same thing. */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-text-tertiary"
-          title={
-            board.verify
-              ? `DevKit runs ${board.verify.command} and the exit code decides`
-              : "Choose a command to close tasks with"
-          }
-          onClick={() => setEditingVerify(board)}
-        >
-          {board.verify ? (
-            <span className="max-w-64 truncate font-mono">closes on {board.verify.command}</span>
-          ) : (
-            "closing asks every time"
-          )}
-        </Button>
+      <header className="flex h-14 shrink-0 items-center gap-5 border-b border-border-subtle px-4">
+        <div className="flex min-w-0 flex-col">
+          <h2 className="min-w-0 truncate text-title-16 text-text-primary">{board.name}</h2>
+          {/* tasks:admin and UI-only: an agent can trigger the command and can
+              never choose it. With no UI at all it was unreachable rather than
+              protected, which is not the same thing. */}
+          <button
+            type="button"
+            className="w-fit max-w-80 truncate text-left text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) hover:text-text-primary"
+            title={
+              board.verify
+                ? `DevKit runs ${board.verify.command} and the exit code decides`
+                : "Choose a command to close tasks with"
+            }
+            onClick={() => setEditingVerify(board)}
+          >
+            {board.verify ? (
+              <>
+                closes on <span className="font-mono">{board.verify.command}</span>
+              </>
+            ) : (
+              "closing asks every time"
+            )}
+          </button>
+        </div>
+        <BoardSummaryBar summary={boardSummary(board, tasks)} />
         <div className="flex-1" />
+        <ToggleGroup
+          type="single"
+          size="sm"
+          variant="outline"
+          value={view}
+          onValueChange={(next) => {
+            if (next === "board" || next === "list") setBoardView(board.id, next);
+          }}
+          aria-label="View"
+        >
+          <ToggleGroupItem value="board" aria-label="Board view">
+            <KanbanSquare aria-hidden />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="list" aria-label="List view">
+            <Rows3 aria-hidden />
+          </ToggleGroupItem>
+        </ToggleGroup>
         {/* Only offered for a board bound to a workspace: the plan belongs to
             a service of that workspace, and a board pointed nowhere would
             build a backlog out of nobody's plan (boardHome.canRunFromPlan). */}
@@ -341,7 +388,7 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
         ) : null}
         {/* A dialog for the title, not a card called "New task" that then
             needs renaming — every one of those was a task nobody renamed. */}
-        <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
+        <Button size="sm" onClick={() => setCreating(true)}>
           <Plus aria-hidden />
           New task
         </Button>
@@ -385,6 +432,7 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
         board={board}
         tasks={tasks}
         filter={filter}
+        view={view}
         inspectedId={inspectedId}
         onInspect={(task) =>
           // A second click on the card being shown closes the pane: the card

@@ -1,7 +1,8 @@
 import { Bot, Minus, OctagonAlert, SignalHigh, SignalLow, SignalMedium, type LucideIcon } from "lucide-react";
 import type { Category } from "@/bridge/tasks";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { priorityLabel } from "./taskModel";
+import { initials, priorityLabel } from "./taskModel";
 
 /**
  * The small marks the board and the task detail share. Each one has a fixed
@@ -55,5 +56,21 @@ export function AgentHeld({ className }: { className?: string }) {
       aria-label="Held by an agent session"
       className={cn("size-(--icon-14) shrink-0 text-status-success", className)}
     />
+  );
+}
+
+/**
+ * Who a task is assigned to, as initials in a circle. Assignee is a free
+ * string — there are no accounts behind it — so this is a name, not a person
+ * lookup, and the full name is its title.
+ */
+export function AssigneeAvatar({ name, className }: { name: string; className?: string }) {
+  if (!name) return null;
+  return (
+    <Avatar size="sm" className={cn("size-5", className)} title={name} aria-label={`Assigned to ${name}`}>
+      <AvatarFallback className="bg-surface-tinted text-label-11-caps text-text-secondary">
+        {initials(name)}
+      </AvatarFallback>
+    </Avatar>
   );
 }

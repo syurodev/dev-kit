@@ -260,3 +260,47 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   if (days < 7) return `${days}d ago`;
   return new Date(at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
+
+export type BoardSummary = {
+  /** Every task on the board, subtasks included — what "12 tasks" counts. */
+  total: number;
+  /** In a terminal column. */
+  done: number;
+  /** In an active column. */
+  active: number;
+  /** Not finished and still waiting on an unfinished task. */
+  blocked: number;
+  /** Not finished and held by an agent session. */
+  heldByAgent: number;
+};
+
+/**
+ * The board at a glance, counted by category so a renamed column still
+ * counts. Finished work is neither blocked nor held: a closed task an agent
+ * once claimed is not something anybody needs to look at.
+ */
+export function boardSummary(board: Board, tasks: readonly Task[]): BoardSummary {
+  const byId = indexById(tasks);
+  const summary: BoardSummary = { total: tasks.length, done: 0, active: 0, blocked: 0, heldByAgent: 0 };
+  for (const task of tasks) {
+    const category = statusOf(board, task.status)?.category;
+    if (category === "terminal") {
+      summary.done++;
+      continue;
+    }
+    if (category === "active") summary.active++;
+    if (openBlockers(task, byId, board).length > 0) summary.blocked++;
+    if (task.sessionId) summary.heldByAgent++;
+  }
+  return summary;
+}
+
+/** Initials for an assignee chip: "syuro" → "SY", "Ada Lovelace" → "AL". */
+export function initials(name: string): string {
+  const words = name.trim().split(/[\s._-]+/).filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+export type TaskView = "board" | "list";

@@ -25,14 +25,26 @@ import {
 /** Radix Select refuses "" as an item value; this stands in for "no priority". */
 const NO_PRIORITY = "none";
 
+/**
+ * One property: its name on the left, its value on the right. A row per
+ * property rather than a label over a field keeps the column about half as
+ * tall, and the values line up down one edge where the eye can run along them.
+ */
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-caption-11 text-text-tertiary">{label}</span>
-      {children}
+    <div className="flex min-h-8 items-start gap-3">
+      <span className="flex h-8 w-24 shrink-0 items-center text-caption-11 text-text-tertiary">{label}</span>
+      <div className="flex min-w-0 flex-1 flex-col justify-center">{children}</div>
     </div>
   );
 }
+
+/**
+ * A control that reads as a value until it is pointed at: no box at rest, the
+ * state layer on hover, the focus ring when it is being edited. A column of
+ * eight bordered fields reads as a form to fill in; this reads as facts.
+ */
+const INLINE_CONTROL = "h-8 w-full max-w-none border-transparent bg-transparent px-2 hover:bg-state-soft";
 
 /**
  * A text field that writes on Enter or on leaving it, never per keystroke —
@@ -77,7 +89,7 @@ function CommitInput({
         if (event.key === "Escape") cancelled.current = true;
         if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur();
       }}
-      className={cn(mono && "font-mono")}
+      className={cn(INLINE_CONTROL, mono && "font-mono")}
     />
   );
 }
@@ -161,10 +173,10 @@ export function TaskProperties({
   const dependents = dependentsOf(boardTasks, task.id);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-1">
       <Property label="Status">
         <Select value={task.status} onValueChange={(to) => void moveTo(task, to)}>
-          <SelectTrigger size="sm" aria-label="Status" className="w-full max-w-none">
+          <SelectTrigger size="sm" aria-label="Status" className={INLINE_CONTROL}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -191,7 +203,7 @@ export function TaskProperties({
           value={task.priority || NO_PRIORITY}
           onValueChange={(value) => void setFields(task, { priority: value === NO_PRIORITY ? "" : value })}
         >
-          <SelectTrigger size="sm" aria-label="Priority" className="w-full max-w-none">
+          <SelectTrigger size="sm" aria-label="Priority" className={INLINE_CONTROL}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -236,7 +248,7 @@ export function TaskProperties({
           onChange={(labels) => void setFields(task, { labels })}
           placeholder="Add a label"
           aria-label="Labels"
-          className="max-w-none"
+          className="min-h-8 max-w-none border-transparent bg-transparent px-1.5 hover:bg-state-soft"
         />
       </Property>
 
@@ -251,7 +263,7 @@ export function TaskProperties({
           />
         ) : hasChildren ? (
           // One level: a task with subtasks cannot become one.
-          <span className="text-body-12 text-text-tertiary">Has subtasks of its own</span>
+          <span className="flex h-8 items-center px-2 text-body-12 text-text-tertiary">Has subtasks of its own</span>
         ) : (
           <TaskPicker
             board={board}
@@ -260,7 +272,7 @@ export function TaskProperties({
             empty="No task can be its parent"
             onPick={(picked) => void setFields(task, { parentId: picked.id })}
           >
-            <Button size="xs" variant="ghost" className="w-fit px-1.5">
+            <Button size="xs" variant="ghost" className="h-8 w-fit px-2 text-text-tertiary">
               <Plus aria-hidden />
               Set parent
             </Button>
@@ -295,7 +307,7 @@ export function TaskProperties({
           empty="No task it could wait on"
           onPick={(picked) => void setFields(task, { blockedBy: [...blockedBy, picked.id] })}
         >
-          <Button size="xs" variant="ghost" className="w-fit px-1.5">
+          <Button size="xs" variant="ghost" className="h-8 w-fit px-2 text-text-tertiary">
             <Plus aria-hidden />
             Add dependency
           </Button>
@@ -330,7 +342,7 @@ export function TaskProperties({
             void setFields(picked, { blockedBy: [...(picked.blockedBy ?? []), task.id] })
           }
         >
-          <Button size="xs" variant="ghost" className="w-fit px-1.5">
+          <Button size="xs" variant="ghost" className="h-8 w-fit px-2 text-text-tertiary">
             <Plus aria-hidden />
             Add blocked task
           </Button>
@@ -349,11 +361,11 @@ export function TaskProperties({
 
       {task.planNodeId ? (
         <Property label="Plan node">
-          <span className="truncate text-code-11 text-text-secondary">{task.planNodeId}</span>
+          <span className="flex h-8 items-center truncate px-2 text-code-11 text-text-secondary">{task.planNodeId}</span>
         </Property>
       ) : null}
 
-      <div className="flex flex-col gap-1 border-t border-border-subtle pt-3 text-caption-11 text-text-tertiary tabular-nums">
+      <div className="mt-2 flex flex-col gap-1 border-t border-border-subtle pt-3 text-caption-11 text-text-tertiary tabular-nums">
         <span title={task.createdAt}>Created {relativeTime(task.createdAt)}</span>
         <span title={task.updatedAt}>Updated {relativeTime(task.updatedAt)}</span>
       </div>
