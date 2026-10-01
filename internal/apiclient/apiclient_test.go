@@ -216,14 +216,39 @@ func TestSendWithoutAnEnvironmentIsRefused(t *testing.T) {
 	}
 }
 
-func TestOnlyHTTPSExceptOnLoopback(t *testing.T) {
+// Plain http is a dev server on the LAN — ordinary — unless what travels in
+// the clear matters: a bound credential, or an environment that asks first.
+func TestPlainHTTPIsRefusedWhereItWouldMatter(t *testing.T) {
 	svc := newService(t)
-	env, _ := svc.CreateEnvironment("Dev", "dev", nil, nil)
-	for _, target := range []string{"http://example.test/x", "file:///etc/passwd", "ftp://example.test"} {
-		req, _ := svc.SaveRequest(Request{Name: "x", Method: "GET", URL: target})
-		if _, err := svc.Send(context.Background(), SendInput{Request: req, EnvironmentID: env.ID}); !errors.Is(err, ErrSchemeInvalid) {
+	svc.SetCredentials(&stubCreds{secret: "tok"})
+	svc.SetConfirmer(&stubConfirm{allow: true})
+	dev, _ := svc.CreateEnvironment("Dev", "dev", nil, nil)
+	prod, _ := svc.CreateEnvironment("Prod", "prod", nil, nil)
+
+	for _, target := range []string{"file:///etc/passwd", "ftp://example.test"} {
+		req := Request{Name: "x", Method: "GET", URL: target}
+		if _, err := svc.Send(context.Background(), SendInput{Request: req, EnvironmentID: dev.ID}); !errors.Is(err, ErrSchemeInvalid) {
 			t.Fatalf("%s = %v, want ErrSchemeInvalid", target, err)
 		}
+	}
+	bound := Request{Name: "x", Method: "GET", URL: "http://192.0.2.1/x", Auth: Auth{Kind: AuthBearer, AccountID: "a"}}
+	if _, err := svc.Send(context.Background(), SendInput{Request: bound, EnvironmentID: dev.ID}); !errors.Is(err, ErrPlainHTTP) {
+		t.Fatalf("a credential over plain http = %v, want ErrPlainHTTP", err)
+	}
+	gated := Request{Name: "x", Method: "GET", URL: "http://192.0.2.1/x"}
+	if _, err := svc.Send(context.Background(), SendInput{Request: gated, EnvironmentID: prod.ID}); !errors.Is(err, ErrPlainHTTP) {
+		t.Fatalf("plain http on a gated environment = %v, want ErrPlainHTTP", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+	defer server.Close()
+	// httptest listens on 127.0.0.1 — loopback is always fine, even bound.
+	local := Request{Name: "x", Method: "GET", URL: server.URL, Auth: Auth{Kind: AuthBearer, AccountID: "a"}}
+	if resp, err := svc.Send(context.Background(), SendInput{Request: local, EnvironmentID: dev.ID}); err != nil || resp.Status != 204 {
+		t.Fatalf("loopback = %+v, %v", resp, err)
+	}
+	if err := checkScheme(mustParse(t, "http://10.0.0.5:8080/x"), false, false); err != nil {
+		t.Fatalf("a LAN dev server with nothing to protect was refused: %v", err)
 	}
 }
 
@@ -249,8 +274,14 @@ func TestRedirectToAnotherHostStops(t *testing.T) {
 		Name: "x", Method: "GET", URL: "{{baseUrl}}/go",
 		Auth: Auth{Kind: AuthBearer, AccountID: "acct-1"},
 	})
-	if _, err := svc.Send(context.Background(), SendInput{Request: req, EnvironmentID: env.ID}); err == nil {
-		t.Fatal("a cross-host redirect was followed")
+	resp, err := svc.Send(context.Background(), SendInput{Request: req, EnvironmentID: env.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The redirect itself is the answer, with where it pointed — not an error
+	// that leaves the person guessing what happened.
+	if resp.Status != http.StatusFound || !strings.HasPrefix(resp.RedirectBlocked, elsewhere.URL) {
+		t.Fatalf("response = %d, blocked = %q", resp.Status, resp.RedirectBlocked)
 	}
 }
 

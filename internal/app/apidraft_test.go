@@ -30,15 +30,21 @@ func TestDraftPutsEachParameterWhereItBelongs(t *testing.T) {
 	if draft.Method != "POST" {
 		t.Fatalf("method = %q", draft.Method)
 	}
-	if draft.URL != "{{baseUrl}}/refunds/{{id}}" {
+	if draft.URL != "{{baseUrl}}/refunds/:id" {
 		t.Fatalf("url = %q", draft.URL)
+	}
+	if len(draft.PathVars) != 1 || draft.PathVars[0].Key != "id" || draft.PathVars[0].Value != "" {
+		t.Fatalf("path vars = %+v", draft.PathVars)
+	}
+	if draft.BodyMode != apiclient.BodyJSON {
+		t.Fatalf("body mode = %q", draft.BodyMode)
 	}
 	// The wire name, not the parameter's, and the value is the variable: an
 	// empty string here would send a parameter nobody meant to send.
-	if draft.Query["page_size"] != "{{page_size}}" {
+	if v, _ := draft.Query.Lookup("page_size", false); v != "{{page_size}}" {
 		t.Fatalf("query = %v", draft.Query)
 	}
-	if draft.Headers["X-Tenant"] != "{{X-Tenant}}" {
+	if v, _ := draft.Headers.Lookup("X-Tenant", true); v != "{{X-Tenant}}" {
 		t.Fatalf("headers = %v", draft.Headers)
 	}
 	// An unannotated parameter is the servlet request, not a value to send.
@@ -101,7 +107,7 @@ func TestDraftFromAnUntypedEndpointStillHasMethodAndPath(t *testing.T) {
 	if draft.Method != "GET" {
 		t.Fatalf("an endpoint with no method should draft as GET: %q", draft.Method)
 	}
-	if draft.URL != "{{baseUrl}}/consumers/{{username}}/plugins" {
+	if draft.URL != "{{baseUrl}}/consumers/:username/plugins" {
 		t.Fatalf("url = %q", draft.URL)
 	}
 	if !strings.Contains(draft.Note, "does not declare parameter types") {
@@ -112,9 +118,11 @@ func TestDraftFromAnUntypedEndpointStillHasMethodAndPath(t *testing.T) {
 func TestPathTemplateHandlesBothRouteSyntaxes(t *testing.T) {
 	for path, want := range map[string]string{
 		"/refunds":                     "/refunds",
-		"/refunds/{id}":                "/refunds/{{id}}",
-		"/refunds/{id:[0-9]+}":         "/refunds/{{id}}",
-		"/users/:userId/posts/:postId": "/users/{{userId}}/posts/{{postId}}",
+		"/refunds/{id}":                "/refunds/:id",
+		"/refunds/{id:[0-9]+}":         "/refunds/:id",
+		"/users/:userId/posts/:postId": "/users/:userId/posts/:postId",
+		// Part of a segment is not a path variable; the environment fills it.
+		"/files/{name}.json": "/files/{{name}}.json",
 		// A colon that is not a parameter is left alone.
 		"/a:b":        "/a{{b}}",
 		"/time/12:30": "/time/12:30",

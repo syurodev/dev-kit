@@ -35,7 +35,9 @@ func (s *Server) registerAPIClient(ms *sdk.Server) {
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "api.getRequest",
 		Description: "Get one request. The auth binding comes back as an account id and a kind — " +
-			"never a credential",
+			"never a credential — and a header, query or form value named like a credential " +
+			"(Authorization, Cookie, *token*, *key*…) comes back masked. Send a saved request " +
+			"with api.send, not by copying it into api.sendAdhoc",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAPIGetRequest)
 
@@ -52,6 +54,18 @@ func (s *Server) registerAPIClient(ms *sdk.Server) {
 			"A tag that requires confirmation asks every time, and the response is truncated",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.toolAPISend)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "api.sendAdhoc",
+		Description: "Send a request that is not saved — typically one drafted by api.fromEndpoint, " +
+			"with its :path variables and body filled in. Same rules as api.send: an environment " +
+			"is required, its tag decides whether the person is asked first, {{variables}} come " +
+			"from globals, the request's collection and the environment, and the response is truncated. " +
+			"Nothing is saved. A credential is bound with auth.accountId, never typed into a header; " +
+			"a request that carries an account or a secret variable asks the person every time, " +
+			"whatever the environment",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolAPISendAdhoc)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "api.fromEndpoint",
@@ -82,7 +96,11 @@ type apiRequestIDInput struct {
 
 func (s *Server) toolAPIGetRequest(ctx context.Context, _ *sdk.CallToolRequest, in apiRequestIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.apiclient", "api:read", "request:"+in.RequestID, meta("get", nil), func(context.Context) (any, error) {
-		return s.deps.API.Request(in.RequestID)
+		req, err := s.deps.API.Request(in.RequestID)
+		if err != nil {
+			return nil, err
+		}
+		return req.ForAgent(), nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -125,13 +143,36 @@ func (s *Server) toolAPISend(ctx context.Context, _ *sdk.CallToolRequest, in api
 	return nil, structured(v), nil
 }
 
+type apiSendAdhocInput struct {
+	Request       apiclient.RequestInput `json:"request"`
+	EnvironmentID string                 `json:"environmentId"`
+}
+
+func (s *Server) toolAPISendAdhoc(ctx context.Context, _ *sdk.CallToolRequest, in apiSendAdhocInput) (*sdk.CallToolResult, any, error) {
+	// No request id: an ad-hoc send is not a saved request, and taking an id
+	// here would let a masked copy of one be sent as if it were the original.
+	in.Request.ID = ""
+	v, err := s.deps.Caller.Call(ctx, "builtin.apiclient", "api:send", "request:new", meta("send_adhoc", map[string]any{
+		"environment_id": in.EnvironmentID,
+		"method":         in.Request.Method,
+	}), func(ctx context.Context) (any, error) {
+		return s.deps.API.Send(ctx, apiclient.SendInput{
+			Request: in.Request.Request(), EnvironmentID: in.EnvironmentID, ForAgent: true, Adhoc: true,
+		})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
 type apiEndpointInput struct {
 	EndpointID string `json:"endpointId"`
 }
 
-// toolAPIFromEndpoint drafts without saving. An agent that wanted a saved
-// request can save one; an agent that only wanted to see the shape should not
-// leave a row in somebody's sidebar to find out.
+// toolAPIFromEndpoint drafts without saving. An agent sends the draft with
+// api.sendAdhoc; one that only wanted to see the shape should not leave a row
+// in somebody's sidebar to find out.
 func (s *Server) toolAPIFromEndpoint(ctx context.Context, _ *sdk.CallToolRequest, in apiEndpointInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.apiclient", "api:read", "request:list", meta("from_endpoint", map[string]any{
 		"endpoint_id": in.EndpointID,

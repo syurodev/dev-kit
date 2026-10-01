@@ -46,6 +46,10 @@ const (
 	ItemTypeAPICollection  = "api-collection"
 	ItemTypeAPIRequest     = "api-request"
 	ItemTypeAPIEnvironment = "api-environment"
+	// ItemTypeAPIGlobals holds the global variables. Meant to be one item;
+	// two devices that each set a global before syncing make two, and the
+	// API client merges them and folds them back into one on the next edit.
+	ItemTypeAPIGlobals = "api-globals"
 
 	// The Git module's two bindings. Neither holds a secret: a guard names a
 	// branch pattern and an environment tag, a remote names an account by id.
@@ -69,7 +73,7 @@ func IsSupportedItemType(itemType string) bool {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
 		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount,
 		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment,
-		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment,
+		ItemTypeAPICollection, ItemTypeAPIRequest, ItemTypeAPIEnvironment, ItemTypeAPIGlobals,
 		ItemTypeGitGuard, ItemTypeGitRemote:
 		return true
 	default:
@@ -231,6 +235,15 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "api-environment"
+
+	case ItemTypeAPIGlobals:
+		var value struct {
+			Vars map[string]string `json:"vars"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "api-globals"
 
 	case ItemTypeTaskBoard:
 		var value struct {

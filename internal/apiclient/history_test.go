@@ -54,7 +54,7 @@ func TestHistorySealsTheURLAndStoresNoBody(t *testing.T) {
 	}
 	saved, err := svc.SaveRequest(Request{
 		Name: "Ping", Method: "get", URL: "{{baseUrl}}/ping",
-		Query: map[string]string{"key": "{{token}}"},
+		Query: KVList{{Key: "key", Value: "{{token}}"}},
 	})
 	if err != nil {
 		t.Fatal(err)
