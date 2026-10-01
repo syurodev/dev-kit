@@ -271,6 +271,9 @@ type Service struct {
 	// discover it. nil or "" leaves the prompt telling it to call
 	// workspace.list instead.
 	SessionBrief func(workspaceID, cwd string, granted []string) string
+	// WorkspaceInstructions reads the selected workspace's current rules on each
+	// turn. Errors refuse the turn before it records a user message or starts work.
+	WorkspaceInstructions func(workspaceID string) (string, error)
 	// MatchingWorkspaces resolves cwd when creating a root session. Ambiguous
 	// folders require an explicit choice; UI switching never moves a session.
 	MatchingWorkspaces func(cwd string) ([]string, error)
@@ -1245,6 +1248,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, in.Refs, sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
+	}
+	workspaceContext, err := s.workspaceTurnContext(sess)
+	if err != nil {
+		return InvokeResult{Status: "error"}, err
+	}
+	if workspaceContext != "" {
+		prompt = append([]acp.ContentBlock{{Type: "text", Text: workspaceContext}}, prompt...)
 	}
 
 	// Claim the session before anything slow. The claim used to come after the

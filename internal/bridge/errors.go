@@ -146,6 +146,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, environments.ErrTagLocked) {
 		return apperrors.New(codeValidationFailed, "environment tag is locked", true)
 	}
+	if errors.Is(err, workspace.ErrInvalidInstructions) {
+		return apperrors.New(codeValidationFailed, "Workspace instructions must be valid UTF-8 and at most 32 KiB.", true)
+	}
 	if errors.Is(err, workspace.ErrNameRequired) {
 		return apperrors.New(codeValidationFailed, "Give the project a name.", true)
 	}

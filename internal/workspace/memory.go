@@ -67,10 +67,22 @@ func (r *MemoryRepository) SetIndexOutcome(path, state, reason string, missingTo
 }
 
 func (r *MemoryRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	return r.updateWorkspace(ws, add, removeIDs, false)
+}
+
+func (r *MemoryRepository) UpdateWorkspaceWithInstructions(ws Workspace, add []WorkspaceService, removeIDs []string) error {
+	return r.updateWorkspace(ws, add, removeIDs, true)
+}
+
+func (r *MemoryRepository) updateWorkspace(ws Workspace, add []WorkspaceService, removeIDs []string, withInstructions bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.workspaces[ws.ID]; !ok {
+	existing, ok := r.workspaces[ws.ID]
+	if !ok {
 		return ErrWorkspaceNotFound
+	}
+	if !withInstructions {
+		ws.Instructions = existing.Instructions
 	}
 	r.workspaces[ws.ID] = ws
 	remove := map[string]bool{}
@@ -84,5 +96,17 @@ func (r *MemoryRepository) UpdateWorkspace(ws Workspace, add []WorkspaceService,
 		}
 	}
 	r.services[ws.ID] = append(kept, add...)
+	return nil
+}
+
+func (r *MemoryRepository) SetInstructions(id, instructions string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws, ok := r.workspaces[id]
+	if !ok {
+		return ErrWorkspaceNotFound
+	}
+	ws.Instructions = instructions
+	r.workspaces[id] = ws
 	return nil
 }

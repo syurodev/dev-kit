@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -78,6 +79,7 @@ export function WorkspaceDialog({
 }) {
   const editing = workspace !== null;
   const [name, setName] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [rows, setRows] = useState<FolderRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -87,6 +89,7 @@ export function WorkspaceDialog({
   useEffect(() => {
     if (!open) return;
     setName(workspace?.name ?? "");
+    setInstructions(workspace?.instructions ?? "");
     setRows([]);
     if (!workspace) return;
     let cancelled = false;
@@ -118,8 +121,8 @@ export function WorkspaceDialog({
     try {
       const paths = rows.map((row) => row.path);
       const result = workspace
-        ? await updateWorkspace(workspace.id, name, paths)
-        : await createWorkspace(name, paths);
+        ? await updateWorkspace(workspace.id, name, paths, instructions)
+        : await createWorkspace(name, paths, instructions);
       onSaved(result.workspace);
       onOpenChange(false);
     } catch (e) {
@@ -147,7 +150,7 @@ export function WorkspaceDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-140 px-6 pt-5.5 pb-5 sm:max-w-140">
+        <DialogContent className="max-h-[85vh] max-w-140 overflow-y-auto px-6 pt-5.5 pb-5 sm:max-w-140">
           <form onSubmit={save} className="flex flex-col">
             <DialogHeader>
               <DialogTitle className="text-title-16">
@@ -218,6 +221,23 @@ export function WorkspaceDialog({
                 </Item>
               </ItemGroup>
             )}
+
+            <label htmlFor="workspace-instructions" className="mt-5 mb-2 text-label-12 text-text-secondary">
+              Instructions
+            </label>
+            <Textarea
+              id="workspace-instructions"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              disabled={busy}
+              rows={5}
+              className="max-h-60 min-h-28 resize-y field-sizing-fixed text-body-13"
+              placeholder="Conventions, architecture decisions, and how agents should work in this workspace…"
+              aria-describedby="workspace-instructions-help"
+            />
+            <p id="workspace-instructions-help" className="mt-2 text-label-12 text-text-tertiary">
+              Shared by all agents in this workspace. Saved changes apply on their next turn.
+            </p>
 
             <DialogFooter className="mx-0 mt-6 mb-0 items-center rounded-none border-t-0 bg-transparent p-0 sm:justify-between">
               {editing ? (

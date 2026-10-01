@@ -2260,8 +2260,8 @@ export function WorkspaceChooseFolder(startIn: string): $CancellablePromise<stri
  * its folders afterwards. Each folder goes through auto-discovery; the first
  * is the primary. See workspace.Service.CreateWorkspace.
  */
-export function WorkspaceCreate(name: string, folders: string[] | null): $CancellablePromise<$models.WorkspaceAddResult> {
-    return $Call.ByID(2542708227, name, folders);
+export function WorkspaceCreate(name: string, folders: string[] | null, instructions: string): $CancellablePromise<$models.WorkspaceAddResult> {
+    return $Call.ByID(2542708227, name, folders, instructions);
 }
 
 /**
@@ -2312,6 +2312,6 @@ export function WorkspaceReindexService(path: string): $CancellablePromise<void>
  * keep their rows; new ones are discovered and queued for indexing; missing
  * ones are dropped. The first is the primary.
  */
-export function WorkspaceUpdate(id: string, name: string, paths: string[] | null): $CancellablePromise<$models.WorkspaceAddResult> {
-    return $Call.ByID(26410098, id, name, paths);
+export function WorkspaceUpdate(id: string, name: string, paths: string[] | null, instructions: string): $CancellablePromise<$models.WorkspaceAddResult> {
+    return $Call.ByID(26410098, id, name, paths, instructions);
 }

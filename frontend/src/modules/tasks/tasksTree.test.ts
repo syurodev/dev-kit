@@ -33,7 +33,7 @@ function board(overrides: Partial<Board> = {}): Board {
 }
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
-  return { id: "ws-1", name: "DevKit workspace", root: "/tmp/devkit", ...overrides };
+  return { id: "ws-1", name: "DevKit workspace", root: "/tmp/devkit", instructions: "", ...overrides };
 }
 
 function task(overrides: Partial<Task> = {}): Task {

@@ -67,12 +67,12 @@ type WorkspaceAddResult struct {
 // project dialog. folders may be empty: a project is named first and given
 // its folders afterwards. Each folder goes through auto-discovery; the first
 // is the primary. See workspace.Service.CreateWorkspace.
-func (s *AppService) WorkspaceCreate(name string, folders []string) (WorkspaceAddResult, error) {
+func (s *AppService) WorkspaceCreate(name string, folders []string, instructions string) (WorkspaceAddResult, error) {
 	result, err := s.call(context.Background(), "builtin.workspace", "ws:write", "workspace:new", map[string]any{
 		"action":  "create_workspace",
 		"folders": len(folders),
 	}, func(context.Context) (any, error) {
-		ws, services, err := s.container.Workspace.CreateWorkspace(name, folders)
+		ws, services, err := s.container.Workspace.CreateWorkspaceWithInstructions(name, folders, instructions)
 		if err != nil {
 			return nil, err
 		}
@@ -88,14 +88,14 @@ func (s *AppService) WorkspaceCreate(name string, folders []string) (WorkspaceAd
 // paths, in order — the Edit project dialog's Save. Paths already registered
 // keep their rows; new ones are discovered and queued for indexing; missing
 // ones are dropped. The first is the primary.
-func (s *AppService) WorkspaceUpdate(id, name string, paths []string) (WorkspaceAddResult, error) {
+func (s *AppService) WorkspaceUpdate(id, name string, paths []string, instructions string) (WorkspaceAddResult, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.workspace", "ws:write", "workspace:"+opaqueID, map[string]any{
 		"action":       "update_workspace",
 		"workspace_id": opaqueID,
 		"folders":      len(paths),
 	}, func(context.Context) (any, error) {
-		ws, services, err := s.container.Workspace.UpdateWorkspace(id, name, paths)
+		ws, services, err := s.container.Workspace.UpdateWorkspaceWithInstructions(id, name, paths, instructions)
 		if err != nil {
 			return nil, err
 		}
