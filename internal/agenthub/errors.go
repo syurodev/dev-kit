@@ -39,6 +39,8 @@ var (
 	ErrNotDescendant           = errors.New("agenthub.notDescendant")
 	ErrCwdOutsideParent        = errors.New("agenthub.cwdOutsideParent")
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
+	ErrWorkspaceAmbiguous      = errors.New("agenthub.workspaceAmbiguous")
+	ErrWorkspaceMismatch       = errors.New("agenthub.workspaceMismatch")
 	ErrInvalidSessionTitle     = errors.New("agenthub.invalidSessionTitle")
 	ErrInvalidConfigOption     = errors.New("agenthub.invalidConfigOption")
 	// ErrInvalidPrompt is a prompt DevKit refuses to send: empty, or with an

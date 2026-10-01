@@ -22,7 +22,7 @@ async function loadSidebarWorkspaces(): Promise<SidebarWorkspace[]> {
   );
 }
 
-/** The current workspace first: a folder in two workspaces goes to the one the person is in. */
+/** Keep the active workspace first in the picker. Session grouping uses its stored ID. */
 export function currentFirst(workspaces: SidebarWorkspace[], currentId: string | null): SidebarWorkspace[] {
   const index = currentId ? workspaces.findIndex((w) => w.id === currentId) : -1;
   if (index <= 0) return workspaces;

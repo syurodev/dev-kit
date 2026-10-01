@@ -83,6 +83,7 @@ func (s *Server) toolAgentHubListAgents(ctx context.Context, _ *sdk.CallToolRequ
 type agentHubCreateInput struct {
 	AgentType       string  `json:"agentType"`
 	Cwd             string  `json:"cwd"`
+	WorkspaceID     string  `json:"workspaceId,omitempty"`
 	CallerSessionID string  `json:"callerSessionId"`
 	Title           *string `json:"title"`
 }
@@ -97,6 +98,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		return s.deps.AgentHub.CreateSession(callCtx, agenthub.CreateInput{
 			AgentType:       agenthub.AgentType(in.AgentType),
 			Cwd:             in.Cwd,
+			WorkspaceID:     in.WorkspaceID,
 			ParentSessionID: in.CallerSessionID,
 			Title:           in.Title,
 		})

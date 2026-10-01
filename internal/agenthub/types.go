@@ -27,9 +27,12 @@ const (
 
 // AgentSession is the hub-owned session record (DevKit UUID, not ACP id).
 type AgentSession struct {
-	ID              string
-	AgentType       AgentType
-	ProjectPath     string
+	ID          string
+	AgentType   AgentType
+	ProjectPath string
+	// WorkspaceID is the session's chosen context, independent of its cwd.
+	// Empty means a standalone folder or an older, ambiguous session.
+	WorkspaceID     string
 	Status          SessionStatus
 	ParentSessionID *string
 	Depth           int

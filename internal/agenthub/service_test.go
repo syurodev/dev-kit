@@ -53,6 +53,49 @@ func newTestServiceWith(t *testing.T, adapter *agenthub.MockAdapter) *agenthub.S
 	return agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 }
 
+func TestSessionWorkspaceIdentityDoesNotFollowFolderOrUISelection(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"security", "platform"} {
+		if _, err := db.Exec("INSERT INTO workspaces (id, name, root) VALUES (?, ?, '')", id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
+	cwd := t.TempDir()
+	svc.MatchingWorkspaces = func(string) ([]string, error) { return []string{"security", "platform"}, nil }
+	ctx := context.Background()
+	if _, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd}); !errors.Is(err, agenthub.ErrWorkspaceAmbiguous) {
+		t.Fatalf("ambiguous folder: %v", err)
+	}
+	if _, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd, WorkspaceID: "other"}); !errors.Is(err, agenthub.ErrWorkspaceMismatch) {
+		t.Fatalf("unrelated workspace: %v", err)
+	}
+	root, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd, WorkspaceID: "security"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.WorkspaceID != "security" {
+		t.Fatalf("root workspace = %q", root.WorkspaceID)
+	}
+	loaded, err := svc.GetStatus(ctx, root.ID)
+	if err != nil || loaded.WorkspaceID != "security" {
+		t.Fatalf("persisted workspace = %q, %v", loaded.WorkspaceID, err)
+	}
+	child, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd, ParentSessionID: root.ID})
+	if err != nil || child.WorkspaceID != "security" {
+		t.Fatalf("child workspace = %q, %v", child.WorkspaceID, err)
+	}
+}
+
 // A workspace's services do not necessarily share a root Cwd could cover
 // (workspace.mdx), so picking "the whole workspace" in the draft's picker
 // sends the other services as ExtraReadWritePaths. This is the UI (bridge)

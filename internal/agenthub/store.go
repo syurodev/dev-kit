@@ -72,15 +72,19 @@ func stringPtr(ns sql.NullString) *string {
 	return &s
 }
 
-const sessionColumns = `id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at`
+func nullableWorkspaceID(id string) sql.NullString {
+	return sql.NullString{String: id, Valid: id != ""}
+}
+
+const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at`
 
 func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var s AgentSession
-	var parent, title sql.NullString
+	var parent, title, workspaceID sql.NullString
 	var createdAt, updatedAt string
 	var agentType, status, extraRW string
 	if err := scan(
-		&s.ID, &agentType, &s.ProjectPath, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &createdAt, &updatedAt,
+		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &createdAt, &updatedAt,
 	); err != nil {
 		return AgentSession{}, err
 	}
@@ -92,6 +96,7 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	s.AgentType = AgentType(agentType)
 	s.Status = SessionStatus(status)
 	s.ParentSessionID = stringPtr(parent)
+	s.WorkspaceID = workspaceID.String
 	s.Title = stringPtr(title)
 	if s.CreatedAt, err = parseStoreTime(createdAt); err != nil {
 		return AgentSession{}, err
@@ -105,9 +110,9 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 func (st *SQLStore) InsertSession(ctx context.Context, s AgentSession) error {
 	_, err := st.db.ExecContext(ctx, `
 		INSERT INTO `+tableAgentSessions+` (
-			id, agent_type, project_path, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, string(s.AgentType), s.ProjectPath, string(s.Status),
+			id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, string(s.AgentType), s.ProjectPath, nullableWorkspaceID(s.WorkspaceID), string(s.Status),
 		nullString(s.ParentSessionID), s.Depth, nullString(s.Title), s.ACPSessionID,
 		encodePathList(s.ExtraReadWritePaths),
 		formatStoreTime(s.CreatedAt), formatStoreTime(s.UpdatedAt),
@@ -139,10 +144,10 @@ func decodePathList(raw string) ([]string, error) {
 func (st *SQLStore) UpdateSession(ctx context.Context, s AgentSession) error {
 	result, err := st.db.ExecContext(ctx, `
 		UPDATE `+tableAgentSessions+` SET
-			agent_type = ?, project_path = ?, status = ?, parent_session_id = ?,
+			agent_type = ?, project_path = ?, workspace_id = ?, status = ?, parent_session_id = ?,
 			depth = ?, title = ?, acp_session_id = ?, updated_at = ?
 		WHERE id = ?`,
-		string(s.AgentType), s.ProjectPath, string(s.Status), nullString(s.ParentSessionID),
+		string(s.AgentType), s.ProjectPath, nullableWorkspaceID(s.WorkspaceID), string(s.Status), nullString(s.ParentSessionID),
 		s.Depth, nullString(s.Title), s.ACPSessionID, formatStoreTime(s.UpdatedAt), s.ID,
 	)
 	if err != nil {

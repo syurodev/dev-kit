@@ -549,6 +549,7 @@ func main() {
 	// work instead of its shell's.
 	if container.Workspace != nil {
 		agentSvc.SessionBrief = app.AgentSessionBrief(container.Workspace)
+		agentSvc.MatchingWorkspaces = container.Workspace.MatchingWorkspaceIDs
 	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —

@@ -125,7 +125,7 @@ export type AgentHubContentProps = {
    * picked in the composer; nothing exists on the backend until the first
    * message is sent. Takes precedence over `session`.
    */
-  draft?: { projectPath: string; parentName?: string; workspaceSelected?: boolean } | null;
+  draft?: { projectPath: string; workspaceId?: string; parentName?: string; workspaceSelected?: boolean } | null;
   /** Projects the draft's picker offers, most recent first. */
   projects?: string[];
   /** Sets the draft's folder; "" is no project. */
@@ -133,8 +133,10 @@ export type AgentHubContentProps = {
   /** Opens the native folder picker for a project not in the list. */
   onChooseProject?: () => void;
   /** The current workspace, offered as "grant every service" in the picker. */
-  workspace?: { name: string; paths: string[] } | null;
-  onChooseWorkspace?: (paths: string[]) => void;
+  workspace?: { id: string; name: string; paths: string[] } | null;
+  workspaceChoices?: { id: string; name: string; paths: string[] }[];
+  onChooseWorkspace?: (workspaceId: string, paths: string[]) => void;
+  onChooseWorkspaceContext?: (workspaceId: string) => void;
   agents?: string[];
   agent?: string;
   onAgentChange?: (agent: string) => void;
@@ -251,7 +253,9 @@ export function AgentHubContent({
   onProjectChange,
   onChooseProject,
   workspace = null,
+  workspaceChoices = [],
   onChooseWorkspace,
+  onChooseWorkspaceContext,
   agents = [],
   agent = "",
   onAgentChange,
@@ -305,7 +309,10 @@ export function AgentHubContent({
           onChange={onProjectChange}
           onChooseFolder={onChooseProject}
           workspace={workspace}
+          workspaceChoices={workspaceChoices}
           onChooseWorkspace={onChooseWorkspace}
+          onChooseWorkspaceContext={onChooseWorkspaceContext}
+          selectedWorkspaceId={draft.workspaceId ?? ""}
           workspaceSelected={Boolean(draft.workspaceSelected)}
           disabled={Boolean(draft.parentName)}
         />

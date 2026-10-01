@@ -5,10 +5,11 @@ import type { AgentSession } from "@/bridge/agenthub";
 import { AgentSidebarTree, groupByProject, type SidebarWorkspace } from "./surfaces/AgentSidebarTree";
 import { currentFirst } from "./sidebarWorkspaces";
 
-const session = (id: string, projectPath: string): AgentSession => ({
+const session = (id: string, projectPath: string, workspaceId = ""): AgentSession => ({
   id,
   agentType: "claude",
   projectPath,
+  workspaceId,
   status: "idle",
   parentSessionId: null,
   depth: 0,
@@ -27,9 +28,9 @@ describe("the rail groups sessions by workspace", () => {
   it("every service of a workspace is one group, named for the workspace", () => {
     const groups = groupByProject(
       [
-        session("kong", `${platform}/kong-plugin`),
-        session("auth", `${platform}/fsap-authentication-service`),
-        session("deep", `${platform}/fsap-config-service/src/main`),
+        session("kong", `${platform}/kong-plugin`, security.id),
+        session("auth", `${platform}/fsap-authentication-service`, security.id),
+        session("deep", `${platform}/fsap-config-service/src/main`, security.id),
       ],
       [],
       "",
@@ -46,7 +47,7 @@ describe("the rail groups sessions by workspace", () => {
   it("a folder outside every workspace is its own group, and a name two folders share says where each is", () => {
     const groups = groupByProject(
       [
-        session("in", `${platform}/kong-plugin`),
+        session("in", `${platform}/kong-plugin`, security.id),
         session("old", "/home/me/Workspace/fsap-authentication-service"),
         session("other", "/home/me/Other/fsap-authentication-service"),
       ],
@@ -67,12 +68,14 @@ describe("the rail groups sessions by workspace", () => {
     expect(groups[0].label).toBe("kong-plugin-v2");
   });
 
-  it("a folder in two workspaces goes to the one listed first — the current one", () => {
+  it("a folder in two workspaces stays with the session's chosen workspace", () => {
     const other: SidebarWorkspace = { id: "ws-kong", name: "kong only", paths: [`${platform}/kong-plugin`] };
     const listed = currentFirst([other, security], "ws-security");
     expect(listed.map((w) => w.id)).toEqual(["ws-security", "ws-kong"]);
-    const groups = groupByProject([session("kong", `${platform}/kong-plugin`)], [], "", listed);
-    expect(groups[0].label).toBe("fsap-security");
+    const groups = groupByProject([session("kong", `${platform}/kong-plugin`, other.id)], [], "", listed);
+    expect(groups[0].label).toBe("kong only");
+    const selected = groupByProject([session("kong", `${platform}/kong-plugin`, security.id)], [], "", listed);
+    expect(selected[0].label).toBe("fsap-security");
     expect(currentFirst([other, security], null).map((w) => w.id)).toEqual(["ws-kong", "ws-security"]);
   });
 
@@ -80,7 +83,7 @@ describe("the rail groups sessions by workspace", () => {
     const html = renderToString(
       <TooltipProvider>
         <AgentSidebarTree
-          sessions={[session("auth", `${platform}/fsap-authentication-service`)]}
+          sessions={[session("auth", `${platform}/fsap-authentication-service`, security.id)]}
           workspaces={[security]}
           onSelectSession={() => {}}
           onNewSession={() => {}}

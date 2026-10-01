@@ -12,6 +12,12 @@ export interface AgentSession {
     "ID": string;
     "AgentType": AgentType;
     "ProjectPath": string;
+
+    /**
+     * WorkspaceID is the session's chosen context, independent of its cwd.
+     * Empty means a standalone folder or an older, ambiguous session.
+     */
+    "WorkspaceID": string;
     "Status": SessionStatus;
     "ParentSessionID": string | null;
     "Depth": number;
@@ -243,6 +249,7 @@ export interface ContextFile {
 export interface CreateInput {
     "AgentType": AgentType;
     "Cwd": string;
+    "WorkspaceID": string;
 
     /**
      * empty = root session

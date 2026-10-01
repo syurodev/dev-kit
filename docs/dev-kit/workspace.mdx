@@ -195,6 +195,20 @@ hoặc agent đọc được B mà không sửa được B, đúng lúc việc c
   đang giữ grant cả workspace, vì "billing-service" không nói hết được session
   chạm tới đâu.
 
+### Workspace của một session
+
+Một service có thể nằm trong nhiều workspace. `agent_sessions.workspace_id`
+(migration 33) ghi **một** workspace mà session chọn khi tạo, tách khỏi
+`project_path` và grant file. Chọn cả workspace trong picker ghi ID của nó;
+chọn một thư mục chỉ tự gắn khi thư mục thuộc đúng một workspace. Nếu nó thuộc
+nhiều workspace, picker cho chọn context và backend từ chối tạo session khi
+chưa chọn. Session con kế thừa ID của cha. Đổi primary chỉ đổi `Cwd` mặc định
+cho session mới; đổi workspace ở title bar không chuyển session cũ sang nhóm
+khác. Sidebar nhóm theo ID đã lưu, còn session không gắn workspace nhóm theo
+thư mục. Các session cũ được migration gắn ID khi kết quả là duy nhất; trường
+hợp nhiều workspace vẫn không gắn để tránh đoán sai. Xoá workspace đặt ID về
+NULL, giữ session và transcript.
+
 ## Hai tầng index — chỗ quyết định chuyện lag
 
 Đây là phần quan trọng nhất của trang. Chi phí index **không** tỉ lệ với kích

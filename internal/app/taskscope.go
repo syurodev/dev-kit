@@ -75,11 +75,9 @@ func workspaceHasPath(ws workspaceRegistry, workspaceID, path string) bool {
 	return false
 }
 
-// SessionWorkspaces lists the workspaces whose services an agent session owns
-// — its cwd is inside one, or a granted path covers one — read through
-// workspace.SessionOwns (internal/workspace/scope.go) so this and
-// workspace.list (the MCP tool an agent uses to ask the same question about
-// itself) can never disagree about the rule.
+// SessionWorkspaces returns the session's chosen context. A project or grant
+// may belong to several workspaces, but that does not grant access to every
+// board bound to them.
 //
 // An unknown session, no hub, or any error along the way reads as no
 // workspaces at all: fail closed, so an agent whose session cannot be
@@ -92,22 +90,19 @@ func (t *taskScope) SessionWorkspaces(sessionID string) []string {
 	if err != nil {
 		return nil
 	}
-	granted := append([]string{session.ProjectPath}, session.ExtraReadWritePaths...)
+	if session.WorkspaceID == "" {
+		return nil
+	}
 	all, err := t.workspace.ListWorkspaces()
 	if err != nil {
 		return nil
 	}
-	var owned []string
 	for _, ws := range all {
-		services, err := t.workspace.ListServices(ws.ID)
-		if err != nil {
-			continue
-		}
-		if workspace.SessionOwns(services, session.ProjectPath, granted) {
-			owned = append(owned, ws.ID)
+		if ws.ID == session.WorkspaceID {
+			return []string{ws.ID}
 		}
 	}
-	return owned
+	return nil
 }
 
 // Exists reports whether a workspace is still registered here.

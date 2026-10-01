@@ -29,8 +29,8 @@ const maxBriefFolders = 25
 // about to reimplement is a sibling folder it could read. Naming the folders
 // is also what makes `repo: "<name>"` on the git tools something it can use
 // without a round trip.
-func AgentSessionBrief(ws workspaceLister) func(cwd string, granted []string) string {
-	return func(cwd string, granted []string) string {
+func AgentSessionBrief(ws workspaceLister) func(workspaceID, cwd string, granted []string) string {
+	return func(workspaceID, cwd string, granted []string) string {
 		if ws == nil || cwd == "" {
 			return ""
 		}
@@ -42,12 +42,15 @@ func AgentSessionBrief(ws workspaceLister) func(cwd string, granted []string) st
 		fmt.Fprintf(&b, "Working directory: %s\n", cwd)
 		found := false
 		for _, w := range all {
+			if w.ID != workspaceID {
+				continue
+			}
 			services, err := ws.ListServices(w.ID)
-			if err != nil || !holds(services, cwd, granted) {
+			if err != nil {
 				continue
 			}
 			found = true
-			fmt.Fprintf(&b, "\nWorkspace %q — one folder per service, primary first:\n", w.Name)
+			fmt.Fprintf(&b, "\nWorkspace %q (id %s) — one folder per service, primary first:\n", w.Name, w.ID)
 			for i, svc := range services {
 				if i == maxBriefFolders {
 					fmt.Fprintf(&b, "- …and %d more (%s)\n", len(services)-i, "workspace.list")
@@ -74,7 +77,7 @@ func AgentSessionBrief(ws workspaceLister) func(cwd string, granted []string) st
 			}
 		}
 		if !found {
-			b.WriteString("\nThis folder is not part of a DevKit workspace.\n")
+			b.WriteString("\nThis session has no selected DevKit workspace.\n")
 		}
 		if extra := outside(all, ws, granted, cwd); len(extra) > 0 {
 			b.WriteString("\nAlso yours to write: " + strings.Join(extra, ", ") + "\n")

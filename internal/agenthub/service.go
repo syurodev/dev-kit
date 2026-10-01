@@ -31,6 +31,7 @@ var DefaultInvokeTimeout = 10 * time.Minute
 type CreateInput struct {
 	AgentType       AgentType
 	Cwd             string
+	WorkspaceID     string
 	ParentSessionID string // empty = root session
 	Title           *string
 	// ExtraReadWritePaths widen the jail beyond Cwd — see OpenSpec. Only the
@@ -73,6 +74,7 @@ func cleanExtraReadWritePaths(paths []string) []string {
 func sessionOpenSpec(sess AgentSession) OpenSpec {
 	return OpenSpec{
 		Cwd:                 sess.ProjectPath,
+		WorkspaceID:         sess.WorkspaceID,
 		ExtraReadWritePaths: cleanExtraReadWritePaths(sess.ExtraReadWritePaths),
 	}
 }
@@ -88,7 +90,7 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 	// every path that builds an OpenSpec — or a resumed session would come
 	// back without knowing where it is.
 	if s.SessionBrief != nil {
-		spec.Brief = s.SessionBrief(spec.Cwd, append([]string{spec.Cwd}, spec.ExtraReadWritePaths...))
+		spec.Brief = s.SessionBrief(spec.WorkspaceID, spec.Cwd, append([]string{spec.Cwd}, spec.ExtraReadWritePaths...))
 	}
 	if s.ProtectedPaths != nil {
 		spec.DenyReadPaths = append(spec.DenyReadPaths, s.ProtectedPaths()...)
@@ -268,7 +270,10 @@ type Service struct {
 	// agent starts knowing its workspace rather than being asked to go and
 	// discover it. nil or "" leaves the prompt telling it to call
 	// workspace.list instead.
-	SessionBrief func(cwd string, granted []string) string
+	SessionBrief func(workspaceID, cwd string, granted []string) string
+	// MatchingWorkspaces resolves cwd when creating a root session. Ambiguous
+	// folders require an explicit choice; UI switching never moves a session.
+	MatchingWorkspaces func(cwd string) ([]string, error)
 	// ProtectedPaths lists what is hidden from every session whatever
 	// SandboxExtras shares — DevKit's data directory (ProtectDataDir). A
 	// function, read on every spawn, because the directory's contents are
@@ -453,9 +458,36 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if err != nil {
 		return AgentSession{}, err
 	}
+	workspaceID := in.WorkspaceID
+	if parent != nil {
+		if workspaceID != "" && workspaceID != parent.WorkspaceID {
+			return AgentSession{}, ErrWorkspaceMismatch
+		}
+		workspaceID = parent.WorkspaceID
+	} else if s.MatchingWorkspaces != nil {
+		matches, err := s.MatchingWorkspaces(cwd)
+		if err != nil {
+			return AgentSession{}, err
+		}
+		if workspaceID != "" {
+			found := false
+			for _, id := range matches {
+				found = found || id == workspaceID
+			}
+			if !found {
+				return AgentSession{}, ErrWorkspaceMismatch
+			}
+		} else if len(matches) == 1 {
+			workspaceID = matches[0]
+		} else if len(matches) > 1 {
+			return AgentSession{}, ErrWorkspaceAmbiguous
+		}
+	} else if workspaceID != "" {
+		return AgentSession{}, ErrWorkspaceMismatch
+	}
 
 	id := uuid.NewString()
-	spec := OpenSpec{Cwd: cwd}
+	spec := OpenSpec{Cwd: cwd, WorkspaceID: workspaceID}
 	// Belt: the MCP tool handler's own input struct has no field to carry
 	// this, so an agent caller cannot reach it in practice. Suspenders: reject
 	// it explicitly here too, so the guarantee holds even if that ever changes
@@ -490,6 +522,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		ID:           id,
 		AgentType:    in.AgentType,
 		ProjectPath:  cwd,
+		WorkspaceID:  workspaceID,
 		Status:       SessionStatusIdle,
 		Depth:        depth,
 		Title:        in.Title,

@@ -48,6 +48,7 @@ export type AgentSession = {
   id: string;
   agentType: AgentVendor | string;
   projectPath: string;
+  workspaceId?: string;
   status: SessionStatus;
   parentSessionId: string | null;
   depth: number;
@@ -66,6 +67,7 @@ export type InvokeResult = {
 export type CreateSessionInput = {
   agentType: AgentVendor | string;
   cwd: string;
+  workspaceId?: string;
   parentSessionId?: string;
   title?: string | null;
   /**
@@ -213,6 +215,7 @@ function toSession(raw: RawSession): AgentSession {
     id: raw.ID,
     agentType: asVendor(String(raw.AgentType ?? "")),
     projectPath: raw.ProjectPath ?? "",
+    workspaceId: raw.WorkspaceID ?? "",
     status: asStatus(String(raw.Status ?? "")),
     parentSessionId: raw.ParentSessionID ?? null,
     depth: raw.Depth ?? 0,
@@ -295,6 +298,7 @@ export function agentHubCreateSession(
     const created = await AppService.AgentHubCreateSession({
       AgentType: input.agentType as RawAgentType,
       Cwd: input.cwd,
+      WorkspaceID: input.workspaceId ?? "",
       ParentSessionID: input.parentSessionId ?? "",
       Title: input.title ?? null,
       ExtraReadWritePaths: input.extraReadWritePaths ?? [],

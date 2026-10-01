@@ -101,6 +101,30 @@ func (s *Service) ListWorkspaces() ([]Workspace, error) {
 	return s.repo.ListWorkspaces()
 }
 
+// MatchingWorkspaceIDs lists every workspace containing path. A folder may
+// intentionally belong to several workspaces, so callers must not pick one
+// from this list without an explicit user choice.
+func (s *Service) MatchingWorkspaceIDs(path string) ([]string, error) {
+	all, err := s.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, ws := range all {
+		services, err := s.ListServices(ws.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, svc := range services {
+			if Within(path, svc.Path) {
+				ids = append(ids, ws.ID)
+				break
+			}
+		}
+	}
+	return ids, nil
+}
+
 // ListServices returns every service under workspaceID.
 //
 // The primary (the workspace's Root) comes first, whatever the repository's

@@ -88,7 +88,7 @@ func TestWorkspaceListForTheTerminal(t *testing.T) {
 // folders its session may write.
 func TestWorkspaceListForAnAgentSession(t *testing.T) {
 	const sid = "11111111-2222-3333-4444-555555555555"
-	hub := &fakeAgentHub{status: agenthub.AgentSession{ID: sid, ProjectPath: kong, ExtraReadWritePaths: []string{auth}}}
+	hub := &fakeAgentHub{status: agenthub.AgentSession{ID: sid, ProjectPath: kong, WorkspaceID: "ws-security", ExtraReadWritePaths: []string{auth}}}
 	srv := workspaceServer(&fakeCaller{}, hub)
 	ctx := identity.WithCaller(context.Background(), identity.Agent(sid))
 	_, v, err := srv.toolWorkspaceList(ctx, &sdk.CallToolRequest{}, struct{}{})
@@ -99,7 +99,7 @@ func TestWorkspaceListForAnAgentSession(t *testing.T) {
 	if hub.statusID != sid {
 		t.Fatalf("looked up session %q, want the caller's own", hub.statusID)
 	}
-	if got.Cwd != kong || len(got.Workspaces) != 1 || got.Workspaces[0].ID != "ws-security" {
+	if got.Cwd != kong || got.SelectedWorkspaceID != "ws-security" || len(got.Workspaces) != 1 || got.Workspaces[0].ID != "ws-security" {
 		t.Fatalf("output = %+v, want only fsap-security and cwd kong-plugin", got)
 	}
 	granted := map[string]bool{}
@@ -143,5 +143,29 @@ func TestWorkspaceListErrors(t *testing.T) {
 	d := agentHubTestDeps(&fakeCaller{}, &fakeAgentHub{})
 	if _, _, err := NewServer(d).toolWorkspaceList(context.Background(), &sdk.CallToolRequest{}, struct{}{}); err == nil {
 		t.Fatal("no registry must be an error")
+	}
+}
+
+func TestWorkspaceListSharedFolderUsesSelectedWorkspace(t *testing.T) {
+	const sid = "11111111-2222-3333-4444-555555555555"
+	fixture := workspaceFixture()
+	fixture.services["ws-billing"] = append(fixture.services["ws-billing"], workspace.WorkspaceService{Name: "kong-plugin", Path: kong})
+	ctx := identity.WithCaller(context.Background(), identity.Agent(sid))
+	for _, selected := range []string{"ws-security", "ws-billing", ""} {
+		hub := &fakeAgentHub{status: agenthub.AgentSession{ID: sid, ProjectPath: kong, WorkspaceID: selected}}
+		deps := agentHubTestDeps(&fakeCaller{}, hub)
+		deps.Workspace = fixture
+		_, v, err := NewServer(deps).toolWorkspaceList(ctx, &sdk.CallToolRequest{}, struct{}{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := unwrap(v).(WorkspaceListResult)
+		if selected == "" {
+			if len(got.Workspaces) != 0 {
+				t.Fatalf("unbound shared session sees %v", got.Workspaces)
+			}
+		} else if len(got.Workspaces) != 1 || got.Workspaces[0].ID != selected {
+			t.Fatalf("selected %s sees %v", selected, got.Workspaces)
+		}
 	}
 }
