@@ -179,8 +179,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 34 {
-		t.Fatalf("migration version = %d, want 34", version)
+	if version != 35 {
+		t.Fatalf("migration version = %d, want 35", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -708,5 +708,49 @@ func TestWorkspaceInstructionsMigrationAndPersistence(t *testing.T) {
 	}
 	if instructions != "Chỉ dùng DevKit.\nKeep this text." {
 		t.Fatalf("reopened instructions = %q", instructions)
+	}
+}
+
+func TestWorkspaceMemoryMigrationPreservesRegistryAndCascades(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "memory.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`DROP TABLE workspace_memory_revisions`,
+		`DROP TABLE workspace_memory`,
+		`DELETE FROM schema_migrations WHERE version=35`,
+		`INSERT INTO workspaces(id,name,root,instructions)VALUES('existing','Existing','/existing','Keep instructions')`,
+	} {
+		if _, err = db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var instructions string
+	if err = db.QueryRowContext(ctx, `SELECT instructions FROM workspaces WHERE id='existing'`).Scan(&instructions); err != nil || instructions != "Keep instructions" {
+		t.Fatal(instructions, err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO workspace_memory(id,workspace_id,revision,title,summary,body,updated_at,data)VALUES('memory','existing',1,'title','summary','body','now','{}')`,
+		`INSERT INTO workspace_memory_revisions(entry_id,revision,operation,data)VALUES('memory',1,'create','{}')`,
+		`DELETE FROM workspaces WHERE id='existing'`,
+	} {
+		if _, err = db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, table := range []string{"workspace_memory", "workspace_memory_revisions"} {
+		var n int
+		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
+			t.Fatal(table, n, err)
+		}
 	}
 }

@@ -43,6 +43,7 @@ import (
 	"devkit/internal/vaultitem"
 	"devkit/internal/workfolder"
 	"devkit/internal/workspace"
+	"devkit/internal/workspacememory"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -136,6 +137,7 @@ func main() {
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
 	container.Workspace = workspace.NewService(workspace.NewSQLRepository(db))
+	container.WorkspaceMemory = workspacememory.NewService(workspacememory.NewSQLRepository(db))
 	// A board's tree in the sidebar is a live view, not a snapshot: an agent
 	// closing a task over MCP, or a background verify run landing, must reach
 	// it without the user refreshing. Wired here, before MigrateBoardBindings
@@ -550,6 +552,7 @@ func main() {
 	if container.Workspace != nil {
 		agentSvc.SessionBrief = app.AgentSessionBrief(container.Workspace)
 		agentSvc.WorkspaceInstructions = container.Workspace.GetInstructions
+		agentSvc.WorkspaceMemory = container.WorkspaceMemory.Context
 		agentSvc.MatchingWorkspaces = container.Workspace.MatchingWorkspaceIDs
 	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
@@ -860,9 +863,10 @@ func main() {
 		AgentHub:          container.AgentHub,
 		// workspace.list: an agent learns which folders make up its
 		// workspace and which of them its session may write.
-		Workspace: container.Workspace,
-		Tasks:     container.Tasks,
-		Git:       container.Git,
+		Workspace:       container.Workspace,
+		WorkspaceMemory: container.WorkspaceMemory,
+		Tasks:           container.Tasks,
+		Git:             container.Git,
 		// Each git tool acts on the caller's own repository (an agent's
 		// working directory, or the service it names), not only the one open
 		// in the Git view.

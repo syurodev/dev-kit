@@ -274,6 +274,9 @@ type Service struct {
 	// WorkspaceInstructions reads the selected workspace's current rules on each
 	// turn. Errors refuse the turn before it records a user message or starts work.
 	WorkspaceInstructions func(workspaceID string) (string, error)
+	// WorkspaceMemory supplies a bounded snapshot of shared knowledge. It is
+	// reference data, never authority for instructions or permissions.
+	WorkspaceMemory func(ctx context.Context, workspaceID string) (string, error)
 	// MatchingWorkspaces resolves cwd when creating a root session. Ambiguous
 	// folders require an explicit choice; UI switching never moves a session.
 	MatchingWorkspaces func(cwd string) ([]string, error)
@@ -1249,7 +1252,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
-	workspaceContext, err := s.workspaceTurnContext(sess)
+	workspaceContext, err := s.workspaceTurnContext(ctx, sess)
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}

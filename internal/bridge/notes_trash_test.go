@@ -56,6 +56,11 @@ func TestTrashToolsAreAbsentFromMCPTools(t *testing.T) {
 
 	for name := range names {
 		lowered := strings.ToLower(name)
+		// This guard belongs to Notes trash. Workspace memory restoration is
+		// a versioned, reversible write and has its own scoped tool contract.
+		if !strings.HasPrefix(lowered, "notes.") {
+			continue
+		}
 		if strings.Contains(lowered, "purge") || strings.Contains(lowered, "trash") ||
 			strings.Contains(lowered, "restore") {
 			t.Fatalf("tool %q puts the trash on the agent surface", name)

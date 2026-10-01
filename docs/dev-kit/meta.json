@@ -43,6 +43,7 @@
     "tool-result-view",
     "sandbox",
     "workspace",
+    "workspace-memory",
     "plugins",
     "---AI & Security---",
     "mcp-agent",

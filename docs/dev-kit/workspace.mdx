@@ -233,6 +233,15 @@ riêng. Đổi primary hoặc chọn workspace khác ở title bar không chuy�
 của session. Session không gắn workspace không nhận instructions của workspace
 nào. Context tự thêm không xuất hiện như một tin nhắn người dùng trong transcript.
 
+### Memory chung của workspace
+
+[Workspace memory](/dev-kit/workspace-memory) lưu quyết định, quy ước, kiến thức và
+bàn giao theo cùng workspace ID. Claude, Codex và session con đọc chung kho dữ liệu;
+mỗi lượt nhận snapshot summary tối đa 8 KiB. Các tool `workspace.memory.*` đọc, tìm,
+thêm, sửa, soft delete và khôi phục theo revision. Memory là dữ liệu tham khảo,
+còn Instructions là quy tắc làm việc. Kho memory local có lịch sử và nguồn cập nhật;
+UI quản lý memory là bước tiếp theo.
+
 ## Hai tầng index — chỗ quyết định chuyện lag
 
 Đây là phần quan trọng nhất của trang. Chi phí index **không** tỉ lệ với kích

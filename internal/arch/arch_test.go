@@ -102,6 +102,9 @@ func TestLayering(t *testing.T) {
 		pkg("kafka"):    {pkg("environments"), pkg("mcp")},
 		// notes must not depend upward on the MCP host.
 		pkg("notes"): {pkg("mcp")},
+		// Shared memory owns only its domain/repository; host identity and
+		// migrations are supplied by composition, not imported by the store.
+		pkg("workspacememory"): {pkg("storage"), pkg("agenthub"), pkg("mcp"), pkg("bridge"), pkg("app"), pkg("vaultitem")},
 		// agenthub may use sandbox for vendor spawn, but must not reach host
 		// boundaries (mcp/bridge/app) or own the storage migration package.
 		pkg("agenthub"): {pkg("mcp"), pkg("bridge"), pkg("app"), pkg("storage")},
