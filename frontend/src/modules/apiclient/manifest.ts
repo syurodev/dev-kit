@@ -1,5 +1,5 @@
 import { lazy, Suspense, createElement } from "react";
-import { Send } from "lucide-react";
+import { Send, Variable } from "lucide-react";
 import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
@@ -19,13 +19,43 @@ export const apiclientModule: ModuleManifest = {
   // api:send is separate from api:read and api:write: reading a request and
   // firing it at a production host are not the same permission.
   capabilities: ["api:read", "api:write", "api:send"],
-  commands: [{ id: "apiclient.new_request", title: "New request" }],
+  // Collections, folders, requests and environments are the module's, not a
+  // tab's: they are there with nothing open, which is how the module starts.
+  sidebar: lazy(() => import("./ApiClientSidebar").then(({ ApiClientSidebar }) => ({ default: ApiClientSidebar }))),
+  // The strip's + is a new request, the way it is in every HTTP client.
+  newTab: () => {
+    void import("./documents").then(({ openNewRequest }) => openNewRequest());
+  },
+  commands: [
+    {
+      id: "apiclient.new_request",
+      title: "New request",
+      run: () => {
+        void import("./documents").then(({ openNewRequest }) => openNewRequest());
+      },
+    },
+    {
+      id: "apiclient.import",
+      title: "Import cURL or Postman…",
+      run: () => {
+        void import("./importCommand").then(({ openImport }) => openImport());
+      },
+    },
+  ],
   views: [
     {
       id: "apiclient.request",
       title: "Request",
       ...lazyModuleView(() =>
         import("./ApiRequestView").then(({ ApiRequestView }) => ({ default: ApiRequestView })),
+      ),
+    },
+    {
+      id: "apiclient.variables",
+      title: "Variables",
+      icon: Variable,
+      ...lazyModuleView(() =>
+        import("./VariablesView").then(({ VariablesView }) => ({ default: VariablesView })),
       ),
     },
   ],

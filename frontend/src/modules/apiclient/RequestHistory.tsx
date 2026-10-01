@@ -31,22 +31,25 @@ export function RequestHistory({ requestID }: { requestID: string }) {
   useEffect(load, [load]);
 
   if (error) {
-    return <p className="text-xs text-red-500">{error}</p>;
+    return <p className="text-caption-11 text-status-danger">{error}</p>;
   }
-  if (!entries || entries.length === 0) {
+  if (!entries) {
     return null;
+  }
+  if (entries.length === 0) {
+    return <p className="pt-4 text-center text-caption-11 text-text-tertiary">Nothing sent from this machine yet.</p>;
   }
 
   return (
-    <section className="pt-3">
+    <section>
       <header className="flex items-center gap-2 pb-1">
-        <History className="size-3.5 text-fg-muted" aria-hidden />
-        <h3 className="flex-1 text-xs font-medium text-fg-muted">
+        <History className="size-(--icon-12) text-text-tertiary" aria-hidden />
+        <h3 className="flex-1 text-caption-11-medium text-text-tertiary">
           Sent from this machine ({entries.length})
         </h3>
         <Button
           variant="ghost"
-          size="sm"
+          size="xs"
           onClick={() => {
             clearRequestHistory(requestID)
               .then(load)
@@ -60,21 +63,21 @@ export function RequestHistory({ requestID }: { requestID: string }) {
         {entries.map((entry) => (
           <li
             key={entry.id}
-            className="flex items-baseline gap-2 border-b border-border-subtle py-1 text-xs last:border-b-0"
+            className="flex items-baseline gap-2 border-b border-border-subtle py-1 text-caption-11 last:border-b-0"
           >
             <span className={statusTone(entry)}>{entry.status || "—"}</span>
-            <span className="w-10 shrink-0 font-mono text-fg-muted">{entry.method}</span>
+            <span className="w-12 shrink-0 font-mono text-text-tertiary">{entry.method}</span>
             <span className="min-w-0 flex-1 truncate font-mono" title={entry.url}>
               {entry.url || "(locked — unlock the vault to read the URL)"}
             </span>
             {entry.failure ? (
-              <span className="shrink-0 text-amber-500">{entry.failure}</span>
+              <span className="shrink-0 text-status-warning">{entry.failure}</span>
             ) : (
-              <span className="shrink-0 text-fg-muted">
+              <span className="shrink-0 text-text-tertiary">
                 {entry.durationMs} ms · {entry.bytes} B
               </span>
             )}
-            <span className="shrink-0 text-fg-muted">{clockOf(entry.sentAt)}</span>
+            <span className="shrink-0 text-text-tertiary">{clockOf(entry.sentAt)}</span>
           </li>
         ))}
       </ul>
@@ -83,10 +86,10 @@ export function RequestHistory({ requestID }: { requestID: string }) {
 }
 
 function statusTone(entry: ApiHistoryEntry): string {
-  if (entry.status === 0) return "w-8 shrink-0 text-amber-500";
-  if (entry.status >= 500) return "w-8 shrink-0 text-red-500";
-  if (entry.status >= 400) return "w-8 shrink-0 text-amber-500";
-  return "w-8 shrink-0 text-emerald-500";
+  if (entry.status === 0) return "w-8 shrink-0 text-status-warning";
+  if (entry.status >= 500) return "w-8 shrink-0 text-status-danger";
+  if (entry.status >= 400) return "w-8 shrink-0 text-status-warning";
+  return "w-8 shrink-0 text-status-success";
 }
 
 /** Local time, to the minute: a history row answers "when", not "exactly when". */
