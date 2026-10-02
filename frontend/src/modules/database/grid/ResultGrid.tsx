@@ -39,13 +39,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -665,18 +659,13 @@ export function ResultGrid({
               // without it the message slides out of view as you scroll a wide
               // table sideways. Sticky pins it to the scroller's own left edge,
               // where its container width centres it over what you can see.
-              <Empty className="sticky left-0 p-8">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Rows3 />
-                  </EmptyMedia>
-                  <EmptyTitle>No rows</EmptyTitle>
-                  <EmptyDescription>
-                    The query ran and matched nothing. Change the filter or the sort and run it
-                    again.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <EmptyState
+                size="rail"
+                className="sticky left-0 w-full py-8"
+                icon={Rows3}
+                title="No rows"
+                body="The query ran and matched nothing. Change the filter or the sort and run it again."
+              />
             ) : null}
           </div>
         </ContextMenuTrigger>

@@ -165,6 +165,28 @@ notes, ssh, sync, tools về 0/0/0; database 0/15/0; settings 0/9/0; workbench
 `font-color-toolbar-button`, `code-block-node-static`,
 `database/icons/engineMarks` (mark thương hiệu vendor).
 
+### Component dùng chung, không lắp lại
+
+Thang chặn được giá trị lệch lưới, nhưng không chặn được một module tự lắp
+bản sao đúng lưới của component chung — empty state đã trôi đúng theo cách đó:
+mỗi rail tự ráp từ các slot `Empty` (bốn kiểu padding, ba kiểu tiêu đề), mỗi
+module tự chọn nút cho lời mời (pill craft ở chỗ này, primary thường ở chỗ kia,
+không có gì ở chỗ thứ ba).
+
+- **`EmptyState` là empty state duy nhất**, hai cỡ: `pane` (vòng 64px, `Title/16`,
+  body 420px) cho vùng nội dung và `rail` (không vòng, `Label/12` trên
+  `Caption/11`) cho sidebar, list, panel. Nút đi qua prop `action` /
+  `secondaryAction`, và chính component quyết định loại nút: lời mời đứng một
+  mình trên pane → craft; hai nút → primary + outline; `tone="danger"` không bao
+  giờ craft; rail → outline + ghost.
+- **Đầu rail dùng `SidebarSection`** (nhãn caps + action icon-xs), nội dung đặt
+  trong `SidebarInset`. Notes và Agent Hub đã bỏ header tự vẽ.
+- **Rail nhường chỗ khi module không có rail** (Accounts, SSH): `useModuleHasRail`
+  thu sidebar lại như khi bị ép chỗ, giữ nguyên lựa chọn mở/đóng, và nút toggle
+  bị disable kèm tooltip nói lý do.
+- `designSystemConformance.test.ts` › "shared components" chặn import trực tiếp
+  slot `Empty` và `CraftButton` ngoài `empty-state.tsx` (gallery được miễn).
+
 ## Hạn chế của Figma đã đo được
 
 Ghi lại vì mỗi cái đã tốn một lượt sửa lại, và không cái nào thấy được bằng

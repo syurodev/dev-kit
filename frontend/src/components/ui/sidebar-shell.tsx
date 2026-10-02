@@ -11,6 +11,7 @@ import {
 } from "@/workbench/panelLayout";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { useSidebarContentStore } from "@/stores/sidebarContent";
+import { getModule } from "@/modules/registry";
 import { ModuleSidebar } from "./module-sidebar";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
@@ -277,6 +278,22 @@ export function SidebarHeader({ children }: { children: React.ReactNode }) {
   return <SidebarInset className="flex shrink-0 items-center gap-1 pt-1.5 pb-1">{children}</SidebarInset>;
 }
 
+/**
+ * Whether this module has anything to put in the rail: a rail one of its
+ * documents registered, or one its manifest declares.
+ *
+ * Accounts and SSH have neither. The shell used to open the rail for them
+ * anyway, a 280px column of nothing beside the module — so the rail yields
+ * for a module with no rail, the way it yields to layout pressure: the
+ * person's open/closed choice is untouched and comes back with the next module
+ * that has one.
+ */
+export function useModuleHasRail(moduleId: string | null): boolean {
+  const registered = useSidebarContentStore((s) => (moduleId ? s.content[moduleId] != null : false));
+  if (!moduleId) return false;
+  return registered || Boolean(getModule(moduleId)?.sidebar);
+}
+
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 
@@ -291,7 +308,8 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
   // open state untouched, so it comes back as the window widens
   // (panelLayout.layoutPressure).
   const pressure = useLayoutPressure();
-  const open = wantOpen && !pressure.sidebarYields;
+  const hasRail = useModuleHasRail(activeModuleId);
+  const open = wantOpen && !pressure.sidebarYields && hasRail;
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const setSidebarWidth = usePanelWidthsStore((s) => s.setSidebarWidth);
   const columnWidths = usePanelWidthsStore((s) => s.columnWidths);

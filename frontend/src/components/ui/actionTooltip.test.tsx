@@ -93,7 +93,10 @@ describe("the module's chrome uses one tooltip", () => {
     "components/QueryConsole.tsx",
     "components/BrowsePager.tsx",
   ])("%s raises no native tooltip", (file) => {
-    expect(read(file), "title= is the OS tooltip, not the app's").not.toMatch(/\stitle="/);
+    // EmptyState's `title` is its heading, drawn as text — not an attribute
+    // that reaches the DOM — so its props are taken out before looking.
+    const source = read(file).replace(/<EmptyState\b[\s\S]*?\/>/g, "");
+    expect(source, "title= is the OS tooltip, not the app's").not.toMatch(/\stitle="/);
   });
 
   // A truncated tab's full title is the tooltip people read most, so it is

@@ -10,12 +10,7 @@ import {
 } from "@/components/ui/context-menu";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { useKafkaStore } from "./kafkaStore";
 
@@ -131,20 +126,15 @@ export function KafkaSidebar() {
       {/* The tree is its own scroller; the empty states are not in it. */}
       {profiles.length === 0 ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyTitle className="text-body-12 text-text-tertiary">No clusters saved.</EmptyTitle>
-            <EmptyContent>
-              <Button variant="outline" size="sm" onClick={() => setShowNewCluster(true)}>
-                <Plus className="size-3" /> Add cluster
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <EmptyState
+            size="rail"
+            title="No clusters yet"
+            action={{ label: "Add cluster", icon: Plus, onClick: () => setShowNewCluster(true) }}
+          />
         </div>
       ) : nodes.length === 0 ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
-          </Empty>
+          <EmptyState size="rail" body={`Nothing matches “${needle}”.`} />
         </div>
       ) : (
         <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />

@@ -23,12 +23,12 @@ const STATE_LABEL: Record<Account["state"], string> = {
 };
 
 const STATE_TONE: Record<Account["state"], string> = {
-  valid: "text-fg-muted",
-  expiring: "text-amber-500",
-  expired: "text-red-500",
-  revoked: "text-red-500",
-  unverified: "text-fg-muted",
-  needs_local_secret: "text-amber-500",
+  valid: "text-text-tertiary",
+  expiring: "text-status-warning",
+  expired: "text-status-danger",
+  revoked: "text-status-danger",
+  unverified: "text-text-tertiary",
+  needs_local_secret: "text-status-warning",
 };
 
 function AccountRow({
@@ -44,22 +44,22 @@ function AccountRow({
 
   return (
     <li className="flex items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0">
-      <KeyRound className="size-4 shrink-0 text-fg-muted" aria-hidden />
+      <KeyRound className="size-4 shrink-0 text-text-tertiary" aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">
+        <div className="truncate text-body-13-medium text-text-primary">
           {account.label}
           {account.subject ? (
-            <span className="text-fg-muted"> · {account.subject}</span>
+            <span className="font-normal text-text-secondary"> · {account.subject}</span>
           ) : null}
         </div>
-        <div className="truncate text-xs text-fg-muted">
+        <div className="truncate text-caption-11 text-text-tertiary">
           {account.provider}
           {account.scopes?.length ? ` · ${account.scopes.join(", ")}` : ""}
           {account.env?.length ? ` · ${account.env.join(", ")}` : ""}
         </div>
-        {error ? <div className="text-xs text-red-500">{error}</div> : null}
+        {error ? <div className="text-caption-11 text-status-danger">{error}</div> : null}
       </div>
-      <span className={`shrink-0 text-xs ${STATE_TONE[account.state]}`}>
+      <span className={`shrink-0 text-caption-11-medium ${STATE_TONE[account.state]}`}>
         {STATE_LABEL[account.state]}
       </span>
       {!account.scopeOwner && account.kind !== "external" ? (
@@ -175,7 +175,7 @@ export function AccountsView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
-        <h2 className="text-sm font-medium">Accounts</h2>
+        <h2 className="text-title-13 text-text-primary">Accounts</h2>
         <div className="flex-1" />
         <Button
           variant="ghost"
@@ -219,7 +219,7 @@ export function AccountsView() {
           <RefreshCw className="size-4" aria-hidden />
         </Button>
       </div>
-      {notice ? <p className="px-3 py-1 text-xs text-fg-muted">{notice}</p> : null}
+      {notice ? <p className="px-3 py-1 text-caption-11 text-text-tertiary">{notice}</p> : null}
       <div className="min-h-0 flex-1 overflow-auto">
         <ul>
           {shared.map((account) => (
@@ -233,7 +233,7 @@ export function AccountsView() {
         </ul>
         {scoped.length > 0 ? (
           <details className="border-t border-border-subtle">
-            <summary className="cursor-pointer px-3 py-2 text-xs text-fg-muted">
+            <summary className="cursor-pointer px-3 py-2 text-caption-11 text-text-tertiary">
               Belonging to one connection ({scoped.length}) · these stay on this
               machine
             </summary>

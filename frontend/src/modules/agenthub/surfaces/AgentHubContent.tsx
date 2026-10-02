@@ -1,14 +1,8 @@
 import * as React from "react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { Bot, Plus } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
@@ -389,31 +383,16 @@ export function AgentHubContent({
       )}
     >
       {effectiveState === "Empty" ? (
-        <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-6">
-          <EmptyHeader className="w-105 max-w-full gap-3">
-            <EmptyTitle className="text-title-16 text-text-secondary">No agent running</EmptyTitle>
-            {/* Figma's note: Empty is the first thing a new user meets, so it
-                explains what a session IS. The old copy said only where to click. */}
-            <EmptyDescription className="text-text-tertiary">
-              Each session gets its own sandbox, its own working directory, and its own
-              connection to DevKit&apos;s tools. Sessions started by an agent appear as
-              children of it.
-            </EmptyDescription>
-          </EmptyHeader>
-          {onNewSession ? (
-            <EmptyContent>
-              <Button
-                type="button"
-                size="sm"
-                data-testid="empty-new-session-button"
-                onClick={onNewSession}
-                className="h-8 px-4"
-              >
-                New session
-              </Button>
-            </EmptyContent>
-          ) : null}
-        </Empty>
+        // Figma's note: Empty is the first thing a new user meets, so it
+        // explains what a session IS. The old copy said only where to click.
+        <EmptyState
+          data-testid="agent-hub-content-empty"
+          className="min-h-0"
+          icon={Bot}
+          title="No agent running"
+          body="Each session gets its own sandbox, its own working directory, and its own connection to DevKit's tools. Sessions started by an agent appear as children of it."
+          action={onNewSession ? { label: "New session", icon: Plus, onClick: onNewSession } : undefined}
+        />
       ) : (
         // Error and Conversation share one container and one TranscriptStream,
         // so a session failing does not remount the transcript and lose its

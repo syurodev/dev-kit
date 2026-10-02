@@ -4,7 +4,7 @@ import {
   SidebarHeader,
   SidebarSearch,
 } from "@/components/ui/sidebar-shell";
-import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { TOOLS, type ToolDescriptor } from "./toolCatalogue";
 import { useToolsStore } from "./toolsStore";
@@ -41,9 +41,7 @@ export function ToolsSidebar() {
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
         {matches.length === 0 ? (
-          <Empty className="px-2 pt-6">
-            <EmptyDescription>Nothing matches “{query.trim()}”.</EmptyDescription>
-          </Empty>
+          <EmptyState size="rail" body={`Nothing matches “${query.trim()}”.`} />
         ) : (
           matches.map((tool) => (
             <ToolRow

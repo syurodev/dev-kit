@@ -8,7 +8,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SIDEBAR_ROW_HEIGHT, SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
 import { gitStage, gitUnstage, type Commit, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
@@ -100,9 +100,11 @@ export function GitSidebar() {
   if (!folder) {
     return (
       <div className="flex h-full flex-col select-none">
-        <Empty className="px-2 pt-6">
-          <EmptyDescription>No folder open. Open a project in Code Graph, or pick a folder for Git.</EmptyDescription>
-        </Empty>
+        <EmptyState
+          size="rail"
+          title="No folder open"
+          body="Open a project in Code Graph, or pick a folder for Git."
+        />
       </div>
     );
   }
@@ -245,9 +247,7 @@ export function GitSidebar() {
         ) : null}
 
         {project === "" && repos !== null && repos.length === 0 ? (
-          <Empty className="px-2 pt-6">
-            <EmptyDescription>This folder is not a git repository, and holds none.</EmptyDescription>
-          </Empty>
+          <EmptyState size="rail" body="This folder is not a git repository, and holds none." />
         ) : null}
 
         {error ? <div className="px-3 py-2 text-code-11 text-status-danger">{error}</div> : null}

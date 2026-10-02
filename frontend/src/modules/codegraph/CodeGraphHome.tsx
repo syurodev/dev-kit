@@ -1,6 +1,4 @@
 import { FolderOpen, FolderSearch, GitFork, RotateCcw, TriangleAlert } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { CraftButton, CraftButtonIcon, CraftButtonLabel } from "@/components/ui/craft-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { modKey } from "@/lib/shortcut";
 import { AnalyzerSetup } from "./AnalyzerSetup";
@@ -87,12 +85,13 @@ export function CodeGraphHome() {
 
   if (error) {
     return (
-      <EmptyState icon={TriangleAlert} tone="danger" title="Could not analyze this project" body={error}>
-        <Button variant="outline" className="bg-surface-raised" onClick={() => reindex(projectPath)} disabled={!projectPath}>
-          Re-run analysis
-          <RotateCcw className="size-4" />
-        </Button>
-      </EmptyState>
+      <EmptyState
+        icon={TriangleAlert}
+        tone="danger"
+        title="Could not analyze this project"
+        body={error}
+        action={{ label: "Re-run analysis", icon: RotateCcw, onClick: () => void reindex(projectPath), disabled: !projectPath }}
+      />
     );
   }
 
@@ -102,16 +101,10 @@ export function CodeGraphHome() {
         icon={GitFork}
         title="Open a project"
         body="DevKit indexes a Java, Lua or TypeScript project's controllers, services and repositories, then draws the call chain behind each route."
-      >
-        {/* Alone on the screen and an invitation, so it takes the craft
-            button — unlike the recovery buttons above. */}
-        <CraftButton onClick={pickAndOpenProject}>
-          <CraftButtonIcon>
-            <FolderSearch className="size-3" />
-          </CraftButtonIcon>
-          <CraftButtonLabel>Open project…</CraftButtonLabel>
-        </CraftButton>
-      </EmptyState>
+        // Alone on the screen and an invitation, so EmptyState gives it the
+        // craft button — unlike the recovery button above.
+        action={{ label: "Open project…", icon: FolderSearch, onClick: () => void pickAndOpenProject() }}
+      />
     );
   }
 

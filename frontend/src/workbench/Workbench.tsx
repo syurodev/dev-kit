@@ -51,7 +51,7 @@ const SettingsModal = lazy(() =>
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { SidebarModuleIdContext, useModuleHasRail } from "@/components/ui/sidebar-shell";
 import { ModuleVisibilityProvider } from "@/components/ui/module-visibility";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useModuleGroupsStore } from "../stores/moduleGroups";
@@ -316,6 +316,7 @@ export function Workbench() {
 
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const activeModuleId = useWorkbenchTabsStore((state) => state.activeModuleId);
+  const activeHasRail = useModuleHasRail(activeModuleId);
   const tabModules = useWorkbenchTabsStore((state) => state.modules);
   // The strip and the switcher see one module's tabs; only the views layer
   // sees everyone's, because it keeps recently-left modules mounted. Memoised
@@ -711,21 +712,25 @@ export function Workbench() {
               reproduces Figma's 16px clearance. */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="titlebar"
-                size="icon-sm"
-                aria-label="Toggle sidebar"
-                aria-pressed={sidebarOpen}
-                className={cn(
-                  sidebarOpen && "bg-accent text-foreground",
-                  "mx-1",
-                )}
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <PanelLeft className="size-4" />
-              </Button>
+              {/* A span around the button: a disabled button fires no pointer
+                  events, and the tooltip is what says why it is disabled. */}
+              <span className="mx-1 inline-flex">
+                <Button
+                  variant="titlebar"
+                  size="icon-sm"
+                  aria-label="Toggle sidebar"
+                  aria-pressed={sidebarOpen && activeHasRail}
+                  disabled={!activeHasRail}
+                  className={cn(sidebarOpen && activeHasRail && "bg-accent text-foreground")}
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                >
+                  <PanelLeft className="size-4" />
+                </Button>
+              </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
+            <TooltipContent side="bottom">
+              {activeHasRail ? "Toggle sidebar" : `${getModule(activeModuleId ?? "")?.title ?? "This module"} has no sidebar`}
+            </TooltipContent>
           </Tooltip>
           {/* Also outside the three zones, right after sidebar toggle — the
               multi-repo registry (workspace.mdx) is a window-wide context,

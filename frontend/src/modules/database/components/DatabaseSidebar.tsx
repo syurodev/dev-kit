@@ -29,12 +29,7 @@ import {
 } from "lucide-react";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
@@ -734,26 +729,16 @@ export function DatabaseSidebar() {
           and 8 below the last. The empty states are not in it. */}
       {profiles.length === 0 && !loadingProfiles ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyTitle className="text-body-12 text-text-tertiary">
-              No connections configured.
-            </EmptyTitle>
-            <EmptyContent>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNewConnectionDialog(true)}
-              >
-                <Plus className="size-3" /> Add profile
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <EmptyState
+            size="rail"
+            title="No connections yet"
+            body="Save a database's host and credentials once; the profile is encrypted into the vault."
+            action={{ label: "Add connection", icon: Plus, onClick: () => setShowNewConnectionDialog(true) }}
+          />
         </div>
       ) : tree.length === 0 ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
-          </Empty>
+          <EmptyState size="rail" body={`Nothing matches “${needle}”.`} />
         </div>
       ) : (
         <TreeView nodes={tree} className="flex-1 scrollbar-gutter-stable" />
