@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 35 {
-		t.Fatalf("migration version = %d, want 35", version)
+	if version != 36 {
+		t.Fatalf("migration version = %d, want 36", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -724,7 +726,7 @@ func TestWorkspaceMemoryMigrationPreservesRegistryAndCascades(t *testing.T) {
 	for _, stmt := range []string{
 		`DROP TABLE workspace_memory_revisions`,
 		`DROP TABLE workspace_memory`,
-		`DELETE FROM schema_migrations WHERE version=35`,
+		`DELETE FROM schema_migrations WHERE version>=35`,
 		`INSERT INTO workspaces(id,name,root,instructions)VALUES('existing','Existing','/existing','Keep instructions')`,
 	} {
 		if _, err = db.ExecContext(ctx, stmt); err != nil {
@@ -752,5 +754,71 @@ func TestWorkspaceMemoryMigrationPreservesRegistryAndCascades(t *testing.T) {
 		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
 			t.Fatal(table, n, err)
 		}
+	}
+}
+
+func TestWorkspaceMemoryIndexMigrationBackfillsExistingRows(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the exact pre-index shape while retaining prior migrations and the
+	// workspace registry, then populate records written by PR2.
+	for _, stmt := range []string{
+		`DROP TRIGGER workspace_memory_fts_insert`, `DROP TRIGGER workspace_memory_fts_update`, `DROP TRIGGER workspace_memory_fts_delete`,
+		`DROP TABLE workspace_memory_fts`, `DROP INDEX workspace_memory_workspace_kind_updated`,
+		`ALTER TABLE workspace_memory DROP COLUMN kind`, `ALTER TABLE workspace_memory DROP COLUMN summary_data`,
+		`ALTER TABLE workspace_memory_revisions DROP COLUMN summary_data`,
+		`DELETE FROM schema_migrations WHERE version>=36`,
+		`INSERT INTO workspaces(id,name,root,instructions)VALUES('existing','Existing','/existing','Keep instructions')`,
+	} {
+		if _, err = db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data := `{"id":"memory","workspaceId":"existing","kind":"decision","title":"Kiến trúc","summary":"Quyết định dùng chung","body":"Bộ nhớ Việt Nam","revision":1,"deleted":false,"createdAt":"2026-10-01T00:00:00.000000000Z","updatedAt":"2026-10-01T00:00:00.000000000Z","source":{"caller":"agent","sessionId":"session","agentType":"claude"}}`
+	if _, err = db.ExecContext(ctx, `INSERT INTO workspace_memory(id,workspace_id,revision,deleted,title,summary,body,updated_at,data)VALUES('memory','existing',1,0,'Kiến trúc','Quyết định dùng chung','Bộ nhớ Việt Nam','2026-10-01T00:00:00.000000000Z',?)`, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO workspace_memory_revisions(entry_id,revision,operation,data)VALUES('memory',1,'create',?)`, data); err != nil {
+		t.Fatal(err)
+	}
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var kind, summary, history string
+	if err = db.QueryRowContext(ctx, `SELECT kind,summary_data FROM workspace_memory WHERE id='memory'`).Scan(&kind, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "decision" || strings.Contains(summary, "body") || !strings.Contains(summary, "Kiến trúc") {
+		t.Fatal(kind, summary)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT summary_data FROM workspace_memory_revisions WHERE entry_id='memory'`).Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Deleted bool `json:"deleted"`
+		Source  struct {
+			SessionID string `json:"sessionId"`
+		} `json:"source"`
+	}
+	if err = json.Unmarshal([]byte(history), &decoded); err != nil || decoded.Deleted || decoded.Source.SessionID != "session" || strings.Contains(history, "body") {
+		t.Fatal(history, err)
+	}
+	var count int
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM workspace_memory_fts WHERE workspace_memory_fts MATCH ?`, `workspace_key:"w6578697374696e67" AND {title summary body}:("kien"* AND "viet"*)`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
+	}
+	// Repeated migration invocation leaves a single searchable index record.
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM workspace_memory_fts WHERE workspace_memory_fts MATCH 'viet'`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
 	}
 }

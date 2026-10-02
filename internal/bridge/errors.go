@@ -110,6 +110,9 @@ var safeValidationMessages = map[string]struct{}{
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
+	if mapped := workspaceMemoryPublicError(err); mapped != nil {
+		return mapped
+	}
 	if err == nil {
 		return nil
 	}

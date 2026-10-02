@@ -169,7 +169,13 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   includes at most 8 KiB of live summaries, as reference data rather than instructions.
   Soft-deleted entries remain readable/restorable; deleting the workspace cascades
   entries and history. Plaintext SQLite storage is outside vault/sync, like workspace
-  instructions. Audit excludes memory text and query. UI management is a later phase.
+  instructions. Audit excludes memory text and query. Workspace menu → Workspace memory
+  opens the lazy manager: bounded summary pages, CAS edits and paged revision metadata
+  with bodies loaded on selection. Migration 36 adds scoped contentless SQLite FTS5
+  (`unicode61 remove_diacritics 2`) and materialized summary read models. Search is literal
+  word-prefix AND, not substring; MCP list/search accept filter-bound cursors (legacy
+  offset remains supported). `BenchmarkMemory50K` covers rare/common search, deep cursor
+  pages and large revision histories. Broad searches still scale with matching postings.
 - **Claude's PreToolUse hook refuses `git commit` / `git push` in Bash**
   (`cmd/devkit-mcp/hook.go`, `shellGitWrite`) with a reason naming the DevKit tool to call:
   the shell skips branch guards, the task trailer and the push rule. Other git commands

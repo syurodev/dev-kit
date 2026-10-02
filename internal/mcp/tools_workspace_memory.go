@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"devkit/internal/apperrors"
 	"devkit/internal/identity"
@@ -23,9 +24,15 @@ type WorkspaceMemoryAPI interface {
 	Restore(context.Context, string, string, int64, int64, workspacememory.Source) (workspacememory.Entry, error)
 }
 
+// WorkspaceMemoryBrowser optionally enables scalable cursor pagination.
+type WorkspaceMemoryBrowser interface {
+	Browse(context.Context, string, workspacememory.BrowseInput) (workspacememory.BrowsePage, error)
+}
+
 type memoryListInput struct {
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	Query       string `json:"query,omitempty"`
+	Cursor      string `json:"cursor,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
 }
@@ -71,8 +78,8 @@ func (s *Server) registerWorkspaceMemory(ms *sdk.Server) {
 	scope := " Agent Hub sessions always use their selected workspace; terminal callers must supply workspaceId."
 	read := &sdk.ToolAnnotations{ReadOnlyHint: true}
 	write := &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)}
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.list", Description: "List shared workspace memory summaries with pagination." + scope, Annotations: read}, s.toolMemoryList)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.search", Description: "Search shared workspace memory by query, returning summaries with pagination." + scope, Annotations: read}, s.toolMemorySearch)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.list", Description: "List shared workspace memory summaries. Prefer cursor pagination: pass nextCursor from the previous result; keep query unchanged. Offset is supported for legacy clients and cannot be combined with cursor." + scope, Annotations: read}, s.toolMemoryList)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.search", Description: "Search shared workspace memory using literal word prefixes: all words must match (AND), case and diacritics are ignored. Prefer cursor pagination: pass nextCursor from the previous result; keep query unchanged. Offset is supported for legacy clients and cannot be combined with cursor." + scope, Annotations: read}, s.toolMemorySearch)
 	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.get", Description: "Read a shared workspace memory entry including its full body and revision. Deleted entries return a tombstone with deleted=true for recovery." + scope, Annotations: read}, s.toolMemoryGet)
 	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.create", Description: "Save durable shared workspace knowledge. Kind is decision, convention, knowledge or handoff. Provide a concise summary for turn context and detail in body. Authorship comes from your session." + scope, Annotations: write}, s.toolMemoryCreate)
 	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.update", Description: "Replace a memory entry using expectedRevision from its last read. On a revision conflict, refetch before editing." + scope, Annotations: write}, s.toolMemoryUpdate)
@@ -158,9 +165,27 @@ func (s *Server) memoryCall(ctx context.Context, ws, action, id string, revision
 	}
 	return nil, structured(value), nil
 }
+
+// memoryBrowse keeps the older offset API available while using keyset pages
+// for runtimes that implement Browse. Cursor and query never enter audit metadata.
+func (s *Server) memoryBrowse(ctx context.Context, ws string, in memoryListInput) (any, error) {
+	if in.Limit < 0 || in.Limit > 100 || in.Offset < 0 || len(in.Cursor) > 2048 || !utf8.ValidString(in.Cursor) || (in.Cursor != "" && in.Offset != 0) {
+		return nil, workspacememory.ErrInvalidInput
+	}
+	if in.Offset == 0 {
+		if browser, ok := s.deps.WorkspaceMemory.(WorkspaceMemoryBrowser); ok {
+			return browser.Browse(ctx, ws, workspacememory.BrowseInput{Query: in.Query, Cursor: in.Cursor, Limit: in.Limit})
+		}
+		if in.Cursor != "" {
+			return nil, workspacememory.ErrInvalidInput
+		}
+	}
+	return s.deps.WorkspaceMemory.List(ctx, ws, in.Query, in.Limit, in.Offset)
+}
+
 func (s *Server) toolMemoryList(ctx context.Context, _ *sdk.CallToolRequest, in memoryListInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_list", "", 0, false, func(c context.Context, ws string, _ workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.List(c, ws, in.Query, in.Limit, in.Offset)
+		return s.memoryBrowse(c, ws, in)
 	})
 }
 func (s *Server) toolMemorySearch(ctx context.Context, _ *sdk.CallToolRequest, in memoryListInput) (*sdk.CallToolResult, any, error) {
@@ -168,7 +193,7 @@ func (s *Server) toolMemorySearch(ctx context.Context, _ *sdk.CallToolRequest, i
 		return nil, nil, apperrors.New("validation_failed", "A search query is required.", true)
 	}
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_search", "", 0, false, func(c context.Context, ws string, _ workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.List(c, ws, in.Query, in.Limit, in.Offset)
+		return s.memoryBrowse(c, ws, in)
 	})
 }
 func (s *Server) toolMemoryGet(ctx context.Context, _ *sdk.CallToolRequest, in memoryGetInput) (*sdk.CallToolResult, any, error) {

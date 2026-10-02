@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { Boxes, ChevronDown, FolderPlus, Settings2 } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  Boxes,
+  BookOpen,
+  ChevronDown,
+  FolderPlus,
+  Settings2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +30,7 @@ import {
   workspaceInitials,
 } from "./workspaceIdentity";
 import { WorkspaceDialog } from "./WorkspaceDialog";
+const WorkspaceMemoryDialog = lazy(() => import("./WorkspaceMemoryDialog"));
 
 /**
  * The trigger's identity chip: initials on a note-palette color — see
@@ -72,6 +79,9 @@ export function WorkspaceSwitcher() {
   const [loaded, setLoaded] = useState(false);
   // The Create / Edit dialog: null closed, "new" creating, else the one edited.
   const [dialog, setDialog] = useState<Workspace | "new" | null>(null);
+  const [memoryWorkspace, setMemoryWorkspace] = useState<Workspace | null>(
+    null,
+  );
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const setCurrent = useWorkspaceSwitcherStore((s) => s.setCurrent);
   const servicesChanged = useWorkspaceSwitcherStore((s) => s.servicesChanged);
@@ -185,6 +195,14 @@ export function WorkspaceSwitcher() {
               Edit workspace…
             </DropdownMenuItem>
           ) : null}
+          {current && (
+            <DropdownMenuItem
+              onSelect={() => setMemoryWorkspace(current)}
+              icon={<BookOpen className="text-text-tertiary" />}
+            >
+              Workspace memory…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={() => setDialog("new")}
             icon={<FolderPlus className="text-text-tertiary" />}
@@ -195,6 +213,15 @@ export function WorkspaceSwitcher() {
       </DropdownMenu>
       {/* A sibling of the menu, not inside it: the menu closes on select and
         hands focus back to its trigger, which would fight the dialog for it. */}
+      {memoryWorkspace && (
+        <Suspense fallback={null}>
+          <WorkspaceMemoryDialog
+            key={memoryWorkspace.id}
+            workspace={memoryWorkspace}
+            onClose={() => setMemoryWorkspace(null)}
+          />
+        </Suspense>
+      )}
       <WorkspaceDialog
         open={dialog !== null}
         onOpenChange={(open) => !open && setDialog(null)}
