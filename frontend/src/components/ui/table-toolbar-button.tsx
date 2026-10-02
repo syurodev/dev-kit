@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 
-import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
+import type { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
+
+type DropdownMenuProps = DropdownMenuPrimitive.DropdownMenuProps;
 
 import { TablePlugin, useTableMergeState } from '@platejs/table/react';
 import {

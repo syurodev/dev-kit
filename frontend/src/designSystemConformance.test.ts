@@ -223,3 +223,33 @@ describe("shared components", () => {
     });
   }
 });
+
+/**
+ * A ⌘ written into the source reaches Linux and Windows as a key nobody's
+ * keyboard has. Notes, Tasks, Git, Sync and the API client all did it, while
+ * the palette beside them said "Ctrl+5". Labels go through lib/shortcut —
+ * `shortcut()`, `chordLabel()`, or a key chip (Kbd, a menu's `shortcut=`),
+ * which spells a glyph label for the platform itself.
+ *
+ * What is left is a line that already branches on the platform (`isMac()`,
+ * `modKey() === "⌘"`) or hands the label to a key chip.
+ */
+describe("shortcut labels", () => {
+  const ALLOWED = [/<Kbd\b/, /\bshortcut[=:]/, /=== "⌘"/, /\bisMac\(\)/];
+
+  test("no surface writes ⌘ where the platform should decide", () => {
+    const offenders: string[] = [];
+    for (const surface of ["modules", "workbench", "components"]) {
+      for (const file of tsxFiles(join(ROOT, surface))) {
+        strip(readFileSync(file, "utf8"))
+          .split("\n")
+          .forEach((line, index) => {
+            if (line.includes("⌘") && !ALLOWED.some((pattern) => pattern.test(line))) {
+              offenders.push(`${file.slice(ROOT.length + 1)}:${index + 1}: ${line.trim()}`);
+            }
+          });
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

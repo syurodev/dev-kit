@@ -28,7 +28,7 @@ export function KeyboardTab({ intro }: { intro: React.ReactNode }) {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by action or key — try “run” or “⌘⇧”"
+          placeholder={`Search by action or key — try “run” or “${isMac() ? "⌘⇧" : "Ctrl+Shift"}”`}
           aria-label="Search shortcuts"
           className="min-w-0 flex-1 bg-transparent text-body-13 text-text-primary outline-none placeholder:text-text-tertiary"
         />

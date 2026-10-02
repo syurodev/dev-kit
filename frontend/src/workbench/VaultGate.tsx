@@ -111,7 +111,9 @@ function PasswordField({
           placeholder={placeholder}
           autoFocus={autoFocus}
           required
-          className="min-w-0 flex-1 bg-transparent outline-none"
+          // The masked value stays mono (748:1402); the placeholder is a
+          // sentence about it, and a sentence is set in the UI face.
+          className="min-w-0 flex-1 bg-transparent outline-none placeholder:font-sans placeholder:text-body-13"
         />
         <button
           type="button"
@@ -366,7 +368,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
                         <Loader2 className="size-5 animate-spin" />
                         Checking secure storage status…
                       </span>
-                      <span className="text-code-11 text-text-tertiary">
+                      <span className="text-caption-11 text-text-tertiary">
                         No workspace data is exposed during this check.
                       </span>
                     </>
@@ -530,7 +532,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
               )}
             </div>
 
-            <p className="mt-6 text-code-11 text-text-tertiary">{copy.footnote}</p>
+            {/* Prose, so the UI face: mono is for keys, paths and commands. */}
+            <p className="mt-6 text-caption-11 text-text-tertiary">{copy.footnote}</p>
           </div>
         </div>
       </div>

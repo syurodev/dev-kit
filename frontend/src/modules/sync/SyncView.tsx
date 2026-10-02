@@ -21,6 +21,7 @@ import { ResolvePanel } from "./ResolvePanel";
 import { SyncSidebar } from "./SyncSidebar";
 import { pullSegments, pushSegments, type MeterSegment } from "./syncMeter";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
+import { shortcut } from "@/lib/shortcut";
 
 const disconnected: SyncStatus = {
   connected: false,
@@ -222,7 +223,7 @@ export function SyncView() {
             </Button>
             <Button onClick={onSyncNow} disabled={busy}>
               Sync now
-              <span className="text-code-11 opacity-65">⌘R</span>
+              <span className="text-code-11 opacity-65">{shortcut("R")}</span>
             </Button>
           </>
         ) : (
