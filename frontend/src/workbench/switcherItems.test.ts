@@ -111,3 +111,15 @@ describe("slotModuleIds", () => {
     expect(ids[5]).toBe("");
   });
 });
+
+describe("where a first launch lands", () => {
+  // Workbench focuses the first slot's target when nothing is stored. It used
+  // to take the registry's first module, which by id is Accounts — a utility,
+  // empty on a new install, with nothing on it to press.
+  test("the title bar's first slot, which is Agent Hub", () => {
+    const items = buildSwitcherItems(registry.map((id) => mod(id)), everyGroup);
+    const first = items.map((item) => slotTarget(item, undefined, "")).find(Boolean);
+    expect(first?.id).toBe("agenthub");
+    expect(registry[0]).toBe("accounts");
+  });
+});

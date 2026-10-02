@@ -21,8 +21,15 @@ export type PaletteModule = {
   icon: LucideIcon;
   /** "⌘3" — only modules the switcher can reach by digit have one. */
   shortcut?: string;
-  /** Listed in the rail (not Settings or Sync, which are reached from the header). */
+  /**
+   * On the title bar, alone or inside a group (not Settings or Sync, which are
+   * reached from the header). A group's members have no digit of their own,
+   * and they were left out of "Go to" for it — Database, Notes and the rest
+   * could not be reached from the palette at all.
+   */
   switchable: boolean;
+  /** The title-bar group it sits in ("Infra"), shown beside it and matched. */
+  group?: string;
   unavailable: boolean;
   commands: ReadonlyArray<{ id: string; title: string; shortcut?: string; run?: () => void }>;
 };
@@ -128,11 +135,12 @@ export function staticSections(input: PaletteInput, actions: PaletteActions): Pa
   const destinations = rank(
     query,
     usable.filter((module) => module.switchable && module.id !== activeModuleId),
-    (module) => ({ title: module.title }),
+    (module) => ({ title: module.title, others: module.group ? [module.group] : [] }),
     Number.POSITIVE_INFINITY,
   ).map<PaletteRow>((module) => ({
     id: `module:${module.id}`,
     title: module.title,
+    subtitle: module.group,
     icon: module.icon,
     shortcut: module.shortcut,
     run: () => actions.focusModule(module.id),

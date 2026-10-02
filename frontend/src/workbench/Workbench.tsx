@@ -617,7 +617,11 @@ export function Workbench() {
     }
     if (!activeModuleId) {
       restoredRef.current = true;
-      focusModule(availableModules[0].id);
+      // A first launch opens on the first slot of the title bar — Agent Hub —
+      // not on availableModules[0], which is the registry's id order and
+      // landed a new person on Accounts, a utility with nothing in it yet.
+      const first = switcherItems.map((item) => slotTarget(item, undefined, "")).find(Boolean);
+      focusModule(first?.id ?? availableModules[0].id);
       return;
     }
     // A relaunch restores the active module without going through
@@ -650,6 +654,14 @@ export function Workbench() {
   // What the palette calls a module's digit: its slot, and none for a member of
   // a group (whose slot opens whichever member was used last).
   const switcherModuleIds = useMemo(() => slotModuleIds(switcherItems), [switcherItems]);
+  const barModules = useMemo(() => {
+    const onBar = new Map<string, string | undefined>();
+    for (const item of switcherItems) {
+      if (item.kind === "module") onBar.set(item.module.id, undefined);
+      else for (const member of item.members) onBar.set(member.id, item.group.title);
+    }
+    return onBar;
+  }, [switcherItems]);
   // A group's button opens the member used last, so what is on screen is what
   // it must remember.
   const activeGroupId = activeModule ? getModule(activeModule.id)?.group?.id : undefined;
@@ -678,6 +690,7 @@ export function Workbench() {
             onClose={() => setPaletteOpen(false)}
             modules={availableModules}
             switcherModuleIds={switcherModuleIds}
+            barModules={barModules}
             unavailableModuleIds={unavailableModuleIds}
             activeModuleId={activeModule?.id ?? null}
             onFocusModule={focusModuleFromPalette}

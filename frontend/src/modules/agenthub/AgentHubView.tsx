@@ -52,6 +52,7 @@ import { elicitationForSession, useRespondElicitation } from "./elicitations";
 import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
+import { GettingStarted } from "@/workbench/GettingStarted";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { rateLimitFailure } from "./surfaces/AgentContextMeter";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
@@ -1163,6 +1164,7 @@ export function AgentHubView() {
             // to resend, the composer below is the way back in.
             onRetrySession={retryable ? () => void handleSend(retryable) : undefined}
             onNewSession={() => void startNewDraft()}
+            emptyExtra={<GettingStarted onNewSession={() => void startNewDraft()} />}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
               errorCause === "authRequired" && activeSession ? signInFor(activeSession.agentType) : undefined

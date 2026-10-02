@@ -59,6 +59,8 @@ export type AgentHubContentProps = {
   errorMessage?: string;
   onRetrySession?: () => void;
   onNewSession?: () => void;
+  /** Under the empty state's call to action — the first-run checklist. */
+  emptyExtra?: React.ReactNode;
   /** Opens Settings → Agents, for errors whose fix is an install. */
   onOpenSettings?: () => void;
   /** Shown inside the error card, under the reason — e.g. the sign-in buttons. */
@@ -209,6 +211,7 @@ export function AgentHubContent({
   errorMessage,
   onRetrySession,
   onNewSession,
+  emptyExtra,
   onOpenSettings,
   errorDetail,
   attachments = [],
@@ -392,7 +395,9 @@ export function AgentHubContent({
           title="No agent running"
           body="Each session gets its own sandbox, its own working directory, and its own connection to DevKit's tools. Sessions started by an agent appear as children of it."
           action={onNewSession ? { label: "New session", icon: Plus, onClick: onNewSession } : undefined}
-        />
+        >
+          {emptyExtra}
+        </EmptyState>
       ) : (
         // Error and Conversation share one container and one TranscriptStream,
         // so a session failing does not remount the transcript and lose its

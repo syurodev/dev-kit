@@ -30,6 +30,7 @@ import {
   workspaceInitials,
 } from "./workspaceIdentity";
 import { WorkspaceDialog } from "./WorkspaceDialog";
+import { onNewWorkspaceRequested } from "./workspaceDialogRequest";
 const WorkspaceMemoryDialog = lazy(() => import("./WorkspaceMemoryDialog"));
 
 /**
@@ -102,6 +103,8 @@ export function WorkspaceSwitcher() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => onNewWorkspaceRequested(() => setDialog("new")), []);
 
   // No explicit selection yet (first run, or the saved one no longer exists)
   // — fall back to the first workspace so the trigger never shows a name

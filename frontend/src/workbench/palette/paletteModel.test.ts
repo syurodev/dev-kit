@@ -32,6 +32,8 @@ const modules: PaletteModule[] = [
     ],
   }),
   module("tools", "Tools", { commands: [{ id: "tools.hash", title: "Hash text" }] }), // no run
+  // A group member: on the bar, inside Infra, with no digit of its own.
+  module("kafka", "Kafka", { group: "Infra" }),
   module("settings", "Settings", { switchable: false }),
 ];
 
@@ -48,7 +50,7 @@ describe("staticSections", () => {
   it("with nothing typed, offers the module in front's commands and the other modules", () => {
     expect(sections({})).toEqual([
       { heading: "Database", rows: ["New console", "Re-index schema"] },
-      { heading: "Go to", rows: ["Agent Hub", "Code Graph", "Tools"] },
+      { heading: "Go to", rows: ["Agent Hub", "Code Graph", "Tools", "Kafka"] },
     ]);
   });
 
@@ -94,7 +96,7 @@ describe("staticSections", () => {
   it("skips an unavailable module entirely", () => {
     const withDown = modules.map((m) => (m.id === "codegraph" ? { ...m, unavailable: true } : m));
     const found = staticSections({ query: "", activeModuleId: "database", modules: withDown, tabs: [] }, actions);
-    expect(found[1].rows.map((r) => r.title)).toEqual(["Agent Hub", "Tools"]);
+    expect(found[1].rows.map((r) => r.title)).toEqual(["Agent Hub", "Tools", "Kafka"]);
   });
 
   it("runs what the row says", () => {
@@ -102,6 +104,16 @@ describe("staticSections", () => {
     const found = staticSections({ query: "", activeModuleId: "database", modules, tabs: [] }, { ...actions, focusModule: (id) => focused.push(id) });
     found[1].rows[1].run();
     expect(focused).toEqual(["codegraph"]);
+  });
+});
+
+describe("a module inside a title-bar group", () => {
+  // Group members have no digit, and "switchable" used to mean "has a digit" —
+  // so Database, Notes, Tasks and the rest were never in Go to, typed or not.
+  it("is a destination, named with its group and found by it", () => {
+    const byName = staticSections({ query: "kafka", activeModuleId: "database", modules, tabs: [] }, actions);
+    expect(byName[0].rows.map((r) => [r.title, r.subtitle, r.shortcut])).toEqual([["Kafka", "Infra", undefined]]);
+    expect(sections({ query: "infra" })).toEqual([{ heading: "Go to", rows: ["Kafka"] }]);
   });
 });
 

@@ -33,11 +33,18 @@ type CommandPaletteProps = {
   modules: readonly ModuleManifest[];
   /** The rail's modules in its order — the order ⌘1–⌘9 count in. */
   switcherModuleIds: readonly string[];
+  /** Every module on the title bar, a group's members included, with its group's title. */
+  barModules: ReadonlyMap<string, string | undefined>;
   unavailableModuleIds: ReadonlySet<string>;
   activeModuleId: string | null;
   /** The shell's own: it also preloads the module's home view. */
   onFocusModule: (moduleId: string) => void;
 };
+
+function barRank(barModules: ReadonlyMap<string, string | undefined>, moduleId: string): number {
+  const index = [...barModules.keys()].indexOf(moduleId);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
 
 // Long enough that typing a word is one search, short enough not to be felt.
 const SEARCH_DEBOUNCE_MS = 140;
@@ -59,6 +66,7 @@ export function CommandPalette({
   onClose,
   modules,
   switcherModuleIds,
+  barModules,
   unavailableModuleIds,
   activeModuleId,
   onFocusModule,
@@ -118,19 +126,25 @@ export function CommandPalette({
 
   const paletteModules = useMemo<PaletteModule[]>(
     () =>
-      modules.map((module) => {
-        const digit = switcherModuleIds.indexOf(module.id);
-        return {
-          id: module.id,
-          title: module.title,
-          icon: module.icon,
-          switchable: digit !== -1,
-          shortcut: digit !== -1 && digit < 9 ? shortcut(String(digit + 1)) : undefined,
-          unavailable: unavailableModuleIds.has(module.id),
-          commands: module.commands,
-        };
-      }),
-    [modules, switcherModuleIds, unavailableModuleIds],
+      // In the title bar's order, a group's members where the group stands —
+      // the order the person sees — rather than the registry's, which put
+      // Accounts first. Anything not on the bar keeps its place after them.
+      [...modules]
+        .sort((a, b) => barRank(barModules, a.id) - barRank(barModules, b.id))
+        .map((module) => {
+          const digit = switcherModuleIds.indexOf(module.id);
+          return {
+            id: module.id,
+            title: module.title,
+            icon: module.icon,
+            switchable: barModules.has(module.id),
+            group: barModules.get(module.id),
+            shortcut: digit !== -1 && digit < 9 ? shortcut(String(digit + 1)) : undefined,
+            unavailable: unavailableModuleIds.has(module.id),
+            commands: module.commands,
+          };
+        }),
+    [modules, switcherModuleIds, barModules, unavailableModuleIds],
   );
 
   const sections = useMemo(() => {
