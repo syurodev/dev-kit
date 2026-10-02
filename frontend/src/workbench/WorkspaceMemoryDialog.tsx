@@ -363,7 +363,7 @@ export default function WorkspaceMemoryDialog({
       >
         <DialogContent
           portal={portal}
-          className="flex h-[min(780px,90vh)] w-[min(1100px,95vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1100px] [&>[data-slot=dialog-body]]:h-full [&>[data-slot=dialog-body]]:min-h-0 [&>[data-slot=dialog-body]]:flex-1 [&>[data-slot=dialog-body]]:shrink"
+          className="flex h-195 max-h-[90vh] w-275 max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[95vw] [&>[data-slot=dialog-body]]:h-full [&>[data-slot=dialog-body]]:min-h-0 [&>[data-slot=dialog-body]]:flex-1 [&>[data-slot=dialog-body]]:shrink"
           onInteractOutside={(event) => {
             if (dirty || busy) event.preventDefault();
           }}
