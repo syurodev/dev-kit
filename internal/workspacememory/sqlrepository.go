@@ -47,38 +47,40 @@ func (r *SQLRepository) Get(ctx context.Context, ws, id string) (Entry, error) {
 	return e, nil
 }
 func (r *SQLRepository) List(ctx context.Context, ws, q string, limit, offset int) (Page, error) {
-	// instr treats search text literally, including SQL wildcard characters.
-	rows, err := r.db.QueryContext(ctx, `SELECT json_remove(data,'$.body') FROM workspace_memory WHERE workspace_id=? AND deleted=0 AND (?='' OR instr(lower(title||char(10)||summary||char(10)||body),lower(?))>0) ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?`, ws, q, q, limit+1, offset)
+	expression, empty := searchExpression(ws, q)
+	if empty {
+		return Page{Entries: make([]Summary, 0)}, nil
+	}
+	dense, err := r.denseSearch(ctx, expression)
 	if err != nil {
-		return Page{}, safeError(ctx, err)
+		return Page{}, err
 	}
-	defer rows.Close()
-	p := Page{Entries: make([]Summary, 0)}
-	for rows.Next() {
-		var b []byte
-		var summary Summary
-		if err = rows.Scan(&b); err != nil {
-			return Page{}, safeError(ctx, err)
-		}
-		if json.Unmarshal(b, &summary) != nil {
-			return Page{}, errStorage
-		}
-		p.Entries = append(p.Entries, summary)
+	statement, args := summaryQuery(ws, BrowseInput{Query: q}, expression, pageCursor{}, limit+1, offset, dense)
+	entries, err := r.readSummaries(ctx, statement, args...)
+	if err != nil {
+		return Page{}, err
 	}
-	if err = rows.Err(); err != nil {
-		return Page{}, safeError(ctx, err)
-	}
-	if len(p.Entries) > limit {
+	p := Page{Entries: entries}
+	if len(entries) > limit {
 		p.HasMore = true
-		p.Entries = p.Entries[:limit]
+		p.Entries = entries[:limit]
 	}
 	return p, nil
 }
+func entrySummary(e Entry) Summary {
+	return Summary{ID: e.ID, WorkspaceID: e.WorkspaceID, Kind: e.Kind, Title: e.Title, Summary: e.Summary, Revision: e.Revision, Deleted: e.Deleted, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, Source: e.Source}
+}
+func revisionSummary(e Entry, op string) RevisionSummary {
+	return RevisionSummary{Revision: e.Revision, Operation: op, Title: e.Title, Summary: e.Summary, UpdatedAt: e.UpdatedAt, Deleted: e.Deleted, Source: e.Source}
+}
+
 func (r *SQLRepository) Write(ctx context.Context, e Entry, expected int64, op string) error {
 	data, err := json.Marshal(e)
 	if err != nil {
 		return errStorage
 	}
+	summaryData, _ := json.Marshal(entrySummary(e))
+	revisionData, _ := json.Marshal(revisionSummary(e, op))
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return safeError(ctx, err)
@@ -93,10 +95,10 @@ func (r *SQLRepository) Write(ctx context.Context, e Entry, expected int64, op s
 		return safeError(ctx, err)
 	}
 	if expected == 0 {
-		_, err = tx.ExecContext(ctx, `INSERT INTO workspace_memory(id,workspace_id,revision,deleted,title,summary,body,updated_at,data)VALUES(?,?,?,?,?,?,?,?,?)`, e.ID, e.WorkspaceID, e.Revision, e.Deleted, e.Title, e.Summary, e.Body, e.UpdatedAt, string(data))
+		_, err = tx.ExecContext(ctx, `INSERT INTO workspace_memory(id,workspace_id,revision,deleted,title,summary,body,updated_at,data,kind,summary_data)VALUES(?,?,?,?,?,?,?,?,?,?,?)`, e.ID, e.WorkspaceID, e.Revision, e.Deleted, e.Title, e.Summary, e.Body, e.UpdatedAt, string(data), e.Kind, string(summaryData))
 	} else {
 		var result sql.Result
-		result, err = tx.ExecContext(ctx, `UPDATE workspace_memory SET revision=?,deleted=?,title=?,summary=?,body=?,updated_at=?,data=? WHERE workspace_id=? AND id=? AND revision=?`, e.Revision, e.Deleted, e.Title, e.Summary, e.Body, e.UpdatedAt, string(data), e.WorkspaceID, e.ID, expected)
+		result, err = tx.ExecContext(ctx, `UPDATE workspace_memory SET revision=?,deleted=?,title=?,summary=?,body=?,updated_at=?,data=?,kind=?,summary_data=? WHERE workspace_id=? AND id=? AND revision=?`, e.Revision, e.Deleted, e.Title, e.Summary, e.Body, e.UpdatedAt, string(data), e.Kind, string(summaryData), e.WorkspaceID, e.ID, expected)
 		if err == nil {
 			n, nerr := result.RowsAffected()
 			if nerr != nil {
@@ -118,7 +120,7 @@ func (r *SQLRepository) Write(ctx context.Context, e Entry, expected int64, op s
 	if err != nil {
 		return safeError(ctx, err)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workspace_memory_revisions(entry_id,revision,operation,data)VALUES(?,?,?,?)`, e.ID, e.Revision, op, string(data))
+	_, err = tx.ExecContext(ctx, `INSERT INTO workspace_memory_revisions(entry_id,revision,operation,data,summary_data)VALUES(?,?,?,?,?)`, e.ID, e.Revision, op, string(data), string(revisionData))
 	if err != nil {
 		return safeError(ctx, err)
 	}

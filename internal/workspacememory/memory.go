@@ -76,6 +76,8 @@ type Repository interface {
 	Write(context.Context, Entry, int64, string) error
 	History(context.Context, string, string, int, int) ([]Revision, error)
 	GetRevision(context.Context, string, string, int64) (Revision, error)
+	Browse(context.Context, string, BrowseInput) (BrowsePage, error)
+	HistoryPage(context.Context, string, string, string, int) (HistoryPage, error)
 }
 type Service struct{ repo Repository }
 

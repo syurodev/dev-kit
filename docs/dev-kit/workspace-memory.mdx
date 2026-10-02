@@ -50,7 +50,7 @@ action, workspace/entry ID và revision, không ghi query hay nội dung memory.
 | Tool | Hành động |
 | --- | --- |
 | `workspace.memory.list` | Danh sách metadata và summary, bỏ body |
-| `workspace.memory.search` | Tìm chuỗi trong title, summary hoặc body; trả summary |
+| `workspace.memory.search` | Tìm các từ/tiền tố trong title, summary hoặc body; trả summary |
 | `workspace.memory.get` | Đọc toàn bộ mục cùng revision, kể cả mục đã soft delete |
 | `workspace.memory.create` | Thêm mục mới |
 | `workspace.memory.update` | Thay nội dung với expectedRevision |
@@ -64,11 +64,52 @@ Terminal CLI phải truyền `workspaceId` rõ ràng; host không suy workspace 
 Caller thiếu identity hoặc identity không hợp lệ bị từ chối. Các thao tác đi qua
 capability `workspace-memory:read` / `workspace-memory:write`.
 
-List/search/history dùng limit (mặc định 20, tối đa 100) và offset. List/search trả
-`hasMore`. Thứ tự list/search là cập nhật mới nhất trước; nếu dữ liệu thay đổi giữa
-hai trang, agent nên đọc lại để lấy danh sách hiện tại. History theo revision giảm
-dần. Search tìm chuỗi literal, không coi `%` hoặc `_` là wildcard; so chữ hoa/thường
-ASCII theo SQLite.
+List/search dùng limit (mặc định 20, tối đa 100), trả `hasMore` và `nextCursor`.
+Truyền `cursor` của trang trước để lấy trang tiếp theo. Cursor gắn với workspace,
+query, kind và trạng thái deleted; đổi bộ lọc phải bắt đầu lại. Offset vẫn được hỗ
+trợ để tương thích, nhưng không được kết hợp với cursor. MCP history giữ API snapshot
+cũ với limit/offset; UI dùng cursor và metadata lịch sử riêng, chỉ tải snapshot khi mở.
+Thứ tự danh sách là `updatedAt` giảm dần rồi ID giảm dần; lịch sử theo revision giảm dần.
+Dữ liệu thay đổi giữa hai trang có thể làm kết quả thay đổi; Refresh đọc lại từ đầu.
+
+## Tìm kiếm và hiệu năng
+
+Migration 36 backfill chỉ mục SQLite FTS5 và read model summary cho dữ liệu hiện có.
+Trigger cập nhật chỉ mục trong cùng transaction khi thêm, sửa, khôi phục hoặc xóa
+workspace. Tìm kiếm được giới hạn bằng workspace ID cả trong chỉ mục lẫn bảng dữ liệu.
+Không lập chỉ mục các phiên bản lịch sử.
+
+Search tìm **từ hoặc tiền tố của từ**, không tìm chuỗi con ở giữa từ. Nhiều từ dùng
+AND: `quy uoc` tìm mục chứa cả hai tiền tố, có thể nằm ở các trường khác nhau. Không
+phân biệt hoa/thường và dấu Unicode Latin, nên `kien truc` tìm được `kiến trúc`.
+Dấu câu phân tách từ; query không chứa từ trả danh sách rỗng. Query được chuyển thành
+biểu thức literal an toàn, không nhận cú pháp FTS, wildcard `%` hay `_`. Đây là thay
+đổi ngữ nghĩa so với search substring trước đó.
+
+Danh sách, context và lịch sử UI đọc summary đã lưu sẵn, không tải hoặc parse body.
+Phân trang cursor dùng index theo workspace và thứ tự cập nhật, tránh bỏ qua hàng
+nghìn mục như offset. UI giữ một trang 20 mục, debounce search 200 ms và hủy request
+đọc cũ khi bộ lọc hoặc lựa chọn thay đổi. Query rất rộng vẫn tốn chi phí theo số kết
+quả khớp trong chỉ mục; giới hạn trang không làm mọi query có chi phí hằng số.
+
+Có benchmark `BenchmarkMemory50K` với 50.000 mục body khoảng 1 KiB và 50.000 revision,
+bao gồm search hiếm/phổ biến, cursor trang sâu và lịch sử. Chạy bằng:
+
+```bash
+go test ./internal/workspacememory/ -run '^$' -bench BenchmarkMemory50K -benchtime=1s -benchmem
+```
+
+## Quản lý trong giao diện
+
+Mở menu workspace → **Workspace memory…**. Cửa sổ gắn với workspace đã chọn khi mở,
+cho phép tìm kiếm, lọc kind, xem Active/Deleted, thêm và sửa memory. Xóa là soft delete.
+History hiển thị nguồn cập nhật và revision; chọn một phiên bản để đọc nội dung rồi
+Restore thành revision mới. Xóa và restore đều có xác nhận.
+
+Nếu revision đã thay đổi, bản nháp được giữ lại và UI yêu cầu Reload latest trước
+khi lưu lại. Chuyển mục hoặc đóng cửa sổ khi có thay đổi chưa lưu sẽ hỏi xác nhận.
+Bridge quản lý dùng identity UI do host đặt, không nhận source từ frontend và từ chối
+caller agent/terminal. Agent tiếp tục dùng tool MCP có workspace scope của session.
 
 ## Context của mỗi lượt
 
@@ -82,6 +123,5 @@ Claude và Codex nhận cùng snapshot; echo người dùng và attachments gi�
 Lỗi đọc memory từ chối lượt trước khi ghi echo hoặc gọi vendor. Snapshot không ghi
 vào transcript như một tin nhắn người dùng.
 
-PR này cung cấp backend, MCP và context dùng chung. UI quản lý memory và lịch sử
-là bước tiếp theo; protocol fixtures kiểm tra adapter, chưa thay thế kiểm chứng
-một phiên vendor thật trên desktop.
+Protocol fixtures kiểm tra adapter và shared context; chúng chưa thay thế kiểm
+chứng một phiên vendor thật trên desktop.

@@ -64,6 +64,9 @@ import * as workfolder$0 from "../workfolder/models.js";
 import * as workspace$0 from "../workspace/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as workspacememory$0 from "../workspacememory/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -2295,6 +2298,38 @@ export function WorkspaceList(): $CancellablePromise<workspace$0.Workspace[] | n
  */
 export function WorkspaceListServices(workspaceID: string): $CancellablePromise<workspace$0.WorkspaceService[] | null> {
     return $Call.ByID(2130719223, workspaceID);
+}
+
+export function WorkspaceMemoryBrowse(workspaceID: string, $in: workspacememory$0.BrowseInput): $CancellablePromise<workspacememory$0.BrowsePage> {
+    return $Call.ByID(3448978766, workspaceID, $in);
+}
+
+export function WorkspaceMemoryCreate(workspaceID: string, $in: workspacememory$0.Input): $CancellablePromise<workspacememory$0.Entry> {
+    return $Call.ByID(825635032, workspaceID, $in);
+}
+
+export function WorkspaceMemoryDelete(workspaceID: string, id: string, expectedRevision: number): $CancellablePromise<workspacememory$0.Entry> {
+    return $Call.ByID(1847650439, workspaceID, id, expectedRevision);
+}
+
+export function WorkspaceMemoryGet(workspaceID: string, id: string): $CancellablePromise<workspacememory$0.Entry> {
+    return $Call.ByID(2503008120, workspaceID, id);
+}
+
+export function WorkspaceMemoryHistoryPage(workspaceID: string, id: string, cursor: string, limit: number): $CancellablePromise<workspacememory$0.HistoryPage> {
+    return $Call.ByID(1044376663, workspaceID, id, cursor, limit);
+}
+
+export function WorkspaceMemoryReadRevision(workspaceID: string, id: string, revision: number): $CancellablePromise<workspacememory$0.Revision> {
+    return $Call.ByID(3667742965, workspaceID, id, revision);
+}
+
+export function WorkspaceMemoryRestore(workspaceID: string, id: string, expectedRevision: number, targetRevision: number): $CancellablePromise<workspacememory$0.Entry> {
+    return $Call.ByID(672316982, workspaceID, id, expectedRevision, targetRevision);
+}
+
+export function WorkspaceMemoryUpdate(workspaceID: string, id: string, expectedRevision: number, $in: workspacememory$0.Input): $CancellablePromise<workspacememory$0.Entry> {
+    return $Call.ByID(2506625165, workspaceID, id, expectedRevision, $in);
 }
 
 /**

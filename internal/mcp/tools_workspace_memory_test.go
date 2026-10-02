@@ -322,3 +322,95 @@ func TestMemoryMissingDependenciesFailGracefully(t *testing.T) {
 	_, _, err := s.toolMemoryGet(identity.WithCaller(context.Background(), identity.Agent("session")), nil, memoryGetInput{ID: "id"})
 	assertMemoryError(t, err, "memory.workspaceDenied")
 }
+
+type fakeMemoryBrowser struct {
+	fakeMemory
+	browseCalls     int
+	browseWorkspace string
+	input           workspacememory.BrowseInput
+	page            workspacememory.BrowsePage
+}
+
+func (f *fakeMemoryBrowser) Browse(_ context.Context, ws string, in workspacememory.BrowseInput) (workspacememory.BrowsePage, error) {
+	f.browseCalls++
+	f.browseWorkspace = ws
+	f.input = in
+	return f.page, f.err
+}
+func TestMemoryCursorPagination(t *testing.T) {
+	ctx := identity.WithCaller(context.Background(), identity.UserTerminal())
+	for _, search := range []bool{false, true} {
+		t.Run(map[bool]string{false: "list", true: "search"}[search], func(t *testing.T) {
+			caller := &fakeCaller{}
+			f := &fakeMemoryBrowser{page: workspacememory.BrowsePage{Entries: []workspacememory.Summary{{ID: "entry"}}, HasMore: true, NextCursor: "next cursor"}}
+			d := agentHubTestDeps(caller, &fakeAgentHub{})
+			d.WorkspaceMemory = f
+			s := NewServer(d)
+			in := memoryListInput{WorkspaceID: memoryWorkspaceID, Query: "private query", Cursor: "private cursor", Limit: 25}
+			var v any
+			var err error
+			if search {
+				_, v, err = s.toolMemorySearch(ctx, nil, in)
+			} else {
+				_, v, err = s.toolMemoryList(ctx, nil, in)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, ok := unwrap(v).(workspacememory.BrowsePage)
+			if !ok || !page.HasMore || page.NextCursor != "next cursor" || len(page.Entries) != 1 {
+				t.Fatalf("page=%#v", unwrap(v))
+			}
+			if f.browseCalls != 1 || f.calls != 0 || f.browseWorkspace != memoryWorkspaceID || f.input != (workspacememory.BrowseInput{Query: in.Query, Cursor: in.Cursor, Limit: 25}) {
+				t.Fatalf("browse=%+v", f)
+			}
+			for _, value := range caller.last.metadata {
+				if strings.Contains(toString(value), "private") {
+					t.Fatalf("query/cursor entered audit: %+v", caller.last.metadata)
+				}
+			}
+		})
+	}
+}
+func TestMemoryCursorValidationAndLegacyFallback(t *testing.T) {
+	ctx := identity.WithCaller(context.Background(), identity.UserTerminal())
+	browser := &fakeMemoryBrowser{}
+	d := agentHubTestDeps(&fakeCaller{}, &fakeAgentHub{})
+	d.WorkspaceMemory = browser
+	s := NewServer(d)
+	for _, in := range []memoryListInput{
+		{Cursor: "cursor", Offset: 1}, {Cursor: "cursor", Offset: -1}, {Cursor: strings.Repeat("x", 2049)}, {Cursor: string([]byte{255})}, {Limit: 101}, {Limit: -1},
+	} {
+		in.WorkspaceID = memoryWorkspaceID
+		_, _, err := s.toolMemoryList(ctx, nil, in)
+		assertMemoryError(t, err, "validation_failed")
+	}
+	if browser.browseCalls != 0 || browser.calls != 0 {
+		t.Fatal("invalid input reached backend")
+	}
+	_, v, err := s.toolMemoryList(ctx, nil, memoryListInput{WorkspaceID: memoryWorkspaceID, Offset: 20, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := unwrap(v).(workspacememory.Page); !ok {
+		t.Fatalf("legacy page=%#v", v)
+	}
+	if browser.calls != 1 || browser.browseCalls != 0 {
+		t.Fatal("offset call did not retain legacy API")
+	}
+	legacy := &fakeMemory{}
+	d.WorkspaceMemory = legacy
+	s = NewServer(d)
+	_, _, err = s.toolMemoryList(ctx, nil, memoryListInput{WorkspaceID: memoryWorkspaceID, Cursor: "cursor"})
+	assertMemoryError(t, err, "validation_failed")
+	if legacy.calls != 0 {
+		t.Fatal("unsupported cursor reached legacy backend")
+	}
+	_, _, err = s.toolMemoryList(ctx, nil, memoryListInput{WorkspaceID: memoryWorkspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.calls != 1 {
+		t.Fatal("legacy API no longer works")
+	}
+}
