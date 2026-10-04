@@ -228,12 +228,14 @@ export function SidebarRow({
  * is not reserved, because an X that never appears is 28px of dead field.
  */
 export function SidebarSearch({
+  ref,
   value,
   onChange,
   onClear,
   placeholder,
   "aria-label": ariaLabel,
 }: {
+  ref?: React.Ref<HTMLInputElement>;
   value: string;
   onChange: (value: string) => void;
   onClear?: () => void;
@@ -244,6 +246,7 @@ export function SidebarSearch({
     <div className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-(--icon-14) -translate-y-1/2 text-text-tertiary" />
       <Input
+        ref={ref}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

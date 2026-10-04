@@ -12,7 +12,7 @@ export const sshModule: ModuleManifest = {
   apiVersion: "1",
   icon: Terminal,
   group: INFRA_GROUP,
-  // Owns its sidebar and connection workspace.
+  // Connection workspace is unpadded; its rail is registered with the app shell.
   padded: false,
   capabilities: ["ssh:connect", "ssh:forward", "terminal:io"],
   commands: [

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Server, Star, X } from "lucide-react";
+import { Plus, Server, Star, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useSidebarContent, SidebarHeader, SidebarSearch, SidebarSection } from "@/components/ui/sidebar-shell";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { useSSHWorkspaceState } from "./workspaceState";
@@ -88,34 +88,16 @@ export function SSHView() {
       setBusy(false);
     }
   }
-  return (
-    <section className="flex h-full min-h-0 w-full text-body-13">
-      <aside
+  useSidebarContent(
+      <div
         aria-label="SSH connections"
-        className="flex w-64 min-w-52 shrink-0 flex-col border-r border-border bg-surface-base"
+        className="flex h-full min-h-0 flex-col text-body-13"
       >
-        <div className="flex items-center justify-between px-3 py-3">
-          <h1 className="text-label-13">SSH connections</h1>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="New SSH connection"
-            onClick={() => setEditing("new")}
-          >
-            <Plus className="size-4" />
-          </Button>
-        </div>
-        <div className="relative mx-3 mb-3">
-          <Search className="absolute left-2.5 top-2.5 size-3.5 text-text-tertiary" />
-          <Input
-            ref={searchRef}
-            aria-label="Search SSH connections"
-            className="pl-8"
-            placeholder="Search name or host…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SidebarHeader>
+          <SidebarSearch ref={searchRef} aria-label="Search SSH connections"
+            placeholder="Search name or host…" value={search} onChange={setSearch} onClear={() => setSearch("")} />
+          <ActionTooltip label="New SSH connection"><Button variant="ghost" size="icon-sm" onClick={() => setEditing("new")}><Plus className="size-4" /></Button></ActionTooltip>
+        </SidebarHeader>
         <div className="min-h-0 flex-1 overflow-auto px-2 pb-3">
           {isPending && (
             <PendingStatus className="p-3">Loading connections…</PendingStatus>
@@ -131,11 +113,9 @@ export function SSHView() {
               <EmptyContent><Button size="sm" variant="secondary" onClick={() => query ? setSearch("") : setEditing("new")}>{query ? "Clear search" : "New connection"}</Button></EmptyContent>
             </Empty>
           )}
-          {groups.map((env) => (
+          {groups.map((env, index) => (
             <div key={env} className="mb-4">
-              <h2 className="px-2 py-1 text-caption-11 uppercase text-text-tertiary">
-                {env}
-              </h2>
+              <SidebarSection label={env} count={matches.filter((p) => p.env === env).length} first={index === 0} />
               {matches
                 .filter((p) => p.env === env)
                 .sort(
@@ -192,7 +172,11 @@ export function SSHView() {
         <div className="border-t border-border p-3 text-caption-11 text-text-tertiary">
           {profiles.length} connections · credentials encrypted locally
         </div>
-      </aside>
+      </div>
+  );
+  return (
+    <section className="flex h-full min-h-0 min-w-0 w-full text-body-13">
+
       <Tabs value={selectedId} onValueChange={select} className="min-h-0 min-w-0 flex-1 gap-0">
         {opened.length > 0 && (
           <div className="shrink-0 overflow-x-auto border-b border-border px-2 py-1.5">
