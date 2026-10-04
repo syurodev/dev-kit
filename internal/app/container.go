@@ -269,6 +269,7 @@ func NewContainerWithStores(
 		// Choosing where they are kept is a separate scope from reading one:
 		// it opens a native picker and moves files.
 		{SubjectID: "builtin.database", Capability: "db:console", Scope: "console:directory"},
+		{SubjectID: "builtin.ssh", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:active"},

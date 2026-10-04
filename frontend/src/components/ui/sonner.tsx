@@ -67,7 +67,7 @@ export function ToastSpecCard({
       data-slot="toast"
       data-tone={tone}
       className={cn(
-        "relative flex w-95 items-start gap-3 rounded-float bg-glass-float p-3 pl-4 backdrop-blur-float border border-glass-border shadow-toast select-none",
+        "relative flex w-95 max-w-full items-start gap-3 rounded-float bg-glass-float p-3 pl-4 backdrop-blur-float border border-glass-border shadow-toast select-none",
         className
       )}
     >
@@ -114,6 +114,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={resolvedTheme}
       position="bottom-right"
       duration={TOAST_DURATION_MS}
+      visibleToasts={3}
+      closeButton
       offset="var(--space-section)"
       mobileOffset="var(--space-group)"
       className="toaster group"

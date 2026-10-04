@@ -61,7 +61,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       }
     });
 
-    it("paints background/app on the shell wrapper", () => {
+    it("paints the dedicated backdrop on the shell wrapper", () => {
       // Figma sidebar-surface 116:1367 has no material of its own and its
       // description hands the fill up: the wrapper "owns the background/app
       // fill shared with the titlebar". The titlebar root is bare for the same
@@ -76,7 +76,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
         .split("\n")
         .find((line) => line.includes("h-svh"));
       if (!wrapper) throw new Error("no h-svh shell wrapper found");
-      expect(wrapper).toContain("bg-bg-app");
+      expect(wrapper).toContain("app-shell");
       expect(wrapper).not.toContain("bg-transparent");
     });
 
@@ -104,7 +104,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
       expect(css).not.toContain("border-bottom-left-radius: 0;");
       expect(css).not.toContain("border-bottom-right-radius: 0;");
-      expect(css).toContain("--shell-radius: max(0px, calc(var(--window-radius) - var(--shell-gap)))");
+      expect(css).toContain("--shell-radius: max(var(--radius-lg), calc(var(--window-radius) - var(--shell-gap)))");
       expect(css).toMatch(/\.shell-surface \{[^}]*border-radius: var\(--shell-radius\)/);
     });
 

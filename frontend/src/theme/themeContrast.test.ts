@@ -75,22 +75,25 @@ const FLOOR: Record<string, number> = {
   "--syntax-meta": 4.5,
 };
 
-/**
- * Every ground content is drawn on.
- *
- * `--background-app` is in the list because the sidebar rail has no material
- * of its own (`--glass-rail-bg: transparent`) — the tree's labels and counts
- * sit straight on the window's own fill, and in a light theme that is the
- * darkest of the four.
- */
+/** Every content ground, including the shell backdrop and tinted rail. */
+const shellCss = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+function shellColour(token: string, mode: "dark" | "light") {
+  const values = [...shellCss.matchAll(new RegExp(`${token}:\\s*(#[a-f0-9]+)`, "g"))];
+  return values[mode === "dark" ? 0 : 1][1];
+}
 function groundsOf(palette: Record<string, string>, mode: "dark" | "light") {
   const base = palette["--surface-base"];
+  const shell = shellColour("--shell-backdrop", mode);
+  const shellTop = shellColour("--shell-backdrop-top", mode);
   return {
     base,
     raised: palette["--surface-raised"],
     // index.css: --surface-well is --tint-veil at 6% in dark, 4% in light.
     well: over(palette["--tint-veil"], base, mode === "dark" ? 0.06 : 0.04),
     app: palette["--background-app"],
+    shell,
+    shellTop,
+    rail: over(base, mode === "dark" ? shellTop : shell, 0.32),
   };
 }
 

@@ -131,3 +131,25 @@ func (s *AppService) SSHStopForward(id string) error {
 	})
 	return err
 }
+
+func (s *AppService) SSHUpdateProfile(id string, input sshservice.UpdateProfileInput) (sshservice.ProfileSummary, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.ssh", "ssh:connect", "profile:"+opaqueID, map[string]any{"action": "update_profile", "profile_id": opaqueID}, func(context.Context) (any, error) {
+		return s.container.SSH.UpdateProfile(id, input)
+	})
+	if err != nil {
+		return sshservice.ProfileSummary{}, err
+	}
+	return result.(sshservice.ProfileSummary), nil
+}
+
+func (s *AppService) SSHStartTerminal(ctx context.Context, id string, rows, cols int) (string, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.ssh", "ssh:connect", "profile:"+opaqueID, map[string]any{"action": "start_terminal", "profile_id": opaqueID}, func(callCtx context.Context) (any, error) {
+		return s.container.SSH.StartTerminal(callCtx, id, "", rows, cols)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}

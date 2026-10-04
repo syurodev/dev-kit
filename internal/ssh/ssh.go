@@ -8,9 +8,11 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"devkit/internal/terminal"
 	"devkit/internal/vaultitem"
 
 	gossh "golang.org/x/crypto/ssh"
@@ -89,13 +91,16 @@ type CommandResult struct {
 }
 
 type Service struct {
-	store         Store
-	credentials   CredentialStore
-	envs          EnvLookup
-	mu            sync.Mutex
-	agentActiveID string
-	forwards      map[string]*forwardSession
-	forwardDial   func(context.Context, string, string) (forwardingClient, error)
+	lifecycleMu      sync.Mutex
+	terminalRegistry *terminal.Registry
+	terminals        map[*remotePTY]string
+	store            Store
+	credentials      CredentialStore
+	envs             EnvLookup
+	mu               sync.Mutex
+	agentActiveID    string
+	forwards         map[string]*forwardSession
+	forwardDial      func(context.Context, string, string) (forwardingClient, error)
 }
 
 func NewService(store Store, envs EnvLookup) *Service {
@@ -111,6 +116,15 @@ func NewService(store Store, envs EnvLookup) *Service {
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Host = strings.TrimSpace(input.Host)
+	input.Username = strings.TrimSpace(input.Username)
+	if input.Port < 0 || input.Port > 65535 {
+		return ProfileSummary{}, errors.New("port must be between 1 and 65535")
+	}
+	if err := validateTargetHost(input.Host); err != nil {
+		return ProfileSummary{}, err
+	}
 	if input.Name == "" {
 		return ProfileSummary{}, errors.New("name is required")
 	}
@@ -212,6 +226,9 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	s.closeTerminalsForProfile(id)
 	// A profile owns the SSH client used by its forwards. Stop those runtime
 	// sessions before deleting the profile so a deleted credential cannot leave
 	// an orphaned network path alive in the process.
@@ -221,7 +238,15 @@ func (s *Service) DeleteProfile(id string) error {
 	if err := s.deleteKeyPassphrase(id); err != nil {
 		return err
 	}
-	return s.store.Delete(id)
+	if err := s.store.Delete(id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.agentActiveID == id {
+		s.agentActiveID = ""
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // TestConnection dials, authenticates, and opens a session to verify the profile.
@@ -282,6 +307,9 @@ func (s *Service) ObserveHostKey(ctx context.Context, id string) (string, error)
 		return "", err
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
 
 	var observed string
 	config := &gossh.ClientConfig{
@@ -302,6 +330,8 @@ func (s *Service) ObserveHostKey(ctx context.Context, id string) (string, error)
 // TrustHostKey persists a fingerprint only after a fresh observation confirms
 // the exact value the user approved.
 func (s *Service) TrustHostKey(ctx context.Context, id string, fingerprint string) error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if fingerprint == "" {
 		return errors.New("host key fingerprint is required")
 	}
@@ -377,11 +407,19 @@ func (s *Service) dial(ctx context.Context, id string, passphrase string) (*goss
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	clientConn, chans, reqs, err := gossh.NewClientConn(conn, addr, config)
+	stopCancel()
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
 	return gossh.NewClient(clientConn, chans, reqs), nil
 }
 

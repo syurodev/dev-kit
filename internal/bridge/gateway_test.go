@@ -238,3 +238,19 @@ func (r failingNotesRepository) Delete(string) error {
 }
 
 var _ vaultitem.Repository = failingNotesRepository{}
+
+func TestSSHWorkspaceMethodsRequireConnectionGrant(t *testing.T) {
+	container := app.NewContainer()
+	container.Permissions = permissions.NewPolicy(nil)
+	container.Capabilities = capabilities.NewGateway(container.Permissions, container.Audit)
+	service := NewAppService(container)
+	const id = "000000000000000000000000"
+	_, terminalErr := service.SSHStartTerminal(context.Background(), id, 24, 80)
+	_, updateErr := service.SSHUpdateProfile(id, sshservice.UpdateProfileInput{Name: "edited", Host: "host", Port: 22, Username: "deploy", Env: "dev"})
+	for _, err := range []error{terminalErr, updateErr} {
+		var publicErr *apperrors.AppError
+		if !errors.As(err, &publicErr) || publicErr.Code != codePermissionDenied {
+			t.Fatalf("workspace call bypassed grant: %v", err)
+		}
+	}
+}

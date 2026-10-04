@@ -35,7 +35,7 @@ describe("CA certificate field", () => {
 });
 
 describe("SSH key passphrase field", () => {
-  const view = read("modules/ssh/SSHView.tsx");
+  const view = read("modules/ssh/ConnectionDialog.tsx");
 
   it("appears only for key auth", () => {
     expect(view).toContain('form.authMethod === "key" && (');

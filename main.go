@@ -680,6 +680,7 @@ func main() {
 		})
 	}
 	container.Terminal = terminalRegistry
+	container.SSH.SetTerminalRegistry(terminalRegistry)
 	// A finished re-index used to tell the frontend nothing, so endpoint lists
 	// and plan statuses silently went stale — see codegraph.mdx on the diff
 	// recomputing itself after every incremental re-index.

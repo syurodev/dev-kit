@@ -26,7 +26,7 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  *   window gutter   4 on l/r/b, flush on top  WINDOW_GUTTER, panelLayout.ts
  *   sidebar         280 + 4 sash             sidebar-shell.tsx / panelWidths
  *   content-surface fills, opaque, radius    .shell-surface, index.css
- *                   window radius − gap (--shell-radius)
+ *                   at least 12px; follows larger window radii (--shell-radius)
  *   columns A, B    320 + 4 sash each        pane-slots.tsx / panelWidths
  *   bottom          under content only       pane-slots.tsx
  *
@@ -63,19 +63,10 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <SplitPanelProvider>
-      {/* The shell wrapper owns background/app. That is Figma's own wording:
-          sidebar-surface 116:1367 has no material at all and its description
-          says the wrapper "owns the background/app fill shared with the
-          titlebar", and the titlebar root is likewise bare — no fill, border,
-          blur or shadow. Both read as chrome because they show this through.
-
-          It used to be bg-transparent, deferring to the colour the native
-          window paints. That holds only while the window is opaque. With
-          DEVKIT_TRANSLUCENT_WINDOW=1 nothing painted background/app at all, so
-          the two bare surfaces showed the desktop and every neighbouring
-          colour got judged against someone's wallpaper. Painting it here makes
-          the frontend say what Figma says, in either window mode. */}
-      <div className="relative flex h-svh w-full flex-col overflow-hidden bg-bg-app">
+      {/* The shell owns a neutral dark/light backdrop independently of the
+          family palette. Module surfaces, controls and editors retain their
+          existing theme tokens, including in translucent native windows. */}
+      <div className="app-shell relative flex h-svh w-full flex-col overflow-hidden">
         <Titlebar fullscreen={fullscreen}>{titlebar}</Titlebar>
 
         {/* content-row, inset WINDOW_GUTTER from the window on the three sides
