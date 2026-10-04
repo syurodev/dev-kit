@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Server, Star, X } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -43,6 +47,15 @@ export function SSHView() {
   const selected = profiles.find((p) => p.id === selectedId);
   const opened = openIds.flatMap((id) => profiles.filter((p) => p.id === id));
   const initialized = useRef(false);
+  const openTabsRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  function closeConnection(id: string) {
+    close(id);
+    requestAnimationFrame(() => {
+      const active = openTabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      (active ?? searchRef.current)?.focus();
+    });
+  }
   useEffect(() => {
     if (!isPending && !profileError && !initialized.current) {
       initialized.current = true;
@@ -95,6 +108,7 @@ export function SSHView() {
         <div className="relative mx-3 mb-3">
           <Search className="absolute left-2.5 top-2.5 size-3.5 text-text-tertiary" />
           <Input
+            ref={searchRef}
             aria-label="Search SSH connections"
             className="pl-8"
             placeholder="Search name or host…"
@@ -112,10 +126,10 @@ export function SSHView() {
             </FeedbackBanner>
           )}
           {!isPending && !profileError && matches.length === 0 && (
-            <div className="p-3 text-body-12 text-text-tertiary">
-              <p>{query ? "No matching connections." : "Add your first SSH connection."}</p>
-              {query && <Button size="sm" variant="ghost" className="mt-2" onClick={() => setSearch("")}>Clear search</Button>}
-            </div>
+            <Empty className="p-3">
+              <EmptyHeader><EmptyTitle>{query ? "No matching connections" : "No saved connections"}</EmptyTitle><EmptyDescription>{query ? "Try another name, host or environment." : "Create a connection to get started."}</EmptyDescription></EmptyHeader>
+              <EmptyContent><Button size="sm" variant="secondary" onClick={() => query ? setSearch("") : setEditing("new")}>{query ? "Clear search" : "New connection"}</Button></EmptyContent>
+            </Empty>
           )}
           {groups.map((env) => (
             <div key={env} className="mb-4">
@@ -140,8 +154,8 @@ export function SSHView() {
                         : "hover:bg-state-soft",
                     )}
                   >
-                    <button
-                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2.5 text-left"
+                    <Button variant="ghost"
+                      className="h-auto min-w-0 flex-1 justify-start gap-2 px-2 py-2.5 text-left"
                       aria-pressed={p.id === selectedId}
                       onClick={() => select(p.id)}
                     >
@@ -154,7 +168,7 @@ export function SSHView() {
                           {p.username}@{p.host}
                         </span>
                       </span>
-                    </button>
+                    </Button>
                     <Button
                       size="icon-xs"
                       variant="ghost"
@@ -179,37 +193,21 @@ export function SSHView() {
           {profiles.length} connections · credentials encrypted locally
         </div>
       </aside>
-      <main className="flex min-w-0 flex-1 flex-col">
+      <Tabs value={selectedId} onValueChange={select} className="min-h-0 min-w-0 flex-1 gap-0">
         {opened.length > 0 && (
-          <div
-            aria-label="Open connections"
-            className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-1.5"
-          >
-            {opened.map((p) => (
-              <div
-                key={p.id}
-                className={cn(
-                  "flex shrink-0 items-center rounded-md",
-                  p.id === selectedId && "bg-state-soft",
-                )}
-              >
-                <button
-                  className="max-w-48 truncate px-3 py-1.5 text-label-12"
-                  aria-pressed={p.id === selectedId}
-                  onClick={() => select(p.id)}
-                >
-                  {p.name}
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`Close connection ${p.name}`}
-                  onClick={() => close(p.id)}
-                >
-                  <X className="size-3" />
-                </Button>
-              </div>
-            ))}
+          <div className="shrink-0 overflow-x-auto border-b border-border px-2 py-1.5">
+            <TabsList ref={openTabsRef} aria-label="Open connections" variant="line" className="justify-start gap-1">
+              {opened.map((p) => (
+                <div key={p.id} className="flex shrink-0 items-center rounded-md">
+                  <TabsTrigger value={p.id} className="max-w-48 px-3 text-label-12" onKeyDown={(event) => {
+                    if (event.key === "Delete") { event.preventDefault(); closeConnection(p.id); }
+                  }}><span className="truncate">{p.name}</span></TabsTrigger>
+                  <ActionTooltip label={`Close connection ${p.name}`}>
+                    <Button variant="ghost" size="icon-xs" onClick={() => closeConnection(p.id)}><X className="size-3" /></Button>
+                  </ActionTooltip>
+                </div>
+              ))}
+            </TabsList>
           </div>
         )}
         {envError && (
@@ -218,6 +216,7 @@ export function SSHView() {
           </FeedbackBanner>
         )}
         {selected ? (
+          <TabsContent value={selected.id} className="min-h-0 flex-1 flex flex-col">
           <ConnectionWorkspace
             key={`${selected.id}:${selected.host}:${selected.port}:${selected.username}:${selected.env}`}
             profile={selected}
@@ -227,21 +226,20 @@ export function SSHView() {
               setDeleting(selected);
             }}
           />
+          </TabsContent>
+        ) : isPending ? (
+          <EmptyState busy title="Loading connections" body="Fetching your saved SSH connections." />
+        ) : profileError ? (
+          <EmptyState icon={Server} tone="danger" title="Connections unavailable" body="Retry loading connections from the sidebar." />
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
-            <Server className="size-10 text-text-tertiary" />
-            <h2 className="text-label-14">Your servers, in one workspace</h2>
-            <p className="max-w-sm text-center text-body-13 text-text-secondary">
-              Save an SSH connection to open remote terminals, run commands and
-              manage tunnels.
-            </p>
+          <EmptyState icon={Server} title="Your servers, in one workspace" body="Save an SSH connection to open remote terminals, run commands and manage tunnels.">
             <Button onClick={() => setEditing("new")}>
               <Plus className="size-4" />
               New connection
             </Button>
-          </div>
+          </EmptyState>
         )}
-      </main>
+      </Tabs>
       {editing && (
         <ConnectionDialog
           profile={editing === "new" ? undefined : editing}

@@ -9,6 +9,11 @@ import {
   Pencil,
   Bot,
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent, TabsCount } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia } from "@/components/ui/empty";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -37,6 +42,8 @@ import {
 } from "@/bridge/ssh";
 import { useTerminalTabsStore } from "@/stores/terminalTabs";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
+import { terminalExitNotice } from "./terminalNotice";
+import { Item, ItemContent, ItemActions, ItemTitle } from "@/components/ui/item";
 import { Field } from "./ConnectionDialog";
 import { InlineFeedback, FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { notify } from "@/lib/notify";
@@ -45,7 +52,6 @@ import { useSSHStore } from "./sshStore";
 import { useSSHWorkspaceState, initialWorkspace, runSSHAction, type SSHPage, type FeedbackScope } from "./workspaceState";
 import { validateForward } from "./validation";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
-import { cn } from "@/lib/utils";
 
 export function closeSSHConnectionTabs(profileId: string) {
   const store = useTerminalTabsStore.getState();
@@ -70,7 +76,13 @@ export function ConnectionWorkspace({
   const setStatus = (status: string) => patch({ status });
   const setCommand = (command: string) => patch({ command });
   const setOutput = (output: string | null) => patch({ output });
-  const setSpec = (spec: typeof state.spec) => patch({ spec });
+  const setSpec = (spec: typeof state.spec) => {
+    const errors = { ...state.forwardErrors };
+    for (const key of Object.keys(errors) as (keyof typeof errors)[]) {
+      if (spec[key] !== state.spec[key]) delete errors[key];
+    }
+    patch({ spec, forwardErrors: errors });
+  };
   const setApproval = (approval: typeof state.approval) => patch({ approval });
   const activeModuleId = useWorkbenchTabsStore(s => s.activeModuleId);
   const tabs = useTerminalTabsStore((s) => s.tabs);
@@ -122,8 +134,9 @@ export function ConnectionWorkspace({
         patch({ terminalNotice: "" });
         return id;
       },
-      onExit: (code) => {
-        if (code !== -1) patch({ terminalNotice: code === 0 ? "Remote terminal session ended." : `Remote terminal stopped (exit code ${code}). Open a new terminal to reconnect.` });
+      onExit: (code, reason) => {
+        const notice = terminalExitNotice(code, reason);
+        if (notice) patch({ terminalNotice: notice });
       },
     });
     useBottomSlotStore.getState().setOpen(true);
@@ -142,33 +155,20 @@ export function ConnectionWorkspace({
     }, "connection");
   }
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <Tabs value={page} onValueChange={(value) => setPage(value as SSHPage)} className="h-full min-h-0 flex-1 gap-0">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-label-14">{profile.name}</h2>
-            <span
-              className={cn(
-                "rounded px-1.5 py-0.5 text-caption-11 uppercase",
-                profile.env === "prod"
-                  ? "bg-status-danger/10 text-status-danger"
-                  : "bg-state-soft text-text-secondary",
-              )}
-            >
-              {profile.env}
-            </span>
-            {agentId === profile.id && (
-              <span className="text-caption-11 text-text-secondary">
-                Agent target
-              </span>
-            )}
+            <Badge variant={profile.env === "prod" ? "destructive" : "secondary"} className="uppercase">{profile.env}</Badge>
+            {agentId === profile.id && <Badge variant="outline">Agent target</Badge>}
           </div>
           <p className="mt-1 truncate font-mono text-body-12 text-text-tertiary">
             {profile.username}@{profile.host}:{profile.port}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
+          <ActionTooltip label="Edit connection" wrap><Button
             variant="ghost"
             size="icon-sm"
             aria-label="Edit connection"
@@ -176,8 +176,8 @@ export function ConnectionWorkspace({
             onClick={onEdit}
           >
             <Pencil className="size-4" />
-          </Button>
-          <Button
+          </Button></ActionTooltip>
+          <ActionTooltip label="Delete connection" wrap><Button
             variant="ghost"
             size="icon-sm"
             aria-label="Delete connection"
@@ -185,7 +185,7 @@ export function ConnectionWorkspace({
             onClick={onDelete}
           >
             <Trash2 className="size-4" />
-          </Button>
+          </Button></ActionTooltip>
           <Button
             size="sm"
             disabled={Boolean(busy)}
@@ -196,34 +196,19 @@ export function ConnectionWorkspace({
           </Button>
         </div>
       </header>
-      <nav
-        aria-label="Connection views"
-        className="flex gap-1 border-b border-border px-4 py-2"
-      >
-        {(
-          [
-            ["terminal", Terminal],
-            ["commands", Play],
-            ["tunnels", Network],
-            ["details", ShieldCheck],
-          ] as const
-        ).map(([value, Icon]) => (
-          <Button
-            key={value}
-            variant={page === value ? "secondary" : "ghost"}
-            size="sm"
-            aria-pressed={page === value}
-            onClick={() => setPage(value)}
-          >
-            <Icon className="size-3.5" />
-            <span className="capitalize">{value}</span>
-            {value === "tunnels" && ownedForwards.length > 0
-              ? ` (${ownedForwards.length})`
-              : ""}
-          </Button>
-        ))}
-      </nav>
-      <div className="flex-1 overflow-auto p-5">
+      <div className="shrink-0 overflow-x-auto border-b border-border px-4 py-2">
+        <TabsList aria-label="Connection views" variant="line" className="justify-start gap-2">
+          {([
+            ["terminal", Terminal], ["commands", Play], ["tunnels", Network], ["details", ShieldCheck],
+          ] as const).map(([value, Icon]) => (
+            <TabsTrigger key={value} value={value} className="h-8 px-3 text-label-12">
+              <Icon className="size-3.5" aria-hidden="true" /><span className="capitalize">{value}</span>
+              {value === "tunnels" && ownedForwards.length > 0 && <TabsCount className="text-caption-11">{ownedForwards.length}</TabsCount>}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-4 @container/ssh-workspace">
         {profile.env === "prod" && (
           <FeedbackBanner tone="warning" title="Production connection" className="mb-4">
             Commands and terminal input execute on {profile.host}.
@@ -231,8 +216,7 @@ export function ConnectionWorkspace({
         )}
         <div className="mb-3">{feedback("connection")}</div>
         {terminalNotice && <FeedbackBanner tone="warning" title="Terminal session ended" className="mb-3" action={<Button size="sm" disabled={Boolean(busy)} onClick={() => void connect()}>Reconnect</Button>}>{terminalNotice}</FeedbackBanner>}
-        {page === "terminal" && (
-          <div className="flex flex-col gap-4">
+          <TabsContent value="terminal" className="flex flex-col gap-4">
             <div>
               {feedback("terminal")}
               <h3 className="text-label-13">Remote terminals</h3>
@@ -243,28 +227,19 @@ export function ConnectionWorkspace({
               </p>
             </div>
             {sessions.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-12">
-                <Terminal className="size-8 text-text-tertiary" />
-                <p className="text-body-13 text-text-secondary">
-                  No terminal open for this connection.
-                </p>
-                <Button disabled={Boolean(busy)} onClick={() => void connect()}>
-                  Open terminal
-                </Button>
-              </div>
+              <Empty className="border border-border py-10">
+                <EmptyHeader><EmptyMedia variant="icon"><Terminal /></EmptyMedia><EmptyTitle>No terminal open</EmptyTitle><EmptyDescription>Open an interactive shell. Its session stays running when you switch modules.</EmptyDescription></EmptyHeader>
+                <EmptyContent><Button disabled={Boolean(busy)} onClick={() => void connect()}>Open terminal</Button></EmptyContent>
+              </Empty>
             ) : (
               sessions.map((tab) => (
-                <div
-                  key={tab.key}
-                  className="flex items-center gap-2 rounded-md border border-border p-3"
-                >
-                  <Terminal className="size-4 text-text-tertiary" />
-                  <button
-                    className="min-w-0 flex-1 truncate text-left text-body-12"
-                    onClick={() => showTerminal(tab.key)}
-                  >
-                    {tab.title}
-                  </button>
+                <Item key={tab.key} variant="outline" size="sm" className="flex-nowrap">
+                  <ItemContent>
+                  <ItemTitle><Terminal className="size-4 text-text-tertiary" />
+                  <Button variant="ghost" className="min-w-0 flex-1 justify-start truncate text-body-12" onClick={() => showTerminal(tab.key)}>
+                    <span className="truncate">{tab.title}</span>
+                  </Button></ItemTitle></ItemContent>
+                  <ItemActions>
                   <Button
                     size="sm"
                     variant="secondary"
@@ -282,13 +257,12 @@ export function ConnectionWorkspace({
                   >
                     <Trash2 className="size-3.5" />
                   </Button>
-                </div>
+                  </ItemActions>
+                </Item>
               ))
             )}
-          </div>
-        )}
-        {page === "commands" && (
-          <div className="flex flex-col gap-3">
+          </TabsContent>
+          <TabsContent value="commands" className="flex flex-col gap-3">
             {feedback("commands")}
             <h3 className="text-label-13">Run a command</h3>
             <p className="text-body-12 text-text-secondary">
@@ -296,7 +270,7 @@ export function ConnectionWorkspace({
               as sudo or tail -f.
             </p>
             <form
-              className="flex gap-2"
+              className="flex flex-col gap-2 @md/ssh-workspace:flex-row"
               onSubmit={(e) => {
                 e.preventDefault();
                 void act("Running command…", async () => {
@@ -306,7 +280,7 @@ export function ConnectionWorkspace({
               }}
             >
               <Input
-                aria-label="ssh-cmd"
+                aria-label="Command"
                 disabled={Boolean(busy)}
                 className="font-mono"
                 value={command}
@@ -333,7 +307,7 @@ export function ConnectionWorkspace({
               <div className="rounded-md border border-border">
                 <div className="flex items-center justify-between border-b border-border px-3 py-2 text-caption-11 text-text-tertiary">
                   <span>Combined output</span>
-                  <Button
+                  <ActionTooltip label="Copy output" wrap><Button
                     size="icon-xs"
                     variant="ghost"
                     aria-label="Copy output"
@@ -345,20 +319,18 @@ export function ConnectionWorkspace({
                     }
                   >
                     <Copy className="size-3" />
-                  </Button>
+                  </Button></ActionTooltip>
                 </div>
                 <pre
-                  aria-label="ssh-output"
+                  aria-label="Command output"
                   className="whitespace-pre-wrap break-all p-3 font-mono text-body-12"
                 >
                   {output || "Command returned no output."}
                 </pre>
               </div>
             )}
-          </div>
-        )}
-        {page === "tunnels" && (
-          <div className="flex max-w-3xl flex-col gap-4">
+          </TabsContent>
+          <TabsContent value="tunnels" className="flex max-w-3xl flex-col gap-4">
             {feedback("tunnels")}
             <div>
               <h3 className="text-label-13">SSH tunnels</h3>
@@ -389,7 +361,7 @@ export function ConnectionWorkspace({
                     {forward.targetHost}:{forward.targetPort}
                   </p>
                 </div>
-                <Button
+                <ActionTooltip label="Copy tunnel endpoint" wrap><Button
                   size="icon-sm"
                   variant="ghost"
                   aria-label="Copy tunnel endpoint"
@@ -404,7 +376,7 @@ export function ConnectionWorkspace({
                   }
                 >
                   <Copy className="size-3.5" />
-                </Button>
+                </Button></ActionTooltip>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -444,7 +416,6 @@ export function ConnectionWorkspace({
             >
               <Field label="Direction">
                 <NativeSelect
-                  aria-label="ssh-forward-direction"
                   value={spec.direction}
                   onChange={(e) =>
                     setSpec({
@@ -462,11 +433,10 @@ export function ConnectionWorkspace({
                   ? "Your computer → SSH server → destination on the remote network"
                   : "SSH server listener → your computer → destination on your local network"}
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 @md/ssh-workspace:grid-cols-2">
                 <Field label="Listen host (loopback)">
                   <NativeSelect
                     className="w-full"
-                    aria-label="ssh-forward-listen-host"
                     value={spec.listenHost}
                     onChange={(e) =>
                       setSpec({ ...spec, listenHost: e.target.value })
@@ -478,7 +448,6 @@ export function ConnectionWorkspace({
                 </Field>
                 <Field label="Listen port (0 = automatic)" error={forwardErrors.listenPort} errorId="ssh-forward-listenPort-error">
                   <Input
-                    aria-label="ssh-forward-listen-port"
                     name="listenPort"
                     aria-invalid={Boolean(forwardErrors.listenPort)}
                     aria-describedby={forwardErrors.listenPort ? "ssh-forward-listenPort-error" : undefined}
@@ -494,7 +463,6 @@ export function ConnectionWorkspace({
                 </Field>
                 <Field label="Destination host" error={forwardErrors.targetHost} errorId="ssh-forward-targetHost-error">
                   <Input
-                    aria-label="ssh-forward-target-host"
                     name="targetHost"
                     aria-invalid={Boolean(forwardErrors.targetHost)}
                     aria-describedby={forwardErrors.targetHost ? "ssh-forward-targetHost-error" : undefined}
@@ -507,7 +475,6 @@ export function ConnectionWorkspace({
                 </Field>
                 <Field label="Destination port" error={forwardErrors.targetPort} errorId="ssh-forward-targetPort-error">
                   <Input
-                    aria-label="ssh-forward-target-port"
                     name="targetPort"
                     aria-invalid={Boolean(forwardErrors.targetPort)}
                     aria-describedby={forwardErrors.targetPort ? "ssh-forward-targetPort-error" : undefined}
@@ -535,12 +502,10 @@ export function ConnectionWorkspace({
                 </p>
               )}
             </form>
-          </div>
-        )}
-        {page === "details" && (
-          <div className="flex max-w-2xl flex-col gap-5">
+          </TabsContent>
+          <TabsContent value="details" className="flex max-w-2xl flex-col gap-5">
             {feedback("details")}
-            <section className="rounded-lg border border-border p-4">
+            <Card size="sm" className="border border-border bg-surface-base ring-0"><CardContent>
               <h3 className="flex items-center gap-2 text-label-13">
                 <ShieldCheck className="size-4" />
                 Server identity
@@ -553,7 +518,7 @@ export function ConnectionWorkspace({
               <code className="mt-3 block break-all text-body-12">
                 {profile.hostKeyFingerprint || "No trusted fingerprint"}
               </code>
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="secondary"
@@ -585,16 +550,16 @@ export function ConnectionWorkspace({
                   Test connection
                 </Button>
               </div>
-            </section>
-            <section className="rounded-lg border border-border p-4">
+            </CardContent></Card>
+            <Card size="sm" className="border border-border bg-surface-base ring-0"><CardContent>
               <h3 className="text-label-13">Authentication</h3>
               <p className="mt-2 text-body-12 text-text-secondary">
                 {profile.authMethod === "key"
                   ? `Private key · ${profile.hasKeyPassphrase ? "passphrase saved" : "no saved passphrase"}`
                   : "Password"}
               </p>
-            </section>
-            <section className="rounded-lg border border-border p-4">
+            </CardContent></Card>
+            <Card size="sm" className="border border-border bg-surface-base ring-0"><CardContent>
               <h3 className="flex items-center gap-2 text-label-13">
                 <Bot className="size-4" />
                 Agent target
@@ -623,9 +588,8 @@ export function ConnectionWorkspace({
                   ? "Clear agent target"
                   : "Use for agents"}
               </Button>
-            </section>
-          </div>
-        )}
+            </CardContent></Card>
+          </TabsContent>
       </div>
       <Dialog
         open={Boolean(approval) && activeModuleId === "ssh"}
@@ -662,7 +626,7 @@ export function ConnectionWorkspace({
               Observed fingerprint
             </p>
             <code
-              aria-label="ssh-observed-host-key"
+              aria-label="Observed host key"
               className="block break-all text-body-12 mt-1"
             >
               {approval?.fingerprint}
@@ -710,6 +674,6 @@ export function ConnectionWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </Tabs>
   );
 }

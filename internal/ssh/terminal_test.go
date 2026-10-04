@@ -74,6 +74,10 @@ func terminalPeer(t *testing.T) (string, int, string, <-chan string) {
 									for {
 										n, err := channel.Read(data)
 										if n > 0 {
+											if strings.Contains(string(data[:n]), "disconnect") {
+												_ = server.Close()
+												return
+											}
 											if strings.Contains(string(data[:n]), "exit") {
 												_, _ = channel.SendRequest("exit-status", false, gossh.Marshal(struct{ Status uint32 }{7}))
 												_ = channel.Close()
@@ -259,5 +263,27 @@ func TestSSHHandshakeCancellationClosesUnresponsivePeer(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("handshake ignored cancellation")
+	}
+}
+
+func TestRemoteTerminalDisconnectAndReconnect(t *testing.T) {
+	svc, reg, p, output, exit, _ := terminalFixture(t)
+	id, err := svc.StartTerminal(context.Background(), p.ID, "", 24, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receive(t, output)
+	if err := reg.Write(id, []byte("disconnect\n")); err != nil {
+		t.Fatal(err)
+	}
+	if code := receive(t, exit); code != -1 {
+		t.Fatalf("disconnect exit=%d", code)
+	}
+	// A lost transport ends only this session. The pinned profile can open another.
+	if _, err := svc.StartTerminal(context.Background(), p.ID, "", 24, 80); err != nil {
+		t.Fatal(err)
+	}
+	if greeting := receive(t, output); !strings.Contains(greeting, "ready") {
+		t.Fatalf("reconnect output=%q", greeting)
 	}
 }

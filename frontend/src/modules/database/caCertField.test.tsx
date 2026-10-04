@@ -39,7 +39,7 @@ describe("SSH key passphrase field", () => {
 
   it("appears only for key auth", () => {
     expect(view).toContain('form.authMethod === "key" && (');
-    expect(view).toContain("ssh-key-passphrase");
+    expect(view).toContain('label="Key passphrase (if encrypted)"');
   });
 
   it("is part of the form the profile is created from", () => {
