@@ -112,6 +112,12 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Browser harness không chạy terminal PTY/native thật; protocol test dùng SSH peer trong test, chưa xác minh với server SSH bên ngoài.
 - Cần smoke test native macOS: terminal focus/resize, session/tunnel khi chuyển module, host-key thay đổi và bo góc cửa sổ.
 
+## Tài liệu tích hợp cho contributor
+
+- Đã viết [module-shell-integration.md](./module-shell-integration.md): ownership, manifest sidebar/useSidebarContent, document helper, lifecycle/dialog, lỗi cần tránh và checklist review.
+- `AGENTS.md`, README và UI/UX rules dẫn về hướng dẫn; trang Sidebar/Module tabs đánh dấu mô tả lịch sử và chỉ rõ contract hiện tại.
+- Thay đổi này chỉ là tài liệu, không đổi runtime. Đã kiểm tra 24 đường dẫn local/code fences trong 7 file tài liệu và `git diff --check`: đạt.
+
 ## Bước tiếp theo
 
 1. Smoke test native và server SSH bên ngoài theo checklist trên.

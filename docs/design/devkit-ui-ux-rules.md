@@ -180,6 +180,8 @@ Mỗi list/view phải thiết kế riêng các trạng thái: loading lần đ�
 
 ## 8. Shell, điều hướng và tương tác liên module
 
+Hợp đồng tích hợp bắt buộc: [Sidebar và tab strip của app shell](./module-shell-integration.md). Module cung cấp rail qua manifest/hook và mở document qua workbench; không dựng `<aside>` hoặc document strip riêng. Shadcn Tabs chỉ dùng cho chế độ bên trong cùng một document.
+
 - Activity navigation dùng để đổi module. Sidebar dùng để chọn đối tượng. Tabs dùng cho nội dung đang mở. Không tạo thêm một tầng điều hướng nếu không có nhiệm vụ khác.
 - Module có thể có layout khác theo công việc, nhưng header, menu, feedback và hành vi đóng/mở dùng cùng quy tắc.
 - Mỗi vùng có một header chức năng; tránh header shell, header module và tab strip cùng lặp một tiêu đề.
@@ -198,7 +200,7 @@ Mỗi list/view phải thiết kế riêng các trạng thái: loading lần đ�
 | Bề mặt | Material | Quy tắc |
 |---|---|---|
 | Nền cửa sổ / khoảng trống shell | Nền dark/light liền mạch, gradient tĩnh rất nhẹ nếu cần | Là phần được phép thiết kế lại màu; không giảm khả năng đọc |
-| Sidebar / chrome shell | Surface do shell sở hữu; glass nhẹ theo token khi phù hợp | Nội dung module không tự phủ thêm nền khác |
+| Sidebar / chrome shell | Sidebar hòa vào nền opaque của shell, không fill/border/shadow riêng | Control/selection giữ token theme; module không tự phủ nền rail |
 | Editor, terminal, data table | Bề mặt ổn định theo theme hiện tại | Không dùng blur/gradient dưới nội dung cần đọc chính xác |
 | Card chức năng | Surface hiện có, viền mảnh | Bóng rất ít hoặc không cần bóng; tránh card trong card liên tục |
 | Floating toolbar / popover / menu / toast | Glass floating chung | Blur và bóng theo token; có fallback solid nếu nền quá phức tạp |

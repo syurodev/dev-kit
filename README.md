@@ -7,6 +7,9 @@ modules cover notes, database connections, SSH, Kafka, and hashing tools, plus a
 local-first encrypted sync client with Git-style conflict resolution. Design
 specs live under `docs/`.
 
+For module UI work, start with the [sidebar and workbench tab integration guide](docs/design/module-shell-integration.md).
+It defines shell ownership, the integration recipe, lifecycle rules and the review checklist.
+
 ## Quickstart
 
 Prerequisites: Go (>= 1.25), [bun](https://bun.sh), `task`
