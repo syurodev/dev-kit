@@ -52,7 +52,7 @@ func RegisterBuiltins(container *Container) error {
 			APIVersion:   modules.CurrentAPIVersion,
 			Commands:     []string{"ssh.run"},
 			Views:        []string{"ssh.connections"},
-			Capabilities: []string{"ssh:connect", "ssh:forward"},
+			Capabilities: []string{"ssh:connect", "ssh:forward", "terminal:io"},
 		},
 		{
 			ID:           "kafka",

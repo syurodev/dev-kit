@@ -12,9 +12,9 @@ export const sshModule: ModuleManifest = {
   apiVersion: "1",
   icon: Terminal,
   group: INFRA_GROUP,
-  // Keeps the shell's padding until this module owns its own chrome.
-  padded: true,
-  capabilities: ["ssh:connect", "ssh:forward"],
+  // Owns its sidebar and connection workspace.
+  padded: false,
+  capabilities: ["ssh:connect", "ssh:forward", "terminal:io"],
   commands: [
     {
       id: "ssh.run",

@@ -1953,6 +1953,10 @@ export function SSHStartForward(id: string, spec: ssh$0.ForwardSpec, passphrase:
     return $Call.ByID(4195262953, id, spec, passphrase);
 }
 
+export function SSHStartTerminal(id: string, rows: number, cols: number): $CancellablePromise<string> {
+    return $Call.ByID(3348609668, id, rows, cols);
+}
+
 export function SSHStopForward(id: string): $CancellablePromise<void> {
     return $Call.ByID(182446317, id);
 }
@@ -1963,6 +1967,10 @@ export function SSHTestConnection(id: string, passphrase: string): $CancellableP
 
 export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePromise<void> {
     return $Call.ByID(3977822955, id, fingerprint);
+}
+
+export function SSHUpdateProfile(id: string, input: ssh$0.UpdateProfileInput): $CancellablePromise<ssh$0.ProfileSummary> {
+    return $Call.ByID(3211435850, id, input);
 }
 
 /**

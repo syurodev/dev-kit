@@ -8,6 +8,7 @@ export type SSHProfile = {
   port: number;
   username: string;
   authMethod: string;
+  env: string;
   hostKeyFingerprint: string;
   /** A passphrase is saved for this key. Readable while the vault is locked. */
   hasKeyPassphrase: boolean;
@@ -51,6 +52,7 @@ function toProfile(p: {
   port: number;
   username: string;
   auth_method: string;
+  env: string;
   host_key_fingerprint: string;
   has_key_passphrase?: boolean;
 }): SSHProfile {
@@ -61,6 +63,7 @@ function toProfile(p: {
     port: p.port,
     username: p.username,
     authMethod: p.auth_method,
+    env: p.env,
     hostKeyFingerprint: p.host_key_fingerprint,
     hasKeyPassphrase: Boolean(p.has_key_passphrase),
   };
@@ -84,7 +87,9 @@ export function getSSHActiveProfile(): Promise<string> {
   });
 }
 
-export function createSSHProfile(input: CreateSSHProfileInput): Promise<SSHProfile> {
+export function createSSHProfile(
+  input: CreateSSHProfileInput,
+): Promise<SSHProfile> {
   return callBridge(async () => {
     const created = await AppService.SSHCreateProfile({
       name: input.name,
@@ -108,15 +113,29 @@ export function observeSSHHostKey(id: string): Promise<string> {
   return callBridge(() => AppService.SSHObserveHostKey(id) as Promise<string>);
 }
 
-export function trustSSHHostKey(id: string, fingerprint: string): Promise<void> {
-  return callBridge(() => AppService.SSHTrustHostKey(id, fingerprint) as Promise<void>);
+export function trustSSHHostKey(
+  id: string,
+  fingerprint: string,
+): Promise<void> {
+  return callBridge(
+    () => AppService.SSHTrustHostKey(id, fingerprint) as Promise<void>,
+  );
 }
 
-export function testSSHConnection(id: string, passphrase: string): Promise<void> {
-  return callBridge(() => AppService.SSHTestConnection(id, passphrase) as Promise<void>);
+export function testSSHConnection(
+  id: string,
+  passphrase: string,
+): Promise<void> {
+  return callBridge(
+    () => AppService.SSHTestConnection(id, passphrase) as Promise<void>,
+  );
 }
 
-export function runSSHCommand(id: string, command: string, passphrase: string): Promise<string> {
+export function runSSHCommand(
+  id: string,
+  command: string,
+  passphrase: string,
+): Promise<string> {
   return callBridge(async () => {
     const result = await AppService.SSHRunCommand(id, command, passphrase);
     return result.output;
@@ -173,4 +192,26 @@ export function startSSHForward(
 
 export function stopSSHForward(id: string): Promise<void> {
   return callBridge(() => AppService.SSHStopForward(id) as Promise<void>);
+}
+
+export type UpdateSSHProfileInput = Pick<
+  CreateSSHProfileInput,
+  "name" | "host" | "port" | "username" | "env"
+>;
+
+export function updateSSHProfile(
+  id: string,
+  input: UpdateSSHProfileInput,
+): Promise<SSHProfile> {
+  return callBridge(async () =>
+    toProfile(await AppService.SSHUpdateProfile(id, input)),
+  );
+}
+
+export function startSSHTerminal(
+  id: string,
+  rows: number,
+  cols: number,
+): Promise<string> {
+  return callBridge(() => AppService.SSHStartTerminal(id, rows, cols));
 }

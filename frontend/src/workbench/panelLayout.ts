@@ -30,7 +30,8 @@ export const GAP_WIDTH = 4;
 // 4, the same as the sash, so the shell sits on one rhythm. It used to be 8,
 // wide enough that a card corner not parallel to the window's went unnoticed.
 // At 4 it would be noticed, so the corners are made parallel instead: the card
-// radius is the window's radius minus this gap (--shell-radius, index.css),
+// radius follows larger window radii minus this gap, with a 12px minimum
+// (--shell-radius, index.css),
 // with the window's radius read from the OS (window_shape*.go).
 export const WINDOW_GUTTER = 4;
 

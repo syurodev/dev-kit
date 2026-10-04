@@ -355,11 +355,8 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
-        {/* Deliberately NOT the glass-panel treatment SplitPanelSlot and the
-            content card use: the sidebar reads as a recessed rail, not a third
-            card. glass-rail is the most transparent material — borderless,
-            near-clear tint so the native vibrancy backdrop carries it, the way
-            Finder/Notes sidebars sit closest to the desktop. */}
+        {/* A lightly tinted rail on the shell backdrop. Module controls keep
+            their palette; the shell only owns the material and corners. */}
         {/* The shell owns width, material and clipping, not content padding.
             Scroll viewports reach the rail edge; headers and controls use
             SidebarInset, while tree/list rows own their internal spacing. */}
@@ -367,7 +364,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             beside the focused group rather than in it. Armed on the way down,
             consumed by the openTab that click makes — no rail had to change. */}
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden glass-rail"
+          className="shell-sidebar relative flex min-h-0 flex-1 flex-col overflow-hidden"
           onClickCapture={(e) => {
             if (e.metaKey || e.ctrlKey) armBeside();
           }}

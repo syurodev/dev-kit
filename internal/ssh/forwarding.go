@@ -129,6 +129,8 @@ func newForwardID() (string, error) {
 // session. The caller's context applies to SSH setup only; once the session is
 // started, StopForward or Service.Close owns its lifetime.
 func (s *Service) StartForward(ctx context.Context, profileID string, spec ForwardSpec, passphrase string) (ForwardInfo, error) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if err := validateForwardSpec(spec); err != nil {
 		return ForwardInfo{}, err
 	}
@@ -302,6 +304,9 @@ func (s *Service) ListForwards() []ForwardInfo {
 // Close stops every active forward. It is called from the application
 // composition root during shutdown so SSH clients do not outlive the app.
 func (s *Service) Close() {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	s.closeTerminalsForProfile("")
 	s.mu.Lock()
 	sessions := make([]*forwardSession, 0, len(s.forwards))
 	for id, session := range s.forwards {

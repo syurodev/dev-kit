@@ -47,6 +47,7 @@ import { getModule } from "@/modules/registry";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { placementFor, usePaneSlotsStore } from "@/stores/paneSlots";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
+import { useTerminalTabsStore } from "@/stores/terminalTabs";
 import { useBottomContentStore } from "@/stores/bottomContent";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
@@ -161,11 +162,13 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     return el;
   }, []);
 
+  // Keep terminals alive in their detached host when the panel is hidden.
+  const hasTerminalTabs = useTerminalTabsStore((s) => s.tabs.length > 0);
   const bodies: [PaneId, React.ReactNode][] = [
     ["agent", companion ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div> : null],
     [
       "terminal",
-      bottomOpen ? (
+      bottomOpen || hasTerminalTabs ? (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <TerminalWorkspace moduleContent={moduleContent ?? undefined} />
         </div>

@@ -6,5 +6,6 @@ export type {
     CreateProfileInput,
     ForwardInfo,
     ForwardSpec,
-    ProfileSummary
+    ProfileSummary,
+    UpdateProfileInput
 } from "./models.js";

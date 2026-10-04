@@ -4,6 +4,8 @@ export type TerminalTab = {
   /** Client-side identity, assigned before the PTY exists. */
   key: string;
   title: string;
+  /** SSH connection ownership, so edits/deletion can close its tabs. */
+  profileId?: string;
   /** Starts this tab's process; a shell at the open project when absent. */
   start?: (rows: number, cols: number) => Promise<string>;
   /** The process's exit code, once; -1 when the tab closed first. */
@@ -11,7 +13,10 @@ export type TerminalTab = {
 };
 
 /** A tab that runs one command instead of a shell, e.g. Agent Hub's sign-in. */
-export type TerminalCommandTab = Pick<TerminalTab, "title" | "start" | "onExit">;
+export type TerminalCommandTab = Pick<
+  TerminalTab,
+  "title" | "start" | "onExit" | "profileId"
+>;
 
 /**
  * Which tab should take over when `closing` goes away.
@@ -57,8 +62,16 @@ export const useTerminalTabsStore = create<TerminalTabsState>((set) => ({
   nextId: 1,
   openTab: (command) =>
     set((s) => {
-      const tab: TerminalTab = { title: `Terminal ${s.nextId}`, ...command, key: `t${s.nextId}` };
-      return { tabs: [...s.tabs, tab], activeKey: tab.key, nextId: s.nextId + 1 };
+      const tab: TerminalTab = {
+        title: `Terminal ${s.nextId}`,
+        ...command,
+        key: `t${s.nextId}`,
+      };
+      return {
+        tabs: [...s.tabs, tab],
+        activeKey: tab.key,
+        nextId: s.nextId + 1,
+      };
     }),
   closeTab: (key) =>
     set((s) => ({

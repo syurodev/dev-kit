@@ -76,3 +76,15 @@ export interface ProfileSummary {
      */
     "has_key_passphrase": boolean;
 }
+
+/**
+ * UpdateProfileInput edits connection metadata without revealing or replacing
+ * credentials. Credentials remain owned by Accounts on this device.
+ */
+export interface UpdateProfileInput {
+    "name": string;
+    "host": string;
+    "port": number;
+    "username": string;
+    "env": string;
+}

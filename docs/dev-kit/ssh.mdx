@@ -35,25 +35,32 @@ flowchart LR
 - **`env` (Implemented):** tên tag trong [Environments](/dev-kit/environments).
   `SSHCreateProfile` reject nếu thiếu hoặc tag không tồn tại
   (`EnvLookup.Exists`). Không copy `requiresConfirmation` vào profile.
-- Passphrase của encrypted PEM **không** persist — chỉ truyền per-operation từ UI
-  rồi zeroize sau parse.
+- Passphrase của encrypted PEM được lưu mã hóa cùng credential trên thiết bị
+  khi tạo profile, để terminal và database tunnel mở được mà không cần hỏi lại.
+  Bridge không trả secret; khi có Accounts, credential là local-only.
+  Profile cũ vẫn đọc payload vaultitem qua fallback.
 - Forward sessions **không** phải vault item (in-memory runtime only).
 
 ## UI & runtime flows (`SSHView`)
 
-1. **Profile CRUD** — create (name/host/port/username/auth/secret/**env**) →
-   list → select → delete. Dropdown env load từ `EnvListTags`. Delete profile
-   cũng dừng mọi forward gắn profile đó.
+1. **Connection workspace** — sidebar tìm theo tên/host/user/env, nhóm theo
+   environment, favorites lưu local, connection tabs và dialog Create/Edit.
+   Edit cập nhật name/host/port/username/env, giữ credential (quản lý ở Accounts).
+   Edit/delete đóng các terminal và forward của profile; đổi host/port bỏ pin cũ.
+   Delete có confirmation; env load từ `EnvListTags`.
 2. **Host-key TOFU** — `ObserveHostKey` dừng handshake trước auth và trả
    SHA-256 fingerprint; user approve → `TrustHostKey` ghi fingerprint vào
    metadata. Dial với pin rỗng **luôn reject**; pin sai reject (exact match).
-3. **Test connection** — dial + auth với secret đã seal; không mở shell dài.
-4. **Run command** — one-shot remote command; UI có field passphrase tùy chọn;
-   output trả về `CombinedOutput`.
+3. **Connect / Test connection** — Connect observe fingerprint: pin đúng thì
+   mở terminal; chưa có pin hoặc key đổi thì hiện dialog so sánh và approve.
+   Trust luôn observe lại ở backend. Test chỉ dial + auth, không mở shell dài.
+4. **Commands** — one-shot remote command, passphrase đã lưu được dùng tự động;
+   output trả về `CombinedOutput`, copy được kể cả output rỗng.
 5. **TCP forwarding** — start/list/stop local (`-L`) hoặc remote (`-R`):
    - Listen chỉ **loopback** (không public bind).
    - Không persist qua restart; stop / delete profile / app shutdown đều cleanup.
-   - Capability riêng `ssh:forward`.
+   - Capability riêng `ssh:forward`. UI lọc theo profile, copy endpoint, giải thích
+     rõ hướng local/remote và refresh danh sách active khi đang mở module.
 
 ## Bridge & capability
 
@@ -61,6 +68,7 @@ flowchart LR
 |---|---|---|
 | `SSHListProfiles` | `ssh:connect` | `profile:list` |
 | `SSHCreateProfile` | `ssh:connect` | `profile:new` |
+| `SSHUpdateProfile` | `ssh:connect` | `profile:<id>` |
 | `SSHDeleteProfile` | `ssh:connect` | `profile:<id>` |
 | `SSHObserveHostKey` | `ssh:connect` | `profile:<id>` |
 | `SSHTrustHostKey` | `ssh:connect` | `profile:<id>` |
@@ -75,7 +83,8 @@ flowchart LR
 
 Subject luôn `builtin.ssh`. Profile ID là 24 lowercase hex (opaque qua
 `recordID()`). Grants thật ở `internal/app/container.go`; manifest chỉ
-declaration metadata (`ssh:connect`, `ssh:forward`).
+declaration metadata (`ssh:connect`, `ssh:forward`, `terminal:io`).
+I/O terminal dùng `terminal:io` với owner `builtin.ssh` và scope `session:*`.
 
 `SSHSetActiveProfile`/`SSHActiveProfile` phục vụ active profile cho agent
 (MCP). UI hiện tại (`SSHRunCommand` nhận `profileId` tường minh mỗi lần gọi)
@@ -103,8 +112,8 @@ lần gọi (**env thắng** `allow_always`); khi env không bắt confirmation 
 thể Allow always (cache theo tool). `env=prod` luôn bật (locked); `dev`/`stg`
 mặc định tắt nhưng bật được. Unresolvable env name → fail closed (`true`).
 Chi tiết: [MCP / Agent](/dev-kit/mcp-agent), [Environments](/dev-kit/environments).
-`ssh.listProfiles` / `ssh.testConnection` / `ssh.activeProfile` không bị luật
-này.
+`ssh.testConnection` cũng đi qua `GateProfileMCP` theo policy của environment;
+`ssh.listProfiles` và `ssh.activeProfile` chỉ đọc metadata.
 
 **Không expose qua MCP ở v1**:
 
@@ -143,8 +152,7 @@ tách biệt hoàn toàn khỏi cách UI hoạt động hôm nay:
 
 ## Terminal tương tác (PTY)
 
-`RunCommand` (mục trên) chỉ one-shot — không có shell tương tác thật. Bổ
-sung **terminal tương tác**, dùng
+`RunCommand` (mục trên) chỉ one-shot — không có shell tương tác thật. **Terminal tương tác đã triển khai**, dùng
 [Terminal](/dev-kit/terminal) (primitive dùng chung, consumer thứ 2 là
 CodeGraph). SSH đóng vai trò implementation "remote" của primitive đó:
 
@@ -187,13 +195,17 @@ sequenceDiagram
 
 ## Known limitations
 
-- Host-key trust UX vẫn manual (observe → approve).
-- Passphrase đi qua bridge call metadata — phụ thuộc redaction + UI không log.
+- Host-key approval vẫn là quyết định của người dùng; Connect tích hợp bước
+  observe → approve khi cần, không tự trust key mới.
+- Edit profile chỉ sửa connection metadata; đổi password/key qua Accounts.
+- One-shot command hiện vẫn trả combined output, chưa có streaming/cancel hay exit code.
 - Target host/port do user chọn; chưa có policy prompt giàu hơn.
 - Terminal tương tác không expose MCP — agent chỉ có `ssh.runCommand`
   one-shot, không có session tương tác riêng.
-- Đóng tab terminal kill process ngay — không giữ session chạy nền qua lúc
-  chuyển tab (khác Agent Hub).
+- Terminal sống trong panel do shell quản lý: đổi tab/module hoặc ẩn panel
+  không ngắt session. Đóng terminal tab, edit/delete connection và app shutdown
+  đóng SSH client. Đóng connection tab chỉ đóng trang chi tiết.
+- Không khôi phục shell cũ sau mất kết nối; Retry mở session mới.
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
 

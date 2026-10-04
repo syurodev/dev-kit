@@ -36,7 +36,7 @@ func TestAppServiceListsModules(t *testing.T) {
 		"tools":     {"tools:hash", "tools:util"},
 		"notes":     {"notes:read", "notes:write"},
 		"database":  {"db:query"},
-		"ssh":       {"ssh:connect", "ssh:forward"},
+		"ssh":       {"ssh:connect", "ssh:forward", "terminal:io"},
 		"kafka":     {"kafka:connect", "kafka:produce"},
 		"sync":      {"sync:manage"},
 		"settings":  {"env:read", "env:write", "preferences:read", "preferences:write"},

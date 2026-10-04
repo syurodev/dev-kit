@@ -41,34 +41,38 @@ func (f *fakePTY) Resize(h, w int) error {
 func (f *fakePTY) Close() error { f.once.Do(func() { close(f.closeCh) }); return nil }
 
 func TestTerminalWriteResizeCloseRouteThroughOwner(t *testing.T) {
-	s := newTestService(t)
-	reg := terminal.NewRegistry(nil)
-	s.container.Terminal = reg
-	pty := newFakePTY()
-	defer pty.Close()
-	id := reg.Register("builtin.codegraph", pty)
+	for _, owner := range []string{"builtin.codegraph", "builtin.ssh"} {
+		t.Run(owner, func(t *testing.T) {
+			s := newTestService(t)
+			reg := terminal.NewRegistry(nil)
+			s.container.Terminal = reg
+			pty := newFakePTY()
+			defer pty.Close()
+			id := reg.Register(owner, pty)
 
-	if err := s.TerminalWrite(id, []byte("ls\n")); err != nil {
-		t.Fatalf("TerminalWrite: %v", err)
-	}
-	if err := s.TerminalResize(id, 40, 120); err != nil {
-		t.Fatalf("TerminalResize: %v", err)
-	}
+			if err := s.TerminalWrite(id, []byte("ls\n")); err != nil {
+				t.Fatalf("TerminalWrite: %v", err)
+			}
+			if err := s.TerminalResize(id, 40, 120); err != nil {
+				t.Fatalf("TerminalResize: %v", err)
+			}
 
-	pty.mu.Lock()
-	if len(pty.written) != 1 || string(pty.written[0]) != "ls\n" {
-		t.Fatalf("written = %+v", pty.written)
-	}
-	if len(pty.resized) != 1 || pty.resized[0] != [2]int{40, 120} {
-		t.Fatalf("resized = %+v", pty.resized)
-	}
-	pty.mu.Unlock()
+			pty.mu.Lock()
+			if len(pty.written) != 1 || string(pty.written[0]) != "ls\n" {
+				t.Fatalf("written = %+v", pty.written)
+			}
+			if len(pty.resized) != 1 || pty.resized[0] != [2]int{40, 120} {
+				t.Fatalf("resized = %+v", pty.resized)
+			}
+			pty.mu.Unlock()
 
-	if err := s.TerminalClose(id); err != nil {
-		t.Fatalf("TerminalClose: %v", err)
-	}
-	if _, ok := reg.Owner(id); ok {
-		t.Fatal("expected session removed after TerminalClose")
+			if err := s.TerminalClose(id); err != nil {
+				t.Fatalf("TerminalClose: %v", err)
+			}
+			if _, ok := reg.Owner(id); ok {
+				t.Fatal("expected session removed after TerminalClose")
+			}
+		})
 	}
 }
 
