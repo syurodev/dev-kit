@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+export type TerminalExitReason = "exited" | "closed";
+
 export type TerminalTab = {
   /** Client-side identity, assigned before the PTY exists. */
   key: string;
@@ -8,8 +10,8 @@ export type TerminalTab = {
   profileId?: string;
   /** Starts this tab's process; a shell at the open project when absent. */
   start?: (rows: number, cols: number) => Promise<string>;
-  /** The process's exit code, once; -1 when the tab closed first. */
-  onExit?: (code: number) => void;
+  /** Process exit and user tab closure are distinct even when both use -1. */
+  onExit?: (code: number, reason?: TerminalExitReason) => void;
 };
 
 /** A tab that runs one command instead of a shell, e.g. Agent Hub's sign-in. */

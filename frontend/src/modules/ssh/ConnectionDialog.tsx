@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useId, isValidElement, cloneElement } from "react";
+import { Field as FormField, FieldLabel, FieldError, FieldSet, FieldLegend } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,12 +32,15 @@ export function Field({
   error?: string;
   errorId?: string;
 }) {
+  const generatedId = useId();
+  const control = isValidElement<{ id?: string }>(children) ? children : null;
+  const id = control?.props.id ?? generatedId;
   return (
-    <label className="flex min-w-0 flex-col gap-1.5 text-body-12 text-text-secondary">
-      <span>{label}</span>
-      {children}
-      {error && <InlineFeedback id={errorId}>{error}</InlineFeedback>}
-    </label>
+    <FormField data-invalid={Boolean(error)} className="min-w-0 gap-1.5">
+      <FieldLabel htmlFor={id} className="text-body-12 text-text-secondary">{label}</FieldLabel>
+      {control ? cloneElement(control, { id }) : children}
+      <FieldError id={errorId}>{error}</FieldError>
+    </FormField>
   );
 }
 
@@ -118,15 +122,14 @@ export function ConnectionDialog({
           </DialogDescription>
         </DialogHeader>
         <form noValidate aria-busy={busy} onSubmit={(e) => void save(e)} className="flex flex-col gap-4">
-          <fieldset disabled={busy} className="grid grid-cols-2 gap-3">
-            <legend className="mb-2 text-label-12 text-text-primary">
+          <FieldSet disabled={busy} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <FieldLegend className="mb-2 text-label-12 text-text-primary">
               Connection
-            </legend>
+            </FieldLegend>
             <Field label="Name" error={fieldErrors.name} errorId="ssh-name-error">
               <Input
                 required
                 autoFocus
-                aria-label="ssh-name"
                 name="name"
                 aria-invalid={Boolean(fieldErrors.name)}
                 aria-describedby={fieldErrors.name ? "ssh-name-error" : undefined}
@@ -138,7 +141,6 @@ export function ConnectionDialog({
             <Field label="Environment" error={fieldErrors.env} errorId="ssh-env-error">
               <NativeSelect
                 className="w-full"
-                aria-label="ssh-env"
                 name="env"
                 aria-invalid={Boolean(fieldErrors.env)}
                 aria-describedby={fieldErrors.env ? "ssh-env-error" : undefined}
@@ -155,7 +157,6 @@ export function ConnectionDialog({
             <Field label="Host" error={fieldErrors.host} errorId="ssh-host-error">
               <Input
                 required
-                aria-label="ssh-host"
                 name="host"
                 aria-invalid={Boolean(fieldErrors.host)}
                 aria-describedby={fieldErrors.host ? "ssh-host-error" : undefined}
@@ -167,7 +168,6 @@ export function ConnectionDialog({
             <Field label="Port" error={fieldErrors.port} errorId="ssh-port-error">
               <Input
                 required
-                aria-label="ssh-port"
                 name="port"
                 aria-invalid={Boolean(fieldErrors.port)}
                 aria-describedby={fieldErrors.port ? "ssh-port-error" : undefined}
@@ -181,7 +181,6 @@ export function ConnectionDialog({
             <Field label="Username" error={fieldErrors.username} errorId="ssh-username-error">
               <Input
                 required
-                aria-label="ssh-username"
                 name="username"
                 aria-invalid={Boolean(fieldErrors.username)}
                 aria-describedby={fieldErrors.username ? "ssh-username-error" : undefined}
@@ -194,7 +193,7 @@ export function ConnectionDialog({
               <NativeSelect
                 className="w-full"
                 disabled={Boolean(profile)}
-                aria-label="ssh-auth"
+
                 value={form.authMethod}
                 onChange={(e) => {
                   set("authMethod", e.target.value);
@@ -206,12 +205,12 @@ export function ConnectionDialog({
                 <option value="password">Password</option>
               </NativeSelect>
             </Field>
-          </fieldset>
+          </FieldSet>
           {!profile && (
-            <fieldset disabled={busy} className="flex flex-col gap-3">
-              <legend className="mb-2 text-label-12 text-text-primary">
+            <FieldSet disabled={busy} className="flex flex-col gap-3">
+              <FieldLegend className="mb-2 text-label-12 text-text-primary">
                 Authentication
-              </legend>
+              </FieldLegend>
               <Field
                 error={fieldErrors.secret}
                 errorId="ssh-secret-error"
@@ -224,7 +223,6 @@ export function ConnectionDialog({
                 {form.authMethod === "key" ? (
                   <Textarea
                     required
-                    aria-label="ssh-secret"
                     name="secret"
                     aria-invalid={Boolean(fieldErrors.secret)}
                     aria-describedby={fieldErrors.secret ? "ssh-secret-error" : undefined}
@@ -238,7 +236,6 @@ export function ConnectionDialog({
                 ) : (
                   <Input
                     required
-                    aria-label="ssh-secret"
                     name="secret"
                     aria-invalid={Boolean(fieldErrors.secret)}
                     aria-describedby={fieldErrors.secret ? "ssh-secret-error" : undefined}
@@ -252,7 +249,6 @@ export function ConnectionDialog({
               {form.authMethod === "key" && (
                 <Field label="Key passphrase (if encrypted)">
                   <Input
-                    aria-label="ssh-key-passphrase"
                     type="password"
                     autoComplete="new-password"
                     value={form.keyPassphrase}
@@ -264,7 +260,7 @@ export function ConnectionDialog({
                 Credentials are encrypted locally. A saved key passphrase also
                 allows background database tunnels.
               </p>
-            </fieldset>
+            </FieldSet>
           )}
           {profile && (
             <p className="text-body-12 text-text-secondary">

@@ -17,7 +17,7 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 | Chuẩn bị | Bộ quy tắc hiển thị và tương tác UI/UX | Đã viết v1; là tài liệu đề xuất, chưa có nghĩa toàn bộ app tuân thủ |
 | 1 | Nền app và hệ bề mặt shell | Đã triển khai; còn kiểm tra trực tiếp cửa sổ native |
 | 2 | Chuẩn hóa feedback: toast, inline error, banner, confirmation, loading | Đã triển khai bộ dùng chung và áp dụng SSH; xem phạm vi bên dưới |
-| 3 | Áp dụng quy tắc vào SSH làm module mẫu | Đã áp dụng feedback và giữ draft/output; còn polish bố cục và xác minh SSH/native thật |
+| 3 | Áp dụng quy tắc vào SSH làm module mẫu | Đã polish bố cục, shadcn và keyboard; browser/SSH protocol test đạt; còn native và server SSH bên ngoài |
 | 4 | Mở rộng sang các module còn lại | Chưa bắt đầu |
 
 ## Bước 1 — Nền app và shell
@@ -84,11 +84,34 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Chưa E2E các luồng feedback mới trên server SSH thật hoặc native GUI; terminal disconnect/reconnect cần kiểm tra thực tế.
 - Chưa thêm OS notification hoặc bố trí ưu tiên toast so với thẻ quyết định của agent.
 
-## Bước tiếp theo — Hoàn thiện module mẫu SSH
+## Bước 3 — SSH làm module mẫu
 
-1. Rà lại bố cục và density, keyboard navigation, empty/error/loading trên kích thước cửa sổ tối thiểu.
-2. Kiểm tra thực tế SSH: connect thất bại, host-key thay đổi, session bị ngắt, tunnel start/stop và chuyển module.
-3. Sau khi module mẫu ổn định, migrate feedback/bố cục từng module theo backlog.
+### Đã triển khai
+
+- Thay hai thanh tab tự viết bằng shadcn Tabs: semantics tab/tabpanel, focus roving, Arrow/Home/End và indicator/transition dùng chung.
+- Connection tab hỗ trợ Delete để đóng; focus chuyển về connection còn lại hoặc ô tìm kiếm khi đóng tab cuối.
+- Dùng Field/FieldLabel/FieldError/FieldSet/FieldLegend cho form; accessible name lấy từ label hiển thị, click label focus đúng control.
+- Dùng Badge cho môi trường/agent target, Card cho thông tin kết nối, Item cho session, Empty/EmptyState cho vùng trống và ActionTooltip cho icon action. Giữ palette component của theme.
+- Command/tunnel form đổi bố cục theo chiều rộng pane; phần tab có thể cuộn ngang khi hẹp. Loading/error của danh sách không hiển thị nhầm CTA first-run.
+- Giữ tab, command/output và tunnel draft qua chuyển connection/module bằng store hiện có.
+- Tách lý do terminal exit: mất transport với code -1 hiển thị reconnect, đóng tab chủ động không báo mất kết nối. Callback cũ chỉ nhận code vẫn tương thích.
+
+### Kiểm tra
+
+- Toàn bộ frontend: **2515 pass, 0 fail**; production build/TypeScript/performance budget: **pass**.
+- `go test -race ./internal/ssh/ ./internal/arch/ -count=1`: **pass**. Bổ sung test transport bị ngắt và mở PTY mới với cùng profile/pinned key, dùng SSH peer loopback trong test.
+- Browser harness với SSH component thật và bridge mô phỏng: dark/light tại 1080×800, pane 560px với sidebar 256px; tunnel form xếp một cột, Arrow/Home/End/Delete và focus sau đóng tab, giữ command draft qua unmount module, label focus/accessibility.
+- Screenshot kiểm tra được lưu ngoài repository; harness chỉ tạm thời và đã dọn sau kiểm tra.
+
+### Giới hạn
+
+- Browser harness không chạy terminal PTY/native thật; protocol test dùng SSH peer trong test, chưa xác minh với server SSH bên ngoài.
+- Cần smoke test native macOS: terminal focus/resize, session/tunnel khi chuyển module, host-key thay đổi và bo góc cửa sổ.
+
+## Bước tiếp theo
+
+1. Smoke test native và server SSH bên ngoài theo checklist trên.
+2. Bắt đầu bước 4: chọn module tiếp theo từ feedback audit; ưu tiên primitive shadcn sẵn có, giữ draft và lifecycle đang chạy.
 
 ## Nhật ký
 
@@ -97,5 +120,6 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 | 2026-10-04 | Viết bộ quy tắc UI/UX v1 và triển khai nền/surface shell của bước 1 |
 | 2026-10-04 | Triển khai feedback dùng chung và áp dụng SSH; tạo audit/backlog và kiểm tra browser với bridge mô phỏng |
 | 2026-10-04 | Tạo file tiến độ; ghi kết quả kiểm tra và phần native chưa xác minh |
+| 2026-10-04 | Phase 3: polish SSH bằng shadcn, keyboard/responsive và phân biệt disconnect với đóng terminal; frontend 2515 test và Go race đạt |
 
 Khi cập nhật: ghi phần thay đổi thực tế, kết quả kiểm tra, giới hạn còn lại và bước tiếp theo; chỉ đánh dấu hoàn thành phạm vi đã triển khai và xác minh.

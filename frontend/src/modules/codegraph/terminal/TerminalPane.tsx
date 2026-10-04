@@ -1,3 +1,4 @@
+import type { TerminalExitReason } from "@/stores/terminalTabs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -38,8 +39,8 @@ export function TerminalPane({
 }: {
   /** What this tab runs; a shell at the open project by default. */
   start?: TerminalStart;
-  /** The process's exit code, once — -1 when the tab closed before it exited. */
-  onExit?: (code: number) => void;
+  /** Reason distinguishes transport exit -1 from intentional tab closure. */
+  onExit?: (code: number, reason?: TerminalExitReason) => void;
 } = {}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
@@ -136,7 +137,7 @@ export function TerminalPane({
             // Said in the pane as well: otherwise a finished command's tab just
             // stops, and looks the same as one still waiting for input.
             term.write(`\r\n[Process exited with code ${code}]\r\n`);
-            onExitRef.current?.(code);
+            onExitRef.current?.(code, "exited");
           },
         );
         const id = attached.sessionId;
@@ -168,7 +169,7 @@ export function TerminalPane({
       if (sessionId) {
         // Already gone when the process exited on its own; nothing to close.
         void closeTerminal(sessionId).catch(() => {});
-        if (!exited) onExitRef.current?.(-1);
+        if (!exited) onExitRef.current?.(-1, "closed");
       }
       // Last: nothing may write into a disposed terminal.
       term.dispose();
