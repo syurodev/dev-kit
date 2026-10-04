@@ -133,3 +133,13 @@ Dùng `useModuleVisibility()` cho dialog/portal thuộc document. Một tab đan
 - [SSH sidebar](../../frontend/src/modules/ssh/SSHSidebar.tsx), [document view](../../frontend/src/modules/ssh/SSHView.tsx), [document regression tests](../../frontend/src/modules/ssh/documents.test.ts)
 
 Các trang [Sidebar](../dev-kit/sidebar.mdx), [Module tabs](../dev-kit/module-tabs.mdx) và [Layout](../dev-kit/layout.mdx) có thêm bối cảnh thiết kế; các phần ghi là lịch sử phải đối chiếu với runtime và hướng dẫn này trước khi áp dụng.
+
+### Kafka: một connection, một explorer
+
+Kafka đăng ký `sidebar` trong manifest để rail/form tạo cluster tồn tại độc lập với explorer.
+Backend hiện chỉ giữ một broker client: không mở document riêng cho mỗi cluster hoặc thêm
+strip riêng. Ba chế độ Topics/Publish/Consumer groups dùng shadcn Tabs trong explorer.
+Selection ở rail không phải connection đang chạy; mọi data/action dùng `connection.profileId`
+và đổi connection phải qua Connect rõ ràng. Draft publish giữ riêng theo profile trong phiên;
+chọn topic để đọc không được âm thầm đổi target của payload đang soạn. Async metadata/peek
+phải bỏ qua kết quả cũ sau đổi topic/connection hoặc cancel.
