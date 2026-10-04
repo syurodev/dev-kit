@@ -358,8 +358,8 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
-        {/* A lightly tinted rail on the shell backdrop. Module controls keep
-            their palette; the shell only owns the material and corners. */}
+        {/* The rail shares the app shell backdrop without its own fill or
+            outline. Module controls keep their palette. */}
         {/* The shell owns width, material and clipping, not content padding.
             Scroll viewports reach the rail edge; headers and controls use
             SidebarInset, while tree/list rows own their internal spacing. */}

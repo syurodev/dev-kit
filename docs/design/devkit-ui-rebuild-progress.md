@@ -27,8 +27,8 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 - Tách `--shell-backdrop` và `--shell-backdrop-top` khỏi background token của theme; dùng gradient nhẹ theo dark/light.
 - Giữ fill `surface-base`, màu control, editor, terminal và status của theme hiện có.
 - Pane bo góc tối thiểu 12px, giữ tính toán cho radius cửa sổ lớn hơn và xử lý squircle hiện có trên macOS.
-- Bổ sung bóng nhẹ theo mode; sidebar dùng tint 32% `surface-base` và cùng radius với pane.
-- Sidebar chuyển sang fill opaque khi người dùng bật giảm transparency.
+- Bổ sung bóng nhẹ theo mode cho pane; sidebar hòa vào app shell, không nền/border/shadow riêng.
+- Sidebar dùng nền opaque có sẵn của shell, kể cả khi giảm transparency.
 - Giữ gutter 4px, kích thước panel và hành vi resize hiện tại.
 - Nâng độ sáng nền light sau khi kiểm tra phát hiện một số màu theme giảm nhẹ độ tương phản.
 
@@ -36,7 +36,7 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 
 - `frontend/src/index.css`: token nền shell, material, radius, shadow và fallback transparency.
 - `frontend/src/workbench/AppShell.tsx`: áp dụng nền riêng cho shell.
-- `frontend/src/components/ui/sidebar-shell.tsx`: áp dụng material sidebar.
+- `frontend/src/components/ui/sidebar-shell.tsx`: sidebar chung hòa vào shell, giữ geometry/resize.
 - `frontend/src/workbench/panelLayout.ts`: cập nhật mô tả geometry.
 - `frontend/src/theme/themeContrast.test.ts`: kiểm tra thêm hai đầu gradient và nền sidebar cho mọi theme family.
 - `frontend/src/workbench/step4bComponents.test.tsx`: cập nhật contract shell theo thiết kế mới.
@@ -102,6 +102,7 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Toàn bộ frontend: **2515 pass, 0 fail**; production build/TypeScript/performance budget: **pass**.
 - `go test -race ./internal/ssh/ ./internal/arch/ -count=1`: **pass**. Bổ sung test transport bị ngắt và mở PTY mới với cùng profile/pinned key, dùng SSH peer loopback trong test.
 - Browser harness với SSH component thật và bridge mô phỏng: dark/light tại 1080×800, pane 560px với sidebar 256px; tunnel form xếp một cột, Arrow/Home/End/Delete và focus sau đóng tab, giữ command draft qua unmount module, label focus/accessibility.
+- Bỏ fill tint và inset highlight của sidebar chung theo yêu cầu; cập nhật quy tắc và contrast checks để rail dùng nền shell ở cả dark/light. Browser preview hai mode và 488 kiểm tra theme/shell đạt; production build/performance budget đạt.
 - Kiểm tra browser bổ sung với `SidebarSurface` thật và bridge mô phỏng: toggle sidebar, kéo resize, đổi module và giữ tìm kiếm khi quay lại SSH đều đạt.
 - Screenshot kiểm tra được lưu ngoài repository; harness chỉ tạm thời và đã dọn sau kiểm tra.
 

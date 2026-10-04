@@ -831,12 +831,13 @@
   background-image: linear-gradient(180deg, var(--shell-backdrop-top), var(--shell-backdrop) 40%);
 }
 
-/* A quiet rail on the same backdrop, with the same corner rhythm as panes.
-   Its children keep their existing palette and own their content padding. */
+/* The rail blends into the app shell. Its children own their control fills
+   and content padding; the sidebar adds no surface or outline. */
 .shell-sidebar {
   border-radius: var(--shell-radius);
-  background-color: color-mix(in srgb, var(--surface-base) 32%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .shell-surface {
@@ -1028,9 +1029,6 @@
    modal one was left out while a Linux class was flattening the tiers anyway,
    so nobody noticed a dialog staying translucent here. */
 @media (prefers-reduced-transparency: reduce) {
-  .shell-sidebar {
-    background-color: var(--surface-base);
-  }
   .glass-rail {
     background-color: var(--background-app);
   }

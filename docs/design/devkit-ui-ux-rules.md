@@ -367,6 +367,6 @@ Các primitive đã có: `components/ui/sonner.tsx`, `dialog.tsx`, `alert-dialog
 
 - Nền app riêng theo dark/light: `--shell-backdrop` và `--shell-backdrop-top`, gradient nhẹ theo chiều dọc. Không ghi đè palette background của editor/terminal hay module.
 - Pane dùng `surface-base` opaque của theme hiện tại, viền hiện có và bóng nhẹ theo mode. Bo góc tối thiểu 12px; radius lớn hơn của cửa sổ vẫn được tính theo gutter. Giữ xử lý squircle hiện có trên macOS.
-- Sidebar dùng tint 32% `surface-base` trên nền shell, cùng radius với pane. Chế độ giảm transparency dùng fill opaque.
+- Sidebar hòa trực tiếp vào nền app shell: không fill, border hoặc shadow riêng. Control và trạng thái chọn vẫn dùng token theme hiện có. Nền shell đã opaque nên giảm transparency không cần fill thay thế cho sidebar.
 - Gutter 4px và kích thước/hành vi resize hiện tại được giữ nguyên. Bước này không đổi vòng đời module hoặc animation chuyển module.
 - Độ tương phản được kiểm tra cho tất cả theme family trên hai đầu gradient và nền sidebar, bên cạnh các surface hiện có.
