@@ -5,7 +5,7 @@ import { Plus, Server, Star } from "lucide-react";
 import { SidebarHeader, SidebarSearch, SidebarSection } from "@/components/ui/sidebar-shell";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
-import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { listSSHProfiles } from "@/bridge/ssh";
 import { listEnvTags } from "@/bridge/environments";
@@ -49,10 +49,7 @@ export function SSHSidebar() {
             </FeedbackBanner>
           )}
           {!isPending && !profileError && matches.length === 0 && (
-            <Empty className="p-3">
-              <EmptyHeader><EmptyTitle>{query ? "No matching connections" : "No saved connections"}</EmptyTitle><EmptyDescription>{query ? "Try another name, host or environment." : "Create a connection to get started."}</EmptyDescription></EmptyHeader>
-              <EmptyContent><Button size="sm" variant="secondary" onClick={() => query ? setSearch("") : setShowNewConnection(true)}>{query ? "Clear search" : "New connection"}</Button></EmptyContent>
-            </Empty>
+            <EmptyState size="rail" title={query ? "No matching connections" : "No saved connections"} body={query ? "Try another name, host or environment." : "Create a connection to get started."} action={{ label: query ? "Clear search" : "New connection", onClick: () => query ? setSearch("") : setShowNewConnection(true) }} />
           )}
           {groups.map((env, index) => (
             <div key={env} className="mb-4">

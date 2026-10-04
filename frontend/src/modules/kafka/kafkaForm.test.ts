@@ -45,3 +45,22 @@ describe("kafka form rules", () => {
     expect(formatOffset(42)).toBe("42");
   });
 });
+
+import { validateCluster, validatePeek, validatePublish } from "./kafkaForm";
+
+describe("Kafka input validation", () => {
+  it("requires explicit environment, valid ports and SASL username", () => {
+    expect(validateCluster({ name: "demo", bootstrap: "localhost:9092, [::1]:9093", env: "dev", protocol: "SSL", username: "" })).toEqual({});
+    const invalid = validateCluster({ name: " ", bootstrap: "localhost:70000", env: "", protocol: "SASL_SSL", username: " " });
+    expect(Object.keys(invalid)).toEqual(["name", "bootstrap", "env", "username"]);
+  });
+  it("allows latest offset but rejects blank/fractional/oversized limits", () => {
+    expect(validatePeek({ partition: 0, offset: "", limit: "50" })).toEqual({});
+    for (const limit of ["", "0", "501", "1.5"]) expect(validatePeek({ partition: 0, offset: -1, limit }).limit).toBeDefined();
+    expect(validatePeek({ partition: 0, offset: -2, limit: 50 }).offset).toBeDefined();
+  });
+  it("does not turn a malformed publish partition into auto", () => {
+    expect(validatePublish({ topic: "orders", payload: "hello", partition: "" })).toEqual({});
+    expect(validatePublish({ topic: "orders", payload: "hello", partition: "x" }).partition).toBeDefined();
+  });
+});

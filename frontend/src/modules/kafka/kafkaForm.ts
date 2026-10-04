@@ -28,7 +28,7 @@ export function parsePartition(raw: string): number | undefined {
   const trimmed = raw.trim();
   if (trimmed === "") return undefined;
   const n = Number(trimmed);
-  return Number.isInteger(n) && n >= 0 ? n : undefined;
+  return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
 }
 
 /** A broker timestamp (unix ms) as the table shows it — the wall clock, to the ms. */
@@ -53,4 +53,35 @@ export function prettyValue(value: string): { text: string; json: boolean } {
  *  the difference between reading one and counting it. */
 export function formatOffset(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+export function validateCluster(form: { name: string; bootstrap: string; env: string; protocol: string; username: string }) {
+  const errors: Partial<Record<"name" | "bootstrap" | "env" | "username", string>> = {};
+  if (!form.name.trim()) errors.name = "Enter a cluster name.";
+  const servers = parseBootstrap(form.bootstrap);
+  if (!servers.length || servers.some(server => {
+    const match = /^(?:\[[^\]]+\]|[^\s:/]+):([0-9]+)$/.exec(server);
+    return !match || Number(match[1]) < 1 || Number(match[1]) > 65535;
+  })) errors.bootstrap = "Enter host:port endpoints, separated by commas (ports 1–65535).";
+  if (!form.env) errors.env = "Choose an environment.";
+  if (isSaslProtocol(form.protocol) && !form.username.trim()) errors.username = "Enter the SASL username.";
+  return errors;
+}
+
+export function validatePeek(input: { partition: number; limit: number | string; offset: number | string }) {
+  const errors: Partial<Record<"partition" | "limit" | "offset", string>> = {};
+  if (!Number.isSafeInteger(input.partition) || input.partition < 0) errors.partition = "Choose a valid partition.";
+  const limit = Number(input.limit);
+  if (String(input.limit).trim() === "" || !Number.isInteger(limit) || limit < 1 || limit > 500) errors.limit = "Enter a limit from 1 to 500.";
+  const offset = String(input.offset).trim() === "" ? -1 : Number(input.offset);
+  if (!Number.isSafeInteger(offset) || offset < -1) errors.offset = "Enter a non-negative offset, or leave blank for latest.";
+  return errors;
+}
+
+export function validatePublish(input: { topic: string; payload: string; partition: string }) {
+  const errors: Partial<Record<"topic" | "payload" | "partition", string>> = {};
+  if (!input.topic.trim()) errors.topic = "Enter a topic.";
+  if (!input.payload) errors.payload = "Enter a payload.";
+  if (input.partition.trim() && parsePartition(input.partition) === undefined) errors.partition = "Enter a non-negative partition integer, or leave blank for automatic routing.";
+  return errors;
 }

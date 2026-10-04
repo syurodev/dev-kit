@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Loader2, PlugZap, Plus, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
@@ -7,15 +7,15 @@ import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
-import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { Field as SharedField, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FeedbackBanner, InlineFeedback, PendingStatus } from "@/components/ui/feedback";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { shortcut } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
-import { errorMessage } from "@/bridge/errors";
-import { KafkaSidebar } from "./KafkaSidebar";
 import { MessagePanel } from "./MessagePanel";
-import { NewClusterDialog } from "./NewClusterDialog";
 import { formatClock, formatOffset } from "./kafkaForm";
 import { useKafkaStore, type KafkaTab } from "./kafkaStore";
 
@@ -23,16 +23,9 @@ const PEEK_ROW_HEIGHT = 36;
 
 const CARD =
   "min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well";
-const CELL_INPUT = "w-16 bg-transparent text-code-12 text-text-primary outline-none placeholder:text-text-tertiary";
-
-/** Figma `Kafka / Field` (1136:17): a named value you change before running something. */
+const CELL_INPUT = "min-w-0 text-code-12";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-surface-well px-3 text-code-11 text-text-tertiary">
-      {label}
-      {children}
-    </label>
-  );
+  return <SharedField orientation="horizontal" className="w-auto gap-2"><FieldLabel className="whitespace-nowrap">{label}{children}</FieldLabel></SharedField>;
 }
 
 /**
@@ -58,6 +51,7 @@ export function KafkaView() {
   const messages = useKafkaStore((s) => s.messages);
   const peeking = useKafkaStore((s) => s.peeking);
   const peeked = useKafkaStore((s) => s.peeked);
+  const resultPartition = useKafkaStore(s => s.resultPartition);
   const peekDurationMs = useKafkaStore((s) => s.peekDurationMs);
   const peekError = useKafkaStore((s) => s.peekError);
   const groups = useKafkaStore((s) => s.groups);
@@ -68,7 +62,12 @@ export function KafkaView() {
   const publishError = useKafkaStore((s) => s.publishError);
   const activeTab = useKafkaStore((s) => s.activeTab);
   const inspected = useKafkaStore((s) => s.inspected);
-  const refreshProfiles = useKafkaStore((s) => s.refreshProfiles);
+  const profileBusy = useKafkaStore(s => s.profileBusy);
+  const topicsError = useKafkaStore(s => s.topicsError);
+  const topicsLoading = useKafkaStore(s => s.topicsLoading);
+  const groupsError = useKafkaStore(s => s.groupsError);
+  const selectTopic = useKafkaStore(s => s.selectTopic);
+  const loadClusterData = useKafkaStore(s => s.loadClusterData);
   const connect = useKafkaStore((s) => s.connect);
   const testConnection = useKafkaStore((s) => s.testConnection);
   const setPeek = useKafkaStore((s) => s.setPeek);
@@ -81,30 +80,24 @@ export function KafkaView() {
   const inspect = useKafkaStore((s) => s.inspect);
   const setShowNewCluster = useKafkaStore((s) => s.setShowNewCluster);
 
-  useEffect(() => {
-    void refreshProfiles().catch((e) => useKafkaStore.setState({ error: errorMessage(e) }));
-  }, [refreshProfiles]);
-
-  // The rail reads the store itself, so the element never needs to change.
-  useSidebarContent(useMemo(() => <KafkaSidebar />, []));
-
   const { openPanel, closePanel } = useSplitPanel();
   useEffect(() => {
     if (!inspected) {
       closePanel();
       return;
     }
-    openPanel(<MessagePanel message={inspected} topic={selectedTopic} partition={peekPartition} />, {
+    openPanel(<MessagePanel message={inspected} topic={selectedTopic} partition={resultPartition ?? peekPartition} />, {
       width: 400,
       onClose: () => inspect(null),
     });
     return () => closePanel();
-  }, [inspected, selectedTopic, peekPartition, openPanel, closePanel, inspect]);
+  }, [inspected, selectedTopic, resultPartition, peekPartition, openPanel, closePanel, inspect]);
 
   const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
 
   const jsonExtension = useLanguageExtension("json");
-  const profile = profiles.find((p) => p.id === selectedId);
+  const profile = profiles.find((p) => p.id === (connection.connected ? connection.profileId : selectedId));
+  const selectedProfile = profiles.find(p => p.id === selectedId);
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
@@ -121,6 +114,7 @@ export function KafkaView() {
   if (!connection.connected) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
+        {error && phase !== "error" && <FeedbackBanner tone="error" title="Connection action failed">{error}</FeedbackBanner>}
         {phase === "connecting" ? (
           <EmptyState
             busy
@@ -174,13 +168,10 @@ export function KafkaView() {
             }
           >
             {profile && testResult ? (
-              <span className={cn("text-code-11", testResult.ok ? "text-status-success" : "text-status-danger")}>
-                {testResult.message}
-              </span>
+              <InlineFeedback tone={testResult.ok ? "success" : "error"}>{testResult.message}</InlineFeedback>
             ) : null}
           </EmptyState>
         )}
-        <NewClusterDialog />
       </div>
     );
   }
@@ -188,9 +179,13 @@ export function KafkaView() {
   const partitions = topicDetail?.partitions ?? [];
 
   return (
-    <div className="flex h-full flex-col overflow-hidden px-6 pt-3.5 pb-6" onKeyDown={onKeyDown}>
+    <div className="flex h-full flex-col overflow-hidden px-4 pt-3.5 pb-4" onKeyDown={onKeyDown}>
+      {selectedId !== connection.profileId && selectedProfile && <FeedbackBanner title={`Connected to ${profile?.name ?? connection.profileId}`} action={<Button disabled={profileBusy || publishing} onClick={() => void connect(selectedId)}>{profileBusy ? "Connecting…" : `Connect ${selectedProfile.name}`}</Button>} className="mb-3">Selected cluster: {selectedProfile.name}. Current data and publishing still use {profile?.name ?? connection.profileId}.</FeedbackBanner>}
+      {error && <FeedbackBanner tone="error" title="Connection action failed" className="mb-3">{error}</FeedbackBanner>}
+      {testResult && <InlineFeedback tone={testResult.ok ? "success" : "error"} className="mb-2">{selectedProfile?.name}: {testResult.message}</InlineFeedback>}
+      <span className="mb-2 shrink-0 text-body-12 text-text-secondary">Connected to {profile?.name ?? connection.profileId}</span>
       {/* header (1137:18): what the pane is looking at, and the one action that acts on it. */}
-      <div className="flex shrink-0 items-center gap-3 pb-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 pb-3">
         {activeTab === "groups" ? (
           <>
             <h1 className="text-title-16 text-text-primary">Consumer groups</h1>
@@ -217,7 +212,7 @@ export function KafkaView() {
             </div>
           </>
         )}
-        <span className="flex-1" />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
         {activeTab === "topics" && (
           <>
             <Button variant="outline" className="bg-surface-raised" onClick={() => setActiveTab("publish")}>
@@ -230,7 +225,7 @@ export function KafkaView() {
                 Cancel
               </Button>
             )}
-            <Button onClick={() => void peek()} disabled={!selectedTopic || peeking}>
+            <Button onClick={() => void peek()} disabled={!selectedTopic || peeking || profileBusy || !topicDetail}>
               {peeking && <Loader2 className="size-3.5 animate-spin" />}
               {peeking ? "Peeking…" : "Peek"}
               <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
@@ -238,7 +233,7 @@ export function KafkaView() {
           </>
         )}
         {activeTab === "publish" && (
-          <Button onClick={() => void publishMessage()} disabled={publishing || !publish.topic || !publish.payload}>
+          <Button onClick={() => void publishMessage()} disabled={publishing || profileBusy || !publish.topic || !publish.payload}>
             <Send className="size-3.5" />
             {publishing ? "Publishing…" : "Publish"}
             <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
@@ -250,6 +245,7 @@ export function KafkaView() {
             Refresh
           </Button>
         )}
+        </div>
       </div>
 
       <Tabs
@@ -257,7 +253,7 @@ export function KafkaView() {
         onValueChange={(v) => setActiveTab(v as KafkaTab)}
         className="min-h-0 flex-1 gap-3.5"
       >
-        <TabsList className="shrink-0">
+        <TabsList className="max-w-full shrink-0 overflow-x-auto">
           <TabsTrigger value="topics">Topics</TabsTrigger>
           <TabsTrigger value="publish">Publish</TabsTrigger>
           <TabsTrigger value="groups">Consumer groups</TabsTrigger>
@@ -267,7 +263,7 @@ export function KafkaView() {
         <TabsContent value="topics" className="flex min-h-0 flex-1 flex-col gap-3.5">
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Field label="partition">
-              <select
+              <NativeSelect size="sm" disabled={peeking || profileBusy}
                 value={peekPartition}
                 onChange={(e) => setPeek({ peekPartition: Number(e.target.value) })}
                 className={cn(CELL_INPUT, "w-auto")}
@@ -276,33 +272,34 @@ export function KafkaView() {
                 {(partitions.length ? partitions : [0]).map((id) => (
                   <option key={id} value={id}>{id}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
             <Field label="from offset">
-              <input
+              <Input inputSize="sm"
                 type="number"
                 min={-1}
-                value={peekOffset < 0 ? "" : peekOffset}
+                value={Number(peekOffset) < 0 ? "" : peekOffset}
                 placeholder="latest"
-                onChange={(e) => setPeek({ peekOffset: e.target.value === "" ? -1 : Number(e.target.value) })}
-                className={CELL_INPUT}
+                onChange={(e) => setPeek({ peekOffset: e.target.value })}
+                disabled={peeking || profileBusy} className={cn(CELL_INPUT, "w-28")}
                 aria-label="From offset"
               />
             </Field>
             <Field label="limit">
-              <input
+              <Input inputSize="sm"
                 type="number"
                 min={1}
                 max={500}
                 value={peekLimit}
-                onChange={(e) => setPeek({ peekLimit: Number(e.target.value) })}
-                className={cn(CELL_INPUT, "w-12")}
+                onChange={(e) => setPeek({ peekLimit: e.target.value })}
+                className={cn(CELL_INPUT, "w-20")}
+                disabled={peeking || profileBusy}
                 aria-label="Limit"
               />
             </Field>
           </div>
 
-          <div className="flex h-5 shrink-0 items-center gap-6">
+          <div className="flex min-h-5 shrink-0 flex-wrap items-center gap-3">
             {peeked && !peekError && (
               <>
                 <span className="text-body-13-medium text-text-primary">
@@ -318,23 +315,19 @@ export function KafkaView() {
             <Chip className="text-text-tertiary">a peek never commits an offset</Chip>
           </div>
 
+          {topicsLoading && <PendingStatus>Loading topics…</PendingStatus>}
+          {topicsError && <FeedbackBanner tone="error" title="Topics unavailable" action={<Button variant="outline" disabled={topicsLoading} onClick={() => void loadClusterData()}>Retry</Button>}>{topicsError}</FeedbackBanner>}
+          {peekError && <FeedbackBanner tone="error" title="Could not read messages" action={<Button variant="outline" disabled={peeking || !selectedTopic || profileBusy} onClick={() => void (topicDetail ? peek() : selectTopic(selectedTopic))}>Retry</Button>}>{peekError}</FeedbackBanner>}
+          {peeking && <PendingStatus>Reading messages…</PendingStatus>}
           <div
+            aria-busy={peeking}
             ref={peekRows.scrollRef}
             className={cn(
               CARD,
               peeking && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
             )}
           >
-            {peekError ? (
-              /* The failure takes the result's place and keeps the card's box,
-                 so nothing around it moves. The rows themselves are still in
-                 the store, so a cancel or a stale answer never destroys them. */
-              <EmptyState icon={TriangleAlert} tone="danger" title="Peek failed" body={peekError}>
-                <Button variant="outline" className="bg-surface-raised" onClick={() => void peek()}>
-                  Retry
-                </Button>
-              </EmptyState>
-            ) : !peeked ? (
+            {!peeked ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
                 <span className="text-body-13 text-text-secondary">
                   {selectedTopic ? `Peek ${selectedTopic} to read its last ${peekLimit} records` : "Pick a topic in the rail"}
@@ -343,15 +336,15 @@ export function KafkaView() {
                   reads from the partition, commits nothing, holds at most 500
                 </span>
               </div>
-            ) : messages.length === 0 ? (
+            ) : messages.length === 0 && peekError ? (<EmptyState title="No result available" body="Retry when the broker is available." />) : messages.length === 0 ? (
               <EmptyState
                 size="rail"
                 className="h-full"
-                title={`No messages in partition ${peekPartition} from that offset`}
+                title={`No messages in partition ${resultPartition ?? peekPartition} from that offset`}
                 body="The partition may be empty, or the offset may sit past its end."
               />
             ) : (
-              <table className="w-full table-fixed border-collapse text-left text-code-12" aria-label="Peeked messages">
+              <table className="w-full min-w-160 table-fixed border-collapse text-left text-code-12" aria-label="Peeked messages">
                 <thead className="sticky top-0 z-10 bg-surface-raised">
                   <tr className="text-code-12-medium text-text-secondary">
                     <th className="h-10 w-28 border-b border-border-subtle px-4">Offset</th>
@@ -368,6 +361,9 @@ export function KafkaView() {
                     return (
                       <tr
                         key={`${m.offset}-${m.timestamp ?? 0}`}
+                        tabIndex={0}
+                        aria-label={`Inspect message at offset ${m.offset}`}
+                        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inspect(m); } }}
                         onClick={() => inspect(m)}
                         data-accent={inspected === m ? "on" : undefined}
                         className={cn(
@@ -390,59 +386,56 @@ export function KafkaView() {
         </TabsContent>
 
         {/* ---- Publish: the target, the body, and the receipt. */}
-        <TabsContent value="publish" className="flex min-h-0 flex-1 flex-col gap-3.5">
+        <TabsContent value="publish" className="flex min-h-0 flex-1 flex-col gap-3.5" aria-busy={publishing}>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Field label="topic">
-              <input
+              <Input inputSize="sm"
                 value={publish.topic}
                 onChange={(e) => setPublish({ topic: e.target.value })}
                 className={cn(CELL_INPUT, "w-44")}
+                disabled={publishing || profileBusy}
                 aria-label="Topic"
                 required
               />
             </Field>
             <Field label="key">
-              <input
+              <Input inputSize="sm"
                 value={publish.key}
                 onChange={(e) => setPublish({ key: e.target.value })}
                 placeholder="optional"
                 className={cn(CELL_INPUT, "w-36")}
+                disabled={publishing || profileBusy}
                 aria-label="Key"
               />
             </Field>
             <Field label="partition">
-              <input
+              <Input inputSize="sm"
                 value={publish.partition}
                 onChange={(e) => setPublish({ partition: e.target.value })}
+                disabled={publishing || profileBusy}
                 placeholder="auto"
-                className={cn(CELL_INPUT, "w-12")}
+                className={cn(CELL_INPUT, "w-20")}
                 aria-label="Partition"
               />
             </Field>
           </div>
           <span className="shrink-0 text-label-11-caps text-text-tertiary">Payload</span>
           <div className={cn(CARD, "overflow-hidden")}>
-            <CodeEditor value={publish.payload} onChange={(v) => setPublish({ payload: v })} extensions={jsonExtension} wrap />
+            <CodeEditor value={publish.payload} onChange={(v) => setPublish({ payload: v })} extensions={jsonExtension} readOnly={publishing || profileBusy} wrap />
           </div>
           {/* The receipt is the point of the form: a publish that reports
               nothing cannot be told apart from one that silently went nowhere. */}
-          {publishResult && (
-            <div className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-status-success/10 px-4 text-code-12 text-status-success">
-              <span className="size-1.5 rounded-full bg-status-success" />
-              delivered to partition {publishResult.partition} at offset {formatOffset(publishResult.offset)}
-            </div>
-          )}
-          {publishError && (
-            <pre className="shrink-0 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) px-4 py-2.5 text-code-12 whitespace-pre-wrap text-status-danger select-text">
-              {publishError}
-            </pre>
-          )}
+          {publishing && <PendingStatus>Publishing to {publish.topic} on {profile?.name}…</PendingStatus>}
+          {publishResult && <FeedbackBanner tone="success" title="Message delivered">{publish.topic} · partition {publishResult.partition} · offset {formatOffset(publishResult.offset)}</FeedbackBanner>}
+          {publishError && <InlineFeedback>{publishError}</InlineFeedback>}
         </TabsContent>
 
         {/* ---- Consumer groups: who is behind, and by how much. */}
-        <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col">
+        <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col gap-3" aria-busy={groupsLoading}>
+          {groupsError && <FeedbackBanner tone="error" title="Consumer groups unavailable" action={<Button variant="outline" disabled={groupsLoading} onClick={() => void refreshGroups()}>Retry</Button>}>{groupsError}</FeedbackBanner>}
+          {groupsLoading && <PendingStatus>Loading consumer groups…</PendingStatus>}
           <div className={CARD}>
-            {groups.length === 0 ? (
+            {groups.length === 0 && groupsError ? <EmptyState title="No result available" body="Retry to read consumer groups." /> : groups.length === 0 ? (
               <EmptyState
                 icon={Users}
                 title={groupsLoading ? "Loading consumer groups…" : "No consumer groups"}
@@ -482,8 +475,6 @@ export function KafkaView() {
         </TabsContent>
       </Tabs>
 
-      {error && <p role="alert" className="shrink-0 pt-2 text-body-12 text-status-danger">{error}</p>}
-      <NewClusterDialog />
     </div>
   );
 }

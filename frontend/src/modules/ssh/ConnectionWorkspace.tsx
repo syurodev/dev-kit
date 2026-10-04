@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent, TabsCount } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -227,10 +227,7 @@ export function ConnectionWorkspace({
               </p>
             </div>
             {sessions.length === 0 ? (
-              <Empty className="border border-border py-10">
-                <EmptyHeader><EmptyMedia variant="icon"><Terminal /></EmptyMedia><EmptyTitle>No terminal open</EmptyTitle><EmptyDescription>Open an interactive shell. Its session stays running when you switch modules.</EmptyDescription></EmptyHeader>
-                <EmptyContent><Button disabled={Boolean(busy)} onClick={() => void connect()}>Open terminal</Button></EmptyContent>
-              </Empty>
+              <EmptyState size="rail" icon={Terminal} title="No terminal open" body="Open an interactive shell. Its session stays running when you switch modules." action={{ label: "Open terminal", disabled: Boolean(busy), onClick: () => void connect() }} />
             ) : (
               sessions.map((tab) => (
                 <Item key={tab.key} variant="outline" size="sm" className="flex-nowrap">

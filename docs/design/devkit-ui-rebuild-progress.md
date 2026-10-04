@@ -118,10 +118,37 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - `AGENTS.md`, README và UI/UX rules dẫn về hướng dẫn; trang Sidebar/Module tabs đánh dấu mô tả lịch sử và chỉ rõ contract hiện tại.
 - Thay đổi này chỉ là tài liệu, không đổi runtime. Đã kiểm tra 24 đường dẫn local/code fences trong 7 file tài liệu và `git diff --check`: đạt.
 
+## Bước 4 — Kafka theo chuẩn shell và feedback
+
+### Đã triển khai
+
+- Sidebar thuộc manifest, dùng rail trong suốt của shell và vẫn tồn tại khi explorer đóng; form tạo cluster thuộc rail, giữ draft và chỉ hiện khi Kafka đang active.
+- Kafka giữ một explorer vì backend chỉ có một connection. Topics/Publish/Consumer groups là shadcn Tabs bên trong document; không dựng strip hoặc giả lập nhiều connection.
+- Thay input/select và option tabs tự dựng bằng Input, NativeSelect và Field/FieldLabel/FieldError/FieldSet. Environment phải chọn rõ ràng; bootstrap host:port, limit/offset và partition được validate trước khi gọi bridge.
+- Loading/error/no-results có scope và Retry/Clear search. Xóa profile dùng ConfirmDialog, Cancel nhận focus, pending chặn gửi lại/đóng, lỗi giữ dialog mở.
+- Header ghi cluster đang kết nối; chọn cluster khác chỉ đổi selection và đưa ra action Connect rõ ràng. Connect thất bại giữ nguyên connection đang chạy. Không đổi cluster trong lúc publish.
+- Draft publish giữ riêng theo cluster trong bộ nhớ; chọn topic khác không tự retarget payload. Chống publish lặp từ nút hoặc shortcut; khóa field trong lúc gửi; receipt/error giữ khi đổi module, completion nền dùng toast ID ổn định không chứa payload.
+- Hủy peek/đổi topic/cluster vô hiệu kết quả cũ; lỗi describe cũ cũng bị bỏ qua. Topic và consumer groups tải độc lập. Refresh thất bại giữ bảng trước đó cùng banner; inspector giữ partition của kết quả đã đọc.
+- Header/actions/form wrap theo pane; bảng message có scroll ngang và giữ virtualization. Message row nhận Enter/Space; Tabs giữ keyboard của primitive.
+- Sửa hai empty state SSH đã merge trước đó về EmptyState để tuân thủ conformance của repository.
+
+### Kiểm tra
+
+- Toàn bộ frontend: **2546 pass, 0 fail**; production build/TypeScript/performance budget: **pass**.
+- `go test ./internal/arch/ ./internal/kafka/ -count=1`: **pass**.
+- Bổ sung 12 test validation/lifecycle: duplicate publish, canceled/stale peek, stale describe/cluster metadata, connect thất bại, draft theo cluster, partial delete failure, groups failure độc lập và giữ rows khi peek lỗi.
+- Browser harness dùng KafkaView, manifest sidebar, SidebarSurface, CodeEditor, ThemeProvider và Toaster thật với bridge mô phỏng: dark/light; 860×800 với pane ~542px; tab Arrow/End, message Enter, explicit target; form validation/focus/pending/failure; safe Cancel focus và delete failure; publish qua module unmount + toast nền; search topic chỉ match cluster sở hữu, no-results có Clear search.
+- Screenshot lưu ngoài repository; tab/viewport override/harness đã được dọn sau kiểm tra.
+
+### Giới hạn
+
+- Browser harness và Go test không thay thế E2E UI với Kafka broker thật/native desktop. Chưa kiểm tra protocol credentials hoặc cluster production.
+- Smoke test native SSH từ bước 3 vẫn pending: cần vault mở và endpoint thử nghiệm để xác minh PTY focus/resize, tunnel, host-key đổi. Không dùng connection cá nhân làm fixture tự động.
+
 ## Bước tiếp theo
 
-1. Smoke test native và server SSH bên ngoài theo checklist trên.
-2. Bắt đầu bước 4: chọn module tiếp theo từ feedback audit; ưu tiên primitive shadcn sẵn có, giữ draft và lifecycle đang chạy.
+1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
+2. Bước 5: migrate Database theo audit, ưu tiên schema/indexing feedback, draft query và lifecycle khi đổi module.
 
 ## Nhật ký
 
@@ -130,6 +157,7 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 | 2026-10-04 | Viết bộ quy tắc UI/UX v1 và triển khai nền/surface shell của bước 1 |
 | 2026-10-04 | Triển khai feedback dùng chung và áp dụng SSH; tạo audit/backlog và kiểm tra browser với bridge mô phỏng |
 | 2026-10-04 | Tạo file tiến độ; ghi kết quả kiểm tra và phần native chưa xác minh |
+| 2026-10-04 | Phase 4: Kafka dùng manifest sidebar/shadcn/feedback chung, xử lý target và async lifecycle; frontend 2546 test, build và Go Kafka/architecture đạt |
 | 2026-10-04 | Phase 3: polish SSH bằng shadcn, keyboard/responsive và phân biệt disconnect với đóng terminal; frontend 2515 test và Go race đạt |
 
 Khi cập nhật: ghi phần thay đổi thực tế, kết quả kiểm tra, giới hạn còn lại và bước tiếp theo; chỉ đánh dấu hoàn thành phạm vi đã triển khai và xác minh.

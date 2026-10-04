@@ -1,4 +1,12 @@
-import { useState } from "react";
+import { notify } from "@/lib/notify";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { errorMessage } from "@/bridge/errors";
+import { showModuleHome } from "@/workbench/showModule";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { NewClusterDialog } from "./NewClusterDialog";
+import { useEffect, useState } from "react";
 import { Plug, PlugZap, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +49,33 @@ export function KafkaSidebar() {
   const setActiveTab = useKafkaStore((s) => s.setActiveTab);
   const setShowNewCluster = useKafkaStore((s) => s.setShowNewCluster);
 
+  const profilesLoading = useKafkaStore(s => s.profilesLoading);
+  const profilesError = useKafkaStore(s => s.profilesError);
+  const topicsError = useKafkaStore(s => s.topicsError);
+  const topicsLoading = useKafkaStore(s => s.topicsLoading);
+  const profileBusy = useKafkaStore(s => s.profileBusy || s.publishing);
+  const refreshProfiles = useKafkaStore(s => s.refreshProfiles);
+  const visible = useWorkbenchTabsStore(s => s.activeModuleId === "kafka");
+  useEffect(() => { void refreshProfiles(); }, [refreshProfiles]);
+  useEffect(() => useKafkaStore.subscribe((next, previous) => {
+    const scope = previous.publishing && !next.publishing ? "publish"
+      : previous.peeking && !next.peeking && next.peeked && next.peekRunId === previous.peekRunId ? "topics" : null;
+    if (!scope || (useWorkbenchTabsStore.getState().activeModuleId === "kafka" && next.activeTab === scope)) return;
+    const failed = scope === "publish" ? !!next.publishError : !!next.peekError;
+    notify({ id: `kafka:${next.connection.profileId}:${scope}`, tone: failed ? "error" : "success",
+      title: `${scope === "publish" ? "Kafka publish" : "Kafka peek"} ${failed ? "failed" : "completed"}`,
+      action: { label: "Open Kafka", onClick: () => { setActiveTab(scope); showModuleHome("kafka"); } } });
+  }), [setActiveTab]);
+  const [deleting, setDeleting] = useState<(typeof profiles)[number] | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  async function confirmDelete() {
+    if (!deleting || deletePending) return;
+    setDeletePending(true); setDeleteError("");
+    try { await deleteProfile(deleting.id); setDeleting(null); }
+    catch (e) { setDeleteError(errorMessage(e)); }
+    finally { setDeletePending(false); }
+  }
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
   const matches = (s: string) => !needle || s.toLowerCase().includes(needle);
@@ -48,7 +83,7 @@ export function KafkaSidebar() {
   const connectedProfile = profiles.find((p) => p.id === connection.profileId);
 
   const nodes: TreeNodeData[] = profiles
-    .filter((p) => matches(p.name) || p.bootstrapServers.some(matches) || topics.some((t) => matches(t.name)))
+    .filter((p) => matches(p.name) || p.bootstrapServers.some(matches) || (connection.profileId === p.id && topics.some((t) => matches(t.name))))
     .map((p) => {
       const isConnected = connection.connected && connection.profileId === p.id;
       const env = (p.env || "").toLowerCase();
@@ -68,7 +103,7 @@ export function KafkaSidebar() {
           <TreeRowTag danger={prod}>{env}</TreeRowTag>
         ) : null,
         selected: p.id === selectedId,
-        onSelect: () => selectProfile(p.id),
+        onSelect: () => { selectProfile(p.id); showModuleHome("kafka"); },
         // The connected cluster is the open one; there is no fold state to
         // keep because there is nothing else it could show.
         expandable: isConnected,
@@ -78,29 +113,31 @@ export function KafkaSidebar() {
           label: t.name,
           selected: isConnected && t.name === selectedTopic,
           onSelect: () => {
+            selectProfile(p.id);
+            showModuleHome("kafka");
             void selectTopic(t.name);
             setActiveTab("topics");
           },
         })),
-        emptyLabel: needle ? "No topics match" : "No topics in this cluster",
+        emptyLabel: topicsLoading ? "Loading topics…" : topicsError ? "Topics unavailable" : needle ? "No topics match" : "No topics in this cluster",
         wrap: (row) => (
           <ContextMenu key={`cluster:${p.id}`}>
             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
             <ContextMenuContent>
               {isConnected ? (
-                <ContextMenuItem icon={<Plug />} onSelect={() => void disconnect()}>
+                <ContextMenuItem icon={<Plug />} disabled={profileBusy} onSelect={() => void disconnect()}>
                   Disconnect
                 </ContextMenuItem>
               ) : (
-                <ContextMenuItem icon={<PlugZap />} onSelect={() => void connect(p.id)}>
+                <ContextMenuItem icon={<PlugZap />} disabled={profileBusy} onSelect={() => void connect(p.id)}>
                   Connect
                 </ContextMenuItem>
               )}
-              <ContextMenuItem icon={<Zap />} onSelect={() => void testConnection(p.id)} disabled={testing}>
+              <ContextMenuItem icon={<Zap />} onSelect={() => { selectProfile(p.id); showModuleHome("kafka"); void testConnection(p.id); }} disabled={testing || profileBusy}>
                 Test connection
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem icon={<Trash2 />} variant="destructive" onSelect={() => void deleteProfile(p.id)}>
+              <ContextMenuItem icon={<Trash2 />} variant="destructive" disabled={profileBusy} onSelect={() => { setDeleteError(""); setDeleting(p); }}>
                 Delete cluster
               </ContextMenuItem>
             </ContextMenuContent>
@@ -115,16 +152,19 @@ export function KafkaSidebar() {
         <SidebarSearch
           value={query}
           onChange={setQuery}
+          onClear={() => setQuery("")}
           placeholder="Search topics…"
           aria-label="Search clusters and topics"
         />
-        <Button variant="ghost" size="icon-xs" title="New cluster" onClick={() => setShowNewCluster(true)}>
+        <ActionTooltip label="New cluster"><Button variant="ghost" size="icon-xs" aria-label="New cluster" onClick={() => setShowNewCluster(true)}>
           <Plus className="size-3" />
-        </Button>
+        </Button></ActionTooltip>
       </SidebarHeader>
 
       {/* The tree is its own scroller; the empty states are not in it. */}
-      {profiles.length === 0 ? (
+      {profilesLoading && profiles.length === 0 ? <div className="flex-1 p-3"><PendingStatus>Loading clusters…</PendingStatus></div>
+        : profilesError && profiles.length === 0 ? <div className="flex-1 p-2"><FeedbackBanner tone="error" title="Could not load clusters" action={<Button variant="outline" onClick={() => void refreshProfiles()}>Retry</Button>}>{profilesError}</FeedbackBanner></div>
+        : profiles.length === 0 ? (
         <div className="min-h-0 flex-1">
           <EmptyState
             size="rail"
@@ -134,12 +174,17 @@ export function KafkaSidebar() {
         </div>
       ) : nodes.length === 0 ? (
         <div className="min-h-0 flex-1">
-          <EmptyState size="rail" body={`Nothing matches “${needle}”.`} />
+          <EmptyState size="rail" body={`Nothing matches “${needle}”.`} action={{ label: "Clear search", onClick: () => setQuery("") }} />
         </div>
       ) : (
         <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />
       )}
 
+      {profilesError && profiles.length > 0 && <div className="p-2"><FeedbackBanner tone="error" title="Cluster refresh failed" action={<Button variant="outline" onClick={() => void refreshProfiles()}>Retry</Button>}>{profilesError}</FeedbackBanner></div>}
+      <NewClusterDialog visible={visible} />
+      <ConfirmDialog open={!!deleting && visible} onClose={() => setDeleting(null)} title={`Delete ${deleting?.name ?? "cluster"}?`} confirmLabel="Delete cluster" pendingLabel="Deleting…" pending={deletePending} error={deleteError} onConfirm={() => void confirmDelete()}>
+        This removes the saved profile. An active connection to this cluster will close. Broker topics and messages remain unchanged.
+      </ConfirmDialog>
       {/* The one fact the rail must always answer: am I connected, and to what. */}
       <div className="flex h-10 shrink-0 items-center gap-1.5 px-2 text-code-11 text-text-tertiary">
         <span
