@@ -45,11 +45,13 @@ export function Field({
 }
 
 export function ConnectionDialog({
+  visible = true,
   profile,
   envs,
   onClose,
   onSaved,
 }: {
+  visible?: boolean;
   profile?: SSHProfile;
   envs: string[];
   onClose: () => void;
@@ -105,7 +107,7 @@ export function ConnectionDialog({
   }
   return (
     <Dialog
-      open
+      open={visible}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

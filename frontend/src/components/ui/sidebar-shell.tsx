@@ -228,12 +228,14 @@ export function SidebarRow({
  * is not reserved, because an X that never appears is 28px of dead field.
  */
 export function SidebarSearch({
+  ref,
   value,
   onChange,
   onClear,
   placeholder,
   "aria-label": ariaLabel,
 }: {
+  ref?: React.Ref<HTMLInputElement>;
   value: string;
   onChange: (value: string) => void;
   onClear?: () => void;
@@ -244,6 +246,7 @@ export function SidebarSearch({
     <div className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-(--icon-14) -translate-y-1/2 text-text-tertiary" />
       <Input
+        ref={ref}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -355,8 +358,8 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
-        {/* A lightly tinted rail on the shell backdrop. Module controls keep
-            their palette; the shell only owns the material and corners. */}
+        {/* The rail shares the app shell backdrop without its own fill or
+            outline. Module controls keep their palette. */}
         {/* The shell owns width, material and clipping, not content padding.
             Scroll viewports reach the rail edge; headers and controls use
             SidebarInset, while tree/list rows own their internal spacing. */}

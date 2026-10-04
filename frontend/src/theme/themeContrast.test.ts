@@ -75,7 +75,7 @@ const FLOOR: Record<string, number> = {
   "--syntax-meta": 4.5,
 };
 
-/** Every content ground, including the shell backdrop and tinted rail. */
+/** Every content ground, including both ends of the shell backdrop shared by the rail. */
 const shellCss = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 function shellColour(token: string, mode: "dark" | "light") {
   const values = [...shellCss.matchAll(new RegExp(`${token}:\\s*(#[a-f0-9]+)`, "g"))];
@@ -93,7 +93,6 @@ function groundsOf(palette: Record<string, string>, mode: "dark" | "light") {
     app: palette["--background-app"],
     shell,
     shellTop,
-    rail: over(base, mode === "dark" ? shellTop : shell, 0.32),
   };
 }
 

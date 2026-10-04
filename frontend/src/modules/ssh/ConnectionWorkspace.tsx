@@ -48,7 +48,8 @@ import { Field } from "./ConnectionDialog";
 import { InlineFeedback, FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { notify } from "@/lib/notify";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { useSSHStore } from "./sshStore";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { activeSSHProfileId, openSSHConnection } from "./documents";
 import { useSSHWorkspaceState, initialWorkspace, runSSHAction, type SSHPage, type FeedbackScope } from "./workspaceState";
 import { validateForward } from "./validation";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -84,7 +85,7 @@ export function ConnectionWorkspace({
     patch({ spec, forwardErrors: errors });
   };
   const setApproval = (approval: typeof state.approval) => patch({ approval });
-  const activeModuleId = useWorkbenchTabsStore(s => s.activeModuleId);
+  const visible = useModuleVisibility();
   const tabs = useTerminalTabsStore((s) => s.tabs);
   const activeKey = useTerminalTabsStore((s) => s.activeKey);
   const sessions = tabs.filter((t) => t.profileId === profile.id);
@@ -105,15 +106,14 @@ export function ConnectionWorkspace({
     else if (result === "success" && ["Running command…", "Starting tunnel…", "Stopping tunnel…", "Testing connection…"].includes(label)) notifyResult(false, target);
   }
   function isBackground() {
-    return useSSHStore.getState().selectedId !== profile.id || useWorkbenchTabsStore.getState().activeModuleId !== "ssh";
+    return activeSSHProfileId(useWorkbenchTabsStore.getState()) !== profile.id || useWorkbenchTabsStore.getState().activeModuleId !== "ssh";
   }
   function notifyResult(failed: boolean, target: FeedbackScope) {
     notify({ id: `ssh:${profile.id}:${target}`, tone: failed ? "error" : "success",
       title: failed ? "SSH action failed" : target === "commands" ? "SSH command completed" : target === "tunnels" ? "SSH tunnel updated" : "SSH action completed",
       action: { label: "Open connection", onClick: () => {
         patch({ page: target === "connection" || target === "approval" ? "terminal" : target });
-        useSSHStore.getState().select(profile.id);
-        useWorkbenchTabsStore.getState().openTab({ moduleId: "ssh", viewId: "ssh.connections", title: "SSH" });
+        openSSHConnection(profile);
       } } });
   }
   function feedback(target: FeedbackScope) {
@@ -592,7 +592,7 @@ export function ConnectionWorkspace({
           </TabsContent>
       </div>
       <Dialog
-        open={Boolean(approval) && activeModuleId === "ssh"}
+        open={Boolean(approval) && visible}
         onOpenChange={(open) => {
           if (!open && !busy) setApproval(null);
         }}
