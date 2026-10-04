@@ -88,9 +88,9 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 
 ### Đã triển khai
 
-- Đăng ký connection rail qua `useSidebarContent` của app shell; bỏ aside cố định trong workspace. Dùng SidebarHeader/Search/Section chung để sidebar nhận resize, ẩn/hiện và material của shell.
-- Thay hai thanh tab tự viết bằng shadcn Tabs: semantics tab/tabpanel, focus roving, Arrow/Home/End và indicator/transition dùng chung.
-- Connection tab hỗ trợ Delete để đóng; focus chuyển về connection còn lại hoặc ô tìm kiếm khi đóng tab cuối.
+- Connection rail thuộc manifest `sidebar` của SSH, độc lập với document đang mở; vẫn có danh sách khi đóng mọi tab. Dùng SidebarHeader/Search/Section chung và sidebar của shell.
+- Mỗi connection là một document workbench với `params.profileId`; dùng tab strip chung qua `tabs: true`. Pin/reorder/split/close và persistence thuộc shell; bỏ openIds/selectedId và strip connection riêng. Tabs Terminal/Commands/Tunnels/Details bên trong connection tiếp tục dùng shadcn Tabs.
+- Nút + của strip mở form tạo connection; sidebar mở/focus document tương ứng. Đổi tên cập nhật title, xóa profile đóng document của profile đó. Đóng document giữ draft và terminal; đóng terminal riêng mới kết thúc session.
 - Dùng Field/FieldLabel/FieldError/FieldSet/FieldLegend cho form; accessible name lấy từ label hiển thị, click label focus đúng control.
 - Dùng Badge cho môi trường/agent target, Card cho thông tin kết nối, Item cho session, Empty/EmptyState cho vùng trống và ActionTooltip cho icon action. Giữ palette component của theme.
 - Command/tunnel form đổi bố cục theo chiều rộng pane; phần tab có thể cuộn ngang khi hẹp. Loading/error của danh sách không hiển thị nhầm CTA first-run.
@@ -99,11 +99,12 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 
 ### Kiểm tra
 
-- Toàn bộ frontend: **2515 pass, 0 fail**; production build/TypeScript/performance budget: **pass**.
+- Toàn bộ frontend: **2519 pass, 0 fail**; production build/TypeScript/performance budget: **pass**.
 - `go test -race ./internal/ssh/ ./internal/arch/ -count=1`: **pass**. Bổ sung test transport bị ngắt và mở PTY mới với cùng profile/pinned key, dùng SSH peer loopback trong test.
 - Browser harness với SSH component thật và bridge mô phỏng: dark/light tại 1080×800, pane 560px với sidebar 256px; tunnel form xếp một cột, Arrow/Home/End/Delete và focus sau đóng tab, giữ command draft qua unmount module, label focus/accessibility.
 - Bỏ fill tint và inset highlight của sidebar chung theo yêu cầu; cập nhật quy tắc và contrast checks để rail dùng nền shell ở cả dark/light. Browser preview hai mode và 488 kiểm tra theme/shell đạt; production build/performance budget đạt.
 - Kiểm tra browser bổ sung với `SidebarSurface` thật và bridge mô phỏng: toggle sidebar, kéo resize, đổi module và giữ tìm kiếm khi quay lại SSH đều đạt.
+- Tab strip migration: 4 regression test về dedupe/active tab, focused split group, giữ draft/terminal khi đóng document và rename giữ pin. Browser harness dùng TabStrip/SidebarSurface thật, bridge mô phỏng: hai connection, arrow navigation, context menu pin/close, mở lại giữ draft, đổi module và nút + mở form; dark/light đều đạt. Dialog áp dụng visibility của document để không xuất hiện từ tab nền.
 - Screenshot kiểm tra được lưu ngoài repository; harness chỉ tạm thời và đã dọn sau kiểm tra.
 
 ### Giới hạn
