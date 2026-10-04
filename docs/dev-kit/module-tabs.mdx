@@ -5,21 +5,47 @@ description: Tab strip — cơ chế mở/đóng/focus nhiều tab, kéo-thả, 
 
 # Module tabs
 
-Cơ chế mở/đóng/focus nhiều tab cùng lúc: kéo-thả sắp xếp, preview tab kiểu VS
-Code (single-click, thay double-click mới ghim), nút đóng. Từ 2026-09-09
-(nhánh `phase-5-workbench-ui`, commit `e11eebb`) tab **thuộc về module**:
-`frontend/src/stores/workbenchTabs.ts` giữ một `modules: Record<moduleId,
-ModuleTabs>` — mỗi partition có `openTabs`/`activeTabId`/`tabMru` riêng,
-`moduleOfTab(id)` suy module từ tiền tố id — và `activeModuleId` chọn
-partition đang hiện. `Workbench.tsx` chỉ vẽ `TabStrip` khi
-`ModuleManifest.tabs === true` (hôm nay chỉ Notes bật); module khác không có
-strip nào cả. Strip render ở mép trên **content card** (`h-12` = 48px, khớp
-Figma `116:1346`), title bar 40px chỉ còn ba vùng icon. Chuyển module qua Dock
-giữ nguyên partition cũ; quay lại thì `focusModule` sticky theo `activeTabId`
-gần nhất, chưa có tab mới mở preview "home" của module.
+Document tabs dùng chung `frontend/src/stores/workbenchTabs.ts` và
+`frontend/src/workbench/tabs/TabStrip.tsx`. Workbench vẽ strip cho document
+group khi `ModuleManifest.tabs === true`; module không tự render strip hay
+quản lý một mảng `openIds`/`selectedId` thứ hai.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Callout type="info" title="Hướng dẫn tích hợp hiện tại">
+Đọc [Sidebar và tab strip của app shell](../design/module-shell-integration.md)
+trước khi tạo/sửa document navigation. Đây là contract hiện tại; các phần
+thiết kế lịch sử bên dưới không phải hướng dẫn triển khai mới. Runtime hiện
+dùng `@dnd-kit` cho strip, không phải `Reorder.Group`; strip thuộc content
+card/document group, không thuộc title bar.
+</Callout>
+
+## Contract hiện tại
+
+- Bật `tabs: true`, cung cấp `newTab` hoạt động kể cả khi không có document.
+  `opensHome` chỉ dùng cho dashboard/list có ích; không tự mở một connection
+  hoặc tạo công việc mới khi người dùng vào module.
+- Dùng helper `documents.ts` gọi `openTab` với module/view/params ID ổn định.
+  Sidebar, palette và toast dùng cùng helper. Mở lại cùng ID focus tab cũ.
+- View nhận ID từ `params`. Không thêm title/timestamp/command vào params
+  để tạo identity mới, và không persist secret hoặc output trong params.
+- Workbench sở hữu pin, reorder, close, shortcuts, split và persistence.
+  Sidebar highlight đọc document của focused group khi có nhiều group.
+- Đóng document và đóng tài nguyên là hai contract cần phân biệt. SSH giữ
+  draft và terminal khi đóng connection document; đóng terminal mới dừng
+  session. Sửa/xóa profile cleanup tài nguyên theo contract của SSH.
+- Dialog của document dùng `useModuleVisibility()` để tab nền không mở
+  portal lên tab đang xem. Shadcn `Tabs` chỉ chuyển mode trong cùng document.
+
+Ví dụ: `frontend/src/modules/ssh/manifest.ts`, `documents.ts`, `SSHView.tsx`
+và `documents.test.ts`. Contract API: `frontend/src/modules/registry.ts`.
+
+## Chi tiết thiết kế trước đây (lịch sử)
+
+Các snapshot dưới đây được giữ làm bối cảnh. Những ghi chú như “chỉ Notes bật
+strip”, strip trong title bar, `Reorder` hoặc tự mở home không mô tả contract
+hiện tại; đối chiếu runtime và hướng dẫn ở đầu trang trước khi dùng.
 
 <Callout type="info" title="Phase 5 per-module ownership — đã implement">
 [Title bar](/dev-kit/title-bar) chỉ còn 3 vùng icon+tooltip; strip ở content

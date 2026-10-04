@@ -12,19 +12,39 @@ ngay sau traffic lights, xem [Title bar](/dev-kit/title-bar).
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
-<Callout type="info" title="Runtime và quy tắc bố cục">
-Sidebar đã có runtime trong `components/ui/sidebar-shell.tsx`. Quy tắc padding
-bên dưới được áp dụng cho shell và CodeGraph; các module khác dùng cùng quy tắc
-khi chỉnh sửa sidebar. Các phần thiết kế lịch sử phía sau cần đối chiếu runtime.
+<Callout type="info" title="Hợp đồng tích hợp hiện tại">
+App shell sở hữu cột sidebar. Module không tự dựng `aside`, chiều rộng, toggle,
+resize handle, nền hoặc border riêng bên trong workspace. Hướng dẫn cho
+contributor: [Sidebar và tab strip](../design/module-shell-integration.md);
+đọc trước khi sửa module. Các mô tả thiết kế/số liệu lịch sử dưới đây cần đối
+chiếu API runtime; hướng dẫn tích hợp là contract hiện tại.
 </Callout>
+
+## Rail của module và rail của document
+
+- `ModuleManifest.sidebar`: lazy component cho danh sách thuộc module, kể cả
+  khi chưa mở hoặc đã đóng mọi document. Đây là lựa chọn cho SSH connections.
+- `useSidebarContent(node)`: rail phụ thuộc document, đăng ký theo module ID
+  và registrar của hook. Shell ưu tiên rail được đăng ký, rồi fallback về
+  manifest; không clear slot của document khác.
+- Không điều kiện hóa đăng ký theo sidebar đang mở hay document đang visible.
+  Shell quyết định toggle và module nào được hiển thị.
+- Dùng `SidebarHeader/Search/Section/Row/Inset`, tree và shadcn primitives
+  chung. Root rail không có fill/border/shadow riêng; nó hòa trực tiếp vào
+  nền opaque của app shell ở dark/light, kể cả giảm transparency.
+- Không render rail lần nữa trong view, không giữ một sidebar riêng chỉ để
+  danh sách còn tồn tại khi đóng tab. Khai báo manifest giải quyết việc đó.
+
+Runtime: `frontend/src/components/ui/sidebar-shell.tsx`,
+`frontend/src/stores/sidebarContent.ts`, `frontend/src/modules/registry.ts`.
+Ví dụ đầy đủ: `frontend/src/modules/ssh/SSHSidebar.tsx` và `manifest.ts`.
 
 ```mermaid
 flowchart LR
-  Module["Module component (mounted)"] -->|"useSidebarContent(node)"| Store["Sidebar content store"]
-  Toggle["Sidebar toggle (title bar)"] -->|"global open/closed"| Visibility["Visibility state"]
-  Store --> Render["Workbench renders active module's content"]
-  Visibility --> Render
-  Render --> Surface["sidebar-surface (resizable)"]
+  Manifest["ModuleManifest.sidebar (lazy)"] --> Render["SidebarSurface: registered rail, else manifest"]
+  Document["Document: useSidebarContent(node)"] --> Store["Registration per module + registrar"]
+  Store --> Render
+  Toggle["Shell toggle + resize + layout pressure"] --> Render
 ```
 
 ## Primitive: `useSidebarContent`
@@ -42,7 +62,7 @@ bấm) là **hai việc tách biệt** — xem mục Toggle bên dưới.
 
 ## Phân chia padding và vùng cuộn
 
-Shell quản lý **chiều rộng, resize, nền, ẩn/hiện và clipping**. Shell không đặt
+Shell quản lý **chiều rộng, resize, nền app chung, ẩn/hiện và clipping**. Shell không đặt
 padding ngang quanh nội dung module: padding ở đây sẽ đẩy cả scrollbar vào trong
 và làm tên file bị cắt sớm do cộng thêm với padding row và độ thụt cấp.
 

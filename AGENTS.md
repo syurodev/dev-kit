@@ -10,6 +10,23 @@ Git-style conflict resolution (`internal/syncclient`, `internal/syncconflict`,
 `internal/syncstore`). A throwaway in-memory mock sync server lives at
 `cmd/mocksyncserver`. Architecture layering is enforced by `go test ./internal/arch/`.
 
+### Module UI: shared sidebar and document tabs
+
+Before adding or changing a module sidebar or document navigation, read
+[`docs/design/module-shell-integration.md`](docs/design/module-shell-integration.md).
+The app shell owns the sidebar column and workbench tab strip. Use a lazy
+`ModuleManifest.sidebar` for module rails (including when no document is open),
+or `useSidebarContent` for document-specific rails. Do not embed a fixed-width
+`aside`, duplicate sidebar toggle/resize/material, or maintain a second document
+strip / `openIds` / `selectedId` in a module view/store. Enable `tabs: true` and
+open documents through `useWorkbenchTabsStore.openTab` with stable ID params;
+provide a working `newTab` action. Shadcn `Tabs` may switch modes inside one
+document, such as SSH Terminal/Commands/Tunnels/Details. Keep drafts/resource
+lifetimes separate from view mounting, derive selection from the focused group,
+and gate document dialogs with `useModuleVisibility`. The shared sidebar has no
+fill/border/shadow of its own; controls keep their theme colors. SSH's manifest,
+sidebar and `documents.ts` are the current reference implementation.
+
 ### Toolchain (preinstalled in the environment)
 - Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; needs >= 1.25).
 - `bun` (frontend package manager — `bun.lock` is the lockfile; the `Taskfile` default
