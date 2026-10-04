@@ -9,6 +9,7 @@ import {
   type Conflict,
 } from "@/bridge/git";
 import { markerCount, readConflict } from "./conflicts";
+import { shortcut } from "@/lib/shortcut";
 
 /**
  * Resolving one unmerged path.
@@ -118,7 +119,7 @@ export function GitConflictPanel({
                 save instead would dead-end anyone whose file legitimately
                 contains a line of angle brackets. */}
             {left > 0 ? "Save with markers" : "Mark resolved"}
-            <span className="text-code-11 opacity-65">⌘S</span>
+            <span className="text-code-11 opacity-65">{shortcut("S")}</span>
           </Button>
         ) : null}
         <span className="h-5 w-px bg-border-subtle" />

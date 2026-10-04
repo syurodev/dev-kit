@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarRow } from "@/components/ui/sidebar-shell";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { listSavedQueries } from "../../../bridge/database";
@@ -39,9 +39,7 @@ export function SavedQueriesPanel() {
 
   if (!selectedProfileId) {
     return (
-      <Empty className="px-4 py-6">
-        <EmptyDescription>Pick a connection to see the queries saved against it.</EmptyDescription>
-      </Empty>
+      <EmptyState size="rail" body="Pick a connection to see the queries saved against it." />
     );
   }
 
@@ -54,28 +52,22 @@ export function SavedQueriesPanel() {
     // sealed, and the answer is the Master Password, not a retry.
     const message = errorMessage(error);
     return (
-      <Empty className="px-4 py-6">
-        <EmptyDescription>
-          {isVaultLockedError(message) ? (
-            <span className="inline-flex items-center gap-1.5">
-              <Lock className="size-3" /> Unlock the vault to see saved queries.
-            </span>
-          ) : (
-            message
-          )}
-        </EmptyDescription>
-      </Empty>
+      isVaultLockedError(message) ? (
+        <EmptyState size="rail" icon={Lock} body="Unlock the vault to see saved queries." />
+      ) : (
+        <EmptyState size="rail" tone="danger" title="Could not load saved queries" body={message} />
+      )
     );
   }
 
   const queries = data ?? [];
   if (queries.length === 0) {
     return (
-      <Empty className="px-4 py-6">
-        <EmptyDescription>
-          Nothing saved here yet. Save a console from its toolbar to keep it by name.
-        </EmptyDescription>
-      </Empty>
+      <EmptyState
+        size="rail"
+        title="Nothing saved yet"
+        body="Save a console from its toolbar to keep it by name."
+      />
     );
   }
 

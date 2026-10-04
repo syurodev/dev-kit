@@ -4,6 +4,7 @@ import { Ban, Bot, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, FolderX, Lay
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { SidebarInset, SidebarSection } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -631,42 +632,52 @@ export function AgentSidebarTree({
       // them. The database and Kafka rails never took the cap.
       className={cn("flex h-full w-full flex-col", className)}
     >
-      <div className="flex w-full shrink-0 items-center gap-2 py-3">
-        <span className="min-w-0 flex-1 text-label-12 text-text-secondary">Swarm</span>
-        {onToggleHideClosed ? (
-          <ActionTooltip
-            label={
-              hideClosed
-                ? `Show closed sessions${hiddenCount ? ` (${hiddenCount} hidden)` : ""}`
-                : "Hide closed sessions"
-            }
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              data-testid="agent-tree-toggle-closed"
-              aria-pressed={hideClosed}
-              onClick={onToggleHideClosed}
-              className="text-text-tertiary"
-            >
-              {hideClosed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-            </Button>
-          </ActionTooltip>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          data-testid="agent-tree-new"
-          onClick={onNewSession}
-          className="h-(--control-height-xs) rounded-md border-border-subtle px-2 text-caption-11-medium text-text-secondary"
-        >
-          + New
-        </Button>
-      </div>
-
-      <div className="h-px w-full shrink-0 bg-border-subtle" />
+      {/* The shared rail header — a section label and its actions — the same
+          shape as the Notes rail and Database's consoles, rather than a row of
+          its own with a bordered "+ New" pill. */}
+      <SidebarInset className="shrink-0">
+        <SidebarSection
+          first
+          label="Swarm"
+          actions={
+            <>
+              {onToggleHideClosed ? (
+                <ActionTooltip
+                  label={
+                    hideClosed
+                      ? `Show closed sessions${hiddenCount ? ` (${hiddenCount} hidden)` : ""}`
+                      : "Hide closed sessions"
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    data-testid="agent-tree-toggle-closed"
+                    aria-pressed={hideClosed}
+                    onClick={onToggleHideClosed}
+                    className="text-text-tertiary"
+                  >
+                    {hideClosed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  </Button>
+                </ActionTooltip>
+              ) : null}
+              <ActionTooltip label="New session">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  data-testid="agent-tree-new"
+                  aria-label="New session"
+                  onClick={onNewSession}
+                >
+                  <Plus aria-hidden="true" />
+                </Button>
+              </ActionTooltip>
+            </>
+          }
+        />
+      </SidebarInset>
 
       <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />
 

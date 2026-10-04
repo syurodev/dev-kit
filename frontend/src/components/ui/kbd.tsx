@@ -1,6 +1,13 @@
+import { platformLabel } from "@/lib/shortcut"
 import { cn } from "@/lib/utils"
 
-function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
+/**
+ * The app's one key chip. A plain-text label written with macOS glyphs is
+ * spelled for the platform here (lib/shortcut `platformLabel`), so a menu
+ * item's `shortcut="⌘W"` reads Ctrl+W on Linux and Windows without every
+ * caller remembering to ask.
+ */
+function Kbd({ className, children, ...props }: React.ComponentProps<"kbd">) {
   return (
     <kbd
       data-slot="kbd"
@@ -9,7 +16,9 @@ function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
         className
       )}
       {...props}
-    />
+    >
+      {typeof children === "string" ? platformLabel(children) : children}
+    </kbd>
   )
 }
 

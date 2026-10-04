@@ -51,7 +51,7 @@ const SettingsModal = lazy(() =>
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { SidebarModuleIdContext, useModuleHasRail } from "@/components/ui/sidebar-shell";
 import { ModuleVisibilityProvider } from "@/components/ui/module-visibility";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useModuleGroupsStore } from "../stores/moduleGroups";
@@ -316,6 +316,7 @@ export function Workbench() {
 
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const activeModuleId = useWorkbenchTabsStore((state) => state.activeModuleId);
+  const activeHasRail = useModuleHasRail(activeModuleId);
   const tabModules = useWorkbenchTabsStore((state) => state.modules);
   // The strip and the switcher see one module's tabs; only the views layer
   // sees everyone's, because it keeps recently-left modules mounted. Memoised
@@ -616,7 +617,11 @@ export function Workbench() {
     }
     if (!activeModuleId) {
       restoredRef.current = true;
-      focusModule(availableModules[0].id);
+      // A first launch opens on the first slot of the title bar — Agent Hub —
+      // not on availableModules[0], which is the registry's id order and
+      // landed a new person on Accounts, a utility with nothing in it yet.
+      const first = switcherItems.map((item) => slotTarget(item, undefined, "")).find(Boolean);
+      focusModule(first?.id ?? availableModules[0].id);
       return;
     }
     // A relaunch restores the active module without going through
@@ -649,6 +654,14 @@ export function Workbench() {
   // What the palette calls a module's digit: its slot, and none for a member of
   // a group (whose slot opens whichever member was used last).
   const switcherModuleIds = useMemo(() => slotModuleIds(switcherItems), [switcherItems]);
+  const barModules = useMemo(() => {
+    const onBar = new Map<string, string | undefined>();
+    for (const item of switcherItems) {
+      if (item.kind === "module") onBar.set(item.module.id, undefined);
+      else for (const member of item.members) onBar.set(member.id, item.group.title);
+    }
+    return onBar;
+  }, [switcherItems]);
   // A group's button opens the member used last, so what is on screen is what
   // it must remember.
   const activeGroupId = activeModule ? getModule(activeModule.id)?.group?.id : undefined;
@@ -677,6 +690,7 @@ export function Workbench() {
             onClose={() => setPaletteOpen(false)}
             modules={availableModules}
             switcherModuleIds={switcherModuleIds}
+            barModules={barModules}
             unavailableModuleIds={unavailableModuleIds}
             activeModuleId={activeModule?.id ?? null}
             onFocusModule={focusModuleFromPalette}
@@ -711,21 +725,25 @@ export function Workbench() {
               reproduces Figma's 16px clearance. */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="titlebar"
-                size="icon-sm"
-                aria-label="Toggle sidebar"
-                aria-pressed={sidebarOpen}
-                className={cn(
-                  sidebarOpen && "bg-accent text-foreground",
-                  "mx-1",
-                )}
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <PanelLeft className="size-4" />
-              </Button>
+              {/* A span around the button: a disabled button fires no pointer
+                  events, and the tooltip is what says why it is disabled. */}
+              <span className="mx-1 inline-flex">
+                <Button
+                  variant="titlebar"
+                  size="icon-sm"
+                  aria-label="Toggle sidebar"
+                  aria-pressed={sidebarOpen && activeHasRail}
+                  disabled={!activeHasRail}
+                  className={cn(sidebarOpen && activeHasRail && "bg-accent text-foreground")}
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                >
+                  <PanelLeft className="size-4" />
+                </Button>
+              </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
+            <TooltipContent side="bottom">
+              {activeHasRail ? "Toggle sidebar" : `${getModule(activeModuleId ?? "")?.title ?? "This module"} has no sidebar`}
+            </TooltipContent>
           </Tooltip>
           {/* Also outside the three zones, right after sidebar toggle — the
               multi-repo registry (workspace.mdx) is a window-wide context,

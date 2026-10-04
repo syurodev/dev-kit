@@ -36,7 +36,7 @@ import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyContent, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarHeader, SidebarSearch, SidebarSection } from "@/components/ui/sidebar-shell";
 import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "@/components/row-actions";
 import { TreeRowAction, TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
@@ -321,26 +321,17 @@ export function ApiClientSidebar() {
         <div className="min-h-0 flex-1" />
       ) : empty ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyTitle className="text-body-12 text-text-tertiary">No requests yet.</EmptyTitle>
-            <EmptyDescription>
-              Start a request, paste a curl command, or bring a collection over from Postman.
-            </EmptyDescription>
-            <EmptyContent className="flex flex-col gap-2">
-              <Button variant="outline" size="sm" onClick={() => openNewRequest()}>
-                <SquarePlus className="size-3" /> New request
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setImportKind("file")}>
-                <Download className="size-3" /> Import…
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <EmptyState
+            size="rail"
+            title="No requests yet"
+            body="Start a request, paste a curl command, or bring a collection over from Postman."
+            action={{ label: "New request", icon: SquarePlus, onClick: () => openNewRequest() }}
+            secondaryAction={{ label: "Import…", icon: Download, onClick: () => setImportKind("file") }}
+          />
         </div>
       ) : tree.length === 0 ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyDescription>Nothing matches “{filter.trim()}”.</EmptyDescription>
-          </Empty>
+          <EmptyState size="rail" body={`Nothing matches “${filter.trim()}”.`} />
         </div>
       ) : (
         <TreeView nodes={tree} className="min-h-0 flex-1 scrollbar-gutter-stable" />

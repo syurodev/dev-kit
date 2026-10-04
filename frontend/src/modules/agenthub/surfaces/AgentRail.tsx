@@ -1,10 +1,5 @@
 import { useState } from "react";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
@@ -279,15 +274,13 @@ export function AgentRail({
 
       {/* 3. Rail Body */}
       {effectiveState === "Empty" ? (
-        <Empty data-testid="agent-rail-empty" className="gap-2 px-6 py-3">
-          <EmptyHeader className="w-58 max-w-full gap-2">
-            <EmptyTitle className="text-text-secondary">No agents running</EmptyTitle>
-            <EmptyDescription className="text-caption-11 text-text-tertiary">
-              Open Agent Hub to start one — it needs a vendor and a working
-              directory.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <EmptyState
+          size="rail"
+          data-testid="agent-rail-empty"
+          className="flex-1"
+          title="No agents running"
+          body="Open Agent Hub to start one — it needs a vendor and a working directory."
+        />
       ) : (
         <div
           data-testid="agent-rail-conversation"

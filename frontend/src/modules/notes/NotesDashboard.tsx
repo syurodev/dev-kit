@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -474,9 +474,17 @@ export function NotesDashboard({
                 />
               ))}
               {filtered.length === 0 ? (
-                <Empty className="col-span-full px-1 py-6">
-                  <EmptyDescription>No notes match this view.</EmptyDescription>
-                </Empty>
+                // No button: New note sits right above, in the toolbar.
+                <EmptyState
+                  size="rail"
+                  className="col-span-full w-full"
+                  title={notes.length === 0 ? "No notes yet" : undefined}
+                  body={
+                    notes.length === 0
+                      ? "Write the first one with New note, above."
+                      : "No notes match this view."
+                  }
+                />
               ) : null}
             </div>
           </ScrollArea>

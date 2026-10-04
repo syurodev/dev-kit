@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 
 import { MenuTrailing } from "@/components/ui/menu-row";
+import { platformLabel } from "@/lib/shortcut";
 
 describe("a menu row's trailing detail", () => {
   it("truncates rather than overflowing the row", () => {
@@ -19,7 +20,8 @@ describe("a menu row's trailing detail", () => {
 
   it("prefers a shortcut when a row has both", () => {
     const html = renderToString(<MenuTrailing shortcut="⌘K" detail="ignored" />);
-    expect(html).toContain("⌘K");
+    // The key chip spells the label for the platform the test runs on.
+    expect(html).toContain(platformLabel("⌘K"));
     expect(html).not.toContain("ignored");
   });
 });

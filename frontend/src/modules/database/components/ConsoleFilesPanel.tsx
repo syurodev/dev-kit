@@ -4,7 +4,7 @@ import { FileCode2, Plus, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
-import { Empty, EmptyContent, EmptyDescription } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { listConsoles, type StoredConsole } from "../../../bridge/database";
@@ -139,24 +139,18 @@ export function ConsoleFilesPanel() {
   // data beside the error, and the last data is the better answer.
   if (error && !data) {
     return (
-      <Empty className="px-4 py-6">
-        <EmptyDescription>{errorMessage(error)}</EmptyDescription>
-      </Empty>
+      <EmptyState size="rail" tone="danger" title="Could not load consoles" body={errorMessage(error)} />
     );
   }
 
   if (groups.length === 0) {
     return (
-      <Empty className="px-4 py-6">
-        <EmptyDescription>
-          No consoles yet. One is written for you as soon as you type in a query console.
-        </EmptyDescription>
-        <EmptyContent>
-          <Button variant="outline" size="sm" onClick={() => openNewConsoleTab()}>
-            <Plus className="size-3" /> New console
-          </Button>
-        </EmptyContent>
-      </Empty>
+      <EmptyState
+        size="rail"
+        title="No consoles yet"
+        body="One is written for you as soon as you type in a query console."
+        action={{ label: "New console", icon: Plus, onClick: () => openNewConsoleTab() }}
+      />
     );
   }
 

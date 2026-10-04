@@ -54,6 +54,7 @@ import {
   syncPathVars,
   urlBarText,
 } from "./requestModel";
+import { shortcut as shortcutLabel } from "@/lib/shortcut";
 
 /** In-flight sends by editor key, so Cancel reaches the bridge call. */
 const inflight = new Map<string, { cancel: () => void }>();
@@ -395,7 +396,7 @@ function RequestEditor({
         >
           <Terminal /> cURL
         </Button>
-        <Button size="xs" variant={dirty ? "default" : "ghost"} disabled={!dirty} onClick={() => void save()} title="Save (⌘S)">
+        <Button size="xs" variant={dirty ? "default" : "ghost"} disabled={!dirty} onClick={() => void save()} title={`Save (${shortcutLabel("S")})`}>
           <Save /> Save
         </Button>
       </header>
@@ -438,7 +439,7 @@ function RequestEditor({
             size="sm"
             onClick={send}
             disabled={!request.url.trim()}
-            title={gated ? `Send (⌘↵) — ${environment?.env} asks before every send` : "Send (⌘↵)"}
+            title={gated ? `Send (${shortcutLabel("Enter")}) — ${environment?.env} asks before every send` : `Send (${shortcutLabel("Enter")})`}
           >
             <Send /> Send
           </Button>

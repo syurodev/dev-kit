@@ -23,7 +23,13 @@ import { join } from "node:path";
 const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }> = {
   // Converted 2026-09-09: arbitrary px moved onto the spacing scale (w-80,
   // max-w-66, h-56.25…) and the hex in the comments went with them.
+  // accounts, apiclient and git joined the table 2026-10-02 — none had been
+  // measured, which is how Accounts kept Tailwind's text-sm/text-xs and a
+  // `text-fg-muted` that no stylesheet defines. Accounts was converted on the
+  // way in; git joins at its measured debt (and still uses fg-muted).
+  "modules/accounts": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/agenthub": { twText: 0, rawPx: 0, rawHex: 0 },
+  "modules/apiclient": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 14 on 2026-09-09. The 9px canvas labels became
   // text-label-11-caps — consistency across surfaces beat the literal size.
   "modules/codegraph": { twText: 0, rawPx: 0, rawHex: 0 },
@@ -35,6 +41,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // 8 → 0 on 2026-09-27 with shadcn/no-arbitrary-values: every px width that
   // landed on the 4px grid is its spacing step (w-80, max-w-150…).
   "modules/database": { twText: 0, rawPx: 0, rawHex: 0 },
+  "modules/git": { twText: 15, rawPx: 0, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
   // max-w-180 on the spacing scale.
@@ -177,5 +184,72 @@ describe("design system conformance", () => {
     expect(stale, `lower these baselines — the work is already done:\n${stale.join("\n")}`).toEqual(
       [],
     );
+  });
+});
+
+/**
+ * The scale stops a component drawing an off-grid value. It cannot stop a
+ * module drawing an on-grid copy of a shared component — and that is how the
+ * empty states drifted: every rail assembled its own from the `Empty` slots,
+ * at four paddings with three title treatments, and every module picked its
+ * own button for the call to action (the craft pill in one, a plain primary in
+ * the next, nothing at all in a third).
+ *
+ * `EmptyState` is the one empty state now, in a `pane` and a `rail` size, and
+ * it decides which button an action gets. These are the two ways around it,
+ * and both are closed: the `Empty` slots and the craft button are its parts,
+ * not things a module puts together.
+ */
+describe("shared components", () => {
+  const PARTS: Record<string, { pattern: RegExp; owners: string[] }> = {
+    "the Empty slots (use EmptyState)": {
+      pattern: /from "@\/components\/ui\/empty"/,
+      owners: ["components/ui/empty-state.tsx"],
+    },
+    "the craft button (use EmptyState's action)": {
+      pattern: /from "@\/components\/ui\/craft-button"/,
+      // The gallery draws every component on its own, which is its job.
+      owners: ["components/ui/empty-state.tsx", "dev/ComponentGallery.tsx"],
+    },
+  };
+
+  for (const [part, { pattern, owners }] of Object.entries(PARTS)) {
+    test(`only its owner imports ${part}`, () => {
+      const offenders = tsxFiles(ROOT)
+        .map((file) => file.slice(ROOT.length + 1))
+        .filter((relative) => !owners.includes(relative))
+        .filter((relative) => pattern.test(readFileSync(join(ROOT, relative), "utf8")));
+      expect(offenders).toEqual([]);
+    });
+  }
+});
+
+/**
+ * A ⌘ written into the source reaches Linux and Windows as a key nobody's
+ * keyboard has. Notes, Tasks, Git, Sync and the API client all did it, while
+ * the palette beside them said "Ctrl+5". Labels go through lib/shortcut —
+ * `shortcut()`, `chordLabel()`, or a key chip (Kbd, a menu's `shortcut=`),
+ * which spells a glyph label for the platform itself.
+ *
+ * What is left is a line that already branches on the platform (`isMac()`,
+ * `modKey() === "⌘"`) or hands the label to a key chip.
+ */
+describe("shortcut labels", () => {
+  const ALLOWED = [/<Kbd\b/, /\bshortcut[=:]/, /=== "⌘"/, /\bisMac\(\)/];
+
+  test("no surface writes ⌘ where the platform should decide", () => {
+    const offenders: string[] = [];
+    for (const surface of ["modules", "workbench", "components"]) {
+      for (const file of tsxFiles(join(ROOT, surface))) {
+        strip(readFileSync(file, "utf8"))
+          .split("\n")
+          .forEach((line, index) => {
+            if (line.includes("⌘") && !ALLOWED.some((pattern) => pattern.test(line))) {
+              offenders.push(`${file.slice(ROOT.length + 1)}:${index + 1}: ${line.trim()}`);
+            }
+          });
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

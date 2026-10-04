@@ -34,7 +34,7 @@ import {
 import type { Workspace } from "@/bridge/workspace";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyContent, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -457,28 +457,22 @@ export function TasksSidebar() {
           flashes and is replaced by a tree is a claim the rail takes back. */}
       {body === "hidden" ? null : body === "empty" ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            <EmptyTitle className="text-body-12 text-text-tertiary">No boards yet.</EmptyTitle>
-            <EmptyDescription>
-              A board holds the work an agent can pick up, and it lives in a workspace — only
-              agents working there can see it.
-              {newBoardReason ? " Pick or create a workspace in the title bar first." : ""}
-            </EmptyDescription>
-            <EmptyContent>
-              <Button variant="outline" size="sm" disabled={!canCreateBoard} onClick={openNewBoard}>
-                <SquarePlus className="size-3" /> New board
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <EmptyState
+            size="rail"
+            title="No boards yet"
+            body={
+              "A board holds the work an agent can pick up, and it lives in a workspace — only agents working there can see it." +
+              (newBoardReason ? " Pick or create a workspace in the title bar first." : "")
+            }
+            action={{ label: "New board", icon: SquarePlus, onClick: openNewBoard, disabled: !canCreateBoard }}
+          />
         </div>
       ) : body === "noMatch" ? (
         <div className="min-h-0 flex-1">
-          <Empty className="px-4 py-6">
-            {/* Only boards already opened are searched inside — the rest match
-                on their name alone (tasksTree.ts), which is why this says
-                what it looked for and not "no such task". */}
-            <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
-          </Empty>
+          {/* Only boards already opened are searched inside — the rest match
+              on their name alone (tasksTree.ts), which is why this says what
+              it looked for and not "no such task". */}
+          <EmptyState size="rail" body={`Nothing matches “${needle}”.`} />
         </div>
       ) : (
         <TreeView nodes={tree} className="flex-1 scrollbar-gutter-stable" />

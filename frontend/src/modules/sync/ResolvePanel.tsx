@@ -11,6 +11,7 @@ import {
 } from "../../bridge/sync";
 import { errorMessage } from "../../bridge/errors";
 import { clockOf } from "./SyncSidebar";
+import { shortcut } from "@/lib/shortcut";
 
 type Props = {
   recordId: string;
@@ -112,7 +113,7 @@ export function ResolvePanel({ recordId, detectedAt, onClose, onResolved }: Prop
         {mergeable && (
           <Button disabled={disabled} onClick={() => resolve("merge")}>
             Save merge
-            <span className="text-code-11 opacity-65">⌘S</span>
+            <span className="text-code-11 opacity-65">{shortcut("S")}</span>
           </Button>
         )}
         <span className="h-5 w-px bg-border-subtle" />

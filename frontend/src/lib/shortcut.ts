@@ -79,3 +79,19 @@ export function parseGlyphShortcut(label: string): Chord | null {
   }
   return chord.key === "" ? null : chord;
 }
+
+/**
+ * A label written with macOS glyphs, as it reads on this platform.
+ *
+ * Manifests, menus and key chips write shortcuts the macOS way ("⇧⌘N",
+ * "⌘↵") because that is how the design file draws them, and until this ran
+ * at the key chip every one of them reached Linux and Windows as a ⌘ that no
+ * key on the keyboard carries. On macOS the label is returned untouched — it
+ * is already written for it, in the order its author chose. Anything that is
+ * not a chord ("esc", "Double-click", "⌃⇧1") is returned as written.
+ */
+export function platformLabel(label: string, mac: boolean = isMac()): string {
+  if (mac) return label;
+  const chord = parseGlyphShortcut(label);
+  return chord ? chordLabel(chord, false) : label;
+}

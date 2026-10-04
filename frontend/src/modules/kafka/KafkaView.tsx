@@ -3,14 +3,8 @@ import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Loader2, PlugZap, Plus, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  CraftButton,
-  CraftButtonIcon,
-  CraftButtonLabel,
-} from "@/components/ui/craft-button";
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
@@ -144,16 +138,13 @@ export function KafkaView() {
             tone="danger"
             title={`Could not connect to ${profile?.name ?? "cluster"}`}
             body="Nothing was changed, and the other saved clusters are untouched."
+            action={{ label: "Retry", icon: RefreshCw, onClick: () => profile && void connect(profile.id), disabled: !profile }}
           >
             {/* The broker's own words, verbatim: a paraphrase is what stops
                 someone recognising an error they have seen before. */}
             <pre className="max-w-140 rounded-md border border-border-subtle bg-surface-well px-4 py-3 text-left text-code-12 whitespace-pre-wrap text-status-danger select-text">
               {error}
             </pre>
-            <Button onClick={() => profile && void connect(profile.id)} disabled={!profile}>
-              <RefreshCw className="size-3.5" />
-              Retry
-            </Button>
           </EmptyState>
         ) : (
           <EmptyState
@@ -164,36 +155,29 @@ export function KafkaView() {
                 ? "Pick a cluster in the rail to connect. DevKit holds one connection at a time — topics, groups and every peek belong to the cluster that is open."
                 : "Save a cluster's bootstrap servers and credentials once; the profile is encrypted into the vault like an SSH or database profile."
             }
+            // With a cluster picked, Connect shares its row with Test
+            // connection and stays a plain primary. With none saved it is the
+            // lone invitation on the screen.
+            action={
+              profile
+                ? { label: `Connect ${profile.name}`, icon: PlugZap, onClick: () => void connect(profile.id), disabled: testing }
+                : { label: "Add cluster", icon: Plus, onClick: () => setShowNewCluster(true) }
+            }
+            secondaryAction={
+              profile
+                ? {
+                    label: testing ? "Testing…" : "Test connection",
+                    busy: testing,
+                    onClick: () => void testConnection(profile.id),
+                  }
+                : undefined
+            }
           >
-            {profile ? (
-              <>
-                {testResult && (
-                  <span className={cn("text-code-11", testResult.ok ? "text-status-success" : "text-status-danger")}>
-                    {testResult.message}
-                  </span>
-                )}
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" className="bg-surface-raised" disabled={testing} onClick={() => void testConnection(profile.id)}>
-                    {testing && <Loader2 className="size-3.5 animate-spin" />}
-                    {testing ? "Testing…" : "Test connection"}
-                  </Button>
-                  <Button onClick={() => void connect(profile.id)} disabled={testing}>
-                    <PlugZap className="size-3.5" />
-                    Connect {profile.name}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              /* The lone invitation: no cluster saved yet, nothing else on
-                 screen to press. The Connect button above shares its row with
-                 Test connection, so it stays a plain primary. */
-              <CraftButton onClick={() => setShowNewCluster(true)}>
-                <CraftButtonIcon>
-                  <Plus className="size-3" />
-                </CraftButtonIcon>
-                <CraftButtonLabel>Add cluster</CraftButtonLabel>
-              </CraftButton>
-            )}
+            {profile && testResult ? (
+              <span className={cn("text-code-11", testResult.ok ? "text-status-success" : "text-status-danger")}>
+                {testResult.message}
+              </span>
+            ) : null}
           </EmptyState>
         )}
         <NewClusterDialog />
@@ -360,16 +344,12 @@ export function KafkaView() {
                 </span>
               </div>
             ) : messages.length === 0 ? (
-              <Empty className="h-full gap-1.5 p-8">
-                <EmptyHeader className="gap-1.5">
-                  <EmptyTitle className="text-body-13 text-text-secondary">
-                    No messages in partition {peekPartition} from that offset
-                  </EmptyTitle>
-                  <EmptyDescription className="text-code-11 text-text-tertiary">
-                    the partition may be empty, or the offset may sit past its end
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <EmptyState
+                size="rail"
+                className="h-full"
+                title={`No messages in partition ${peekPartition} from that offset`}
+                body="The partition may be empty, or the offset may sit past its end."
+              />
             ) : (
               <table className="w-full table-fixed border-collapse text-left text-code-12" aria-label="Peeked messages">
                 <thead className="sticky top-0 z-10 bg-surface-raised">

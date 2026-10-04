@@ -1,10 +1,5 @@
 import { Plus } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  CraftButton,
-  CraftButtonIcon,
-  CraftButtonLabel,
-} from "@/components/ui/craft-button";
 import type { ModuleManifest } from "@/modules/registry";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 
@@ -33,16 +28,13 @@ export function ModuleEmptyState({ module }: { module: ModuleManifest | undefine
       icon={module.icon}
       title={`${module.title} has nothing open`}
       body={`Open ${home.title.toLowerCase()} to start, or use the tab strip's + button.`}
-    >
-      {/* The one control on an otherwise empty screen, and the only kind of
-          button in this app that gets the craft treatment: it is alone, it is
-          rare, and it is an invitation rather than an apology — a flourish on
-          an error would be celebrating the wrong thing.
-
-          Full size rather than the sm it used to be. There is nothing else to
-          press here, and a 28px control is a control sized to share a row. */}
-      <CraftButton
-        onClick={() =>
+      // The one control on an otherwise empty screen. EmptyState gives a lone
+      // invitation the craft treatment, at full size: there is nothing else to
+      // press here, and a 28px control is a control sized to share a row.
+      action={{
+        label: `Open ${home.title.toLowerCase()}`,
+        icon: Plus,
+        onClick: () =>
           // The module's own newTab where it has one — the strip's + and this
           // button must not disagree about what "a new one" means.
           module.newTab
@@ -52,14 +44,8 @@ export function ModuleEmptyState({ module }: { module: ModuleManifest | undefine
                 viewId: home.id,
                 title: module.title,
                 icon: home.icon,
-              })
-        }
-      >
-        <CraftButtonIcon>
-          <Plus className="size-3" />
-        </CraftButtonIcon>
-        <CraftButtonLabel>Open {home.title.toLowerCase()}</CraftButtonLabel>
-      </CraftButton>
-    </EmptyState>
+              }),
+      }}
+    />
   );
 }

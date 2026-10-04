@@ -22,6 +22,7 @@ import { ConfirmDialog } from "./Dialogs";
 import { closeTabByParams, openVariables, VARIABLES_VIEW } from "./documents";
 import { KeyValueTable } from "./KeyValueTable";
 import { buildVarsUpdate, rowsFromVarSet, type VarRow } from "./variablesModel";
+import { shortcut } from "@/lib/shortcut";
 
 /**
  * One scope's variables: Globals, a collection (or folder), or an
@@ -200,7 +201,7 @@ export function VariablesView({ params }: { params?: Record<string, unknown> } =
             </Button>
           </>
         ) : null}
-        <Button size="xs" disabled={busy || (scope === "environment" && (!name.trim() || !tag))} onClick={() => void save()} title="Save (⌘S)">
+        <Button size="xs" disabled={busy || (scope === "environment" && (!name.trim() || !tag))} onClick={() => void save()} title={`Save (${shortcut("S")})`}>
           <Save /> {isNew ? "Create" : "Save"}
         </Button>
       </header>

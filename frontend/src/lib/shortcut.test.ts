@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chordLabel, parseGlyphShortcut } from "./shortcut";
+import { chordLabel, parseGlyphShortcut, platformLabel } from "./shortcut";
 
 describe("chordLabel", () => {
   test("writes modifiers ⌘ ⌥ ⇧ and the key on macOS, as the Keyboard settings draws them", () => {
@@ -27,5 +27,25 @@ describe("parseGlyphShortcut", () => {
     expect(parseGlyphShortcut("⌘")).toBeNull();
     expect(parseGlyphShortcut("⌃1")).toBeNull();
     expect(parseGlyphShortcut("⌘AB")).toBeNull();
+  });
+});
+
+describe("platformLabel", () => {
+  test("leaves a macOS label as its author wrote it", () => {
+    expect(platformLabel("⇧⌘N", true)).toBe("⇧⌘N");
+    expect(platformLabel("⌘↵", true)).toBe("⌘↵");
+  });
+
+  test("spells a glyph chord out elsewhere", () => {
+    expect(platformLabel("⇧⌘N", false)).toBe("Ctrl+Shift+N");
+    expect(platformLabel("⌘↵", false)).toBe("Ctrl+Enter");
+    expect(platformLabel("⌘,", false)).toBe("Ctrl+,");
+    expect(platformLabel("⌫", false)).toBe("Backspace");
+  });
+
+  test("returns what is not a chord as written", () => {
+    expect(platformLabel("esc", false)).toBe("esc");
+    expect(platformLabel("Double-click", false)).toBe("Double-click");
+    expect(platformLabel("⌃⇧1", false)).toBe("⌃⇧1");
   });
 });
