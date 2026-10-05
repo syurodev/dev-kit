@@ -101,6 +101,16 @@ export function AccountsCreate(provider: string, kind: string, label: string, us
 }
 
 /**
+ * AccountsCreateGitToken stores a personal access token that authenticates git
+ * over HTTPS. The value arrives once, here, and is never handed back by a
+ * method on this service other than the Master-Password-gated reveal. Like an
+ * SSH key it stays on this machine unless the person asks it to sync.
+ */
+export function AccountsCreateGitToken(provider: string, label: string, user: string, token: string, syncAcrossDevices: boolean): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(133676019, provider, label, user, token, syncAcrossDevices);
+}
+
+/**
  * AccountsCreateSSHKey stores a private key that authenticates git over SSH.
  * 
  * The key and its passphrase arrive once, here. The key is checked to be one

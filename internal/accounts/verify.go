@@ -34,6 +34,9 @@ func (s *Service) Verify(ctx context.Context, id string) (Account, error) {
 	if kind, ok := s.kindOf(id); ok && kind == KindSSHKey {
 		return s.verifySSHKey(ctx, id)
 	}
+	if row, ok := s.localRow(id); ok && row.Kind != KindExternal {
+		return s.verifyLocal(ctx, row)
+	}
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Account{}, ErrNotFound
@@ -205,3 +208,42 @@ func (s *Service) verifyClient() *http.Client {
 
 // SetVerifyClient overrides the HTTP client used for verification.
 func (s *Service) SetVerifyClient(client *http.Client) { s.http = client }
+
+// verifyLocal is Verify for an account kept on this machine only. The provider
+// is asked the same question; what it said is kept in the local row — who it is
+// and whether it was refused. Scopes and expiry come back with the answer but
+// have no column to live in, so they are shown now and not remembered.
+func (s *Service) verifyLocal(ctx context.Context, row scopedRow) (Account, error) {
+	account := row.account(s.now())
+	provider, ok := s.providers.Get(row.Provider)
+	if !ok || !provider.Verifiable() {
+		return account, ErrNotVerifiable
+	}
+	secret, err := s.scoped.open(row)
+	if err != nil {
+		return Account{}, err
+	}
+	result, probeErr := probe(ctx, s.verifyClient(), provider.Verify, row.Username, secret)
+	switch {
+	case probeErr == nil:
+		if err := s.scoped.markVerified(row.ID, result.subject, StateValid); err != nil {
+			return Account{}, err
+		}
+	case errors.Is(probeErr, errRejected):
+		if err := s.scoped.markVerified(row.ID, "", StateRevoked); err != nil {
+			return Account{}, err
+		}
+	default:
+		// The network, not the credential: nothing learned, nothing recorded.
+		return account, probeErr
+	}
+	verified, err := s.Get(row.ID)
+	if err != nil {
+		return Account{}, err
+	}
+	if probeErr == nil {
+		verified.Scopes = result.scopes
+		verified.ExpiresAt = result.expiresAt
+	}
+	return verified, nil
+}

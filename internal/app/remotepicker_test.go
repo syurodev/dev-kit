@@ -319,3 +319,30 @@ func TestAnAliasAnswersBeforeTheOwnerIsAsked(t *testing.T) {
 		t.Fatalf("asked %+v", asked)
 	}
 }
+
+// git asks for a username as well as a password, and an empty answer is
+// refused, so a token saved without one is given a stand-in; a username that was
+// saved is passed through untouched, and the API client still gets what is stored.
+func TestResolveForRemoteFillsInAUsernameForATokenThatHasNone(t *testing.T) {
+	svc, _ := pickerFixture(t)
+	bare, err := svc.CreateGitToken(accounts.GitTokenInput{Provider: "github", Label: "Bare", Token: "ghp_bare", Local: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, err := svc.CreateGitToken(accounts.GitTokenInput{Provider: "gitlab", Label: "Named", User: "syuro", Token: "glpat-x", Local: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := accountResolver{accounts: svc}
+	ctx := context.Background()
+
+	if user, secret, err := resolver.ResolveForRemote(ctx, bare.ID, ""); err != nil || user != "git" || secret != "ghp_bare" {
+		t.Fatalf("bare = %q %q %v", user, secret, err)
+	}
+	if user, secret, err := resolver.ResolveForRemote(ctx, named.ID, ""); err != nil || user != "syuro" || secret != "glpat-x" {
+		t.Fatalf("named = %q %q %v", user, secret, err)
+	}
+	if user, _, err := resolver.ResolveForRequest(ctx, bare.ID, ""); err != nil || user != "" {
+		t.Fatalf("the API client was given a stand-in username: %q, %v", user, err)
+	}
+}

@@ -655,6 +655,14 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   key. `~/.ssh/config` `IdentityFile` entries are still tried *after* a refused account key (see the
   pinned test). `internal/git` tests that touch SSH use `code.example.test`, not `github.com`: the
   cloud sandbox injects a `url.insteadOf` that rewrites github.com SSH URLs to HTTPS.
+- **Any credential kind can be machine-local, not only keys.** `CreateInput.Local` makes the same
+  scoped `local:<id>` row for a token or basic credential (never for `external`, or with an env
+  restriction — the row has nowhere to keep one). `Verify` handles local rows (`verifyLocal`): the
+  subject and verdict are kept in the row, scopes and expiry are shown once and not stored.
+  `Service.CreateGitToken` is the git entry point (GitHub/GitLab token, Bitbucket basic with a
+  required username; the provider must have an `SSHHost`, which is how a repository host is
+  marked). `accountResolver.ResolveForRemote` gives git a stand-in username (the verified login,
+  else `git`) when a token has none; the API client still gets what is stored.
 - **Importing a key from disk is UI-only and path-guarded** (`internal/bridge/accounts_sshimport.go`).
   `gitssh.Discover` lists `~/.ssh` one level deep (no symlinks, ≤64 KB, skips `config`/`known_hosts`/`*.pub`)
   and `ReadAliases` reads `Host`/`IdentityFile`/`Include` as TEXT (`ssh -G` would report default key

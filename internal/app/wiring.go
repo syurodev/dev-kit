@@ -152,7 +152,21 @@ func (r accountResolver) AccountLabel(id string) string {
 }
 
 func (r accountResolver) ResolveForRemote(_ context.Context, accountID, env string) (string, string, error) {
-	return r.resolve(accountID, env, "git")
+	user, secret, err := r.resolve(accountID, env, "git")
+	if err != nil {
+		return "", "", err
+	}
+	if user == "" {
+		// A personal access token is the password half of a pair whose other half
+		// the host does not look at, but git asks for it and an empty answer is
+		// refused. The login the provider reported is the honest value; "git" is
+		// what is left for a token that was never verified.
+		user = "git"
+		if account, err := r.accounts.Get(accountID); err == nil && account.Subject != "" {
+			user = account.Subject
+		}
+	}
+	return user, secret, nil
 }
 
 // ResolveSSHKey hands git an SSH-key account's key. An account that is not one

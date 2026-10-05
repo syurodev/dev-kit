@@ -456,6 +456,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "This key is already saved for that provider.", true)
 		case errors.Is(err, accounts.ErrIdentityInvalid):
 			return apperrors.New(codeValidationFailed, "Enter both a name and an email address (like name@example.com) for commits, or clear both.", true)
+		case errors.Is(err, accounts.ErrTokenInvalid):
+			return apperrors.New(codeValidationFailed, "That does not look like a token: it is empty or has spaces or line breaks in it. Paste only the token.", true)
+		case errors.Is(err, accounts.ErrUsernameRequired):
+			return apperrors.New(codeValidationFailed, "This provider needs the username that goes with the token.", true)
 		case errors.Is(err, accounts.ErrKeyPassphrase):
 			return apperrors.New(codeValidationFailed, "This key is encrypted. Enter its passphrase, or check the one you entered.", true)
 		}

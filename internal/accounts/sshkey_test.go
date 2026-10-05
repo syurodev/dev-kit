@@ -106,7 +106,6 @@ func TestASSHKeyIsCheckedWhenItIsSaved(t *testing.T) {
 		"wrong passphrase": {CreateInput{Provider: "github", Kind: KindSSHKey, Label: "x", Secret: encrypted, Passphrase: "no"}, ErrKeyPassphrase},
 		"provider no keys": {CreateInput{Provider: "anthropic", Kind: KindSSHKey, Label: "x", Secret: newPrivateKey(t, "")}, ErrInvalid},
 		"env restriction":  {CreateInput{Provider: "github", Kind: KindSSHKey, Label: "x", Secret: newPrivateKey(t, ""), Env: []string{"dev"}}, ErrInvalid},
-		"local token":      {CreateInput{Provider: "github", Kind: KindToken, Label: "x", Secret: "ghp", Local: true}, ErrInvalid},
 	}
 	for name, c := range cases {
 		if _, err := svc.Create(c.in); !errors.Is(err, c.want) {

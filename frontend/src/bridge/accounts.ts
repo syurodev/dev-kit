@@ -96,6 +96,30 @@ export function createAccount(input: {
 }
 
 /**
+ * Saves a personal access token that authenticates git over HTTPS. The token
+ * crosses once, here. It stays on this machine unless the person asks it to sync:
+ * a token leaving the machine is a decision, not a default.
+ */
+export function createGitTokenAccount(input: {
+  provider: string;
+  label: string;
+  token: string;
+  user?: string;
+  syncAcrossDevices?: boolean;
+}): Promise<Account> {
+  return callBridge(
+    async () =>
+      (await AppService.AccountsCreateGitToken(
+        input.provider,
+        input.label,
+        input.user ?? "",
+        input.token,
+        input.syncAcrossDevices ?? false,
+      )) as Account,
+  );
+}
+
+/**
  * Saves a private key that authenticates git over SSH. The key and passphrase
  * cross once, here, and are checked before anything is stored. It stays on this
  * machine unless the person asks it to sync: a private key leaving is a decision,
