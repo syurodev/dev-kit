@@ -399,3 +399,16 @@ func (s *AppService) GitFilePatch(path string) (string, error) {
 	}
 	return result.(string), nil
 }
+
+// GitIndexPatch reads what will be committed, not the unstaged working copy.
+func (s *AppService) GitIndexPatch(path string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:diff", map[string]any{
+		"action": "index_patch",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.IndexPatch(ctx, path)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}

@@ -1,209 +1,290 @@
-import { useEffect, useState } from "react";
-import { FileDiff, GitCommitHorizontal, Hash } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { FileDiff, GitCommitHorizontal, ChevronLeft, ChevronRight, Files, Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DiffSplitPanes } from "@/components/ui/diff";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { DiffLineRow, DiffPane, DiffSplitPanes } from "@/components/ui/diff";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FeedbackBanner, InlineFeedback, PendingStatus } from "@/components/ui/feedback";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { changedRuns, splitPairs } from "@/lib/diffHunks";
 import { cn } from "@/lib/utils";
-import { gitCommitInfo, gitDiff, gitRevPatch, type Change, type Commit } from "@/bridge/git";
-import { StatePill, StatusMark } from "./GitParts";
+import { errorMessage } from "@/bridge/errors";
+import { gitCommitInfo, gitDiff, gitFilePatch, gitIndexPatch, gitRevPatch, type Change } from "@/bridge/git";
+import { useModuleFolder } from "@/stores/workFolder";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { StatusMark } from "./GitParts";
 import { changeSummary, commitBody, patchLines } from "./commitView";
 import { usePatchHighlight } from "./gitSyntax";
-import { parsePatch, type FilePatch } from "./hunks";
+import { parsePatch } from "./hunks";
 import { changeMarkKind, splitPath } from "./rail";
+import { gitUI, type DiffMode } from "./gitUI";
+import { useGitRevision } from "./gitRevision";
 
-/** A commit can touch thousands of files; the list shows this many and offers the rest by the page. */
 const FILE_ROWS = 200;
-/** Lines of one file's diff drawn at once. The panes have fixed-height rows and no windowing, so a generated file changing wholesale would be a wall of DOM. */
 const DIFF_LINES = 1500;
 
-const KIND_MARK: Record<Change["kind"], string> = {
-  added: "A",
-  modified: "M",
-  deleted: "D",
-  typechange: "T",
-};
-
-/**
- * A commit, or with no revision the work tree: per-file change counts. A binary
- * file reports itself rather than showing 0/0.
- */
+/** Diff mode is a preference, not a second set of document tabs. */
 export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
   const rev = typeof params?.rev === "string" ? params.rev : "";
-  return rev ? <CommitView rev={rev} /> : <WorkTreeDiff />;
-}
-
-function WorkTreeDiff() {
-  const [changes, setChanges] = useState<Change[] | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    gitDiff("", false)
-      .then(setChanges)
-      .catch((e: Error) => setError(e.message));
-  }, []);
-
-  if (error) {
-    return <EmptyState icon={FileDiff} title="No diff" body={error} />;
-  }
-  if (!changes) {
-    return null;
-  }
-  if (changes.length === 0) {
-    return <EmptyState icon={FileDiff} title="Nothing changed" body="There is no diff to show." />;
-  }
-  return (
-    <ul className="h-full overflow-auto">
-      {changes.map((change) => (
-        <li
-          key={change.path}
-          className="flex items-center gap-3 border-b border-border-subtle px-3 py-1.5 last:border-b-0"
-        >
-          <span className="w-4 text-center text-xs text-fg-muted">{KIND_MARK[change.kind]}</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">{change.path}</span>
-          {change.added < 0 ? (
-            <span className="text-xs text-fg-muted">binary</span>
-          ) : (
-            <span className="text-xs">
-              <span className="text-emerald-500">+{change.added}</span>{" "}
-              <span className="text-red-500">-{change.removed}</span>
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
- * Figma `Git / Commit Content`: who made a commit and why, the files it
- * touched, and the one you pick as it was and as it became.
- *
- * The two panes are the shared two-pane diff — the same layout Notes history and
- * Sync's resolve use — drawn from the commit's own patch for the file, so a
- * hunk that changed a file in three places shows three, with the line numbers
- * they have in the file.
- */
-function CommitView({ rev }: { rev: string }) {
-  const [commit, setCommit] = useState<Commit | null>(null);
-  const [changes, setChanges] = useState<Change[] | null>(null);
-  const [error, setError] = useState("");
-  const [selected, setSelected] = useState("");
+  const staged = params?.staged === true;
+  const initialPath = typeof params?.path === "string" ? params.path : "";
+  const { folder } = useModuleFolder("git");
+  const revision = useGitRevision((s) => s.revision);
+  const visible = useModuleVisibility();
+  const preferredMode = gitUI.useStore((s) => s.diffMode);
+  const [selected, setSelected] = useState(initialPath);
+  const [search, setSearch] = useState("");
   const [shownFiles, setShownFiles] = useState(FILE_ROWS);
-
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(false);
+  const mode = preferredMode ?? (wide ? "split" : "unified");
   useEffect(() => {
-    let live = true;
-    setCommit(null);
-    setChanges(null);
-    setSelected("");
-    setShownFiles(FILE_ROWS);
-    Promise.all([gitCommitInfo(rev), gitDiff(rev, false)])
-      .then(([info, files]) => {
-        if (!live) return;
-        setCommit(info);
-        setChanges(files);
-        setSelected(files[0]?.path ?? "");
-      })
-      .catch((e: Error) => live && setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [rev]);
-
-  if (error) {
-    return <EmptyState icon={FileDiff} title="No commit" body={error} />;
+    const element = paneRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => setWide(entries[0].contentRect.width >= 760));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible) setPickerOpen(false);
+  }, [visible]);
+  const filesQuery = useQuery({
+    queryKey: ["git", "diff", folder, rev, staged, rev ? 0 : revision],
+    queryFn: () => gitDiff(rev, staged),
+  });
+  const commitQuery = useQuery({
+    queryKey: ["git", "commit", folder, rev],
+    queryFn: () => gitCommitInfo(rev),
+    enabled: !!rev,
+  });
+  const changes = filesQuery.data ?? [];
+  const path = changes.some((file) => file.path === selected) ? selected : (changes[0]?.path ?? "");
+  const index = changes.findIndex((file) => file.path === path);
+  const files = changes.filter((file) => file.path.toLowerCase().includes(search.trim().toLowerCase()));
+  const commit = commitQuery.data;
+  const body = commit ? commitBody(commit.body) : null;
+  const loading = filesQuery.isPending;
+  const error = filesQuery.error || (rev ? commitQuery.error : null);
+  const choose = (value: string) => {
+    setSelected(value);
+    setPickerOpen(false);
+  };
+  function move(delta: number) {
+    choose(changes[index + delta]?.path ?? path);
   }
-  if (!commit || !changes) {
-    return null;
-  }
 
-  const { text, task } = commitBody(commit.body);
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-3.5 px-5 py-4.5">
-      <div className="flex items-center gap-2.5">
-        <GitCommitHorizontal className="size-4.5 shrink-0 text-text-secondary" aria-hidden />
-        <h2 className="min-w-0 flex-1 truncate text-title-16 text-text-primary" title={commit.subject}>
-          {commit.subject}
-        </h2>
-        <CopyShaButton sha={commit.sha} />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <StatePill className="font-mono" icon={<Hash className="size-(--icon-12) shrink-0" aria-hidden />}>
-          {commit.short}
-        </StatePill>
-        <span className="text-label-12 text-text-secondary">{commit.author}</span>
-        <span className="text-code-11 text-text-tertiary">{commit.date.slice(0, 16).replace("T", " ")}</span>
-        {commit.parent ? <span className="text-code-11 text-text-tertiary">parent {commit.parent}</span> : null}
-        <span className="min-w-0 flex-1" />
-        {task ? (
-          <StatePill className="font-mono" icon={<Hash className="size-(--icon-12) shrink-0" aria-hidden />}>
-            Task: {task}
-          </StatePill>
-        ) : null}
-      </div>
-
-      {text ? <p className="text-body-13 whitespace-pre-line text-text-secondary">{text}</p> : null}
-      <p className="text-caption-11 tabular-nums text-text-tertiary">{changeSummary(changes)}</p>
-
-      {changes.length === 0 ? (
-        <EmptyState icon={FileDiff} title="No file changes" body="This commit changes no files, or only merges." />
-      ) : (
-        <div className="flex min-h-0 flex-1 gap-3.5">
-          <ul className="scrollbar-gutter-stable flex w-75 shrink-0 flex-col overflow-auto rounded-lg border border-border-subtle bg-surface-well">
-            {changes.slice(0, shownFiles).map((change) => (
-              <FileRow
-                key={change.path}
-                change={change}
-                selected={change.path === selected}
-                onSelect={() => setSelected(change.path)}
-              />
-            ))}
-            {changes.length > shownFiles ? (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setShownFiles((count) => count + FILE_ROWS)}
-                  className="h-9 w-full text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-state-soft hover:text-text-primary"
-                >
-                  <span className="tabular-nums">{changes.length - shownFiles}</span> more — show{" "}
-                  {Math.min(changes.length - shownFiles, FILE_ROWS)}
-                </button>
-              </li>
-            ) : null}
-          </ul>
-          <div className="min-w-0 flex-1 overflow-auto">
-            <FileDiffPanes rev={rev} path={selected} after={commit.short} before={commit.parent} />
-          </div>
-        </div>
-      )}
+  const fileList = (
+    <div className="flex h-full min-h-0 flex-col gap-2 p-2">
+      <Input
+        inputSize="sm"
+        aria-label="Filter changed files"
+        placeholder="Filter files…"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setShownFiles(FILE_ROWS);
+        }}
+      />
+      <ScrollArea className="min-h-0 flex-1">
+        <ul aria-label="Changed files">
+          {files.slice(0, shownFiles).map((file) => (
+            <FileRow key={file.path} change={file} selected={path === file.path} onSelect={() => choose(file.path)} />
+          ))}
+          {files.length > shownFiles && (
+            <li>
+              <Button variant="ghost" className="w-full" onClick={() => setShownFiles((n) => n + FILE_ROWS)}>
+                Show {Math.min(FILE_ROWS, files.length - shownFiles)} more
+              </Button>
+            </li>
+          )}
+        </ul>
+        {files.length === 0 && (
+          <EmptyState
+            size="rail"
+            title="No matching files"
+            action={{ label: "Clear filter", onClick: () => setSearch("") }}
+          />
+        )}
+      </ScrollArea>
     </div>
   );
-}
-
-function CopyShaButton({ sha }: { sha: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
   return (
-    <Button
-      variant="outline"
-      // "Copied" and "Copy SHA" are different widths; the button keeps one.
-      className="min-w-24"
-      onClick={() => {
-        // A refusal (no permission, no secure context) is not worth a message:
-        // the hash is on screen and can be selected.
-        navigator.clipboard
-          .writeText(sha)
-          .then(() => setCopied(true))
-          .catch(() => undefined);
-      }}
-    >
-      {copied ? "Copied" : "Copy SHA"}
-    </Button>
+    <div ref={paneRef} className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-col gap-2 border-b border-border-subtle px-4 py-3">
+        <div className="flex flex-wrap items-start gap-2">
+          <GitCommitHorizontal className="mt-0.5 size-4 shrink-0 text-text-secondary" />
+          <h1 className="min-w-0 flex-1 break-words text-title-16">
+            {rev ? (commit?.subject ?? "Commit changes") : staged ? "Staged changes" : "Working tree changes"}
+          </h1>
+          {commit && <CopyButton value={commit.sha} label="Copy SHA" />}
+          {!rev && (
+            <Button variant="outline" disabled={filesQuery.isFetching} onClick={() => void filesQuery.refetch()}>
+              <RefreshCw className="size-3.5" />
+              Refresh
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-12 text-text-secondary">
+          {commit && (
+            <>
+              <Badge variant="secondary" className="font-mono">
+                {commit.short}
+              </Badge>
+              <span>{commit.author}</span>
+              <span>{commit.date.slice(0, 16).replace("T", " ")}</span>
+            </>
+          )}
+          {changes.length > 0 && <span className="tabular-nums text-text-tertiary">{changeSummary(changes)}</span>}
+          {body?.task && <Badge variant="outline">Task: {body.task}</Badge>}
+        </div>
+        {body?.text && (
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm">
+                Commit message
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="max-h-32 overflow-auto whitespace-pre-wrap break-words py-2 text-body-13 text-text-secondary">
+              {body.text}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+      </header>
+      {error && (
+        <div className="px-4 py-2">
+          <FeedbackBanner
+            tone="error"
+            title="Could not read changes"
+            action={
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void filesQuery.refetch();
+                  if (rev) void commitQuery.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            }
+          >
+            {errorMessage(error)}
+          </FeedbackBanner>
+        </div>
+      )}
+      {loading ? (
+        <div className="p-4">
+          <PendingStatus>Reading changes…</PendingStatus>
+        </div>
+      ) : error && !filesQuery.data ? null : changes.length === 0 ? (
+        error ? null : (
+          <EmptyState
+            icon={FileDiff}
+            title="No file changes"
+            body={
+              rev ? "This commit has no differences against its first parent." : "There are no changes in this scope."
+            }
+          />
+        )
+      ) : (
+        <>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2">
+            {!wide && (
+              <Popover open={pickerOpen && visible} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Files className="size-3.5" />
+                    Files ({changes.length})
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="h-80 w-80 max-w-[calc(100vw-32px)] p-0">
+                  {fileList}
+                </PopoverContent>
+              </Popover>
+            )}
+            <span className="min-w-0 flex-1 truncate text-code-12" title={path}>
+              {wide ? path : splitPath(path).name}
+            </span>
+            <CopyButton key={path} value={path} label="Copy path" iconOnly={!wide} />
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Previous file"
+                disabled={index <= 0}
+                onClick={() => move(-1)}
+              >
+                <ChevronLeft />
+              </Button>
+              <span className="text-code-11 text-text-tertiary">
+                {index + 1}/{changes.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Next file"
+                disabled={index >= changes.length - 1}
+                onClick={() => move(1)}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+            <ToggleGroup
+              type="single"
+              value={mode}
+              onValueChange={(value) => {
+                if (value) gitUI.useStore.setState({ diffMode: value as DiffMode });
+              }}
+              size="sm"
+              variant="outline"
+              aria-label="Diff layout"
+            >
+              <ToggleGroupItem value="split">Split</ToggleGroupItem>
+              <ToggleGroupItem value="unified">Unified</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="min-h-0 flex-1">
+            {wide ? (
+              <ResizablePanelGroup orientation="horizontal">
+                <ResizablePanel defaultSize="25%" minSize="180px" maxSize="40%">
+                  {fileList}
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel minSize="45%">
+                  <FileDiffContent
+                    key={`${rev}:${staged}:${path}`}
+                    folder={folder}
+                    rev={rev}
+                    path={path}
+                    staged={staged}
+                    mode={mode}
+                    before={commit?.parent ?? (rev ? "parent" : "HEAD")}
+                    after={rev ? (commit?.short ?? rev.slice(0, 7)) : staged ? "Index" : "Working tree"}
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            ) : (
+              <FileDiffContent
+                key={`${rev}:${staged}:${path}`}
+                folder={folder}
+                rev={rev}
+                path={path}
+                staged={staged}
+                mode={mode}
+                before={commit?.parent ?? (rev ? "parent" : "HEAD")}
+                after={rev ? (commit?.short ?? rev.slice(0, 7)) : staged ? "Index" : "Working tree"}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -211,96 +292,163 @@ function FileRow({ change, selected, onSelect }: { change: Change; selected: boo
   const { name, dir } = splitPath(change.path);
   return (
     <li>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         onClick={onSelect}
         aria-current={selected ? "true" : undefined}
         title={change.path}
-        className={cn(
-          "flex h-12 w-full items-center gap-2 px-2.5 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
-          selected ? "bg-state-soft" : "hover:bg-state-soft",
-        )}
+        className={cn("h-auto min-h-12 w-full justify-start gap-2 px-2 text-left", selected && "bg-state-soft")}
       >
         <StatusMark kind={changeMarkKind(change.kind)} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-code-12 text-text-primary">{name}</span>
-          {dir ? <span className="truncate text-code-11 text-text-tertiary">{dir}</span> : null}
+          <span className="truncate text-code-12">{name}</span>
+          {dir && <span className="truncate text-code-11 text-text-tertiary">{dir}</span>}
         </span>
         {change.added < 0 ? (
-          <span className="shrink-0 text-code-11 text-text-tertiary">binary</span>
+          <span className="text-code-11 text-text-tertiary">binary</span>
         ) : (
-          <>
-            {change.added > 0 ? <span className="shrink-0 text-code-11 tabular-nums text-status-success">+{change.added}</span> : null}
-            {change.removed > 0 ? (
-              <span className="shrink-0 text-code-11 tabular-nums text-status-danger">−{change.removed}</span>
-            ) : null}
-          </>
+          <span className="shrink-0 text-code-11 tabular-nums">
+            <span className="text-status-success">+{change.added}</span>{" "}
+            <span className="text-status-danger">−{change.removed}</span>
+          </span>
         )}
-      </button>
+      </Button>
     </li>
   );
 }
 
-/** One file of the commit, before and after. Reads its patch when the file changes. */
-function FileDiffPanes({ rev, path, before, after }: { rev: string; path: string; before: string; after: string }) {
-  const [patch, setPatch] = useState<{ path: string; value: FilePatch } | null>(null);
+function CopyButton({ value, label, iconOnly = false }: { value: string; label: string; iconOnly?: boolean }) {
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
-
   useEffect(() => {
-    if (!path) return;
-    let live = true;
+    setCopied(false);
     setError("");
-    gitRevPatch(rev, path)
-      .then((text) => live && setPatch({ path, value: parsePatch(text) }))
-      .catch((e: Error) => live && setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [rev, path]);
-
-  // The previous file's diff stays, dimmed, until the chosen one's lands: an
-  // empty pane between two files is a flicker for a read that takes a frame.
-  const current = patch?.value ?? null;
-  const carried = patch !== null && patch.path !== path;
-  const all = current ? patchLines(current) : [];
-  const lines = all.length > DIFF_LINES ? all.slice(0, DIFF_LINES) : all;
-  const pairs = splitPairs(lines);
-  const runs = changedRuns(pairs);
-  const highlight = usePatchHighlight(current, path);
-
-  if (error) {
-    return <p className="text-caption-11 text-status-danger">{error}</p>;
-  }
-  if (!current) {
-    return null;
-  }
-  if (current.binary || current.hunks.length === 0) {
-    return (
-      <EmptyState
-        icon={FileDiff}
-        title={current.binary ? "Binary file" : "No lines to show"}
-        body={current.binary ? "There is no text to compare." : "Only the file's mode or name changed."}
-      />
-    );
+  }, [value]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  async function copy() {
+    setError("");
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setError("Could not copy. Select the text to copy it.");
+    }
   }
   return (
-    <div
-      aria-busy={carried}
-      className={cn("flex flex-col gap-2 transition-opacity duration-(--motion-fast)", carried && "pointer-events-none opacity-60")}
-    >
-      <DiffSplitPanes
-        pairs={pairs}
-        runs={runs}
-        leftLabel={`BEFORE · ${before || "none"}`}
-        rightLabel={`AFTER · ${after}`}
-        segmentsFor={(line, side) => (side === "left" ? highlight?.before.get(line.before) : highlight?.after.get(line.after))}
-      />
-      {all.length > lines.length ? (
-        <p className="text-caption-11 text-text-tertiary">
-          Showing the first <span className="tabular-nums">{lines.length}</span> of{" "}
-          <span className="tabular-nums">{all.length}</span> lines of this file's diff.
-        </p>
-      ) : null}
+    <div className="flex flex-col">
+      <Button
+        variant="ghost"
+        size={iconOnly ? "icon-sm" : "sm"}
+        aria-label={copied ? "Copied" : label}
+        title={copied ? "Copied" : label}
+        onClick={() => void copy()}
+      >
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        {!iconOnly && (copied ? "Copied" : label)}
+      </Button>
+      {error && <InlineFeedback>{error}</InlineFeedback>}
+    </div>
+  );
+}
+
+/** One query per repository/revision/file; previous files never appear under a new label. */
+function FileDiffContent({
+  folder,
+  rev,
+  path,
+  staged,
+  mode,
+  before,
+  after,
+}: {
+  folder: string;
+  rev: string;
+  path: string;
+  staged: boolean;
+  mode: DiffMode;
+  before: string;
+  after: string;
+}) {
+  const revision = useGitRevision((s) => s.revision);
+  const [limit, setLimit] = useState(DIFF_LINES);
+  const query = useQuery({
+    queryKey: ["git", "patch", folder, rev, path, staged, rev ? 0 : revision],
+    queryFn: () => (rev ? gitRevPatch(rev, path) : staged ? gitIndexPatch(path) : gitFilePatch(path)),
+  });
+  const current = useMemo(() => (query.data === undefined ? null : parsePatch(query.data)), [query.data]);
+  const highlight = usePatchHighlight(current, path);
+  const all = current ? patchLines(current) : [];
+  const lines = all.slice(0, limit);
+  const pairs = splitPairs(lines);
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-auto p-3" aria-busy={query.isFetching}>
+      {query.isFetching && <PendingStatus>Reading file diff…</PendingStatus>}
+      {query.error && (
+        <FeedbackBanner
+          tone="error"
+          title="Could not read file"
+          action={
+            <Button variant="outline" onClick={() => void query.refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          {errorMessage(query.error)}
+        </FeedbackBanner>
+      )}
+      {current &&
+        (current.binary || !current.hunks.length ? (
+          <EmptyState
+            icon={FileDiff}
+            title={current.binary ? "Binary file" : "No text changes"}
+            body={
+              current.binary
+                ? "Binary contents cannot be shown as a text diff."
+                : "The file mode changed, or the diff is now empty."
+            }
+          />
+        ) : mode === "split" ? (
+          <div className="min-w-160">
+            <DiffSplitPanes
+              pairs={pairs}
+              runs={changedRuns(pairs)}
+              leftLabel={`Before · ${rev ? before || "empty tree" : staged ? "HEAD" : "Index"}`}
+              rightLabel={`After · ${after}`}
+              segmentsFor={(line, side) =>
+                side === "left" ? highlight?.before.get(line.before) : highlight?.after.get(line.after)
+              }
+            />
+          </div>
+        ) : (
+          <DiffPane label={path} caps={false} meta={<Badge variant="secondary">Unified</Badge>}>
+            <div>
+              {lines.map((line, i) => (
+                <DiffLineRow
+                  key={i}
+                  row={line}
+                  lineNumber={(line.kind === "removed" ? line.before : line.after) + 1}
+                  segments={
+                    line.kind === "removed" ? highlight?.before.get(line.before) : highlight?.after.get(line.after)
+                  }
+                />
+              ))}
+            </div>
+          </DiffPane>
+        ))}
+      {all.length > limit && (
+        <div className="flex items-center gap-2 text-body-12 text-text-tertiary">
+          <span>
+            Showing {limit} of {all.length} diff lines
+          </span>
+          <Button variant="outline" onClick={() => setLimit((n) => n + DIFF_LINES)}>
+            Show more
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

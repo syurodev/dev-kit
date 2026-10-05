@@ -1,3 +1,4 @@
+import { useGitBusy } from "./gitUI";
 import { useState, type ComponentType, type ReactNode, useRef } from "react";
 import { FolderGit2, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,10 +28,15 @@ import { repositoryRoot } from "./repositories";
  * The view is keyed by folder: a folder change remounts it, so each view loads
  * the new repository from scratch instead of each one having to notice.
  */
-export function withGitFolder(View: ComponentType, options: { bar?: boolean } = {}): ComponentType {
+export type GitViewProps = { params?: Record<string, unknown> };
+
+export function withGitFolder(
+  View: ComponentType<GitViewProps>,
+  options: { bar?: boolean } = {},
+): ComponentType<GitViewProps> {
   const bar = options.bar ?? true;
-  return function GitFolderView() {
-    return <GitFolderGate View={View} bar={bar} />;
+  return function GitFolderView({ params }: GitViewProps) {
+    return <GitFolderGate View={View} bar={bar} params={params} />;
   };
 }
 
@@ -40,13 +46,7 @@ export function withGitFolder(View: ComponentType, options: { bar?: boolean } = 
  * could work in is a service somewhere in a workspace now, and adding one
  * not yet registered is the title bar workspace switcher's job.
  */
-function WorkspaceServicePicker({
-  onPick,
-  disabled,
-}: {
-  onPick: (path: string) => void;
-  disabled?: boolean;
-}) {
+function WorkspaceServicePicker({ onPick, disabled }: { onPick: (path: string) => void; disabled?: boolean }) {
   const { services } = useCurrentWorkspaceServices();
   return (
     <DropdownMenu>
@@ -83,6 +83,7 @@ function WorkspaceServicePicker({
  * Graph or pinned, and the way out of either.
  */
 export function GitFolderBar() {
+  const busy = useGitBusy();
   const { folder, current, pinned, follow, pin } = useModuleFolder("git");
   const [pinError, setPinError] = useState("");
   const [followError, setFollowError] = useState("");
@@ -96,12 +97,14 @@ export function GitFolderBar() {
     }
   }
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex flex-wrap items-center gap-2.5">
       <FolderGit2 className="size-(--icon-14) shrink-0 text-text-secondary" aria-hidden />
       <span className="min-w-0 truncate text-code-12 text-text-secondary" title={folder || undefined}>
         {folder || "No folder"}
       </span>
-      <StatePill dot={pinned ? "info" : "success"}>{pinned ? "Pinned to this folder" : "Following Code Graph"}</StatePill>
+      <StatePill dot={pinned ? "info" : "success"}>
+        {pinned ? "Pinned to this folder" : "Following Code Graph"}
+      </StatePill>
       {error ? (
         <span className="min-w-0 truncate text-caption-11 text-status-danger" role="alert">
           {error}
@@ -111,6 +114,7 @@ export function GitFolderBar() {
       {pinned ? (
         <Button
           variant="ghost"
+          disabled={busy}
           onClick={() => {
             setFollowError("");
             follow().catch((e: Error) => setFollowError(e.message));
@@ -119,12 +123,13 @@ export function GitFolderBar() {
           {current ? "Follow open project" : "Follow"}
         </Button>
       ) : null}
-      <WorkspaceServicePicker onPick={choose} />
+      <WorkspaceServicePicker disabled={busy} onPick={choose} />
     </div>
   );
 }
 
-function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
+function GitFolderGate({ View, bar, params }: { View: ComponentType<GitViewProps>; bar: boolean } & GitViewProps) {
+  const busy = useGitBusy();
   const { loaded, folder, current, pin, follow } = useModuleFolder("git");
   const [error, setError] = useState("");
   // The repositories in the folder the app has open, so Git can offer its
@@ -136,6 +141,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
   // Choosing one of the folder's repositories points Git at it. The folder the
   // app has open being the repository itself is following, not a pin.
   async function chooseRepository(repo: Repository) {
+    if (busy) return;
     setError("");
     try {
       if (repo.path === current) await follow();
@@ -146,6 +152,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
   }
 
   async function choosePath(path: string) {
+    if (busy) return;
     setError("");
     try {
       await pin(path);
@@ -156,7 +163,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
 
   const showBar = loaded && !!folder && (bar || project === "");
   // With the bar up, its own picker is the way to another service.
-  const openButton = showBar ? null : <WorkspaceServicePicker onPick={choosePath} />;
+  const openButton = showBar ? null : <WorkspaceServicePicker disabled={busy} onPick={choosePath} />;
 
   const lastBody = useRef<ReactNode>(null);
   let body: ReactNode;
@@ -194,7 +201,7 @@ function GitFolderGate({ View, bar }: { View: ComponentType; bar: boolean }) {
         <NoRepositories folder={folder}>{openButton}</NoRepositories>
       );
   } else {
-    body = <View key={folder} />;
+    body = <View key={folder} params={params} />;
   }
   if (project !== null) lastBody.current = body;
 

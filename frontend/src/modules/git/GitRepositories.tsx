@@ -58,17 +58,17 @@ export function RepositoryRow({ repo }: { repo: Repository }) {
   const line = describeRepository(repo);
   return (
     <span className="flex min-w-0 flex-1 items-center gap-3">
-      <span className="min-w-0 flex-1 truncate font-mono text-xs">{repo.name}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-code-12">{repo.name}</span>
       {line.branch ? (
-        <span className="max-w-56 min-w-0 shrink truncate text-xs text-fg-muted" title={line.branch}>
+        <span className="max-w-56 min-w-0 shrink truncate text-code-12 text-text-tertiary" title={line.branch}>
           {line.branch}
         </span>
       ) : null}
-      {line.sync ? <span className="shrink-0 text-xs text-fg-muted">{line.sync}</span> : null}
+      {line.sync ? <span className="shrink-0 text-code-12 text-text-tertiary">{line.sync}</span> : null}
       <span
         className={cn(
-          "shrink-0 text-xs",
-          line.attention ? "text-status-danger" : repo.changed > 0 ? "text-text-primary" : "text-fg-muted",
+          "shrink-0 text-code-12",
+          line.attention ? "text-status-danger" : repo.changed > 0 ? "text-text-primary" : "text-text-tertiary",
         )}
       >
         {line.state}

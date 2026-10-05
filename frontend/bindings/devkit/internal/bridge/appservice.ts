@@ -1510,6 +1510,13 @@ export function GitGuards(): $CancellablePromise<git$0.Guard[] | null> {
     return $Call.ByID(3124040920);
 }
 
+/**
+ * GitIndexPatch reads what will be committed, not the unstaged working copy.
+ */
+export function GitIndexPatch(path: string): $CancellablePromise<string> {
+    return $Call.ByID(3028751036, path);
+}
+
 export function GitLog(limit: number): $CancellablePromise<git$0.Commit[] | null> {
     return $Call.ByID(3837460472, limit);
 }

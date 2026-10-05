@@ -119,8 +119,17 @@ func (s *Service) Diff(ctx context.Context, rev string, staged bool) ([]gitparse
 	statArgs := []string{"diff", "-r", "-z", "--numstat", "--no-renames"}
 	switch {
 	case rev != "":
-		rawArgs = []string{"diff-tree", "-r", "-z", "--raw", "--no-renames", rev + "^!"}
-		statArgs = []string{"diff-tree", "-r", "-z", "--numstat", "--no-renames", rev + "^!"}
+		sha, parent, err := commitComparison(ctx, r, rev)
+		if err != nil {
+			return nil, err
+		}
+		if parent == "" {
+			rawArgs = []string{"diff-tree", "--root", "--no-commit-id", "-r", "-z", "--raw", "--no-renames", sha, "--"}
+			statArgs = []string{"diff-tree", "--root", "--no-commit-id", "-r", "-z", "--numstat", "--no-renames", sha, "--"}
+		} else {
+			rawArgs = append(rawArgs, parent, sha, "--")
+			statArgs = append(statArgs, parent, sha, "--")
+		}
 	case staged:
 		rawArgs = append(rawArgs, "--cached")
 		statArgs = append(statArgs, "--cached")
@@ -145,6 +154,28 @@ func (s *Service) Diff(ctx context.Context, rev string, staged bool) ([]gitparse
 		out = append(out, *changes[path])
 	}
 	return out, nil
+}
+
+// Resolve once so file statistics and the patch use the same first-parent
+// comparison, including roots and merges. Options/ranges are not revisions.
+func commitComparison(ctx context.Context, r runner, rev string) (sha, parent string, err error) {
+	if rev == "" || strings.HasPrefix(rev, "-") {
+		return "", "", ErrNotAllowed
+	}
+	out, err := r.run(ctx, nil, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
+	if err != nil {
+		return "", "", err
+	}
+	sha = strings.TrimSpace(string(out))
+	out, err = r.run(ctx, nil, "rev-list", "--parents", "-n", "1", sha, "--")
+	if err != nil {
+		return "", "", err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) > 1 {
+		parent = fields[1]
+	}
+	return sha, parent, nil
 }
 
 // commitFormat is the log's per-commit format. %x00 between fields and %x01
@@ -231,8 +262,15 @@ func (s *Service) RevPatch(ctx context.Context, rev, path string) (string, error
 	if !revPattern.MatchString(rev) || path == "" {
 		return "", ErrNotAllowed
 	}
-	out, err := r.run(ctx, nil,
-		"show", "--no-color", "--no-ext-diff", "--no-renames", "-U3", "--format=", rev, "--", path)
+	sha, parent, err := commitComparison(ctx, r, rev)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U3", parent, sha, "--", path}
+	if parent == "" {
+		args = []string{"--literal-pathspecs", "show", "--root", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U3", "--format=", sha, "--", path}
+	}
+	out, err := r.run(ctx, nil, args...)
 	if err != nil {
 		return "", err
 	}
@@ -292,6 +330,15 @@ func (s *Service) CommitsForTask(ctx context.Context, key string, limit int) ([]
 // the whole file or nothing. So does an untracked one, which git does not diff
 // at all.
 func (s *Service) FilePatch(ctx context.Context, path string) (string, error) {
+	return s.filePatch(ctx, path, false)
+}
+
+// IndexPatch is the staged file as it will enter the next commit.
+func (s *Service) IndexPatch(ctx context.Context, path string) (string, error) {
+	return s.filePatch(ctx, path, true)
+}
+
+func (s *Service) filePatch(ctx context.Context, path string, staged bool) (string, error) {
 	r, err := s.active()
 	if err != nil {
 		return "", err
@@ -301,8 +348,12 @@ func (s *Service) FilePatch(ctx context.Context, path string) (string, error) {
 	}
 	// --no-ext-diff: a repository configuring an external differ would return
 	// something that is not a patch at all.
-	out, err := r.run(ctx, nil,
-		"diff", "--no-color", "--no-ext-diff", "--no-renames", "-U3", "--", path)
+	args := []string{"--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U3"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", path)
+	out, err := r.run(ctx, nil, args...)
 	if err != nil {
 		return "", err
 	}

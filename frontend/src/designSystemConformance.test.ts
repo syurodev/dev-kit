@@ -26,7 +26,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // accounts, apiclient and git joined the table 2026-10-02 — none had been
   // measured, which is how Accounts kept Tailwind's text-sm/text-xs and a
   // `text-fg-muted` that no stylesheet defines. Accounts was converted on the
-  // way in; git joins at its measured debt (and still uses fg-muted).
+  // way in; Git cleared its typography debt and fg-muted in UI rebuild phase 5.
   "modules/accounts": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/agenthub": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/apiclient": { twText: 0, rawPx: 0, rawHex: 0 },
@@ -41,7 +41,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // 8 → 0 on 2026-09-27 with shadcn/no-arbitrary-values: every px width that
   // landed on the 4px grid is its spacing step (w-80, max-w-150…).
   "modules/database": { twText: 0, rawPx: 0, rawHex: 0 },
-  "modules/git": { twText: 15, rawPx: 0, rawHex: 0 },
+  "modules/git": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
   // max-w-180 on the spacing scale.
