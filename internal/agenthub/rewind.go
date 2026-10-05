@@ -301,6 +301,9 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.mu.Lock()
 	r.oldRuntime = s.runtimes[r.session.ID]
 	delete(s.runtimes, r.session.ID)
+	// The conversation is about to be cut back: the block may be in the part
+	// that goes.
+	s.forgetWorkspaceContextLocked(r.session.ID)
 	closeOldEndpoint := s.endpoints[r.session.ID]
 	delete(s.endpoints, r.session.ID)
 	s.mu.Unlock()
@@ -370,6 +373,7 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
 	s.endpoints[r.session.ID] = r.closeNew
+	s.forgetWorkspaceContextLocked(r.session.ID)
 	s.mu.Unlock()
 	s.attachUpdates(r.session.ID, r.newRuntime)
 	s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)

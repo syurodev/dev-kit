@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,6 +21,9 @@ type contextAdapter struct {
 	opens           int
 	db              *sql.DB
 	deleteWorkspace func(string)
+	// failNext makes the next prompt fail after it was recorded, as a turn that
+	// died on the vendor's side would.
+	failNext bool
 }
 type typedContextAdapter struct {
 	*contextAdapter
@@ -43,7 +47,16 @@ func (a *contextAdapter) Open(ctx context.Context, spec agenthub.OpenSpec) (agen
 }
 func (r *contextRuntime) Prompt(_ context.Context, blocks []acp.ContentBlock, _ json.RawMessage) (agenthub.PromptOutcome, error) {
 	r.owner.prompts = append(r.owner.prompts, append([]acp.ContentBlock(nil), blocks...))
+	if r.owner.failNext {
+		r.owner.failNext = false
+		return agenthub.PromptOutcome{}, errors.New("vendor died mid-turn")
+	}
 	return agenthub.PromptOutcome{StopReason: "end_turn"}, nil
+}
+
+// Load makes the adapter resumable, so a closed session can be reopened.
+func (a *contextAdapter) Load(ctx context.Context, spec agenthub.OpenSpec, _ string) (agenthub.SessionRuntime, error) {
+	return a.Open(ctx, spec)
 }
 func contextService(t *testing.T) (*agenthub.Service, *contextAdapter) {
 	t.Helper()
@@ -209,5 +222,119 @@ func TestDeletedWorkspaceRetiresContextOnExistingRuntime(t *testing.T) {
 	got := adapter.prompts[1][0].Text
 	if !strings.Contains(got, "No workspace is selected") || strings.Contains(got, "Former workspace rules") {
 		t.Fatal(got)
+	}
+}
+
+// invokeTurns sends n prompts and reports, per turn, whether it carried the
+// workspace context block (a first block ahead of the user's text).
+func invokeTurns(t *testing.T, svc *agenthub.Service, adapter *contextAdapter, sessionID string, n int) []bool {
+	t.Helper()
+	from := len(adapter.prompts)
+	for range n {
+		if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sessionID, Prompt: "user request"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var carried []bool
+	for _, p := range adapter.prompts[from:] {
+		carried = append(carried, len(p) == 2)
+		if p[len(p)-1].Text != "user request" {
+			t.Fatalf("blocks=%+v", p)
+		}
+	}
+	return carried
+}
+
+func TestUnchangedWorkspaceContextIsSentOnceThenOnChange(t *testing.T) {
+	svc, adapter := contextService(t)
+	instructions := "rules v1"
+	svc.WorkspaceInstructions = func(string) (string, error) { return instructions, nil }
+	memory := "- id-1 [decision] Use SQLite\n"
+	svc.WorkspaceMemory = func(context.Context, string) (string, error) { return memory, nil }
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir(), WorkspaceID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 3); !slices.Equal(got, []bool{true, false, false}) {
+		t.Fatalf("unchanged turns carried=%v", got)
+	}
+	memory += "- id-2 [convention] Tabs\n"
+	if got := invokeTurns(t, svc, adapter, sess.ID, 2); !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("after memory change carried=%v", got)
+	}
+	if !strings.Contains(adapter.prompts[3][0].Text, "id-2") {
+		t.Fatal(adapter.prompts[3][0].Text)
+	}
+	instructions = "rules v2"
+	if got := invokeTurns(t, svc, adapter, sess.ID, 2); !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("after instructions change carried=%v", got)
+	}
+}
+
+func TestWorkspaceContextIsRefreshedAfterManyUnchangedTurns(t *testing.T) {
+	svc, adapter := contextService(t)
+	svc.WorkspaceInstructions = func(string) (string, error) { return "rules", nil }
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir(), WorkspaceID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := invokeTurns(t, svc, adapter, sess.ID, agenthub.WorkspaceContextRefreshTurns+2)
+	for i, carried := range got {
+		want := i == 0 || i == agenthub.WorkspaceContextRefreshTurns+1
+		if carried != want {
+			t.Fatalf("turn %d carried=%v want %v (all=%v)", i, carried, want, got)
+		}
+	}
+}
+
+func TestWorkspaceContextIsResentAfterClosingTheSession(t *testing.T) {
+	svc, adapter := contextService(t)
+	svc.WorkspaceInstructions = func(string) (string, error) { return "rules", nil }
+	ctx := context.Background()
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir(), WorkspaceID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 2); !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("carried=%v", got)
+	}
+	// Closing parks the process; the next prompt resumes a runtime whose
+	// conversation the vendor reloads, and the agent is told again rather than
+	// trusting what that history still holds.
+	if err = svc.CloseSession(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 2); !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("after close carried=%v", got)
+	}
+	if adapter.opens != 2 {
+		t.Fatalf("opens=%d, want the session resumed once", adapter.opens)
+	}
+}
+
+func TestWorkspaceContextIsResentAfterAFailedTurn(t *testing.T) {
+	svc, adapter := contextService(t)
+	instructions := "rules v1"
+	svc.WorkspaceInstructions = func(string) (string, error) { return instructions, nil }
+	ctx := context.Background()
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir(), WorkspaceID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 1); !slices.Equal(got, []bool{true}) {
+		t.Fatalf("carried=%v", got)
+	}
+	// The turn that was to carry the change fails: the agent may never have
+	// seen it, so it must not count as delivered.
+	instructions = "rules v2"
+	adapter.failNext = true
+	if _, err = svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "user request"}); err == nil {
+		t.Fatal("the failing turn succeeded")
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 2); !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("after failed turn carried=%v", got)
+	}
+	if !strings.Contains(adapter.prompts[len(adapter.prompts)-2][0].Text, "rules v2") {
+		t.Fatal(adapter.prompts[len(adapter.prompts)-2])
 	}
 }

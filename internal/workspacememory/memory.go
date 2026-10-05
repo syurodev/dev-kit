@@ -4,7 +4,6 @@ package workspacememory
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -223,31 +222,63 @@ func (s *Service) History(ctx context.Context, ws, id string, limit, offset int)
 	}
 	return s.repo.History(ctx, ws, id, limit, offset)
 }
+
+// Context renders the workspace's memory as an index for an agent's prompt:
+// one line per entry — id, kind, title and the start of its summary — and never
+// a body. The agent reads what it needs with the get tool, so what is paid for
+// on every send is a table of contents, not the knowledge itself.
+//
+// Compact text rather than JSON on purpose: the keys, quotes and revision
+// numbers of a JSON object are tokens spent on nothing, and an entry's id is
+// the only part of a line the agent cannot do without. The render is
+// deterministic (the repository's order, no timestamps) because agenthub
+// fingerprints it to send the block only when it changes. An empty workspace
+// renders as "".
 func (s *Service) Context(ctx context.Context, ws string) (string, error) {
 	page, err := s.List(ctx, ws, "", 100, 0)
 	if err != nil {
 		return "", err
 	}
-	type item struct {
-		ID       string `json:"id"`
-		Kind     string `json:"kind"`
-		Title    string `json:"title"`
-		Summary  string `json:"summary"`
-		Revision int64  `json:"revision"`
+	if len(page.Entries) == 0 {
+		return "", nil
 	}
-	payload := struct {
-		Entries []item `json:"entries"`
-		Omitted bool   `json:"omitted"`
-	}{Entries: make([]item, 0), Omitted: page.HasMore}
+	const trailer = "More entries exist than are listed; use the workspace memory list and search tools.\n"
+	budget := MaxContextBytes - len(trailer)
+	var b strings.Builder
+	omitted := page.HasMore
 	for _, e := range page.Entries {
-		payload.Entries = append(payload.Entries, item{e.ID, e.Kind, e.Title, e.Summary, e.Revision})
-		b, _ := json.Marshal(payload)
-		if len(b) > MaxContextBytes {
-			payload.Entries = payload.Entries[:len(payload.Entries)-1]
-			payload.Omitted = true
+		line := contextLine(e)
+		if b.Len()+len(line) > budget {
+			omitted = true
 			break
 		}
+		b.WriteString(line)
 	}
-	b, _ := json.Marshal(payload)
-	return string(b), nil
+	if omitted {
+		b.WriteString(trailer)
+	}
+	return b.String(), nil
+}
+
+// contextSummaryRunes bounds the part of a summary the index carries; the full
+// text is one get away.
+const contextSummaryRunes = 140
+
+func contextLine(e Summary) string {
+	line := "- " + e.ID + " [" + e.Kind + "] " + oneLine(e.Title)
+	if summary := clip(oneLine(e.Summary), contextSummaryRunes); summary != "" {
+		line += " — " + summary
+	}
+	return line + "\n"
+}
+
+// oneLine folds every run of whitespace, newlines included, into one space so
+// an entry cannot span or forge index lines.
+func oneLine(v string) string { return strings.Join(strings.Fields(v), " ") }
+
+func clip(v string, max int) string {
+	if utf8.RuneCountInString(v) <= max {
+		return v
+	}
+	return string([]rune(v)[:max-1]) + "…"
 }

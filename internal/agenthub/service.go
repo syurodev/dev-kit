@@ -239,6 +239,10 @@ type Service struct {
 	runtimes    map[string]SessionRuntime
 	endpoints   map[string]func() // per-session MCP socket close
 	invoking    map[string]struct{}
+	// workspaceSent is the workspace context block each session's agent last
+	// received (see workspaceContextDue). Not persisted: a restart resumes the
+	// runtime, which forgets it, and the block goes out once more.
+	workspaceSent map[string]workspaceContextSent
 	// resuming marks a session whose runtime is being reopened. A second
 	// caller waits on it rather than spawning a second process onto the same
 	// MCP socket path, and gets the same outcome.
@@ -1062,6 +1066,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	s.forgetWorkspaceContextLocked(id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -1252,13 +1257,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
+	// Read now so a failure refuses the turn before anything is recorded; whether
+	// the agent needs it again is decided once the runtime is known, below.
 	workspaceContext, err := s.workspaceTurnContext(ctx, sess)
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
-	if workspaceContext != "" {
-		prompt = append([]acp.ContentBlock{{Type: "text", Text: workspaceContext}}, prompt...)
-	}
+	contextFingerprint := workspaceContextFingerprint(workspaceContext)
 
 	// Claim the session before anything slow. The claim used to come after the
 	// resume, so two prompts on a dead or orphaned session both resumed it:
@@ -1304,6 +1309,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
 		release()
 		return InvokeResult{}, err
+	}
+
+	// Past the resume, which forgets what a process had been sent: an agent that
+	// has this exact block in its conversation is not sent it again.
+	carriesContext := workspaceContext != "" && s.workspaceContextDue(in.SessionID, contextFingerprint)
+	if carriesContext {
+		prompt = append([]acp.ContentBlock{{Type: "text", Text: workspaceContext}}, prompt...)
 	}
 
 	turnOutcome := "error"
@@ -1462,6 +1474,10 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
+	}
+
+	if workspaceContext != "" {
+		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
 	}
 
 	usage, err := adapter.NormalizeUsage(outcome.Meta)
@@ -1705,6 +1721,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
+	s.forgetWorkspaceContextLocked(id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -1821,6 +1838,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
 	s.endpoints[sess.ID] = closeEndpoint
+	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()
 	return rt, nil
 }

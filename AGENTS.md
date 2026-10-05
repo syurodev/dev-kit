@@ -171,19 +171,31 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   descriptive version lost to Claude Code's own prompt every time. `Service.SessionBrief`
   (`app.AgentSessionBrief`) puts the session's workspace folders and which it may write
   in the prompt instead of asking the agent to go and look.
-- **Workspace instructions refresh each turn.** Create/Edit workspace stores `instructions`
-  locally (migration 34, UTF-8, max 32 KiB) together with its name and folders. `Service`
-  reads them by the session's persisted `WorkspaceID` before invoking the runtime and
-  prepends a context block with the current instructions and session brief. Claude and
-  Codex receive the same content; the user echo stays unchanged. Empty/unbound context
+- **Workspace instructions are read each turn, sent when they change.** Create/Edit workspace
+  stores `instructions` locally (migration 34, UTF-8, max 32 KiB) together with its name and
+  folders. `Service` reads them by the session's persisted `WorkspaceID` before invoking the
+  runtime and builds a context block (instructions, memory index, session brief). The block is
+  prepended to the prompt only when `workspaceContextDue` says the agent needs it: it has
+  never received one, its fingerprint (SHA-256 of the text) differs from the last delivered
+  one, or `workspaceContextRefreshTurns` (20) unchanged turns have passed (a vendor that
+  compacts its conversation may have dropped it). A failed turn records nothing, so the next
+  one carries the block again. The record is in memory and forgotten wherever the process
+  holding the conversation is replaced: close, dead-runtime eviction, resume, rewind. Claude
+  and Codex receive the same content; the user echo stays unchanged. Empty/unbound context
   retires earlier workspace instructions; DevKit's rules retain precedence. User-authored
-  instructions are never passed through the tool-name placeholder renderer.
+  instructions are never passed through the tool-name placeholder renderer. The per-vendor
+  prompt (`devkit_prompt.go`) tells the agent that a request without a block means the last
+  one still holds.
 - **Shared workspace memory is local and versioned** (`internal/workspacememory`,
   migration 35). `workspace.memory.*` tools scope Hub agents by their persisted
   workspace ID; terminal callers must supply an explicit ID. Update/delete/restore
   require `expectedRevision`; CAS and immutable history snapshots commit atomically.
-  Source attribution comes from host identity, never tool input. Per-turn context
-  includes at most 8 KiB of live summaries, as reference data rather than instructions.
+  Source attribution comes from host identity, never tool input. The context block
+  carries an index of at most 8 KiB (`Service.Context`): one `- id [kind] title — summary`
+  line per entry (summary clipped to 140 runes, whitespace folded to one line, no bodies, no
+  revisions), as reference data rather than instructions. The agent reads an entry with
+  `workspace.memory.get`. The render is deterministic because agenthub fingerprints it;
+  an empty workspace renders as "".
   Soft-deleted entries remain readable/restorable; deleting the workspace cascades
   entries and history. Plaintext SQLite storage is outside vault/sync, like workspace
   instructions. Audit excludes memory text and query. Workspace menu → Workspace memory
