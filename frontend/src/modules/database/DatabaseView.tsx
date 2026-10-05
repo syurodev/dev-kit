@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 import { DatabaseBanners } from "./components/DatabaseBanners";
@@ -38,16 +36,6 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
   // never mount — which is what made Connection options do nothing on a fresh
   // module visit, from the menu and the row button alike.
   const isActive = useIsActiveDocument("database.console", params);
-
-  // Carried over from Task 3: re-indexing is a title-bar action on the
-  // connection, so its failure is transient and belongs in a toast rather than
-  // in a console's error slot.
-  const schemaError = useDatabaseStore((s) => s.schemaError);
-  useEffect(() => {
-    if (schemaError) {
-      toast.error("Could not index the schema", { description: schemaError });
-    }
-  }, [schemaError]);
 
   useDatabaseChrome();
   useConsoleLifetime(consoleId);

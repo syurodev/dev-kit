@@ -642,6 +642,9 @@ const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
  */
 const pendingCountQueries = new Map<string, ReturnType<typeof runQuery>>();
 
+// Connection/cache/index generation also guards A → B → A transitions.
+let schemaRequest = 0;
+
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
     (set, get) => ({
@@ -710,6 +713,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // console's SQL does: they are what you asked for, not what the server said.
     const switching = get().selectedProfileId !== id;
     if (switching) {
+      schemaRequest++;
       // #42: a transaction stays open on the connection you leave — its locks
       // held, its work uncommitted — and the toolbar you arrive at describes
       // the other connection. Recorded for the sidebar to say it once.
@@ -871,34 +875,38 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   loadSchemaSnapshot: async (profileId: string) => {
+    if (get().selectedProfileId !== profileId || get().indexingSchema) return;
+    const request = ++schemaRequest;
     try {
       const snap = await getSchemaCache(profileId);
       // #49: switching A→B quickly let A's snapshot land after B's.
-      if (get().selectedProfileId !== profileId) return;
+      if (get().selectedProfileId !== profileId || request !== schemaRequest) return;
       set({ schemaSnapshot: snap });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch {
-      if (get().selectedProfileId !== profileId) return;
+      if (get().selectedProfileId !== profileId || request !== schemaRequest) return;
       // If cache read fails, try indexing once
       void get().refreshSchema(profileId);
     }
   },
 
   refreshSchema: async (profileId: string) => {
+    if (get().selectedProfileId !== profileId || get().indexingSchema) return;
+    const request = ++schemaRequest;
     set({ indexingSchema: true, schemaError: "" });
     try {
       const snap = await indexSchema(profileId);
-      if (get().selectedProfileId !== profileId) return;
+      if (get().selectedProfileId !== profileId || request !== schemaRequest) return;
       set({ schemaSnapshot: snap, indexingSchema: false });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch (e) {
-      if (get().selectedProfileId !== profileId) return;
+      if (get().selectedProfileId !== profileId || request !== schemaRequest) return;
       set({ indexingSchema: false, schemaError: errorMessage(e) });
     }
   },
@@ -1052,12 +1060,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    * the connection; the store has the sequencing, because it has the run.
    */
   runScript: async (consoleId, statements) => {
-    if (statements.length === 0) {
+    if (statements.length === 0 || !get().selectedProfileId || get().consoleState(consoleId).runningQuery) {
       return;
     }
-    patchConsole(set, consoleId, { statementRuns: {}, results: [], activeResult: 0 });
-    for (const statement of statements) {
-      if ((await get().executeQuery(consoleId, statement, { append: true })) !== "ok") {
+    patchConsole(set, consoleId, { statementRuns: {} });
+    for (const [index, statement] of statements.entries()) {
+      if ((await get().executeQuery(consoleId, statement, { append: index > 0 })) !== "ok") {
         return;
       }
     }

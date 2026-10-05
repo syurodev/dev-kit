@@ -152,13 +152,13 @@ describe("one body", () => {
       html,
       "the summary is still read out beside the message it duplicates",
     ).toContain(
-      '<span class="max-w-64 truncate" aria-hidden="true" style="opacity:0;transform:translateY(10px)">',
+      '<span class="max-w-[min(16rem,35vw)] truncate" aria-hidden="true" style="opacity:0;transform:translateY(10px)">',
     );
     expect(html).toContain('aria-hidden="true" class="pointer-events-none invisible');
     // And it starts there rather than animating there, or a restored error
     // would flash its summary out of a row it was never in.
     expect(html, "initial={false} is what puts it there on the first frame")
-      .not.toContain('<span class="max-w-64 truncate" aria-hidden="true">');
+      .not.toContain('<span class="max-w-[min(16rem,35vw)] truncate" aria-hidden="true">');
   });
 
   it("gives the message no ground of its own", () => {
@@ -179,7 +179,7 @@ describe("one body", () => {
       false,
     );
     // The wrapper keeps the row's height whatever the body does above it.
-    expect(html).toContain('class="relative h-(--control-height-sm) shrink-0"');
+    expect(html).toContain('class="relative ml-auto h-(--control-height-sm) shrink-0"');
   });
 
   it("shows nothing but Run before anything has been run", () => {

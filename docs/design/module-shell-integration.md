@@ -157,3 +157,10 @@ function WrappedView({ params }: { params?: Record<string, unknown> }) {
 ```
 
 Kiểm tra qua view của manifest, không chỉ render component con: mở hai đối tượng khác nhau và xác minh nội dung tương ứng. Trong Git, file panel của một commit là điều hướng trong document nên có thể dùng Resizable/Popover; đó không phải app sidebar. Split/unified dùng ToggleGroup cho chế độ diff, không thêm document strip.
+
+### Database console và schema
+
+- Database giữ một connection active chung. Đổi connection giữ SQL draft nhưng vô hiệu query/browse result và run token; không hiển thị rows cũ dưới connection mới.
+- Schema feedback thuộc manifest sidebar, có pending/error/Retry ngay cả khi document cuối đóng. Không phát toast bằng effect ở mỗi console mount. Cache/index response cần request token, không chỉ so profile ID (A → B → A).
+- Run script giữ rows trước đó tới thành công đầu tiên; duplicate Run không được xóa result/marks. Các statement tiếp theo append trong cùng script; Cancel dừng script.
+- Dialog/polling thuộc focused group và module visibility; Explain response cũ không được mở portal trong connection/run mới.

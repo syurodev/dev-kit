@@ -33,15 +33,19 @@ export function ConsoleBinding({
   writtenFor?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 pl-1 text-code-11 text-text-secondary">
+    <div className="order-first flex w-full min-w-0 flex-wrap items-center gap-1.5 pb-1 pl-1 text-code-11 text-text-secondary">
       {connection ? (
         <>
           <EngineMark engine={engine} className="size-3.5" />
-          <span className="truncate text-text-primary">{connection}</span>
+          <span className="max-w-full truncate text-text-primary" title={connection}>
+            {connection}
+          </span>
           {database ? (
             <>
               <span className="text-text-tertiary">/</span>
-              <span className="truncate">{database}</span>
+              <span className="max-w-full truncate" title={database}>
+                {database}
+              </span>
             </>
           ) : null}
         </>

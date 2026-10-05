@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Gauge,
   BookmarkPlus,
@@ -122,11 +123,21 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // this one may not have.
   const [gridWidths, setGridWidths] = useState<number[]>(EMPTY_ARRAY);
 
+  const visible = useModuleVisibility();
+  const explainRequest = useRef(0);
+  useEffect(() => () => {
+    explainRequest.current++;
+  }, []);
+
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
   // Separate from the plan: closing keeps the plan mounted so the dialog can
   // animate out with its content still in it, instead of vanishing.
   const [planOpen, setPlanOpen] = useState(false);
   const [explaining, setExplaining] = useState(false);
+  useEffect(() => {
+    setPlanOpen(false);
+    setActivePlan(null);
+  }, [selectedProfileId, slice.queryRunId]);
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   const engineMeta = getEngineMeta(profile?.engine);
@@ -174,6 +185,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
    * ⇧⌘↵ for when the statement is long and selecting it is work.
    */
   const runFromEditor = () => {
+    if (explaining || slice.runningQuery) return;
     const { from, to } = selectionRef.current;
     const source = from === to ? slice.sql : slice.sql.slice(Math.min(from, to), Math.max(from, to));
     const selected = from === to ? statements : splitStatements(source, splitDialect);
@@ -186,6 +198,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   /** Just the one the caret is in, leaving the other marks alone. */
   const runStatement = () => {
+    if (explaining || slice.runningQuery) return;
     const statement = statementAt(statements, caretHead.current);
     if (!statement) return;
     void executeQuery(consoleId, statement.text);
@@ -309,17 +322,23 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   async function handleExplain(analyze: boolean) {
     const target = explainTarget();
-    if (!selectedProfileId || !target) return;
+    if (!selectedProfileId || !target || explaining || slice.runningQuery) return;
+    const request = ++explainRequest.current;
+    const runId = slice.queryRunId;
+    const stillCurrent = () => request === explainRequest.current &&
+      useDatabaseStore.getState().selectedProfileId === selectedProfileId &&
+      useDatabaseStore.getState().consoleState(consoleId).queryRunId === runId;
     setExplaining(true);
     clearQueryError(consoleId);
     try {
       const plan = analyze
         ? await explainAnalyze(selectedProfileId, target)
         : await explain(selectedProfileId, target);
+      if (!stillCurrent()) return;
       setActivePlan(plan);
       setPlanOpen(true);
     } catch (e: any) {
-      setQueryError(consoleId, e.message || String(e));
+      if (stillCurrent()) setQueryError(consoleId, e.message || String(e));
     } finally {
       setExplaining(false);
     }
@@ -400,7 +419,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           what sets the name as well as the tip. The two that can be disabled
           take `wrap`, because a disabled button raises no tooltip on its
           own. */}
-      <div className="mb-2 flex h-(--control-height-md) shrink-0 items-center gap-0.5">
+      <div className="mb-2 flex min-h-(--control-height-md) shrink-0 flex-wrap items-center gap-0.5">
         <ActionTooltip label="Explain the query plan without executing">
           <Button
             variant="ghost"
@@ -469,7 +488,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           outcome={outcome}
           running={slice.runningQuery}
           startedAt={queryStartTime}
-          canRun={Boolean(selectedProfileId)}
+          canRun={Boolean(selectedProfileId) && !explaining && statements.length > 0}
           onRun={runFromEditor}
           onStop={() => cancelQuery(consoleId)}
           runLabel={
@@ -531,13 +550,10 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                 {slice.queryError}
               </div>
             </div>
-            <button
-              type="button"
-              className="p-1 text-text-tertiary hover:text-text-primary"
-              onClick={() => clearQueryError(consoleId)}
-            >
+            <Button variant="ghost" size="icon-xs" aria-label="Dismiss read-only error"
+              onClick={() => clearQueryError(consoleId)}>
               <XCircle className="size-4" />
-            </button>
+            </Button>
           </div>
         )}
 
@@ -609,18 +625,10 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         */}
         {queryResult ? (
           <>
-            {/* The window gutter's own 8 — the band the shell leaves between
-                its surfaces and the window edge — so the editor and the
-                result read as two cards on one rhythm.
-
-                The separator itself is collapsed to nothing and its hairline
-                dropped: at 8px apart, with a border on each card, a line
-                between them is a third edge in a 9px band. What is left is
-                the grip and the 4px hit area, both of which are drawn
-                outside the box. */}
+            {/* Keep a real hit area for pointer and keyboard resizing. */}
             <ResizableHandle
               withHandle
-              className="my-1 bg-transparent aria-[orientation=horizontal]:h-0"
+              className="my-0.5 bg-transparent aria-[orientation=horizontal]:h-1"
             />
 
             <ResizablePanel
@@ -651,7 +659,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                   The cap chip stays because nothing else says it: a result
                   cut at the row ceiling looks exactly like a complete one.
                 */}
-                <div className="mb-2 flex h-8 shrink-0 items-center gap-2">
+                <div className="mb-2 flex min-h-8 shrink-0 flex-wrap items-center gap-2">
                   {/*
                     One tab per grid the run produced, including when there
                     is one of them. A script's SELECTs each have an answer;
@@ -713,7 +721,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                     </Tabs>
                   )}
                   {queryResult.truncated && (
-                    <span className="flex h-7 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
+                    <span className="flex min-h-7 min-w-0 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
                       row cap reached — add LIMIT/OFFSET to page further
                     </span>
                   )}
@@ -745,7 +753,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
       {/* Plan Viewer Modal (Screen 22) */}
       {activePlan && (
-        <QueryPlanView plan={activePlan} open={planOpen} onClose={() => setPlanOpen(false)} />
+        <QueryPlanView plan={activePlan} open={planOpen && visible} onClose={() => setPlanOpen(false)} />
       )}
     </div>
   );

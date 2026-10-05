@@ -269,6 +269,16 @@ export function RunGroup({
   // its error collapsed for one frame and then jumped.
   const [open, setOpen] = useState(() => outcome.kind === "error");
   const root = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(MIN_DETAIL_WIDTH);
+  useLayoutEffect(() => {
+    const toolbar = root.current?.parentElement;
+    if (!toolbar) return;
+    const measure = () => setAvailableWidth(Math.max(28, toolbar.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, []);
 
   // A new run answers the previous one, so whatever was open about the last
   // one is no longer the thing on screen.
@@ -298,12 +308,12 @@ export function RunGroup({
   // other: a narrower body wraps the text taller, a taller measurement is
   // what the body animates to. Measured mid-animation it settled on a height
   // for a width it no longer had — 216px of body around 120px of message.
-  const openWidth = Math.max(headerSize.width, MIN_DETAIL_WIDTH);
+  const openWidth = Math.min(availableWidth, Math.max(headerSize.width, MIN_DETAIL_WIDTH));
   // Clamped rather than unbounded: past MAX_DETAIL_HEIGHT the message scrolls
   // inside itself instead of covering more of the query it is about.
   const detailHeight = Math.min(detailSize.height, MAX_DETAIL_HEIGHT);
   const height = HEADER_HEIGHT + (expanded ? detailHeight : 0);
-  const width = expanded ? openWidth : headerSize.width;
+  const width = expanded ? openWidth : Math.min(headerSize.width, availableWidth);
 
   /*
    * The reading, with or without its summary line.
@@ -324,7 +334,7 @@ export function RunGroup({
           // width steady, and something that has unmounted cannot animate its
           // way out.
           <motion.span
-            className="max-w-64 truncate"
+            className="max-w-[min(16rem,35vw)] truncate"
             // No entrance: a console restored with an error is already open,
             // and animating the summary out of a row it was never in is a
             // flash on arrival.
@@ -336,7 +346,7 @@ export function RunGroup({
             {status.message}
           </motion.span>
         ) : (
-          <span className="max-w-64 truncate">{status.message}</span>
+          <span className="max-w-[min(16rem,35vw)] truncate">{status.message}</span>
         ))}
     </>
   );
@@ -350,8 +360,8 @@ export function RunGroup({
      */
     <div
       ref={root}
-      className="relative h-(--control-height-sm) shrink-0"
-      style={{ width: headerSize.width || undefined }}
+      className="relative ml-auto h-(--control-height-sm) shrink-0"
+      style={{ width: Math.min(headerSize.width, availableWidth) || undefined }}
     >
       <motion.div
         className={cn(
