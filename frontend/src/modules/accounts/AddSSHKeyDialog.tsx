@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { KeyRound } from "lucide-react";
 import {
   Dialog,
@@ -10,8 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   accountProviders,
@@ -39,6 +40,7 @@ export function AddSSHKeyDialog({
   /** Called with the saved account, verified when the provider answered. */
   onSaved: (account: Account, note: string) => void;
 }) {
+  const ids = useId();
   // null until the list arrives: an empty list would read as "no providers".
   const [providers, setProviders] = useState<AccountProvider[] | null>(null);
   const [provider, setProvider] = useState("github");
@@ -63,15 +65,16 @@ export function AddSSHKeyDialog({
       .then((all) => {
         const withKeys = all.filter((p) => p.SSHHost);
         setProviders(withKeys);
-        if (withKeys.length > 0 && !withKeys.some((p) => p.ID === provider)) {
-          setProvider(withKeys[0].ID);
-        }
+        setProvider((current) =>
+          withKeys.some((p) => p.ID === current) ? current : (withKeys[0]?.ID ?? current),
+        );
       })
       .catch((e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  async function save() {
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     try {
@@ -105,101 +108,96 @@ export function AddSSHKeyDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
-      <DialogContent className="sm:max-w-130" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Add an SSH key</DialogTitle>
-          <DialogDescription>
-            The key signs git over SSH for the repositories you choose it for. It is
-            checked now and kept sealed; it cannot be shown again.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent showCloseButton={!busy} className="max-h-[90vh] overflow-y-auto sm:max-w-140">
+        <form onSubmit={(event) => void save(event)} className="contents">
+          <DialogHeader>
+            <DialogTitle>Add an SSH key</DialogTitle>
+            <DialogDescription>
+              The key signs git over SSH for the repositories you choose it for. It is checked now and
+              kept sealed; it cannot be shown again.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1.5">
-              <span className="text-label-12 text-text-primary">Provider</span>
-              <NativeSelect
-                className="w-full"
-                value={provider}
-                disabled={busy || providers === null}
-                onChange={(e) => setProvider(e.target.value)}
-              >
-                {(providers ?? []).map((p) => (
-                  <option key={p.ID} value={p.ID}>
-                    {p.Name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-label-12 text-text-primary">Name</span>
+          <FieldSet disabled={busy}>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-provider`}>Provider</FieldLabel>
+              <Select value={provider} onValueChange={setProvider} disabled={busy || providers === null}>
+                <SelectTrigger id={`${ids}-provider`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(providers ?? []).map((p) => (
+                    <SelectItem key={p.ID} value={p.ID}>
+                      {p.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-label`}>Name</FieldLabel>
               <Input
+                id={`${ids}-label`}
                 value={label}
-                disabled={busy}
                 placeholder="Work key"
+                autoFocus
                 onChange={(e) => setLabel(e.target.value)}
               />
-            </label>
-          </div>
-          <label className="block space-y-1.5">
-            <span className="text-label-12 text-text-primary">Private key</span>
-            <Textarea
-              value={privateKey}
-              disabled={busy}
-              rows={6}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-              className="font-mono text-code-12"
-              onChange={(e) => setPrivateKey(e.target.value)}
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-label-12 text-text-primary">Passphrase</span>
-            <Input
-              type="password"
-              value={passphrase}
-              disabled={busy}
-              autoComplete="off"
-              placeholder="Only if the key is encrypted"
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-            <span className="text-code-11 text-text-tertiary">
-              Saved with the key, so a push does not stop to ask for it.
-            </span>
-          </label>
-          <Checkbox
-            checked={sync}
-            disabled={busy}
-            onCheckedChange={(checked) => setSync(checked === true)}
-            label="Sync to my other devices"
-          />
-          <p className="text-code-11 text-text-tertiary">
-            {sync
-              ? "The key will be sealed and sync with the rest of your vault."
-              : "The key stays on this machine only."}
-          </p>
-        </div>
+              <FieldDescription>How this key is listed, and offered when a remote needs choosing.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-key`}>Private key</FieldLabel>
+              <Textarea
+                id={`${ids}-key`}
+                value={privateKey}
+                rows={6}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                className="font-mono text-code-12"
+                onChange={(e) => setPrivateKey(e.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-passphrase`}>Passphrase</FieldLabel>
+              <Input
+                id={`${ids}-passphrase`}
+                type="password"
+                value={passphrase}
+                autoComplete="off"
+                placeholder="Only if the key is encrypted"
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+              <FieldDescription>Saved with the key, so a push does not stop to ask for it.</FieldDescription>
+            </Field>
+            <Field orientation="horizontal">
+              <Checkbox
+                id={`${ids}-sync`}
+                checked={sync}
+                onCheckedChange={(checked) => setSync(checked === true)}
+              />
+              <div className="flex flex-col gap-0.5">
+                <FieldLabel htmlFor={`${ids}-sync`}>Sync to my other devices</FieldLabel>
+                <FieldDescription>
+                  {sync
+                    ? "The key will be sealed and sync with the rest of your vault."
+                    : "The key stays on this machine only."}
+                </FieldDescription>
+              </div>
+            </Field>
+            {error ? <FieldError>{error}</FieldError> : null}
+          </FieldSet>
 
-        {error ? (
-          <p className="text-code-11 text-status-danger" role="alert">
-            {error}
-          </p>
-        ) : null}
-
-        <DialogFooter className="sm:justify-end">
-          <Button variant="outline" size="sm" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={busy || label.trim() === "" || privateKey.trim() === ""}
-            onClick={() => void save()}
-          >
-            <KeyRound className="size-4" aria-hidden />
-            Save key
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || label.trim() === "" || privateKey.trim() === ""}>
+              <KeyRound aria-hidden />
+              {busy ? "Saving…" : "Save key"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

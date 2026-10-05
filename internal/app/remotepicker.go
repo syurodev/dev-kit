@@ -23,10 +23,7 @@ func (p remotePicker) PickAccount(ctx context.Context, in gitservice.PickAccount
 	// An SSH remote is authenticated by a key and an HTTPS one by a token, so
 	// the two are different questions with different candidates and different
 	// remembered answers.
-	via := accounts.ViaHTTPS
-	if in.Transport == gitservice.TransportSSH {
-		via = accounts.ViaSSH
-	}
+	via := viaOf(in.Transport)
 	match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env, via)
 	if err != nil {
 		return "", err
@@ -81,4 +78,38 @@ func remoteQuestion(in gitservice.PickAccountInput) string {
 	default:
 		return "Fetch " + repository + " from " + in.Host
 	}
+}
+
+// viaOf is how a remote is reached, as Accounts names it.
+func viaOf(transport gitservice.Transport) accounts.Via {
+	if transport == gitservice.TransportSSH {
+		return accounts.ViaSSH
+	}
+	return accounts.ViaHTTPS
+}
+
+// IdentityFor says who the account for a remote commits as, without asking
+// anyone: a commit is quiet, and a dialog in the middle of one is not added
+// here. An explicit binding wins; otherwise only an account Accounts has
+// already decided (the only one that fits, or one chosen and remembered) counts,
+// and "two fit and none was chosen yet" is no account — the question waits for
+// the first push.
+func (p remotePicker) IdentityFor(_ context.Context, in gitservice.PickAccountInput, boundAccountID string) (gitservice.AccountIdentity, error) {
+	id := boundAccountID
+	if id == "" {
+		match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env, viaOf(in.Transport))
+		if err != nil {
+			return gitservice.AccountIdentity{}, err
+		}
+		if !match.Decided {
+			return gitservice.AccountIdentity{}, nil
+		}
+		id = match.Account.ID
+	}
+	account, err := p.accounts.Get(id)
+	if err != nil {
+		return gitservice.AccountIdentity{}, err
+	}
+	identity, _ := p.accounts.IdentityOf(id)
+	return gitservice.AccountIdentity{Name: identity.Name, Email: identity.Email, Account: account.Label}, nil
 }

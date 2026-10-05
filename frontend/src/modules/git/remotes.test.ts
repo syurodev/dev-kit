@@ -18,3 +18,25 @@ describe("remoteFor", () => {
     expect(remoteFor("origin/dev", [])).toBe("");
   });
 });
+
+import { accountsForRemote } from "./remotes";
+
+describe("accountsForRemote", () => {
+  const accounts = [
+    { id: "token", kind: "token" },
+    { id: "key", kind: "ssh-key" },
+    { id: "ext", kind: "external" },
+  ];
+
+  test("an SSH remote is offered keys and an HTTPS one tokens", () => {
+    expect(accountsForRemote(accounts, { transport: "ssh", accountId: "" }).map((a) => a.id)).toEqual(["key"]);
+    expect(accountsForRemote(accounts, { transport: "http", accountId: "" }).map((a) => a.id)).toEqual(["token"]);
+  });
+
+  test("the account already bound stays listed even when it does not fit", () => {
+    expect(accountsForRemote(accounts, { transport: "ssh", accountId: "token" }).map((a) => a.id)).toEqual([
+      "token",
+      "key",
+    ]);
+  });
+});

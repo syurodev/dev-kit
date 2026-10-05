@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { BadgeCheck, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -13,6 +13,7 @@ import {
   type Account,
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
+import { IdentityDialog } from "./IdentityDialog";
 import { RevealDialog } from "./RevealDialog";
 import { SSHKeyInfoDialog } from "./SSHKeyInfoDialog";
 
@@ -39,17 +40,22 @@ function AccountRow({
   onChanged,
   onReveal,
   onShowKey,
+  onIdentity,
 }: {
   account: Account;
   onChanged: () => void;
   onReveal: () => void;
   onShowKey: () => void;
+  onIdentity: () => void;
 }) {
   // A local account belongs to no connection: it is the person's own, kept on
   // this machine. It verifies and promotes like a shared one, so only a
   // connection's password is treated as "scoped" here.
   const local = isLocalAccount(account);
   const isKey = account.kind === "ssh-key";
+  // Only an account git can use commits as anyone: a connection's password or
+  // an external sign-in does not.
+  const commits = ["github", "gitlab", "bitbucket"].includes(account.provider) && (!account.scopeOwner || local);
   const [error, setError] = useState("");
 
   return (
@@ -67,6 +73,7 @@ function AccountRow({
           {account.scopes?.length ? ` · ${account.scopes.join(", ")}` : ""}
           {account.env?.length ? ` · ${account.env.join(", ")}` : ""}
           {local ? " · this machine only" : ""}
+          {account.authorEmail ? ` · commits as ${account.authorName} <${account.authorEmail}>` : ""}
         </div>
         {error ? <div className="text-caption-11 text-status-danger">{error}</div> : null}
       </div>
@@ -86,6 +93,21 @@ function AccountRow({
           }}
         >
           <BadgeCheck className="size-4" aria-hidden />
+        </Button>
+      ) : null}
+      {commits ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Commit identity for ${account.label}`}
+          title={
+            account.authorEmail
+              ? "Change the name and email commits are written with"
+              : "Set the name and email commits are written with"
+          }
+          onClick={onIdentity}
+        >
+          <UserRound className="size-4" aria-hidden />
         </Button>
       ) : null}
       {isKey ? (
@@ -163,6 +185,7 @@ export function AccountsView() {
   // The account whose value is on screen, or null. One at a time, always.
   const [revealing, setRevealing] = useState<Account | null>(null);
   const [showingKey, setShowingKey] = useState<Account | null>(null);
+  const [editingIdentity, setEditingIdentity] = useState<Account | null>(null);
   const [adding, setAdding] = useState(false);
 
   const reload = useCallback(() => {
@@ -264,6 +287,7 @@ export function AccountsView() {
               onChanged={reload}
               onReveal={() => setRevealing(account)}
               onShowKey={() => setShowingKey(account)}
+              onIdentity={() => setEditingIdentity(account)}
             />
           ))}
         </ul>
@@ -281,6 +305,7 @@ export function AccountsView() {
                   onChanged={reload}
                   onReveal={() => setRevealing(account)}
                   onShowKey={() => setShowingKey(account)}
+              onIdentity={() => setEditingIdentity(account)}
                 />
               ))}
             </ul>
@@ -289,6 +314,14 @@ export function AccountsView() {
       </div>
       <RevealDialog account={revealing} onClose={() => setRevealing(null)} />
       <SSHKeyInfoDialog account={showingKey} onClose={() => setShowingKey(null)} />
+      <IdentityDialog
+        account={editingIdentity}
+        onClose={() => setEditingIdentity(null)}
+        onSaved={() => {
+          setEditingIdentity(null);
+          reload();
+        }}
+      />
       <AddSSHKeyDialog
         open={adding}
         onClose={() => setAdding(false)}

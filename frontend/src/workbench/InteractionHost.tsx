@@ -13,6 +13,7 @@ import { errorMessage } from "../bridge/errors";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from "../components/ui/field";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import {
   Dialog,
@@ -186,27 +187,29 @@ export function InteractionHost() {
             disabled={busy}
           >
             {pending.options.map((option) => (
-              <label
-                key={option.id}
-                className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-body-13"
-              >
-                <RadioGroupItem value={option.id} />
-                <span className="grid">
-                  <span>{option.label}</span>
-                  <span className="text-caption-11 text-text-tertiary">
-                    {[option.provider, option.subject].filter(Boolean).join(" · ")}
-                  </span>
-                </span>
-              </label>
+              <FieldLabel key={option.id} htmlFor={`account-${option.id}`}>
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldTitle>{option.label}</FieldTitle>
+                    <FieldDescription>
+                      {[option.provider, option.subject].filter(Boolean).join(" · ")}
+                    </FieldDescription>
+                  </FieldContent>
+                  <RadioGroupItem value={option.id} id={`account-${option.id}`} />
+                </Field>
+              </FieldLabel>
             ))}
           </RadioGroup>
           {pending.remember ? (
-            <Checkbox
-              checked={remember}
-              disabled={busy}
-              onCheckedChange={(checked) => setRemember(checked === true)}
-              label={`Use this for ${pending.remember}`}
-            />
+            <Field orientation="horizontal">
+              <Checkbox
+                id="account-remember"
+                checked={remember}
+                disabled={busy}
+                onCheckedChange={(checked) => setRemember(checked === true)}
+              />
+              <FieldLabel htmlFor="account-remember">Use this for {pending.remember}</FieldLabel>
+            </Field>
           ) : null}
           {error ? <p role="alert">{error}</p> : null}
           <DialogFooter>

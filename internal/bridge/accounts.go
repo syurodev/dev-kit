@@ -115,6 +115,23 @@ func (s *AppService) AccountsSSHKeyInfo(id string) (gitssh.KeyInfo, error) {
 	return result.(gitssh.KeyInfo), nil
 }
 
+// AccountsSetIdentity records who commits are written as under an account: the
+// name and email git puts on them. Both empty clears it. Neither is secret, so
+// both come back with the account.
+func (s *AppService) AccountsSetIdentity(id, name, email string) (accounts.Account, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "set_identity",
+		"account_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.SetIdentity(id, accounts.Identity{Name: name, Email: email})
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
 // AccountsRotate replaces a value in place, which is why every binding holds
 // an id: nothing bound to this account needs editing afterwards.
 func (s *AppService) AccountsRotate(id, user, secret string) error {

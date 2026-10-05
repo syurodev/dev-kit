@@ -43,7 +43,14 @@ export type Commit = {
 
 export type Branch = { name: string; current: boolean; upstream: string };
 
-export type Remote = { name: string; url: string; accountId: string; env: string };
+export type Remote = {
+  name: string;
+  url: string;
+  /** How git reaches it: an SSH remote is answered by a key, an HTTPS one by a token. */
+  transport: "ssh" | "http" | "local" | "other" | "";
+  accountId: string;
+  env: string;
+};
 
 /** One unmerged file, in the shape the shared MergePanes layout renders. */
 export type Conflict = {
@@ -320,4 +327,25 @@ export function seedMessage(staged: string[], taskKey = ""): string {
 /** Staged file against HEAD, including an initial repository's staged files. */
 export function gitIndexPatch(path: string): Promise<string> {
   return callBridge(async () => await AppService.GitIndexPatch(path));
+}
+
+/**
+ * Who the next commit would be written as, and why: the account for the
+ * repository's remote, the repository's own config, or git's. It reads
+ * configuration and asks nobody.
+ */
+export type CommitIdentity = {
+  name: string;
+  email: string;
+  /** "account", "repository", "git", or "" when no identity is configured at all. */
+  source: "account" | "repository" | "git" | "";
+  /** The account considered for the remote, and what it would commit as. */
+  account: string;
+  accountName: string;
+  accountEmail: string;
+  remote: string;
+};
+
+export function gitCommitIdentity(): Promise<CommitIdentity> {
+  return callBridge(async () => (await AppService.GitCommitIdentity()) as CommitIdentity);
 }

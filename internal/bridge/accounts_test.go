@@ -42,6 +42,7 @@ func newBridgeWithAccounts(t *testing.T) (*AppService, *app.Container) {
 		accounts.NewRegistry(accounts.DefaultProviders()), container.Environments,
 	)
 	container.Accounts.SetHostChoices(db, storage.TableAccountHostChoices)
+	container.Accounts.SetIdentities(db, storage.TableAccountIdentities)
 	return NewAppService(container), container
 }
 
@@ -215,4 +216,28 @@ func newBridgePrivateKey(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(pem.EncodeToMemory(block))
+}
+
+func TestAccountIdentityRoundTripsThroughTheBridge(t *testing.T) {
+	svc, _ := newBridgeWithAccounts(t)
+	account, err := svc.AccountsCreateSSHKey("github", "Work key", newBridgePrivateKey(t), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := svc.AccountsSetIdentity(account.ID, "Acme Dev", "dev@acme.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AuthorName != "Acme Dev" || saved.AuthorEmail != "dev@acme.example" {
+		t.Fatalf("saved = %+v", saved)
+	}
+	listed, err := svc.AccountsList()
+	if err != nil || len(listed) != 1 || listed[0].AuthorEmail != "dev@acme.example" {
+		t.Fatalf("listed = %+v, %v", listed, err)
+	}
+	if _, err := svc.AccountsSetIdentity(account.ID, "Acme Dev", "not-an-email"); err == nil ||
+		!strings.Contains(err.Error(), "name and an email") {
+		t.Fatalf("a bad email = %v", err)
+	}
 }

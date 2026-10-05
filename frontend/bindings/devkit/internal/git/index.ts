@@ -8,6 +8,7 @@ export {
 export type {
     Branch,
     Commit,
+    CommitIdentity,
     Conflict,
     Guard,
     Remote,

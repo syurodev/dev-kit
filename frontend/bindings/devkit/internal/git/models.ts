@@ -32,6 +32,35 @@ export interface Commit {
 }
 
 /**
+ * CommitIdentity is who the next commit will be written as, and why.
+ */
+export interface CommitIdentity {
+    "name": string;
+    "email": string;
+
+    /**
+     * Source is IdentityFromAccount, IdentityFromRepository or IdentityFromGit;
+     * empty when nobody has configured an identity at all.
+     */
+    "source": string;
+
+    /**
+     * Account is the label of the account considered for the repository's
+     * remote, and AccountName/AccountEmail what it would commit as. They are
+     * filled even when the repository's config wins, so the person can see the
+     * two disagree.
+     */
+    "account": string;
+    "accountName": string;
+    "accountEmail": string;
+
+    /**
+     * Remote is the remote the account was looked up for.
+     */
+    "remote": string;
+}
+
+/**
  * Conflict is one unmerged path, in the three versions the resolve panel
  * shows. It is deliberately the shape Sync's ResolvePanel already renders —
  * Local / Merged (editable) / Remote — because a second three-pane merge UI is

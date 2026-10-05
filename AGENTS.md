@@ -655,6 +655,14 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   key. `~/.ssh/config` `IdentityFile` entries are still tried *after* a refused account key (see the
   pinned test). `internal/git` tests that touch SSH use `code.example.test`, not `github.com`: the
   cloud sandbox injects a `url.insteadOf` that rewrites github.com SSH URLs to HTTPS.
+- **Commits are written as the account's identity.** An account may carry a name and email
+  (`account_identities`, local — not in the account metadata, whose strict decoder would make an
+  older DevKit refuse the record). `git.Service.CommitIdentity` decides who the next commit is:
+  the repository's own `user.email` wins, else the account of the branch's upstream remote (then
+  `origin`, then the only remote) when it has BOTH halves, else git's configuration. It looks the
+  account up through `remotePicker.IdentityFor`, which never opens a dialog. `Commit` passes the
+  identity as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (an amend keeps the old author) and never writes
+  `.git/config`. Agents commit through the same path, so their commits carry it too.
 - **`internal/notify` and `internal/gitparse` are leaves** pinned by
   `internal/arch`, extracted as their own commits before the modules that
   needed them. `notify.Target` is three strings and deliberately not the

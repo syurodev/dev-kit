@@ -442,6 +442,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, accounts.ErrKeyInvalid):
 			return apperrors.New(codeValidationFailed, "That is not a private key ssh can read. Paste the whole key, including the BEGIN and END lines.", true)
+		case errors.Is(err, accounts.ErrIdentityInvalid):
+			return apperrors.New(codeValidationFailed, "Enter both a name and an email address (like name@example.com) for commits, or clear both.", true)
 		case errors.Is(err, accounts.ErrKeyPassphrase):
 			return apperrors.New(codeValidationFailed, "This key is encrypted. Enter its passphrase, or check the one you entered.", true)
 		}

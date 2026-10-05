@@ -1,6 +1,6 @@
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { gitUI, useGitBusy, useGitDraft, useGitOperation } from "./gitUI";
 import { openFileDiff, openHistory } from "./documents";
@@ -39,6 +39,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useModuleFolder } from "@/stores/workFolder";
 import { patchLines } from "./commitView";
+import { useCommitIdentity } from "./useCommitIdentity";
 import { usePatchHighlight } from "./gitSyntax";
 import { buildPatch, parsePatch, type FilePatch, type Hunk } from "./hunks";
 import { GitBranchMenu } from "./GitBranchMenu";
@@ -665,6 +666,7 @@ export function GitChangesView() {
         {operation.notice && <FeedbackBanner tone="success" title={operation.notice} />}
         <Composer
           folder={folder}
+          revision={revision}
           busy={busy}
           staged={staged}
           branch={status.branch}
@@ -728,6 +730,7 @@ export function GitChangesView() {
  */
 function Composer({
   folder,
+  revision,
   busy,
   staged,
   branch,
@@ -735,6 +738,8 @@ function Composer({
   onCommit,
 }: {
   folder: string;
+  /** Bumped whenever the repository changes; who commits are written as can change with it. */
+  revision: number;
   busy: boolean;
   staged: string[];
   branch: string;
@@ -746,6 +751,7 @@ function Composer({
   const messageId = useId();
   const { message } = useGitDraft(folder);
   const setMessage = (value: string) => gitUI.setDraft(folder, { message: value });
+  const identity = useCommitIdentity(folder, revision, branch);
   return (
     <>
       <Field>
@@ -760,6 +766,12 @@ function Composer({
           aria-label="Commit message"
           className="min-h-17 rounded-lg border-0 bg-state-soft px-3 py-2.5 text-body-13 dark:bg-state-soft"
         />
+        {identity ? (
+          <FieldDescription className={identity.tone === "warning" ? "text-status-warning" : undefined}>
+            {identity.text}
+            {identity.hint ? ` — ${identity.hint}` : ""}
+          </FieldDescription>
+        ) : null}
       </Field>
       <div className="flex flex-wrap items-center gap-3">
         <button

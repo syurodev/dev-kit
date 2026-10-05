@@ -41,6 +41,14 @@ export interface Account {
      * Ref is how to sign in again, for KindExternal.
      */
     "ref": string;
+
+    /**
+     * AuthorName and AuthorEmail are who commits are written as when this
+     * account is the one in use. Empty means none was set. They are kept in a
+     * local table, not in the account, and are not secret.
+     */
+    "authorName": string;
+    "authorEmail": string;
 }
 
 /**

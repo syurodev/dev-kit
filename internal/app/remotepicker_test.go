@@ -40,6 +40,7 @@ func pickerFixture(t *testing.T) (*accounts.Service, *interaction.Hub) {
 	svc := accounts.NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v), db,
 		storage.TableAccountSecrets, v, accounts.NewRegistry(accounts.DefaultProviders()), allEnvs{})
 	svc.SetRemoteChoices(db, storage.TableAccountRemoteChoices)
+	svc.SetIdentities(db, storage.TableAccountIdentities)
 	return svc, interaction.NewHub(interaction.NoopPrompter{})
 }
 
@@ -233,5 +234,40 @@ func TestResolverHandsGitAKeyAndSaysWhenAnAccountIsNotOne(t *testing.T) {
 	}
 	if _, _, err = resolver.ResolveSSHKey(context.Background(), "missing", ""); err == nil {
 		t.Fatal("a missing account was not an error")
+	}
+}
+
+// The commit's identity is looked up without a dialog: an account Accounts has
+// not decided yet is "none", and the question waits for the first push.
+func TestIdentityForNeverAsksAndOnlyReportsDecidedAccounts(t *testing.T) {
+	svc, hub := pickerFixture(t)
+	work := addSSHKey(t, svc, "github", "Work key")
+	addSSHKey(t, svc, "github", "Personal key")
+	picker := remotePicker{accounts: svc, hub: hub}
+	ctx := context.Background()
+	input := gitservice.PickAccountInput{Op: "commit", Transport: gitservice.TransportSSH, Host: "github.com", Owner: "acme-corp", Repo: "api"}
+
+	// Two keys fit and none was chosen: no identity, and nothing was asked.
+	got, err := picker.IdentityFor(ctx, input, "")
+	if err != nil || got != (gitservice.AccountIdentity{}) || hub.Pending() != nil {
+		t.Fatalf("an undecided remote = %+v, %v, pending %v", got, err, hub.Pending())
+	}
+
+	if _, err := svc.SetIdentity(work.ID, accounts.Identity{Name: "Acme Dev", Email: "dev@acme.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ChooseForRemote("github.com", "acme-corp", "", accounts.ViaSSH, work.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = picker.IdentityFor(ctx, input, "")
+	if err != nil || got.Email != "dev@acme.example" || got.Account != "Work key" {
+		t.Fatalf("a remembered choice = %+v, %v", got, err)
+	}
+
+	// An explicit binding wins over whatever was remembered.
+	other := addSSHKey(t, svc, "github", "Other key")
+	got, err = picker.IdentityFor(ctx, input, other.ID)
+	if err != nil || got.Account != "Other key" || got.Email != "" {
+		t.Fatalf("a bound account = %+v, %v (it has no identity of its own)", got, err)
 	}
 }

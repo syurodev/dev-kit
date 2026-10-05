@@ -46,6 +46,7 @@ type Service struct {
 	choices *choiceStore
 	// remoteChoices remembers the answer per (host, owner) for git remotes.
 	remoteChoices *remoteChoiceStore
+	identities    *identityStore
 	// identifySSH checks an SSH key against its provider; nil means ssh itself.
 	identifySSH func(ctx context.Context, m gitssh.Material, host string) (string, error)
 	providers   *Registry
@@ -256,6 +257,11 @@ func (s *Service) List() ([]Account, error) {
 			out = append(out, row.account(s.now()))
 		}
 	}
+	identities := s.allIdentities()
+	for i := range out {
+		identity, ok := identities[out[i].ID]
+		out[i] = withIdentity(out[i], identity, ok)
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Scoped() != out[j].Scoped() {
 			return !out[i].Scoped() // shared first; scoped is the collapsed group
@@ -267,6 +273,15 @@ func (s *Service) List() ([]Account, error) {
 
 // Get returns one account without its value.
 func (s *Service) Get(id string) (Account, error) {
+	account, err := s.get(id)
+	if err != nil {
+		return Account{}, err
+	}
+	identity, ok := s.IdentityOf(id)
+	return withIdentity(account, identity, ok), nil
+}
+
+func (s *Service) get(id string) (Account, error) {
 	record, err := s.items.Get(id)
 	if err == nil {
 		account, decodeErr := decodeMetadata(record)
@@ -493,12 +508,20 @@ func (s *Service) Delete(id string) error {
 		return &InUseError{AccountID: id, UsedBy: used}
 	}
 	if _, err := s.items.Get(id); err == nil {
-		return s.items.Delete(id)
+		if err := s.items.Delete(id); err != nil {
+			return err
+		}
+		s.forgetIdentity(id)
+		return nil
 	}
 	if s.scoped == nil {
 		return ErrNotFound
 	}
-	return s.scoped.deleteByID(id)
+	if err := s.scoped.deleteByID(id); err != nil {
+		return err
+	}
+	s.forgetIdentity(id)
+	return nil
 }
 
 // DeleteForOwner removes the scoped credential of a profile being deleted.
@@ -557,6 +580,13 @@ func (s *Service) Promote(id, label string) (Account, error) {
 	if err := s.scoped.deleteByID(id); err != nil {
 		return Account{}, err
 	}
+	// The account has a new id once it is shared; what it commits as goes with it.
+	if identity, ok := s.IdentityOf(id); ok {
+		if updated, err := s.SetIdentity(shared.ID, identity); err == nil {
+			shared = updated
+		}
+	}
+	s.forgetIdentity(id)
 	return shared, nil
 }
 

@@ -826,6 +826,7 @@ func main() {
 		AccountSecrets:       storage.TableAccountSecrets,
 		AccountHostChoices:   storage.TableAccountHostChoices,
 		AccountRemoteChoices: storage.TableAccountRemoteChoices,
+		AccountIdentities:    storage.TableAccountIdentities,
 		APIRequestHistory:    storage.TableAPIRequestHistory,
 		CodexHookEvents:      storage.TableCodexHookEvents,
 		TaskVerifyRuns:       storage.TableTaskVerifyRuns,

@@ -84,6 +84,13 @@ const (
 	// worst failure is one dialog does not earn a sync record type.
 	TableAccountRemoteChoices = "account_remote_choices"
 
+	// TableAccountIdentities holds the name and email an account commits as.
+	// Local: it is a property of how this machine writes commits, it is not a
+	// secret, and putting it in a shared account's metadata would make an older
+	// DevKit on another device refuse the whole record (that metadata is
+	// decoded field by field). Losing a row costs one form to fill in again.
+	TableAccountIdentities = "account_identities"
+
 	// TableAPIRequestHistory is what this machine sent and what came back. It
 	// never syncs — it says what this device did, not what the project is —
 	// and it is the same call db_query_history already made. The URL is
@@ -1274,7 +1281,23 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38})
+	m39 := Migration{
+		Version: 39,
+		Name:    "account commit identities",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					email TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableAccountIdentities,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39})
 	if err != nil {
 		return err
 	}

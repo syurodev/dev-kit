@@ -66,6 +66,9 @@ type PickAccountInput struct {
 // SetAccountPicker wires the account choice for unbound remotes.
 func (s *Service) SetAccountPicker(p AccountPicker) { s.picker = p }
 
+// defaultHostOf asks ssh itself which host a name in an SSH URL really is.
+func defaultHostOf(ctx context.Context, host string) string { return gitssh.ResolveHost(ctx, host) }
+
 // SetHostResolver replaces how the host of an SSH URL becomes the host ssh
 // really connects to. Production asks ssh itself; a test supplies a table.
 func (s *Service) SetHostResolver(f func(ctx context.Context, host string) string) { s.hostOf = f }
@@ -88,7 +91,7 @@ func (s *Service) withAccount(ctx context.Context, op string, remote Remote) (Re
 	if address.Transport == TransportSSH {
 		resolve := s.hostOf
 		if resolve == nil {
-			resolve = gitssh.ResolveHost
+			resolve = defaultHostOf
 		}
 		address.Host = resolve(ctx, address.Host)
 	}

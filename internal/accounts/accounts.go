@@ -116,6 +116,11 @@ type Account struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 	// Ref is how to sign in again, for KindExternal.
 	Ref string `json:"ref"`
+	// AuthorName and AuthorEmail are who commits are written as when this
+	// account is the one in use. Empty means none was set. They are kept in a
+	// local table, not in the account, and are not secret.
+	AuthorName  string `json:"authorName"`
+	AuthorEmail string `json:"authorEmail"`
 }
 
 // LocalOwnerPrefix marks a scoped row that belongs to no connection profile:

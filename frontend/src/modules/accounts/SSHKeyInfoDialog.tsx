@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Copy } from "lucide-react";
 import {
   Dialog,
@@ -9,6 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldSet } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { PendingStatus } from "@/components/ui/feedback";
 import { copyText } from "@/bridge/clipboard";
 import { sshKeyInfo, type Account, type SSHKeyInfo } from "@/bridge/accounts";
 
@@ -24,6 +28,7 @@ export function SSHKeyInfoDialog({
   account: Account | null;
   onClose: () => void;
 }) {
+  const ids = useId();
   const [info, setInfo] = useState<SSHKeyInfo | null>(null);
   const [error, setError] = useState("");
 
@@ -38,7 +43,7 @@ export function SSHKeyInfoDialog({
 
   return (
     <Dialog open={!!account} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-130" showCloseButton={false}>
+      <DialogContent className="sm:max-w-140">
         <DialogHeader>
           <DialogTitle>{account?.label}</DialogTitle>
           <DialogDescription>
@@ -46,34 +51,35 @@ export function SSHKeyInfoDialog({
           </DialogDescription>
         </DialogHeader>
         {info ? (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <span className="text-label-12 text-text-primary">Fingerprint</span>
-              <p className="rounded-control border border-border-subtle bg-surface-well px-3 py-2 font-mono text-code-12 break-all">
-                {info.fingerprint}
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <span className="text-label-12 text-text-primary">Public key</span>
-              <p className="rounded-control border border-border-subtle bg-surface-well px-3 py-2 font-mono text-code-12 break-all">
-                {info.publicKey}
-              </p>
-            </div>
-          </div>
+          <FieldSet>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-fingerprint`}>Fingerprint</FieldLabel>
+              <Input id={`${ids}-fingerprint`} readOnly value={info.fingerprint} className="font-mono text-code-12" />
+              <FieldDescription>Matches what the provider lists next to the key once it is added.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${ids}-public`}>Public key</FieldLabel>
+              <Textarea
+                id={`${ids}-public`}
+                readOnly
+                rows={3}
+                value={info.publicKey}
+                className="font-mono text-code-12"
+              />
+            </Field>
+          </FieldSet>
         ) : error ? (
-          <p className="text-code-11 text-status-danger" role="alert">
-            {error}
-          </p>
+          <FieldError>{error}</FieldError>
         ) : (
-          <p className="text-body-13 text-text-secondary">Loading…</p>
+          <PendingStatus>Reading the key…</PendingStatus>
         )}
-        <DialogFooter className="sm:justify-end">
-          <Button variant="outline" size="sm" onClick={onClose}>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
             Done
           </Button>
           {info ? (
-            <Button size="sm" onClick={() => void copyText(info.publicKey)}>
-              <Copy className="size-4" aria-hidden />
+            <Button onClick={() => void copyText(info.publicKey)}>
+              <Copy aria-hidden />
               Copy public key
             </Button>
           ) : null}

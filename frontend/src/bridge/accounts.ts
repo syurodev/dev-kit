@@ -26,6 +26,9 @@ export type Account = {
   expiresAt: string;
   verifiedAt: string;
   ref: string;
+  /** Who commits are written as under this account; absent or empty when none was set. */
+  authorName?: string;
+  authorEmail?: string;
 };
 
 export type AccountProvider = {
@@ -115,6 +118,14 @@ export function createSSHKeyAccount(input: {
         input.syncAcrossDevices ?? false,
       )) as Account,
   );
+}
+
+/**
+ * Records the name and email commits are written as when this account is the
+ * one in use. Both empty clears it. Neither is secret.
+ */
+export function setAccountIdentity(id: string, name: string, email: string): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsSetIdentity(id, name, email)) as Account);
 }
 
 /** The fingerprint and public line of a key account — never anything private. */

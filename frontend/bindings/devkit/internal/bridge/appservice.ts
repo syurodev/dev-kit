@@ -193,6 +193,15 @@ export function AccountsSSHKeyInfo(id: string): $CancellablePromise<gitssh$0.Key
     return $Call.ByID(2365324699, id);
 }
 
+/**
+ * AccountsSetIdentity records who commits are written as under an account: the
+ * name and email git puts on them. Both empty clears it. Neither is secret, so
+ * both come back with the account.
+ */
+export function AccountsSetIdentity(id: string, name: string, email: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(1120160480, id, name, email);
+}
+
 export function AccountsSetRevealRequiresPassword(required: boolean): $CancellablePromise<void> {
     return $Call.ByID(1261199274, required);
 }
@@ -1455,6 +1464,15 @@ export function GitCheckout(name: string): $CancellablePromise<void> {
 
 export function GitCommit(message: string, taskKey: string, amend: boolean): $CancellablePromise<git$0.Commit> {
     return $Call.ByID(413335887, message, taskKey, amend);
+}
+
+/**
+ * GitCommitIdentity says who the next commit would be written as, and whether
+ * that is the account for the repository's remote, the repository's own config
+ * or git's. It reads configuration and asks nobody.
+ */
+export function GitCommitIdentity(): $CancellablePromise<git$0.CommitIdentity> {
+    return $Call.ByID(220945441);
 }
 
 /**
