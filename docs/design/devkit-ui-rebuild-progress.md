@@ -1,6 +1,6 @@
 # DevKit — Tiến độ rebuild UI/UX
 
-Cập nhật: 2026-10-04.
+Cập nhật: 2026-10-05.
 
 File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bước triển khai. Quy tắc thiết kế nằm tại [devkit-ui-ux-rules.md](./devkit-ui-ux-rules.md).
 
@@ -18,7 +18,9 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 | 1 | Nền app và hệ bề mặt shell | Đã triển khai; còn kiểm tra trực tiếp cửa sổ native |
 | 2 | Chuẩn hóa feedback: toast, inline error, banner, confirmation, loading | Đã triển khai bộ dùng chung và áp dụng SSH; xem phạm vi bên dưới |
 | 3 | Áp dụng quy tắc vào SSH làm module mẫu | Đã polish bố cục, shadcn và keyboard; browser/SSH protocol test đạt; còn native và server SSH bên ngoài |
-| 4 | Mở rộng sang các module còn lại | Chưa bắt đầu |
+| 4 | Kafka theo chuẩn shell và feedback | Đã triển khai và kiểm tra browser; còn E2E broker/native |
+| 5 | Git: review commit/file và tối ưu tương tác | Đã triển khai; browser và Git trong repository thử nghiệm đạt; còn native/remote thật |
+| 6 | Database theo audit | Chưa bắt đầu |
 
 ## Bước 1 — Nền app và shell
 
@@ -145,15 +147,48 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Browser harness và Go test không thay thế E2E UI với Kafka broker thật/native desktop. Chưa kiểm tra protocol credentials hoặc cluster production.
 - Smoke test native SSH từ bước 3 vẫn pending: cần vault mở và endpoint thử nghiệm để xác minh PTY focus/resize, tunnel, host-key đổi. Không dùng connection cá nhân làm fixture tự động.
 
+## Bước 5 — Git: review commit và tối ưu UX
+
+### Đã triển khai
+
+- Sửa `withGitFolder` để chuyển tiếp document params; tab commit đọc đúng SHA thay vì rơi về working tree. Tiếp tục dùng manifest sidebar và workbench tab strip chung.
+- History mở được commit, tìm theo message/author/SHA/body, tải thêm từng 100 commit tới giới hạn 500. Giữ search và giới hạn tải theo repository trong phiên.
+- Diff header gọn, message body thu gọn, hiển thị author/date/SHA/task và thống kê. Copy SHA/path có feedback; file list có filter, previous/next và mở thêm khi vượt 200 file.
+- Pane rộng có file panel resize bằng shadcn Resizable; pane dưới 760px dùng Popover file picker, mặc định unified. Split/unified là ToggleGroup, lựa chọn của người dùng được giữ trong phiên. Không dựng sidebar hoặc strip riêng.
+- File diff dùng shared DiffPane/DiffSplitPanes và syntax highlighting; loading/error/Retry/binary/empty có scope. Không hiển thị diff file cũ dưới tên file mới. Render đầu 1500 dòng, có Show more.
+- Backend so sánh commit với first parent; root commit so với empty tree. File statistics và patch cùng một cách so sánh, không dùng combined merge diff. Literal pathspec bảo đảm tên chứa dấu `[]` chỉ lấy đúng file.
+- Review staged dùng endpoint đọc index riêng, không lấy nội dung unstaged. Hoạt động cả trước commit đầu tiên; Review unstaged dùng cùng viewer.
+- Gom stash/restore/protection vào menu phụ, giữ Fetch/Pull/Push trên toolbar. Stash/restore/abort merge dùng ConfirmDialog, Cancel nhận focus, pending khóa gửi lại/đóng, failure giữ dialog và chỉ hiện lỗi tại vùng quyết định.
+- Draft commit giữ theo repository trong bộ nhớ, không persist vào UI preferences; chỉ xóa sau commit thành công. Shared operation lock nhận closure để chặn gọi bridge trùng, dùng cho stage/hunk/commit/branch/stash/remote/conflict. Khóa picker của Git trong lúc write đang chạy.
+- Kết quả/error giữ khi rời document; một toast nền có ID theo repository dẫn về Git. Feedback của thao tác không lặp giữa sidebar và document đang xử lý.
+- Dùng Button, Field, Input, Textarea, Badge, DropdownMenu, ScrollArea, Popover, Collapsible, ToggleGroup và Resizable chung. Git không còn nợ typography scale; bỏ các `text-fg-muted` không có token.
+
+### Kiểm tra
+
+- Toàn bộ frontend: **2551 pass, 0 fail**; TypeScript/production build/performance budget: **pass**.
+- `go test ./internal/git/ ./internal/gitparse/ ./internal/bridge/ ./internal/app/ ./internal/arch/ -count=1`: **pass**. Regression cuối cùng Git/gitparse/architecture cũng đạt.
+- Test mới: params qua wrapper; serialize writes cả giữa repositories, giữ draft/error scope/retry, filter history và clear feedback không nhả lock pending. Go dùng Git thật trong temp repositories: root/merge first-parent, literal paths, staged khác unstaged, staged trước commit đầu tiên và từ chối option/range trong revision.
+- Browser harness dùng views qua manifest/wrapper, SidebarSurface, TabStrip, ThemeProvider và Toaster thật với bridge mô phỏng: History → commit → file; filter/Clear, next file, split/unified, binary/root; pane rộng và 860×800 với pane ~558px; file picker, staged review, keyboard resize; draft qua module unmount, double-click chỉ gửi một commit, toast lỗi nền; confirmation safe focus/pending/failure và một lỗi trong dialog.
+- Screenshot dark rộng/light hẹp lưu ngoài repository; harness/tab/viewport tạm đã được dọn sau kiểm tra.
+
+### Giới hạn
+
+- Browser harness mô phỏng bridge. Go tests chạy Git thật trong repository thử nghiệm, chưa thay thế smoke native Wails, credentials hoặc Fetch/Pull/Push tới remote thật.
+- Git vẫn có một repository đang active; các document theo repository của module. Không giả lập nhiều Git sessions độc lập.
+- Search History chỉ tìm trong commits đã tải (tối đa 500). Binary không có text preview; không thêm stash browser, graph branch, blame hoặc rebase/cherry-pick trong phase này.
+- Form conflict và cấu hình remotes dùng shared lock; chưa chuyển draft merge editor hoặc xử lý lỗi tải accounts/env tags sang lifecycle đầy đủ như composer.
+
 ## Bước tiếp theo
 
 1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
-2. Bước 5: migrate Database theo audit, ưu tiên schema/indexing feedback, draft query và lifecycle khi đổi module.
+2. Smoke Git native với repository/remote thử nghiệm: stage/commit/hook failure, guarded commit/push, stash conflict và đổi folder trong lúc thao tác.
+3. Bước 6: migrate Database theo audit, ưu tiên schema/indexing feedback, draft query và lifecycle khi đổi module.
 
 ## Nhật ký
 
 | Ngày | Cập nhật |
 |---|---|
+| 2026-10-05 | Phase 5 Git: sửa commit params/root/merge diff, staged review; tối ưu pane, History và async feedback; frontend 2551 test, build và Go regression đạt |
 | 2026-10-04 | Viết bộ quy tắc UI/UX v1 và triển khai nền/surface shell của bước 1 |
 | 2026-10-04 | Triển khai feedback dùng chung và áp dụng SSH; tạo audit/backlog và kiểm tra browser với bridge mô phỏng |
 | 2026-10-04 | Tạo file tiến độ; ghi kết quả kiểm tra và phần native chưa xác minh |

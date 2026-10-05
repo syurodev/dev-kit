@@ -1,3 +1,11 @@
+import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
+import { SidebarHeader, SidebarInset, SidebarSearch } from "@/components/ui/sidebar-shell";
+import { gitUI, useGitBusy, useGitOperation } from "./gitUI";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { useWorkFolderStore, effectiveFolder } from "@/stores/workFolder";
+import { pinWorkFolder } from "@/bridge/workfolder";
+import { errorMessage } from "@/bridge/errors";
+import { notify } from "@/lib/notify";
 import { useEffect, useState } from "react";
 import { ChevronDown, FolderGit2, GitBranch, GitCommitHorizontal, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +26,7 @@ import { HeadingAction, StatusMark } from "./GitParts";
 import { refreshGitRepo, useGitRepo, useLatestGitRepo } from "./gitRepo";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { focusGitPath, useGitFocus } from "./gitFocus";
-import { openChanges, openCommitDiff } from "./documents";
+import { openChanges, openCommitDiff, openHistory, openFileDiff } from "./documents";
 import { branchMeta, capRows, changeGroups, markKind, splitPath, type ChangeGroup } from "./rail";
 import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./repositories";
 
@@ -55,6 +63,53 @@ export function GitSidebar() {
   const own = useGitRepo(folder);
   const latest = useLatestGitRepo();
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const busy = useGitBusy();
+  const operation = useGitOperation(folder);
+  const activeView = useWorkbenchTabsStore((state) => {
+    const tabs = state.modules.git;
+    return tabs?.openTabs.find((tab) => tab.id === tabs.activeTabId)?.viewId;
+  });
+  const reportOperation = activeView !== "git.changes" && activeView !== "git.remotes";
+  const needle = search.trim().toLowerCase();
+  useEffect(
+    () =>
+      gitUI.useStore.subscribe((next, previous) => {
+        for (const [repo, op] of Object.entries(next.operations)) {
+          if (!previous.operations[repo]?.label || op.label) continue;
+          if (
+            useWorkbenchTabsStore.getState().activeModuleId === "git" &&
+            effectiveFolder(useWorkFolderStore.getState(), "git") === repo
+          )
+            continue;
+          notify({
+            id: `git:${repo}:operation`,
+            title: op.error ? "Git action failed" : op.notice || "Git action completed",
+            tone: op.error ? "error" : "success",
+            action: {
+              label: "Open Git",
+              onClick: () => {
+                if (Object.values(gitUI.useStore.getState().operations).some((value) => value.label)) return;
+                if (effectiveFolder(useWorkFolderStore.getState(), "git") === repo) {
+                  openChanges();
+                  return;
+                }
+                void pinWorkFolder("git", repo)
+                  .then(() => openChanges())
+                  .catch((error) =>
+                    notify({
+                      id: `git:${repo}:open`,
+                      tone: "error",
+                      title: `Could not open repository: ${errorMessage(error)}`,
+                    }),
+                  );
+              },
+            },
+          });
+        }
+      }),
+    [],
+  );
 
   // Read again when the folder or the repository changes, and when anything has
   // changed it (the revision). The view beside this asks with the same stamp, and
@@ -78,6 +133,8 @@ export function GitSidebar() {
   }
 
   async function chooseRepository(repo: Repository) {
+    if (busy) return;
+    setError("");
     try {
       if (repo.path === current) await follow();
       else await pin(repo.path);
@@ -89,22 +146,16 @@ export function GitSidebar() {
   async function actOnGroup(group: ChangeGroup) {
     const action = GROUP_ACTION[group.key];
     if (!action) return;
-    try {
+    await gitUI.run(folder, action.label, async () => {
       await action.run(group.files);
       bumpGitRevision();
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    });
   }
 
   if (!folder) {
     return (
       <div className="flex h-full flex-col select-none">
-        <EmptyState
-          size="rail"
-          title="No folder open"
-          body="Open a project in Code Graph, or pick a folder for Git."
-        />
+        <EmptyState size="rail" title="No folder open" body="Open a project in Code Graph, or pick a folder for Git." />
       </div>
     );
   }
@@ -122,7 +173,14 @@ export function GitSidebar() {
   const carried = project !== "" && !own?.snapshot && snapshot !== null;
   const status = snapshot?.status ?? null;
   const commits = snapshot?.commits ?? null;
-  const groups = status ? changeGroups(status) : [];
+  const groups = status
+    ? changeGroups(status)
+        .map((group) => ({
+          ...group,
+          files: group.files.filter((path) => !needle || path.toLowerCase().includes(needle)),
+        }))
+        .filter((group) => group.files.length)
+    : [];
   // The header does not wait for the read: the repository list already knows
   // each repository's branch and how far it is from its upstream.
   const listed = repos?.find((repo) => repo.path === folder);
@@ -140,13 +198,21 @@ export function GitSidebar() {
 
   return (
     <div className="flex h-full flex-col gap-3 select-none">
-      <div className="flex flex-col gap-1.5">
+      <SidebarHeader>
+        <SidebarSearch
+          value={search}
+          onChange={setSearch}
+          onClear={() => setSearch("")}
+          placeholder="Search changes and commits…"
+        />
+      </SidebarHeader>
+      <SidebarInset className="flex flex-col gap-1.5">
         <RepositoryHeader
           name={pathTail(folder, 1)}
           meta={meta}
           folder={folder}
           repos={showRepos ? repos : null}
-          refreshing={reposLoading}
+          refreshing={reposLoading || busy}
           onOpenMenu={reloadRepos}
           onChoose={(repo) => void chooseRepository(repo)}
           onRefresh={refresh}
@@ -165,7 +231,7 @@ export function GitSidebar() {
             {standing.text}
           </span>
         </div>
-      </div>
+      </SidebarInset>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
         {showRepos ? (
@@ -188,9 +254,14 @@ export function GitSidebar() {
         ) : null}
 
         {project !== "" && status ? (
-          <div aria-busy={carried} className={cn("transition-opacity duration-(--motion-fast)", carried && "pointer-events-none opacity-50")}>
+          <div
+            aria-busy={carried}
+            className={cn("transition-opacity duration-(--motion-fast)", carried && "pointer-events-none opacity-50")}
+          >
             {groups.length === 0 ? (
-              <div className="px-3 py-1 text-body-13 text-text-tertiary">The work tree is clean.</div>
+              <div className="px-3 py-1 text-body-13 text-text-tertiary">
+                {needle ? "No matching changes." : "The work tree is clean."}
+              </div>
             ) : (
               groups.map((group, index) => {
                 const { shown, hidden } = capRows(group.files, FILE_ROWS);
@@ -202,7 +273,11 @@ export function GitSidebar() {
                       label={group.label}
                       count={group.files.length}
                       actions={
-                        action ? <HeadingAction onClick={() => void actOnGroup(group)}>{action.label}</HeadingAction> : null
+                        action ? (
+                          <HeadingAction disabled={busy} onClick={() => void actOnGroup(group)}>
+                            {action.label}
+                          </HeadingAction>
+                        ) : null
                       }
                     />
                     {shown.map((path) => (
@@ -224,23 +299,34 @@ export function GitSidebar() {
 
             {commits && commits.length > 0 ? (
               <>
-                <SidebarSection label="History" count={commits.length} />
-                {commits.map((commit) => (
-                  <SidebarRow
-                    key={commit.sha}
-                    tier="card"
-                    icon={<GitCommitHorizontal className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />}
-                    label={
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate">{commit.subject}</span>
-                        <span className="truncate text-code-11 text-text-tertiary">
-                          {commit.short} · {commit.author} · {commit.date.slice(0, 10)}
+                <SidebarSection
+                  label="History"
+                  count={commits.length}
+                  actions={<HeadingAction onClick={openHistory}>View all</HeadingAction>}
+                />
+                {commits
+                  .filter(
+                    (commit) =>
+                      !needle || `${commit.subject} ${commit.author} ${commit.sha}`.toLowerCase().includes(needle),
+                  )
+                  .map((commit) => (
+                    <SidebarRow
+                      key={commit.sha}
+                      tier="card"
+                      icon={
+                        <GitCommitHorizontal className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
+                      }
+                      label={
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate">{commit.subject}</span>
+                          <span className="truncate text-code-11 text-text-tertiary">
+                            {commit.short} · {commit.author} · {commit.date.slice(0, 10)}
+                          </span>
                         </span>
-                      </span>
-                    }
-                    onClick={() => openCommit(commit)}
-                  />
-                ))}
+                      }
+                      onClick={() => openCommit(commit)}
+                    />
+                  ))}
               </>
             ) : null}
           </div>
@@ -250,7 +336,18 @@ export function GitSidebar() {
           <EmptyState size="rail" body="This folder is not a git repository, and holds none." />
         ) : null}
 
-        {error ? <div className="px-3 py-2 text-code-11 text-status-danger">{error}</div> : null}
+        {busy && reportOperation && (
+          <SidebarInset>
+            <PendingStatus>{operation.label || "Updating repository…"}</PendingStatus>
+          </SidebarInset>
+        )}
+        {(error || (reportOperation && (operation.error || own?.error))) && (
+          <SidebarInset>
+            <FeedbackBanner tone="error" title="Git action failed">
+              {error || operation.error || own?.error}
+            </FeedbackBanner>
+          </SidebarInset>
+        )}
       </div>
 
       <div className="flex h-10 shrink-0 items-center gap-2 px-3 text-code-11 text-text-tertiary">
@@ -262,6 +359,7 @@ export function GitSidebar() {
           <button
             type="button"
             className="shrink-0 text-caption-11 hover:text-text-primary"
+            disabled={busy}
             onClick={() => void follow().catch((e: Error) => setError(e.message))}
           >
             Follow open project
@@ -352,7 +450,9 @@ function RepositoryItem({ repo, active, onChoose }: { repo: Repository; active: 
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-3 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
         SIDEBAR_ROW_HEIGHT.card,
-        active ? "bg-surface-raised text-text-primary" : "text-text-secondary hover:bg-state-soft hover:text-text-primary",
+        active
+          ? "bg-surface-raised text-text-primary"
+          : "text-text-secondary hover:bg-state-soft hover:text-text-primary",
       )}
     >
       <span className="flex min-w-0 flex-1 flex-col gap-px">
@@ -410,7 +510,8 @@ function openChange(path: string, group: ChangeGroup["key"]) {
   // Only a changed file has hunks to unfold; a staged or untracked one has
   // none to pick, so it must not leave the previous choice standing.
   focusGitPath(group === "unstaged" ? path : "");
-  openChanges();
+  if (group === "staged") openFileDiff(path, true);
+  else openChanges();
 }
 
 function openCommit(commit: Commit) {

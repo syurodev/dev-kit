@@ -12,12 +12,12 @@ và đẩy đi. Không nhiều hơn. Mọi thứ ngoài ba việc đó, terminal
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Design only">
-Chưa có runtime: chưa có `internal/git`, chưa có
-`frontend/src/modules/git/`. Đã có sẵn và sẽ dùng lại:
-`internal/checkpoint` (`Locate`, parser của `Diff`),
-`Service.GitStatus` + `parsePorcelain` trong `internal/codegraph/indexinfo.go`,
-`agenthub.FileDiff` và checkpoint mỗi lượt.
+<Callout type="info" title="Runtime hiện tại">
+Đã có `internal/git` và UI Git. Changes, History, commit/file diff, stage theo file/hunk,
+branch, stash/restore và remotes chạy qua bridge. Tab commit dùng workbench strip;
+file diff đọc first parent (root dùng empty tree), staged review đọc index.
+Phần BRD dưới đây là thiết kế ban đầu, gồm cả yêu cầu chưa triển khai; phạm vi và
+kết quả kiểm tra hiện tại được ghi trong `docs/design/devkit-ui-rebuild-progress.md`.
 </Callout>
 
 ```mermaid

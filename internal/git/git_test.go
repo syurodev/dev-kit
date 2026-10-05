@@ -757,3 +757,139 @@ func TestShowAndRevPatchRefuseAnythingButAHash(t *testing.T) {
 		}
 	}
 }
+
+// File counts and patches must agree for roots and merge commits. A merge is
+// compared with its first parent, rather than only showing combined conflicts.
+func TestCommitDiffIncludesRootAndFirstParentMerge(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	log, err := svc.Log(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes, err := svc.Diff(ctx, log[0].SHA, false)
+	if err != nil || len(changes) != 1 || changes[0].Path != "README.md" || changes[0].Added != 1 {
+		t.Fatalf("root diff: %+v, %v", changes, err)
+	}
+	patch, err := svc.RevPatch(ctx, log[0].SHA, "README.md")
+	if err != nil || !strings.Contains(patch, "+hello") {
+		t.Fatalf("root patch: %q, %v", patch, err)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(svc.availability.Path, append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v %s", args, err, out)
+		}
+	}
+	run("switch", "-c", "feature")
+	write(t, dir, "feature.txt", "from feature\n")
+	run("add", ".")
+	run("commit", "-m", "feature")
+	run("switch", "main")
+	write(t, dir, "main.txt", "from main\n")
+	run("add", ".")
+	run("commit", "-m", "main")
+	run("merge", "--no-ff", "feature", "-m", "merge feature")
+	log, err = svc.Log(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes, err = svc.Diff(ctx, log[0].SHA, false)
+	if err != nil || len(changes) != 1 || changes[0].Path != "feature.txt" {
+		t.Fatalf("merge diff: %+v, %v", changes, err)
+	}
+	patch, err = svc.RevPatch(ctx, log[0].SHA, "feature.txt")
+	if err != nil || !strings.Contains(patch, "+from feature") {
+		t.Fatalf("merge patch: %q, %v", patch, err)
+	}
+}
+
+func TestCommitPatchUsesLiteralPath(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "[literal].txt", "only literal\n")
+	write(t, dir, "l.txt", "other file\n")
+	if err := svc.Stage(ctx, []string{"."}); err != nil {
+		t.Fatal(err)
+	}
+	commit, err := svc.Commit(ctx, CommitInput{Message: "literal paths"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch, err := svc.RevPatch(ctx, commit.SHA, "[literal].txt")
+	if err != nil || !strings.Contains(patch, "+only literal") || strings.Contains(patch, "+other file") {
+		t.Fatalf("literal patch: %q, %v", patch, err)
+	}
+}
+
+func TestIndexPatchSeparatesStagedFromUnstagedLiteralFile(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "[literal].txt", "staged content\n")
+	write(t, dir, "l.txt", "not the literal file\n")
+	if err := svc.Stage(ctx, []string{"[literal].txt", "l.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "[literal].txt", "working content\n")
+	index, err := svc.IndexPatch(ctx, "[literal].txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := svc.FilePatch(ctx, "[literal].txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(index, "+staged content") || strings.Contains(index, "working content") || strings.Contains(index, "not the literal") {
+		t.Fatalf("index patch: %s", index)
+	}
+	if !strings.Contains(work, "-staged content") || !strings.Contains(work, "+working content") {
+		t.Fatalf("working patch: %s", work)
+	}
+}
+
+func TestIndexPatchBeforeFirstCommit(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(ctx)
+	if !svc.Available() {
+		t.Skip("no usable git")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command(svc.availability.Path, "-C", dir, "init", "--initial-branch=main", "--template=").CombinedOutput(); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	if err := svc.Open(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "README.md", "first staged file\n")
+	if err := svc.Stage(ctx, []string{"README.md"}); err != nil {
+		t.Fatal(err)
+	}
+	patch, err := svc.IndexPatch(ctx, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(patch, "--- /dev/null") || !strings.Contains(patch, "+first staged file") {
+		t.Fatalf("patch: %s", patch)
+	}
+	changes, err := svc.Diff(ctx, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Path != "README.md" || changes[0].Added != 1 {
+		t.Fatalf("changes: %+v", changes)
+	}
+}
+
+func TestCommitComparisonAcceptsOneRefAndRefusesOptionsAndRanges(t *testing.T) {
+	svc, _ := newRepo(t)
+	ctx := context.Background()
+	if _, err := svc.Diff(ctx, "HEAD", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, rev := range []string{"--output=/tmp/x", "main..HEAD", "HEAD HEAD", "missing"} {
+		if _, err := svc.Diff(ctx, rev, false); err == nil {
+			t.Errorf("Diff(%q) was allowed", rev)
+		}
+	}
+}

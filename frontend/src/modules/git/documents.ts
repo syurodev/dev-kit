@@ -8,11 +8,14 @@ export const CHANGES_VIEW = "git.changes";
 /**
  * Opens one commit's diff as a tab — GitSidebar's history row, and
  * `git.reveal` (docs/dev-kit/cross-module.mdx) for anywhere else. `rev` is
- * any revision git accepts, not just a full SHA; GitDiffView reads it back
+ * the commit SHA returned by Git; GitDiffView reads it back
  * out of `params.rev`.
  */
 export function openCommitDiff(rev: string, title: string, options: { beside?: boolean } = {}): void {
-  void getModule(MODULE)?.views.find((v) => v.id === DIFF_VIEW)?.preload?.().catch(() => undefined);
+  void getModule(MODULE)
+    ?.views.find((v) => v.id === DIFF_VIEW)
+    ?.preload?.()
+    .catch(() => undefined);
   useWorkbenchTabsStore.getState().openTab({
     moduleId: MODULE,
     viewId: DIFF_VIEW,
@@ -23,14 +26,12 @@ export function openCommitDiff(rev: string, title: string, options: { beside?: b
   });
 }
 
-/**
- * Opens the working tree's Changes view — where an unstaged or staged diff
- * (an empty `rev`) is actually browsable; GitDiffView's own `git.diff` tab
- * only ever shows the unstaged work tree, so a `git.diff` tool call made
- * with `staged: true` is not literally reproducible there.
- */
+/** Opens the working tree and its commit composer. */
 export function openChanges(options: { beside?: boolean } = {}): void {
-  void getModule(MODULE)?.views.find((v) => v.id === CHANGES_VIEW)?.preload?.().catch(() => undefined);
+  void getModule(MODULE)
+    ?.views.find((v) => v.id === CHANGES_VIEW)
+    ?.preload?.()
+    .catch(() => undefined);
   useWorkbenchTabsStore.getState().openTab({
     moduleId: MODULE,
     viewId: CHANGES_VIEW,
@@ -38,4 +39,19 @@ export function openChanges(options: { beside?: boolean } = {}): void {
     icon: viewIcon(MODULE, CHANGES_VIEW),
     beside: options.beside,
   });
+}
+
+/** Review one staged or unstaged file with the same viewer as commit history. */
+export function openFileDiff(path: string, staged: boolean): void {
+  useWorkbenchTabsStore.getState().openTab({
+    moduleId: MODULE,
+    viewId: DIFF_VIEW,
+    title: `${staged ? "Staged" : "Changes"}: ${path.split("/").pop()}`,
+    params: { path, staged },
+    preview: true,
+  });
+}
+
+export function openHistory(): void {
+  useWorkbenchTabsStore.getState().openTab({ moduleId: MODULE, viewId: "git.history", title: "History" });
 }

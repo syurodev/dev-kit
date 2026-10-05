@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { MarkKind } from "./rail";
@@ -10,14 +11,32 @@ import type { MarkKind } from "./rail";
  */
 
 const MARK: Record<MarkKind, { letter: string; className: string }> = {
-  modified: { letter: "M", className: "bg-status-warning text-action-primary-foreground" },
-  added: { letter: "A", className: "bg-status-success text-action-primary-foreground" },
-  deleted: { letter: "D", className: "bg-status-danger text-action-primary-foreground" },
-  untracked: { letter: "U", className: "bg-status-info text-action-primary-foreground" },
-  renamed: { letter: "R", className: "bg-status-recovery text-action-primary-foreground" },
+  modified: {
+    letter: "M",
+    className: "bg-status-warning text-action-primary-foreground",
+  },
+  added: {
+    letter: "A",
+    className: "bg-status-success text-action-primary-foreground",
+  },
+  deleted: {
+    letter: "D",
+    className: "bg-status-danger text-action-primary-foreground",
+  },
+  untracked: {
+    letter: "U",
+    className: "bg-status-info text-action-primary-foreground",
+  },
+  renamed: {
+    letter: "R",
+    className: "bg-status-recovery text-action-primary-foreground",
+  },
   // Outlined rather than filled: a conflict is the one mark that asks for
   // something, and a solid red block down a rail reads as an error.
-  conflict: { letter: "!", className: "border border-(--border-danger) bg-(--feedback-danger-soft) text-status-danger" },
+  conflict: {
+    letter: "!",
+    className: "border border-(--border-danger) bg-(--feedback-danger-soft) text-status-danger",
+  },
 };
 
 const MARK_NAME: Record<MarkKind, string> = {
@@ -47,38 +66,20 @@ export function StatusMark({ kind }: { kind: MarkKind }) {
 }
 
 /** The small bordered action at the end of a row: Stage, Unstage, Stage hunk. */
-export function RowAction({
-  children,
-  className,
-  ...props
-}: React.ComponentProps<"button">) {
+export function RowAction({ children, className, ...props }: React.ComponentProps<"button">) {
   return (
-    <button
-      type="button"
-      className={cn(
-        "shrink-0 rounded-md border border-border-subtle px-2.5 py-0.75 text-label-12 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-state-soft hover:text-text-primary disabled:pointer-events-none disabled:opacity-38",
-        className,
-      )}
-      {...props}
-    >
+    <Button variant="outline" size="sm" className={cn("shrink-0", className)} {...props}>
       {children}
-    </button>
+    </Button>
   );
 }
 
 /** A quiet text action in a section heading: Stage all, Unstage all, Refresh. */
 export function HeadingAction({ children, className, ...props }: React.ComponentProps<"button">) {
   return (
-    <button
-      type="button"
-      className={cn(
-        "shrink-0 text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:text-text-primary disabled:pointer-events-none disabled:opacity-38",
-        className,
-      )}
-      {...props}
-    >
+    <Button variant="ghost" size="sm" className={cn("shrink-0 px-1 text-text-tertiary", className)} {...props}>
       {children}
-    </button>
+    </Button>
   );
 }
 

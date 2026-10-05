@@ -1,7 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { gitUI, useGitBusy, useGitDraft, useGitOperation } from "./gitUI";
+import { openFileDiff, openHistory } from "./documents";
+import { useEffect, useMemo, useState, useId, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { ArrowRight, ChevronDown, ChevronRight, GitBranch, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, GitBranch, ShieldCheck, Ellipsis } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DiffLineRow } from "@/components/ui/diff";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +32,8 @@ import {
   gitStage,
   gitStageHunk,
   gitUnstage,
+  gitStash,
+  gitStashPop,
   seedMessage,
 } from "@/bridge/git";
 import { cn } from "@/lib/utils";
@@ -55,20 +71,37 @@ function HunkList({
   onStaged: () => void;
   onError: (message: string) => void;
 }) {
-  const [patch, setPatch] = useState<FilePatch | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { folder } = useModuleFolder("git");
+  const busy = useGitBusy();
+  const revision = useGitRevision((state) => state.revision);
+  const query = useQuery({
+    queryKey: ["git", "patch", folder, "", path, false, revision],
+    queryFn: () => gitFilePatch(path),
+  });
+  const patch = useMemo(() => (query.data === undefined ? null : parsePatch(query.data)), [query.data]);
 
-  const load = useCallback(() => {
-    gitFilePatch(path)
-      .then((text) => setPatch(parsePatch(text)))
-      .catch((e: Error) => onError(e.message));
-  }, [path, onError]);
-
-  useEffect(load, [load]);
-
-  if (!patch) {
-    return <p className="px-3 pb-2 pl-10 text-caption-11 text-text-tertiary">Reading the diff…</p>;
-  }
+  if (query.error)
+    return (
+      <div className="px-3 pb-2">
+        <FeedbackBanner
+          tone="error"
+          title="Could not read hunks"
+          action={
+            <Button variant="outline" onClick={() => void query.refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          {String(query.error instanceof Error ? query.error.message : query.error)}
+        </FeedbackBanner>
+      </div>
+    );
+  if (!patch)
+    return (
+      <div className="px-3 pb-2 pl-10">
+        <PendingStatus>Reading the diff…</PendingStatus>
+      </div>
+    );
   if (patch.binary || patch.hunks.length === 0) {
     return (
       <p className="px-3 pb-2 pl-10 text-caption-11 text-text-tertiary">
@@ -83,21 +116,26 @@ function HunkList({
     if (!patch) return;
     const text = buildPatch(patch, [index]);
     if (!text) return;
-    setBusy(true);
-    gitStageHunk(text)
-      .then(() => {
-        // Both: the file lists change, and so does what is left here.
+    void gitUI
+      .run(folder, "Staging hunk…", async () => {
+        await gitStageHunk(text);
         onStaged();
-        load();
       })
-      .catch((e: Error) => onError(e.message))
-      .finally(() => setBusy(false));
+      .then((ok) => {
+        if (!ok) onError(gitUI.useStore.getState().operations[folder]?.error ?? "");
+      });
   }
 
   return (
     <div className="flex flex-col gap-2 px-3 pb-3">
       {patch.hunks.map((hunk, index) => (
-        <HunkCard key={`${index}:${hunk.header}`} path={path} hunk={hunk} busy={busy} onStage={() => stage(index)} />
+        <HunkCard
+          key={`${index}:${hunk.header}`}
+          path={path}
+          hunk={hunk}
+          busy={busy || query.isFetching}
+          onStage={() => stage(index)}
+        />
       ))}
     </div>
   );
@@ -135,9 +173,7 @@ function HunkCard({ path, hunk, busy, onStage }: { path: string; hunk: Hunk; bus
           />
         ))}
         {rows.length > PREVIEW_LINES ? (
-          <div className="px-3 py-1 text-code-11 text-text-tertiary">
-            …{rows.length - PREVIEW_LINES} more lines
-          </div>
+          <div className="px-3 py-1 text-code-11 text-text-tertiary">…{rows.length - PREVIEW_LINES} more lines</div>
         ) : null}
       </div>
     </div>
@@ -168,7 +204,10 @@ function ChangeSection({
 }) {
   // Rows that come and go — a file staged, a hunk done — slide instead of
   // cutting; the same 180 ms as every other list in the app.
-  const [list] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const [list] = useAutoAnimate<HTMLUListElement>({
+    duration: 180,
+    easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+  });
   const hidden = limit !== undefined && count > limit ? count - limit : 0;
   return (
     <section>
@@ -214,6 +253,7 @@ function ChangeRow({
   onAction,
   open,
   onToggle,
+  onReview,
   children,
 }: {
   path: string;
@@ -223,8 +263,10 @@ function ChangeRow({
   /** Undefined for a row that cannot unfold. */
   open?: boolean;
   onToggle?: () => void;
+  onReview?: () => void;
   children?: ReactNode;
 }) {
+  const busy = useGitBusy();
   const { name, dir } = splitPath(path);
   const unfolded = open === true;
   const label = (
@@ -262,7 +304,14 @@ function ChangeRow({
             {label}
           </div>
         )}
-        <RowAction onClick={onAction}>{action}</RowAction>
+        {onReview && (
+          <Button size="sm" variant="ghost" onClick={onReview} aria-label={`Review ${path}`}>
+            Review
+          </Button>
+        )}
+        <RowAction disabled={busy} onClick={onAction}>
+          {action}
+        </RowAction>
       </div>
       {unfolded ? children : null}
     </li>
@@ -295,8 +344,14 @@ export function GitChangesView() {
   const [resolving, setResolving] = useState("");
   // The network action in flight, "" when none. One at a time: a pull under a
   // push is a race over the same branch.
-  const [busy, setBusy] = useState("");
-  const [notice, setNotice] = useState("");
+  const operation = useGitOperation(folder);
+  const busy = useGitBusy();
+  const visible = useModuleVisibility();
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!visible) setMoreOpen(false);
+  }, [visible]);
+  const [confirm, setConfirm] = useState<"stash" | "restore" | "abort" | null>(null);
   // What an action here failed with. A failed read is the entry's own error.
   const [actionError, setActionError] = useState("");
   // How many rows each section shows, when it has been asked for more.
@@ -318,32 +373,43 @@ export function GitChangesView() {
     void refreshGitRepo(folder, String(revision));
   }, [folder, revision]);
 
-  const fail = (e: Error) => setActionError(e.message);
-
   /** Runs a change to the repository, then has everything that shows it read again. */
-  function change(work: Promise<unknown>) {
+  function change(work: () => Promise<unknown>, label = "Updating changes", notice = "") {
     setActionError("");
-    work.then(bumpGitRevision).catch(fail);
-  }
-
-  function network(key: string, work: Promise<void>, done: string) {
-    setBusy(key);
-    setNotice("");
-    setActionError("");
-    work
-      .then(() => {
-        setNotice(done);
+    return gitUI.run(
+      folder,
+      label,
+      async () => {
+        await work();
         bumpGitRevision();
-      })
-      .catch(fail)
-      .finally(() => setBusy(""));
+      },
+      notice,
+    );
+  }
+  function ask(action: "stash" | "restore" | "abort") {
+    gitUI.clearFeedback(folder);
+    setActionError("");
+    setConfirm(action);
+  }
+  function network(key: string, work: () => Promise<void>, done: string) {
+    void change(work, `${key[0].toUpperCase()}${key.slice(1)} in progress…`, done);
   }
 
   if (unavailable) {
     return <EmptyState icon={GitBranch} title="Git is not available" body={unavailable} />;
   }
   if (!snapshot && entry?.error) {
-    return <EmptyState icon={GitBranch} title="Nothing to show" body={entry.error} />;
+    return (
+      <EmptyState
+        icon={GitBranch}
+        title="Could not read repository"
+        body={entry.error}
+        action={{
+          label: "Retry",
+          onClick: () => void refreshGitRepo(folder, `retry:${Date.now()}`),
+        }}
+      />
+    );
   }
   if (!snapshot) {
     // Nothing read yet and nothing remembered: hold the bar's place so the
@@ -351,6 +417,9 @@ export function GitChangesView() {
     return (
       <div className="flex h-full min-h-0 flex-col px-4 pt-4">
         <GitFolderBar />
+        <div className="py-3">
+          <PendingStatus>Reading repository…</PendingStatus>
+        </div>
       </div>
     );
   }
@@ -386,79 +455,98 @@ export function GitChangesView() {
   const sync = syncText(status);
   const toggle = (path: string) => focusGitPath(expanded === path ? "" : path);
   const limitOf = (key: string) => limits[key] ?? SECTION_ROWS;
-  const more = (key: string) => () => setLimits((current) => ({ ...current, [key]: limitOf(key) + SECTION_ROWS }));
-  const problem = actionError || entry?.error || "";
+  const more = (key: string) => () =>
+    setLimits((current) => ({
+      ...current,
+      [key]: limitOf(key) + SECTION_ROWS,
+    }));
+  const problem = operation.error || actionError || entry?.error || "";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-col gap-3.5 px-4 pt-4 pb-3">
         <GitFolderBar />
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <GitBranchMenu
+            disabled={busy}
             branch={status.branch}
             dirty={staged.length + unstaged.length + conflicted.length > 0}
             onChanged={bumpGitRevision}
             onError={setActionError}
           />
           {sync ? <span className="text-code-11 tabular-nums text-text-tertiary">{sync}</span> : null}
-          {guard ? (
-            <button
-              type="button"
-              aria-label={`Stop asking before commits on ${guard.pattern}`}
-              title={`Committing on ${guard.pattern} asks first (${guard.env}). Click to stop asking.`}
-              onClick={() => change(deleteGuard(guard.id))}
-              className="inline-flex items-center gap-1.5 rounded-md bg-action-primary/12 px-2 py-0.75 text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:bg-action-primary/20"
+          {guard && (
+            <span
+              className="inline-flex items-center gap-1.5 text-caption-11 text-text-secondary"
+              title={`Asks before commits (${guard.env})`}
             >
-              <ShieldCheck className="size-(--icon-12) shrink-0" aria-hidden />
-              {guard.pattern} · asks before committing
-            </button>
-          ) : status.branch ? (
-            <Button
-              variant="ghost"
-              title="Ask before every commit on this branch"
-              // prod is the tag this is nearly always for; an env tag that
-              // does not require confirmation makes the guard a no-op, which
-              // the backend already treats as "not gated".
-              onClick={() => change(createGuard(status.branch, "prod"))}
-            >
-              Protect branch
-            </Button>
-          ) : null}
+              <ShieldCheck className="size-3" />
+              Protected
+            </span>
+          )}
           <span className="min-w-0 flex-1" />
-          <Button
-            variant="outline"
-            disabled={busy !== "" || !remote}
-            title={
-              remote
-                ? "Goes over the network and changes nothing in the work tree"
-                : "This repository has no remote"
-            }
-            onClick={() => network("fetch", gitFetch(remote), `Fetched ${remote}`)}
-          >
-            Fetch
-          </Button>
-          <Button
-            variant="outline"
-            disabled={busy !== "" || !remote}
-            title="Fast-forward only"
-            onClick={() => network("pull", gitPull(remote), `Pulled ${remote}`)}
-          >
-            Pull
-          </Button>
-          <Button
-            disabled={busy !== "" || !remote || !status.branch}
-            onClick={() =>
-              network(
-                "push",
-                // Without an upstream the push has to set one, or the branch
-                // is pushed and still reports as untracked.
-                gitPush(remote, status.branch, !status.upstream),
-                `Pushed ${status.branch} to ${remote}`,
-              )
-            }
-          >
-            Push
-          </Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button variant="ghost" onClick={openHistory}>
+              History
+            </Button>
+            <DropdownMenu open={moreOpen && visible} onOpenChange={setMoreOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="More Git actions" disabled={busy}>
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={clean || conflicted.length > 0} onSelect={() => ask("stash")}>
+                  Stash changes…
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={conflicted.length > 0} onSelect={() => ask("restore")}>
+                  Restore latest stash…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={!status.branch}
+                  icon={<ShieldCheck />}
+                  onSelect={() =>
+                    void change(() => (guard ? deleteGuard(guard.id) : createGuard(status.branch, "prod")))
+                  }
+                >
+                  {guard ? "Remove branch protection" : "Protect branch"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="outline"
+              disabled={busy || !remote}
+              title={
+                remote ? "Goes over the network and changes nothing in the work tree" : "This repository has no remote"
+              }
+              onClick={() => network("fetch", () => gitFetch(remote), `Fetched ${remote}`)}
+            >
+              Fetch
+            </Button>
+            <Button
+              variant="outline"
+              disabled={busy || !remote}
+              title="Fast-forward only"
+              onClick={() => network("pull", () => gitPull(remote), `Pulled ${remote}`)}
+            >
+              Pull
+            </Button>
+            <Button
+              disabled={busy || !remote || !status.branch}
+              onClick={() =>
+                network(
+                  "push",
+                  // Without an upstream the push has to set one, or the branch
+                  // is pushed and still reports as untracked.
+                  () => gitPush(remote, status.branch, !status.upstream),
+                  `Pushed ${status.branch} to ${remote}`,
+                )
+              }
+            >
+              Push
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -474,21 +562,16 @@ export function GitChangesView() {
             onMore={more("conflicted")}
             actions={
               <HeadingAction
+                disabled={busy}
                 title="Throw the whole merge away and go back to before it started"
-                onClick={() => change(gitAbortMerge())}
+                onClick={() => ask("abort")}
               >
                 Abort merge
               </HeadingAction>
             }
           >
             {conflicted.slice(0, limitOf("conflicted")).map((path) => (
-              <ChangeRow
-                key={path}
-                path={path}
-                kind="conflict"
-                action="Resolve"
-                onAction={() => setResolving(path)}
-              />
+              <ChangeRow key={path} path={path} kind="conflict" action="Resolve" onAction={() => setResolving(path)} />
             ))}
           </ChangeSection>
         ) : null}
@@ -499,15 +582,20 @@ export function GitChangesView() {
             count={staged.length}
             limit={limitOf("staged")}
             onMore={more("staged")}
-            actions={<HeadingAction onClick={() => change(gitUnstage(staged))}>Unstage all</HeadingAction>}
+            actions={
+              <HeadingAction disabled={busy} onClick={() => change(() => gitUnstage(staged))}>
+                Unstage all
+              </HeadingAction>
+            }
           >
             {staged.slice(0, limitOf("staged")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
+                onReview={() => openFileDiff(path, true)}
                 kind={markKind("staged", status.files[path])}
                 action="Unstage"
-                onAction={() => change(gitUnstage([path]))}
+                onAction={() => change(() => gitUnstage([path]))}
               />
             ))}
           </ChangeSection>
@@ -519,15 +607,20 @@ export function GitChangesView() {
             count={unstaged.length}
             limit={limitOf("unstaged")}
             onMore={more("unstaged")}
-            actions={<HeadingAction onClick={() => change(gitStage(unstaged))}>Stage all</HeadingAction>}
+            actions={
+              <HeadingAction disabled={busy} onClick={() => change(() => gitStage(unstaged))}>
+                Stage all
+              </HeadingAction>
+            }
           >
             {unstaged.slice(0, limitOf("unstaged")).map((path) => (
               <ChangeRow
                 key={path}
                 path={path}
+                onReview={() => openFileDiff(path, false)}
                 kind={markKind("unstaged", status.files[path])}
                 action="Stage"
-                onAction={() => change(gitStage([path]))}
+                onAction={() => change(() => gitStage([path]))}
                 open={expanded === path}
                 onToggle={() => toggle(path)}
               >
@@ -543,7 +636,11 @@ export function GitChangesView() {
             count={untracked.length}
             limit={limitOf("untracked")}
             onMore={more("untracked")}
-            actions={<HeadingAction onClick={() => change(gitStage(untracked))}>Stage all</HeadingAction>}
+            actions={
+              <HeadingAction disabled={busy} onClick={() => change(() => gitStage(untracked))}>
+                Stage all
+              </HeadingAction>
+            }
           >
             {untracked.slice(0, limitOf("untracked")).map((path) => (
               <ChangeRow
@@ -551,7 +648,7 @@ export function GitChangesView() {
                 path={path}
                 kind="untracked"
                 action="Stage"
-                onAction={() => change(gitStage([path]))}
+                onAction={() => change(() => gitStage([path]))}
               />
             ))}
           </ChangeSection>
@@ -559,70 +656,118 @@ export function GitChangesView() {
       </div>
 
       <footer className="flex shrink-0 flex-col gap-2 px-4 pt-2 pb-4">
-        {/* One line is always here, so a message arriving does not push the
-            composer down and shrink the list above it. */}
-        <p
-          className={cn("min-h-4 text-caption-11", problem ? "text-status-danger" : "text-text-tertiary")}
-          role={problem ? "alert" : "status"}
-        >
-          {problem || notice}
-        </p>
+        {busy && <PendingStatus>{operation.label || "Updating repository…"}</PendingStatus>}
+        {problem && !confirm && (
+          <FeedbackBanner tone="error" title="Git action failed">
+            {problem}
+          </FeedbackBanner>
+        )}
+        {operation.notice && <FeedbackBanner tone="success" title={operation.notice} />}
         <Composer
+          folder={folder}
+          busy={busy}
           staged={staged}
           branch={status.branch}
           blocked={conflicted.length > 0}
-          onCommit={(message) => {
-            setActionError("");
-            return gitCommit(message)
-              .then(() => bumpGitRevision())
-              .catch((e: Error) => {
-                fail(e);
-                // The message is kept: a refused commit is not a lost one.
-                throw e;
-              });
-          }}
+          onCommit={(message) =>
+            change(
+              async () => {
+                await gitCommit(message);
+                gitUI.setDraft(folder, { message: "" });
+              },
+              "Committing…",
+              "Commit created",
+            )
+          }
         />
       </footer>
+      <ConfirmDialog
+        open={!!confirm && visible}
+        onClose={() => setConfirm(null)}
+        title={
+          confirm === "stash"
+            ? "Stash current changes?"
+            : confirm === "restore"
+              ? "Restore the latest stash?"
+              : "Abort this merge?"
+        }
+        confirmLabel={confirm === "stash" ? "Stash changes" : confirm === "restore" ? "Restore stash" : "Abort merge"}
+        pendingLabel="Updating repository…"
+        pending={busy}
+        error={operation.error}
+        onConfirm={() => {
+          const action =
+            confirm === "stash"
+              ? () => gitStash("DevKit: work in progress")
+              : confirm === "restore"
+                ? gitStashPop
+                : gitAbortMerge;
+          void change(
+            action,
+            "Updating repository…",
+            confirm === "stash" ? "Changes stashed" : confirm === "restore" ? "Stash restored" : "Merge aborted",
+          ).then((ok) => {
+            if (ok) setConfirm(null);
+            else bumpGitRevision();
+          });
+        }}
+      >
+        {confirm === "stash"
+          ? "Saves staged, unstaged and untracked files, then clears the working tree. Restore stash brings the saved work back."
+          : confirm === "restore"
+            ? "Applies and removes the latest stash after a successful restore. Conflicts may require resolution; a failed restore keeps the stash."
+            : "Returns the repository to its state before this merge. Changes made during the merge can be lost."}
+      </ConfirmDialog>
     </div>
   );
 }
 
 /**
  * The commit message and the button that commits it. The message is state of
- * this component and no other: it changes with every keystroke, and if the view
- * held it the lists of files above would be redrawn for each one.
+ * a session draft scoped to the repository, so switching documents keeps it.
  */
 function Composer({
+  folder,
+  busy,
   staged,
   branch,
   blocked,
   onCommit,
 }: {
+  folder: string;
+  busy: boolean;
   staged: string[];
   branch: string;
   /** Unmerged files: the backend refuses a commit while any remain. */
   blocked: boolean;
   /** Rejects when the commit fails, so the message is kept. */
-  onCommit: (message: string) => Promise<void>;
+  onCommit: (message: string) => Promise<boolean>;
 }) {
-  const [message, setMessage] = useState("");
+  const messageId = useId();
+  const { message } = useGitDraft(folder);
+  const setMessage = (value: string) => gitUI.setDraft(folder, { message: value });
   return (
     <>
-      <Textarea
-        value={message}
-        onChange={(event) => setMessage(event.target.value)}
-        placeholder="Commit message"
-        rows={3}
-        aria-label="Commit message"
-        className="min-h-17 rounded-lg border-0 bg-state-soft px-3 py-2.5 text-body-13 dark:bg-state-soft"
-      />
-      <div className="flex items-center gap-3">
+      <Field>
+        <FieldLabel htmlFor={messageId}>Commit message</FieldLabel>
+        <Textarea
+          id={messageId}
+          disabled={busy}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Commit message"
+          rows={3}
+          aria-label="Commit message"
+          className="min-h-17 rounded-lg border-0 bg-state-soft px-3 py-2.5 text-body-13 dark:bg-state-soft"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={staged.length === 0}
+          disabled={busy || staged.length === 0}
           // The seeded body is the list of paths — a statement of fact. The
           // subject line stays the person's to write.
-          onClick={() => setMessage((current) => current + seedMessage(staged))}
+          onClick={() => setMessage(message + seedMessage(staged))}
           className="text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:text-text-primary disabled:pointer-events-none disabled:opacity-38"
         >
           Seed from staged
@@ -639,9 +784,9 @@ function Composer({
           )}
         </span>
         <Button
-          disabled={staged.length === 0 || message.trim() === "" || blocked}
+          disabled={busy || staged.length === 0 || message.trim() === "" || blocked}
           onClick={() => {
-            onCommit(message).then(() => setMessage(""), () => undefined);
+            void onCommit(message);
           }}
         >
           Commit

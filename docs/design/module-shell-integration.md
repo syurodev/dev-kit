@@ -143,3 +143,17 @@ Selection ở rail không phải connection đang chạy; mọi data/action dùn
 và đổi connection phải qua Connect rõ ràng. Draft publish giữ riêng theo profile trong phiên;
 chọn topic để đọc không được âm thầm đổi target của payload đang soạn. Async metadata/peek
 phải bỏ qua kết quả cũ sau đổi topic/connection hoặc cancel.
+
+## 9. Wrapper phải chuyển tiếp document params
+
+Một view được bọc bằng gate (vault/folder/setup) vẫn phải nhận đầy đủ `params` từ workbench. Không render `<View />` rồi bỏ ID hoặc SHA của document. Git từng mắc lỗi này: strip ghi commit SHA, nhưng gate làm mất `params.rev`, khiến nội dung đọc working tree.
+
+```tsx
+function WrappedView({ params }: { params?: Record<string, unknown> }) {
+  return <FolderGate View={View} params={params} />;
+}
+// Gate khi repository đã sẵn sàng:
+<View key={folder} params={params} />
+```
+
+Kiểm tra qua view của manifest, không chỉ render component con: mở hai đối tượng khác nhau và xác minh nội dung tương ứng. Trong Git, file panel của một commit là điều hướng trong document nên có thể dùng Resizable/Popover; đó không phải app sidebar. Split/unified dùng ToggleGroup cho chế độ diff, không thêm document strip.

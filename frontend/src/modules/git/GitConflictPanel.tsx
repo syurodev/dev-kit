@@ -1,13 +1,10 @@
+import { gitUI, useGitBusy } from "./gitUI";
+import { useModuleFolder } from "@/stores/workFolder";
 import { useEffect, useState } from "react";
 import { GitMerge, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MergePanes } from "@/components/ui/merge-panes";
-import {
-  gitConflict,
-  gitResolve,
-  gitResolveSide,
-  type Conflict,
-} from "@/bridge/git";
+import { gitConflict, gitResolve, gitResolveSide, type Conflict } from "@/bridge/git";
 import { markerCount, readConflict } from "./conflicts";
 import { shortcut } from "@/lib/shortcut";
 
@@ -40,7 +37,8 @@ export function GitConflictPanel({
   const [merged, setMerged] = useState("");
   // The markers git left in the merge as it loaded: the conflicts there were.
   const [total, setTotal] = useState(0);
-  const [busy, setBusy] = useState(false);
+  const busy = useGitBusy();
+  const { folder } = useModuleFolder("git");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -60,16 +58,11 @@ export function GitConflictPanel({
     };
   }, [path]);
 
-  async function run(work: Promise<void>) {
-    setBusy(true);
+  async function run(work: () => Promise<void>) {
     setError("");
-    try {
-      await work;
-      onResolved();
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
+    const ok = await gitUI.run(folder, "Resolving conflict…", work, "Conflict resolved");
+    if (ok) onResolved();
+    else setError(gitUI.useStore.getState().operations[folder]?.error ?? "");
   }
 
   const reading = conflict ? readConflict(conflict, branch) : null;
@@ -82,7 +75,7 @@ export function GitConflictPanel({
       onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === "s" && reading?.mergeable && !disabled) {
           event.preventDefault();
-          void run(gitResolve(path, merged));
+          void run(() => gitResolve(path, merged));
         }
       }}
     >
@@ -101,7 +94,7 @@ export function GitConflictPanel({
           variant="outline"
           className="bg-surface-raised"
           disabled={disabled}
-          onClick={() => run(gitResolveSide(path, "ours"))}
+          onClick={() => run(() => gitResolveSide(path, "ours"))}
         >
           Take ours
         </Button>
@@ -109,12 +102,12 @@ export function GitConflictPanel({
           variant="outline"
           className="bg-surface-raised"
           disabled={disabled}
-          onClick={() => run(gitResolveSide(path, "theirs"))}
+          onClick={() => run(() => gitResolveSide(path, "theirs"))}
         >
           Take theirs
         </Button>
         {reading?.mergeable ? (
-          <Button disabled={disabled} onClick={() => run(gitResolve(path, merged))}>
+          <Button disabled={disabled} onClick={() => run(() => gitResolve(path, merged))}>
             {/* The label names what the button would actually do. Blocking the
                 save instead would dead-end anyone whose file legitimately
                 contains a line of angle brackets. */}
@@ -154,7 +147,11 @@ export function GitConflictPanel({
           right={{ label: reading.theirsLabel, text: reading.theirsText }}
           merged={
             reading.mergeable
-              ? { label: "Merged · editable", value: merged, onChange: setMerged }
+              ? {
+                  label: "Merged · editable",
+                  value: merged,
+                  onChange: setMerged,
+                }
               : undefined
           }
         />

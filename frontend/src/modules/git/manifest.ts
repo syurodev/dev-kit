@@ -67,12 +67,8 @@ export const gitModule: ModuleManifest = {
  * module's documents helper. `kind: "commit"` matches
  * internal/agenthub/attachedref.go's own ref kind for a git commit.
  *
- * `kind: "worktree"` is for `git.diff` called with no revision: the work
- * tree diff itself has no view of its own to reopen (GitDiffView's
- * `git.diff` tab only ever shows the unstaged work tree — a `staged: true`
- * call isn't reproducible there either way), so this opens the Changes view
- * instead, same place GitSidebar sends an ordinary "look at what changed"
- * click.
+ * `kind: "worktree"` opens Changes and its composer. Staged and unstaged
+ * files can then be reviewed in the diff viewer.
  */
 registerIntent(
   "git.reveal",

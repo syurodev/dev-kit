@@ -316,3 +316,8 @@ export function seedMessage(staged: string[], taskKey = ""): string {
   }
   return lines.join("\n");
 }
+
+/** Staged file against HEAD, including an initial repository's staged files. */
+export function gitIndexPatch(path: string): Promise<string> {
+  return callBridge(async () => await AppService.GitIndexPatch(path));
+}
