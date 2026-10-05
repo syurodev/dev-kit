@@ -239,6 +239,16 @@ export function AccountsRotate(id: string, user: string, secret: string): $Cance
 }
 
 /**
+ * AccountsRotateToken replaces the token of a token or basic account in place,
+ * keeping the username unless a new one is given. The id stays, so every remote
+ * and choice bound to the account keeps working; what the provider said about
+ * the old token is cleared until the new one is verified.
+ */
+export function AccountsRotateToken(id: string, user: string, token: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(3972783774, id, user, token);
+}
+
+/**
  * AccountsSSHKeyInfo describes a key account without revealing it: the
  * fingerprint to match against what GitHub lists, and the public line to paste
  * into a provider's settings. Nothing private is in the answer.

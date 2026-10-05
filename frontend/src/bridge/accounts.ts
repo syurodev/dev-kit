@@ -96,6 +96,16 @@ export function createAccount(input: {
 }
 
 /**
+ * Replaces the token of a token or app-password account in place. The account
+ * keeps its id, so every remote and choice bound to it keeps working; the
+ * username is kept unless a new one is given. What the provider said about the
+ * old token is cleared until the new one is verified.
+ */
+export function rotateGitToken(id: string, token: string, user = ""): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsRotateToken(id, user, token)) as Account);
+}
+
+/**
  * Saves a personal access token that authenticates git over HTTPS. The token
  * crosses once, here. It stays on this machine unless the person asks it to sync:
  * a token leaving the machine is a decision, not a default.

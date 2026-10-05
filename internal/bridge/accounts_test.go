@@ -273,3 +273,31 @@ func TestGitTokenAccountStaysLocalUnlessTheBridgeIsToldToSync(t *testing.T) {
 		t.Fatal("a token for a provider that does not host repositories was saved as a git token")
 	}
 }
+
+func TestRotateTokenThroughTheBridgeKeepsTheAccountAndSaysWhenTheValueIsBad(t *testing.T) {
+	svc, container := newBridgeWithAccounts(t)
+	account, err := svc.AccountsCreateGitToken("bitbucket", "BB", "acme-bb", "old-pass", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rotated, err := svc.AccountsRotateToken(account.ID, "", "new-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.ID != account.ID {
+		t.Fatalf("rotating changed the id: %+v", rotated)
+	}
+	credential, err := container.Accounts.Resolve(accounts.ResolveInput{AccountID: account.ID})
+	if err != nil || credential.Secret != "new-pass" || credential.User != "acme-bb" {
+		t.Fatalf("credential = %+v, %v", credential, err)
+	}
+
+	if _, err := svc.AccountsRotateToken(account.ID, "", "two words"); err == nil || !strings.Contains(err.Error(), "Paste only the token") {
+		t.Fatalf("a bad token = %v", err)
+	}
+	key, _ := svc.AccountsCreateSSHKey("github", "Key", newBridgePrivateKey(t), "", false)
+	if _, err := svc.AccountsRotateToken(key.ID, "", "x"); err == nil {
+		t.Fatal("an SSH key was rotated as a token")
+	}
+}

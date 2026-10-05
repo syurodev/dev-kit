@@ -73,3 +73,46 @@ func plainCredential(s string) bool {
 	}
 	return true
 }
+
+// RotateToken replaces the token of a token or basic account in place.
+//
+// It is what a revoked, expired or leaked token needs: the id stays, so every
+// remote, alias choice and identity bound to the account keeps working with the
+// new value and nothing has to be edited. The username is kept unless a new one
+// is given — a person pasting a fresh app password should not have to remember
+// the username it goes with.
+//
+// What the provider last said about the old value (who it was, its scopes, its
+// expiry) is cleared; verifying the new one fills it in again.
+func (s *Service) RotateToken(id, user, token string) (Account, error) {
+	account, err := s.get(id)
+	if err != nil {
+		return Account{}, err
+	}
+	// A key is replaced by adding the new one, an external identity holds no
+	// value, and a connection's password is changed through its connection.
+	if (account.Kind != KindToken && account.Kind != KindBasic) || (account.Scoped() && !account.Local()) {
+		return Account{}, ErrInvalid
+	}
+	token, user = strings.TrimSpace(token), strings.TrimSpace(user)
+	if !plainCredential(token) || (user != "" && !plainCredential(user)) {
+		return Account{}, ErrTokenInvalid
+	}
+	if user == "" {
+		// Reveal rather than Resolve: this is the owner replacing their own
+		// value, and an account limited to one environment would refuse a
+		// Resolve made with none.
+		current, err := s.Reveal(id)
+		if err != nil {
+			return Account{}, err
+		}
+		user = current.User
+	}
+	if account.Kind == KindBasic && user == "" {
+		return Account{}, ErrUsernameRequired
+	}
+	if err := s.Rotate(id, user, token); err != nil {
+		return Account{}, err
+	}
+	return s.Get(id)
+}
