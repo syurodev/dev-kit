@@ -642,6 +642,19 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   read-only fallback for legacy boards; `verify.service` names a workspace service
   instead, traveling through sync unlike paths. `Considered` marker guards
   `MigrateBoardBindings` to avoid re-binding unbound boards on restart.
+- **Git over SSH uses the account's key, served by `internal/gitssh`** (a leaf). An `ssh-key`
+  account holds the private key and its passphrase packed in one sealed secret; `gitssh.Open`
+  serves it from a private in-process agent (0700 socket dir, one key, gone with the command) and
+  git runs with `GIT_SSH_COMMAND` pointing at it with `IdentitiesOnly=yes`. `ssh-key` accounts are
+  **local by default**: a scoped row whose owner is `local:<id>` (never swept as an orphan, resolved
+  by id, never offered to the API client or revealed again), `Promote` is how one starts syncing.
+  `accounts.ForRemote(host, owner, env, via)` picks the account for an unbound remote — keys over
+  SSH, tokens over HTTPS — and remembers it per `(host, owner, via)`; the app's `remotePicker` asks
+  the person through `interaction.Hub.SelectAccount` when two fit. SSH aliases resolve through
+  `ssh -G`. A key that cannot be opened stops the command; it never falls back to the machine's own
+  key. `~/.ssh/config` `IdentityFile` entries are still tried *after* a refused account key (see the
+  pinned test). `internal/git` tests that touch SSH use `code.example.test`, not `github.com`: the
+  cloud sandbox injects a `url.insteadOf` that rewrites github.com SSH URLs to HTTPS.
 - **`internal/notify` and `internal/gitparse` are leaves** pinned by
   `internal/arch`, extracted as their own commits before the modules that
   needed them. `notify.Target` is three strings and deliberately not the

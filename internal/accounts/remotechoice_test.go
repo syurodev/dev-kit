@@ -37,7 +37,7 @@ func TestForRemoteAsksOnlyWhereTheHostIsShared(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	match, err := svc.ForRemote("gitlab.com", "acme", "")
+	match, err := svc.ForRemote("gitlab.com", "acme", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestForRemoteAsksOnlyWhereTheHostIsShared(t *testing.T) {
 		t.Fatalf("gitlab.com has one account and must be decided: %+v", match)
 	}
 
-	match, err = svc.ForRemote("github.com", "acme-corp", "")
+	match, err = svc.ForRemote("github.com", "acme-corp", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +60,10 @@ func TestRemoteChoiceIsRememberedPerOwner(t *testing.T) {
 	svc := remoteService(t)
 	personal, work := twoGitHubAccounts(t, svc)
 
-	if err := svc.ChooseForRemote("github.com", "Acme-Corp", "", work.ID); err != nil {
+	if err := svc.ChooseForRemote("github.com", "Acme-Corp", "", ViaHTTPS, work.ID); err != nil {
 		t.Fatal(err)
 	}
-	match, err := svc.ForRemote("GITHUB.COM", "acme-corp", "")
+	match, err := svc.ForRemote("GITHUB.COM", "acme-corp", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestRemoteChoiceIsRememberedPerOwner(t *testing.T) {
 		t.Fatalf("the answer for the organisation was not remembered: %+v", match)
 	}
 
-	match, err = svc.ForRemote("github.com", "syurodev", "")
+	match, err = svc.ForRemote("github.com", "syurodev", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +79,10 @@ func TestRemoteChoiceIsRememberedPerOwner(t *testing.T) {
 		t.Fatalf("another owner on the same host was decided by acme-corp's answer: %+v", match)
 	}
 
-	if err := svc.ChooseForRemote("github.com", "syurodev", "", personal.ID); err != nil {
+	if err := svc.ChooseForRemote("github.com", "syurodev", "", ViaHTTPS, personal.ID); err != nil {
 		t.Fatal(err)
 	}
-	match, _ = svc.ForRemote("github.com", "syurodev", "")
+	match, _ = svc.ForRemote("github.com", "syurodev", "", ViaHTTPS)
 	if match.Account.ID != personal.ID {
 		t.Fatalf("second owner = %+v", match)
 	}
@@ -96,10 +96,10 @@ func TestChooseForRemoteRefusesAnAccountThatWasNeverOffered(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A GitLab token pinned to github.com would be sent to the wrong service.
-	if err := svc.ChooseForRemote("github.com", "acme-corp", "", gitlab.ID); !errors.Is(err, ErrInvalid) {
+	if err := svc.ChooseForRemote("github.com", "acme-corp", "", ViaHTTPS, gitlab.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an account of another provider was accepted: %v", err)
 	}
-	if err := svc.ChooseForRemote("github.com", "", "", gitlab.ID); !errors.Is(err, ErrInvalid) {
+	if err := svc.ChooseForRemote("github.com", "", "", ViaHTTPS, gitlab.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an empty owner was accepted: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestChooseForRemoteRefusesAnAccountThatWasNeverOffered(t *testing.T) {
 func TestStaleRemoteChoiceIsDroppedAndAskedAgain(t *testing.T) {
 	svc := remoteService(t)
 	personal, work := twoGitHubAccounts(t, svc)
-	if err := svc.ChooseForRemote("github.com", "acme-corp", "", work.ID); err != nil {
+	if err := svc.ChooseForRemote("github.com", "acme-corp", "", ViaHTTPS, work.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Delete(work.ID); err != nil {
@@ -120,7 +120,7 @@ func TestStaleRemoteChoiceIsDroppedAndAskedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	match, err := svc.ForRemote("github.com", "acme-corp", "")
+	match, err := svc.ForRemote("github.com", "acme-corp", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestStaleRemoteChoiceIsDroppedAndAskedAgain(t *testing.T) {
 	if len(match.Options) != 2 || match.Options[0].ID == work.ID || match.Options[1].ID == work.ID {
 		t.Fatalf("options include the deleted account: %+v (personal=%s extra=%s)", match.Options, personal.ID, extra.ID)
 	}
-	if id, _ := svc.remoteChoices.get("github.com", "acme-corp"); id != "" {
+	if id, _ := svc.remoteChoices.get("github.com", "acme-corp", ViaHTTPS); id != "" {
 		t.Fatalf("the stale row was kept: %q", id)
 	}
 }
@@ -138,7 +138,7 @@ func TestStaleRemoteChoiceIsDroppedAndAskedAgain(t *testing.T) {
 func TestForRemoteWithoutAStoreStillAsks(t *testing.T) {
 	svc, _ := newService(t)
 	twoGitHubAccounts(t, svc)
-	match, err := svc.ForRemote("github.com", "acme-corp", "")
+	match, err := svc.ForRemote("github.com", "acme-corp", "", ViaHTTPS)
 	if err != nil {
 		t.Fatal(err)
 	}

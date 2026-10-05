@@ -9,7 +9,7 @@ import { callBridge } from "./client";
 export type Account = {
   id: string;
   provider: string;
-  kind: "token" | "basic" | "oauth" | "secret" | "external";
+  kind: "token" | "basic" | "oauth" | "secret" | "ssh-key" | "external";
   label: string;
   subject: string;
   scopes: string[];
@@ -33,6 +33,24 @@ export type AccountProvider = {
   Name: string;
   Kinds: string[];
   Hosts: string[] | null;
+  /** Where the provider answers SSH. Empty when it accepts no SSH keys. */
+  SSHHost: string;
+};
+
+/**
+ * A scoped account that belongs to no connection: it simply stays on this
+ * machine. An SSH key the person did not choose to sync is one.
+ */
+export function isLocalAccount(account: Pick<Account, "scopeOwner">): boolean {
+  return account.scopeOwner.startsWith("local:");
+}
+
+/** What a key looks like without being the key: safe to show and to copy. */
+export type SSHKeyInfo = {
+  type: string;
+  fingerprint: string;
+  publicKey: string;
+  encrypted: boolean;
 };
 
 export function listAccounts(): Promise<Account[]> {
@@ -72,6 +90,36 @@ export function createAccount(input: {
         input.ref ?? "",
       )) as Account,
   );
+}
+
+/**
+ * Saves a private key that authenticates git over SSH. The key and passphrase
+ * cross once, here, and are checked before anything is stored. It stays on this
+ * machine unless the person asks it to sync: a private key leaving is a decision,
+ * not a default.
+ */
+export function createSSHKeyAccount(input: {
+  provider: string;
+  label: string;
+  privateKey: string;
+  passphrase?: string;
+  syncAcrossDevices?: boolean;
+}): Promise<Account> {
+  return callBridge(
+    async () =>
+      (await AppService.AccountsCreateSSHKey(
+        input.provider,
+        input.label,
+        input.privateKey,
+        input.passphrase ?? "",
+        input.syncAcrossDevices ?? false,
+      )) as Account,
+  );
+}
+
+/** The fingerprint and public line of a key account — never anything private. */
+export function sshKeyInfo(id: string): Promise<SSHKeyInfo> {
+  return callBridge(async () => (await AppService.AccountsSSHKeyInfo(id)) as SSHKeyInfo);
 }
 
 /** Replaces a value in place, so everything bound to the account keeps working. */

@@ -16,27 +16,27 @@ type remoteChoiceStore struct {
 	table string
 }
 
-func (c *remoteChoiceStore) get(host, owner string) (string, error) {
+func (c *remoteChoiceStore) get(host, owner string, via Via) (string, error) {
 	var id string
 	err := c.db.QueryRowContext(context.Background(),
-		"SELECT account_id FROM "+c.table+" WHERE host = ? AND owner = ?", host, owner).Scan(&id)
+		"SELECT account_id FROM "+c.table+" WHERE host = ? AND owner = ? AND via = ?", host, owner, string(via)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return id, err
 }
 
-func (c *remoteChoiceStore) put(host, owner, accountID string) error {
+func (c *remoteChoiceStore) put(host, owner string, via Via, accountID string) error {
 	_, err := c.db.ExecContext(context.Background(),
-		`INSERT INTO `+c.table+` (host, owner, account_id, chosen_at) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(host, owner) DO UPDATE SET account_id = excluded.account_id, chosen_at = excluded.chosen_at`,
-		host, owner, accountID, time.Now().UTC().Format(time.RFC3339Nano))
+		`INSERT INTO `+c.table+` (host, owner, via, account_id, chosen_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(host, owner, via) DO UPDATE SET account_id = excluded.account_id, chosen_at = excluded.chosen_at`,
+		host, owner, string(via), accountID, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 
-func (c *remoteChoiceStore) forget(host, owner string) error {
+func (c *remoteChoiceStore) forget(host, owner string, via Via) error {
 	_, err := c.db.ExecContext(context.Background(),
-		"DELETE FROM "+c.table+" WHERE host = ? AND owner = ?", host, owner)
+		"DELETE FROM "+c.table+" WHERE host = ? AND owner = ? AND via = ?", host, owner, string(via))
 	return err
 }
 
@@ -66,9 +66,9 @@ func normalizeOwner(owner string) string { return strings.ToLower(strings.TrimSp
 // The rules ForHost keeps hold here: one match is chosen and not remembered,
 // two or more is a question and never a guess, and a remembered answer that no
 // longer matches is dropped rather than ignored for ever.
-func (s *Service) ForRemote(host, owner, env string) (HostMatch, error) {
+func (s *Service) ForRemote(host, owner, env string, via Via) (HostMatch, error) {
 	host, owner = normalizeHost(host), normalizeOwner(owner)
-	options, err := s.hostCandidates(host, env)
+	options, err := s.hostCandidates(host, env, via)
 	if err != nil {
 		return HostMatch{}, err
 	}
@@ -81,7 +81,7 @@ func (s *Service) ForRemote(host, owner, env string) (HostMatch, error) {
 	if s.remoteChoices == nil || owner == "" {
 		return HostMatch{Options: options}, nil
 	}
-	id, err := s.remoteChoices.get(host, owner)
+	id, err := s.remoteChoices.get(host, owner, via)
 	if err != nil {
 		return HostMatch{}, err
 	}
@@ -91,19 +91,19 @@ func (s *Service) ForRemote(host, owner, env string) (HostMatch, error) {
 		}
 	}
 	if id != "" {
-		if err := s.remoteChoices.forget(host, owner); err != nil {
+		if err := s.remoteChoices.forget(host, owner, via); err != nil {
 			return HostMatch{}, err
 		}
 	}
 	return HostMatch{Options: options}, nil
 }
 
-// ChooseForRemote records the answer for a (host, owner) pair.
+// ChooseForRemote records the answer for a (host, owner, via) triple.
 //
 // The account has to be one ForRemote would actually offer, so a caller cannot
 // pin an arbitrary account to an owner — the credential misdirection this
 // whole rule exists to prevent, just written down rather than guessed.
-func (s *Service) ChooseForRemote(host, owner, env, accountID string) error {
+func (s *Service) ChooseForRemote(host, owner, env string, via Via, accountID string) error {
 	if s.remoteChoices == nil {
 		return nil
 	}
@@ -111,22 +111,22 @@ func (s *Service) ChooseForRemote(host, owner, env, accountID string) error {
 	if owner == "" {
 		return ErrInvalid
 	}
-	options, err := s.hostCandidates(host, env)
+	options, err := s.hostCandidates(host, env, via)
 	if err != nil {
 		return err
 	}
 	for _, option := range options {
 		if option.ID == accountID {
-			return s.remoteChoices.put(host, owner, accountID)
+			return s.remoteChoices.put(host, owner, via, accountID)
 		}
 	}
 	return ErrInvalid
 }
 
 // ForgetRemoteChoice drops a remembered answer, so the next call asks again.
-func (s *Service) ForgetRemoteChoice(host, owner string) error {
+func (s *Service) ForgetRemoteChoice(host, owner string, via Via) error {
 	if s.remoteChoices == nil {
 		return nil
 	}
-	return s.remoteChoices.forget(normalizeHost(host), normalizeOwner(owner))
+	return s.remoteChoices.forget(normalizeHost(host), normalizeOwner(owner), via)
 }

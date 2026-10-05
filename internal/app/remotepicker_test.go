@@ -2,9 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"devkit/internal/accounts"
 	gitservice "devkit/internal/git"
@@ -150,5 +155,83 @@ func TestRemotePickerWithNobodyToAskFailsFast(t *testing.T) {
 	}
 	if _, err := (remotePicker{accounts: svc}).PickAccount(context.Background(), pushToAcme); !errors.Is(err, interaction.ErrSelectionRequired) {
 		t.Fatalf("no hub = %v", err)
+	}
+}
+
+func addSSHKey(t *testing.T, svc *accounts.Service, provider, label string) accounts.Account {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(private, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := svc.Create(accounts.CreateInput{
+		Provider: provider, Kind: accounts.KindSSHKey, Label: label,
+		Secret: string(pem.EncodeToMemory(block)), Local: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return account
+}
+
+// The user's real setup: SSH remotes, two GitHub keys and a GitLab key. GitLab
+// is decided without a dialog; GitHub asks once per organisation, and the
+// answer for SSH is its own — a token elsewhere is never offered.
+func TestRemotePickerChoosesKeysForSSHRemotes(t *testing.T) {
+	svc, hub := pickerFixture(t)
+	work := addSSHKey(t, svc, "github", "Work key")
+	addSSHKey(t, svc, "github", "Personal key")
+	gitlab := addSSHKey(t, svc, "gitlab", "GitLab key")
+	addAccount(t, svc, "github", "A token", "ghp_1") // must not be offered for SSH
+	picker := remotePicker{accounts: svc, hub: hub}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	id, err := picker.PickAccount(ctx, gitservice.PickAccountInput{
+		Op: "push", Transport: gitservice.TransportSSH, Host: "gitlab.com", Owner: "team", Repo: "svc",
+	})
+	if err != nil || id != gitlab.ID {
+		t.Fatalf("gitlab = %q, %v", id, err)
+	}
+
+	var asked interaction.Pending
+	answerNextQuestion(t, hub, func(p interaction.Pending) string {
+		asked = p
+		return interaction.AccountAnswer(work.ID, true)
+	})
+	ssh := gitservice.PickAccountInput{Op: "push", Transport: gitservice.TransportSSH, Host: "github.com", Owner: "acme-corp", Repo: "api"}
+	id, err = picker.PickAccount(ctx, ssh)
+	if err != nil || id != work.ID {
+		t.Fatalf("github = %q, %v", id, err)
+	}
+	if len(asked.Options) != 2 {
+		t.Fatalf("the dialog offered %d accounts, want only the two keys: %+v", len(asked.Options), asked.Options)
+	}
+	// Remembered for SSH: the next repository of the organisation is not asked.
+	ssh.Repo = "web"
+	if id, err = picker.PickAccount(ctx, ssh); err != nil || id != work.ID || hub.Pending() != nil {
+		t.Fatalf("organisation asked twice over ssh: %q, %v", id, err)
+	}
+}
+
+func TestResolverHandsGitAKeyAndSaysWhenAnAccountIsNotOne(t *testing.T) {
+	svc, _ := pickerFixture(t)
+	key := addSSHKey(t, svc, "github", "Key")
+	token := addAccount(t, svc, "github", "Token", "ghp_1")
+	resolver := accountResolver{accounts: svc}
+
+	material, isKey, err := resolver.ResolveSSHKey(context.Background(), key.ID, "")
+	if err != nil || !isKey || material.PrivateKey == "" {
+		t.Fatalf("key = %v, %v", isKey, err)
+	}
+	if _, isKey, err = resolver.ResolveSSHKey(context.Background(), token.ID, ""); err != nil || isKey {
+		t.Fatalf("a token is not a key: isKey=%v err=%v", isKey, err)
+	}
+	if _, _, err = resolver.ResolveSSHKey(context.Background(), "missing", ""); err == nil {
+		t.Fatal("a missing account was not an error")
 	}
 }

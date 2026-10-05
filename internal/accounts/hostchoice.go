@@ -78,7 +78,7 @@ type HostMatch struct {
 // heuristic: that is a guess wearing a memory's clothes.
 func (s *Service) ForHost(host, env string) (HostMatch, error) {
 	host = normalizeHost(host)
-	options, err := s.hostCandidates(host, env)
+	options, err := s.hostCandidates(host, env, ViaHTTPS)
 	if err != nil {
 		return HostMatch{}, err
 	}
@@ -148,11 +148,29 @@ func normalizeHost(host string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
 }
 
-// hostCandidates is every account that could authenticate to host on env: the
-// provider's hosts cover it, the account is shared (not one connection's), it
-// has something to authenticate with, and its environment list allows env.
-// Sorted by label so a list shown to the person is stable.
-func (s *Service) hostCandidates(host, env string) ([]Account, error) {
+// Via is how a git remote is reached, which decides what kind of account can
+// authenticate it: a token or password for HTTPS, a key for SSH.
+type Via string
+
+const (
+	ViaHTTPS Via = "https"
+	ViaSSH   Via = "ssh"
+)
+
+func (v Via) accepts(kind Kind) bool {
+	if v == ViaSSH {
+		return kind == KindSSHKey
+	}
+	// HTTPS, and the API client's ForHost: anything that is sent as a
+	// credential on a request. A key is not one.
+	return kind != KindSSHKey && kind != KindExternal
+}
+
+// hostCandidates is every account that could authenticate to host on env over
+// via: the provider's hosts cover it, the account is shared or local (not one
+// connection's), it is the right kind for the transport, and its environment
+// list allows env. Sorted by label so a list shown to the person is stable.
+func (s *Service) hostCandidates(host, env string, via Via) ([]Account, error) {
 	if host == "" {
 		return nil, nil
 	}
@@ -171,9 +189,13 @@ func (s *Service) hostCandidates(host, env string) ([]Account, error) {
 	}
 	var options []Account
 	for _, account := range all {
-		// A scoped account belongs to one connection profile, never to a host;
-		// an external one has nothing to authenticate with.
-		if account.ScopeOwner != "" || account.Kind == KindExternal {
+		// A connection's scoped account belongs to that connection, never to a
+		// host. A local account is the person's own and is offered like a
+		// shared one.
+		if account.Scoped() && !account.Local() {
+			continue
+		}
+		if !via.accepts(account.Kind) {
 			continue
 		}
 		if !wanted[account.Provider] || !account.AllowsEnv(env) {

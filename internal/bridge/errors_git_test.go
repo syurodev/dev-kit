@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"devkit/internal/accounts"
 	gitservice "devkit/internal/git"
+	"devkit/internal/gitssh"
 	"devkit/internal/interaction"
 )
 
@@ -62,5 +64,44 @@ func TestPublicErrorForAGitRemoteNobodyCanAskAboutSaysWhatToDo(t *testing.T) {
 	// Other subjects keep the generic wording.
 	if other := publicError("builtin.ssh", interaction.ErrSelectionRequired); other == nil || other.Error() != "validation_failed: Selection required." {
 		t.Fatalf("another subject's error changed: %v", other)
+	}
+}
+
+func TestPublicErrorForARefusedSSHKeyNamesTheAccountWhenOneWasUsed(t *testing.T) {
+	err := publicError("builtin.git", &gitservice.AuthError{
+		Op: "push", Remote: "origin", Transport: gitservice.TransportSSH,
+		AccountID: "acct-key", Account: "github · acme-dev",
+	})
+	if err == nil || !strings.Contains(err.Error(), "SSH key of account “github · acme-dev”") {
+		t.Fatalf("public error = %v", err)
+	}
+}
+
+func TestPublicErrorWordsAKeyThatCannotBeSaved(t *testing.T) {
+	for cause, want := range map[error]string{
+		accounts.ErrKeyInvalid:    "private key ssh can read",
+		accounts.ErrKeyPassphrase: "passphrase",
+	} {
+		err := publicError("builtin.accounts", cause)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%v: public error = %v", cause, err)
+		}
+	}
+}
+
+// A key that cannot be served stops the push, and the message says that is why
+// rather than "An unexpected error occurred."
+func TestPublicErrorSaysWhySSHKeyPushStopped(t *testing.T) {
+	for cause, want := range map[error]string{
+		gitssh.ErrUnsupported:        "not supported on this platform",
+		gitssh.ErrNoSSH:              "no ssh program",
+		gitssh.ErrBadPassphrase:      "can no longer be opened",
+		gitssh.ErrNotAKey:            "can no longer be opened",
+		gitssh.ErrPassphraseRequired: "can no longer be opened",
+	} {
+		err := publicError("builtin.git", cause)
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "unexpected") {
+			t.Errorf("%v: public error = %v", cause, err)
+		}
 	}
 }

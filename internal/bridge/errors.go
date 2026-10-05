@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
 	"devkit/internal/apiclient"
@@ -20,6 +21,7 @@ import (
 	"devkit/internal/database"
 	"devkit/internal/environments"
 	gitservice "devkit/internal/git"
+	"devkit/internal/gitssh"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
@@ -436,7 +438,26 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
+	if subject == "builtin.accounts" {
+		switch {
+		case errors.Is(err, accounts.ErrKeyInvalid):
+			return apperrors.New(codeValidationFailed, "That is not a private key ssh can read. Paste the whole key, including the BEGIN and END lines.", true)
+		case errors.Is(err, accounts.ErrKeyPassphrase):
+			return apperrors.New(codeValidationFailed, "This key is encrypted. Enter its passphrase, or check the one you entered.", true)
+		}
+	}
 	if subject == "builtin.git" {
+		// An SSH key that was meant to be used and could not be: the command
+		// stopped rather than push as some other identity, and the person needs
+		// to know that is why.
+		switch {
+		case errors.Is(err, gitssh.ErrUnsupported):
+			return apperrors.New(codeValidationFailed, "SSH keys from Accounts are not supported on this platform yet, so nothing was sent. Remove the account from this remote to use git's own SSH configuration.", true)
+		case errors.Is(err, gitssh.ErrNoSSH):
+			return apperrors.New(codeValidationFailed, "There is no ssh program on this machine, which git needs to reach an SSH remote.", true)
+		case errors.Is(err, gitssh.ErrNotAKey), errors.Is(err, gitssh.ErrPassphraseRequired), errors.Is(err, gitssh.ErrBadPassphrase):
+			return apperrors.New(codeValidationFailed, "The SSH key of the account chosen for this remote can no longer be opened, so nothing was sent. Add the key again in Accounts.", true)
+		}
 		var authErr *gitservice.AuthError
 		if errors.As(err, &authErr) {
 			// The cause is git's own stderr, which can quote the remote's
@@ -600,8 +621,10 @@ const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is n
 func gitAuthMessage(e *gitservice.AuthError) string {
 	remote := "Remote \u201c" + e.Remote + "\u201d"
 	switch {
+	case e.Transport == gitservice.TransportSSH && e.Account != "":
+		return remote + " refused the SSH key of account \u201c" + e.Account + "\u201d. If the repository belongs to another GitHub or GitLab identity, choose the right account for this remote; if the key was removed from the account, add it again in the provider's settings."
 	case e.Transport == gitservice.TransportSSH:
-		return remote + " refused the SSH key git offered. DevKit does not choose the SSH key for this remote yet \u2014 git used your own SSH configuration (ssh-agent or ~/.ssh/config). Check that the key it presents belongs to an account that can reach this repository."
+		return remote + " refused the SSH key git offered. No SSH-key account was used for it, so git used your own SSH configuration (ssh-agent or ~/.ssh/config). Add an SSH key for this host in Accounts, or check that the key it presents belongs to an account that can reach this repository."
 	case e.Account != "":
 		return remote + " refused the account \u201c" + e.Account + "\u201d. If the repository belongs to another GitHub or GitLab identity, bind the right account to this remote."
 	case e.AccountID != "":

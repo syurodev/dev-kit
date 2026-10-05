@@ -41,6 +41,10 @@ const (
 	// KindSecret is a single string that is not an identity on its own: a key
 	// passphrase, a database password, a SASL secret.
 	KindSecret Kind = "secret"
+	// KindSSHKey is a private key (and the passphrase that unlocks it, when it
+	// has one) that authenticates git over SSH. It is not an identity a bearer
+	// header can carry, so the API client never offers it; only git uses it.
+	KindSSHKey Kind = "ssh-key"
 	// KindExternal holds nothing. It records that an identity exists and how
 	// to sign in again, for the two credentials DevKit deliberately does not
 	// keep.
@@ -78,6 +82,12 @@ var (
 	// ErrNothingToReveal is an external account: DevKit recorded that the
 	// identity exists and how to sign in again, and holds no value at all.
 	ErrNothingToReveal = errors.New("accounts.nothingToReveal")
+	// ErrNotSSHKey is an account that is not an SSH key, asked for as one.
+	ErrNotSSHKey = errors.New("accounts.notSSHKey")
+	// ErrKeyInvalid is text that is not a private key ssh can read.
+	ErrKeyInvalid = errors.New("accounts.keyInvalid")
+	// ErrKeyPassphrase is an encrypted key given no passphrase or the wrong one.
+	ErrKeyPassphrase = errors.New("accounts.keyPassphrase")
 )
 
 // Account is one credential, without its value. Nothing here is secret, which
@@ -107,6 +117,16 @@ type Account struct {
 	// Ref is how to sign in again, for KindExternal.
 	Ref string `json:"ref"`
 }
+
+// LocalOwnerPrefix marks a scoped row that belongs to no connection profile:
+// an account that simply stays on this machine. It reuses the scoped table —
+// sealed with the vault key, never synced — and its owner is itself, so no
+// profile sweep mistakes it for an orphan.
+const LocalOwnerPrefix = "local:"
+
+// Local reports an account that stays on this machine without belonging to a
+// connection: a private key its owner chose not to sync.
+func (a Account) Local() bool { return strings.HasPrefix(a.ScopeOwner, LocalOwnerPrefix) }
 
 // Scoped reports whether the account belongs to a single connection, and so
 // lives in the local table rather than in vault_items.
@@ -214,7 +234,7 @@ func derivedState(stored State, expiresAt time.Time, now time.Time) State {
 // ValidKind reports whether k is one this package knows.
 func ValidKind(k Kind) bool {
 	switch k {
-	case KindToken, KindBasic, KindOAuth, KindSecret, KindExternal:
+	case KindToken, KindBasic, KindOAuth, KindSecret, KindSSHKey, KindExternal:
 		return true
 	}
 	return false

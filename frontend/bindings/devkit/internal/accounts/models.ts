@@ -103,6 +103,13 @@ export enum Kind {
     KindSecret = "secret",
 
     /**
+     * KindSSHKey is a private key (and the passphrase that unlocks it, when it
+     * has one) that authenticates git over SSH. It is not an identity a bearer
+     * header can carry, so the API client never offers it; only git uses it.
+     */
+    KindSSHKey = "ssh-key",
+
+    /**
      * KindExternal holds nothing. It records that an identity exists and how
      * to sign in again, for the two credentials DevKit deliberately does not
      * keep.
@@ -133,6 +140,12 @@ export interface Provider {
      * match is chosen; two or more must be asked about, never guessed.
      */
     "Hosts": string[] | null;
+
+    /**
+     * SSHHost is where this provider answers SSH, for identifying a key. Empty
+     * means keys cannot be verified against it and it accepts none.
+     */
+    "SSHHost": string;
 }
 
 /**

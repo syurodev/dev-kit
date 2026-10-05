@@ -20,7 +20,14 @@ type remotePicker struct {
 }
 
 func (p remotePicker) PickAccount(ctx context.Context, in gitservice.PickAccountInput) (string, error) {
-	match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env)
+	// An SSH remote is authenticated by a key and an HTTPS one by a token, so
+	// the two are different questions with different candidates and different
+	// remembered answers.
+	via := accounts.ViaHTTPS
+	if in.Transport == gitservice.TransportSSH {
+		via = accounts.ViaSSH
+	}
+	match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env, via)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +61,7 @@ func (p remotePicker) PickAccount(ctx context.Context, in gitservice.PickAccount
 	if choice.Remember {
 		// A failure to remember costs one more question next time; it must not
 		// cost the push the person just answered for.
-		_ = p.accounts.ChooseForRemote(in.Host, in.Owner, in.Env, choice.ID)
+		_ = p.accounts.ChooseForRemote(in.Host, in.Owner, in.Env, via, choice.ID)
 	}
 	return choice.ID, nil
 }

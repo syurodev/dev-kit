@@ -5,6 +5,7 @@ import (
 
 	"devkit/internal/accounts"
 	"devkit/internal/app"
+	"devkit/internal/gitssh"
 	"devkit/internal/preferences"
 )
 
@@ -70,6 +71,48 @@ func (s *AppService) AccountsCreate(provider, kind, label, user, secret string, 
 		return accounts.Account{}, err
 	}
 	return result.(accounts.Account), nil
+}
+
+// AccountsCreateSSHKey stores a private key that authenticates git over SSH.
+//
+// The key and its passphrase arrive once, here. The key is checked to be one
+// ssh can use, and the passphrase to open it, before anything is saved. By
+// default it stays on this machine; syncAcrossDevices puts it in the vault,
+// which is the one way a private key leaves — so it is a parameter the person
+// sets, never a default.
+func (s *AppService) AccountsCreateSSHKey(provider, label, privateKey, passphrase string, syncAcrossDevices bool) (accounts.Account, error) {
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:new", map[string]any{
+		"action":   "create",
+		"provider": provider,
+		"kind":     string(accounts.KindSSHKey),
+		"sync":     syncAcrossDevices,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.Create(accounts.CreateInput{
+			Provider: provider, Kind: accounts.KindSSHKey, Label: label,
+			Secret: privateKey, Passphrase: passphrase, Local: !syncAcrossDevices,
+		})
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
+// AccountsSSHKeyInfo describes a key account without revealing it: the
+// fingerprint to match against what GitHub lists, and the public line to paste
+// into a provider's settings. Nothing private is in the answer.
+func (s *AppService) AccountsSSHKeyInfo(id string) (gitssh.KeyInfo, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:read", "account:"+opaqueID, map[string]any{
+		"action":     "ssh_key_info",
+		"account_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.SSHKeyInfo(id)
+	})
+	if err != nil {
+		return gitssh.KeyInfo{}, err
+	}
+	return result.(gitssh.KeyInfo), nil
 }
 
 // AccountsRotate replaces a value in place, which is why every binding holds

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Eye, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { BadgeCheck, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   deleteAccount,
+  isLocalAccount,
   listAccounts,
   migrateProfileCredentials,
   promoteAccount,
@@ -11,7 +12,9 @@ import {
   verifyAccount,
   type Account,
 } from "@/bridge/accounts";
+import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
 import { RevealDialog } from "./RevealDialog";
+import { SSHKeyInfoDialog } from "./SSHKeyInfoDialog";
 
 const STATE_LABEL: Record<Account["state"], string> = {
   valid: "Valid",
@@ -35,11 +38,18 @@ function AccountRow({
   account,
   onChanged,
   onReveal,
+  onShowKey,
 }: {
   account: Account;
   onChanged: () => void;
   onReveal: () => void;
+  onShowKey: () => void;
 }) {
+  // A local account belongs to no connection: it is the person's own, kept on
+  // this machine. It verifies and promotes like a shared one, so only a
+  // connection's password is treated as "scoped" here.
+  const local = isLocalAccount(account);
+  const isKey = account.kind === "ssh-key";
   const [error, setError] = useState("");
 
   return (
@@ -56,13 +66,14 @@ function AccountRow({
           {account.provider}
           {account.scopes?.length ? ` · ${account.scopes.join(", ")}` : ""}
           {account.env?.length ? ` · ${account.env.join(", ")}` : ""}
+          {local ? " · this machine only" : ""}
         </div>
         {error ? <div className="text-caption-11 text-status-danger">{error}</div> : null}
       </div>
       <span className={`shrink-0 text-caption-11-medium ${STATE_TONE[account.state]}`}>
         {STATE_LABEL[account.state]}
       </span>
-      {!account.scopeOwner && account.kind !== "external" ? (
+      {(!account.scopeOwner || local) && account.kind !== "external" ? (
         <Button
           variant="ghost"
           size="icon"
@@ -77,9 +88,21 @@ function AccountRow({
           <BadgeCheck className="size-4" aria-hidden />
         </Button>
       ) : null}
+      {isKey ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Show the public key for ${account.label}`}
+          title="Show the fingerprint and the public key to add to the provider"
+          onClick={onShowKey}
+        >
+          <Fingerprint className="size-4" aria-hidden />
+        </Button>
+      ) : null}
       {/* An external account records that an identity exists somewhere DevKit
-          does not hold it, so there is nothing to show. */}
-      {account.kind !== "external" && account.state !== "needs_local_secret" ? (
+          does not hold it, so there is nothing to show. A private SSH key is
+          never shown again either: its public half is what is useful. */}
+      {account.kind !== "external" && !isKey && account.state !== "needs_local_secret" ? (
         <Button
           variant="ghost"
           size="icon"
@@ -94,14 +117,18 @@ function AccountRow({
         <Button
           variant="ghost"
           size="sm"
-          title="Make this account shared, so it syncs to your other devices"
+          title={
+            local
+              ? "Sync this key to your other devices. It will be sealed in your vault; there is no way back."
+              : "Make this account shared, so it syncs to your other devices"
+          }
           onClick={() => {
             promoteAccount(account.id, account.label)
               .then(onChanged)
               .catch((e: Error) => setError(e.message));
           }}
         >
-          Promote
+          {local ? "Sync" : "Promote"}
         </Button>
       ) : null}
       <Button
@@ -135,6 +162,8 @@ export function AccountsView() {
   const [notice, setNotice] = useState("");
   // The account whose value is on screen, or null. One at a time, always.
   const [revealing, setRevealing] = useState<Account | null>(null);
+  const [showingKey, setShowingKey] = useState<Account | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const reload = useCallback(() => {
     listAccounts()
@@ -159,24 +188,23 @@ export function AccountsView() {
   if (!accounts) {
     return null;
   }
-  if (accounts.length === 0) {
-    return (
-      <EmptyState
-        icon={KeyRound}
-        title="No accounts yet"
-        body="Add a token or an API key here and other modules can use it by name — rotating it later is one edit, in one place."
-      />
-    );
-  }
-
-  const shared = accounts.filter((account) => !account.scopeOwner);
-  const scoped = accounts.filter((account) => account.scopeOwner);
+  const shared = accounts.filter((account) => !account.scopeOwner || isLocalAccount(account));
+  const scoped = accounts.filter((account) => account.scopeOwner && !isLocalAccount(account));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
         <h2 className="text-title-13 text-text-primary">Accounts</h2>
         <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Add a private key that signs git over SSH"
+          onClick={() => setAdding(true)}
+        >
+          <Plus className="size-4" aria-hidden />
+          Add SSH key
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -221,6 +249,13 @@ export function AccountsView() {
       </div>
       {notice ? <p className="px-3 py-1 text-caption-11 text-text-tertiary">{notice}</p> : null}
       <div className="min-h-0 flex-1 overflow-auto">
+        {accounts.length === 0 ? (
+          <EmptyState
+            icon={KeyRound}
+            title="No accounts yet"
+            body="Add an SSH key here and git uses it for the repositories you choose it for — one account per identity, picked by who owns the repository."
+          />
+        ) : null}
         <ul>
           {shared.map((account) => (
             <AccountRow
@@ -228,6 +263,7 @@ export function AccountsView() {
               account={account}
               onChanged={reload}
               onReveal={() => setRevealing(account)}
+              onShowKey={() => setShowingKey(account)}
             />
           ))}
         </ul>
@@ -244,6 +280,7 @@ export function AccountsView() {
                   account={account}
                   onChanged={reload}
                   onReveal={() => setRevealing(account)}
+                  onShowKey={() => setShowingKey(account)}
                 />
               ))}
             </ul>
@@ -251,6 +288,19 @@ export function AccountsView() {
         ) : null}
       </div>
       <RevealDialog account={revealing} onClose={() => setRevealing(null)} />
+      <SSHKeyInfoDialog account={showingKey} onClose={() => setShowingKey(null)} />
+      <AddSSHKeyDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onSaved={(saved, note) => {
+          setAdding(false);
+          setNotice(note || "Key saved.");
+          reload();
+          // The public half is what the person needs next: it is what goes into
+          // the provider's settings before the key can authenticate anything.
+          setShowingKey(saved);
+        }}
+      />
     </div>
   );
 }

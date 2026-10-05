@@ -411,10 +411,13 @@ func TestAuthFailureNamesTheAccountThatWasRefused(t *testing.T) {
 	}
 }
 
-func TestAuthFailureOverSSHNamesNoAccount(t *testing.T) {
+// A token bound to an SSH remote authenticates nothing (see credentialEnvFor),
+// so an error must not blame it.
+func TestAuthFailureDoesNotBlameATokenThatNeverAuthenticatedAnSSHRemote(t *testing.T) {
 	svc, _, _ := newRepoWithRemote(t)
 	svc.SetCredentials(&labelledCreds{labels: map[string]string{"acct-1": "github · acme-dev"}})
-	remote := Remote{Name: "origin", URL: "git@github.com:acme/api.git", AccountID: "acct-1"}
+	remote := Remote{Name: "origin", URL: "git@github.com:acme/api.git", Transport: TransportSSH, AccountID: "acct-1"}
+	remote = ignoreUnusedAccount(remote, nil)
 
 	err := svc.explainRemoteError("fetch", remote, errors.New("git fetch: exit status 128: git@github.com: Permission denied (publickey)."))
 
@@ -530,13 +533,13 @@ func TestABoundRemoteNeverAsksThePicker(t *testing.T) {
 	}
 }
 
-// An SSH remote is authenticated by a key. Offering a choice of accounts for it
-// would present a decision that changes nothing.
-func TestAnSSHRemoteNeverAsksThePicker(t *testing.T) {
+// An SSH remote is asked about too — with its transport, so the picker offers
+// keys and not tokens. A resolver that cannot give a key leaves it to git.
+func TestAnSSHRemoteAsksThePickerForAKey(t *testing.T) {
 	svc, _ := httpsRepo(t, "git@code.example.test:acme/api.git")
 	picker := &stubPicker{id: "acct-work"}
 	svc.SetRemotes(stubRemotes{{Name: "origin"}})
-	svc.SetCredentials(&stubCreds{user: "u", secret: "s"})
+	svc.SetCredentials(&stubCreds{user: "u", secret: "s"}) // no ResolveSSHKey
 	svc.SetAccountPicker(picker)
 
 	env, cleanup, err := svc.credentialEnv(context.Background(), "origin")
@@ -544,8 +547,11 @@ func TestAnSSHRemoteNeverAsksThePicker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if picker.called != 0 || len(env) != 0 {
-		t.Fatalf("an SSH remote was offered accounts: asked=%d env=%v", picker.called, env)
+	if picker.called != 1 || picker.calls[0].Transport != TransportSSH {
+		t.Fatalf("picker calls = %+v", picker.calls)
+	}
+	if len(env) != 0 {
+		t.Fatalf("a resolver with no keys produced an environment: %v", env)
 	}
 }
 

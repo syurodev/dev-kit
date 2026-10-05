@@ -7,5 +7,6 @@ export {
 } from "./models.js";
 
 export type {
+    AccountOption,
     Pending
 } from "./models.js";

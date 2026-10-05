@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"devkit/internal/gitssh"
 	"devkit/internal/vaultitem"
 )
 
@@ -44,11 +46,13 @@ type Service struct {
 	choices *choiceStore
 	// remoteChoices remembers the answer per (host, owner) for git remotes.
 	remoteChoices *remoteChoiceStore
-	providers     *Registry
-	env           EnvLookup
-	usage         []Usage
-	http          *http.Client
-	now           func() time.Time
+	// identifySSH checks an SSH key against its provider; nil means ssh itself.
+	identifySSH func(ctx context.Context, m gitssh.Material, host string) (string, error)
+	providers   *Registry
+	env         EnvLookup
+	usage       []Usage
+	http        *http.Client
+	now         func() time.Time
 }
 
 // NewService wires the two stores behind one surface. db may be nil in tests
@@ -82,6 +86,13 @@ type CreateInput struct {
 	ScopeOwner string
 	Ref        string
 	ExpiresAt  time.Time
+	// Passphrase unlocks an encrypted private key (KindSSHKey only). It is kept
+	// with the key, sealed, so a push does not stop to ask for it.
+	Passphrase string
+	// Local keeps the account on this machine instead of syncing it
+	// (KindSSHKey only). A private key that leaves the machine is a decision
+	// the person makes, so it is the one that has to be asked for.
+	Local bool
 }
 
 // Create stores a new account. A scoped one goes to the local table, a shared
@@ -101,10 +112,54 @@ func (s *Service) Create(in CreateInput) (Account, error) {
 			return Account{}, ErrInvalid
 		}
 	}
+	if in.Kind == KindSSHKey {
+		var err error
+		if in, err = s.prepareSSHKey(in); err != nil {
+			return Account{}, err
+		}
+	} else if in.Local || in.Passphrase != "" {
+		return Account{}, ErrInvalid
+	}
 	if in.ScopeOwner != "" {
 		return s.createScoped(in)
 	}
 	return s.createShared(in)
+}
+
+// prepareSSHKey checks a key is one ssh can use and turns the input into what
+// is stored: the key and its passphrase packed into the one secret.
+//
+// An encrypted key with no passphrase, or the wrong one, is refused here
+// rather than saved: a key that cannot be opened now will not authenticate a
+// push later, and the moment to say so is when the person is looking.
+func (s *Service) prepareSSHKey(in CreateInput) (CreateInput, error) {
+	provider, _ := s.providers.Get(in.Provider)
+	if provider.SSHHost == "" || !provider.Accepts(KindSSHKey) {
+		return in, ErrInvalid
+	}
+	if len(in.Env) > 0 {
+		// An SSH key is chosen by who owns the repository, not by environment
+		// tag; two ways of choosing is how they disagree.
+		return in, ErrInvalid
+	}
+	material := gitssh.Material{PrivateKey: in.Secret, Passphrase: in.Passphrase}
+	if _, err := gitssh.Inspect(material); err != nil {
+		switch {
+		case errors.Is(err, gitssh.ErrPassphraseRequired), errors.Is(err, gitssh.ErrBadPassphrase):
+			return in, ErrKeyPassphrase
+		default:
+			return in, ErrKeyInvalid
+		}
+	}
+	in.Secret, in.Passphrase, in.User = gitssh.Pack(material), "", ""
+	if in.Local {
+		id, err := vaultitem.NewID()
+		if err != nil {
+			return in, err
+		}
+		in.ScopeOwner = LocalOwnerPrefix + id
+	}
+	return in, nil
 }
 
 func (s *Service) createScoped(in CreateInput) (Account, error) {
@@ -279,6 +334,17 @@ func (s *Service) Resolve(in ResolveInput) (Credential, error) {
 	}
 	record, err := s.items.Get(in.AccountID)
 	if err != nil {
+		// A local account is addressed by id like a shared one. A connection's
+		// scoped credential is not: it is only ever reached through the profile
+		// that owns it, and widening that to any id would let a binding name a
+		// database password.
+		if row, ok := s.localRow(in.AccountID); ok {
+			secret, openErr := s.scoped.open(row)
+			if openErr != nil {
+				return Credential{}, openErr
+			}
+			return Credential{Kind: row.Kind, User: row.Username, Secret: secret}, nil
+		}
 		return Credential{}, ErrNotFound
 	}
 	account, err := decodeMetadata(record)
@@ -299,6 +365,18 @@ func (s *Service) Resolve(in ResolveInput) (Credential, error) {
 	}
 	user, secret := splitCredential(string(plaintext))
 	return Credential{Kind: account.Kind, User: user, Secret: secret}, nil
+}
+
+// localRow is the scoped row for id when it is a local account.
+func (s *Service) localRow(id string) (scopedRow, bool) {
+	if s.scoped == nil {
+		return scopedRow{}, false
+	}
+	row, err := s.scoped.byID(id)
+	if err != nil || !strings.HasPrefix(row.ScopeOwner, LocalOwnerPrefix) {
+		return scopedRow{}, false
+	}
+	return row, true
 }
 
 func splitCredential(raw string) (user, secret string) {
@@ -341,7 +419,7 @@ func (s *Service) Reveal(id string) (Credential, error) {
 		if decodeErr != nil {
 			return Credential{}, decodeErr
 		}
-		if account.Kind == KindExternal {
+		if account.Kind == KindExternal || account.Kind == KindSSHKey {
 			return Credential{}, ErrNothingToReveal
 		}
 		plaintext, openErr := s.items.OpenPayload(record, KeyID)
@@ -353,6 +431,9 @@ func (s *Service) Reveal(id string) (Credential, error) {
 	}
 	if s.scoped != nil {
 		if row, scopedErr := s.scoped.byID(id); scopedErr == nil {
+			if row.Kind == KindSSHKey {
+				return Credential{}, ErrNothingToReveal
+			}
 			secret, openErr := s.scoped.open(row)
 			if openErr != nil {
 				return Credential{}, openErr
@@ -372,7 +453,7 @@ func (s *Service) Rotate(id, user, secret string) error {
 		if decodeErr != nil {
 			return decodeErr
 		}
-		if account.Kind == KindExternal {
+		if account.Kind == KindExternal || account.Kind == KindSSHKey {
 			return ErrInvalid
 		}
 		payload := []byte(secret)
@@ -396,6 +477,11 @@ func (s *Service) Rotate(id, user, secret string) error {
 	row, err := s.scoped.byID(id)
 	if err != nil {
 		return err
+	}
+	if row.Kind == KindSSHKey {
+		// A key is replaced by adding the new one: its passphrase and its
+		// verification belong to it, and Rotate carries neither.
+		return ErrInvalid
 	}
 	row.Username = user
 	return s.scoped.upsert(row, secret)

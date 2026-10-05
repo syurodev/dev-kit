@@ -1,9 +1,15 @@
 package bridge
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 
 	"devkit/internal/accounts"
 	"devkit/internal/app"
@@ -162,4 +168,51 @@ func TestRevealOnAnExternalAccountSaysThereIsNothingToShow(t *testing.T) {
 	if errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("reported as missing rather than as empty: %v", err)
 	}
+}
+
+func TestSSHKeyAccountStaysLocalUnlessTheBridgeIsToldToSync(t *testing.T) {
+	svc, container := newBridgeWithAccounts(t)
+	key := newBridgePrivateKey(t)
+
+	local, err := svc.AccountsCreateSSHKey("github", "Work key", key, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synced, err := svc.AccountsCreateSSHKey("github", "Synced key", key, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !local.Local() || synced.Scoped() {
+		t.Fatalf("local=%+v synced=%+v", local, synced)
+	}
+	if _, err := container.Items.Get(local.ID); err == nil {
+		t.Fatal("a key the person kept local was written to vault_items, which replicates")
+	}
+
+	info, err := svc.AccountsSSHKeyInfo(local.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Fingerprint == "" || strings.Contains(info.PublicKey, "PRIVATE") {
+		t.Fatalf("info = %+v", info)
+	}
+	if _, err := svc.AccountsReveal(local.ID, "correct-horse"); err == nil {
+		t.Fatal("an SSH private key can be shown again")
+	}
+	if _, err := svc.AccountsCreateSSHKey("github", "Bad", "not a key", "", false); err == nil {
+		t.Fatal("a non-key was saved")
+	}
+}
+
+func newBridgePrivateKey(t *testing.T) string {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(private, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(block))
 }

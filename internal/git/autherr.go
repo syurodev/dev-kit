@@ -96,11 +96,6 @@ func (s *Service) explainRemoteError(op string, remote Remote, err error) error 
 		Op: op, Remote: remote.Name, URL: redactURL(remote.URL),
 		Transport: transportOf(remote.URL), AccountID: remote.AccountID, Err: err,
 	}
-	// An SSH remote is authenticated by a key, never by the bound account
-	// (see credentialEnv), so naming that account would blame the wrong thing.
-	if out.Transport == TransportSSH {
-		out.AccountID = ""
-	}
 	if namer, ok := s.creds.(accountLabeler); ok && out.AccountID != "" {
 		out.Account = namer.AccountLabel(out.AccountID)
 	}

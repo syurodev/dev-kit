@@ -1230,7 +1230,51 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37})
+	m38 := Migration{
+		Version: 38,
+		Name:    "ssh key accounts",
+		Up: func(ctx context.Context) error {
+			// A machine-local account (an SSH key that does not sync) keeps what
+			// its provider said about it here: shared accounts have a vault item
+			// metadata for that, and this table has had no place for it.
+			for column, definition := range map[string]string{
+				"subject":        "TEXT NOT NULL DEFAULT ''",
+				"verified_state": "TEXT NOT NULL DEFAULT ''",
+				"verified_at":    "TEXT NOT NULL DEFAULT ''",
+			} {
+				if err := addColumnIfNotExists(ctx, db, TableAccountSecrets, column, definition); err != nil {
+					return err
+				}
+			}
+			// A remembered answer is per transport as well as per (host, owner):
+			// the token that authenticates acme-corp over HTTPS and the SSH key
+			// that authenticates it over SSH are different accounts, and one
+			// must not read the other's answer as stale and delete it. The key
+			// changes, so the table is rebuilt; answers given so far were all
+			// for HTTPS.
+			for _, statement := range []string{
+				fmt.Sprintf(`CREATE TABLE %[1]s_new (
+					host TEXT NOT NULL,
+					owner TEXT NOT NULL,
+					via TEXT NOT NULL DEFAULT 'https',
+					account_id TEXT NOT NULL,
+					chosen_at TEXT NOT NULL,
+					PRIMARY KEY (host, owner, via)
+				)`, TableAccountRemoteChoices),
+				fmt.Sprintf(`INSERT INTO %[1]s_new (host, owner, via, account_id, chosen_at)
+					SELECT host, owner, 'https', account_id, chosen_at FROM %[1]s`, TableAccountRemoteChoices),
+				fmt.Sprintf(`DROP TABLE %s`, TableAccountRemoteChoices),
+				fmt.Sprintf(`ALTER TABLE %[1]s_new RENAME TO %[1]s`, TableAccountRemoteChoices),
+			} {
+				if _, err := db.ExecContext(ctx, statement); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38})
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"devkit/internal/apiclient"
 	"devkit/internal/codexsessions"
 	gitservice "devkit/internal/git"
+	"devkit/internal/gitssh"
 	"devkit/internal/interaction"
 	"devkit/internal/notify"
 	"devkit/internal/tasks"
@@ -148,6 +149,20 @@ func (r accountResolver) AccountLabel(id string) string {
 
 func (r accountResolver) ResolveForRemote(_ context.Context, accountID, env string) (string, string, error) {
 	return r.resolve(accountID, env, "git")
+}
+
+// ResolveSSHKey hands git an SSH-key account's key. An account that is not one
+// is "nothing to do", not an error: a token bound to a remote that turned out
+// to be SSH is left to git's own configuration.
+func (r accountResolver) ResolveSSHKey(_ context.Context, accountID, env string) (gitssh.Material, bool, error) {
+	material, err := r.accounts.ResolveSSHKey(accountID, env, "git")
+	if errors.Is(err, accounts.ErrNotSSHKey) {
+		return gitssh.Material{}, false, nil
+	}
+	if err != nil {
+		return gitssh.Material{}, false, err
+	}
+	return material, true, nil
 }
 
 func (r accountResolver) resolve(accountID, env, by string) (string, string, error) {

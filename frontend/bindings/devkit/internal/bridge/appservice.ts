@@ -40,6 +40,9 @@ import * as git$0 from "../git/models.js";
 import * as gitparse$0 from "../gitparse/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as gitssh$0 from "../gitssh/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as interaction$0 from "../interaction/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -86,6 +89,19 @@ export function AccountsChooseForHost(host: string, env: string, accountID: stri
  */
 export function AccountsCreate(provider: string, kind: string, label: string, user: string, secret: string, env: string[] | null, scopeOwner: string, ref: string): $CancellablePromise<accounts$0.Account> {
     return $Call.ByID(3166993726, provider, kind, label, user, secret, env, scopeOwner, ref);
+}
+
+/**
+ * AccountsCreateSSHKey stores a private key that authenticates git over SSH.
+ * 
+ * The key and its passphrase arrive once, here. The key is checked to be one
+ * ssh can use, and the passphrase to open it, before anything is saved. By
+ * default it stays on this machine; syncAcrossDevices puts it in the vault,
+ * which is the one way a private key leaves — so it is a parameter the person
+ * sets, never a default.
+ */
+export function AccountsCreateSSHKey(provider: string, label: string, privateKey: string, passphrase: string, syncAcrossDevices: boolean): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(3493315675, provider, label, privateKey, passphrase, syncAcrossDevices);
 }
 
 export function AccountsDelete(id: string): $CancellablePromise<void> {
@@ -166,6 +182,15 @@ export function AccountsRevealRequiresPassword(): $CancellablePromise<boolean> {
  */
 export function AccountsRotate(id: string, user: string, secret: string): $CancellablePromise<void> {
     return $Call.ByID(2823647049, id, user, secret);
+}
+
+/**
+ * AccountsSSHKeyInfo describes a key account without revealing it: the
+ * fingerprint to match against what GitHub lists, and the public line to paste
+ * into a provider's settings. Nothing private is in the answer.
+ */
+export function AccountsSSHKeyInfo(id: string): $CancellablePromise<gitssh$0.KeyInfo> {
+    return $Call.ByID(2365324699, id);
 }
 
 export function AccountsSetRevealRequiresPassword(required: boolean): $CancellablePromise<void> {
