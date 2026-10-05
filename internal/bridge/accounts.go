@@ -153,6 +153,24 @@ func (s *AppService) AccountsSetIdentity(id, name, email string) (accounts.Accou
 	return result.(accounts.Account), nil
 }
 
+// AccountsRotateToken replaces the token of a token or basic account in place,
+// keeping the username unless a new one is given. The id stays, so every remote
+// and choice bound to the account keeps working; what the provider said about
+// the old token is cleared until the new one is verified.
+func (s *AppService) AccountsRotateToken(id, user, token string) (accounts.Account, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "rotate_token",
+		"account_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.RotateToken(id, user, token)
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
 // AccountsRotate replaces a value in place, which is why every binding holds
 // an id: nothing bound to this account needs editing afterwards.
 func (s *AppService) AccountsRotate(id, user, secret string) error {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
+import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Plus, RefreshCw, RotateCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -16,7 +16,9 @@ import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
 import { AddTokenDialog } from "./AddTokenDialog";
 import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
 import { IdentityDialog } from "./IdentityDialog";
+import { canRotateToken } from "./gitTokens";
 import { RevealDialog } from "./RevealDialog";
+import { RotateTokenDialog } from "./RotateTokenDialog";
 import { SSHKeyInfoDialog } from "./SSHKeyInfoDialog";
 
 const STATE_LABEL: Record<Account["state"], string> = {
@@ -43,12 +45,14 @@ function AccountRow({
   onReveal,
   onShowKey,
   onIdentity,
+  onRotate,
 }: {
   account: Account;
   onChanged: () => void;
   onReveal: () => void;
   onShowKey: () => void;
   onIdentity: () => void;
+  onRotate: () => void;
 }) {
   // A local account belongs to no connection: it is the person's own, kept on
   // this machine. It verifies and promotes like a shared one, so only a
@@ -95,6 +99,17 @@ function AccountRow({
           }}
         >
           <BadgeCheck className="size-4" aria-hidden />
+        </Button>
+      ) : null}
+      {canRotateToken(account) ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Replace the token of ${account.label}`}
+          title="Replace the token in place. Everything bound to this account keeps working."
+          onClick={onRotate}
+        >
+          <RotateCw className="size-4" aria-hidden />
         </Button>
       ) : null}
       {commits ? (
@@ -188,6 +203,7 @@ export function AccountsView() {
   const [revealing, setRevealing] = useState<Account | null>(null);
   const [showingKey, setShowingKey] = useState<Account | null>(null);
   const [editingIdentity, setEditingIdentity] = useState<Account | null>(null);
+  const [rotating, setRotating] = useState<Account | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [addingToken, setAddingToken] = useState(false);
@@ -310,6 +326,7 @@ export function AccountsView() {
               onReveal={() => setRevealing(account)}
               onShowKey={() => setShowingKey(account)}
               onIdentity={() => setEditingIdentity(account)}
+              onRotate={() => setRotating(account)}
             />
           ))}
         </ul>
@@ -328,6 +345,7 @@ export function AccountsView() {
                   onReveal={() => setRevealing(account)}
                   onShowKey={() => setShowingKey(account)}
               onIdentity={() => setEditingIdentity(account)}
+              onRotate={() => setRotating(account)}
                 />
               ))}
             </ul>
@@ -336,6 +354,15 @@ export function AccountsView() {
       </div>
       <RevealDialog account={revealing} onClose={() => setRevealing(null)} />
       <SSHKeyInfoDialog account={showingKey} onClose={() => setShowingKey(null)} />
+      <RotateTokenDialog
+        account={rotating}
+        onClose={() => setRotating(null)}
+        onRotated={(_, note) => {
+          setRotating(null);
+          setNotice(note);
+          reload();
+        }}
+      />
       <IdentityDialog
         account={editingIdentity}
         onClose={() => setEditingIdentity(null)}

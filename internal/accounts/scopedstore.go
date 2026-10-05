@@ -179,6 +179,13 @@ func (s *scopedStore) markVerified(id, subject string, state State) error {
 	return err
 }
 
+// clearVerification forgets what a provider said about a row's old value.
+func (s *scopedStore) clearVerification(id string) error {
+	_, err := s.db.Exec(fmt.Sprintf(
+		`UPDATE %s SET subject = '', verified_state = '', verified_at = '' WHERE id = ?`, s.table), id)
+	return err
+}
+
 func (r scopedRow) account(now time.Time) Account {
 	account := Account{
 		ID:         r.ID,

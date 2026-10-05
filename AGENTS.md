@@ -663,6 +663,12 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   required username; the provider must have an `SSHHost`, which is how a repository host is
   marked). `accountResolver.ResolveForRemote` gives git a stand-in username (the verified login,
   else `git`) when a token has none; the API client still gets what is stored.
+- **Rotating a token is in place** (`Service.RotateToken`, bridge `AccountsRotateToken`): the id stays so
+  bindings, remembered choices and the commit identity survive; the username is kept unless a new one is
+  given (read with `Reveal`, since `Resolve` with no env refuses an env-restricted account); only
+  `token`/`basic` accounts that are shared or machine-local can be rotated (a key is replaced by adding
+  the new one; a connection's password changes through its profile). `Rotate` now clears subject, scopes
+  and expiry (shared) or the local row's verification: they describe the OLD value.
 - **Importing a key from disk is UI-only and path-guarded** (`internal/bridge/accounts_sshimport.go`).
   `gitssh.Discover` lists `~/.ssh` one level deep (no symlinks, ≤64 KB, skips `config`/`known_hosts`/`*.pub`)
   and `ReadAliases` reads `Host`/`IdentityFile`/`Include` as TEXT (`ssh -G` would report default key

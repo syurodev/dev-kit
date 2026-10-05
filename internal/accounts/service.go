@@ -503,6 +503,11 @@ func (s *Service) Rotate(id, user, secret string) error {
 		m := metadataOf(account)
 		m.State = string(StateUnverified)
 		m.VerifiedAt = ""
+		// Who the old value said it was, what it could do and when it ran out
+		// are all facts about the OLD value. A new one may belong to another
+		// login, and an expiry that outlived its token reads as a fresh token
+		// that has already expired.
+		m.Subject, m.Scopes, m.ExpiresAt = "", nil, ""
 		raw, marshalErr := json.Marshal(m)
 		if marshalErr != nil {
 			return marshalErr
@@ -523,7 +528,11 @@ func (s *Service) Rotate(id, user, secret string) error {
 		return ErrInvalid
 	}
 	row.Username = user
-	return s.scoped.upsert(row, secret)
+	if err := s.scoped.upsert(row, secret); err != nil {
+		return err
+	}
+	// The same, for a row that kept what its provider said about the old value.
+	return s.scoped.clearVerification(row.ID)
 }
 
 // Delete removes an account, refusing one something still binds.
