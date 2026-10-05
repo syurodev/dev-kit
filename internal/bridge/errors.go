@@ -19,6 +19,7 @@ import (
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	gitservice "devkit/internal/git"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
@@ -37,6 +38,10 @@ const (
 	codeConnectionFailed   = "connection_failed"
 	codeOperationCancelled = "operation_cancelled"
 	codeInternalError      = "internal_error"
+	// codeGitAuthFailed: a remote turned away the identity git offered. Its own
+	// code because the answer is about which account or key is in use — the
+	// message names it — and a retry as it stands will be refused again.
+	codeGitAuthFailed = "git_auth_failed"
 	// codeUnsupportedProject is its own code rather than a validation failure
 	// so the UI can tell "no analyzer reads this project" from "analysis
 	// broke". The folder opens for its files either way; a graph query on it
@@ -428,6 +433,14 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
+	if subject == "builtin.git" {
+		var authErr *gitservice.AuthError
+		if errors.As(err, &authErr) {
+			// The cause is git's own stderr, which can quote the remote's
+			// address; the public message names only the remote and account.
+			return apperrors.Wrap(codeGitAuthFailed, gitAuthMessage(authErr), true, err)
+		}
+	}
 	if subject == "builtin.apiclient" {
 		if errors.Is(err, errNoSaveDialog) {
 			return apperrors.Wrap(codeValidationFailed, "There is no save dialog here (a browser window has none) — use Copy instead.", true, err)
@@ -577,6 +590,23 @@ func agentTurnFailedMessage(agent agenthub.AgentType, vendorMessage string) stri
 // API key says: what would have worked, since the account itself is fine for
 // whatever else it is bound to.
 const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is not limited to an environment."
+
+// gitAuthMessage says which identity a remote refused, and what the person can
+// do about it. With one account that is obvious; with three it is the whole
+// error, so it never falls back to git's "Permission denied".
+func gitAuthMessage(e *gitservice.AuthError) string {
+	remote := "Remote \u201c" + e.Remote + "\u201d"
+	switch {
+	case e.Transport == gitservice.TransportSSH:
+		return remote + " refused the SSH key git offered. DevKit does not choose the SSH key for this remote yet \u2014 git used your own SSH configuration (ssh-agent or ~/.ssh/config). Check that the key it presents belongs to an account that can reach this repository."
+	case e.Account != "":
+		return remote + " refused the account \u201c" + e.Account + "\u201d. If the repository belongs to another GitHub or GitLab identity, bind the right account to this remote."
+	case e.AccountID != "":
+		return remote + " refused the account bound to it. If the repository belongs to another GitHub or GitLab identity, bind the right account to this remote."
+	default:
+		return remote + " refused the credentials git found on its own. Bind an account to this remote so DevKit authenticates it."
+	}
+}
 
 // apiClientMessage words the API client's own refusals. Each is something the
 // person can act on, and the fallback would have called every one of them "An

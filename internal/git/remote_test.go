@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -289,5 +290,157 @@ func TestRemotesMergesBindingsOntoWhatGitReports(t *testing.T) {
 	}
 	if remotes[0].URL == "" {
 		t.Fatal("the URL came from git and must survive the merge")
+	}
+}
+
+func TestTransportOfReadsEveryURLShapeGitAccepts(t *testing.T) {
+	cases := map[string]Transport{
+		"git@github.com:acme/api.git":        TransportSSH,
+		"git@github-work:acme/api.git":       TransportSSH, // an ~/.ssh/config alias is still ssh
+		"ssh://git@gitlab.com/acme/api.git":  TransportSSH,
+		"https://github.com/acme/api.git":    TransportHTTP,
+		"http://localhost:3000/acme/api.git": TransportHTTP,
+		"/srv/git/origin.git":                TransportLocal,
+		"../origin.git":                      TransportLocal,
+		"./a:b/origin.git":                   TransportLocal, // a colon after a slash is a filename
+		`C:\repos\origin.git`:                TransportLocal, // a drive letter is not a host
+		"file:///srv/git/origin.git":         TransportLocal,
+		"git://example.com/acme/api.git":     TransportOther,
+		"":                                   TransportOther,
+	}
+	for raw, want := range cases {
+		if got := transportOf(raw); got != want {
+			t.Errorf("transportOf(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestRedactURLDropsAPasswordAndNothingElse(t *testing.T) {
+	if got := redactURL("https://octocat" + ":ghp_secret" + "@github.com/acme/api.git"); strings.Contains(got, "ghp_secret") ||
+		!strings.Contains(got, "octocat@github.com") {
+		t.Fatalf("redactURL kept the password or lost the user: %q", got)
+	}
+	for _, plain := range []string{"git@github.com:acme/api.git", "https://github.com/acme/api.git", "/srv/origin.git"} {
+		if got := redactURL(plain); got != plain {
+			t.Errorf("redactURL(%q) = %q, want it untouched", plain, got)
+		}
+	}
+}
+
+// An SSH remote is answered by a key. git never runs the askpass helper for it,
+// so resolving a token would only spend a credential and put a secret into the
+// environment of a process that will not read it.
+func TestASSHRemoteResolvesNoCredentialEvenWhenBound(t *testing.T) {
+	ctx := context.Background()
+	svc, work, _ := newRepoWithRemote(t)
+	runGit(t, svc, work, "remote", "set-url", "origin", "git@code.example.test:acme/api.git")
+	creds := &stubCreds{user: "octocat", secret: "ghp_do-not-resolve-me"}
+	svc.SetRemotes(stubRemotes{{Name: "origin", AccountID: "acct-1", Env: "dev"}})
+	svc.SetCredentials(creds)
+
+	env, cleanup, err := svc.credentialEnv(ctx, "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(env) != 0 {
+		t.Fatalf("an SSH remote produced a credential environment: %v", env)
+	}
+	if creds.asked != 0 {
+		t.Fatalf("an SSH remote resolved a credential %d times", creds.asked)
+	}
+
+	remotes, err := svc.Remotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remotes[0].Transport != TransportSSH {
+		t.Fatalf("Remotes did not report the transport: %+v", remotes[0])
+	}
+}
+
+// The push address decides the transport of a push, and it can differ from the
+// fetch address.
+func TestAPushURLOverridesTheTransportOfAPush(t *testing.T) {
+	ctx := context.Background()
+	svc, work, _ := newRepoWithRemote(t)
+	runGit(t, svc, work, "remote", "set-url", "origin", "https://code.example.test/acme/api.git")
+	runGit(t, svc, work, "remote", "set-url", "--push", "origin", "git@code.example.test:acme/api.git")
+	svc.SetRemotes(stubRemotes{{Name: "origin", AccountID: "acct-1"}})
+
+	fetch, err := svc.remoteNamed(ctx, "origin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	push, err := svc.remoteNamed(ctx, "origin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetch.Transport != TransportHTTP || push.Transport != TransportSSH {
+		t.Fatalf("fetch=%q push=%q, want http and ssh", fetch.Transport, push.Transport)
+	}
+}
+
+type labelledCreds struct {
+	stubCreds
+	labels map[string]string
+}
+
+func (c *labelledCreds) AccountLabel(id string) string { return c.labels[id] }
+
+func TestAuthFailureNamesTheAccountThatWasRefused(t *testing.T) {
+	svc, _, _ := newRepoWithRemote(t)
+	svc.SetCredentials(&labelledCreds{labels: map[string]string{"acct-1": "github · acme-dev"}})
+	remote := Remote{Name: "origin", URL: "https://octocat" + ":tok" + "@github.com/acme/api.git", AccountID: "acct-1"}
+
+	refused := errors.New("git push: exit status 128: remote: Repository not found.\nfatal: repository 'https://github.com/acme/api.git/' not found")
+	err := svc.explainRemoteError("push", remote, refused)
+
+	var authErr *AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("a refused identity was not reported as an AuthError: %v", err)
+	}
+	if authErr.Account != "github · acme-dev" || authErr.Transport != TransportHTTP {
+		t.Fatalf("AuthError = %+v", authErr)
+	}
+	if strings.Contains(authErr.URL, "tok") {
+		t.Fatalf("the error's URL carries the password: %q", authErr.URL)
+	}
+	if !errors.Is(err, refused) {
+		t.Fatal("the original git error must stay reachable for the log")
+	}
+}
+
+func TestAuthFailureOverSSHNamesNoAccount(t *testing.T) {
+	svc, _, _ := newRepoWithRemote(t)
+	svc.SetCredentials(&labelledCreds{labels: map[string]string{"acct-1": "github · acme-dev"}})
+	remote := Remote{Name: "origin", URL: "git@github.com:acme/api.git", AccountID: "acct-1"}
+
+	err := svc.explainRemoteError("fetch", remote, errors.New("git fetch: exit status 128: git@github.com: Permission denied (publickey)."))
+
+	var authErr *AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("a refused key was not reported as an AuthError: %v", err)
+	}
+	if authErr.Account != "" || authErr.AccountID != "" {
+		t.Fatalf("an SSH refusal blamed an account that never authenticated it: %+v", authErr)
+	}
+}
+
+func TestOnlyAnAuthenticationFailureBecomesAnAuthError(t *testing.T) {
+	svc, _, _ := newRepoWithRemote(t)
+	remote := Remote{Name: "origin", URL: "git@github.com:acme/api.git"}
+	for _, message := range []string{
+		"git push: exit status 1: ! [rejected] main -> main (non-fast-forward)",
+		"git fetch: exit status 128: ssh: Could not resolve hostname github.com: Name or service not known\nfatal: Could not read from remote repository.",
+		"git fetch: exit status 128: Host key verification failed.",
+	} {
+		original := errors.New(message)
+		if got := svc.explainRemoteError("push", remote, original); got != original {
+			t.Errorf("%q was reworded: %v", message, got)
+		}
+	}
+	if svc.explainRemoteError("push", remote, nil) != nil {
+		t.Fatal("a nil error became an error")
 	}
 }

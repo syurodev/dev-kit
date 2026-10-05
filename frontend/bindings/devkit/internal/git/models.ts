@@ -98,6 +98,13 @@ export interface Remote {
     "url": string;
 
     /**
+     * Transport is how git reaches the remote. It decides whether AccountID
+     * can do anything: a bound account answers an HTTPS remote's password
+     * prompt and has no way to answer an SSH remote, which authenticates by key.
+     */
+    "transport": Transport;
+
+    /**
      * AccountID is the credential binding. Empty means whatever git's own
      * configuration already does (ssh keys, a credential helper).
      */
@@ -175,3 +182,36 @@ export interface Status {
      */
     "conflicted": string[] | null;
 }
+
+/**
+ * Transport is how git reaches a remote, which decides what can authenticate
+ * it: an HTTPS remote asks for a username and password (so DevKit can answer
+ * through GIT_ASKPASS), an SSH remote is answered by a key and never asks.
+ */
+export enum Transport {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * TransportSSH is ssh://host/path and the scp-like git@host:path.
+     */
+    TransportSSH = "ssh",
+
+    /**
+     * TransportHTTP is http:// and https://.
+     */
+    TransportHTTP = "http",
+
+    /**
+     * TransportLocal is a path or file:// — a remote on this machine.
+     */
+    TransportLocal = "local",
+
+    /**
+     * TransportOther is anything else (git://, a custom helper). Nothing in
+     * DevKit authenticates it.
+     */
+    TransportOther = "other",
+};

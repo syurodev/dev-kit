@@ -90,7 +90,7 @@ sợ: không ai biết mình có mất việc đã commit không.
 | FR-6b | Phiên agent đang giữ một task ([Tasks](/dev-kit/tasks)) ⇒ message seed thêm trailer `Task: <key>`. Đó là **toàn bộ** liên kết task ↔ commit: Tasks không lưu SHA, chỉ `git log --grep` theo `key` khi cần hiển thị. |
 | FR-7 | **Branch**: list, checkout, tạo mới từ ref, xoá branch local. Checkout báo cho Code Graph để re-index (`IndexInfo.Branch` hiện đã có, chưa ai theo dõi). |
 | FR-8 | **Stash**: push/pop/list. Đây là lối thoát cho "đổi branch khi đang dở". |
-| FR-9 | **Remote**: fetch, pull (`--ff-only` mặc định), push. Credential từ [Accounts](/dev-kit/accounts) qua `account_id` gắn trên remote. |
+| FR-9 | **Remote**: fetch, pull (`--ff-only` mặc định), push. Credential từ [Accounts](/dev-kit/accounts) qua `account_id` gắn trên remote — **chỉ với remote HTTPS** (qua `GIT_ASKPASS`). Remote SSH được xác thực bằng key nên binding token không áp dụng: DevKit không resolve credential cho nó, và `Remote.transport` cho UI biết điều đó. Khi remote từ chối danh tính (`AuthError`), lỗi nêu tên remote và account (HTTPS) hoặc nói rõ là key SSH của git (SSH), không để lộ câu `Permission denied` trần. |
 | FR-10 | **History**: log tuyến tính của branch hiện tại, mỗi dòng mở được diff của commit. Không có canvas đồ thị nhánh ở v1. |
 | FR-11 | **Blast radius của một commit**: file đổi của commit → phạm vi ảnh hưởng trong index Code Graph. Git hỏi, Code Graph trả lời. |
 | FR-12 | Agent gọi được `git.*` qua MCP với giới hạn ở bảng dưới. |
@@ -319,5 +319,6 @@ sử không giữ lại được gì.
 - Stage theo hunk dựa trên `git apply --cached`; hunk đè nhau sau khi file đổi
   trên đĩa sẽ bị từ chối và phải chọn lại. Chiều ngược lại — unstage theo hunk —
   chưa có: bỏ stage vẫn là cả file. File nhị phân không có hunk để chọn.
+- Remote SSH hiện do cấu hình SSH của chính git quyết định (ssh-agent, `~/.ssh/config`); DevKit chưa chọn key theo account. Với nhiều tài khoản trên cùng một host, đó là danh tính đầu tiên mà agent đưa ra.
 - Một project đang mở tại một thời điểm, giống Code Graph — submodule và
   monorepo nhiều repo con chưa nằm trong phạm vi.
