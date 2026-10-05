@@ -216,6 +216,9 @@ export type BrowseState = {
   rows: QueryResult | null;
   loading: boolean;
   error: string;
+  editing: boolean;
+  editError: string;
+  editStatus: string;
   /** Last-row keys of pages already seen, one per page boundary crossed. */
   cursors: string[][];
   pageIndex: number;
@@ -264,6 +267,9 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   rows: null,
   loading: false,
   error: "",
+  editing: false,
+  editError: "",
+  editStatus: "",
   cursors: [],
   pageIndex: 0,
   hasNext: false,
@@ -357,6 +363,9 @@ export type DatabaseStoreState = {
    */
   browsePageSize: number;
   setBrowsePageSize: (size: number) => void;
+  writingTables: Record<string, boolean>;
+  browseFilterDrafts: Record<string, string>;
+  setBrowseFilterDraft: (key: string, value: string) => void;
   browseState: (key: string) => BrowseState;
   setBrowseWhere: (key: string, where: string) => void;
   setBrowseOrder: (key: string, orderBy: BrowseState["orderBy"]) => void;
@@ -644,6 +653,70 @@ const pendingCountQueries = new Map<string, ReturnType<typeof runQuery>>();
 
 // Connection/cache/index generation also guards A → B → A transitions.
 let schemaRequest = 0;
+let connectionGeneration = 0;
+const pendingEdits = new Map<string, object>();
+
+/** A write survives view hiding, but its completion only belongs to its original page/connection. */
+async function performBrowseWrite(
+  set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
+  get: () => DatabaseStoreState,
+  key: string,
+  target: { schema: string; table: string },
+  write: (profileId: string) => Promise<void>,
+  staged: boolean,
+): Promise<void> {
+  const profileId = get().selectedProfileId;
+  const page = get().browseState(key);
+  if (!profileId) throw new Error("Select a connection before editing.");
+  if (page.loading || get().txBusy || pendingEdits.has(key))
+    throw new Error("Wait for the current table operation to finish.");
+  const token = {};
+  const generation = connectionGeneration;
+  const current = () =>
+    connectionGeneration === generation &&
+    get().selectedProfileId === profileId &&
+    get().browse[key]?.runId === page.runId;
+  pendingEdits.set(key, token);
+  set((state) => ({ writingTables: { ...state.writingTables, [key]: true } }));
+  patchBrowse(set, key, { editing: true, editError: "", editStatus: "" });
+  try {
+    await write(profileId);
+    if (!current())
+      throw Object.assign(
+        new Error("Table target changed while the edit was running."),
+        { name: "CancelError" },
+      );
+    // The database accepted the write. Never offer to apply it twice if the reload fails.
+    patchBrowse(set, key, {
+      editing: false,
+      loading: true,
+      ...(staged ? { staged: {} } : {}),
+      editStatus: get().txManual
+        ? "Changes applied to the open transaction. Commit to keep them."
+        : "Changes applied.",
+    });
+    if (get().txManual) void get().refreshTxState();
+    await get().loadBrowsePage(key, target);
+  } catch (error) {
+    if (current() && !isCancelError(error))
+      patchBrowse(set, key, { editError: errorMessage(error) });
+    throw error;
+  } finally {
+    if (pendingEdits.get(key) === token) {
+      pendingEdits.delete(key);
+      set((state) => {
+        const { [key]: _finished, ...writingTables } = state.writingTables;
+        return { writingTables };
+      });
+      if (
+        connectionGeneration === generation &&
+        get().selectedProfileId === profileId &&
+        get().browse[key]
+      )
+        patchBrowse(set, key, { editing: false });
+    }
+  }
+}
 
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
@@ -714,6 +787,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const switching = get().selectedProfileId !== id;
     if (switching) {
       schemaRequest++;
+      connectionGeneration++;
       // #42: a transaction stays open on the connection you leave — its locks
       // held, its work uncommitted — and the toolbar you arrive at describes
       // the other connection. Recorded for the sidebar to say it once.
@@ -1160,11 +1234,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     });
   },
 
+  writingTables: {},
+  browseFilterDrafts: {},
+  setBrowseFilterDraft: (key, value) => set(state => ({ browseFilterDrafts: { ...state.browseFilterDrafts, [key]: value } })),
+
   browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
 
   setBrowsePageSize: (size) =>
     set((state) => {
-      if (!BROWSE_PAGE_SIZES.includes(size as (typeof BROWSE_PAGE_SIZES)[number])) {
+      if (pendingEdits.size > 0 || !BROWSE_PAGE_SIZES.includes(size as (typeof BROWSE_PAGE_SIZES)[number])) {
         return {};
       }
       // Every open tab's walk is invalidated, for the reason setBrowseWhere's
@@ -1183,13 +1261,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   // Both of these invalidate the walk: the cursors describe positions in a
   // result the new filter or sort no longer produces, and reusing them would
   // page through rows that are not there.
-  setBrowseWhere: (key, where) =>
+  setBrowseWhere: (key, where) => {
+    if (pendingEdits.has(key)) return;
     // The count goes with the cursors: it answered "how many rows match" for a
     // filter that is no longer the filter.
-    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false, totalRows: null }),
+    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false, totalRows: null });
+  },
 
-  setBrowseOrder: (key, orderBy) =>
-    patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false }),
+  setBrowseOrder: (key, orderBy) => {
+    if (!pendingEdits.has(key)) patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false });
+  },
 
   setBrowseWidths: (key, widths) => patchBrowse(set, key, { widths }),
 
@@ -1220,6 +1301,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   stageBrowseEdits: (key, cells) => {
     const browse = get().browseState(key);
+    if (browse.loading || pendingEdits.has(key)) return;
     const staged = { ...browse.staged };
     for (const { row, column, value } of cells) {
       const position = `${row}:${column}`;
@@ -1233,19 +1315,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchBrowse(set, key, { staged });
   },
 
-  revertBrowseEdits: (key) => patchBrowse(set, key, { staged: {} }),
+  revertBrowseEdits: (key) => {
+    if (!pendingEdits.has(key)) patchBrowse(set, key, { staged: {}, editError: "", editStatus: "" });
+  },
 
   applyStagedEdits: async (key, target, statements) => {
-    const { selectedProfileId } = get();
-    if (!selectedProfileId || statements.length === 0) {
-      return;
-    }
-    await applyEdits(selectedProfileId, statements);
-    patchBrowse(set, key, { staged: {} });
-    if (get().txManual) {
-      void get().refreshTxState();
-    }
-    await get().loadBrowsePage(key, target);
+    if (statements.length === 0) return;
+    await performBrowseWrite(set, get, key, target, async profileId => {
+      await applyEdits(profileId, statements);
+    }, true);
   },
 
   ddlTarget: null,
@@ -1258,6 +1336,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   strandedTransaction: "",
 
   setTxManual: async (manual) => {
+    if (pendingEdits.size > 0) throw new Error("Wait for table changes to finish before changing the transaction.");
     const { selectedProfileId } = get();
     if (!selectedProfileId) {
       set({ txManual: manual });
@@ -1283,6 +1362,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   endTransaction: async (action) => {
+    if (pendingEdits.size > 0) throw new Error("Wait for table changes to finish before ending the transaction.");
     const { selectedProfileId } = get();
     if (!selectedProfileId) {
       return;
@@ -1323,29 +1403,17 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     }
   },
 
-  applyBrowseEdit: async (key, { schema, table }, sql) => {
-    const { selectedProfileId } = get();
-    if (!selectedProfileId) {
-      return;
-    }
-    // Throws on to the caller rather than raising a toast here. A store that
-    // imports the toaster puts it in every graph the store is in — and this
-    // one is reachable from the eager manifest, so sonner became 32 KiB of the
-    // shell's startup for a message only the table tab ever shows.
-    const result = await runQuery(selectedProfileId, sql);
-    if (get().txManual) {
-      void get().refreshTxState();
-    }
-    await get().loadBrowsePage(key, { schema, table });
-    // #47: an UPDATE that matched no row still said "Cell updated". The row
-    // changed or went away after the page loaded; the reload above shows what
-    // is there now, and this says why the edit is not in it.
-    if (result.rowsAffected === 0) {
-      throw new Error("No row was updated: it changed or was deleted after the page loaded.");
-    }
+  applyBrowseEdit: async (key, target, sql) => {
+    await performBrowseWrite(set, get, key, target, async profileId => {
+      const result = await runQuery(profileId, sql);
+      if (result.rowsAffected === 0) {
+        throw new Error("No row was updated: it changed or was deleted after the page loaded.");
+      }
+    }, false);
   },
 
   loadBrowsePage: async (key, { schema, table }) => {
+    if (get().browseState(key).editing) return;
     const { selectedProfileId, profiles } = get();
     if (!selectedProfileId) {
       return;
@@ -1448,6 +1516,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     get().goToBrowsePage(key, target, get().browseState(key).pageIndex + step),
 
   goToBrowsePage: async (key, target, page) => {
+    if (pendingEdits.has(key)) return;
     const browse = get().browseState(key);
     // How far forward the tab is allowed to go. Counted, that is the last page;
     // uncounted, the probe row knows about exactly one page past this one and
@@ -1524,15 +1593,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     pendingCountQueries.get(key)?.cancel();
     pendingCountQueries.delete(key);
     set((state) => {
-      if (!(key in state.browse) && !(key in state.pageKeys)) {
+      if (!(key in state.browse) && !(key in state.pageKeys) && !(key in state.browseFilterDrafts)) {
         return state;
       }
       const { [key]: _closed, ...browse } = state.browse;
+      const { [key]: _draft, ...browseFilterDrafts } = state.browseFilterDrafts;
       // A17: the key goes with the rows. It is this table's state too, and
       // leaving it behind both grows the map forever and lets a reopen order
       // its first page by a key that has since been re-read.
       const { [key]: _key, ...pageKeys } = state.pageKeys;
-      return { browse, pageKeys };
+      return { browse, pageKeys, browseFilterDrafts };
     });
   },
 

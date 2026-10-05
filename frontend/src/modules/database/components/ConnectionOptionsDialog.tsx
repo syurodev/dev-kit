@@ -1,238 +1,285 @@
-import { useState, useEffect } from "react";
-import { Settings2, Shield, Radio, ShieldAlert, X, AlertTriangle, Network } from "lucide-react";
+import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { NativeSelect } from "@/components/ui/native-select";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldSet,
+} from "@/components/ui/field";
+import { FeedbackBanner, InlineFeedback } from "@/components/ui/feedback";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
-import { updateProfileOptions } from "../../../bridge/database";
-import { errorMessage } from "../../../bridge/errors";
+import {
+  updateProfileOptions,
+  type ConnectionProfile,
+} from "@/bridge/database";
+import { errorMessage } from "@/bridge/errors";
 
 export function ConnectionOptionsDialog() {
-  const {
-    profiles,
-    selectedProfileId,
-    showConnectionOptionsDialog,
-    setShowConnectionOptionsDialog,
-    envTags,
-    sshProfiles,
-    fetchProfiles,
-  } = useDatabaseStore(
+  const profile = useDatabaseStore((s) =>
+    s.profiles.find((p) => p.id === s.selectedProfileId),
+  );
+  if (!profile) return null;
+  return <ConnectionOptionsForm key={profile.id} profile={profile} />;
+}
+
+/** Initialise from the target before paint; refetch never overwrites an edited field. */
+function ConnectionOptionsForm({ profile }: { profile: ConnectionProfile }) {
+  const { open, close, envTags, sshProfiles, fetchProfiles } = useDatabaseStore(
     useShallow((s) => ({
-      profiles: s.profiles,
-      selectedProfileId: s.selectedProfileId,
-      showConnectionOptionsDialog: s.showConnectionOptionsDialog,
-      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+      open: s.showConnectionOptionsDialog,
+      close: s.setShowConnectionOptionsDialog,
       envTags: s.envTags,
       sshProfiles: s.sshProfiles,
       fetchProfiles: s.fetchProfiles,
-    }))
+    })),
   );
-
-  const profile = profiles.find((p) => p.id === selectedProfileId);
-
-  const [env, setEnv] = useState("dev");
-  const [readOnly, setReadOnly] = useState(false);
-  const [trustedNetwork, setTrustedNetwork] = useState(false);
-  const [sshProfileId, setSshProfileId] = useState("");
+  const active = useWorkbenchTabsStore((s) => s.activeModuleId === "database");
+  const values = () => ({
+    env: profile.env,
+    readOnly: Boolean(profile.readOnly),
+    trustedNetwork: Boolean(profile.trustedNetwork),
+    sshProfileId: profile.sshProfileId || "",
+  });
+  const [form, setForm] = useState(values);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setForm(values());
+  }
   const [saving, setSaving] = useState(false);
+  const operation = useRef(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (profile) {
-      setEnv(profile.env || "dev");
-      setReadOnly(Boolean(profile.readOnly));
-      setTrustedNetwork(Boolean(profile.trustedNetwork));
-      setSshProfileId(profile.sshProfileId || "");
+  const [invalid, setInvalid] = useState<"env" | "ssh" | "">("");
+  const prefix = useId();
+  const fields = useRef<HTMLFieldSetElement>(null);
+  const update = <K extends keyof typeof form>(
+    key: K,
+    value: (typeof form)[K],
+  ) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setError("");
+    setInvalid("");
+  };
+  const closeForm = () => {
+    if (!operation.current) {
+      close(false);
       setError("");
+      setInvalid("");
     }
-  }, [profile, showConnectionOptionsDialog]);
-
-  if (!showConnectionOptionsDialog || !profile) return null;
-
-  const isProd = env.toLowerCase() === "prod" || env.toLowerCase() === "production";
-
-  async function handleSave() {
-    if (!selectedProfileId) return;
+  };
+  async function save() {
+    if (operation.current) return;
+    const invalidField = !envTags.some((t) => t.name === form.env)
+      ? "env"
+      : form.sshProfileId &&
+          !sshProfiles.some((p) => p.id === form.sshProfileId)
+        ? "ssh"
+        : "";
+    if (invalidField) {
+      setInvalid(invalidField);
+      fields.current
+        ?.querySelector<HTMLElement>(`[data-field="${invalidField}"]`)
+        ?.focus();
+      return;
+    }
+    operation.current = true;
     setSaving(true);
     setError("");
     try {
-      await updateProfileOptions(selectedProfileId, {
-        env,
-        readOnly,
-        trustedNetwork,
-        sshProfileId,
-        // Sent back as it is: this dialog does not edit the bundle, and an
-        // omitted one reads as "remove it" on the Go side.
-        caCert: profile?.caCert,
+      const updated = await updateProfileOptions(profile.id, {
+        ...form,
+        caCert: profile.caCert,
       });
-      await fetchProfiles();
-      setShowConnectionOptionsDialog(false);
+      useDatabaseStore.setState((s) => ({
+        profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)),
+      }));
+      if (useDatabaseStore.getState().selectedProfileId === profile.id)
+        close(false);
+      void fetchProfiles();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
+      operation.current = false;
       setSaving(false);
     }
   }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-action-primary/10 border border-action-primary/20 flex items-center justify-center text-action-primary">
-              <Settings2 className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-title-14 text-text-primary">
-                Connection Options · {profile.name}
-              </h3>
-              <p className="text-caption-11 text-text-tertiary">
-                Metadata-only write path (does not re-encrypt password).
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-text-tertiary hover:text-text-primary"
-            onClick={() => setShowConnectionOptionsDialog(false)}
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Options List */}
-        <div className="space-y-4 text-body-12">
-          {/* Environment Tag */}
-          <div className="p-3 rounded-lg border border-border bg-surface-raised space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="font-semibold text-text-primary block">Environment Policy Tag</label>
-                <p className="text-caption-11 text-text-tertiary">
-                  Controls Capability Gateway confirmation prompts and agent tool safety.
-                </p>
-              </div>
-              {/* The ground stays on the wrapper: NativeSelect is transparent
-                  by design, and these two sit on a raised panel rather than on
-                  the dialog, so without it they would read as part of the card
-                  they are in. */}
+    <Dialog
+      open={open && active}
+      onOpenChange={(next) => {
+        if (!next) closeForm();
+      }}
+    >
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"
+        showCloseButton={!saving}
+        onEscapeKeyDown={(e) => {
+          if (operation.current) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (operation.current) e.preventDefault();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Connection Options · {profile.name}</DialogTitle>
+          <DialogDescription>
+            Choose the environment, write policy and tunnel for this connection.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <FieldSet ref={fields} disabled={saving}>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-env`}>
+                Environment Policy Tag
+              </FieldLabel>
               <NativeSelect
-                value={env}
-                onChange={(e) => setEnv(e.target.value)}
-                className="min-w-30 rounded-control bg-surface-base"
+                id={`${prefix}-env`}
+                data-field="env"
+                value={form.env}
+                onChange={(e) => update("env", e.target.value)}
+                aria-invalid={invalid === "env"}
+                aria-describedby={
+                  invalid === "env" ? `${prefix}-env-error` : undefined
+                }
               >
-                {envTags.map((tag) => (
-                  <NativeSelectOption key={tag.id} value={tag.name}>
-                    {tag.name}
-                  </NativeSelectOption>
+                <option value="">Choose environment…</option>
+                {form.env && !envTags.some((t) => t.name === form.env) && (
+                  <option value={form.env}>{form.env} (unavailable)</option>
+                )}
+                {envTags.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
                 ))}
               </NativeSelect>
-            </div>
-
-            {isProd && (
-              <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-caption-11 text-status-danger flex items-start gap-2">
-                <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="font-semibold">Production Tag Active:</strong> All queries executed via MCP agents will mandate explicit human confirmation. Destructive session actions will require additional verification.
-                </div>
-              </div>
+              <FieldDescription>
+                Controls confirmation for operations on this connection.
+              </FieldDescription>
+              {invalid === "env" && (
+                <FieldError id={`${prefix}-env-error`}>
+                  Choose an available environment.
+                </FieldError>
+              )}
+            </Field>
+            {envTags.find((t) => t.name === form.env)?.requiresConfirmation && (
+              <FeedbackBanner tone="warning" title="Review required">
+                This environment asks for confirmation before guarded
+                operations.
+              </FeedbackBanner>
             )}
-          </div>
-
-          {/* Safe Mode (Read Only) */}
-          <div className="p-3 rounded-lg border border-border bg-surface-raised flex items-center justify-between">
-            <div className="space-y-0.5 max-w-sm">
-              <div className="flex items-center gap-1.5 font-semibold text-text-primary">
-                <Shield className="w-3.5 h-3.5 text-status-warning" />
-                <span>Safe-Mode (Read-Only)</span>
-              </div>
-              <p className="text-caption-11 text-text-tertiary">
-                Postgres/MySQL sets <code className="font-mono bg-surface-base px-1 py-0.5 rounded">default_transaction_read_only = on</code> per session. Mutating statements are blocked by the database engine itself. Toggling will recreate the connection pool.
-              </p>
-            </div>
-            <Switch checked={readOnly} onCheckedChange={setReadOnly} />
-          </div>
-
-          {/* Only a plaintext profile has anything to decide here; the
-              backend drops the flag on any other mode. */}
-          {profile.sslMode === "disable" && (
-            <div className="p-3 rounded-lg border border-border bg-surface-raised flex items-center justify-between">
-              <div className="space-y-0.5 max-w-sm">
-                <div className="flex items-center gap-1.5 font-semibold text-text-primary">
-                  <Network className="w-3.5 h-3.5 text-status-info" />
-                  <span>Network is already encrypted</span>
-                </div>
-                <p className="text-caption-11 text-text-tertiary">
-                  Tailscale, WireGuard or a VPN. Allows <code className="font-mono bg-surface-base px-1 py-0.5 rounded">sslmode=disable</code> to a remote host. Toggling will recreate the connection pool.
-                </p>
-              </div>
-              <Switch checked={trustedNetwork} onCheckedChange={setTrustedNetwork} />
-            </div>
-          )}
-
-          {/* SSH Tunnel Routing */}
-          <div className="p-3 rounded-lg border border-border bg-surface-raised space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5 font-semibold text-text-primary">
-                  <Radio className="w-3.5 h-3.5 text-status-info" />
-                  <span>SSH Tunnel Forwarding</span>
-                </div>
-                <p className="text-caption-11 text-text-tertiary">
-                  Routes traffic through an encrypted SSH tunnel profile.
-                </p>
-              </div>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor={`${prefix}-readOnly`}>
+                  Safe-Mode (Read-Only)
+                </FieldLabel>
+                <FieldDescription>
+                  The database blocks writes. Changing this reconnects the
+                  connection pool.
+                </FieldDescription>
+              </FieldContent>
+              <Switch
+                id={`${prefix}-readOnly`}
+                disabled={saving}
+                checked={form.readOnly}
+                onCheckedChange={(v) => update("readOnly", v)}
+              />
+            </Field>
+            {profile.sslMode === "disable" && (
+              <Field orientation="horizontal">
+                <FieldContent>
+                  <FieldLabel htmlFor={`${prefix}-trusted`}>
+                    Network is already encrypted
+                  </FieldLabel>
+                  <FieldDescription>
+                    Allow plaintext only when the path is protected by
+                    Tailscale, WireGuard or a VPN.
+                  </FieldDescription>
+                </FieldContent>
+                <Switch
+                  id={`${prefix}-trusted`}
+                  disabled={saving}
+                  checked={form.trustedNetwork}
+                  onCheckedChange={(v) => update("trustedNetwork", v)}
+                />
+              </Field>
+            )}
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-ssh`}>
+                SSH Tunnel Forwarding
+              </FieldLabel>
               <NativeSelect
-                value={sshProfileId}
-                onChange={(e) => setSshProfileId(e.target.value)}
-                className="min-w-37.5 rounded-control bg-surface-base"
+                id={`${prefix}-ssh`}
+                data-field="ssh"
+                value={form.sshProfileId}
+                onChange={(e) => update("sshProfileId", e.target.value)}
+                aria-invalid={invalid === "ssh"}
+                aria-describedby={
+                  invalid === "ssh" ? `${prefix}-ssh-error` : undefined
+                }
               >
-                <NativeSelectOption value="">Direct (No Tunnel)</NativeSelectOption>
-                {sshProfiles.map((ssh) => (
-                  <NativeSelectOption key={ssh.id} value={ssh.id}>
-                    {ssh.name} ({ssh.username}@{ssh.host})
-                  </NativeSelectOption>
+                <option value="">Direct (No Tunnel)</option>
+                {form.sshProfileId &&
+                  !sshProfiles.some((p) => p.id === form.sshProfileId) && (
+                    <option value={form.sshProfileId}>
+                      Unavailable SSH profile
+                    </option>
+                  )}
+                {sshProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </NativeSelect>
-            </div>
-
-            {sshProfileId && (
-              <div className="p-2 rounded bg-surface-base border border-border/60 text-code-11 text-text-secondary flex items-center justify-between">
-                <span>Tunnel Map:</span>
-                <span className="text-action-primary">127.0.0.1:&lt;dynamic_port&gt; → {profile.host}:{profile.port}</span>
-              </div>
-            )}
+              <FieldDescription>
+                {form.sshProfileId
+                  ? `Tunnel target: ${profile.host}:${profile.port}`
+                  : "Connect directly to the database."}
+              </FieldDescription>
+              {invalid === "ssh" && (
+                <FieldError id={`${prefix}-ssh-error`}>
+                  Choose an available SSH profile.
+                </FieldError>
+              )}
+            </Field>
+          </FieldSet>
+          <div className="mt-3 min-h-5">
+            {error && <InlineFeedback>{error}</InlineFeedback>}
           </div>
-        </div>
-
-        {error && (
-          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowConnectionOptionsDialog(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? "Updating…" : "Save Options"}
-          </Button>
-        </div>
-      </div>
-    </div>
+          <DialogFooter className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={closeForm}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={saving}>
+              {saving ? "Updating…" : "Save Options"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

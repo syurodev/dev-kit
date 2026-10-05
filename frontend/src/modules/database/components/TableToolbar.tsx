@@ -67,19 +67,27 @@ import { WhereInput } from "./WhereInput";
  * discarding someone's work is what the button beside it is for.
  */
 export function TransactionControls() {
-  const { txManual, txOpen, txBusy, selectedProfileId, setTxManual, endTransaction } =
-    useDatabaseStore(
-      useShallow((s) => ({
-        txManual: s.txManual,
-        txOpen: s.txOpen,
-        txBusy: s.txBusy,
-        selectedProfileId: s.selectedProfileId,
-        setTxManual: s.setTxManual,
-        endTransaction: s.endTransaction,
-      })),
-    );
+  const {
+    txManual,
+    txOpen,
+    txBusy,
+    editingTable,
+    selectedProfileId,
+    setTxManual,
+    endTransaction,
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      txManual: s.txManual,
+      txOpen: s.txOpen,
+      txBusy: s.txBusy,
+      editingTable: Object.keys(s.writingTables).length > 0,
+      selectedProfileId: s.selectedProfileId,
+      setTxManual: s.setTxManual,
+      endTransaction: s.endTransaction,
+    })),
+  );
 
-  const idle = !selectedProfileId || txBusy;
+  const idle = !selectedProfileId || txBusy || editingTable;
   // Enabled by the MODE, not by whether a transaction happens to be open right
   // now. In manual mode one exists only once a statement has run, and the
   // frontend cannot know that without asking after every query — so Commit and
@@ -87,9 +95,12 @@ export function TransactionControls() {
   // end, which is the honest version of the same thing.
   const end = (action: "commit" | "rollback") => {
     endTransaction(action).catch((error: unknown) => {
-      toast.error(action === "commit" ? "Could not commit" : "Could not roll back", {
-        description: errorMessage(error),
-      });
+      toast.error(
+        action === "commit" ? "Could not commit" : "Could not roll back",
+        {
+          description: errorMessage(error),
+        },
+      );
     });
   };
 
@@ -136,8 +147,8 @@ export function TransactionControls() {
             txManual && txOpen
               ? "Manual commit — a transaction is open: Commit or Roll back to release it"
               : txManual
-              ? "Manual commit — statements wait for Commit, and a transaction opens only when one runs"
-              : "Auto commit — every statement lands on its own, and nothing is held open"
+                ? "Manual commit — statements wait for Commit, and a transaction opens only when one runs"
+                : "Auto commit — every statement lands on its own, and nothing is held open"
           }
         >
           <DropdownMenuTrigger asChild>
@@ -145,7 +156,10 @@ export function TransactionControls() {
               variant="ghost"
               size="sm"
               disabled={idle}
-              className={cn("gap-1 px-2 text-code-12 font-normal", txManual && "text-status-warning")}
+              className={cn(
+                "gap-1 px-2 text-code-12 font-normal",
+                txManual && "text-status-warning",
+              )}
             >
               <ArrowUpDown />
               Tx: {txManual ? "Manual" : "Auto"}
@@ -178,7 +192,9 @@ export function TransactionControls() {
           <DropdownMenuItem
             onSelect={() => {
               setTxManual(true).catch((error: unknown) =>
-                toast.error("Could not open a transaction", { description: errorMessage(error) }),
+                toast.error("Could not open a transaction", {
+                  description: errorMessage(error),
+                }),
               );
             }}
           >
@@ -192,7 +208,7 @@ export function TransactionControls() {
 
 export function TableToolbar({
   where,
-  onWhereChange,
+  filterKey,
   onApply,
   engine,
   indexed,
@@ -210,8 +226,8 @@ export function TableToolbar({
   pager,
 }: {
   where: string;
-  onWhereChange: (value: string) => void;
-  onApply: () => void;
+  filterKey: string;
+  onApply: (value: string) => void;
   /** Everything the filter box completes against — see WhereInput. */
   engine: string | undefined;
   indexed: SchemaNamespace | undefined;
@@ -221,7 +237,9 @@ export function TableToolbar({
   orderBy: { column: string; direction: "asc" | "desc" } | null;
   /** The result's columns, to pick one from. Empty before the first page lands. */
   columns: readonly string[];
-  onOrderByChange: (next: { column: string; direction: "asc" | "desc" } | null) => void;
+  onOrderByChange: (
+    next: { column: string; direction: "asc" | "desc" } | null,
+  ) => void;
   /** Rows on this page. Only Export reads it — with none there is nothing to write. */
   rowCount: number;
   loading: boolean;
@@ -244,9 +262,14 @@ export function TableToolbar({
 }) {
   return (
     <div className="flex shrink-0 flex-col pb-2">
-      <div className="flex h-(--control-height-md) items-center gap-0.5">
+      <div className="flex min-h-(--control-height-md) flex-wrap items-center gap-0.5">
         <ActionTooltip label="Reload this page of rows">
-          <Button variant="ghost" size="icon-sm" onClick={onRefresh} disabled={loading}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRefresh}
+            disabled={loading}
+          >
             <RefreshCw className={loading ? "animate-spin" : undefined} />
           </Button>
         </ActionTooltip>
@@ -266,7 +289,12 @@ export function TableToolbar({
         </ActionTooltip>
 
         <ActionTooltip label="Export the rows on this page">
-          <Button variant="ghost" size="icon-sm" onClick={onExport} disabled={rowCount === 0}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onExport}
+            disabled={rowCount === 0}
+          >
             <Download />
           </Button>
         </ActionTooltip>
@@ -281,17 +309,20 @@ export function TableToolbar({
         {pager}
       </div>
 
-      <div className="flex h-(--control-height-md) items-center gap-2">
+      <div className="flex min-h-(--control-height-md) flex-wrap items-center gap-2">
         {/* No glyph before the word. A funnel beside "WHERE" and a sort arrow
             beside "ORDER BY" say a second time what the word already says —
             they came from DataGrip, whose boxes carry no border and no label.
             Ours carry the label; 36px of the narrowest row in the header go
             back to the clause. */}
         <div className="flex h-(--control-height-sm) min-w-0 flex-3 items-center rounded-md bg-surface-well pl-2">
-          <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">WHERE</span>
-          <WhereInput
-            value={where}
-            onChange={onWhereChange}
+          <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">
+            WHERE
+          </span>
+          <TableFilter
+            key={filterKey}
+            filterKey={filterKey}
+            where={where}
             onApply={onApply}
             engine={engine}
             indexed={indexed}
@@ -348,7 +379,8 @@ export function TableToolbar({
                     event.preventDefault();
                     onOrderByChange({
                       column,
-                      direction: active && orderBy.direction === "asc" ? "desc" : "asc",
+                      direction:
+                        active && orderBy.direction === "asc" ? "desc" : "asc",
                     });
                   }}
                   detail={
@@ -369,5 +401,30 @@ export function TableToolbar({
         </DropdownMenu>
       </div>
     </div>
+  );
+}
+
+/** Typing changes only this subscriber; the grid and COUNT query use the applied filter. */
+function TableFilter({
+  filterKey,
+  where,
+  onApply,
+  ...props
+}: Omit<Parameters<typeof WhereInput>[0], "value" | "onChange" | "onApply"> & {
+  filterKey: string;
+  where: string;
+  onApply: (value: string) => void;
+}) {
+  const draft = useDatabaseStore(
+    (s) => s.browseFilterDrafts[filterKey] ?? where,
+  );
+  const setDraft = useDatabaseStore((s) => s.setBrowseFilterDraft);
+  return (
+    <WhereInput
+      {...props}
+      value={draft}
+      onChange={(value) => setDraft(filterKey, value)}
+      onApply={() => onApply(draft)}
+    />
   );
 }

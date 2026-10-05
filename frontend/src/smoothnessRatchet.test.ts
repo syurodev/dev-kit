@@ -165,7 +165,8 @@ const BASELINE = {
   // Hub's new-session dialog went — the agent is picked in the composer and
   // the folder comes from the project row or the native picker. 36 → 35: the
   // permission toast wore a hand-rolled backdrop-blur and now wears glass-float.
-  blurSurfaces: 35,
+  // 35 → 33: Database New Connection/Delete use shared dialog overlays.
+  blurSurfaces: 33,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
   unstableStoreSelectors: 0,

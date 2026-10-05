@@ -1,456 +1,474 @@
-import { useState } from "react";
-import { Database, X, AlertTriangle, Radio, ShieldCheck, Network } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { NativeSelect } from "@/components/ui/native-select";
-import { viewIcon } from "@/modules/registry";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldSet,
+} from "@/components/ui/field";
+import { InlineFeedback } from "@/components/ui/feedback";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
-import { createProfile, testNewConnection } from "../../../bridge/database";
-import { errorMessage } from "../../../bridge/errors";
+import {
+  createProfile,
+  testNewConnection,
+  type CreateProfileInput,
+} from "@/bridge/database";
+import { errorMessage, isCancelError } from "@/bridge/errors";
+import {
+  validateConnection,
+  type ConnectionErrors,
+  type ConnectionField,
+} from "../connectionValidation";
+import { ProbeStatus } from "./ProbeStatus";
 
-/** What each mode actually guarantees, in one line. */
 const SSL_MODE_HINT: Record<string, string> = {
-  disable: "No encryption. Loopback only, unless the network below is already encrypted.",
+  disable:
+    "No encryption. Loopback only, unless the network below is already encrypted.",
   require: "Encrypted, but the server's identity is not checked.",
   "verify-full": "Encrypted, and the certificate must match the host name.",
 };
-
-/** Mirrors isLoopbackHost in Go: the hosts sslmode=disable reaches unasked. */
-function isLoopbackHost(host: string): boolean {
+function verifiesCertificate(mode: string) {
+  return mode === "verify-full" || mode === "verify-ca";
+}
+function isLoopbackHost(host: string) {
   const h = host.trim().toLowerCase();
   return h === "localhost" || h === "::1" || h.startsWith("127.");
 }
-
-/** The modes that read a CA bundle. */
-function verifiesCertificate(sslMode: string): boolean {
-  return sslMode === "verify-full" || sslMode === "verify-ca";
-}
-
-/**
- * One height for every field label, icon or not.
- *
- * The SSH label carries a glyph and the SSL one beside it does not, so the two
- * labels were different heights and the two selects under them sat six pixels
- * apart. A fixed row for the label means a label can gain an icon without
- * moving the field below it.
- */
-const FIELD_LABEL = "flex h-4 items-center gap-1 font-medium text-text-primary";
+const initial = (): CreateProfileInput => ({
+  name: "",
+  engine: "postgres",
+  host: "127.0.0.1",
+  port: 5432,
+  database: "",
+  username: "postgres",
+  password: "",
+  sslMode: "disable",
+  env: "",
+  sshProfileId: "",
+  trustedNetwork: false,
+  caCert: "",
+});
 
 export function NewConnectionDialog() {
-  const {
-    showNewConnectionDialog,
-    setShowNewConnectionDialog,
-    envTags,
-    sshProfiles,
-    fetchProfiles,
-    setSelectedProfileId,
-  } = useDatabaseStore(
+  const { open, envTags, sshProfiles, fetchProfiles, close } = useDatabaseStore(
     useShallow((s) => ({
-      showNewConnectionDialog: s.showNewConnectionDialog,
-      setShowNewConnectionDialog: s.setShowNewConnectionDialog,
+      open: s.showNewConnectionDialog,
       envTags: s.envTags,
       sshProfiles: s.sshProfiles,
       fetchProfiles: s.fetchProfiles,
-      setSelectedProfileId: s.setSelectedProfileId,
-    }))
+      close: s.setShowNewConnectionDialog,
+    })),
   );
-
-  const [engine, setEngine] = useState<"postgres" | "mysql" | "mariadb">("postgres");
-  const [name, setName] = useState("");
-  const [host, setHost] = useState("127.0.0.1");
-  const [port, setPort] = useState(5432);
-  const [database, setDatabase] = useState("");
-  const [username, setUsername] = useState("postgres");
-  const openTab = useWorkbenchTabsStore((state) => state.openTab);
-  const [password, setPassword] = useState("");
-  const [sslMode, setSslMode] = useState("disable");
-  const [caCert, setCaCert] = useState("");
-  const [trustedNetwork, setTrustedNetwork] = useState(false);
-  const [env, setEnv] = useState("dev");
-  const [sshProfileId, setSshProfileId] = useState("");
-
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState("");
+  const active = useWorkbenchTabsStore((s) => s.activeModuleId === "database");
+  // Credentials stay local to the form. Hiding the module preserves the draft;
+  // explicit close or successful save clears it. Nothing is persisted in UI state.
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState<ConnectionErrors>({});
   const [error, setError] = useState("");
-
+  const [receipt, setReceipt] = useState("");
+  const [pending, setPending] = useState<"test" | "save" | null>(null);
+  const [startedAt, setStartedAt] = useState(0);
+  const operation = useRef<"test" | "save" | null>(null);
+  const probe = useRef<ReturnType<typeof testNewConnection> | null>(null);
+  const generation = useRef(0);
+  const fields = useRef<HTMLFieldSetElement>(null);
+  const prefix = useId();
+  useEffect(
+    () => () => {
+      generation.current++;
+      probe.current?.cancel();
+    },
+    [],
+  );
+  const { sslMode, caCert } = form;
   const verifies = verifiesCertificate(sslMode);
-  // A bundle typed under verify-full and then left behind by a switch to
-  // require would be saved as a promise the connection does not keep; the
-  // backend refuses that pairing, so drop it here rather than surface an error.
   const caForSubmit = verifies ? caCert : "";
-  // Only asked when it decides something: plaintext to a host that is not
-  // this machine. Anywhere else the answer is ignored, so it is not sent.
-  const asksTrustedNetwork = sslMode === "disable" && !isLoopbackHost(host);
-  const trustedForSubmit = asksTrustedNetwork && trustedNetwork;
-
-  if (!showNewConnectionDialog) return null;
-
-  function handleEngineChange(newEngine: "postgres" | "mysql" | "mariadb") {
-    setEngine(newEngine);
-    if (newEngine === "postgres") {
-      setPort(5432);
-      if (username === "root") setUsername("postgres");
-    } else {
-      setPort(3306);
-      if (username === "postgres") setUsername("root");
-    }
-  }
-
-  async function handleCreate() {
-    // The database is optional, as in any SQL client: Postgres falls back to
-    // the one named after the user, and MySQL connects with no default schema
-    // and lists them all.
-    if (!name.trim()) {
-      setError("Please provide a connection name.");
+  const asksTrusted = sslMode === "disable" && !isLoopbackHost(form.host);
+  const busy = pending !== null;
+  const update = <K extends keyof CreateProfileInput>(
+    key: K,
+    value: CreateProfileInput[K],
+  ) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setErrors({});
+    setError("");
+    setReceipt("");
+  };
+  const closeForm = () => {
+    if (operation.current) return;
+    setForm(initial());
+    setErrors({});
+    setError("");
+    setReceipt("");
+    close(false);
+  };
+  const cancelTest = () => {
+    generation.current++;
+    probe.current?.cancel();
+    probe.current = null;
+    operation.current = null;
+    setPending(null);
+    setReceipt("Connection test cancelled.");
+  };
+  async function submit(kind: "test" | "save") {
+    if (operation.current) return;
+    const input = {
+      ...form,
+      name: form.name.trim(),
+      host: form.host.trim(),
+      username: form.username.trim(),
+      database: form.database.trim(),
+      caCert: caForSubmit,
+      trustedNetwork: asksTrusted && Boolean(form.trustedNetwork),
+    };
+    const invalid = validateConnection(
+      input,
+      envTags.map((t) => t.name),
+      sshProfiles.map((p) => p.id),
+    );
+    setErrors(invalid);
+    setError("");
+    if (Object.keys(invalid).length) {
+      fields.current
+        ?.querySelector<HTMLElement>(
+          `[data-field="${Object.keys(invalid)[0]}"]`,
+        )
+        ?.focus();
       return;
     }
-
-    setSaving(true);
-    setError("");
-
+    operation.current = kind;
+    setPending(kind);
+    setReceipt("");
+    const token = ++generation.current;
+    const start = Date.now();
+    setStartedAt(start);
+    const selectedAtStart = useDatabaseStore.getState().selectedProfileId;
     try {
-      const created = await createProfile({
-        name: name.trim(),
-        engine,
-        host: host.trim(),
-        port: Number(port),
-        database: database.trim(),
-        username: username.trim(),
-        password,
-        sslMode,
-        trustedNetwork: trustedForSubmit,
-        env,
-        sshProfileId,
-        caCert: caForSubmit,
-      });
-
-      setShowNewConnectionDialog(false);
-      await fetchProfiles();
-      setSelectedProfileId(created.id);
+      if (kind === "test") {
+        const call = testNewConnection(input);
+        probe.current = call;
+        await call;
+        if (generation.current === token)
+          setReceipt(`Connected · ${Date.now() - start} ms`);
+      } else {
+        const created = await createProfile(input);
+        useDatabaseStore.setState((s) => ({
+          profiles: [...s.profiles.filter((p) => p.id !== created.id), created],
+        }));
+        if (generation.current !== token) return;
+        setForm(initial());
+        close(false);
+        if (useDatabaseStore.getState().selectedProfileId === selectedAtStart)
+          useDatabaseStore.getState().setSelectedProfileId(created.id);
+        void fetchProfiles();
+      }
     } catch (e) {
-      setError(errorMessage(e));
+      if (generation.current === token && !isCancelError(e))
+        setError(errorMessage(e));
     } finally {
-      setSaving(false);
+      if (generation.current === token) {
+        operation.current = null;
+        probe.current = null;
+        setPending(null);
+      }
     }
   }
-
-  async function handleTest() {
-    setTesting(true);
-    setError("");
-    setTestResult("");
-    try {
-      await testNewConnection({
-        name: name.trim(),
-        engine,
-        host: host.trim(),
-        port: Number(port),
-        database: database.trim(),
-        username: username.trim(),
-        password,
-        sslMode,
-        trustedNetwork: trustedForSubmit,
-        env,
-        sshProfileId,
-        caCert: caForSubmit,
-      });
-      setTestResult("Connected.");
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setTesting(false);
-    }
-  }
-
+  const attrs = (key: ConnectionField) => ({
+    id: `${prefix}-${key}`,
+    "data-field": key,
+    "aria-invalid": Boolean(errors[key]),
+    "aria-describedby": errors[key] ? `${prefix}-${key}-error` : undefined,
+  });
+  const feedback = (key: ConnectionField) =>
+    errors[key] && (
+      <FieldError id={`${prefix}-${key}-error`}>{errors[key]}</FieldError>
+    );
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-action-primary/10 border border-action-primary/20 flex items-center justify-center text-action-primary">
-              <Database className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-title-14 text-text-primary">New Database Connection</h3>
-              <p className="text-caption-11 text-text-tertiary">
-                Credentials are encrypted with your master vault key.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-text-tertiary hover:text-text-primary"
-            onClick={() => setShowNewConnectionDialog(false)}
+    <Dialog
+      open={open && active}
+      onOpenChange={(next) => {
+        if (!next) closeForm();
+      }}
+    >
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"
+        showCloseButton={!busy}
+        onEscapeKeyDown={(e) => {
+          if (operation.current) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (operation.current) e.preventDefault();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>New Database Connection</DialogTitle>
+          <DialogDescription>
+            Save a connection in your encrypted vault. Test it before saving.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit("save");
+          }}
+        >
+          <FieldSet
+            ref={fields}
+            disabled={busy}
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2"
           >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Form Fields */}
-        <div className="grid grid-cols-2 gap-3 text-body-12">
-          {/* Connection Name */}
-          <div className="col-span-2 space-y-1">
-            <label className={FIELD_LABEL}>Connection Name</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Production Analytics Replica"
-              className="text-label-12 h-8"
-              autoFocus
-            />
-          </div>
-
-          {/* Engine Selector */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>Database Engine</label>
-            <NativeSelect
-              className="w-full"
-              value={engine}
-              onChange={(e) => handleEngineChange(e.target.value as any)}
+            <Field className="sm:col-span-2">
+              <FieldLabel htmlFor={`${prefix}-name`}>
+                Connection Name
+              </FieldLabel>
+              <Input
+                {...attrs("name")}
+                value={form.name}
+                onChange={(e) => update("name", e.target.value)}
+                placeholder="e.g. Analytics Replica"
+                autoComplete="off"
+                autoFocus
+              />
+              {feedback("name")}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-engine`}>
+                Database Engine
+              </FieldLabel>
+              <NativeSelect
+                id={`${prefix}-engine`}
+                value={form.engine}
+                onChange={(e) => {
+                  const engine = e.target.value;
+                  setForm((f) => ({
+                    ...f,
+                    engine,
+                    port: engine === "postgres" ? 5432 : 3306,
+                    username: ["postgres", "root"].includes(f.username)
+                      ? engine === "postgres"
+                        ? "postgres"
+                        : "root"
+                      : f.username,
+                  }));
+                  setReceipt("");
+                  setError("");
+                }}
               >
-              <option value="postgres">PostgreSQL</option>
-              <option value="mysql">MySQL</option>
-              <option value="mariadb">MariaDB</option>
-            </NativeSelect>
-          </div>
-
-          {/* Environment Tag */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>Environment Tag</label>
-            <NativeSelect
-              className="w-full"
-              value={env}
-              onChange={(e) => setEnv(e.target.value)}
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="mariadb">MariaDB</option>
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-env`}>Environment Tag</FieldLabel>
+              <NativeSelect
+                {...attrs("env")}
+                value={form.env}
+                onChange={(e) => update("env", e.target.value)}
               >
-              {envTags.map((tag) => (
-                <option key={tag.id} value={tag.name}>
-                  {tag.name} {tag.name === "prod" ? "(Locked/Always-ask)" : ""}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-
-          {/* Host */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>Host / Server</label>
-            <Input
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="127.0.0.1 or db.example.com"
-              className="h-8 text-code-12"
-            />
-          </div>
-
-          {/* Port */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>Port</label>
-            <Input
-              type="number"
-              value={port}
-              onChange={(e) => setPort(Number(e.target.value))}
-              className="h-8 text-code-12"
-            />
-          </div>
-
-          {/* Database */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>
-              <span>Database Name</span>
-              <span className="font-normal text-text-tertiary">optional</span>
-            </label>
-            <Input
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-              placeholder={engine === "postgres" ? "defaults to the username" : "none: all schemas"}
-              className="h-8 text-code-12"
-            />
-          </div>
-
-          {/* Username */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>Username</label>
-            <Input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="postgres"
-              className="h-8 text-code-12"
-            />
-          </div>
-
-          {/* Password */}
-          <div className="col-span-2 space-y-1">
-            <label className={FIELD_LABEL}>Password</label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              className="h-8 text-code-12"
-            />
-          </div>
-
-          {/* SSL Mode */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>SSL Mode</label>
-            <NativeSelect
-              className="w-full"
-              value={sslMode}
-              onChange={(e) => setSslMode(e.target.value)}
+                <option value="">Choose environment…</option>
+                {envTags.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              {feedback("env")}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-host`}>Host / Server</FieldLabel>
+              <Input
+                {...attrs("host")}
+                value={form.host}
+                onChange={(e) => update("host", e.target.value)}
+                autoComplete="off"
+              />
+              {feedback("host")}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-port`}>Port</FieldLabel>
+              <Input
+                {...attrs("port")}
+                type="number"
+                min={1}
+                max={65535}
+                value={form.port || ""}
+                onChange={(e) => update("port", Number(e.target.value))}
+              />
+              {feedback("port")}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-database`}>
+                Database Name (optional)
+              </FieldLabel>
+              <Input
+                id={`${prefix}-database`}
+                value={form.database}
+                onChange={(e) => update("database", e.target.value)}
+                placeholder={
+                  form.engine === "postgres"
+                    ? "Defaults to username"
+                    : "All schemas"
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-username`}>Username</FieldLabel>
+              <Input
+                {...attrs("username")}
+                value={form.username}
+                onChange={(e) => update("username", e.target.value)}
+                autoComplete="off"
+              />
+              {feedback("username")}
+            </Field>
+            <Field className="sm:col-span-2">
+              <FieldLabel htmlFor={`${prefix}-password`}>Password</FieldLabel>
+              <Input
+                id={`${prefix}-password`}
+                type="password"
+                value={form.password}
+                onChange={(e) => update("password", e.target.value)}
+                autoComplete="new-password"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-ssl`}>SSL Mode</FieldLabel>
+              <NativeSelect
+                id={`${prefix}-ssl`}
+                value={sslMode}
+                onChange={(e) => update("sslMode", e.target.value)}
               >
-              <option value="disable">disable (loopback or encrypted network)</option>
-              <option value="require">require</option>
-              <option value="verify-full">verify-full (recommended)</option>
-            </NativeSelect>
-            {/* Each mode makes a different promise, and the difference between
-                the middle one and the last one is the whole point of the CA
-                field below — so say it here rather than leaving it to be
-                discovered by a failed handshake. */}
-            <p className="text-caption-11 text-text-tertiary">{SSL_MODE_HINT[sslMode]}</p>
-          </div>
-
-          {/* Optional SSH Tunnel */}
-          <div className="space-y-1">
-            <label className={FIELD_LABEL}>
-              <Radio className="size-3 text-status-info" />
-              <span>SSH Tunnel Profile</span>
-            </label>
-            <NativeSelect
-              className="w-full"
-              value={sshProfileId}
-              onChange={(e) => setSshProfileId(e.target.value)}
+                <option value="disable">disable</option>
+                <option value="require">require</option>
+                <option value="verify-full">verify-full</option>
+              </NativeSelect>
+              <FieldDescription>{SSL_MODE_HINT[sslMode]}</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${prefix}-sshProfileId`}>
+                SSH Tunnel Profile
+              </FieldLabel>
+              <NativeSelect
+                {...attrs("sshProfileId")}
+                value={form.sshProfileId}
+                onChange={(e) => update("sshProfileId", e.target.value)}
               >
-              <option value="">Direct Connection (No Tunnel)</option>
-              {sshProfiles.map((ssh) => (
-                <option key={ssh.id} value={ssh.id}>
-                  {ssh.name} ({ssh.username}@{ssh.host})
-                </option>
-              ))}
-            </NativeSelect>
-            {sshProfiles.length === 0 && (
-              <p className="text-caption-11 text-text-tertiary">
-                No SSH profiles yet.{" "}
-                {/* The sentence used to name a place and leave you to find it.
-                    writing.md asks a blank state to give the control, so it
-                    does — and closing this dialog on the way is deliberate:
-                    the profile has to exist before this field can offer it. */}
-                <button
-                  type="button"
-                  className="text-brand-text underline underline-offset-2 hover:text-text-primary"
-                  onClick={() => {
-                    setShowNewConnectionDialog(false);
-                    openTab({
-                      moduleId: "ssh",
-                      viewId: "ssh.connections",
-                      title: "SSH",
-                      icon: viewIcon("ssh", "ssh.connections"),
-                    });
-                  }}
-                >
-                  Add one in SSH
-                </button>{" "}
-                to reach a database behind a bastion.
-              </p>
+                <option value="">Direct connection</option>
+                {sshProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              {feedback("sshProfileId")}
+              <FieldDescription>
+                {sshProfiles.length
+                  ? "Optional encrypted tunnel through a saved SSH connection."
+                  : "Create an SSH profile in the SSH module to use a bastion."}
+              </FieldDescription>
+            </Field>
+            {asksTrusted && (
+              <Field orientation="horizontal" className="sm:col-span-2">
+                <FieldContent>
+                  <FieldLabel htmlFor={`${prefix}-trusted`}>
+                    Network is already encrypted
+                  </FieldLabel>
+                  <FieldDescription>
+                    Tailscale, WireGuard or a VPN. Plaintext to a remote host is
+                    refused without this.
+                  </FieldDescription>
+                </FieldContent>
+                <Switch
+                  id={`${prefix}-trusted`}
+                  disabled={busy}
+                  checked={Boolean(form.trustedNetwork)}
+                  onCheckedChange={(v) => update("trustedNetwork", v)}
+                />
+              </Field>
             )}
+            {verifies && (
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor={`${prefix}-ca`}>
+                  CA Certificate (optional)
+                </FieldLabel>
+                <Textarea
+                  id={`${prefix}-ca`}
+                  value={caCert}
+                  onChange={(e) => update("caCert", e.target.value)}
+                  rows={4}
+                  spellCheck={false}
+                  className="text-code-11"
+                  placeholder={
+                    "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----"
+                  }
+                />
+                <FieldDescription>
+                  Leave empty to use this machine’s trust store.
+                </FieldDescription>
+              </Field>
+            )}
+          </FieldSet>
+          <div className="mt-3 min-h-5" aria-live="polite">
+            {pending === "test" ? (
+              <ProbeStatus startedAt={startedAt} />
+            ) : error ? (
+              <InlineFeedback>{error}</InlineFeedback>
+            ) : receipt ? (
+              <InlineFeedback tone="info">{receipt}</InlineFeedback>
+            ) : null}
           </div>
-
-          {/* A tailnet or VPN address is remote, but the path to it is already
-              encrypted. DevKit cannot tell that network from the internet, so
-              it asks rather than guesses. */}
-          {asksTrustedNetwork && (
-            <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-raised p-2.5">
-              <div className="space-y-0.5">
-                <label
-                  htmlFor="db-trusted-network"
-                  className="flex items-center gap-1 font-medium text-text-primary"
-                >
-                  <Network className="size-3 text-status-info" />
-                  <span>Network is already encrypted</span>
-                </label>
-                <p className="text-caption-11 text-text-tertiary">
-                  Tailscale, WireGuard or a VPN. Without it, DevKit refuses plaintext to a remote
-                  host and the password would cross the network unencrypted.
-                </p>
-              </div>
-              <Switch
-                id="db-trusted-network"
-                checked={trustedNetwork}
-                onCheckedChange={setTrustedNetwork}
-              />
-            </div>
-          )}
-
-          {/* The CA bundle only exists to make verify-full reachable, so it
-              only appears under the mode that reads it. Mounted-but-hidden
-              rather than unmounted would keep a stale certificate in state. */}
-          {verifies && (
-            <div className="col-span-2 space-y-1">
-              <label className="font-medium text-text-primary flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-status-info" />
-                <span>CA Certificate</span>
-                <span className="font-normal text-text-tertiary">optional</span>
-              </label>
-              <textarea
-                value={caCert}
-                onChange={(e) => setCaCert(e.target.value)}
-                rows={4}
-                spellCheck={false}
-                placeholder={"-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----"}
-                className="w-full rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-code-11 text-text-primary outline-none focus:border-action-primary resize-y"
-              />
-              <p className="text-caption-11 text-text-tertiary">
-                Leave empty to use this machine&rsquo;s trust store. Managed databases sign with
-                their own authority — Amazon RDS and Aurora need the RDS CA bundle pasted here, or
-                verify-full cannot succeed.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Dialog Actions */}
-        <div className="flex items-center gap-2 pt-3 border-t border-border">
-          {/* Dialling before saving is the point: otherwise the only way to
-              learn a profile is wrong is to commit it first. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleTest}
-            disabled={testing || saving}
-          >
-            {testing ? "Testing…" : "Test connection"}
-          </Button>
-          {testResult && (
-            <span className="text-body-12 text-status-success">{testResult}</span>
-          )}
-          <div className="flex-1" />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowNewConnectionDialog(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleCreate}
-            disabled={saving}
-          >
-            {saving ? "Saving…" : "Save Connection"}
-          </Button>
-        </div>
-      </div>
-    </div>
+          <DialogFooter className="mt-3 flex-wrap">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void submit("test")}
+            >
+              Test connection
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pending !== "test"}
+              onClick={cancelTest}
+            >
+              Cancel test
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={closeForm}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={busy}>
+              {pending === "save" ? "Saving…" : "Save Connection"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

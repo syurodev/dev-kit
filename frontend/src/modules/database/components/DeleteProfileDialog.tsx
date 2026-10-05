@@ -1,29 +1,10 @@
-import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { listQueryHistory, listSavedQueries, type ConnectionProfile } from "../../../bridge/database";
-import { useShallow } from "zustand/react/shallow";
-import { useDatabaseStore } from "../databaseStore";
+import { useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { errorMessage } from "@/bridge/errors";
+import type { ConnectionProfile } from "@/bridge/database";
 import { useLastPresent } from "@/lib/useLastPresent";
 
-/**
- * Figma `DB / Delete Profile Dialog` (576:7817).
- *
- * Nothing else gates this: DBDeleteProfile is scoped the same as running a
- * query, so there is no capability prompt behind it.
- *
- * The dialog's job is not the extra click. It is naming what goes with the
- * profile — the sealed password, the local history, the saved queries — none of
- * which is visible from the sidebar row.
- */
 export function DeleteProfileDialog({
   profile,
   onClose,
@@ -33,107 +14,45 @@ export function DeleteProfileDialog({
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
-  // Held while the delete runs, so a second click is not a second delete.
-  const [deleting, setDeleting] = useState(false);
-  const { folders } = useDatabaseStore(
-    useShallow((s) => ({
-      folders: s.folders,
-    }))
-  );
-  const [historyCount, setHistoryCount] = useState<number | null>(null);
-  const [savedCount, setSavedCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!profile) return;
-      setHistoryCount(null);
-      setSavedCount(null);
-      // Best-effort: a locked vault makes both unreadable, and that must not
-      // stop someone deleting a profile. The counts simply go unstated rather
-      // than being guessed at.
-      const [history, saved] = await Promise.all([
-        listQueryHistory(profile.id).catch(() => null),
-        listSavedQueries(profile.id).catch(() => null),
-      ]);
-      if (cancelled) return;
-      setHistoryCount(history?.length ?? null);
-      setSavedCount(saved?.length ?? null);
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [profile]);
-
-  // What the dialog shows, kept through the close animation.
   const shown = useLastPresent(profile);
-  const folder = shown ? folders.find((f) => f.profileIds.includes(shown.id)) : undefined;
-
-  const losses: Array<{ label: string; note: string }> = [
-    { label: "Password", note: "sealed with the vault key" },
-  ];
-  if (historyCount !== null && historyCount > 0) {
-    losses.push({
-      label: `${historyCount} query history ${historyCount === 1 ? "entry" : "entries"}`,
-      note: "encrypted SQL text",
-    });
+  const active = useWorkbenchTabsStore((s) => s.activeModuleId === "database");
+  const [pending, setPending] = useState(false);
+  const operation = useRef(false);
+  const [error, setError] = useState("");
+  const [targetId, setTargetId] = useState(profile?.id);
+  if (targetId !== profile?.id) {
+    setTargetId(profile?.id);
+    setError("");
   }
-  if (savedCount !== null && savedCount > 0) {
-    losses.push({
-      label: `${savedCount} saved ${savedCount === 1 ? "query" : "queries"}`,
-      note: "named, never pruned",
-    });
-  }
-  if (folder) {
-    losses.push({
-      label: `Membership of folder ${folder.name}`,
-      note: "the folder itself stays",
-    });
-  }
-
   return (
-    <Dialog open={!!profile} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-120">
-        <DialogHeader>
-          <DialogTitle>Delete {shown?.name}?</DialogTitle>
-          <DialogDescription>
-            The database itself is untouched — this removes the connection profile from DevKit
-            and everything stored alongside it.
-          </DialogDescription>
-        </DialogHeader>
-
-        <ul className="space-y-1.5 text-body-12">
-          {losses.map((loss) => (
-            <li key={loss.label} className="flex items-baseline gap-2">
-              <span className="text-text-primary">{loss.label}</span>
-              <span className="text-text-tertiary">{loss.note}</span>
-            </li>
-          ))}
-        </ul>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={deleting}
-            onClick={async () => {
-              setDeleting(true);
-              try {
-                await onConfirm();
-              } finally {
-                setDeleting(false);
-              }
-            }}
-          >
-            <Trash2 />
-            Delete profile
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={Boolean(profile) && active}
+      onClose={() => {
+        if (!operation.current) {
+          setError("");
+          onClose();
+        }
+      }}
+      title={`Delete ${shown?.name ?? "connection"}?`}
+      confirmLabel="Delete profile"
+      pendingLabel="Deleting profile…"
+      pending={pending}
+      error={error}
+      onConfirm={() => {
+        if (operation.current) return;
+        operation.current = true;
+        setPending(true);
+        setError("");
+        void onConfirm()
+          .catch((e) => setError(errorMessage(e)))
+          .finally(() => {
+            operation.current = false;
+            setPending(false);
+          });
+      }}
+    >
+      This removes the saved password, local query history, saved queries and
+      folder membership from DevKit. The database and its tables stay unchanged.
+    </ConfirmDialog>
   );
 }

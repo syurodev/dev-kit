@@ -339,8 +339,8 @@ export function deleteProfile(id: string): Promise<void> {
 }
 
 /** Dials a profile that has not been saved yet. */
-export function testNewConnection(input: CreateProfileInput): Promise<void> {
-  return callBridge(
+export function testNewConnection(input: CreateProfileInput): CancellableCall<void> {
+  return callBridgeCancellable(
     () =>
       AppService.DBTestNewConnection({
         engine: input.engine ?? "",
@@ -354,8 +354,9 @@ export function testNewConnection(input: CreateProfileInput): Promise<void> {
         trusted_network: Boolean(input.trustedNetwork),
         env: input.env,
         ssh_profile_id: input.sshProfileId ?? "",
-      ca_cert: input.caCert ?? "",
-      }) as Promise<void>,
+        ca_cert: input.caCert ?? "",
+      }),
+    () => undefined,
   );
 }
 

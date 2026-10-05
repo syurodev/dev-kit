@@ -1,25 +1,28 @@
-import { useMemo, useState } from "react";
-import { sql as codemirrorSql, MariaSQL, MySQL, PostgreSQL } from "@codemirror/lang-sql";
+import { useMemo, useRef, useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  sql as codemirrorSql,
+  MariaSQL,
+  MySQL,
+  PostgreSQL,
+} from "@codemirror/lang-sql";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { InlineFeedback, PendingStatus } from "@/components/ui/feedback";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { errorMessage, isCancelError } from "@/bridge/errors";
 
-/**
- * The statements a review is about to write, shown before anything runs (#52).
- *
- * On an environment that asks for review a grid edit is staged, not written;
- * this is where the staged changes become SQL someone can read. Apply sends all
- * of them in one transaction — see Service.ApplyEdits.
- */
+/** Review a snapshot; a failed apply stays in the same decision region. */
 export function ApplyEditsDialog({
   open,
+  visible = true,
   env,
   engine,
   manual,
@@ -28,67 +31,94 @@ export function ApplyEditsDialog({
   onApply,
 }: {
   open: boolean;
+  visible?: boolean;
   env: string;
   engine: string | undefined;
-  /** Manual commit: the changes join the open transaction and wait for Commit. */
   manual: boolean;
   statements: readonly string[];
   onCancel: () => void;
   onApply: () => Promise<void>;
 }) {
   const [applying, setApplying] = useState(false);
+  const operation = useRef(false);
+  const [error, setError] = useState("");
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setError("");
+  }
   const extensions = useMemo(() => {
     const normalised = (engine ?? "postgres").toLowerCase();
-    const dialect =
-      normalised === "mysql" ? MySQL : normalised === "mariadb" ? MariaSQL : PostgreSQL;
-    return [codemirrorSql({ dialect })];
+    return [
+      codemirrorSql({
+        dialect:
+          normalised === "mysql"
+            ? MySQL
+            : normalised === "mariadb"
+              ? MariaSQL
+              : PostgreSQL,
+      }),
+    ];
   }, [engine]);
   const count = `${statements.length} change${statements.length === 1 ? "" : "s"}`;
-
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && !applying && onCancel()}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
+    <AlertDialog
+      open={open && visible}
+      onOpenChange={(next) => {
+        if (!next && !operation.current) onCancel();
+      }}
+    >
+      <AlertDialogContent className="max-h-[90dvh] overflow-y-auto data-[size=default]:max-w-gutter data-[size=default]:sm:max-w-3xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
             Apply {count} to {env}?
-          </DialogTitle>
-          <DialogDescription>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
             {manual
-              ? "They run inside the open transaction and are not kept until you commit it."
-              : "They run in one transaction. If any of them fails or matches no row, none of them is kept."}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="h-72 overflow-auto rounded-md border border-border-subtle bg-surface-well p-2">
+              ? "Changes join the open transaction. Commit to keep them."
+              : "Changes run in one transaction. If a statement fails or matches no row, none is kept."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="h-64 min-h-0 overflow-hidden rounded-md border border-border-subtle bg-surface-well p-2">
           <CodeEditor
-            value={statements.map((statement) => `${statement};`).join("\n")}
+            value={statements.map((s) => `${s};`).join("\n")}
             onChange={() => {}}
             extensions={extensions}
             readOnly
             wrap
           />
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onCancel} disabled={applying}>
-            Cancel
-          </Button>
+        <div className="min-h-5">
+          {error ? (
+            <InlineFeedback>{error}</InlineFeedback>
+          ) : applying ? (
+            <PendingStatus>Applying changes…</PendingStatus>
+          ) : null}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={applying}>Cancel</AlertDialogCancel>
           <Button
             size="sm"
             disabled={applying || statements.length === 0}
-            onClick={async () => {
+            onClick={() => {
+              if (operation.current) return;
+              operation.current = true;
               setApplying(true);
-              try {
-                await onApply();
-              } finally {
-                setApplying(false);
-              }
+              setError("");
+              void onApply()
+                .catch((e) => {
+                  if (!isCancelError(e)) setError(errorMessage(e));
+                })
+                .finally(() => {
+                  operation.current = false;
+                  setApplying(false);
+                });
             }}
           >
-            Apply {count}
+            {applying ? "Applying…" : `Apply ${count}`}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

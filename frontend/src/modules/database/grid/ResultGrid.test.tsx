@@ -284,6 +284,6 @@ describe("who may edit", () => {
   it("asks updateRefusal before it offers", () => {
     const body = read("TableDataView.tsx");
     expect(body).toContain("updateRefusal(");
-    expect(body).toContain("editRefusal={editRefusal}");
+    expect(body).toMatch(/editRefusal=\{\s*busy\s*\?\s*"Wait for the current table operation to finish\."\s*:\s*editRefusal\s*\}/);
   });
 });
