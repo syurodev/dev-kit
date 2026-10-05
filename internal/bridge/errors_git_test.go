@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	gitservice "devkit/internal/git"
+	"devkit/internal/interaction"
 )
 
 func TestPublicErrorNamesTheAccountAGitRemoteRefused(t *testing.T) {
@@ -50,3 +51,16 @@ func TestPublicGitAuthErrorLeaksNothingFromGitsOwnMessage(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// Two accounts fit and nobody can be asked (server mode, a headless agent). The
+// generic "Selection required." says nothing about what to do.
+func TestPublicErrorForAGitRemoteNobodyCanAskAboutSaysWhatToDo(t *testing.T) {
+	err := publicError("builtin.git", interaction.ErrSelectionRequired)
+	if err == nil || !strings.Contains(err.Error(), "Bind an account to the remote") {
+		t.Fatalf("public error = %v", err)
+	}
+	// Other subjects keep the generic wording.
+	if other := publicError("builtin.ssh", interaction.ErrSelectionRequired); other == nil || other.Error() != "validation_failed: Selection required." {
+		t.Fatalf("another subject's error changed: %v", other)
+	}
+}

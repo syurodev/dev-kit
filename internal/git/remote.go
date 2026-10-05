@@ -31,6 +31,58 @@ type RemoteStore interface {
 // SetRemotes wires the binding store.
 func (s *Service) SetRemotes(r RemoteStore) { s.remotes = r }
 
+// AccountPicker decides which account authenticates a remote that has no
+// binding of its own. It is internal/accounts plus the interaction hub, declared
+// here as an interface so git imports neither.
+//
+// An empty id with no error means no account applies, and git's own
+// configuration answers. An error is final: a question nobody could answer
+// must stop the command, not fall back to some account.
+type AccountPicker interface {
+	PickAccount(ctx context.Context, in PickAccountInput) (accountID string, err error)
+}
+
+// PickAccountInput is what the picker needs to find or ask for an account.
+type PickAccountInput struct {
+	// Op is "push", "fetch" or "pull", for the question the person is shown.
+	Op     string
+	Remote string
+	Host   string
+	// Owner and Repo are the first and last path segments of the URL.
+	Owner string
+	Repo  string
+	// Env is the remote's environment tag; accounts limited to other
+	// environments are not candidates.
+	Env string
+}
+
+// SetAccountPicker wires the account choice for unbound remotes.
+func (s *Service) SetAccountPicker(p AccountPicker) { s.picker = p }
+
+// withAccount fills in the account for a remote that has no binding.
+//
+// An explicit binding always wins, and it is never second-guessed. Only an
+// HTTPS remote is asked about: an SSH remote is authenticated by a key, which
+// no account selected here could supply, so asking would present a choice that
+// changes nothing.
+func (s *Service) withAccount(ctx context.Context, op string, remote Remote) (Remote, error) {
+	if s.picker == nil || remote.AccountID != "" || remote.Transport != TransportHTTP {
+		return remote, nil
+	}
+	address := ParseAddress(remote.URL)
+	if address.Host == "" {
+		return remote, nil
+	}
+	id, err := s.picker.PickAccount(ctx, PickAccountInput{
+		Op: op, Remote: remote.Name, Host: address.Host, Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
+	})
+	if err != nil {
+		return remote, err
+	}
+	remote.AccountID = id
+	return remote, nil
+}
+
 // Remotes lists the repository's remotes, merged with any stored bindings.
 func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 	r, err := s.active()
@@ -129,6 +181,9 @@ func (s *Service) Push(ctx context.Context, in PushInput) error {
 	if err != nil {
 		return err
 	}
+	if remote, err = s.withAccount(ctx, "push", remote); err != nil {
+		return err
+	}
 	env, cleanup, err := s.credentialEnvFor(ctx, remote)
 	if err != nil {
 		return err
@@ -157,6 +212,9 @@ func (s *Service) Fetch(ctx context.Context, remote string) error {
 	if err != nil {
 		return err
 	}
+	if bound, err = s.withAccount(ctx, "fetch", bound); err != nil {
+		return err
+	}
 	env, cleanup, err := s.credentialEnvFor(ctx, bound)
 	if err != nil {
 		return err
@@ -175,6 +233,9 @@ func (s *Service) Pull(ctx context.Context, remote string) error {
 	}
 	bound, err := s.remoteNamed(ctx, remote, false)
 	if err != nil {
+		return err
+	}
+	if bound, err = s.withAccount(ctx, "pull", bound); err != nil {
 		return err
 	}
 	env, cleanup, err := s.credentialEnvFor(ctx, bound)
@@ -249,6 +310,9 @@ func (s *Service) credentialEnv(ctx context.Context, name string) ([]string, fun
 	}
 	remote, err := s.remoteNamed(ctx, name, false)
 	if err != nil {
+		return nil, func() {}, err
+	}
+	if remote, err = s.withAccount(ctx, "fetch", remote); err != nil {
 		return nil, func() {}, err
 	}
 	return s.credentialEnvFor(ctx, remote)

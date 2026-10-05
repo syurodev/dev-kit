@@ -78,35 +78,10 @@ type HostMatch struct {
 // heuristic: that is a guess wearing a memory's clothes.
 func (s *Service) ForHost(host, env string) (HostMatch, error) {
 	host = normalizeHost(host)
-	if host == "" {
-		return HostMatch{}, nil
-	}
-	providers := s.providers.ProvidersForHost(host)
-	if len(providers) == 0 {
-		return HostMatch{}, nil
-	}
-	wanted := map[string]bool{}
-	for _, id := range providers {
-		wanted[id] = true
-	}
-
-	all, err := s.List()
+	options, err := s.hostCandidates(host, env)
 	if err != nil {
 		return HostMatch{}, err
 	}
-	var options []Account
-	for _, account := range all {
-		// A scoped account belongs to one connection profile, never to a host;
-		// an external one has nothing to authenticate with.
-		if account.ScopeOwner != "" || account.Kind == KindExternal {
-			continue
-		}
-		if !wanted[account.Provider] || !account.AllowsEnv(env) {
-			continue
-		}
-		options = append(options, account)
-	}
-	sort.SliceStable(options, func(i, j int) bool { return options[i].Label < options[j].Label })
 
 	switch len(options) {
 	case 0:
@@ -171,4 +146,41 @@ func (s *Service) ForgetHostChoice(host, env string) error {
 // under the same key the lookup uses.
 func normalizeHost(host string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+}
+
+// hostCandidates is every account that could authenticate to host on env: the
+// provider's hosts cover it, the account is shared (not one connection's), it
+// has something to authenticate with, and its environment list allows env.
+// Sorted by label so a list shown to the person is stable.
+func (s *Service) hostCandidates(host, env string) ([]Account, error) {
+	if host == "" {
+		return nil, nil
+	}
+	providers := s.providers.ProvidersForHost(host)
+	if len(providers) == 0 {
+		return nil, nil
+	}
+	wanted := map[string]bool{}
+	for _, id := range providers {
+		wanted[id] = true
+	}
+
+	all, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var options []Account
+	for _, account := range all {
+		// A scoped account belongs to one connection profile, never to a host;
+		// an external one has nothing to authenticate with.
+		if account.ScopeOwner != "" || account.Kind == KindExternal {
+			continue
+		}
+		if !wanted[account.Provider] || !account.AllowsEnv(env) {
+			continue
+		}
+		options = append(options, account)
+	}
+	sort.SliceStable(options, func(i, j int) bool { return options[i].Label < options[j].Label })
+	return options, nil
 }

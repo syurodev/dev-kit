@@ -823,12 +823,13 @@ func main() {
 	// this hub — none of which an ephemeral container has. Wired in one place
 	// so main does not have to know which module needs which collaborator.
 	app.WireCredentialsAndWork(container, db, container.Vault, app.Tables{
-		AccountSecrets:     storage.TableAccountSecrets,
-		AccountHostChoices: storage.TableAccountHostChoices,
-		APIRequestHistory:  storage.TableAPIRequestHistory,
-		CodexHookEvents:    storage.TableCodexHookEvents,
-		TaskVerifyRuns:     storage.TableTaskVerifyRuns,
-		TaskBoardBindings:  storage.TableTaskBoardBindings,
+		AccountSecrets:       storage.TableAccountSecrets,
+		AccountHostChoices:   storage.TableAccountHostChoices,
+		AccountRemoteChoices: storage.TableAccountRemoteChoices,
+		APIRequestHistory:    storage.TableAPIRequestHistory,
+		CodexHookEvents:      storage.TableCodexHookEvents,
+		TaskVerifyRuns:       storage.TableTaskVerifyRuns,
+		TaskBoardBindings:    storage.TableTaskBoardBindings,
 	})
 	// The board asks the hub whether a session is still alive before letting
 	// another take over its claim, and which boards a session may see at all.

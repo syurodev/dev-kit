@@ -130,6 +130,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, interaction.ErrConfirmationDenied) {
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	}
+	if subject == "builtin.git" && errors.Is(err, interaction.ErrSelectionRequired) {
+		return apperrors.New(codeValidationFailed, "More than one account could authenticate this remote and nothing here can ask which. Bind an account to the remote, or run it from the DevKit window.", true)
+	}
 	if errors.Is(err, interaction.ErrSelectionRequired) {
 		return apperrors.New(codeValidationFailed, "Selection required.", true)
 	}

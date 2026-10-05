@@ -39,14 +39,16 @@ type Usage interface {
 
 // Service owns every credential DevKit holds.
 type Service struct {
-	items     ItemStore
-	scoped    *scopedStore
-	choices   *choiceStore
-	providers *Registry
-	env       EnvLookup
-	usage     []Usage
-	http      *http.Client
-	now       func() time.Time
+	items   ItemStore
+	scoped  *scopedStore
+	choices *choiceStore
+	// remoteChoices remembers the answer per (host, owner) for git remotes.
+	remoteChoices *remoteChoiceStore
+	providers     *Registry
+	env           EnvLookup
+	usage         []Usage
+	http          *http.Client
+	now           func() time.Time
 }
 
 // NewService wires the two stores behind one surface. db may be nil in tests

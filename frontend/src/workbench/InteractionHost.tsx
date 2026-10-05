@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  accountAnswer,
   completeInteraction,
   denyInteraction,
   getInteractionPendingList,
@@ -11,6 +12,8 @@ import { connectKafka, listKafkaProfiles } from "../bridge/kafka";
 import { errorMessage } from "../bridge/errors";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +78,8 @@ export function InteractionHost() {
   const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [remember, setRemember] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -130,6 +135,13 @@ export function InteractionHost() {
     };
   }, [pending?.id, pending?.type, pending?.kind]);
 
+  // A new question starts from its first option, with "remember" on when the
+  // question offers it: the usual answer is "this organisation, always".
+  useEffect(() => {
+    setAccountId(pending?.options[0]?.id ?? "");
+    setRemember(true);
+  }, [pending?.id]);
+
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -148,6 +160,83 @@ export function InteractionHost() {
   }
 
   const open = true;
+
+  if (pending.type === "select" && pending.kind === "git_account") {
+    return (
+      <Dialog open={open} onOpenChange={() => {}}>
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-md"
+          aria-describedby="interaction-account-desc"
+        >
+          <DialogHeader>
+            <DialogTitle>Choose an account</DialogTitle>
+            <DialogDescription id="interaction-account-desc">
+              {pending.summary || "More than one account could be used here."}
+            </DialogDescription>
+            <p className="text-caption-11 text-text-tertiary">
+              Requested by <code>{pending.caller || "unknown"}</code>
+              {queue.length > 1 ? ` · ${queue.length - 1} more waiting` : ""}
+            </p>
+          </DialogHeader>
+          <RadioGroup
+            aria-label="interaction-account"
+            value={accountId}
+            onValueChange={setAccountId}
+            disabled={busy}
+          >
+            {pending.options.map((option) => (
+              <label
+                key={option.id}
+                className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-body-13"
+              >
+                <RadioGroupItem value={option.id} />
+                <span className="grid">
+                  <span>{option.label}</span>
+                  <span className="text-caption-11 text-text-tertiary">
+                    {[option.provider, option.subject].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </RadioGroup>
+          {pending.remember ? (
+            <Checkbox
+              checked={remember}
+              disabled={busy}
+              onCheckedChange={(checked) => setRemember(checked === true)}
+              label={`Use this for ${pending.remember}`}
+            />
+          ) : null}
+          {error ? <p role="alert">{error}</p> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => run(() => denyInteraction(pending.id))}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !accountId}
+              onClick={() =>
+                run(() =>
+                  completeInteraction(
+                    pending.id,
+                    accountAnswer(accountId, remember && Boolean(pending.remember)),
+                  ),
+                )
+              }
+            >
+              Use account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   if (pending.type === "select") {
     return (

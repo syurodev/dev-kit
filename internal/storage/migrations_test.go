@@ -170,7 +170,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableAppPreferences, TableUIState, TableDBQueryHistory, TableDBSchemaCache,
 		TableAuditEvents, TableAgentCheckpoints, TableAccountSecrets,
 		TableTaskVerifyRuns, TableAccountHostChoices, TableAPIRequestHistory, TableCodexHookEvents,
-		TableTaskBoardBindings,
+		TableTaskBoardBindings, TableAccountRemoteChoices,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 36 {
-		t.Fatalf("migration version = %d, want 36", version)
+	if version != 37 {
+		t.Fatalf("migration version = %d, want 37", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {

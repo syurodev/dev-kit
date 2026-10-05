@@ -75,6 +75,15 @@ const (
 	// and a conflict rule for a preference whose worst failure is one dialog.
 	TableAccountHostChoices = "account_host_choices"
 
+	// TableAccountRemoteChoices remembers which account a git remote's owner
+	// was answered with, per host: acme-corp on github.com is the company
+	// account, everything else there is the personal one. It cannot be
+	// TableAccountHostChoices because that key is (host, env), and two
+	// accounts on one host split by who owns the repository, not by
+	// environment. Local for the same reason that table is: a preference whose
+	// worst failure is one dialog does not earn a sync record type.
+	TableAccountRemoteChoices = "account_remote_choices"
+
 	// TableAPIRequestHistory is what this machine sent and what came back. It
 	// never syncs — it says what this device did, not what the project is —
 	// and it is the same call db_query_history already made. The URL is
@@ -1202,7 +1211,26 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		Up:      func(ctx context.Context) error { return migrateWorkspaceMemoryIndex(ctx, db) },
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36})
+	m37 := Migration{
+		Version: 37,
+		Name:    "account remote choices",
+		Up: func(ctx context.Context) error {
+			// host and owner are stored lower-cased, as the lookup normalises
+			// them: GitHub and GitLab namespaces are case-insensitive.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					host TEXT NOT NULL,
+					owner TEXT NOT NULL,
+					account_id TEXT NOT NULL,
+					chosen_at TEXT NOT NULL,
+					PRIMARY KEY (host, owner)
+				)`, TableAccountRemoteChoices,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37})
 	if err != nil {
 		return err
 	}

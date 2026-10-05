@@ -66,3 +66,61 @@ func redactURL(raw string) string {
 	u.User = url.User(u.User.Username())
 	return u.String()
 }
+
+// Address is a remote URL read into the parts that decide which account fits:
+// the host it lives on and who owns the repository there.
+type Address struct {
+	Transport Transport
+	// Host is the lower-cased hostname, without user or port. Empty for a
+	// local path.
+	Host string
+	// Owner is the first path segment — the user or organisation, or a
+	// GitLab top-level group. Two accounts on one host usually split by it.
+	// Lower-cased: those namespaces are case-insensitive. Empty when the URL
+	// has no owner to speak of (a single segment, or a local path).
+	Owner string
+	// Repo is the last path segment without a trailing .git.
+	Repo string
+}
+
+// ParseAddress reads a remote URL in any of the forms git accepts: https://,
+// ssh://, the scp-like git@host:owner/repo.git, or a local path.
+func ParseAddress(raw string) Address {
+	raw = strings.TrimSpace(raw)
+	address := Address{Transport: transportOf(raw)}
+	var path string
+	switch address.Transport {
+	case TransportHTTP, TransportSSH:
+		if strings.Contains(raw, "://") {
+			u, err := url.Parse(raw)
+			if err != nil {
+				return address
+			}
+			address.Host, path = u.Hostname(), u.Path
+		} else {
+			// scp-like: [user@]host:path. The path is relative to the home
+			// directory on the server, and may or may not start with a slash.
+			authority, rest, _ := strings.Cut(raw, ":")
+			if at := strings.LastIndex(authority, "@"); at >= 0 {
+				authority = authority[at+1:]
+			}
+			address.Host, path = authority, rest
+		}
+	default:
+		return address
+	}
+	address.Host = strings.ToLower(strings.TrimSuffix(address.Host, "."))
+	var segments []string
+	for _, segment := range strings.Split(path, "/") {
+		if segment != "" {
+			segments = append(segments, segment)
+		}
+	}
+	if len(segments) > 0 {
+		address.Repo = strings.TrimSuffix(segments[len(segments)-1], ".git")
+	}
+	if len(segments) >= 2 {
+		address.Owner = strings.ToLower(segments[0])
+	}
+	return address
+}

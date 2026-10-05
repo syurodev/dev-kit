@@ -131,6 +131,7 @@ type Service struct {
 	remotes RemoteStore
 	envs    EnvLookup
 	creds   CredentialResolver
+	picker  AccountPicker
 	confirm Confirmer
 }
 
@@ -216,6 +217,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 		remotes:      s.remotes,
 		envs:         s.envs,
 		creds:        s.creds,
+		picker:       s.picker,
 		confirm:      s.confirm,
 	}, nil
 }

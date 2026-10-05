@@ -25,12 +25,13 @@ import (
 // which is the same reason accounts and tasks take a name rather than a
 // package.
 type Tables struct {
-	AccountSecrets     string
-	AccountHostChoices string
-	APIRequestHistory  string
-	CodexHookEvents    string
-	TaskVerifyRuns     string
-	TaskBoardBindings  string
+	AccountSecrets       string
+	AccountHostChoices   string
+	AccountRemoteChoices string
+	APIRequestHistory    string
+	CodexHookEvents      string
+	TaskVerifyRuns       string
+	TaskBoardBindings    string
 }
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an
@@ -50,6 +51,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// Without this the host rule still decides correctly and simply asks every
 	// time; with it, once per (host, env).
 	c.Accounts.SetHostChoices(db, tables.AccountHostChoices)
+	// The git counterpart, keyed by (host, owner): two accounts on one host
+	// split by who owns the repository, not by environment.
+	c.Accounts.SetRemoteChoices(db, tables.AccountRemoteChoices)
 
 	// The API client resolves its credentials through Accounts and asks the
 	// interaction hub before sending on a gated environment. A nil hub is
@@ -70,6 +74,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	}
 	c.Git.SetEnvs(c.Environments)
 	c.Git.SetCredentials(accountResolver{accounts: c.Accounts})
+	// An HTTPS remote with no binding is matched to an account by its host and
+	// owner, and the person is asked when two accounts fit.
+	c.Git.SetAccountPicker(remotePicker{accounts: c.Accounts, hub: c.Interaction})
 	// Without these two the Git module's guards and remote bindings are nil,
 	// which silently turns off commit gating and means a push never resolves
 	// a credential at all.

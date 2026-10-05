@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,10 @@ const (
 	KindAPI Kind = "api"
 	// KindTask is an agent closing a task on a board with no verify command.
 	KindTask Kind = "task"
+	// KindGitAccount is a git remote that more than one account could
+	// authenticate: the person says which, because choosing the wrong identity
+	// is worse than asking once.
+	KindGitAccount Kind = "git_account"
 )
 
 // Prompter notifies the UI that a human decision is needed.
@@ -47,6 +52,35 @@ func (NoopPrompter) Prompt(Pending) error { return nil }
 
 type SelectRequest struct {
 	Kind Kind
+}
+
+// AccountOption is one account offered in a selection. A label and a subject
+// (the login the provider reported) — never a secret, never an id the person
+// has to read.
+type AccountOption struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Provider string `json:"provider"`
+	Subject  string `json:"subject,omitempty"`
+}
+
+// SelectAccountRequest asks which account authenticates a git remote.
+type SelectAccountRequest struct {
+	// Summary is the question, in the person's terms ("Push acme-corp/api to
+	// github.com").
+	Summary string
+	// Remember names what an answer would be remembered for ("acme-corp on
+	// github.com"). Empty means the answer cannot be remembered and the UI
+	// must not offer to.
+	Remember string
+	Options  []AccountOption
+}
+
+// AccountChoice is the answer to a SelectAccount.
+type AccountChoice struct {
+	ID string
+	// Remember is true when the person asked for the answer to be kept.
+	Remember bool
 }
 
 type ConfirmRequest struct {
@@ -71,6 +105,10 @@ type Pending struct {
 	AllowAlwaysOffered bool      `json:"allowAlwaysOffered"`
 	Caller             string    `json:"caller,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
+	// Options and Remember are set on a KindGitAccount selection only: the
+	// accounts to choose between, and what a kept answer would be kept for.
+	Options  []AccountOption `json:"options,omitempty"`
+	Remember string          `json:"remember,omitempty"`
 }
 
 // allowKey scopes an allow_always grant: it never crosses callers, tools or profiles.
@@ -184,6 +222,57 @@ func (h *Hub) SelectProfile(ctx context.Context, req SelectRequest) (string, err
 		}
 		return v, nil
 	})
+}
+
+// AccountAnswer is the value a UI completes a KindGitAccount selection with:
+// "once:<account id>" or "remember:<account id>".
+func AccountAnswer(id string, remember bool) string {
+	if remember {
+		return "remember:" + id
+	}
+	return "once:" + id
+}
+
+// SelectAccount asks the person which account to use. Only an option that was
+// offered is accepted, so the answer cannot name an account the question never
+// listed — the same rule Accounts keeps for a remembered choice.
+//
+// Headless is ErrSelectionRequired, like every other selection: a prompt
+// nobody can answer must not turn into a guess.
+func (h *Hub) SelectAccount(ctx context.Context, req SelectAccountRequest) (AccountChoice, error) {
+	if h.Headless || h.prompter == nil {
+		return AccountChoice{}, ErrSelectionRequired
+	}
+	if len(req.Options) == 0 {
+		return AccountChoice{}, ErrSelectionRequired
+	}
+	options := append([]AccountOption(nil), req.Options...)
+	var choice AccountChoice
+	_, err := h.wait(ctx, Pending{
+		Type: TypeSelect, Kind: KindGitAccount, Summary: req.Summary,
+		Options: options, Remember: req.Remember,
+	}, func(v string) (string, error) {
+		mode, id, ok := strings.Cut(v, ":")
+		if !ok || id == "" {
+			return "", ErrConfirmationDenied
+		}
+		if mode != "once" && mode != "remember" {
+			return "", ErrConfirmationDenied
+		}
+		// An answer to keep is honoured only when the question offered to.
+		remember := mode == "remember" && req.Remember != ""
+		for _, option := range options {
+			if option.ID == id {
+				choice = AccountChoice{ID: id, Remember: remember}
+				return id, nil
+			}
+		}
+		return "", ErrConfirmationDenied
+	})
+	if err != nil {
+		return AccountChoice{}, err
+	}
+	return choice, nil
 }
 
 func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {

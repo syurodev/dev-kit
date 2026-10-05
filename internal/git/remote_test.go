@@ -444,3 +444,168 @@ func TestOnlyAnAuthenticationFailureBecomesAnAuthError(t *testing.T) {
 		t.Fatal("a nil error became an error")
 	}
 }
+
+func TestParseAddressFindsHostAndOwnerInEveryForm(t *testing.T) {
+	cases := map[string]Address{
+		"https://github.com/Acme-Corp/api.git":                  {TransportHTTP, "github.com", "acme-corp", "api"},
+		"https://octocat" + ":tok" + "@GitHub.com:443/acme/api": {TransportHTTP, "github.com", "acme", "api"},
+		"git@github.com:acme-corp/api.git":                      {TransportSSH, "github.com", "acme-corp", "api"},
+		"git@github.com:/acme-corp/api.git":                     {TransportSSH, "github.com", "acme-corp", "api"},
+		"ssh://git@gitlab.com:22/group/sub/project.git":         {TransportSSH, "gitlab.com", "group", "project"},
+		"https://gitlab.com/group/sub/project":                  {TransportHTTP, "gitlab.com", "group", "project"},
+		"https://github.com/loner.git":                          {TransportHTTP, "github.com", "", "loner"},
+		"/srv/git/origin.git":                                   {Transport: TransportLocal},
+		"git://example.com/acme/api.git":                        {Transport: TransportOther},
+	}
+	for raw, want := range cases {
+		if got := ParseAddress(raw); got != want {
+			t.Errorf("ParseAddress(%q) = %+v, want %+v", raw, got, want)
+		}
+	}
+}
+
+type stubPicker struct {
+	id     string
+	err    error
+	calls  []PickAccountInput
+	called int
+}
+
+func (p *stubPicker) PickAccount(_ context.Context, in PickAccountInput) (string, error) {
+	p.called++
+	p.calls = append(p.calls, in)
+	return p.id, p.err
+}
+
+func httpsRepo(t *testing.T, url string) (*Service, string) {
+	t.Helper()
+	svc, work, _ := newRepoWithRemote(t)
+	runGit(t, svc, work, "remote", "set-url", "origin", url)
+	return svc, work
+}
+
+// The user's setup in one test: an unbound HTTPS remote is handed to the picker
+// with the host and the owner, and the account it returns authenticates it.
+func TestAnUnboundHTTPSRemoteAsksThePickerWithHostAndOwner(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := httpsRepo(t, "https://code.example.test/Acme-Corp/api.git")
+	creds := &stubCreds{user: "acme-dev", secret: "tok"}
+	picker := &stubPicker{id: "acct-work"}
+	svc.SetRemotes(stubRemotes{{Name: "origin", Env: "dev"}})
+	svc.SetCredentials(creds)
+	svc.SetAccountPicker(picker)
+
+	env, cleanup, err := svc.credentialEnv(ctx, "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if picker.called != 1 {
+		t.Fatalf("picker asked %d times, want 1", picker.called)
+	}
+	got := picker.calls[0]
+	if got.Host != "code.example.test" || got.Owner != "acme-corp" || got.Repo != "api" || got.Env != "dev" || got.Remote != "origin" {
+		t.Fatalf("picker was asked %+v", got)
+	}
+	if creds.asked != 1 || len(env) == 0 {
+		t.Fatalf("the picked account did not authenticate the remote: asked=%d env=%v", creds.asked, env)
+	}
+}
+
+// A binding is the person's explicit word and is never second-guessed.
+func TestABoundRemoteNeverAsksThePicker(t *testing.T) {
+	svc, _ := httpsRepo(t, "https://code.example.test/acme/api.git")
+	picker := &stubPicker{id: "acct-other"}
+	svc.SetRemotes(stubRemotes{{Name: "origin", AccountID: "acct-bound"}})
+	svc.SetCredentials(&stubCreds{user: "u", secret: "s"})
+	svc.SetAccountPicker(picker)
+
+	_, cleanup, err := svc.credentialEnv(context.Background(), "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if picker.called != 0 {
+		t.Fatal("an explicit binding was overridden by the picker")
+	}
+}
+
+// An SSH remote is authenticated by a key. Offering a choice of accounts for it
+// would present a decision that changes nothing.
+func TestAnSSHRemoteNeverAsksThePicker(t *testing.T) {
+	svc, _ := httpsRepo(t, "git@code.example.test:acme/api.git")
+	picker := &stubPicker{id: "acct-work"}
+	svc.SetRemotes(stubRemotes{{Name: "origin"}})
+	svc.SetCredentials(&stubCreds{user: "u", secret: "s"})
+	svc.SetAccountPicker(picker)
+
+	env, cleanup, err := svc.credentialEnv(context.Background(), "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if picker.called != 0 || len(env) != 0 {
+		t.Fatalf("an SSH remote was offered accounts: asked=%d env=%v", picker.called, env)
+	}
+}
+
+func TestNoAccountMeansGitsOwnConfigurationAnswers(t *testing.T) {
+	svc, _ := httpsRepo(t, "https://code.example.test/acme/api.git")
+	creds := &stubCreds{user: "u", secret: "s"}
+	svc.SetRemotes(stubRemotes{{Name: "origin"}})
+	svc.SetCredentials(creds)
+	svc.SetAccountPicker(&stubPicker{})
+
+	env, cleanup, err := svc.credentialEnv(context.Background(), "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(env) != 0 || creds.asked != 0 {
+		t.Fatalf("no account was picked yet a credential was resolved: env=%v asked=%d", env, creds.asked)
+	}
+}
+
+// A question nobody could answer stops the command. It must not fall back to
+// whichever account happened to be first.
+func TestAPickerErrorStopsPushWithoutSendingAnything(t *testing.T) {
+	ctx := context.Background()
+	svc, _, bare := newRepoWithRemote(t)
+	runGit(t, svc, svc.Project(), "remote", "set-url", "origin", "https://code.example.test/acme/api.git")
+	refused := errors.New("selection required")
+	svc.SetRemotes(stubRemotes{{Name: "origin"}})
+	svc.SetCredentials(&stubCreds{user: "u", secret: "s"})
+	svc.SetAccountPicker(&stubPicker{err: refused})
+
+	if err := svc.Push(ctx, PushInput{Remote: "origin", Branch: "main"}); !errors.Is(err, refused) {
+		t.Fatalf("push = %v, want the picker's error", err)
+	}
+	if err := svc.Fetch(ctx, "origin"); !errors.Is(err, refused) {
+		t.Fatalf("fetch = %v, want the picker's error", err)
+	}
+	if err := svc.Pull(ctx, "origin"); !errors.Is(err, refused) {
+		t.Fatalf("pull = %v, want the picker's error", err)
+	}
+	if refs := runGit(t, svc, bare, "for-each-ref", "--format=%(refname)"); strings.Contains(refs, "refs/heads/main") {
+		t.Fatal("a refused account question still pushed")
+	}
+}
+
+// A refused identity names the account the picker chose, not an empty one.
+func TestAuthFailureNamesAPickedAccount(t *testing.T) {
+	svc, _ := httpsRepo(t, "https://code.example.test/acme/api.git")
+	svc.SetCredentials(&labelledCreds{labels: map[string]string{"acct-work": "github · acme-dev"}})
+	svc.SetAccountPicker(&stubPicker{id: "acct-work"})
+
+	remote, err := svc.withAccount(context.Background(), "push", Remote{
+		Name: "origin", URL: "https://code.example.test/acme/api.git", Transport: TransportHTTP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = svc.explainRemoteError("push", remote, errors.New("remote: Repository not found."))
+	var authErr *AuthError
+	if !errors.As(err, &authErr) || authErr.Account != "github · acme-dev" {
+		t.Fatalf("the picked account was not named: %v", err)
+	}
+}
