@@ -41,6 +41,8 @@ function deferred(): Deferred {
 }
 
 const pending: Deferred[] = [];
+const schemas: Deferred[] = [];
+let cacheRequest: Deferred | undefined;
 
 // The store persists part of its state through the bridge. Outside the app
 // that call has no implementation, and its rejection surfaces as an unhandled
@@ -61,7 +63,9 @@ mock.module("../../bridge/uistate", () => {
 
 // The store imports these five by name; only runQuery is exercised here, but a
 // module mock has to satisfy the whole import list.
+const databaseBridge = await import("../../bridge/database");
 mock.module("../../bridge/database", () => ({
+  ...databaseBridge,
   runQuery: () => {
     const d = deferred();
     pending.push(d);
@@ -70,8 +74,8 @@ mock.module("../../bridge/database", () => ({
   listProfiles: async () => [],
   closeSession: async () => {},
   listColumns: async () => [],
-  getSchemaCache: async () => null,
-  indexSchema: async () => null,
+  getSchemaCache: async () => cacheRequest ? await cacheRequest.promise : ({ namespace: {} }),
+  indexSchema: () => { const d = deferred(); schemas.push(d); return d.promise; },
 }));
 
 const { useDatabaseStore, visibleResult } = await import("./databaseStore");
@@ -90,6 +94,9 @@ const C = "test-console";
 
 afterEach(() => {
   pending.length = 0;
+  schemas.length = 0;
+  cacheRequest = undefined;
+  useDatabaseStore.setState({ indexingSchema: false, schemaError: "", selectedProfileId: "" });
   useDatabaseStore.setState({ consoles: {} });
 });
 
@@ -227,5 +234,70 @@ describe("progress buffer", () => {
     buffer.push("b");
     buffer.dispose();
     expect(seen).toEqual([["a"], ["b"]]);
+  });
+});
+
+
+describe("script lifecycle", () => {
+  it("keeps the previous rows until the first statement succeeds, and ignores repeated Run", async () => {
+    useDatabaseStore.setState((s) => ({ selectedProfileId: "p1", consoles: {
+      [C]: { ...s.consoleState(C), sql: "select 1", results: [{ statement: "old", result: RESULT(7) }] },
+    } }));
+    const first = useDatabaseStore.getState().runScript(C, ["select 1", "select 2"]);
+    await useDatabaseStore.getState().runScript(C, ["select 3"]);
+    expect(pending).toHaveLength(1);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(7);
+    pending[0].resolve(RESULT(1));
+    await Promise.resolve(); await Promise.resolve();
+    expect(pending).toHaveLength(2);
+    pending[1].resolve(RESULT(2));
+    await first;
+    expect(useDatabaseStore.getState().consoleState(C).results.map(r => r.result.rowCount)).toEqual([1, 2]);
+  });
+
+  it("Cancel on the first statement preserves the previous result and stops the script", async () => {
+    useDatabaseStore.setState((s) => ({ selectedProfileId: "p1", consoles: {
+      [C]: { ...s.consoleState(C), results: [{ statement: "old", result: RESULT(7) }] },
+    } }));
+    const script = useDatabaseStore.getState().runScript(C, ["select 1", "select 2"]);
+    useDatabaseStore.getState().cancelQuery(C);
+    await script;
+    expect(pending).toHaveLength(1);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(7);
+  });
+});
+
+describe("schema request ownership", () => {
+  it("refuses duplicate indexing and retains an error until retry", async () => {
+    useDatabaseStore.setState({ selectedProfileId: "p1" });
+    const first = useDatabaseStore.getState().refreshSchema("p1");
+    await useDatabaseStore.getState().refreshSchema("p1");
+    expect(schemas).toHaveLength(1);
+    schemas[0].reject(new Error("offline")); await first;
+    expect(useDatabaseStore.getState().schemaError).toBe("offline");
+    const retry = useDatabaseStore.getState().refreshSchema("p1");
+    expect(useDatabaseStore.getState().schemaError).toBe("");
+    schemas[1].resolve({ namespace: { fresh: {} } }); await retry;
+    expect(useDatabaseStore.getState().indexingSchema).toBe(false);
+  });
+
+  it("an old cache cannot replace a freshly indexed schema", async () => {
+    useDatabaseStore.setState({ selectedProfileId: "p1", indexingSchema: false });
+    cacheRequest = deferred();
+    const cached = useDatabaseStore.getState().loadSchemaSnapshot("p1");
+    const fresh = useDatabaseStore.getState().refreshSchema("p1");
+    schemas[0].resolve({ namespace: { fresh: {} } }); await fresh;
+    cacheRequest.resolve({ namespace: { stale: {} } }); await cached;
+    expect(useDatabaseStore.getState().schemaSnapshot?.namespace).toEqual({ fresh: {} });
+  });
+
+  it("drops a late schema error after A → B → A", async () => {
+    useDatabaseStore.setState({ selectedProfileId: "p1" });
+    const old = useDatabaseStore.getState().refreshSchema("p1");
+    useDatabaseStore.getState().setSelectedProfileId("p2");
+    useDatabaseStore.getState().setSelectedProfileId("p1");
+    schemas[0].reject(new Error("old connection failed")); await old;
+    expect(useDatabaseStore.getState().schemaError).toBe("");
+    expect(useDatabaseStore.getState().indexingSchema).toBe(false);
   });
 });

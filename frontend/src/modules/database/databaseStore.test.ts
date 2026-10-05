@@ -333,11 +333,10 @@ describe("running the whole script", () => {
   });
 
   /*
-   * The tabs are one run's worth. A script that produced four grids, then a
-   * single ⌘↵ that produces one, must not leave the three old ones sitting
-   * there with rows from a question asked ten minutes ago.
+   * Keep old grids while the next run is pending. executeQuery replaces them
+   * on the first success; this sequencing stub never produces a result.
    */
-  test("last run's grids are gone before this one starts", async () => {
+  test("last run's grids stay until the first new result replaces them", async () => {
     withVerdicts(() => "ok");
     useDatabaseStore.setState({
       consoles: {
@@ -356,7 +355,7 @@ describe("running the whole script", () => {
 
     await useDatabaseStore.getState().runScript("c4", ["SELECT 1"]);
 
-    expect(useDatabaseStore.getState().consoleState("c4").results).toEqual([]);
+    expect(useDatabaseStore.getState().consoleState("c4").results[0]?.statement).toBe("SELECT stale");
   });
 
   test("an empty console is not a script", async () => {

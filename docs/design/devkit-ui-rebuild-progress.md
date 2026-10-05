@@ -178,16 +178,42 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Search History chỉ tìm trong commits đã tải (tối đa 500). Binary không có text preview; không thêm stash browser, graph branch, blame hoặc rebase/cherry-pick trong phase này.
 - Form conflict và cấu hình remotes dùng shared lock; chưa chuyển draft merge editor hoặc xử lý lỗi tải accounts/env tags sang lifecycle đầy đủ như composer.
 
+## Bước 6 — Database: console, schema feedback và lifecycle
+
+### Đã triển khai
+
+- Giữ manifest sidebar/workbench tab strip, SQL draft và kết quả theo console trong store hiện có. Document overlays/polling chỉ thuộc focused group và document đang visible.
+- Connection/schema hiện trên một hàng riêng, toolbar và result header wrap theo pane. Run/error giữ sát cạnh phải; lỗi mở ra được giới hạn theo chiều rộng pane.
+- Split editor/result dùng shadcn Resizable với hit area thật 4px; sửa handle chiều cao 0 khiến thao tác keyboard qua browser không focus được.
+- Script giữ kết quả cũ trong lúc statement đầu pending; chỉ thay sau thành công rồi append kết quả tiếp theo. Chặn repeated Run trước khi sửa results/statement marks; Cancel statement đầu giữ kết quả trước đó và dừng cả script.
+- Lỗi index schema thuộc sidebar, tồn tại cả khi không có document, có Retry và pending status; bỏ effect toast chạy lại ở mỗi console. Chặn index trùng và loại snapshot/error cũ kể cả đổi A → B → A hoặc cache trả về sau refresh.
+- Explain bỏ qua success/error đã superseded bởi đổi connection/run/unmount; plan portal theo visibility và đóng khi target đổi. Run không gửi SQL trong lúc Explain pending.
+- Dùng shared FeedbackBanner/PendingStatus/Button cho schema và environment/tunnel banners; giữ palette component dark/light hiện tại.
+
+### Kiểm tra
+
+- Frontend regression: 2580 test đạt, 0 fail; TypeScript/production build/performance budget đạt.
+- `go test ./internal/arch/ -count=1`: đạt. Không đổi Go backend/bindings.
+- Test lifecycle thêm: giữ rows khi script pending/Cancel, repeated Run, index trùng/Retry, stale schema failure A → B → A, cache cũ không ghi đè schema vừa index, background module không sở hữu overlay.
+- Browser harness dùng QueryConsole, CodeEditor, ResultGrid, ThemeProvider và SchemaFeedback thật với bridge mô phỏng: dark/light, 1280×720 và 860×800 (console ~560px), schema loading/error/Retry, lỗi query có full detail, SQL draft/result qua unmount, keyboard resize 50 → 45.
+
+### Giới hạn
+
+- Chưa chạy query/Cancel/Explain với database thật hoặc native Wails. Các fixture browser không thay thế smoke với connection thử nghiệm.
+- Giữ kiến trúc một connection active chung cho Database; đổi connection giữ SQL nhưng xóa result/error cũ đúng ownership. Không thêm connection độc lập cho mỗi console.
+- Phase này tập trung console/schema feedback, chưa làm lại toàn bộ form connection, ERD, history/export và table editing.
+
 ## Bước tiếp theo
 
 1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
 2. Smoke Git native với repository/remote thử nghiệm: stage/commit/hook failure, guarded commit/push, stash conflict và đổi folder trong lúc thao tác.
-3. Bước 6: migrate Database theo audit, ưu tiên schema/indexing feedback, draft query và lifecycle khi đổi module.
+3. Smoke Database với connection thử nghiệm: Run/Cancel/Explain, đổi connection và transaction; tiếp tục audit connection forms/table editing sau phase 6.
 
 ## Nhật ký
 
 | Ngày | Cập nhật |
 |---|---|
+| 2026-10-05 | Phase 6 Database: responsive console/schema feedback, giữ result pending/Cancel, chống schema/Explain cũ và focused overlay |
 | 2026-10-05 | Phase 5 Git: sửa commit params/root/merge diff, staged review; tối ưu pane, History và async feedback; frontend 2551 test, build và Go regression đạt |
 | 2026-10-04 | Viết bộ quy tắc UI/UX v1 và triển khai nền/surface shell của bước 1 |
 | 2026-10-04 | Triển khai feedback dùng chung và áp dụng SSH; tạo audit/backlog và kiểm tra browser với bridge mô phỏng |

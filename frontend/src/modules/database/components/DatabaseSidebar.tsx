@@ -1,3 +1,4 @@
+import { SchemaFeedback } from "./SchemaFeedback";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/bridge/errors";
@@ -645,6 +646,7 @@ export function DatabaseSidebar() {
 
   return (
     <div className="flex h-full min-h-0 flex-col select-none">
+      <SchemaFeedback />
       {/*
         Three lists, one rail.
 

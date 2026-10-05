@@ -42,3 +42,10 @@ test("two documents of the same view are told apart by params", () => {
 test("nothing open means nothing active", () => {
   expect(isActiveDocument(useWorkbenchTabsStore.getState(), "database.console")).toBe(false);
 });
+
+
+test("a background module does not own document overlays", () => {
+  openTab("database.console", { consoleId: "a" });
+  useWorkbenchTabsStore.getState().openTab({ moduleId: "notes", viewId: "notes.editor", title: "Note", preview: false });
+  expect(isActiveDocument(useWorkbenchTabsStore.getState(), "database.console", { consoleId: "a" })).toBe(false);
+});
