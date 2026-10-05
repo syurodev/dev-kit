@@ -123,6 +123,7 @@ func (s *Service) accountIdentity(ctx context.Context, out *CommitIdentity) Acco
 	}
 	out.Remote = remote.Name
 	address := ParseAddress(remote.URL)
+	written := address.Host
 	if address.Transport == TransportSSH && address.Host != "" {
 		resolve := s.hostOf
 		if resolve == nil {
@@ -132,7 +133,7 @@ func (s *Service) accountIdentity(ctx context.Context, out *CommitIdentity) Acco
 	}
 	identity, err := resolver.IdentityFor(ctx, PickAccountInput{
 		Op: "commit", Remote: remote.Name, Transport: address.Transport,
-		Host: address.Host, Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
+		Host: address.Host, Alias: aliasOf(written, address.Host), Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
 	}, remote.AccountID)
 	if err != nil {
 		return AccountIdentity{}

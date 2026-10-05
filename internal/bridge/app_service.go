@@ -15,6 +15,12 @@ type AppService struct {
 	saveFileDialog  func(suggestedName string) (string, error)
 	openDirDialog   func(title, startIn string) (string, error)
 	openFilesDialog func(title, startIn string) ([]string, error)
+
+	// sshKeys are the key files this window has been shown or has had chosen for
+	// it, so reading one by path is limited to those.
+	sshKeys sshKeyPaths
+	// serverMode reports the unauthenticated HTTP build. Nil means a desktop one.
+	serverMode func() bool
 }
 
 func NewAppService(container *app.Container, themeApplier ...func(preferences.Theme) error) *AppService {

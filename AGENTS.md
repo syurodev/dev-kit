@@ -655,6 +655,17 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   key. `~/.ssh/config` `IdentityFile` entries are still tried *after* a refused account key (see the
   pinned test). `internal/git` tests that touch SSH use `code.example.test`, not `github.com`: the
   cloud sandbox injects a `url.insteadOf` that rewrites github.com SSH URLs to HTTPS.
+- **Importing a key from disk is UI-only and path-guarded** (`internal/bridge/accounts_sshimport.go`).
+  `gitssh.Discover` lists `~/.ssh` one level deep (no symlinks, ≤64 KB, skips `config`/`known_hosts`/`*.pub`)
+  and `ReadAliases` reads `Host`/`IdentityFile`/`Include` as TEXT (`ssh -G` would report default key
+  files for every host). The bridge reads a path only if this window was first shown it — listed by
+  `AccountsDiscoverSSHKeys` or returned by the native picker — and the whole set of methods answers
+  "desktop app only" in server mode (an unauthenticated bridge must not read files by path). No MCP
+  tool exists for it. Keys are deduplicated by `(provider, fingerprint)`: one key may serve GitHub and
+  GitLab, never one provider twice (`gitssh.QuickInfo` reads an OpenSSH key's public half without the
+  passphrase, so listing and dedupe never run the slow KDF). An ssh alias bound to a key account
+  (`ChooseForAlias`, stored in `account_remote_choices` as `(alias, "*", ssh)`) answers before the
+  repository owner is asked.
 - **Commits are written as the account's identity.** An account may carry a name and email
   (`account_identities`, local — not in the account metadata, whose strict decoder would make an
   older DevKit refuse the record). `git.Service.CommitIdentity` decides who the next commit is:

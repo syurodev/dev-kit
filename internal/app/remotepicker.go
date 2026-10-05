@@ -24,6 +24,14 @@ func (p remotePicker) PickAccount(ctx context.Context, in gitservice.PickAccount
 	// the two are different questions with different candidates and different
 	// remembered answers.
 	via := viaOf(in.Transport)
+	// An ssh alias already says which identity the remote is for: the person
+	// wrote it into ~/.ssh/config for exactly that. It answers before the owner
+	// of the repository is asked about.
+	if in.Alias != "" {
+		if account, ok := p.accounts.ForAlias(in.Alias); ok {
+			return account.ID, nil
+		}
+	}
 	match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env, via)
 	if err != nil {
 		return "", err
@@ -96,6 +104,11 @@ func viaOf(transport gitservice.Transport) accounts.Via {
 // the first push.
 func (p remotePicker) IdentityFor(_ context.Context, in gitservice.PickAccountInput, boundAccountID string) (gitservice.AccountIdentity, error) {
 	id := boundAccountID
+	if id == "" && in.Alias != "" {
+		if account, ok := p.accounts.ForAlias(in.Alias); ok {
+			id = account.ID
+		}
+	}
 	if id == "" {
 		match, err := p.accounts.ForRemote(in.Host, in.Owner, in.Env, viaOf(in.Transport))
 		if err != nil {

@@ -442,6 +442,18 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, accounts.ErrKeyInvalid):
 			return apperrors.New(codeValidationFailed, "That is not a private key ssh can read. Paste the whole key, including the BEGIN and END lines.", true)
+		case errors.Is(err, errSSHImportUnavailable):
+			return apperrors.New(codeValidationFailed, "Importing a key from disk is only available in the desktop app: this window cannot be trusted to name a file.", true)
+		case errors.Is(err, fs.ErrNotExist):
+			return apperrors.New(codeValidationFailed, "That file no longer exists.", true)
+		case errors.Is(err, errSSHKeyNotOffered):
+			return apperrors.New(codeValidationFailed, "Choose the key from the list, or with Choose another file.", true)
+		case errors.Is(err, accounts.ErrKeyExists):
+			var exists *accounts.KeyExistsError
+			if errors.As(err, &exists) {
+				return apperrors.New(codeValidationFailed, "This key is already saved as \u201c"+exists.Label+"\u201d for that provider.", true)
+			}
+			return apperrors.New(codeValidationFailed, "This key is already saved for that provider.", true)
 		case errors.Is(err, accounts.ErrIdentityInvalid):
 			return apperrors.New(codeValidationFailed, "Enter both a name and an email address (like name@example.com) for commits, or clear both.", true)
 		case errors.Is(err, accounts.ErrKeyPassphrase):

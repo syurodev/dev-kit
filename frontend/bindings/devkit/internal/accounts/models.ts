@@ -81,6 +81,46 @@ export interface HostMatch {
 }
 
 /**
+ * ImportedKey is an account that already holds a key found on disk.
+ */
+export interface ImportedKey {
+    "accountId": string;
+    "provider": string;
+    "label": string;
+}
+
+/**
+ * KeyAlias is a Host entry in ssh config that names the key.
+ */
+export interface KeyAlias {
+    "name": string;
+    "hostName": string;
+}
+
+/**
+ * KeyFile is a private key on this machine that could be imported, described
+ * without being revealed.
+ */
+export interface KeyFile {
+    "path": string;
+    "name": string;
+    "type": string;
+    "fingerprint": string;
+    "comment": string;
+    "encrypted": boolean;
+
+    /**
+     * Aliases are the hosts ~/.ssh/config names this key for.
+     */
+    "aliases": KeyAlias[] | null;
+
+    /**
+     * Imported are the accounts that already hold it.
+     */
+    "imported": ImportedKey[] | null;
+}
+
+/**
  * Kind is what shape of credential an account holds.
  */
 export enum Kind {
@@ -154,6 +194,15 @@ export interface Provider {
      * means keys cannot be verified against it and it accepts none.
      */
     "SSHHost": string;
+}
+
+/**
+ * ProviderGuess is a provider that accepted a key, and who it said the key is.
+ */
+export interface ProviderGuess {
+    "provider": string;
+    "name": string;
+    "subject": string;
 }
 
 /**

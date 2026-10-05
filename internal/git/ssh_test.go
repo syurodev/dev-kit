@@ -159,7 +159,7 @@ func TestAnSSHAliasIsAskedAboutAsTheHostItReallyIs(t *testing.T) {
 		t.Fatalf("picker asked %d times", picker.called)
 	}
 	got := picker.calls[0]
-	if got.Transport != TransportSSH || got.Host != "github.com" || got.Owner != "acme-corp" || got.Repo != "api" {
+	if got.Transport != TransportSSH || got.Host != "github.com" || got.Alias != "github-work" || got.Owner != "acme-corp" || got.Repo != "api" {
 		t.Fatalf("picker was asked %+v", got)
 	}
 	if envValue(env, "GIT_SSH_COMMAND") == "" {
@@ -272,5 +272,24 @@ func TestPushOverSSHOffersTheBoundAccountsKeyAndNamesItWhenRefused(t *testing.T)
 	defer server.mu.Unlock()
 	if len(server.offered) == 0 || server.offered[0] != info.Fingerprint {
 		t.Fatalf("the server was offered %v, want the account key %s first", server.offered, info.Fingerprint)
+	}
+}
+
+// A real host is not an alias: nothing was written that the person chose.
+func TestARealHostIsNotAnAlias(t *testing.T) {
+	svc, _ := sshRepo(t, "git@code.example.test:acme/api.git")
+	picker := &stubPicker{}
+	svc.SetRemotes(stubRemotes{{Name: "origin"}})
+	svc.SetCredentials(&keyCreds{})
+	svc.SetAccountPicker(picker)
+	svc.SetHostResolver(func(_ context.Context, host string) string { return host })
+
+	if _, cleanup, err := svc.credentialEnv(context.Background(), "origin"); err != nil {
+		t.Fatal(err)
+	} else {
+		cleanup()
+	}
+	if picker.called != 1 || picker.calls[0].Alias != "" {
+		t.Fatalf("picker calls = %+v", picker.calls)
 	}
 }

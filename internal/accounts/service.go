@@ -144,12 +144,20 @@ func (s *Service) prepareSSHKey(in CreateInput) (CreateInput, error) {
 		return in, ErrInvalid
 	}
 	material := gitssh.Material{PrivateKey: in.Secret, Passphrase: in.Passphrase}
-	if _, err := gitssh.Inspect(material); err != nil {
+	info, err := gitssh.Inspect(material)
+	if err != nil {
 		switch {
 		case errors.Is(err, gitssh.ErrPassphraseRequired), errors.Is(err, gitssh.ErrBadPassphrase):
 			return in, ErrKeyPassphrase
 		default:
 			return in, ErrKeyInvalid
+		}
+	}
+	// The same key may serve GitHub and GitLab both, but never one provider
+	// twice: two accounts holding it would be chosen between by nothing.
+	for _, held := range s.keysWithFingerprint(info.Fingerprint) {
+		if held.Provider == in.Provider {
+			return in, &KeyExistsError{AccountID: held.ID, Label: held.Label, Provider: held.Provider}
 		}
 	}
 	in.Secret, in.Passphrase, in.User = gitssh.Pack(material), "", ""

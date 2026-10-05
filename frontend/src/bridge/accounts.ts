@@ -128,6 +128,72 @@ export function setAccountIdentity(id: string, name: string, email: string): Pro
   return callBridge(async () => (await AppService.AccountsSetIdentity(id, name, email)) as Account);
 }
 
+/** A private key found on this machine, described without being revealed. */
+export type KeyFile = {
+  path: string;
+  name: string;
+  /** Empty when an encrypted key's public half cannot be read without its passphrase. */
+  type: string;
+  fingerprint: string;
+  comment: string;
+  encrypted: boolean;
+  /** Hosts ~/.ssh/config names this key for. */
+  aliases: { name: string; hostName: string }[];
+  /** Accounts that already hold it. */
+  imported: { accountId: string; provider: string; label: string }[];
+};
+
+/** A provider that accepted a key, and who it said the key is. */
+export type ProviderGuess = { provider: string; name: string; subject: string };
+
+/**
+ * Lists the private keys in ~/.ssh. Desktop only: the server build has no such
+ * method, because its bridge cannot tell who is asking for a file.
+ */
+export function discoverSSHKeys(): Promise<KeyFile[]> {
+  return callBridge(async () => ((await AppService.AccountsDiscoverSSHKeys()) ?? []) as KeyFile[]);
+}
+
+/** The native file picker, for a key outside ~/.ssh. Empty when cancelled. */
+export function chooseSSHKeyFile(): Promise<string> {
+  return callBridge(async () => await AppService.AccountsChooseSSHKeyFile());
+}
+
+/** Describes one offered key file; an encrypted key may need its passphrase for that. */
+export function describeSSHKeyFile(path: string, passphrase = ""): Promise<KeyFile> {
+  return callBridge(async () => (await AppService.AccountsDescribeSSHKeyFile(path, passphrase)) as KeyFile);
+}
+
+/** Connects to each provider that takes SSH keys and reports which know this one. */
+export function detectSSHProvider(path: string, passphrase = ""): Promise<ProviderGuess[]> {
+  return callBridge(async () => ((await AppService.AccountsDetectSSHProvider(path, passphrase)) ?? []) as ProviderGuess[]);
+}
+
+/**
+ * Reads an offered key file into an account; the file is left as it was.
+ * aliases are ssh config hosts whose remotes should use the new account.
+ */
+export function importSSHKey(input: {
+  path: string;
+  provider: string;
+  label: string;
+  passphrase?: string;
+  syncAcrossDevices?: boolean;
+  aliases?: string[];
+}): Promise<Account> {
+  return callBridge(
+    async () =>
+      (await AppService.AccountsImportSSHKey(
+        input.path,
+        input.provider,
+        input.label,
+        input.passphrase ?? "",
+        input.syncAcrossDevices ?? false,
+        input.aliases ?? [],
+      )) as Account,
+  );
+}
+
 /** The fingerprint and public line of a key account — never anything private. */
 export function sshKeyInfo(id: string): Promise<SSHKeyInfo> {
   return callBridge(async () => (await AppService.AccountsSSHKeyInfo(id)) as SSHKeyInfo);

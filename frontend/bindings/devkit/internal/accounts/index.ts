@@ -9,6 +9,10 @@ export {
 export type {
     Account,
     HostMatch,
+    ImportedKey,
+    KeyAlias,
+    KeyFile,
     Provider,
+    ProviderGuess,
     VerifySpec
 } from "./models.js";

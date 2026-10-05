@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
+import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Plus, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -13,6 +13,7 @@ import {
   type Account,
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
+import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
 import { IdentityDialog } from "./IdentityDialog";
 import { RevealDialog } from "./RevealDialog";
 import { SSHKeyInfoDialog } from "./SSHKeyInfoDialog";
@@ -187,6 +188,7 @@ export function AccountsView() {
   const [showingKey, setShowingKey] = useState<Account | null>(null);
   const [editingIdentity, setEditingIdentity] = useState<Account | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const reload = useCallback(() => {
     listAccounts()
@@ -219,6 +221,15 @@ export function AccountsView() {
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
         <h2 className="text-title-13 text-text-primary">Accounts</h2>
         <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Bring a key from ~/.ssh into an account. The file is left as it is."
+          onClick={() => setImporting(true)}
+        >
+          <Download className="size-4" aria-hidden />
+          Import from ~/.ssh
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -320,6 +331,17 @@ export function AccountsView() {
         onSaved={() => {
           setEditingIdentity(null);
           reload();
+        }}
+      />
+      <ImportSSHKeysDialog
+        open={importing}
+        onClose={() => setImporting(false)}
+        onImported={(saved, note) => {
+          setImporting(false);
+          setNotice(note || "Key imported.");
+          reload();
+          // Same as a pasted key: the public half is what goes into the provider.
+          setShowingKey(saved);
         }}
       />
       <AddSSHKeyDialog

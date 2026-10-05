@@ -84,6 +84,15 @@ export function AccountsChooseForHost(host: string, env: string, accountID: stri
 }
 
 /**
+ * AccountsChooseSSHKeyFile opens the native file picker for a key that is not in
+ * ~/.ssh. Cancelling returns "" and is not an error. Whatever is chosen becomes
+ * readable by this window, and nothing else does.
+ */
+export function AccountsChooseSSHKeyFile(): $CancellablePromise<string> {
+    return $Call.ByID(3109226516);
+}
+
+/**
  * AccountsCreate stores a credential. The value arrives once, here, and is
  * never handed back by any method on this service.
  */
@@ -109,6 +118,32 @@ export function AccountsDelete(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * AccountsDescribeSSHKeyFile describes one offered key file. An encrypted key
+ * whose public half is not in the file needs its passphrase to be described.
+ */
+export function AccountsDescribeSSHKeyFile(path: string, passphrase: string): $CancellablePromise<accounts$0.KeyFile> {
+    return $Call.ByID(2683236324, path, passphrase);
+}
+
+/**
+ * AccountsDetectSSHProvider connects to each provider that takes SSH keys and
+ * reports which of them know this key, and as whom. It makes real connections,
+ * so it runs only when the person asks.
+ */
+export function AccountsDetectSSHProvider(path: string, passphrase: string): $CancellablePromise<accounts$0.ProviderGuess[] | null> {
+    return $Call.ByID(3793743840, path, passphrase);
+}
+
+/**
+ * AccountsDiscoverSSHKeys lists the private keys in ~/.ssh: fingerprint, type,
+ * the ssh config aliases that name each, and which are already saved. Nothing
+ * private is in the answer.
+ */
+export function AccountsDiscoverSSHKeys(): $CancellablePromise<accounts$0.KeyFile[] | null> {
+    return $Call.ByID(2260426505);
+}
+
+/**
  * AccountsForHost answers which account authenticates to a host, and says when
  * it cannot answer. Two accounts matching one host is a question, never a
  * guess: two GitHub accounts are usually a personal one and a company one.
@@ -126,6 +161,15 @@ export function AccountsForgetHostChoice(host: string, env: string): $Cancellabl
 
 export function AccountsGet(id: string): $CancellablePromise<accounts$0.Account> {
     return $Call.ByID(3064107238, id);
+}
+
+/**
+ * AccountsImportSSHKey reads an offered key file into an account. The file is
+ * left exactly as it was. aliases are ssh config hosts to bind to the new
+ * account, so remotes written git@<alias>:… use it without being asked.
+ */
+export function AccountsImportSSHKey(path: string, provider: string, label: string, passphrase: string, syncAcrossDevices: boolean, aliases: string[] | null): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(2219224166, path, provider, label, passphrase, syncAcrossDevices, aliases);
 }
 
 export function AccountsList(): $CancellablePromise<accounts$0.Account[] | null> {

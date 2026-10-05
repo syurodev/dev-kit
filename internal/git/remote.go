@@ -55,6 +55,9 @@ type PickAccountInput struct {
 	// Host is the host the remote really lives on. For SSH an alias from
 	// ~/.ssh/config (git@github-work:…) has been resolved to it.
 	Host string
+	// Alias is the host as the URL wrote it, set only when it was an alias: the
+	// person's own statement, in ssh config, of which identity the remote is for.
+	Alias string
 	// Owner and Repo are the first and last path segments of the URL.
 	Owner string
 	Repo  string
@@ -88,6 +91,7 @@ func (s *Service) withAccount(ctx context.Context, op string, remote Remote) (Re
 	if address.Host == "" {
 		return remote, nil
 	}
+	written := address.Host
 	if address.Transport == TransportSSH {
 		resolve := s.hostOf
 		if resolve == nil {
@@ -97,13 +101,21 @@ func (s *Service) withAccount(ctx context.Context, op string, remote Remote) (Re
 	}
 	id, err := s.picker.PickAccount(ctx, PickAccountInput{
 		Op: op, Remote: remote.Name, Transport: address.Transport,
-		Host: address.Host, Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
+		Host: address.Host, Alias: aliasOf(written, address.Host), Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
 	})
 	if err != nil {
 		return remote, err
 	}
 	remote.AccountID = id
 	return remote, nil
+}
+
+// aliasOf is the host as written when resolving it changed it, "" otherwise.
+func aliasOf(written, resolved string) string {
+	if written != "" && written != resolved {
+		return written
+	}
+	return ""
 }
 
 // ignoreUnusedAccount drops the account from a remote when no credential came

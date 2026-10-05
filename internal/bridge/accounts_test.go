@@ -43,6 +43,7 @@ func newBridgeWithAccounts(t *testing.T) (*AppService, *app.Container) {
 	)
 	container.Accounts.SetHostChoices(db, storage.TableAccountHostChoices)
 	container.Accounts.SetIdentities(db, storage.TableAccountIdentities)
+	container.Accounts.SetRemoteChoices(db, storage.TableAccountRemoteChoices)
 	return NewAppService(container), container
 }
 
@@ -179,7 +180,7 @@ func TestSSHKeyAccountStaysLocalUnlessTheBridgeIsToldToSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	synced, err := svc.AccountsCreateSSHKey("github", "Synced key", key, "", true)
+	synced, err := svc.AccountsCreateSSHKey("github", "Synced key", newBridgePrivateKey(t), "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

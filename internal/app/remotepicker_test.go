@@ -271,3 +271,51 @@ func TestIdentityForNeverAsksAndOnlyReportsDecidedAccounts(t *testing.T) {
 		t.Fatalf("a bound account = %+v, %v (it has no identity of its own)", got, err)
 	}
 }
+
+// The alias is the person's own statement of which identity a remote is for, so
+// it answers before the owner of the repository is asked — and without a dialog.
+func TestAnAliasAnswersBeforeTheOwnerIsAsked(t *testing.T) {
+	svc, hub := pickerFixture(t)
+	work := addSSHKey(t, svc, "github", "Work key")
+	addSSHKey(t, svc, "github", "Personal key")
+	if _, err := svc.SetIdentity(work.ID, accounts.Identity{Name: "Acme Dev", Email: "dev@acme.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ChooseForAlias("github-work", work.ID); err != nil {
+		t.Fatal(err)
+	}
+	picker := remotePicker{accounts: svc, hub: hub}
+	ctx := context.Background()
+	input := gitservice.PickAccountInput{
+		Op: "push", Transport: gitservice.TransportSSH, Host: "github.com", Alias: "github-work", Owner: "acme-corp", Repo: "api",
+	}
+
+	id, err := picker.PickAccount(ctx, input)
+	if err != nil || id != work.ID || hub.Pending() != nil {
+		t.Fatalf("the alias did not answer: %q, %v, pending %v", id, err, hub.Pending())
+	}
+	got, err := picker.IdentityFor(ctx, input, "")
+	if err != nil || got.Email != "dev@acme.example" {
+		t.Fatalf("identity = %+v, %v", got, err)
+	}
+
+	// The same repository written with the plain host is still a question.
+	input.Alias = ""
+	pending := make(chan interaction.Pending, 1)
+	go func() {
+		for {
+			if p := hub.Pending(); p != nil {
+				pending <- *p
+				_ = hub.Complete(p.ID, "")
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+	if _, err := picker.PickAccount(ctx, input); err == nil {
+		t.Fatal("the plain host was decided by an alias row")
+	}
+	if asked := <-pending; len(asked.Options) != 2 {
+		t.Fatalf("asked %+v", asked)
+	}
+}
