@@ -73,6 +73,27 @@ func (s *AppService) AccountsCreate(provider, kind, label, user, secret string, 
 	return result.(accounts.Account), nil
 }
 
+// AccountsCreateGitToken stores a personal access token that authenticates git
+// over HTTPS. The value arrives once, here, and is never handed back by a
+// method on this service other than the Master-Password-gated reveal. Like an
+// SSH key it stays on this machine unless the person asks it to sync.
+func (s *AppService) AccountsCreateGitToken(provider, label, user, token string, syncAcrossDevices bool) (accounts.Account, error) {
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:new", map[string]any{
+		"action":   "create",
+		"provider": provider,
+		"kind":     "git_token",
+		"sync":     syncAcrossDevices,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.CreateGitToken(accounts.GitTokenInput{
+			Provider: provider, Label: label, User: user, Token: token, Local: !syncAcrossDevices,
+		})
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
 // AccountsCreateSSHKey stores a private key that authenticates git over SSH.
 //
 // The key and its passphrase arrive once, here. The key is checked to be one

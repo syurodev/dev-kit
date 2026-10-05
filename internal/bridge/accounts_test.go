@@ -242,3 +242,34 @@ func TestAccountIdentityRoundTripsThroughTheBridge(t *testing.T) {
 		t.Fatalf("a bad email = %v", err)
 	}
 }
+
+func TestGitTokenAccountStaysLocalUnlessTheBridgeIsToldToSync(t *testing.T) {
+	svc, container := newBridgeWithAccounts(t)
+
+	local, err := svc.AccountsCreateGitToken("github", "Work", "", "ghp_work", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synced, err := svc.AccountsCreateGitToken("gitlab", "GitLab", "syuro", "glpat-x", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !local.Local() || synced.Scoped() || local.Kind != "token" {
+		t.Fatalf("local=%+v synced=%+v", local, synced)
+	}
+	if _, err := container.Items.Get(local.ID); err == nil {
+		t.Fatal("a token the person kept local was written to vault_items, which replicates")
+	}
+
+	if _, err := svc.AccountsCreateGitToken("github", "Bad", "", "ghp bad\nsplit", false); err == nil ||
+		!strings.Contains(err.Error(), "Paste only the token") {
+		t.Fatalf("a token with a line break = %v", err)
+	}
+	if _, err := svc.AccountsCreateGitToken("bitbucket", "BB", "", "app-pass", false); err == nil ||
+		!strings.Contains(err.Error(), "username") {
+		t.Fatalf("bitbucket without a username = %v", err)
+	}
+	if _, err := svc.AccountsCreateGitToken("anthropic", "Key", "", "sk-ant", false); err == nil {
+		t.Fatal("a token for a provider that does not host repositories was saved as a git token")
+	}
+}

@@ -118,8 +118,24 @@ func (s *Service) Create(in CreateInput) (Account, error) {
 		if in, err = s.prepareSSHKey(in); err != nil {
 			return Account{}, err
 		}
-	} else if in.Local || in.Passphrase != "" {
-		return Account{}, ErrInvalid
+	} else {
+		if in.Passphrase != "" {
+			return Account{}, ErrInvalid
+		}
+		if in.Local {
+			// A credential kept on this machine only: the same scoped row an SSH
+			// key uses, owned by itself rather than by a connection. Nothing
+			// that holds no value (external) or already restricts itself to an
+			// environment (the row has nowhere to keep that) can be one.
+			if in.Kind == KindExternal || len(in.Env) > 0 || in.ScopeOwner != "" {
+				return Account{}, ErrInvalid
+			}
+			id, err := vaultitem.NewID()
+			if err != nil {
+				return Account{}, err
+			}
+			in.ScopeOwner = LocalOwnerPrefix + id
+		}
 	}
 	if in.ScopeOwner != "" {
 		return s.createScoped(in)

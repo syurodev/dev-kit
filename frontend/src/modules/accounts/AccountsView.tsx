@@ -13,6 +13,7 @@ import {
   type Account,
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
+import { AddTokenDialog } from "./AddTokenDialog";
 import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
 import { IdentityDialog } from "./IdentityDialog";
 import { RevealDialog } from "./RevealDialog";
@@ -189,6 +190,7 @@ export function AccountsView() {
   const [editingIdentity, setEditingIdentity] = useState<Account | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [addingToken, setAddingToken] = useState(false);
 
   const reload = useCallback(() => {
     listAccounts()
@@ -221,6 +223,15 @@ export function AccountsView() {
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
         <h2 className="text-title-13 text-text-primary">Accounts</h2>
         <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Add a personal access token for repositories cloned over HTTPS"
+          onClick={() => setAddingToken(true)}
+        >
+          <Plus className="size-4" aria-hidden />
+          Add token
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -287,7 +298,7 @@ export function AccountsView() {
           <EmptyState
             icon={KeyRound}
             title="No accounts yet"
-            body="Add an SSH key here and git uses it for the repositories you choose it for — one account per identity, picked by who owns the repository."
+            body="Add an SSH key or an access token here and git uses it for the repositories you choose it for — one account per identity, picked by who owns the repository."
           />
         ) : null}
         <ul>
@@ -331,6 +342,18 @@ export function AccountsView() {
         onSaved={() => {
           setEditingIdentity(null);
           reload();
+        }}
+      />
+      <AddTokenDialog
+        open={addingToken}
+        onClose={() => setAddingToken(false)}
+        onSaved={(saved, note) => {
+          setAddingToken(false);
+          setNotice(note);
+          reload();
+          // The identity commits are written with is the next thing a new
+          // account needs; ask for it straight away.
+          setEditingIdentity(saved);
         }}
       />
       <ImportSSHKeysDialog
