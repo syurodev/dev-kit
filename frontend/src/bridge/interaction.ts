@@ -2,7 +2,14 @@ import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 export type InteractionType = "select" | "confirm";
-export type InteractionKind = "ssh" | "database" | "kafka" | "";
+export type InteractionKind = "ssh" | "database" | "kafka" | "git_account" | "";
+
+export type AccountOption = {
+  id: string;
+  label: string;
+  provider: string;
+  subject: string;
+};
 
 export type PendingInteraction = {
   id: string;
@@ -13,6 +20,10 @@ export type PendingInteraction = {
   summary: string;
   allowAlwaysOffered: boolean;
   caller: string;
+  /** Accounts to choose between; only a git_account selection has any. */
+  options: AccountOption[];
+  /** What a kept answer is kept for ("acme-corp on github.com"); empty means it cannot be kept. */
+  remember: string;
 };
 
 function toPending(raw: {
@@ -24,13 +35,18 @@ function toPending(raw: {
   summary?: string;
   allowAlwaysOffered?: boolean;
   caller?: string;
+  options?: { id: string; label: string; provider: string; subject?: string }[] | null;
+  remember?: string;
 } | null): PendingInteraction | null {
   if (!raw) {
     return null;
   }
   const type: InteractionType = raw.type === "confirm" ? "confirm" : "select";
   const kind =
-    raw.kind === "ssh" || raw.kind === "database" || raw.kind === "kafka"
+    raw.kind === "ssh" ||
+    raw.kind === "database" ||
+    raw.kind === "kafka" ||
+    raw.kind === "git_account"
       ? raw.kind
       : "";
   return {
@@ -42,6 +58,13 @@ function toPending(raw: {
     summary: raw.summary ?? "",
     allowAlwaysOffered: Boolean(raw.allowAlwaysOffered),
     caller: raw.caller ?? "",
+    options: (raw.options ?? []).map((o) => ({
+      id: o.id,
+      label: o.label,
+      provider: o.provider,
+      subject: o.subject ?? "",
+    })),
+    remember: raw.remember ?? "",
   };
 }
 
@@ -67,4 +90,13 @@ export function completeInteraction(id: string, value: string): Promise<void> {
 
 export function denyInteraction(id: string): Promise<void> {
   return callBridge(() => AppService.InteractionDeny(id) as Promise<void>);
+}
+
+/**
+ * The value that completes a git_account selection: the account chosen, and
+ * whether to keep the answer for next time. The backend only honours an id it
+ * offered, so this cannot name some other account.
+ */
+export function accountAnswer(id: string, remember: boolean): string {
+  return `${remember ? "remember" : "once"}:${id}`;
 }

@@ -170,7 +170,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableAppPreferences, TableUIState, TableDBQueryHistory, TableDBSchemaCache,
 		TableAuditEvents, TableAgentCheckpoints, TableAccountSecrets,
 		TableTaskVerifyRuns, TableAccountHostChoices, TableAPIRequestHistory, TableCodexHookEvents,
-		TableTaskBoardBindings,
+		TableTaskBoardBindings, TableAccountRemoteChoices, TableAccountIdentities,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 36 {
-		t.Fatalf("migration version = %d, want 36", version)
+	if version != 39 {
+		t.Fatalf("migration version = %d, want 39", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -820,5 +820,43 @@ func TestWorkspaceMemoryIndexMigrationBackfillsExistingRows(t *testing.T) {
 	}
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM workspace_memory_fts WHERE workspace_memory_fts MATCH 'viet'`).Scan(&count); err != nil || count != 1 {
 		t.Fatal(count, err)
+	}
+}
+
+// Answers remembered before the table knew about transports were all for HTTPS,
+// and survive the key change as such.
+func TestRemoteChoicesMigrationKeepsAnswersAsHTTPS(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "choices.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`DROP TABLE account_remote_choices`,
+		`CREATE TABLE account_remote_choices (host TEXT NOT NULL, owner TEXT NOT NULL, account_id TEXT NOT NULL, chosen_at TEXT NOT NULL, PRIMARY KEY (host, owner))`,
+		`INSERT INTO account_remote_choices VALUES ('github.com', 'acme-corp', 'acct-work', '2026-10-01T00:00:00Z')`,
+		`DELETE FROM schema_migrations WHERE version>=38`,
+	} {
+		if _, err = db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var via, account string
+	if err = db.QueryRowContext(ctx, `SELECT via, account_id FROM account_remote_choices WHERE host='github.com' AND owner='acme-corp'`).Scan(&via, &account); err != nil {
+		t.Fatal(err)
+	}
+	if via != "https" || account != "acct-work" {
+		t.Fatalf("via=%q account=%q", via, account)
+	}
+	// The same owner can now have an answer per transport.
+	if _, err = db.ExecContext(ctx, `INSERT INTO account_remote_choices VALUES ('github.com', 'acme-corp', 'ssh', 'acct-key', '2026-10-01T00:00:00Z')`); err != nil {
+		t.Fatalf("a second transport for the same owner was refused: %v", err)
 	}
 }

@@ -40,6 +40,9 @@ import * as git$0 from "../git/models.js";
 import * as gitparse$0 from "../gitparse/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as gitssh$0 from "../gitssh/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as interaction$0 from "../interaction/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -81,6 +84,15 @@ export function AccountsChooseForHost(host: string, env: string, accountID: stri
 }
 
 /**
+ * AccountsChooseSSHKeyFile opens the native file picker for a key that is not in
+ * ~/.ssh. Cancelling returns "" and is not an error. Whatever is chosen becomes
+ * readable by this window, and nothing else does.
+ */
+export function AccountsChooseSSHKeyFile(): $CancellablePromise<string> {
+    return $Call.ByID(3109226516);
+}
+
+/**
  * AccountsCreate stores a credential. The value arrives once, here, and is
  * never handed back by any method on this service.
  */
@@ -88,8 +100,47 @@ export function AccountsCreate(provider: string, kind: string, label: string, us
     return $Call.ByID(3166993726, provider, kind, label, user, secret, env, scopeOwner, ref);
 }
 
+/**
+ * AccountsCreateSSHKey stores a private key that authenticates git over SSH.
+ * 
+ * The key and its passphrase arrive once, here. The key is checked to be one
+ * ssh can use, and the passphrase to open it, before anything is saved. By
+ * default it stays on this machine; syncAcrossDevices puts it in the vault,
+ * which is the one way a private key leaves — so it is a parameter the person
+ * sets, never a default.
+ */
+export function AccountsCreateSSHKey(provider: string, label: string, privateKey: string, passphrase: string, syncAcrossDevices: boolean): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(3493315675, provider, label, privateKey, passphrase, syncAcrossDevices);
+}
+
 export function AccountsDelete(id: string): $CancellablePromise<void> {
     return $Call.ByID(1933082933, id);
+}
+
+/**
+ * AccountsDescribeSSHKeyFile describes one offered key file. An encrypted key
+ * whose public half is not in the file needs its passphrase to be described.
+ */
+export function AccountsDescribeSSHKeyFile(path: string, passphrase: string): $CancellablePromise<accounts$0.KeyFile> {
+    return $Call.ByID(2683236324, path, passphrase);
+}
+
+/**
+ * AccountsDetectSSHProvider connects to each provider that takes SSH keys and
+ * reports which of them know this key, and as whom. It makes real connections,
+ * so it runs only when the person asks.
+ */
+export function AccountsDetectSSHProvider(path: string, passphrase: string): $CancellablePromise<accounts$0.ProviderGuess[] | null> {
+    return $Call.ByID(3793743840, path, passphrase);
+}
+
+/**
+ * AccountsDiscoverSSHKeys lists the private keys in ~/.ssh: fingerprint, type,
+ * the ssh config aliases that name each, and which are already saved. Nothing
+ * private is in the answer.
+ */
+export function AccountsDiscoverSSHKeys(): $CancellablePromise<accounts$0.KeyFile[] | null> {
+    return $Call.ByID(2260426505);
 }
 
 /**
@@ -110,6 +161,15 @@ export function AccountsForgetHostChoice(host: string, env: string): $Cancellabl
 
 export function AccountsGet(id: string): $CancellablePromise<accounts$0.Account> {
     return $Call.ByID(3064107238, id);
+}
+
+/**
+ * AccountsImportSSHKey reads an offered key file into an account. The file is
+ * left exactly as it was. aliases are ssh config hosts to bind to the new
+ * account, so remotes written git@<alias>:… use it without being asked.
+ */
+export function AccountsImportSSHKey(path: string, provider: string, label: string, passphrase: string, syncAcrossDevices: boolean, aliases: string[] | null): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(2219224166, path, provider, label, passphrase, syncAcrossDevices, aliases);
 }
 
 export function AccountsList(): $CancellablePromise<accounts$0.Account[] | null> {
@@ -166,6 +226,24 @@ export function AccountsRevealRequiresPassword(): $CancellablePromise<boolean> {
  */
 export function AccountsRotate(id: string, user: string, secret: string): $CancellablePromise<void> {
     return $Call.ByID(2823647049, id, user, secret);
+}
+
+/**
+ * AccountsSSHKeyInfo describes a key account without revealing it: the
+ * fingerprint to match against what GitHub lists, and the public line to paste
+ * into a provider's settings. Nothing private is in the answer.
+ */
+export function AccountsSSHKeyInfo(id: string): $CancellablePromise<gitssh$0.KeyInfo> {
+    return $Call.ByID(2365324699, id);
+}
+
+/**
+ * AccountsSetIdentity records who commits are written as under an account: the
+ * name and email git puts on them. Both empty clears it. Neither is secret, so
+ * both come back with the account.
+ */
+export function AccountsSetIdentity(id: string, name: string, email: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(1120160480, id, name, email);
 }
 
 export function AccountsSetRevealRequiresPassword(required: boolean): $CancellablePromise<void> {
@@ -1430,6 +1508,15 @@ export function GitCheckout(name: string): $CancellablePromise<void> {
 
 export function GitCommit(message: string, taskKey: string, amend: boolean): $CancellablePromise<git$0.Commit> {
     return $Call.ByID(413335887, message, taskKey, amend);
+}
+
+/**
+ * GitCommitIdentity says who the next commit would be written as, and whether
+ * that is the account for the repository's remote, the repository's own config
+ * or git's. It reads configuration and asks nobody.
+ */
+export function GitCommitIdentity(): $CancellablePromise<git$0.CommitIdentity> {
+    return $Call.ByID(220945441);
 }
 
 /**

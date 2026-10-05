@@ -75,6 +75,22 @@ const (
 	// and a conflict rule for a preference whose worst failure is one dialog.
 	TableAccountHostChoices = "account_host_choices"
 
+	// TableAccountRemoteChoices remembers which account a git remote's owner
+	// was answered with, per host: acme-corp on github.com is the company
+	// account, everything else there is the personal one. It cannot be
+	// TableAccountHostChoices because that key is (host, env), and two
+	// accounts on one host split by who owns the repository, not by
+	// environment. Local for the same reason that table is: a preference whose
+	// worst failure is one dialog does not earn a sync record type.
+	TableAccountRemoteChoices = "account_remote_choices"
+
+	// TableAccountIdentities holds the name and email an account commits as.
+	// Local: it is a property of how this machine writes commits, it is not a
+	// secret, and putting it in a shared account's metadata would make an older
+	// DevKit on another device refuse the whole record (that metadata is
+	// decoded field by field). Losing a row costs one form to fill in again.
+	TableAccountIdentities = "account_identities"
+
 	// TableAPIRequestHistory is what this machine sent and what came back. It
 	// never syncs — it says what this device did, not what the project is —
 	// and it is the same call db_query_history already made. The URL is
@@ -1202,7 +1218,86 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		Up:      func(ctx context.Context) error { return migrateWorkspaceMemoryIndex(ctx, db) },
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36})
+	m37 := Migration{
+		Version: 37,
+		Name:    "account remote choices",
+		Up: func(ctx context.Context) error {
+			// host and owner are stored lower-cased, as the lookup normalises
+			// them: GitHub and GitLab namespaces are case-insensitive.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					host TEXT NOT NULL,
+					owner TEXT NOT NULL,
+					account_id TEXT NOT NULL,
+					chosen_at TEXT NOT NULL,
+					PRIMARY KEY (host, owner)
+				)`, TableAccountRemoteChoices,
+			))
+			return err
+		},
+	}
+
+	m38 := Migration{
+		Version: 38,
+		Name:    "ssh key accounts",
+		Up: func(ctx context.Context) error {
+			// A machine-local account (an SSH key that does not sync) keeps what
+			// its provider said about it here: shared accounts have a vault item
+			// metadata for that, and this table has had no place for it.
+			for column, definition := range map[string]string{
+				"subject":        "TEXT NOT NULL DEFAULT ''",
+				"verified_state": "TEXT NOT NULL DEFAULT ''",
+				"verified_at":    "TEXT NOT NULL DEFAULT ''",
+			} {
+				if err := addColumnIfNotExists(ctx, db, TableAccountSecrets, column, definition); err != nil {
+					return err
+				}
+			}
+			// A remembered answer is per transport as well as per (host, owner):
+			// the token that authenticates acme-corp over HTTPS and the SSH key
+			// that authenticates it over SSH are different accounts, and one
+			// must not read the other's answer as stale and delete it. The key
+			// changes, so the table is rebuilt; answers given so far were all
+			// for HTTPS.
+			for _, statement := range []string{
+				fmt.Sprintf(`CREATE TABLE %[1]s_new (
+					host TEXT NOT NULL,
+					owner TEXT NOT NULL,
+					via TEXT NOT NULL DEFAULT 'https',
+					account_id TEXT NOT NULL,
+					chosen_at TEXT NOT NULL,
+					PRIMARY KEY (host, owner, via)
+				)`, TableAccountRemoteChoices),
+				fmt.Sprintf(`INSERT INTO %[1]s_new (host, owner, via, account_id, chosen_at)
+					SELECT host, owner, 'https', account_id, chosen_at FROM %[1]s`, TableAccountRemoteChoices),
+				fmt.Sprintf(`DROP TABLE %s`, TableAccountRemoteChoices),
+				fmt.Sprintf(`ALTER TABLE %[1]s_new RENAME TO %[1]s`, TableAccountRemoteChoices),
+			} {
+				if _, err := db.ExecContext(ctx, statement); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	m39 := Migration{
+		Version: 39,
+		Name:    "account commit identities",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					email TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableAccountIdentities,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39})
 	if err != nil {
 		return err
 	}

@@ -61,6 +61,21 @@ func (s *AppService) GitStatus() (gitservice.Status, error) {
 	return result.(gitservice.Status), nil
 }
 
+// GitCommitIdentity says who the next commit would be written as, and whether
+// that is the account for the repository's remote, the repository's own config
+// or git's. It reads configuration and asks nobody.
+func (s *AppService) GitCommitIdentity() (gitservice.CommitIdentity, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:identity", map[string]any{
+		"action": "commit_identity",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.CommitIdentity(ctx)
+	})
+	if err != nil {
+		return gitservice.CommitIdentity{}, err
+	}
+	return result.(gitservice.CommitIdentity), nil
+}
+
 func (s *AppService) GitDiff(rev string, staged bool) ([]gitparse.Change, error) {
 	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:diff", map[string]any{
 		"action": "diff",

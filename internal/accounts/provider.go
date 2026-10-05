@@ -17,6 +17,9 @@ type Provider struct {
 	// request to api.github.com find the GitHub account without a menu. One
 	// match is chosen; two or more must be asked about, never guessed.
 	Hosts []string
+	// SSHHost is where this provider answers SSH, for identifying a key. Empty
+	// means keys cannot be verified against it and it accepts none.
+	SSHHost string
 }
 
 // VerifySpec is one HTTPS request and where to read the answer.
@@ -71,11 +74,11 @@ func DefaultProviders() []Provider {
 	anthropic := VerifySpec{Header: "x-api-key", HeaderFormat: "%s"}
 
 	return []Provider{
-		{ID: "github", Name: "GitHub", Kinds: []Kind{KindToken, KindOAuth}, Verify: github,
+		{ID: "github", Name: "GitHub", Kinds: []Kind{KindToken, KindOAuth, KindSSHKey}, Verify: github, SSHHost: "github.com",
 			Hosts: []string{"github.com", "api.github.com", "raw.githubusercontent.com"}},
-		{ID: "gitlab", Name: "GitLab", Kinds: []Kind{KindToken, KindOAuth}, Verify: gitlab,
+		{ID: "gitlab", Name: "GitLab", Kinds: []Kind{KindToken, KindOAuth, KindSSHKey}, Verify: gitlab, SSHHost: "gitlab.com",
 			Hosts: []string{"gitlab.com"}},
-		{ID: "bitbucket", Name: "Bitbucket", Kinds: []Kind{KindToken, KindBasic},
+		{ID: "bitbucket", Name: "Bitbucket", Kinds: []Kind{KindToken, KindBasic, KindSSHKey}, SSHHost: "bitbucket.org",
 			Hosts: []string{"bitbucket.org", "api.bitbucket.org"}},
 		{ID: "anthropic", Name: "Anthropic", Kinds: []Kind{KindToken}, Verify: anthropic,
 			Hosts: []string{"api.anthropic.com"}},

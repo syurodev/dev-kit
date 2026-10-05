@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"devkit/internal/checkpoint"
+	"devkit/internal/gitssh"
 )
 
 var (
@@ -131,7 +132,13 @@ type Service struct {
 	remotes RemoteStore
 	envs    EnvLookup
 	creds   CredentialResolver
+	picker  AccountPicker
 	confirm Confirmer
+	// hostOf turns the host in an SSH URL into the host ssh really connects to,
+	// which differs when it is an alias in ~/.ssh/config. Nil means gitssh.
+	hostOf func(ctx context.Context, host string) string
+	// sshOptions are added to the ssh command; only a test sets them.
+	sshOptions []string
 }
 
 // EnvLookup is the environment registry as this package needs it, declared
@@ -145,6 +152,15 @@ type EnvLookup interface {
 // import it.
 type CredentialResolver interface {
 	ResolveForRemote(ctx context.Context, accountID, env string) (user, secret string, err error)
+}
+
+// SSHKeyResolver is the half of the credential resolver that can hand over an
+// SSH key. isKey is false for an account that is not one (a token bound to a
+// remote that turned out to be SSH): that is "nothing to do here", not a
+// failure. Optional, like the label: a resolver without it simply leaves SSH
+// remotes to git's own configuration.
+type SSHKeyResolver interface {
+	ResolveSSHKey(ctx context.Context, accountID, env string) (m gitssh.Material, isKey bool, err error)
 }
 
 // Confirmer is the interaction gate. Nil means headless, which fails closed.
@@ -216,7 +232,10 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 		remotes:      s.remotes,
 		envs:         s.envs,
 		creds:        s.creds,
+		picker:       s.picker,
 		confirm:      s.confirm,
+		hostOf:       s.hostOf,
+		sshOptions:   s.sshOptions,
 	}, nil
 }
 

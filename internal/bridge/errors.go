@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
 	"devkit/internal/apiclient"
@@ -19,6 +20,8 @@ import (
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	gitservice "devkit/internal/git"
+	"devkit/internal/gitssh"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
@@ -37,6 +40,10 @@ const (
 	codeConnectionFailed   = "connection_failed"
 	codeOperationCancelled = "operation_cancelled"
 	codeInternalError      = "internal_error"
+	// codeGitAuthFailed: a remote turned away the identity git offered. Its own
+	// code because the answer is about which account or key is in use — the
+	// message names it — and a retry as it stands will be refused again.
+	codeGitAuthFailed = "git_auth_failed"
 	// codeUnsupportedProject is its own code rather than a validation failure
 	// so the UI can tell "no analyzer reads this project" from "analysis
 	// broke". The folder opens for its files either way; a graph query on it
@@ -124,6 +131,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, interaction.ErrConfirmationDenied) {
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	}
+	if subject == "builtin.git" && errors.Is(err, interaction.ErrSelectionRequired) {
+		return apperrors.New(codeValidationFailed, "More than one account could authenticate this remote and nothing here can ask which. Bind an account to the remote, or run it from the DevKit window.", true)
 	}
 	if errors.Is(err, interaction.ErrSelectionRequired) {
 		return apperrors.New(codeValidationFailed, "Selection required.", true)
@@ -428,6 +438,47 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
+	if subject == "builtin.accounts" {
+		switch {
+		case errors.Is(err, accounts.ErrKeyInvalid):
+			return apperrors.New(codeValidationFailed, "That is not a private key ssh can read. Paste the whole key, including the BEGIN and END lines.", true)
+		case errors.Is(err, errSSHImportUnavailable):
+			return apperrors.New(codeValidationFailed, "Importing a key from disk is only available in the desktop app: this window cannot be trusted to name a file.", true)
+		case errors.Is(err, fs.ErrNotExist):
+			return apperrors.New(codeValidationFailed, "That file no longer exists.", true)
+		case errors.Is(err, errSSHKeyNotOffered):
+			return apperrors.New(codeValidationFailed, "Choose the key from the list, or with Choose another file.", true)
+		case errors.Is(err, accounts.ErrKeyExists):
+			var exists *accounts.KeyExistsError
+			if errors.As(err, &exists) {
+				return apperrors.New(codeValidationFailed, "This key is already saved as \u201c"+exists.Label+"\u201d for that provider.", true)
+			}
+			return apperrors.New(codeValidationFailed, "This key is already saved for that provider.", true)
+		case errors.Is(err, accounts.ErrIdentityInvalid):
+			return apperrors.New(codeValidationFailed, "Enter both a name and an email address (like name@example.com) for commits, or clear both.", true)
+		case errors.Is(err, accounts.ErrKeyPassphrase):
+			return apperrors.New(codeValidationFailed, "This key is encrypted. Enter its passphrase, or check the one you entered.", true)
+		}
+	}
+	if subject == "builtin.git" {
+		// An SSH key that was meant to be used and could not be: the command
+		// stopped rather than push as some other identity, and the person needs
+		// to know that is why.
+		switch {
+		case errors.Is(err, gitssh.ErrUnsupported):
+			return apperrors.New(codeValidationFailed, "SSH keys from Accounts are not supported on this platform yet, so nothing was sent. Remove the account from this remote to use git's own SSH configuration.", true)
+		case errors.Is(err, gitssh.ErrNoSSH):
+			return apperrors.New(codeValidationFailed, "There is no ssh program on this machine, which git needs to reach an SSH remote.", true)
+		case errors.Is(err, gitssh.ErrNotAKey), errors.Is(err, gitssh.ErrPassphraseRequired), errors.Is(err, gitssh.ErrBadPassphrase):
+			return apperrors.New(codeValidationFailed, "The SSH key of the account chosen for this remote can no longer be opened, so nothing was sent. Add the key again in Accounts.", true)
+		}
+		var authErr *gitservice.AuthError
+		if errors.As(err, &authErr) {
+			// The cause is git's own stderr, which can quote the remote's
+			// address; the public message names only the remote and account.
+			return apperrors.Wrap(codeGitAuthFailed, gitAuthMessage(authErr), true, err)
+		}
+	}
 	if subject == "builtin.apiclient" {
 		if errors.Is(err, errNoSaveDialog) {
 			return apperrors.Wrap(codeValidationFailed, "There is no save dialog here (a browser window has none) — use Copy instead.", true, err)
@@ -577,6 +628,25 @@ func agentTurnFailedMessage(agent agenthub.AgentType, vendorMessage string) stri
 // API key says: what would have worked, since the account itself is fine for
 // whatever else it is bound to.
 const codexAPIKeyAccountMessage = "Choose an API key (a token account) that is not limited to an environment."
+
+// gitAuthMessage says which identity a remote refused, and what the person can
+// do about it. With one account that is obvious; with three it is the whole
+// error, so it never falls back to git's "Permission denied".
+func gitAuthMessage(e *gitservice.AuthError) string {
+	remote := "Remote \u201c" + e.Remote + "\u201d"
+	switch {
+	case e.Transport == gitservice.TransportSSH && e.Account != "":
+		return remote + " refused the SSH key of account \u201c" + e.Account + "\u201d. If the repository belongs to another GitHub or GitLab identity, choose the right account for this remote; if the key was removed from the account, add it again in the provider's settings."
+	case e.Transport == gitservice.TransportSSH:
+		return remote + " refused the SSH key git offered. No SSH-key account was used for it, so git used your own SSH configuration (ssh-agent or ~/.ssh/config). Add an SSH key for this host in Accounts, or check that the key it presents belongs to an account that can reach this repository."
+	case e.Account != "":
+		return remote + " refused the account \u201c" + e.Account + "\u201d. If the repository belongs to another GitHub or GitLab identity, bind the right account to this remote."
+	case e.AccountID != "":
+		return remote + " refused the account bound to it. If the repository belongs to another GitHub or GitLab identity, bind the right account to this remote."
+	default:
+		return remote + " refused the credentials git found on its own. Bind an account to this remote so DevKit authenticates it."
+	}
+}
 
 // apiClientMessage words the API client's own refusals. Each is something the
 // person can act on, and the fallback would have called every one of them "An

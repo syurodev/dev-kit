@@ -41,6 +41,14 @@ export interface Account {
      * Ref is how to sign in again, for KindExternal.
      */
     "ref": string;
+
+    /**
+     * AuthorName and AuthorEmail are who commits are written as when this
+     * account is the one in use. Empty means none was set. They are kept in a
+     * local table, not in the account, and are not secret.
+     */
+    "authorName": string;
+    "authorEmail": string;
 }
 
 /**
@@ -70,6 +78,46 @@ export interface HostMatch {
      * there being only one candidate.
      */
     "remembered": boolean;
+}
+
+/**
+ * ImportedKey is an account that already holds a key found on disk.
+ */
+export interface ImportedKey {
+    "accountId": string;
+    "provider": string;
+    "label": string;
+}
+
+/**
+ * KeyAlias is a Host entry in ssh config that names the key.
+ */
+export interface KeyAlias {
+    "name": string;
+    "hostName": string;
+}
+
+/**
+ * KeyFile is a private key on this machine that could be imported, described
+ * without being revealed.
+ */
+export interface KeyFile {
+    "path": string;
+    "name": string;
+    "type": string;
+    "fingerprint": string;
+    "comment": string;
+    "encrypted": boolean;
+
+    /**
+     * Aliases are the hosts ~/.ssh/config names this key for.
+     */
+    "aliases": KeyAlias[] | null;
+
+    /**
+     * Imported are the accounts that already hold it.
+     */
+    "imported": ImportedKey[] | null;
 }
 
 /**
@@ -103,6 +151,13 @@ export enum Kind {
     KindSecret = "secret",
 
     /**
+     * KindSSHKey is a private key (and the passphrase that unlocks it, when it
+     * has one) that authenticates git over SSH. It is not an identity a bearer
+     * header can carry, so the API client never offers it; only git uses it.
+     */
+    KindSSHKey = "ssh-key",
+
+    /**
      * KindExternal holds nothing. It records that an identity exists and how
      * to sign in again, for the two credentials DevKit deliberately does not
      * keep.
@@ -133,6 +188,21 @@ export interface Provider {
      * match is chosen; two or more must be asked about, never guessed.
      */
     "Hosts": string[] | null;
+
+    /**
+     * SSHHost is where this provider answers SSH, for identifying a key. Empty
+     * means keys cannot be verified against it and it accepts none.
+     */
+    "SSHHost": string;
+}
+
+/**
+ * ProviderGuess is a provider that accepted a key, and who it said the key is.
+ */
+export interface ProviderGuess {
+    "provider": string;
+    "name": string;
+    "subject": string;
 }
 
 /**

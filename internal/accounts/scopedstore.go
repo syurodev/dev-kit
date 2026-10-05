@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"devkit/internal/crypto"
@@ -40,6 +41,11 @@ type scopedRow struct {
 	Envelope   crypto.Envelope
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	// Subject, VerifiedState and VerifiedAt are what the provider last said
+	// about a machine-local account. A connection's password has none of it.
+	Subject       string
+	VerifiedState State
+	VerifiedAt    time.Time
 }
 
 func (s *scopedStore) upsert(row scopedRow, secret string) error {
@@ -70,13 +76,13 @@ func (s *scopedStore) upsert(row scopedRow, secret string) error {
 
 func (s *scopedStore) byOwner(owner string) (scopedRow, error) {
 	return s.scanOne(s.db.QueryRow(fmt.Sprintf(
-		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at
+		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at, subject, verified_state, verified_at
 		 FROM %s WHERE scope_owner = ?`, s.table), owner))
 }
 
 func (s *scopedStore) byID(id string) (scopedRow, error) {
 	return s.scanOne(s.db.QueryRow(fmt.Sprintf(
-		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at
+		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at, subject, verified_state, verified_at
 		 FROM %s WHERE id = ?`, s.table), id))
 }
 
@@ -87,9 +93,11 @@ func (s *scopedStore) scanOne(row rowScanner) (scopedRow, error) {
 		out                 scopedRow
 		kind, envelope      string
 		createdAt, updateAt string
+		verifiedState       string
+		verifiedAt          string
 	)
 	err := row.Scan(&out.ID, &out.ScopeOwner, &out.Provider, &kind, &out.Label, &out.Username,
-		&envelope, &createdAt, &updateAt)
+		&envelope, &createdAt, &updateAt, &out.Subject, &verifiedState, &verifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return scopedRow{}, ErrNotFound
 	}
@@ -97,6 +105,8 @@ func (s *scopedStore) scanOne(row rowScanner) (scopedRow, error) {
 		return scopedRow{}, err
 	}
 	out.Kind = Kind(kind)
+	out.VerifiedState = State(verifiedState)
+	out.VerifiedAt = parseTime(verifiedAt)
 	if err := json.Unmarshal([]byte(envelope), &out.Envelope); err != nil {
 		return scopedRow{}, err
 	}
@@ -107,7 +117,7 @@ func (s *scopedStore) scanOne(row rowScanner) (scopedRow, error) {
 
 func (s *scopedStore) list() ([]scopedRow, error) {
 	rows, err := s.db.Query(fmt.Sprintf(
-		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at
+		`SELECT id, scope_owner, provider, kind, label, username, envelope, created_at, updated_at, subject, verified_state, verified_at
 		 FROM %s ORDER BY created_at`, s.table))
 	if err != nil {
 		return nil, err
@@ -153,24 +163,42 @@ func (s *scopedStore) orphans(owners map[string]bool) ([]scopedRow, error) {
 	}
 	var out []scopedRow
 	for _, row := range all {
-		if !owners[row.ScopeOwner] {
+		// A local account is its own owner; there is no profile to be gone.
+		if !owners[row.ScopeOwner] && !strings.HasPrefix(row.ScopeOwner, LocalOwnerPrefix) {
 			out = append(out, row)
 		}
 	}
 	return out, nil
 }
 
+// markVerified records what a provider said about a local account.
+func (s *scopedStore) markVerified(id, subject string, state State) error {
+	_, err := s.db.Exec(fmt.Sprintf(
+		`UPDATE %s SET subject = ?, verified_state = ?, verified_at = ? WHERE id = ?`, s.table),
+		subject, string(state), time.Now().UTC().Format(time.RFC3339), id)
+	return err
+}
+
 func (r scopedRow) account(now time.Time) Account {
-	return Account{
+	account := Account{
 		ID:         r.ID,
 		Provider:   r.Provider,
 		Kind:       r.Kind,
 		Label:      r.Label,
 		ScopeOwner: r.ScopeOwner,
-		// A scoped credential is not an identity a provider can confirm; the
-		// owning module's Test Connection is what checks it.
+		// A connection's credential is not an identity a provider can confirm;
+		// the owning module's Test Connection is what checks it.
 		State:     StateUnverified,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}
+	// A local account was asked, and keeps the answer.
+	if strings.HasPrefix(r.ScopeOwner, LocalOwnerPrefix) {
+		account.Subject = r.Subject
+		account.VerifiedAt = r.VerifiedAt
+		if r.VerifiedState != "" {
+			account.State = r.VerifiedState
+		}
+	}
+	return account
 }

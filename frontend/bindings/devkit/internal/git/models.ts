@@ -32,6 +32,35 @@ export interface Commit {
 }
 
 /**
+ * CommitIdentity is who the next commit will be written as, and why.
+ */
+export interface CommitIdentity {
+    "name": string;
+    "email": string;
+
+    /**
+     * Source is IdentityFromAccount, IdentityFromRepository or IdentityFromGit;
+     * empty when nobody has configured an identity at all.
+     */
+    "source": string;
+
+    /**
+     * Account is the label of the account considered for the repository's
+     * remote, and AccountName/AccountEmail what it would commit as. They are
+     * filled even when the repository's config wins, so the person can see the
+     * two disagree.
+     */
+    "account": string;
+    "accountName": string;
+    "accountEmail": string;
+
+    /**
+     * Remote is the remote the account was looked up for.
+     */
+    "remote": string;
+}
+
+/**
  * Conflict is one unmerged path, in the three versions the resolve panel
  * shows. It is deliberately the shape Sync's ResolvePanel already renders —
  * Local / Merged (editable) / Remote — because a second three-pane merge UI is
@@ -96,6 +125,13 @@ export interface Guard {
 export interface Remote {
     "name": string;
     "url": string;
+
+    /**
+     * Transport is how git reaches the remote. It decides whether AccountID
+     * can do anything: a bound account answers an HTTPS remote's password
+     * prompt and has no way to answer an SSH remote, which authenticates by key.
+     */
+    "transport": Transport;
 
     /**
      * AccountID is the credential binding. Empty means whatever git's own
@@ -175,3 +211,36 @@ export interface Status {
      */
     "conflicted": string[] | null;
 }
+
+/**
+ * Transport is how git reaches a remote, which decides what can authenticate
+ * it: an HTTPS remote asks for a username and password (so DevKit can answer
+ * through GIT_ASKPASS), an SSH remote is answered by a key and never asks.
+ */
+export enum Transport {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * TransportSSH is ssh://host/path and the scp-like git@host:path.
+     */
+    TransportSSH = "ssh",
+
+    /**
+     * TransportHTTP is http:// and https://.
+     */
+    TransportHTTP = "http",
+
+    /**
+     * TransportLocal is a path or file:// — a remote on this machine.
+     */
+    TransportLocal = "local",
+
+    /**
+     * TransportOther is anything else (git://, a custom helper). Nothing in
+     * DevKit authenticates it.
+     */
+    TransportOther = "other",
+};

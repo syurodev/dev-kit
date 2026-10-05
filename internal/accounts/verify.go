@@ -31,6 +31,9 @@ var ErrNotVerifiable = errors.New("accounts.notVerifiable")
 // read:org". A failure is recorded rather than thrown away — a token that
 // comes back 401 is revoked, and saying so is the whole point.
 func (s *Service) Verify(ctx context.Context, id string) (Account, error) {
+	if kind, ok := s.kindOf(id); ok && kind == KindSSHKey {
+		return s.verifySSHKey(ctx, id)
+	}
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Account{}, ErrNotFound

@@ -1,9 +1,15 @@
 package bridge
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 
 	"devkit/internal/accounts"
 	"devkit/internal/app"
@@ -36,6 +42,8 @@ func newBridgeWithAccounts(t *testing.T) (*AppService, *app.Container) {
 		accounts.NewRegistry(accounts.DefaultProviders()), container.Environments,
 	)
 	container.Accounts.SetHostChoices(db, storage.TableAccountHostChoices)
+	container.Accounts.SetIdentities(db, storage.TableAccountIdentities)
+	container.Accounts.SetRemoteChoices(db, storage.TableAccountRemoteChoices)
 	return NewAppService(container), container
 }
 
@@ -161,5 +169,76 @@ func TestRevealOnAnExternalAccountSaysThereIsNothingToShow(t *testing.T) {
 	}
 	if errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("reported as missing rather than as empty: %v", err)
+	}
+}
+
+func TestSSHKeyAccountStaysLocalUnlessTheBridgeIsToldToSync(t *testing.T) {
+	svc, container := newBridgeWithAccounts(t)
+	key := newBridgePrivateKey(t)
+
+	local, err := svc.AccountsCreateSSHKey("github", "Work key", key, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synced, err := svc.AccountsCreateSSHKey("github", "Synced key", newBridgePrivateKey(t), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !local.Local() || synced.Scoped() {
+		t.Fatalf("local=%+v synced=%+v", local, synced)
+	}
+	if _, err := container.Items.Get(local.ID); err == nil {
+		t.Fatal("a key the person kept local was written to vault_items, which replicates")
+	}
+
+	info, err := svc.AccountsSSHKeyInfo(local.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Fingerprint == "" || strings.Contains(info.PublicKey, "PRIVATE") {
+		t.Fatalf("info = %+v", info)
+	}
+	if _, err := svc.AccountsReveal(local.ID, "correct-horse"); err == nil {
+		t.Fatal("an SSH private key can be shown again")
+	}
+	if _, err := svc.AccountsCreateSSHKey("github", "Bad", "not a key", "", false); err == nil {
+		t.Fatal("a non-key was saved")
+	}
+}
+
+func newBridgePrivateKey(t *testing.T) string {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(private, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(block))
+}
+
+func TestAccountIdentityRoundTripsThroughTheBridge(t *testing.T) {
+	svc, _ := newBridgeWithAccounts(t)
+	account, err := svc.AccountsCreateSSHKey("github", "Work key", newBridgePrivateKey(t), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := svc.AccountsSetIdentity(account.ID, "Acme Dev", "dev@acme.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AuthorName != "Acme Dev" || saved.AuthorEmail != "dev@acme.example" {
+		t.Fatalf("saved = %+v", saved)
+	}
+	listed, err := svc.AccountsList()
+	if err != nil || len(listed) != 1 || listed[0].AuthorEmail != "dev@acme.example" {
+		t.Fatalf("listed = %+v, %v", listed, err)
+	}
+	if _, err := svc.AccountsSetIdentity(account.ID, "Acme Dev", "not-an-email"); err == nil ||
+		!strings.Contains(err.Error(), "name and an email") {
+		t.Fatalf("a bad email = %v", err)
 	}
 }

@@ -97,7 +97,14 @@ func (s *Service) Commit(ctx context.Context, in CommitInput) (Commit, error) {
 	if in.Amend {
 		args = append(args, "--amend")
 	}
-	if _, err := r.run(ctx, nil, args...); err != nil {
+	// Written as the account in use for this repository's remote, when there is
+	// one with an identity. A failure to work that out is not a reason to refuse
+	// a commit: git's own configuration is what it always was.
+	if identity, err := s.CommitIdentity(ctx); err == nil && identity.Source == IdentityFromAccount {
+		if err := r.runWithEnv(ctx, identityEnv(identity, in.Amend), args...); err != nil {
+			return Commit{}, err
+		}
+	} else if _, err := r.run(ctx, nil, args...); err != nil {
 		return Commit{}, err
 	}
 	commits, err := s.Log(ctx, 1)

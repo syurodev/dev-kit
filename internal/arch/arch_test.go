@@ -152,6 +152,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: notify must not import %s", short(imp))
 	}
 
+	// gitssh is a leaf: it serves an SSH key to ssh and reads one, and both
+	// accounts (which validates keys) and git (which uses them) import it, so it
+	// can import neither.
+	for _, imp := range graph[pkg("gitssh")] {
+		t.Errorf("layering violation: gitssh must not import %s", short(imp))
+	}
+
 	// codexapp is a leaf transport for `codex app-server`, like acp: the
 	// adapter in agenthub owns the sandbox and the translation to ACP.
 	for _, imp := range graph[pkg("codexapp")] {

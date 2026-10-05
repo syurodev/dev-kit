@@ -642,6 +642,38 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   read-only fallback for legacy boards; `verify.service` names a workspace service
   instead, traveling through sync unlike paths. `Considered` marker guards
   `MigrateBoardBindings` to avoid re-binding unbound boards on restart.
+- **Git over SSH uses the account's key, served by `internal/gitssh`** (a leaf). An `ssh-key`
+  account holds the private key and its passphrase packed in one sealed secret; `gitssh.Open`
+  serves it from a private in-process agent (0700 socket dir, one key, gone with the command) and
+  git runs with `GIT_SSH_COMMAND` pointing at it with `IdentitiesOnly=yes`. `ssh-key` accounts are
+  **local by default**: a scoped row whose owner is `local:<id>` (never swept as an orphan, resolved
+  by id, never offered to the API client or revealed again), `Promote` is how one starts syncing.
+  `accounts.ForRemote(host, owner, env, via)` picks the account for an unbound remote — keys over
+  SSH, tokens over HTTPS — and remembers it per `(host, owner, via)`; the app's `remotePicker` asks
+  the person through `interaction.Hub.SelectAccount` when two fit. SSH aliases resolve through
+  `ssh -G`. A key that cannot be opened stops the command; it never falls back to the machine's own
+  key. `~/.ssh/config` `IdentityFile` entries are still tried *after* a refused account key (see the
+  pinned test). `internal/git` tests that touch SSH use `code.example.test`, not `github.com`: the
+  cloud sandbox injects a `url.insteadOf` that rewrites github.com SSH URLs to HTTPS.
+- **Importing a key from disk is UI-only and path-guarded** (`internal/bridge/accounts_sshimport.go`).
+  `gitssh.Discover` lists `~/.ssh` one level deep (no symlinks, ≤64 KB, skips `config`/`known_hosts`/`*.pub`)
+  and `ReadAliases` reads `Host`/`IdentityFile`/`Include` as TEXT (`ssh -G` would report default key
+  files for every host). The bridge reads a path only if this window was first shown it — listed by
+  `AccountsDiscoverSSHKeys` or returned by the native picker — and the whole set of methods answers
+  "desktop app only" in server mode (an unauthenticated bridge must not read files by path). No MCP
+  tool exists for it. Keys are deduplicated by `(provider, fingerprint)`: one key may serve GitHub and
+  GitLab, never one provider twice (`gitssh.QuickInfo` reads an OpenSSH key's public half without the
+  passphrase, so listing and dedupe never run the slow KDF). An ssh alias bound to a key account
+  (`ChooseForAlias`, stored in `account_remote_choices` as `(alias, "*", ssh)`) answers before the
+  repository owner is asked.
+- **Commits are written as the account's identity.** An account may carry a name and email
+  (`account_identities`, local — not in the account metadata, whose strict decoder would make an
+  older DevKit refuse the record). `git.Service.CommitIdentity` decides who the next commit is:
+  the repository's own `user.email` wins, else the account of the branch's upstream remote (then
+  `origin`, then the only remote) when it has BOTH halves, else git's configuration. It looks the
+  account up through `remotePicker.IdentityFor`, which never opens a dialog. `Commit` passes the
+  identity as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (an amend keeps the old author) and never writes
+  `.git/config`. Agents commit through the same path, so their commits carry it too.
 - **`internal/notify` and `internal/gitparse` are leaves** pinned by
   `internal/arch`, extracted as their own commits before the modules that
   needed them. `notify.Target` is three strings and deliberately not the

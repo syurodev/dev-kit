@@ -17,7 +17,8 @@ import {
   type GitStatus,
   type Remote,
 } from "@/bridge/git";
-import { listAccounts, type Account } from "@/bridge/accounts";
+import { isLocalAccount, listAccounts, type Account } from "@/bridge/accounts";
+import { accountsForRemote } from "./remotes";
 import { listEnvTags, type EnvTag } from "@/bridge/environments";
 
 /**
@@ -65,10 +66,11 @@ export function GitRemotesView() {
   }, []);
 
   useEffect(() => {
-    // A scoped account belongs to one connection profile, never to a remote,
-    // so it is not offered here.
+    // A connection's scoped account belongs to that connection, never to a
+    // remote, so it is not offered here. A local one — an SSH key kept on this
+    // machine — is the person's own and is.
     listAccounts()
-      .then((all) => setAccounts(all.filter((account) => account.scopeOwner === "")))
+      .then((all) => setAccounts(all.filter((account) => account.scopeOwner === "" || isLocalAccount(account))))
       .catch(() => setAccounts([]));
     listEnvTags()
       .then(setTags)
@@ -162,7 +164,7 @@ export function GitRemotesView() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE}>No account · git's own configuration</SelectItem>
-                  {accounts.map((account) => (
+                  {accountsForRemote(accounts, remote).map((account) => (
                     <SelectItem key={account.id} value={account.id}>
                       {account.label} · {account.kind}
                     </SelectItem>

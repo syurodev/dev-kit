@@ -5,12 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"devkit/internal/gitssh"
 )
 
 // Remote is one configured remote and the account that authenticates to it.
 type Remote struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	// Transport is how git reaches the remote. It decides whether AccountID
+	// can do anything: a bound account answers an HTTPS remote's password
+	// prompt and has no way to answer an SSH remote, which authenticates by key.
+	Transport Transport `json:"transport"`
 	// AccountID is the credential binding. Empty means whatever git's own
 	// configuration already does (ssh keys, a credential helper).
 	AccountID string `json:"accountId"`
@@ -26,6 +32,101 @@ type RemoteStore interface {
 
 // SetRemotes wires the binding store.
 func (s *Service) SetRemotes(r RemoteStore) { s.remotes = r }
+
+// AccountPicker decides which account authenticates a remote that has no
+// binding of its own. It is internal/accounts plus the interaction hub, declared
+// here as an interface so git imports neither.
+//
+// An empty id with no error means no account applies, and git's own
+// configuration answers. An error is final: a question nobody could answer
+// must stop the command, not fall back to some account.
+type AccountPicker interface {
+	PickAccount(ctx context.Context, in PickAccountInput) (accountID string, err error)
+}
+
+// PickAccountInput is what the picker needs to find or ask for an account.
+type PickAccountInput struct {
+	// Op is "push", "fetch" or "pull", for the question the person is shown.
+	Op     string
+	Remote string
+	// Transport is how the remote is reached: an HTTPS remote needs a token or
+	// password account, an SSH one a key.
+	Transport Transport
+	// Host is the host the remote really lives on. For SSH an alias from
+	// ~/.ssh/config (git@github-work:…) has been resolved to it.
+	Host string
+	// Alias is the host as the URL wrote it, set only when it was an alias: the
+	// person's own statement, in ssh config, of which identity the remote is for.
+	Alias string
+	// Owner and Repo are the first and last path segments of the URL.
+	Owner string
+	Repo  string
+	// Env is the remote's environment tag; accounts limited to other
+	// environments are not candidates.
+	Env string
+}
+
+// SetAccountPicker wires the account choice for unbound remotes.
+func (s *Service) SetAccountPicker(p AccountPicker) { s.picker = p }
+
+// defaultHostOf asks ssh itself which host a name in an SSH URL really is.
+func defaultHostOf(ctx context.Context, host string) string { return gitssh.ResolveHost(ctx, host) }
+
+// SetHostResolver replaces how the host of an SSH URL becomes the host ssh
+// really connects to. Production asks ssh itself; a test supplies a table.
+func (s *Service) SetHostResolver(f func(ctx context.Context, host string) string) { s.hostOf = f }
+
+// withAccount fills in the account for a remote that has no binding.
+//
+// An explicit binding always wins, and it is never second-guessed. Otherwise
+// the picker is asked for HTTPS and SSH remotes alike — a token for one, a key
+// for the other, which is the picker's business — with the host as ssh will
+// really see it: git@github-work:acme/api.git is a GitHub remote.
+func (s *Service) withAccount(ctx context.Context, op string, remote Remote) (Remote, error) {
+	if s.picker == nil || remote.AccountID != "" ||
+		(remote.Transport != TransportHTTP && remote.Transport != TransportSSH) {
+		return remote, nil
+	}
+	address := ParseAddress(remote.URL)
+	if address.Host == "" {
+		return remote, nil
+	}
+	written := address.Host
+	if address.Transport == TransportSSH {
+		resolve := s.hostOf
+		if resolve == nil {
+			resolve = defaultHostOf
+		}
+		address.Host = resolve(ctx, address.Host)
+	}
+	id, err := s.picker.PickAccount(ctx, PickAccountInput{
+		Op: op, Remote: remote.Name, Transport: address.Transport,
+		Host: address.Host, Alias: aliasOf(written, address.Host), Owner: address.Owner, Repo: address.Repo, Env: remote.Env,
+	})
+	if err != nil {
+		return remote, err
+	}
+	remote.AccountID = id
+	return remote, nil
+}
+
+// aliasOf is the host as written when resolving it changed it, "" otherwise.
+func aliasOf(written, resolved string) string {
+	if written != "" && written != resolved {
+		return written
+	}
+	return ""
+}
+
+// ignoreUnusedAccount drops the account from a remote when no credential came
+// of it, so an error does not blame an account that never authenticated
+// anything: a token bound to an SSH remote, say.
+func ignoreUnusedAccount(remote Remote, env []string) Remote {
+	if remote.Transport == TransportSSH && len(env) == 0 {
+		remote.AccountID = ""
+	}
+	return remote
+}
 
 // Remotes lists the repository's remotes, merged with any stored bindings.
 func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
@@ -55,7 +156,7 @@ func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 		}
 		seen[name] = true
 		url, _, _ := strings.Cut(rest, " ")
-		remote := Remote{Name: name, URL: url}
+		remote := Remote{Name: name, URL: url, Transport: transportOf(url)}
 		if binding, ok := bindings[name]; ok {
 			remote.AccountID, remote.Env = binding.AccountID, binding.Env
 		}
@@ -121,18 +222,26 @@ func (s *Service) Push(ctx context.Context, in PushInput) error {
 	if err := s.gateRemote(ctx, in.Remote, in.Branch); err != nil {
 		return err
 	}
-	env, cleanup, err := s.credentialEnv(ctx, in.Remote)
+	remote, err := s.remoteNamed(ctx, in.Remote, true)
+	if err != nil {
+		return err
+	}
+	if remote, err = s.withAccount(ctx, "push", remote); err != nil {
+		return err
+	}
+	env, cleanup, err := s.credentialEnvFor(ctx, remote)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
+	remote = ignoreUnusedAccount(remote, env)
 
 	args := []string{"push"}
 	if in.SetUpstream {
 		args = append(args, "-u")
 	}
 	args = append(args, in.Remote, in.Branch)
-	return r.runWithEnv(ctx, env, args...)
+	return s.explainRemoteError("push", remote, r.runWithEnv(ctx, env, args...))
 }
 
 // Fetch and Pull are the read half. Pull is --ff-only: a merge started behind
@@ -145,12 +254,20 @@ func (s *Service) Fetch(ctx context.Context, remote string) error {
 	if remote == "" {
 		remote = "origin"
 	}
-	env, cleanup, err := s.credentialEnv(ctx, remote)
+	bound, err := s.remoteNamed(ctx, remote, false)
+	if err != nil {
+		return err
+	}
+	if bound, err = s.withAccount(ctx, "fetch", bound); err != nil {
+		return err
+	}
+	env, cleanup, err := s.credentialEnvFor(ctx, bound)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return r.runWithEnv(ctx, env, "fetch", remote)
+	bound = ignoreUnusedAccount(bound, env)
+	return s.explainRemoteError("fetch", bound, r.runWithEnv(ctx, env, "fetch", remote))
 }
 
 func (s *Service) Pull(ctx context.Context, remote string) error {
@@ -161,12 +278,20 @@ func (s *Service) Pull(ctx context.Context, remote string) error {
 	if remote == "" {
 		remote = "origin"
 	}
-	env, cleanup, err := s.credentialEnv(ctx, remote)
+	bound, err := s.remoteNamed(ctx, remote, false)
+	if err != nil {
+		return err
+	}
+	if bound, err = s.withAccount(ctx, "pull", bound); err != nil {
+		return err
+	}
+	env, cleanup, err := s.credentialEnvFor(ctx, bound)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return r.runWithEnv(ctx, env, "pull", "--ff-only", remote)
+	bound = ignoreUnusedAccount(bound, env)
+	return s.explainRemoteError("pull", bound, r.runWithEnv(ctx, env, "pull", "--ff-only", remote))
 }
 
 func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {
@@ -197,25 +322,69 @@ func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {
 	return s.gate(ctx, branch, "Push", "to "+remote)
 }
 
-// credentialEnv resolves the remote's account and hands it to git through
-// GIT_ASKPASS — never through the URL or argv, where it would land in the
-// process list and in anyone's shell history.
-func (s *Service) credentialEnv(ctx context.Context, remote string) ([]string, func(), error) {
-	noop := func() {}
-	if s.creds == nil || s.remotes == nil {
-		return nil, noop, nil
-	}
-	var binding Remote
+// remoteNamed is the remote called name with its binding merged in, or just
+// the name when git has no such remote (git then reports that itself).
+//
+// push asks for the address a push would use. A remote may have a separate
+// pushurl, or a pushInsteadOf rewrite, and the transport that matters for a
+// push is that one rather than the fetch address.
+func (s *Service) remoteNamed(ctx context.Context, name string, push bool) (Remote, error) {
 	remotes, err := s.Remotes(ctx)
 	if err != nil {
-		return nil, noop, err
+		return Remote{}, err
 	}
+	remote := Remote{Name: name}
 	for _, candidate := range remotes {
-		if candidate.Name == remote {
-			binding = candidate
+		if candidate.Name == name {
+			remote = candidate
 		}
 	}
-	if binding.AccountID == "" {
+	if push && remote.URL != "" {
+		if r, err := s.active(); err == nil {
+			if out, err := r.run(ctx, nil, "remote", "get-url", "--push", name); err == nil {
+				if pushURL := strings.TrimSpace(string(out)); pushURL != "" {
+					remote.URL, remote.Transport = pushURL, transportOf(pushURL)
+				}
+			}
+		}
+	}
+	return remote, nil
+}
+
+// credentialEnv resolves the named remote's account for a fetch.
+func (s *Service) credentialEnv(ctx context.Context, name string) ([]string, func(), error) {
+	if s.creds == nil || s.remotes == nil {
+		return nil, func() {}, nil
+	}
+	remote, err := s.remoteNamed(ctx, name, false)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	if remote, err = s.withAccount(ctx, "fetch", remote); err != nil {
+		return nil, func() {}, err
+	}
+	return s.credentialEnvFor(ctx, remote)
+}
+
+// credentialEnvFor resolves the remote's account and hands it to git.
+//
+// For HTTPS it goes through GIT_ASKPASS — never through the URL or argv, where
+// it would land in the process list and in anyone's shell history.
+//
+// For SSH it is a key, served to ssh from a private in-process agent for the
+// length of the command (see gitssh). git does not run the askpass helper for
+// an SSH remote, so a token bound to one would do nothing except spend a
+// credential and put a secret into the environment of a process that will not
+// read it; such a binding is left alone and git's own configuration answers.
+func (s *Service) credentialEnvFor(ctx context.Context, binding Remote) ([]string, func(), error) {
+	noop := func() {}
+	if s.creds == nil || binding.AccountID == "" {
+		return nil, noop, nil
+	}
+	switch binding.Transport {
+	case TransportSSH:
+		return s.sshKeyEnv(ctx, binding)
+	case TransportOther:
 		return nil, noop, nil
 	}
 	user, secret, err := s.creds.ResolveForRemote(ctx, binding.AccountID, binding.Env)
@@ -235,6 +404,31 @@ func (s *Service) credentialEnv(ctx context.Context, remote string) ([]string, f
 		"DEVKIT_GIT_USER=" + user,
 		"DEVKIT_GIT_SECRET=" + secret,
 	}, cleanup, nil
+}
+
+// sshKeyEnv serves the bound account's key to ssh. An account that is not an
+// SSH key, or a resolver that cannot give one, leaves the remote to git. A key
+// that is meant to be used and cannot be — no agent on this platform, a
+// passphrase that no longer opens it — is an error: falling back to whatever
+// key the machine has would push as an identity the person did not choose.
+func (s *Service) sshKeyEnv(ctx context.Context, binding Remote) ([]string, func(), error) {
+	noop := func() {}
+	resolver, ok := s.creds.(SSHKeyResolver)
+	if !ok {
+		return nil, noop, nil
+	}
+	material, isKey, err := resolver.ResolveSSHKey(ctx, binding.AccountID, binding.Env)
+	if err != nil {
+		return nil, noop, err
+	}
+	if !isKey {
+		return nil, noop, nil
+	}
+	session, err := gitssh.OpenWith(material, s.sshOptions...)
+	if err != nil {
+		return nil, noop, err
+	}
+	return session.Env(), session.Close, nil
 }
 
 // askpassScript writes the helper git calls when it wants a username or a
