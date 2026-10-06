@@ -33,6 +33,14 @@ type AgentPinsState = {
    */
   recentProjects: string[];
   rememberProject: (path: string) => void;
+  /**
+   * Sessions the person follows: what the agent changes in DevKit shows up as
+   * it happens — Agent Hub's activity panel, a toast anywhere else. Per
+   * session and opt-in, remembered: following every session would put a
+   * stream of other people's work in front of whatever is on screen.
+   */
+  following: string[];
+  toggleFollowing: (sessionId: string) => void;
 };
 
 /** How many folders the project picker remembers. */
@@ -71,6 +79,13 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         })),
       hideClosed: false,
       toggleHideClosed: () => set((state) => ({ hideClosed: !state.hideClosed })),
+      following: [],
+      toggleFollowing: (sessionId) =>
+        set((state) => ({
+          following: state.following.includes(sessionId)
+            ? state.following.filter((id) => id !== sessionId)
+            : [...state.following, sessionId],
+        })),
       recentProjects: [],
       rememberProject: (path) =>
         set((state) => ({
@@ -85,6 +100,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         collapsed: state.collapsed,
         hideClosed: state.hideClosed,
         recentProjects: state.recentProjects,
+        following: state.following,
       }),
     },
   ),

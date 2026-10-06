@@ -191,28 +191,27 @@ registry hay kiểu dữ liệu mới. Ví dụ thật: agent gọi `notes.creat
 "Tasks → Code Graph" đã mô tả trong ma trận điểm nối của `cross-module.mdx`.
 Mở 1 lần theo yêu cầu của người dùng, không tự động.
 
-## Theo dõi real-time (chưa quyết)
+## Theo dõi agent (Follow)
 
-Khác với "mở beside" ở trên: thay vì mở 1 lần theo yêu cầu, module đích tự mở
-và **tự cập nhật** khi agent còn đang thao tác tiếp trong cùng turn — ví dụ
-note đang được agent viết thêm thì split view cập nhật theo thời gian thực,
-không phải đợi xong rồi bấm Open.
+Bật/tắt **theo từng session** bằng chip "Follow" trên thanh của ô nhập (lưu ở
+`stores/agentPins.following`, mặc định tắt). Không tự mở document hay split
+group: mỗi thay đổi tự mở một group mới sẽ phá layout (nguyên tắc #3 của
+`cross-module.mdx`), nên mọi thứ nằm ở một chỗ cố định.
 
-**Vì sao tách riêng, chưa đưa vào thiết kế chính:**
-
-- `Intent` hiện tại là điều hướng **1 lần** (`dispatchIntent` gọi xong là
-  hết), không phải subscription sống — cần một cơ chế khác (vd module đích
-  tự re-fetch khi biết dữ liệu vừa đổi), chưa có sẵn trong repo.
-- **Tự động mở dễ đi ngược nguyên tắc #3 của `cross-module.mdx`** ("ở lại
-  module đang đứng khi có thể"): agent làm nhiều việc liên tiếp trong 1 turn
-  có thể liên tục bật split view mới, phá layout người dùng đang xem.
-- **Chỉ hợp với tool có 1 đích rõ ràng** (1 note, 1 file) — tool đổi nhiều
-  thứ cùng lúc (vd `git.commit` đổi nhiều file) không rõ nên mở cái nào.
-
-Câu hỏi còn mở: tự động mở hay phải người dùng bật "theo dõi" trước; module
-đích cần gì để biết "re-render ngay vì agent vừa sửa" (so sánh với cơ chế
-re-index-on-save của Code Graph — có tái dùng được không). **Chưa thiết kế —
-cần thảo luận thêm trước khi build.**
+- **Trong Agent Hub**: pane phải của chính module (`openPanel`, chỗ mà Agent
+  panel đã nhường) hiện `AgentActivityPanel` (`modules/agenthub/follow.tsx`):
+  feed các thay đổi của session, mới nhất trên cùng — card đang chạy, card kết
+  quả, và lệnh terminal chạy lâu — rồi bên dưới là **bản xem trực tiếp** của
+  đối tượng mới nhất mà module sở hữu vẽ được. Module khai báo bản xem bằng
+  `registerEntityPreview(module, kind, render)` (`workbench/toolActivity.ts`);
+  hiện có `tasks:task` (chính `TaskDetail` layout panel, tự cập nhật theo
+  `tasks:changed`). Không có bản xem thì giữ card + Open. Panel tự đọc
+  transcript từ store nên chỉ nhận một element mỗi session, không phải mỗi
+  token. Chỉ tab đang hiện điều khiển pane: đổi tab là đổi session theo dõi,
+  hoặc đóng nếu session đó không được theo dõi. Đóng pane = thôi theo dõi.
+- **Ngoài Agent Hub** (Agent panel): không có pane để lấp, mỗi thay đổi xong là
+  một toast kèm Open. Chỉ những thay đổi xong từ lúc bật — lịch sử không bắn
+  lại thành loạt toast.
 
 ## Cách thể hiện trên UI
 

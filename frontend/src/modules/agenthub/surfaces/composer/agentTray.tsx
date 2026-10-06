@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bot, Boxes, Folder, GitBranch, ListTodo, MessageCircleQuestion, ShieldAlert, Terminal } from "lucide-react";
+import { Bot, Boxes, Eye, Folder, GitBranch, ListTodo, MessageCircleQuestion, ShieldAlert, Terminal } from "lucide-react";
 
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { dispatchIntent } from "@/workbench/intents";
@@ -12,6 +12,7 @@ import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
 import { SLOW_COMMAND_MS, commandText, formatElapsed, isRunningCommand, useElapsed } from "../../transcript/AgentRunningCommand";
 import { repoBranch, useTrayStatus, type TrayStatus, type TrayTask } from "./useTrayStatus";
+import { useFollowing } from "../../follow";
 
 export type AgentTrayInput = {
   size: "wide" | "rail";
@@ -70,6 +71,7 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
   const commandsFor = useElapsed(commands[0]?.createdAt, commands.length > 0);
   const slowCommands = commands.length > 0 && commandsFor >= SLOW_COMMAND_MS;
   const [opened, setOpened] = React.useState<Opened>(null);
+  const [following, toggleFollowing] = useFollowing(session?.id);
   const [folded, setFolded] = React.useState<ReadonlySet<string>>(() => new Set());
 
   const fold = (id: string) => setFolded((prev) => new Set(prev).add(id));
@@ -221,6 +223,20 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
           title={`${running} subagent${running === 1 ? "" : "s"} running`}
           active={panel?.key === "subagents"}
           onClick={() => toggle("subagents")}
+        />
+      ) : null}
+      {/* Follow: what this agent changes in DevKit shows as it happens — the
+          activity panel in Agent Hub, a toast anywhere else (follow.tsx). A
+          session that does not exist yet (a draft) has nothing to follow. */}
+      {session ? (
+        <TrayChip
+          key="follow"
+          testId="tray-follow"
+          icon={<Eye />}
+          label={following ? "Following" : "Follow"}
+          title={following ? "Stop following this agent" : "Follow what this agent changes in DevKit as it happens"}
+          active={following}
+          onClick={toggleFollowing}
         />
       ) : null}
       {/* Waiting and not on screen — folded away, or behind something else. */}
