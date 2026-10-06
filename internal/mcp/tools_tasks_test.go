@@ -176,4 +176,38 @@ func TestTasksWorkspaceScopedAccessMCP(t *testing.T) {
 	if !ok || len(boardsTerminal) != 2 {
 		t.Fatalf("terminal should see both boards, got %d boards", len(boardsTerminal))
 	}
+
+	// Test 5: the agent makes a board. It is asked for as tasks:write, not
+	// admin; it lands in the agent's own workspace, carries no verify command,
+	// and the agent sees it next to board A — and still not board B.
+	_, vCreated, err := srv.toolTasksBoardCreate(ctx, &sdk.CallToolRequest{}, tasksBoardCreateInput{
+		Name: "Agent board", KeyPrefix: "ag",
+		Statuses: []tasksBoardStatusInput{
+			{Name: "Todo", Category: "open"}, {Name: "Doing", Category: "active"}, {Name: "Done", Category: "terminal"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("tasks.board.create: %v", err)
+	}
+	if caller.last.capability != "tasks:write" || caller.last.scope != "board:new" {
+		t.Fatalf("board create asked for %s %s, want tasks:write board:new", caller.last.capability, caller.last.scope)
+	}
+	created, ok := unwrap(vCreated).(tasks.Board)
+	if !ok || created.WorkspaceID != wsA.ID || created.Verify != nil || created.Workflow.Statuses[1].ID != "doing" {
+		t.Fatalf("created board = %#v", unwrap(vCreated))
+	}
+	_, vAfter, err := srv.toolTasksBoardList(ctx, &sdk.CallToolRequest{}, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boards, _ := unwrap(vAfter).([]tasks.Board); len(boards) != 2 {
+		t.Fatalf("agent should see board A and its own board, got %#v", boards)
+	}
+
+	// Test 6: nor can it put one in workspace B.
+	if _, _, err := srv.toolTasksBoardCreate(ctx, &sdk.CallToolRequest{}, tasksBoardCreateInput{
+		Name: "Sneaky", KeyPrefix: "sn", WorkspaceID: wsB.ID,
+	}); !errors.Is(err, tasks.ErrNotFound) {
+		t.Fatalf("board in another workspace: err = %v, want tasks.ErrNotFound", err)
+	}
 }

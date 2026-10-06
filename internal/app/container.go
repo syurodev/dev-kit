@@ -379,6 +379,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.tasks", Capability: "tasks:read", Scope: "task:*"},
 		{SubjectID: "builtin.tasks", Capability: "tasks:write", Scope: "task:new"},
 		{SubjectID: "builtin.tasks", Capability: "tasks:write", Scope: "task:*"},
+		// An agent may make a board (tasks.board.create): no verify command,
+		// bound only into its own session's workspace. Changing one is admin.
+		{SubjectID: "builtin.tasks", Capability: "tasks:write", Scope: "board:new"},
 		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "board:new"},
 		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "board:*"},
 		{SubjectID: "builtin.tasks", Capability: "tasks:admin", Scope: "task:*"},

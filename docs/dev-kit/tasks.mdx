@@ -116,7 +116,7 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-14 | Tạo hàng loạt task từ một plan **đã được người duyệt** (`tasks.createFromPlan`) — mỗi plan node thành một task, link sẵn. |
 | FR-15 | Board view kiểu kanban: cột theo status, kéo-thả card giữa cột; task detail mở trong panel hoặc tab riêng. Comment `kind=system` **tách** sang tab *Activity* riêng, không trộn vào dòng hội thoại người/agent. |
 | FR-15b | **Subtask có UI riêng**: task detail hiện checklist các task con (`key`, title, status), thêm task con ngay tại chỗ, bỏ liên kết ngay tại chỗ. Card ở board hiện bộ đếm `2/5` khi task có con. Gán cha bằng kéo-thả một card lên một card khác. Vẫn **một cấp**, vẫn `parent_id`, vẫn `tasks.create` — không đổi data model, không thêm tool. |
-| FR-16 | Xoá task (`tasks:admin`) và mọi thao tác trên board/workflow là **UI-only**, không expose MCP. Task không dùng nữa thì **archive**, không xoá. |
+| FR-16 | Xoá task (`tasks:admin`) và mọi thao tác **sửa/xoá/gắn** board/workflow là **UI-only**, không expose MCP. Task không dùng nữa thì **archive**, không xoá. Ngoại lệ duy nhất: agent được **tạo** board (`tasks.board.create`, `tasks:write` / `board:new`) — board mới không có `verify` (cổng đóng là xác nhận của người mỗi lần) và chỉ gắn vào một workspace của chính session, nên không nới được phạm vi lẫn cổng của agent. |
 | FR-17 | **Branch cho task**: tạo/checkout một branch đặt tên từ `key` (mẫu khai ở board, mặc định `<key>-<slug(title)>`). Là **hành động tường minh trong UI**; `tasks.claim` không bao giờ đụng vào work tree — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
 | FR-17b | Branch mà agent tạo được **ghi vào task** (`task.branch`) ngay bằng `tasks.setFields`: `git.branch.create` trả tên branch, agent ghi lại. Đây là chỗ duy nhất DevKit nhớ "branch này thuộc việc này", và là thứ [Git NFR-4](/dev-kit/git) dựa vào để biết agent được push lên branch nào sau khi phiên đã restart. |
 | FR-18 | **Commit mang `key`**: khi phiên agent đang giữ một task, `git.commitTurn` seed thêm trailer `Task: <key>` vào message. Git ghi, Tasks không ghi gì. |
@@ -491,7 +491,8 @@ Ba capability tách theo bản chất hành động, cùng lý do đã áp cho
 
 - **`tasks:read`** — đọc board/task/comment.
 - **`tasks:write`** — mọi thay đổi trên **task** (tạo, sửa, transition, claim,
-  comment, archive). Đây là capability duy nhất agent cần.
+  comment, archive), và **tạo** board (`board:new`) với workflow nhưng không
+  có `verify`. Đây là capability duy nhất agent cần.
 - **`tasks:admin`** — thay đổi **cấu trúc** (board, workflow) và hard delete.
   Tách riêng để có thể cấp `tasks:read` + `tasks:write` cho agent mà không bao
   giờ cấp `tasks:admin`.
@@ -509,6 +510,7 @@ Xem cơ chế chung + rationale ở [MCP / Agent](/dev-kit/mcp-agent).
 | `tasks.list` | `read` | `builtin.tasks` / `tasks:read` / `task:list` | Summary, filter theo status/assignee/label; không kèm `description` |
 | `tasks.search` | `read` | `builtin.tasks` / `tasks:read` / `task:search` | |
 | `tasks.get` | `read` | `builtin.tasks` / `tasks:read` / `task:<id>` | Kèm `description`, comment và `history` — đây là nguồn ngữ cảnh agent đọc khi mở phiên mới |
+| `tasks.board.create` | `execute` | `builtin.tasks` / `tasks:write` / `board:new` | Không có `verify`; gắn vào workspace của session (mặc định workspace đầu tiên), workspace ngoài phạm vi → `tasks.notFound` |
 | `tasks.create` | `execute` | `builtin.tasks` / `tasks:write` / `task:new` | |
 | `tasks.update` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | title + description |
 | `tasks.setFields` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | priority/labels/assignee/parent/blocked_by/**branch** (FR-17b) |

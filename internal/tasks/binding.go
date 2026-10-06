@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // Boards and workspaces live on opposite sides of the sync boundary.
@@ -191,6 +193,117 @@ func (s *Service) BindBoard(boardID, workspaceID string) (Board, error) {
 	s.changed(boardID, "")
 	board.WorkspaceID = workspaceID
 	return board, nil
+}
+
+// CreateBoardInput is a board an agent (or a terminal MCP client) may make.
+// There is no Verify, BranchTemplate or ProjectPath field on purpose: those
+// are the rules that bind the agent, and they stay tasks:admin and UI-only.
+type CreateBoardInput struct {
+	Name      string
+	KeyPrefix string
+	Color     string
+	// Workflow may leave status ids empty: they are made from the names. Empty
+	// workflow is the default one.
+	Workflow Workflow
+	// WorkspaceID binds the new board on this machine. For an agent it must be
+	// one of its session's workspaces, and empty means the first of them.
+	WorkspaceID string
+}
+
+// CreateBoardFor makes a board for a caller that is not the board UI.
+//
+// What makes this safe to hand an agent, when UpdateBoard and BindBoard are
+// not: a new board has no verify command, so its close gate is a person's
+// confirmation every time (gate.go) — the agent cannot write its own pass
+// mark. And it is bound only into a workspace the session already belongs to,
+// so it lands where the agent can already see, never somewhere it could not.
+// Changing a board's workflow or gate afterwards stays tasks:admin.
+func (s *Service) CreateBoardFor(caller Caller, in CreateBoardInput) (Board, error) {
+	workspaceID := in.WorkspaceID
+	if s.scoped(caller) {
+		if workspaceID == "" {
+			if ids := s.scope.SessionWorkspaces(caller.SessionID); len(ids) > 0 {
+				workspaceID = ids[0]
+			}
+		}
+		// A session outside every workspace has nowhere to put a board it
+		// could see again: an unbound board is visible to no agent.
+		if workspaceID == "" {
+			return Board{}, ErrBoardUnbound
+		}
+		if !s.inScope(caller, workspaceID) {
+			return Board{}, ErrNotFound
+		}
+	} else if workspaceID != "" && s.scope != nil && !s.scope.Exists(workspaceID) {
+		return Board{}, ErrInvalid
+	}
+	if workspaceID != "" && s.binds == nil {
+		return Board{}, ErrInvalid
+	}
+
+	board, err := s.CreateBoard(in.Name, in.KeyPrefix, in.Color, withStatusIDs(in.Workflow))
+	if err != nil {
+		return Board{}, err
+	}
+	if workspaceID == "" {
+		return board, nil
+	}
+	if err := s.binds.Bind(board.ID, workspaceID); err != nil {
+		// A board the agent cannot see is worse than none: take it back.
+		_ = s.items.Delete(board.ID)
+		s.changed(board.ID, "")
+		return Board{}, err
+	}
+	s.changed(board.ID, "")
+	board.WorkspaceID = workspaceID
+	return board, nil
+}
+
+// withStatusIDs gives every status without an id one made from its name —
+// "In review" is "in_review" — unique within the workflow.
+func withStatusIDs(w Workflow) Workflow {
+	if len(w.Statuses) == 0 {
+		return w
+	}
+	seen := map[string]bool{}
+	for _, status := range w.Statuses {
+		if status.ID != "" {
+			seen[status.ID] = true
+		}
+	}
+	out := Workflow{Statuses: make([]Status, len(w.Statuses))}
+	for i, status := range w.Statuses {
+		if status.ID == "" {
+			base := statusSlug(status.Name)
+			id := base
+			for n := 2; seen[id]; n++ {
+				id = fmt.Sprintf("%s_%d", base, n)
+			}
+			status.ID = id
+			seen[id] = true
+		}
+		out.Statuses[i] = status
+	}
+	return out
+}
+
+func statusSlug(name string) string {
+	var b strings.Builder
+	underscore := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			underscore = false
+		} else if b.Len() > 0 && !underscore {
+			b.WriteByte('_')
+			underscore = true
+		}
+	}
+	slug := strings.TrimSuffix(b.String(), "_")
+	if slug == "" {
+		return "status"
+	}
+	return slug
 }
 
 // UnbindBoard returns a board to the unbound group on this machine. Its tasks
