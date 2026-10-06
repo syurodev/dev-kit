@@ -24,6 +24,7 @@ import {
   deleteRequest,
   duplicateEnvironment,
   getRequest,
+  onApiClientChanged,
   saveCollection,
   saveRequest,
   type ApiCollection,
@@ -137,6 +138,21 @@ export function ApiClientSidebar() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Follows writes made elsewhere — an agent creating a collection, a request
+  // or an environment over MCP. A burst (an agent building a whole collection,
+  // or this window's own save) costs one refresh, not one per write.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = onApiClientChanged(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 150);
+    });
+    return () => {
+      clearTimeout(timer);
+      off();
+    };
   }, [refresh]);
 
   useEffect(() => {

@@ -86,7 +86,7 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 | FR-9 | Collection + request người dùng lưu là `vault_items`, sync được; sắp xếp thành folder. |
 | FR-10 | History các lần gửi (request đã resolve biến, response đã cắt) lưu **local**, không sync; secret đã resolve bị **che** trong history. |
 | FR-11 | Response có hành động liên module: *Attach to agent* (gửi request + response dạng ref vào composer), *Add to task* (comment vào task đang link), *Save as example*. |
-| FR-12 | Agent gọi được qua MCP: `api.listRequests`, `api.getRequest`, `api.send`, `api.sendAdhoc`, `api.fromEndpoint`. `api.send` luôn đi qua gate env (FR-5). |
+| FR-12 | Agent gọi được qua MCP: `api.listRequests`, `api.getRequest`, `api.send`, `api.sendAdhoc`, `api.fromEndpoint`, và dựng collection/request/environment (`api.create*`/`api.update*`/`api.saveRequest`/`api.delete*`, luôn hỏi người dùng — xem MCP tool surface). `api.send` luôn đi qua gate env (FR-5). |
 | FR-13 | Copy / import **cURL**. |
 | FR-14 | **Auth là binding tới một account**, không phải một chuỗi dán vào request: request lưu `account_id`, `apiclient.Service` gọi `accounts.Resolve` ngay trước khi gửi và dựng header (Bearer / Basic / API key) trong Go. Giá trị không bao giờ nằm trong request đã lưu, trong export cURL, hay qua bridge. Vẫn cho phép header tự do cho trường hợp lạ. |
 | FR-15 | **Chọn account sẵn theo host**: account đã verify có `Provider.Hosts` khớp host của URL (hoặc account dùng lần cuối cho env đó) được chọn mặc định. Không có account phù hợp / account hết hạn ⇒ peek `accounts.pick` ngay trong tab request, không chuyển module. |
@@ -218,10 +218,39 @@ History **không** là vault item: bảng `api_history` trong SQLite local
 | `api.fromEndpoint` | `api:read` | nhận ref endpoint Code Graph, trả nháp |
 | `api.send` | `api:send` | request đã lưu + `environmentId`; gate env |
 | `api.sendAdhoc` | `api:send` | request tự do; bắt buộc `environmentId` để gate có env mà đọc |
+| `api.listCollections` | `api:read` | collection + folder, biến thường; secret chỉ ra tên |
+| `api.createCollection` | `api:write` | hỏi người dùng, cho phép "luôn cho phép" trong phiên |
+| `api.updateCollection` | `api:write` | đổi tên: hỏi một lần/phiên; di chuyển hoặc sửa biến: **hỏi mỗi lần** |
+| `api.deleteCollection` | `api:write` | chỉ folder rỗng; **hỏi mỗi lần** |
+| `api.saveRequest` | `api:write` | tạo/thay request; mang credential ⇒ **hỏi mỗi lần**, không thì một lần/phiên |
+| `api.deleteRequest` | `api:write` | **hỏi mỗi lần** |
+| `api.createEnvironment` | `api:write` | **hỏi mỗi lần**, prompt nói tag có hỏi trước khi gửi hay không |
+| `api.updateEnvironment` | `api:write` | **hỏi mỗi lần** (đổi tên, đổi tag, sửa biến) |
 
-Không expose MCP cho sửa/xoá environment — thứ đó quyết định agent được bắn
-vào đâu. Tương tự, agent **chọn** account bằng `accountId` nhưng không đọc được
-giá trị: `api.getRequest` trả `account_id` và nhãn, không trả credential.
+**Agent dựng được nội dung module, nhưng mọi lần ghi đều qua người dùng**
+(`confirmAPIWrite`, kind `api`, nằm *sau* kiểm tra capability). Ghi nào quyết định
+credential đi đâu thì hỏi **mỗi lần**, không có "luôn cho phép":
+
+- **Environment** — nó đặt host và, qua tag, quyết định gửi có hỏi trước hay không.
+  Agent ghi được environment mà không ai hỏi thì tự trỏ được vào production.
+- **Request mang credential** (`Service.Carries`): account đã bind, biến secret mà
+  request dùng dưới *bất kỳ* environment nào, hoặc giá trị gõ thẳng vào dòng có tên
+  kiểu credential. `api.send` bắn request đã lưu theo luật của tag mà thôi (không có
+  kiểm tra Adhoc), nên lưu một request như vậy chính là chọn host cho credential.
+- **Biến hoặc parent của collection** — mọi request bên trong đọc chúng.
+- **Xoá** — vault item không có undo.
+
+Biến được sửa theo kiểu `setVars`/`removeVars`/`setSecrets`/`removeSecrets`: cái không
+nêu tên thì giữ nguyên (`VarsUpdate` thay cả tầng, đúng cho editor đang giữ hết, sai cho
+agent chỉ nêu một biến). Request agent đọc bằng `api.getRequest` có dòng bị che
+(`Masked`); gửi lại nguyên thì `Service.RestoreMasked` giữ giá trị đã lưu cùng tên, còn
+giá trị bị che mà không có gì để giữ (request mới, dòng đổi tên) thì bị từ chối. Một id
+không phải request (vd. id environment) bị từ chối trước khi ghi. Xoá environment và
+sửa Globals vẫn chỉ trong UI. Agent **chọn** account bằng `accountId` nhưng không đọc
+được giá trị: `api.getRequest` trả `account_id` và nhãn, không trả credential.
+
+Mọi lần ghi (của người hay agent) bắn `apiclient:changed` (`Service.OnChanged`, bọc
+item store nên không bỏ sót method nào), sidebar tự refresh.
 
 ### Phụ thuộc: analyzer phải hiểu tham số của handler
 

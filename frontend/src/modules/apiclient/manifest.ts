@@ -98,11 +98,17 @@ registerToolResultView("api.fromEndpoint", ({ rawInput, rawOutput }) => {
  * `api.reveal` (docs/dev-kit/cross-module.mdx): open one saved request from
  * anywhere — a ToolResultView card for `api.send` — without the caller
  * importing this module's documents helper. `kind: "request"` matches
- * internal/agenthub/attachedref.go's own ref kind for a saved request.
+ * internal/agenthub/attachedref.go's own ref kind for a saved request. An
+ * environment or a collection an agent made opens in its variables editor.
  */
 registerIntent(
   "api.reveal",
   async (ref, { placement }) => {
+    if (ref.kind === "environment" || ref.kind === "collection") {
+      const { openVariables } = await import("./documents");
+      openVariables(ref.kind, ref.id, ref.label || ref.id);
+      return;
+    }
     if (ref.kind !== "request") return;
     const { openRequest } = await import("./documents");
     openRequest(ref.id, ref.label || ref.id, { beside: placement === "beside" });

@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge, callBridgeCancellable, type CancellableCall } from "./client";
 
@@ -417,4 +418,17 @@ export function clearRequestHistory(requestId: string): Promise<void> {
   return callBridge(async () => {
     await AppService.ApiClearHistory(requestId);
   });
+}
+
+export const API_CLIENT_CHANGED_EVENT = "apiclient:changed";
+
+/**
+ * Fires after any write to a request, collection, environment or the globals
+ * — an agent building a collection over MCP, a person in another window — so
+ * the sidebar refreshes without being asked. Carries nothing: a refresh is one
+ * list call per kind, cheaper than describing what changed. Returns an
+ * unsubscribe function.
+ */
+export function onApiClientChanged(cb: () => void): () => void {
+  return Events.On(API_CLIENT_CHANGED_EVENT, () => cb());
 }

@@ -60,6 +60,10 @@ the same actions.
   are the user's saved profiles, with their credentials inside DevKit. Do not
   reach them with psql, ssh, curl or a client library and a credential. Use
   explicit profile ids; the active profile is context, not the user's intent.
+  To keep a request for later, save it in the API client
+  ({{api.createCollection}}, {{api.saveRequest}}, {{api.createEnvironment}})
+  with variables for what differs per environment, rather than writing
+  a curl script; the user is asked before each save lands.
 - **Work from the task board.** When the user refers to a task, ticket or
   "the next thing", find it ({{tasks.search}}, {{tasks.get}}) rather than
   asking. To take one: {{tasks.claim}}, {{git.branch.create}}, then record
