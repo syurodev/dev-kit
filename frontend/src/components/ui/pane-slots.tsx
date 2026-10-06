@@ -43,6 +43,7 @@ import { startPaneDrag } from "@/workbench/slots/paneDrag";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 import type { LayoutPressure } from "@/workbench/panelLayout";
 import { TerminalTabs, TerminalWorkspace } from "@/workbench/TerminalWorkspace";
+import { AgentPaneTabs } from "@/workbench/AgentPaneTabs";
 import { getModule } from "@/modules/registry";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { placementFor, usePaneSlotsStore } from "@/stores/paneSlots";
@@ -618,6 +619,8 @@ function PaneHeader({
           strip. The empty stretch of the strip still drags the pane. */}
       {pane === "terminal" ? (
         <TerminalTabs showModule={terminalHasModule} />
+      ) : pane === "agent" ? (
+        <AgentPaneTabs />
       ) : (
         <span className="min-w-0 flex-1 truncate text-label-12">{title}</span>
       )}

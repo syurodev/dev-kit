@@ -29,8 +29,10 @@ const BASELINE: Record<string, number> = {
   // that owns the UI shell for it.
   "agenthub -> settings": 2,
   // CodeGraph plan comments resolve an agenthub session reference to jump to
-  // its transcript.
-  "codegraph -> agenthub": 1,
+  // its transcript; "Ask agent" shows the session it wrote into the way every
+  // other caller does (agenthub/documents.ts showAgentSession: its tab in
+  // Agent Hub, the Agent panel elsewhere).
+  "codegraph -> agenthub": 2,
   // CodeGraph plan nodes show the git change that produced them; git's own
   // diff renderer is reused rather than copied.
   "codegraph -> git": 1,

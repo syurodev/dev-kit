@@ -9,6 +9,25 @@ useWorkbenchTabsStore.persist.setOptions({
   storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
 });
 
+/** Agent Hub on screen with a session's tab focused — what "the hub shows it" means now. */
+function showHubSession(sessionId: string) {
+  const id = `agenthub:agenthub.sessions:sessionId=${sessionId}`;
+  useWorkbenchTabsStore.setState((state) => ({
+    activeModuleId: "agenthub",
+    groups: [],
+    modules: {
+      ...state.modules,
+      agenthub: {
+        openTabs: [
+          { id, moduleId: "agenthub", viewId: "agenthub.sessions", title: sessionId, params: { sessionId } },
+        ],
+        activeTabId: id,
+        tabMru: [id],
+      },
+    },
+  }));
+}
+
 describe("Phase 4 Shell Integration", () => {
   beforeEach(() => {
     useWorkbenchTabsStore.setState({
@@ -138,6 +157,7 @@ describe("Phase 4 Shell Integration", () => {
     });
 
     it("stays away when the module is showing the session that is asking", () => {
+      showHubSession("sess-1");
       useAgentSessionsStore.setState({
         chatOpen: false,
         activeSessionId: "sess-1",
@@ -229,6 +249,7 @@ describe("Phase 4 Shell Integration", () => {
     });
 
     it("leaves a question to the inline card when its session is on screen, but floats another session's", () => {
+      showHubSession("sess-1");
       useAgentSessionsStore.setState({ activeSessionId: "sess-1", elicitationQueue: [question("q-here", "sess-1")] });
       expect(renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />)).toBe("");
 
@@ -239,7 +260,31 @@ describe("Phase 4 Shell Integration", () => {
       expect(html).toContain('data-testid="agent-question-toast"');
     });
 
+    it("floats over Agent Hub when its tab on screen is another session, whatever the panel follows", () => {
+      showHubSession("sess-2");
+      useAgentSessionsStore.setState({
+        chatOpen: true,
+        activeSessionId: "sess-1",
+        pending: {
+          id: "perm-hub-other",
+          sessionId: "sess-1",
+          caller: "agent:claude",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          title: "Root Agent",
+          depth: 0,
+          params: {},
+        },
+      });
+
+      // The Agent panel is not shown in Agent Hub, so it cannot be asking.
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
+      expect(html).toContain('data-testid="agent-permission-toast"');
+    });
+
     it("hides toast when rail is already open and displaying that session", () => {
+      // The panel shows a session that has a tab (one of Agent Hub's).
+      showHubSession("sess-1");
       useAgentSessionsStore.setState({
         chatOpen: true,
         activeSessionId: "sess-1",
@@ -255,7 +300,7 @@ describe("Phase 4 Shell Integration", () => {
         },
       });
 
-      const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="notes" />);
       expect(html).toBe("");
     });
   });

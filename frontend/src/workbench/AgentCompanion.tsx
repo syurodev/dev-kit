@@ -20,6 +20,7 @@ import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
+import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -35,7 +36,8 @@ import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQ
 export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((s) => s.activeSessionId);
-  const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
+  // The panel's tabs are Agent Hub's (AgentPaneTabs, in the pane header).
+  const tabIds = useAgentPaneSessionIds();
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
@@ -58,7 +60,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const pendingAgentAttach = useAgentSessionsStore((s) => s.pendingAgentAttach);
   const consumeAgentAttach = useAgentSessionsStore((s) => s.consumeAgentAttach);
 
-  const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+  const shownId = agentPaneSessionId(tabIds, activeSessionId);
+  const session = sessions.find((s) => s.id === shownId) ?? null;
   const elicitationQueue = useAgentSessionsStore((s) => s.elicitationQueue);
   const question = elicitationForSession(elicitationQueue, session?.id);
   const {
@@ -207,9 +210,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   return (
     <AgentRail
-      sessions={sessions}
       activeSession={session}
-      onSelectSession={(id) => setActiveSessionId(id)}
       items={transcriptModel.items}
       hasMore={transcriptModel.hasMore}
       loadingOlder={transcriptModel.loadingOlder}

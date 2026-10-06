@@ -30,6 +30,7 @@ import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } f
 import { isNoPlanError, isProjectChangedError, isUnsupportedProjectError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { showAgentSession } from "@/modules/agenthub/documents";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import type { Placement } from "@/workbench/intents";
 import {
@@ -749,6 +750,10 @@ export function askAgent(text: string) {
   if (id) {
     const draft = agents.promptBySession[id] ?? "";
     agents.setPrompt(id, draft ? `${draft}\n\n${text}` : text);
+    // The session the text went to, as one of the panel's tabs — not the
+    // first tab, which is what the panel shows when this one has none.
+    showAgentSession(id);
+    return;
   }
   agents.setChatOpen(true);
 }

@@ -701,7 +701,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
     it("paints nothing itself — panel-surface behind it is the ground", () => {
       const html = renderToString(
-        <AgentRail sessions={[railSession]} activeSession={railSession} {...railProps} />,
+        <AgentRail activeSession={railSession} {...railProps} />,
       );
       // The root only — transcript cards inside legitimately take their own
       // ground. A fill *here* would be a second opaque layer on an opaque one.
@@ -717,7 +717,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // this agent may touch. The header used to show a colour-coded status
       // pill, a third status vocabulary beside AgentState.
       const html = renderToString(
-        <AgentRail sessions={[railSession]} activeSession={railSession} {...railProps} />,
+        <AgentRail activeSession={railSession} {...railProps} />,
       );
       expect(html).toContain("depth 0 ·");
       expect(html).toContain('data-slot="agent-state"');
@@ -725,9 +725,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
     it("says what is missing and how to fix it when empty", () => {
       const html = renderToString(
-        <AgentRail sessions={[]} activeSession={null} {...railProps} />,
+        <AgentRail activeSession={null} {...railProps} />,
       );
-      expect(html).toContain("No agents running");
+      expect(html).toContain("No session open");
       expect(html).toContain("it needs a vendor and a working");
     });
   });
@@ -1484,7 +1484,6 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     it("renders Conversation state with rail composer and inline permission when pending", () => {
       const html = renderToString(
         <AgentRail
-          sessions={[mockSession]}
           activeSession={mockSession}
           promptValue="Inspect database"
           onPromptChange={() => {}}
@@ -2036,7 +2035,6 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
       const rail = renderToString(
         <AgentRail
-          sessions={[session]}
           activeSession={session}
           promptValue=""
           onPromptChange={() => {}}

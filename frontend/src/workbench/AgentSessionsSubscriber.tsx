@@ -16,6 +16,7 @@ import {
 } from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthub/transcript";
+import { agentSessionOnScreen, showAgentSession, syncAgentSessionTabTitles } from "../modules/agenthub/documents";
 import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
@@ -27,10 +28,9 @@ import {
   type TurnBridge,
 } from "./agentPromptQueue";
 
-/** Someone is looking at this session: the hub open on it, or the companion. */
+/** Someone is looking at this session: its tab in Agent Hub, or the Agent panel. */
 function sessionVisible(sessionId: string): boolean {
-  const { activeSessionId, chatOpen } = useAgentSessionsStore.getState();
-  return activeSessionId === sessionId && (useWorkbenchTabsStore.getState().activeModuleId === "agenthub" || chatOpen);
+  return agentSessionOnScreen(sessionId);
 }
 
 /** The live region's line for a status a turn passes through; its end is turnFinishedAnnouncement's. */
@@ -139,6 +139,15 @@ export function AgentSessionsSubscriber() {
     if (line && sessionVisible(activeSessionId)) setAnnouncement(line);
   }, [activeSessionId, activeStatus]);
 
+  // A session's tabs carry its title: a rename, or the title the agent gives
+  // it after the first turn, retitles them wherever they are.
+  useEffect(() => {
+    syncAgentSessionTabTitles(useAgentSessionsStore.getState().sessionsById);
+    return useAgentSessionsStore.subscribe((state, previous) => {
+      if (state.sessionsById !== previous.sessionsById) syncAgentSessionTabTitles(state.sessionsById);
+    });
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     agentHubListAgents()
@@ -149,7 +158,9 @@ export function AgentSessionsSubscriber() {
       })
       .catch(() => {
         // No sessions yet, or the hub is unavailable — sidebar just shows
-        // no Agent Hub badge, same as an empty session list.
+        // no Agent Hub badge, same as an empty session list. Loaded all the
+        // same: a tab waiting on the list would otherwise wait for ever.
+        if (mounted) useAgentSessionsStore.setState({ sessionsLoaded: true });
       });
     agentHubPendingPermissions()
       .then((list) => {
@@ -258,8 +269,7 @@ export function AgentSessionsSubscriber() {
             // window so the user can see the remaining Agent Hub state.
           }
         }
-        state.setActiveSessionId(sessionId);
-        state.setChatOpen(true);
+        showAgentSession(sessionId);
         await Window.Show().catch(() => {});
         await Window.Focus().catch(() => {});
       })();

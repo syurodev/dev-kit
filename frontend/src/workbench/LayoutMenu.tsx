@@ -13,6 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { modKey } from "@/lib/shortcut";
+import { agentPanelAllowed } from "./AgentCompanionSlot";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { placementFor, usePaneSlotsStore } from "@/stores/paneSlots";
@@ -36,7 +37,9 @@ const presetShortcut = (key: string) => (modKey() === "⌘" ? `⌃⇧${key}` : `
  */
 export function LayoutMenu({ moduleId }: { moduleId: string | null }) {
   const { panels } = useSplitPanel();
-  const agentOpen = useAgentSessionsStore((s) => s.chatOpen);
+  // What is on screen: the Agent panel is never shown in Agent Hub, whatever
+  // chatOpen says, so a layout saved there does not record it.
+  const agentOpen = useAgentSessionsStore((s) => s.chatOpen) && agentPanelAllowed(moduleId);
   const setAgentOpen = useAgentSessionsStore((s) => s.setChatOpen);
   const terminalOpen = useBottomSlotStore((s) => s.open);
   const setTerminalOpen = useBottomSlotStore((s) => s.setOpen);

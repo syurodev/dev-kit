@@ -13,7 +13,6 @@ export * from "./AgentPermissionToast";
 export * from "./AgentQuestionCard";
 export * from "./AgentQuestionToast";
 export * from "./AgentDockBadge";
-export * from "./AgentSwarmStrip";
 export * from "./AgentMetaInspector";
 export * from "./VendorIcon";
 export * from "./permissionCard";

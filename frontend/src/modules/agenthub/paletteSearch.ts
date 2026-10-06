@@ -60,9 +60,9 @@ export function buildGroups(
  */
 export async function searchPalette(query: string, signal: AbortSignal): Promise<PaletteSearchGroup[]> {
   try {
-    const [{ useAgentSessionsStore }, { showModuleHome }] = await Promise.all([
+    const [{ useAgentSessionsStore }, { openAgentSession }] = await Promise.all([
       import("@/stores/agentSessions"),
-      import("@/workbench/showModule"),
+      import("./documents"),
     ]);
     if (signal.aborted) return [];
 
@@ -71,8 +71,7 @@ export async function searchPalette(query: string, signal: AbortSignal): Promise
 
     return buildGroups(query, sessions, {
       openSession: (session) => {
-        showModuleHome("agenthub");
-        useAgentSessionsStore.getState().setActiveSessionId(session.id);
+        openAgentSession(session);
       },
     });
   } catch {

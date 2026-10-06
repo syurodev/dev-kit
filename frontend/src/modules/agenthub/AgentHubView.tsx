@@ -23,10 +23,8 @@ import {
   agentHubNewScratchDirectory,
   agentHubScratchRoot,
   agentHubChooseFiles,
-  agentHubCloseSession,
   agentHubRenameSession,
   agentHubCreateSession,
-  agentHubDeleteSession,
   agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubListContextFiles,
@@ -41,11 +39,8 @@ import {
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
 import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { copyText } from "../../bridge/clipboard";
-import { toAppError } from "../../bridge/errors";
-import { useAgentHubSidebar } from "./useAgentHubSidebar";
-import { forgetAgentTranscript, loadWholeTranscript, useAgentTranscript } from "./transcript";
-import { transcriptToMarkdown } from "./exportMarkdown";
-import { groupTurns } from "./turns";
+import { errorMessage, toAppError } from "../../bridge/errors";
+import { useAgentTranscript } from "./transcript";
 import { toast } from "sonner";
 import { pendingForSession, useResolvePermission } from "./permissions";
 import { elicitationForSession, useRespondElicitation } from "./elicitations";
@@ -53,7 +48,6 @@ import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
 import { GettingStarted } from "@/workbench/GettingStarted";
-import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { rateLimitFailure } from "./surfaces/AgentContextMeter";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -66,16 +60,8 @@ import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "./imageAttachments";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAgentSession, useAgentDraftRequests } from "./documents";
 
 // Until the backend answers: the agents DevKit ships. The mock adapter is a
 // test double and is not offered.
@@ -217,18 +203,24 @@ export function createFailure(vendor: string, error: unknown) {
   };
 }
 
-export function AgentHubView() {
+/**
+ * One Agent Hub tab: the session `params.sessionId` names, or — with no id —
+ * the module's home tab, where a new session is drafted (documents.ts). Every
+ * tab is its own instance, so what a view does for the whole module (commands,
+ * ⌘N, an attach) it does only while it is the one on screen.
+ */
+export function AgentHubView({ params }: { params?: Record<string, unknown> } = {}) {
+  const tabSessionId = typeof params?.sessionId === "string" ? params.sessionId : "";
   // Where the app is working, for a new draft to start in.
   const { folder: workFolder } = useModuleFolder("agenthub");
   const visible = useModuleVisibility();
   const sessions = useAgentSessionList();
-  const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
+  const sessionsLoaded = useAgentSessionsStore((state) => state.sessionsLoaded);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const pendingAgentHubCommand = useAgentSessionsStore((state) => state.pendingAgentHubCommand);
   const consumeAgentHubCommand = useAgentSessionsStore((state) => state.consumeAgentHubCommand);
   const markCompletedRead = useAgentSessionsStore((state) => state.markCompletedRead);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
-  const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
   const enqueuePrompt = useAgentSessionsStore((state) => state.enqueuePrompt);
   const removeQueuedPrompt = useAgentSessionsStore((state) => state.removeQueuedPrompt);
@@ -297,14 +289,6 @@ export function AgentHubView() {
   // republishes a failure with a new revision when something about it changed,
   // and that is news again.
   const [dismissedFailure, setDismissedFailure] = useState("");
-  // The row the sidebar asked to rename — not always the one on screen.
-  const [pendingRename, setPendingRename] = useState<AgentSession | null>(null);
-  // The session awaiting a delete confirmation, with how many go with it.
-  const [pendingDelete, setPendingDelete] = useState<{
-    session: AgentSession;
-    descendants: number;
-  } | null>(null);
-  const unpin = useAgentPinsStore((state) => state.unpin);
   const recentProjects = useAgentPinsStore((state) => state.recentProjects);
   const rememberProject = useAgentPinsStore((state) => state.rememberProject);
   const { workspace: currentWorkspace, services: workspaceServices } = useCurrentWorkspaceServices();
@@ -332,9 +316,11 @@ export function AgentHubView() {
   const [sandboxHint, setSandboxHint] = useState("");
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
 
+  // This tab's session, and only it: a tab whose session is gone says so
+  // rather than quietly showing another one.
   const activeSession = useMemo(
-    () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
-    [sessions, activeSessionId],
+    () => (tabSessionId ? sessions.find((s) => s.id === tabSessionId) ?? null : null),
+    [sessions, tabSessionId],
   );
 
   // A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive
@@ -345,7 +331,7 @@ export function AgentHubView() {
   // is active when it lands, same as askAgent does for plain text.
   const pendingAgentAttach = useAgentSessionsStore((state) => state.pendingAgentAttach);
   useEffect(() => {
-    if (!pendingAgentAttach || !activeSession) return;
+    if (!visible || !pendingAgentAttach || !activeSession) return;
     const { refs: attachedRefs, prompt } = pendingAgentAttach;
     setRefs((prev) => ({
       ...prev,
@@ -356,7 +342,7 @@ export function AgentHubView() {
       setPrompt(activeSession.id, draft ? `${draft}\n\n${prompt}` : prompt);
     }
     useAgentSessionsStore.getState().consumeAgentAttach();
-  }, [pendingAgentAttach, activeSession, setPrompt]);
+  }, [visible, pendingAgentAttach, activeSession, setPrompt]);
 
   const activePrompt = useAgentSessionsStore(
     (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
@@ -380,7 +366,7 @@ export function AgentHubView() {
     if (!visible || !pendingAgentHubCommand) return;
     consumeAgentHubCommand(pendingAgentHubCommand);
     if (pendingAgentHubCommand === "create") {
-      void startNewDraft();
+      newSession();
     } else if (pendingAgentHubCommand === "cancel") {
       void handleCancel();
     } else {
@@ -392,13 +378,34 @@ export function AgentHubView() {
     if (visible && activeSession?.id) markCompletedRead(activeSession.id);
   }, [activeSession?.id, markCompletedRead, visible]);
 
+  // The tab on screen is the session the Agent panel follows once you leave
+  // Agent Hub, and the one notifications and the permission toast treat as seen.
+  useEffect(() => {
+    if (visible && tabSessionId) setActiveSessionId(tabSessionId);
+  }, [visible, tabSessionId, setActiveSessionId]);
+
+  // A draft asked for from elsewhere — the sidebar's project or child "+" —
+  // lands in the new-session tab, once it is on screen.
+  const draftRequest = useAgentDraftRequests((state) => state.request);
+  useEffect(() => {
+    if (!visible || tabSessionId || !draftRequest) return;
+    useAgentDraftRequests.getState().setRequest(null);
+    if (draftRequest.defaultFolder) {
+      void startNewDraft();
+      return;
+    }
+    startDraft(draftRequest.cwd, draftRequest.parent ?? null, draftRequest.workspaceId);
+    const paths = draftRequest.workspacePaths ?? [];
+    if (draftRequest.workspaceId && paths.length > 1) chooseWorkspaceForDraft(draftRequest.workspaceId, paths);
+  }, [visible, tabSessionId, draftRequest]);
+
   useEffect(() => {
     if (!visible) return;
     function handleKeyDown(event: KeyboardEvent) {
       const overlayOpen = Boolean(document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]'));
       if (!isNewSessionShortcut(event, detectPlatform() === "mac", overlayOpen)) return;
       event.preventDefault();
-      void startNewDraft();
+      newSession();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -419,13 +426,6 @@ export function AgentHubView() {
       mounted = false;
     };
   }, [activeSession?.id, visible]);
-
-  // Auto-select first session if none active
-  useEffect(() => {
-    if (!activeSessionId && sessions.length > 0) {
-      setActiveSessionId(sessions[0].id);
-    }
-  }, [sessions, activeSessionId, setActiveSessionId]);
 
   // Load available vendor types
   useEffect(() => {
@@ -478,6 +478,12 @@ export function AgentHubView() {
     startDraft(cwd, null);
   }
 
+  /** "+ New", ⌘N, the empty state: drafted here in the new-session tab, else in it. */
+  function newSession() {
+    if (tabSessionId) openNewAgentSession();
+    else void startNewDraft();
+  }
+
   /** "New project…" in the draft's picker: the native folder dialog. */
   async function chooseFolderForDraft() {
     // Opens where the draft already points, else the folder the app is working in.
@@ -521,20 +527,24 @@ export function AgentHubView() {
       setActiveSessionId(session.id);
       setDraft(null);
       setDraftPrompt("");
+      // The session gets its own tab and this draft's tab goes: the draft has
+      // become that session.
+      openAgentSession(session);
+      closeNewSessionTab();
       if (params.prompt || params.attachments?.length || params.images?.length) {
         // The message was written before the session existed and is the reason
-        // it was created. Passed the session itself: the list this closure
-        // sees was read before the session was added to it.
-        await handleSend(
-          {
-            sessionId: session.id,
-            text: params.prompt ?? "",
-            attachments: params.attachments ?? [],
-            images: params.images ?? [],
-            refs: [],
-          },
-          session,
-        );
+        // it was created. Sent from here, outside any view: the tab that wrote
+        // it has just closed. A refusal puts the words back in the session's
+        // composer, where the person will be looking.
+        const text = params.prompt ?? "";
+        void sendAgentTurn(
+          session.id,
+          queuedPrompt(text, params.attachments ?? [], params.images ?? []),
+        ).catch((e) => {
+          const agents = useAgentSessionsStore.getState();
+          if (text && !agents.promptBySession[session.id]) agents.setPrompt(session.id, text);
+          toast.error(errorMessage(e));
+        });
       }
     } catch (e) {
       const failure = createFailure(params.vendor, e);
@@ -836,7 +846,7 @@ export function AgentHubView() {
       return;
     }
     if (action === "new_session") {
-      void startNewDraft();
+      newSession();
       return;
     }
     if (action === "login") {
@@ -859,81 +869,6 @@ export function AgentHubView() {
       dequeuePendingForSession(activeSession.id);
       dequeueElicitationForSession(activeSession.id);
       upsertSession(await agentHubGetStatus(activeSession.id));
-    } catch (e) {
-      reportError(e);
-    }
-  }
-
-  // The header acts on the active session; the tree's context menu acts on
-  // whichever row was right-clicked, which is often not the active one.
-  async function handleCancelFor(session: AgentSession) {
-    try {
-      await agentHubCancel(session.id);
-      dequeuePendingForSession(session.id);
-      dequeueElicitationForSession(session.id);
-      upsertSession(await agentHubGetStatus(session.id));
-    } catch (e) {
-      reportError(e);
-    }
-  }
-
-  async function handleCloseFor(session: AgentSession) {
-    try {
-      await agentHubCloseSession(session.id);
-      upsertSession(await agentHubGetStatus(session.id));
-    } catch (e) {
-      reportError(e);
-    }
-  }
-
-  async function handleDeleteConfirmed() {
-    const target = pendingDelete?.session;
-    setPendingDelete(null);
-    if (!target) return;
-    try {
-      await agentHubDeleteSession(target.id);
-      // The backend takes the subtree, so the store has to as well — a child
-      // left in the list would render as a root pointing at a session that no
-      // longer exists.
-      const gone = new Set<string>([target.id]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const s of sessions) {
-          if (!gone.has(s.id) && s.parentSessionId && gone.has(s.parentSessionId)) {
-            gone.add(s.id);
-            grew = true;
-          }
-        }
-      }
-      for (const id of gone) {
-        removeSession(id);
-        forgetAgentTranscript(id);
-        unpin(id);
-      }
-      if (activeSession && gone.has(activeSession.id)) {
-        const next = sessions.find((s) => !gone.has(s.id));
-        setActiveSessionId(next ? next.id : "");
-      }
-    } catch (e) {
-      reportError(e);
-    }
-  }
-
-  // Every page, not the window on screen: a copy that stopped where the scroll
-  // did would be the newest half of a conversation with no sign it was half.
-  async function handleCopyTranscript(session: AgentSession) {
-    try {
-      const model = await loadWholeTranscript(session.id);
-      await copyText(
-        transcriptToMarkdown(model.items, {
-          title: session.title,
-          projectPath: session.projectPath,
-          vendor: session.agentType,
-        }),
-      );
-      const turns = groupTurns(model.items).length;
-      toast.success(`Copied ${turns} turn${turns === 1 ? "" : "s"} as Markdown`);
     } catch (e) {
       reportError(e);
     }
@@ -985,16 +920,6 @@ export function AgentHubView() {
     respond: respondElicitation,
   } = useRespondElicitation(activeQuestion);
 
-  // What each session is waiting on the user for: permissions and questions
-  // alike, since either one stops the agent until someone answers.
-  const pendingCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const p of [...pendingQueue, ...elicitationQueue]) {
-      map[p.sessionId] = (map[p.sessionId] ?? 0) + 1;
-    }
-    return map;
-  }, [pendingQueue, elicitationQueue]);
-
   // What the draft's picker offers: the current workspace's services first
   // (docs/dev-kit/workspace.mdx — registered on purpose, so they should sort
   // ahead of the guesses below), then folders used before, most recent first,
@@ -1015,33 +940,6 @@ export function AgentHubView() {
     return out;
   }, [workspaceServices, recentProjects, sessions, scratchRoot]);
 
-  useAgentHubSidebar({
-    sessions,
-    workspaces: sidebarWorkspaces,
-    scratchRoot,
-    activeSessionId: activeSession?.id,
-    pendingCounts,
-    onSelectSession: (id) => {
-      setDraft(null);
-      setActiveSessionId(id);
-    },
-    onNewSession: () => void startNewDraft(),
-    // The "No project" group's + starts another scratch session, not one in
-    // the scratch root itself. A workspace's + is the whole workspace: its
-    // primary as cwd, the other services granted beside it.
-    onNewSessionIn: (projectPath, workspaceId, workspacePaths) => {
-      startDraft(projectPath === scratchRoot ? "" : projectPath, null, workspaceId);
-      if (workspaceId && workspacePaths && workspacePaths.length > 1) chooseWorkspaceForDraft(workspaceId, workspacePaths);
-    },
-    onNewChildSession: (parent) => startDraft(parent.projectPath, parent),
-    onCancelTurn: (session) => void handleCancelFor(session),
-    onCloseSession: (session) => void handleCloseFor(session),
-    onRenameSession: (session) => setPendingRename(session),
-    onCopyTranscript: (session) => void handleCopyTranscript(session),
-    onDeleteSession: (session, descendants) => setPendingDelete({ session, descendants }),
-    onCopy: (text) => void copyText(text),
-  });
-
   // The vendor's own failure wins when there is one; Claude never reports a
   // rate-limit rejection through that channel (only through usage_update's
   // rateLimit), so without this a rejected turn had no banner at all — just
@@ -1049,16 +947,38 @@ export function AgentHubView() {
   const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
   const retryable = retryTurn();
 
+  // A tab restored for a session the list does not have yet is still loading;
+  // once the list is in, the session is gone (deleted elsewhere, or with its
+  // parent) and the tab says so instead of showing some other session.
+  if (tabSessionId && !activeSession) {
+    return (
+      <div data-testid="agenthub-view" className="relative flex size-full min-h-0 flex-1 overflow-hidden bg-surface-base">
+        {sessionsLoaded ? (
+          <EmptyState
+            data-testid="agenthub-session-missing"
+            className="flex-1"
+            title="Session not available"
+            body="It was deleted, or belongs to a list this window could not load."
+            action={{ label: "Close tab", onClick: () => closeAgentSessionTabs([tabSessionId]) }}
+            secondaryAction={{ label: "New session", onClick: () => openNewAgentSession() }}
+          />
+        ) : (
+          <EmptyState data-testid="agenthub-session-loading" className="flex-1" busy title="Loading session…" />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="agenthub-view"
       className="relative flex size-full min-h-0 flex-1 overflow-hidden bg-surface-base"
     >
         <div className="flex size-full min-h-0 flex-1 overflow-hidden">
-          {/* The swarm tree is NOT drawn here — useAgentHubSidebar publishes it
-              into the shell rail, which is where Figma's _Slot / Sidebar Content
-              puts a module's rail. Drawing it here as well gave two vertical
-              rails side by side whenever the shell sidebar was open. */}
+          {/* The swarm tree is NOT drawn here — it is the module's rail
+              (AgentHubSidebar, ModuleManifest.sidebar), in the shell's
+              sidebar column. Drawing it here as well gave two vertical rails
+              side by side whenever the shell sidebar was open. */}
 
           {/* Surface: Agent Hub / Content (1136×804) */}
           <AgentHubContent
@@ -1163,8 +1083,8 @@ export function AgentHubView() {
             // No Retry at all rather than one that does nothing: with no turn
             // to resend, the composer below is the way back in.
             onRetrySession={retryable ? () => void handleSend(retryable) : undefined}
-            onNewSession={() => void startNewDraft()}
-            emptyExtra={<GettingStarted onNewSession={() => void startNewDraft()} />}
+            onNewSession={newSession}
+            emptyExtra={<GettingStarted onNewSession={newSession} />}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
               errorCause === "authRequired" && activeSession ? signInFor(activeSession.agentType) : undefined
@@ -1189,42 +1109,6 @@ export function AgentHubView() {
           />
         </div>
 
-      <RenameSessionDialog
-        initialTitle={pendingRename ? pendingRename.title || `Session ${pendingRename.id.slice(0, 8)}` : null}
-        // Not caught: the dialog shows the reason and stays open.
-        onRename={(title) => (pendingRename ? renameAgentSession(pendingRename.id, title) : undefined)}
-        onClose={() => setPendingRename(null)}
-      />
-
-      {/* Delete is the one action here with nothing behind it: close keeps the
-          row as history, this removes the transcript for good. */}
-      <AlertDialog
-        open={Boolean(pendingDelete)}
-        onOpenChange={(next) => {
-          if (!next) setPendingDelete(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {`Delete ${pendingDelete?.session.title || "this session"}?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.descendants
-                ? `Its transcript and ${pendingDelete.descendants} child session${
-                    pendingDelete.descendants === 1 ? "" : "s"
-                  } will be deleted for good. Any of them still running will be stopped. This cannot be undone.`
-                : "Its transcript will be deleted for good, and the agent stopped if it is still running. This cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handleDeleteConfirmed()}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

@@ -15,16 +15,13 @@ import { composerPlaceholder } from "./AgentHubContent";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { AgentState, type AgentStatus } from "./AgentState";
-import { AgentSwarmStrip } from "./AgentSwarmStrip";
 import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
 
 export type AgentRailProps = {
   state?: AgentRailState;
-  sessions?: AgentSession[];
   activeSession?: AgentSession | null;
-  onSelectSession?: (id: string) => void;
   items?: TranscriptItem[];
   /** Older transcript pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -112,16 +109,16 @@ function toAgentStatus(status: string): AgentStatus {
  * elsewhere. Permission requests land here inline rather than in a modal: the
  * request blocks the agent, not the person."
  *
- * Four bands: swarm strip, a header naming the agent, the transcript, the rail
- * composer. The rail paints nothing — panel-surface behind it is the ground, so
+ * Three bands: a header line, the transcript, the rail composer. Which session
+ * is shown is chosen by the tabs in the pane's own header (AgentPaneTabs) —
+ * Agent Hub's tabs — so the rail no longer carries a strip or a title of its
+ * own. The rail paints nothing — panel-surface behind it is the ground, so
  * a fill would be a second opaque layer on an opaque one. Padding is asymmetric
  * on purpose (pl-3 pr-5), leaving the margin the scroll ruler lives in.
  */
 export function AgentRail({
   state: explicitState,
-  sessions = [],
   activeSession,
-  onSelectSession,
   items = [],
   hasMore = false,
   loadingOlder = false,
@@ -187,9 +184,6 @@ export function AgentRail({
       ? "Empty"
       : "Conversation";
 
-  const displayTitle =
-    activeSession?.title ||
-    (activeSession ? `Session ${activeSession.id.slice(0, 8)}` : "");
   const vendor = activeSession?.agentType ?? "";
 
   const isPendingForActiveSession =
@@ -237,36 +231,17 @@ export function AgentRail({
         className,
       )}
     >
-      {sessions.length > 1 ? (
-        <AgentSwarmStrip
-          sessions={sessions}
-          activeSessionId={activeSession?.id}
-          onSelectSession={onSelectSession}
-          className="px-3"
-        />
-      ) : null}
-
-      {/* Figma 913:31: vendor mark, name, live state, then one quiet line
-          carrying depth and cwd — the two facts that say what this agent may
-          touch. The header used to show a vendor text chip and a colour-coded
-          status pill, a third status vocabulary next to AgentState. */}
+      {/* Figma 913:31's meta line: vendor mark, live state, then depth and
+          cwd — the two facts that say what this agent may touch. The title is
+          the tab's, in the pane header above. */}
       {activeSession ? (
         <header
           data-testid="agent-rail-header"
-          // pr-10 clears the split panel's close button, pinned top-right.
-          className="flex w-full shrink-0 flex-col gap-1 py-3 pr-10 pl-5"
+          className="flex w-full shrink-0 items-center gap-2 py-2 pr-4 pl-5"
         >
-          <div className="flex w-full items-center gap-2">
-            <VendorIcon
-              vendor={activeSession.agentType}
-              className="size-3.5 text-icon-secondary"
-            />
-            <span className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
-              {displayTitle}
-            </span>
-            <AgentState status={toAgentStatus(activeSession.status)} />
-          </div>
-          <p className="w-full truncate text-caption-11 text-text-tertiary">
+          <VendorIcon vendor={activeSession.agentType} className="size-3.5 shrink-0 text-icon-secondary" />
+          <AgentState status={toAgentStatus(activeSession.status)} />
+          <p className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary" title={activeSession.projectPath || "."}>
             {`depth ${activeSession.depth ?? 0} · ${activeSession.projectPath || "."}`}
           </p>
         </header>
@@ -278,8 +253,8 @@ export function AgentRail({
           size="rail"
           data-testid="agent-rail-empty"
           className="flex-1"
-          title="No agents running"
-          body="Open Agent Hub to start one — it needs a vendor and a working directory."
+          title="No session open"
+          body="Pick one from the menu above, or start one in Agent Hub — it needs a vendor and a working directory."
         />
       ) : (
         <div
