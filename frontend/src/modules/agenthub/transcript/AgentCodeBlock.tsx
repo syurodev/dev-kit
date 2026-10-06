@@ -106,7 +106,7 @@ export function AgentCodeBlock({
           // One scroller for both columns, so the numbers stay beside their
           // lines on the vertical axis; the gutter is sticky so it stays on the
           // horizontal one. Lines keep their breaks: a listing is read as code.
-          <div data-testid="code-block-listing" className="flex max-h-80 w-full overflow-auto text-code-12">
+          <div data-testid="code-block-listing" className="flex max-h-120 w-full overflow-auto text-code-12">
             <pre
               aria-hidden="true"
               data-testid="code-block-gutter"
@@ -122,7 +122,7 @@ export function AgentCodeBlock({
           <pre
             className={cn(
               "w-full p-(--space-inline) text-code-12 text-text-primary select-text",
-              wrap ? "max-h-80 overflow-y-auto whitespace-pre-wrap wrap-anywhere" : "overflow-x-auto",
+              wrap ? "max-h-120 overflow-y-auto whitespace-pre-wrap wrap-anywhere" : "overflow-x-auto",
             )}
           >
             <code>{body}</code>

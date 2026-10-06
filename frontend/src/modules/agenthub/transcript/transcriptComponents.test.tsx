@@ -414,7 +414,7 @@ describe("Agent Hub Transcript Leaves", () => {
       );
       expect(html).toContain("&quot;result&quot;: [");
       expect(html).toContain("whitespace-pre-wrap");
-      expect(html).toContain("max-h-80");
+      expect(html).toContain("max-h-120");
       expect(html).toContain('data-testid="code-block-copy"');
     });
 
