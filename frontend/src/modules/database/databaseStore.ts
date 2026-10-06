@@ -1,3 +1,4 @@
+import { useDatabaseDrafts } from "./documentDrafts";
 import { create } from "zustand";
 import type { CellValue } from "./sql/updateCell";
 import { persist } from "zustand/middleware";
@@ -884,15 +885,23 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setInspectedCell: (cell) => set({ inspectedCell: cell }),
   setShowNewConnectionDialog: (show) => set({ showNewConnectionDialog: show }),
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
-  setShowExportModal: (show) => set({ showExportModal: show }),
-  setShowSaveQueryModal: (show) => set({ showSaveQueryModal: show }),
-  openExportModal: (result, filename) =>
-    set({
-      showExportModal: true,
-      exportResult: result,
-      exportFilename: filename?.trim() || DEFAULT_EXPORT_FILENAME,
-    }),
-  openSaveQueryModal: (consoleId) => set({ showSaveQueryModal: true, modalConsoleId: consoleId }),
+  setShowExportModal: (show) => {
+    if (show || useDatabaseDrafts.getState().closeExport()) set({ showExportModal: show, ...(!show ? {exportResult: null} : {}) });
+  },
+  setShowSaveQueryModal: (show) => {
+    if (show) get().openSaveQueryModal(get().modalConsoleId);
+    else if (useDatabaseDrafts.getState().closeSave()) set({ showSaveQueryModal: false });
+  },
+  openExportModal: (result, filename) => {
+    const name = filename?.trim() || DEFAULT_EXPORT_FILENAME;
+    if (useDatabaseDrafts.getState().openExport(result, name))
+      set({ showExportModal: true, exportResult: result, exportFilename: name });
+  },
+  openSaveQueryModal: (consoleId) => {
+    const s = get();
+    if (useDatabaseDrafts.getState().openSave(s.selectedProfileId, s.consoles[consoleId]?.sql ?? "", s.profiles.find(p => p.id === s.selectedProfileId)?.engine, s.profiles.find(p => p.id === s.selectedProfileId)?.name))
+      set({ showSaveQueryModal: true, modalConsoleId: consoleId });
+  },
 
   toggleFolder: (folderId: string) => {
     const current = get().expandedFolders;

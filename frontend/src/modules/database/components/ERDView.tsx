@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -31,15 +38,27 @@ import {
   AlertTriangle,
   Spline,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
+import { useIsActiveDocument } from "../useIsActiveDocument";
+import { useTheme } from "@/theme/ThemeProvider";
+import { errorMessage } from "@/bridge/errors";
+import {
+  erdTableWindow,
+  hasSingleIdPrimaryKey,
+  erdColumnWindow,
+  ERD_EDGE_LIMIT,
+  ERD_COLUMN_LIMIT,
+} from "./erdBudget";
 import { Button } from "@/components/ui/button";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listForeignKeys,
-  listColumns,
   listIndexes,
   type ForeignKey,
-  type ColumnInfo,
 } from "../../../bridge/database";
 import { EMPTY_ARRAY, EMPTY_OBJECT } from "@/lib/stableEmpty";
 import { useDatabaseChrome } from "../useDatabaseChrome";
@@ -53,7 +72,12 @@ import { useDatabaseChrome } from "../useDatabaseChrome";
 function typeFamily(dataType: string): string {
   const t = dataType.toLowerCase();
   if (t.includes("uuid")) return "uuid";
-  if (t.includes("int") || t.includes("serial") || t.includes("numeric") || t.includes("decimal")) {
+  if (
+    t.includes("int") ||
+    t.includes("serial") ||
+    t.includes("numeric") ||
+    t.includes("decimal")
+  ) {
     return "int";
   }
   if (t.includes("char") || t.includes("text")) return "text";
@@ -90,16 +114,17 @@ function shortType(dataType: string): string {
   const t = dataType.toLowerCase();
   if (t.startsWith("character varying")) return "varchar";
   if (t === "character") return "char";
-  if (t.startsWith("timestamp")) return t.includes("with time zone") ? "timestamptz" : "timestamp";
-  if (t.startsWith("time ")) return t.includes("with time zone") ? "timetz" : "time";
+  if (t.startsWith("timestamp"))
+    return t.includes("with time zone") ? "timestamptz" : "timestamp";
+  if (t.startsWith("time "))
+    return t.includes("with time zone") ? "timetz" : "time";
   if (t === "double precision") return "double";
   if (t === "boolean") return "bool";
   return t.replace(/ unsigned$/, "");
 }
 
 function visibleColumns(data: TableNodeData): string[] {
-  if (data.expanded) return data.columns;
-  return data.columns.filter((c) => data.keyColumns.includes(c));
+  return erdColumnWindow(data.columns, data.keyColumns, data.expanded);
 }
 
 function TableNode({ data }: { data: TableNodeData }) {
@@ -124,7 +149,9 @@ function TableNode({ data }: { data: TableNodeData }) {
             <ChevronRight className="w-3 h-3 text-text-tertiary shrink-0" />
           )}
           <TableIcon className="w-3.5 h-3.5 text-action-primary shrink-0" />
-          <span className="font-semibold text-text-primary truncate">{data.tableName}</span>
+          <span className="font-semibold text-text-primary truncate">
+            {data.tableName}
+          </span>
         </div>
         {data.isJunction && (
           <span
@@ -136,11 +163,16 @@ function TableNode({ data }: { data: TableNodeData }) {
         )}
         <span className="text-caption-11 text-text-tertiary font-sans bg-surface-raised px-1.5 py-0.5 rounded">
           {data.expanded
-            ? `${data.columns.length} cols`
+            ? `${Math.min(data.columns.length, ERD_COLUMN_LIMIT)}/${data.columns.length} cols`
             : `${visibleColumns(data).length}/${data.columns.length}`}
         </span>
       </button>
 
+      {data.expanded && data.columns.length > ERD_COLUMN_LIMIT ? (
+        <p className="px-3 py-1 text-caption-11 text-text-secondary">
+          Column preview capped at 80; relation keys come first.
+        </p>
+      ) : null}
       {/* Columns List */}
       {/* nowheel lets the list scroll instead of the canvas zooming. A 32
           column table would otherwise be a wall five times taller than
@@ -149,7 +181,9 @@ function TableNode({ data }: { data: TableNodeData }) {
         {visibleColumns(data).map((col) => {
           const isPK = data.primaryColumns.includes(col);
           const isDeclaredFK = data.foreignKeys.some((fk) => fk.column === col);
-          const isInferredFK = data.inferredRefs.some((inf) => inf.fromCol === col);
+          const isInferredFK = data.inferredRefs.some(
+            (inf) => inf.fromCol === col,
+          );
 
           return (
             <div
@@ -179,8 +213,8 @@ function TableNode({ data }: { data: TableNodeData }) {
                     isPK
                       ? "text-status-warning font-semibold"
                       : isDeclaredFK
-                      ? "text-status-info font-medium"
-                      : "text-text-primary"
+                        ? "text-status-info font-medium"
+                        : "text-text-primary"
                   }`}
                 >
                   {col}
@@ -192,9 +226,13 @@ function TableNode({ data }: { data: TableNodeData }) {
                   {data.columnTypes[col] ?? ""}
                 </span>
                 {isPK ? (
-                  <span className="text-caption-11 text-status-warning border border-status-warning/40 px-1 rounded">PK</span>
+                  <span className="text-caption-11 text-status-warning border border-status-warning/40 px-1 rounded">
+                    PK
+                  </span>
                 ) : isDeclaredFK ? (
-                  <span className="text-caption-11 text-status-info border border-status-info/40 px-1 rounded">FK</span>
+                  <span className="text-caption-11 text-status-info border border-status-info/40 px-1 rounded">
+                    FK
+                  </span>
                 ) : isInferredFK ? (
                   <span className="text-caption-11 text-text-tertiary bg-surface-base px-1 rounded">
                     inf
@@ -281,17 +319,63 @@ function BareSelect({
   title?: string;
 }) {
   return (
-    <div className={`relative ${className}`}>
-      <select
+    <NativeSelect
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={title}
+      title={title}
+      className={`h-8 ${className}`}
+    >
+      {children}
+    </NativeSelect>
+  );
+}
+
+/** Filter state is local to this control; table-name typing never relayouts the graph. */
+function TableFocusSelect({
+  tables,
+  value,
+  onChange,
+}: {
+  tables: Record<string, string[]>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const matches = Object.keys(tables)
+    .sort()
+    .filter((name) => name.toLowerCase().includes(search.trim().toLowerCase()));
+  const options = matches.slice(0, 200);
+  if (value && !options.includes(value)) options.unshift(value);
+  return (
+    <>
+      <Input
+        aria-label="Filter focus tables"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Find table…"
+        className="h-8 w-32 border-0"
+      />
+      <BareSelect
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        title={title}
-        className="appearance-none bg-transparent border-0 outline-none h-8 pl-2 pr-6 text-body-12 text-text-primary w-full cursor-pointer"
+        onChange={onChange}
+        className="max-w-60"
+        title="Focus on one table and its neighbours"
       >
-        {children}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-text-tertiary" />
-    </div>
+        <option value="">All tables</option>
+        {options.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+        {matches.length > 200 ? (
+          <option disabled>Refine filter for more tables</option>
+        ) : null}
+        {!matches.length && search ? (
+          <option disabled>No matching tables</option>
+        ) : null}
+      </BareSelect>
+    </>
   );
 }
 
@@ -329,7 +413,10 @@ function ERDMarkers() {
                 markerUnits="userSpaceOnUse"
                 orient="auto"
               >
-                <path d="M0,1 L10,7 M0,7 L10,7 M0,13 L10,7 M15,2 L15,12" style={line} />
+                <path
+                  d="M0,1 L10,7 M0,7 L10,7 M0,13 L10,7 M15,2 L15,12"
+                  style={line}
+                />
               </marker>
 
               {/* one, optional — 0..1 */}
@@ -382,7 +469,6 @@ function ERDMarkers() {
   );
 }
 
-
 /**
  * Refit the viewport when the visible set of tables changes — and only then, so
  * expanding a node leaves the user's zoom alone.
@@ -433,7 +519,9 @@ export function resolveRefTarget(
     stem,
     `${stem}s`,
   ].filter(Boolean) as string[];
-  const hit = candidates.find((name) => name !== tableName && tableNames.includes(name));
+  const hit = candidates.find(
+    (name) => name !== tableName && tableNames.includes(name),
+  );
   return hit ?? "";
 }
 
@@ -503,6 +591,8 @@ export function placeByHop(
 
 export function ERDView() {
   useDatabaseChrome();
+  const active = useIsActiveDocument("database.erd");
+  const { resolvedTheme } = useTheme();
   // Schema and focused table live in the store, not here: the sidebar picks a
   // table by clicking it, which is the natural gesture at 161 tables, and the
   // dropdown is just a second way into the same state.
@@ -521,7 +611,7 @@ export function ERDView() {
       setSelectedSchema: s.setSelectedSchema,
       selectedTable: s.selectedTable,
       setSelectedTable: s.setSelectedTable,
-    }))
+    })),
   );
   const schemas = useMemo(() => {
     return Object.keys(schemaSnapshot?.namespace || {});
@@ -534,65 +624,48 @@ export function ERDView() {
   }, [schemas, selectedSchema]);
 
   // Load declared Foreign Keys
-  const { data: declaredFKs = EMPTY_ARRAY } = useQuery({
+  const fkQuery = useQuery({
     queryKey: ["database", "erd", "fks", selectedProfileId, selectedSchema],
     queryFn: async () => {
       if (!selectedProfileId || !selectedSchema) return [];
-      try {
-        return await listForeignKeys(selectedProfileId, selectedSchema);
-      } catch {
-        return [];
-      }
+      return listForeignKeys(selectedProfileId, selectedSchema);
     },
-    enabled: Boolean(selectedProfileId && selectedSchema),
+    enabled: active && Boolean(selectedProfileId && selectedSchema),
   });
 
   // Indexes answer whether a relation is one-to-one or one-to-many.
-  const { data: indexes = EMPTY_ARRAY } = useQuery({
+  const indexQuery = useQuery({
     queryKey: ["database", "erd", "indexes", selectedProfileId, selectedSchema],
     queryFn: async () => {
       if (!selectedProfileId || !selectedSchema) return [];
-      try {
-        return await listIndexes(selectedProfileId, selectedSchema);
-      } catch {
-        return [];
-      }
+      return listIndexes(selectedProfileId, selectedSchema);
     },
-    enabled: Boolean(selectedProfileId && selectedSchema),
+    enabled: active && Boolean(selectedProfileId && selectedSchema),
   });
 
   const tablesInSchema = useMemo(() => {
-    if (!schemaSnapshot?.namespace || !schemaSnapshot.namespace[selectedSchema]) {
+    if (
+      !schemaSnapshot?.namespace ||
+      !schemaSnapshot.namespace[selectedSchema]
+    ) {
       return {};
     }
     return schemaSnapshot.namespace[selectedSchema] || {};
   }, [schemaSnapshot, selectedSchema]);
 
-  const tableNamesKey = Object.keys(tablesInSchema).sort().join(",");
+  const declaredFKs = fkQuery.data ?? EMPTY_ARRAY;
+  const indexes = indexQuery.data ?? EMPTY_ARRAY;
+  // IndexSchema already supplies typed columns; avoid one bridge request per table.
+  const typedColumns =
+    schemaSnapshot?.columns?.[selectedSchema] ?? EMPTY_OBJECT;
+  const metadataError = fkQuery.error || indexQuery.error;
+  const metadataPending = fkQuery.isFetching || indexQuery.isFetching;
 
-  const { data: typedColumns = EMPTY_OBJECT } = useQuery({
-    queryKey: ["database", "erd", "columns", selectedProfileId, selectedSchema, tableNamesKey],
-    queryFn: async () => {
-      const names = Object.keys(tablesInSchema);
-      if (!selectedProfileId || !selectedSchema || names.length === 0) {
-        return {};
-      }
-      const entries = await Promise.all(
-        names.map(async (table) => {
-          try {
-            return [table, await listColumns(selectedProfileId, selectedSchema, table)] as const;
-          } catch {
-            return [table, [] as ColumnInfo[]] as const;
-          }
-        }),
-      );
-      return Object.fromEntries(entries);
-    },
-    enabled: Boolean(selectedProfileId && selectedSchema && Object.keys(tablesInSchema).length > 0),
-  });
-
+  const metadataReady =
+    fkQuery.data !== undefined && indexQuery.data !== undefined;
   // Compute Inferred Relationships (<x>_id -> <x>.id or <x>s.id)
   const inferredRelationships = useMemo(() => {
+    if (!metadataReady) return [];
     const tableNames = Object.keys(tablesInSchema);
     const inferred: Array<{
       fromTable: string;
@@ -606,7 +679,7 @@ export function ERDView() {
       for (const col of columns) {
         // Skip if already in declared FKs
         const isDeclared = declaredFKs.some(
-          (fk) => fk.table === tableName && fk.column === col
+          (fk) => fk.table === tableName && fk.column === col,
         );
         if (isDeclared) continue;
 
@@ -617,14 +690,24 @@ export function ERDView() {
           // target to actually have a single-column `id` primary key whose type
           // family matches — without this the diagram draws edges to tables
           // that have no id at all.
-          const sourceColumn = (typedColumns[tableName] || []).find((c) => c.name === col);
-          const targetID = (typedColumns[targetTable] || []).find((c) => c.name === "id");
+          const sourceColumn = (typedColumns[tableName] || []).find(
+            (c) => c.name === col,
+          );
+          const targetID = (typedColumns[targetTable] || []).find(
+            (c) => c.name === "id",
+          );
           const typesLineUp =
             !!sourceColumn &&
             !!targetID &&
             typeFamily(sourceColumn.dataType) === typeFamily(targetID.dataType);
 
-          if (targetTable && targetTable !== tableName && typesLineUp) {
+          const targetHasIdKey = hasSingleIdPrimaryKey(indexes, targetTable);
+          if (
+            targetTable &&
+            targetTable !== tableName &&
+            typesLineUp &&
+            targetHasIdKey
+          ) {
             inferred.push({
               fromTable: tableName,
               fromCol: col,
@@ -636,7 +719,7 @@ export function ERDView() {
       }
     }
     return inferred;
-  }, [tablesInSchema, declaredFKs, typedColumns]);
+  }, [tablesInSchema, declaredFKs, typedColumns, indexes, metadataReady]);
 
   // Every relation in one shape, used for three things: the key-column set a
   // collapsed node must keep, the adjacency focus mode walks, and nothing else.
@@ -686,7 +769,8 @@ export function ERDView() {
     for (const [table, cols] of Object.entries(refCols)) {
       const pk = primaryColumnsByTable[table];
       if (!pk || pk.length < 2) continue;
-      if (pk.length === cols.size && pk.every((c) => cols.has(c))) junctions.add(table);
+      if (pk.length === cols.size && pk.every((c) => cols.has(c)))
+        junctions.add(table);
     }
     return junctions;
   }, [relations, primaryColumnsByTable]);
@@ -730,35 +814,27 @@ export function ERDView() {
 
   // The hop distance is kept, not just the membership: it is what lets the
   // layout draw a star as a star instead of packing it into a grid.
-  const { visibleTables, hopByTable } = useMemo(() => {
-    if (!focusTable || !tablesInSchema[focusTable]) {
-      return { visibleTables: tablesInSchema, hopByTable: {} as Record<string, number> };
-    }
-    const hops: Record<string, number> = { [focusTable]: 0 };
-    let frontier = [focusTable];
-    for (let hop = 1; hop <= focusDepth; hop++) {
-      const next: string[] = [];
-      for (const table of frontier) {
-        for (const n of neighbourMap[table] || []) {
-          if (hops[n] === undefined) {
-            hops[n] = hop;
-            next.push(n);
-          }
-        }
-      }
-      frontier = next;
-    }
+  const { visibleTables, hopByTable, limited } = useMemo(() => {
+    const window = erdTableWindow(
+      tablesInSchema,
+      neighbourMap,
+      focusTable,
+      focusDepth,
+    );
     return {
       visibleTables: Object.fromEntries(
-        Object.entries(tablesInSchema).filter(([name]) => hops[name] !== undefined),
+        window.names.map((name) => [name, tablesInSchema[name]]),
       ),
-      hopByTable: hops,
+      hopByTable: window.hops,
+      limited: window.limited,
     };
   }, [tablesInSchema, neighbourMap, focusTable, focusDepth]);
 
   // Collapsed is the default: 161 tables at full column height is unreadable,
   // and the columns that carry meaning in an ERD are the keys.
-  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>(
+    {},
+  );
   const toggleTable = useCallback((table: string) => {
     setExpandedTables((current) => ({ ...current, [table]: !current[table] }));
   }, []);
@@ -785,7 +861,7 @@ export function ERDView() {
       const keyColumns = keyColumnsByTable[tableName] || [];
       const expanded = !!expandedTables[tableName];
       const rowCount = expanded
-        ? columns?.length ?? 0
+        ? (columns?.length ?? 0)
         : (columns || []).filter((c) => keyColumns.includes(c)).length;
       return {
         tableName,
@@ -803,10 +879,15 @@ export function ERDView() {
     const focused = focusTable && visibleTables[focusTable];
 
     if (focused) {
-      for (const [name, position] of placeByHop(specs, hopByTable, neighbourMap, {
-        nodeWidth,
-        gap: GAP,
-      })) {
+      for (const [name, position] of placeByHop(
+        specs,
+        hopByTable,
+        neighbourMap,
+        {
+          nodeWidth,
+          gap: GAP,
+        },
+      )) {
         positions.set(name, position);
       }
     } else {
@@ -815,7 +896,10 @@ export function ERDView() {
       const columnBottoms = new Array(colsCount).fill(50);
       for (const spec of specs) {
         const colIdx = columnBottoms.indexOf(Math.min(...columnBottoms));
-        positions.set(spec.tableName, { x: colIdx * nodeWidth + 50, y: columnBottoms[colIdx] });
+        positions.set(spec.tableName, {
+          x: colIdx * nodeWidth + 50,
+          y: columnBottoms[colIdx],
+        });
         columnBottoms[colIdx] += spec.height + GAP;
       }
     }
@@ -824,7 +908,7 @@ export function ERDView() {
       const { tableName, columns, keyColumns, expanded } = spec;
       const tableFKs = declaredFKs.filter((fk) => fk.table === tableName);
       const tableInferred = inferredRelationships.filter(
-        (inf) => inf.fromTable === tableName
+        (inf) => inf.fromTable === tableName,
       );
 
       return {
@@ -840,7 +924,10 @@ export function ERDView() {
           keyColumns,
           primaryColumns: primaryColumnsByTable[tableName] || [],
           columnTypes: Object.fromEntries(
-            (typedColumns[tableName] || []).map((c) => [c.name, shortType(c.dataType)]),
+            (typedColumns[tableName] || []).map((c) => [
+              c.name,
+              shortType(c.dataType),
+            ]),
           ),
           isJunction: junctionTables.has(tableName),
           isFocused: tableName === focusTable,
@@ -868,6 +955,12 @@ export function ERDView() {
       return `url(#erd-${variant}-${one ? "one" : "crow"}-${optional ? "opt" : "req"})`;
     };
 
+    const handles = new Map(
+      flowNodes.map((node) => [
+        node.id,
+        new Set(visibleColumns(node.data as TableNodeData)),
+      ]),
+    );
     // 1. Declared foreign keys: solid.
     //
     // Neither kind carries a label any more. "employee_id → his_employees.id"
@@ -879,6 +972,8 @@ export function ERDView() {
       if (
         visibleTables[fk.table] &&
         visibleTables[fk.referencedTable] &&
+        handles.get(fk.table)?.has(fk.column) &&
+        handles.get(fk.referencedTable)?.has(fk.referencedColumn) &&
         !isSiblingEdge(fk.table, fk.referencedTable)
       ) {
         flowEdges.push({
@@ -908,6 +1003,11 @@ export function ERDView() {
     //    look like a declared constraint.
     inferredRelationships.forEach((inf, i) => {
       if (!visibleTables[inf.fromTable] || !visibleTables[inf.toTable]) return;
+      if (
+        !handles.get(inf.fromTable)?.has(inf.fromCol) ||
+        !handles.get(inf.toTable)?.has(inf.toCol)
+      )
+        return;
       if (isSiblingEdge(inf.fromTable, inf.toTable)) return;
       flowEdges.push({
         id: `inf-${inf.fromTable}-${inf.fromCol}-${inf.toTable}-${i}`,
@@ -928,7 +1028,7 @@ export function ERDView() {
       });
     });
 
-    return { nodes: flowNodes, edges: flowEdges };
+    return { nodes: flowNodes, edges: flowEdges.slice(0, ERD_EDGE_LIMIT) };
   }, [
     visibleTables,
     declaredFKs,
@@ -956,20 +1056,23 @@ export function ERDView() {
   // old positions mean nothing and the layout is taken as computed. Expanding a
   // node deliberately does NOT relayout: the node you clicked grows and nothing
   // else moves. Drags survive everything but a change of visible set.
-  const layoutKey = `${selectedSchema}|${focusTable}|${focusDepth}`;
+  const layoutKey = `${selectedProfileId}|${selectedSchema}|${focusTable}|${focusDepth}`;
   const lastLayoutKey = useRef("");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const relayout = lastLayoutKey.current !== layoutKey;
     lastLayoutKey.current = layoutKey;
     setNodes((current) => {
       if (relayout) return computedNodes;
       const placed = new Map(current.map((n) => [n.id, n.position]));
-      return computedNodes.map((n) => ({ ...n, position: placed.get(n.id) ?? n.position }));
+      return computedNodes.map((n) => ({
+        ...n,
+        position: placed.get(n.id) ?? n.position,
+      }));
     });
   }, [computedNodes, layoutKey, setNodes]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setEdges(computedEdges);
   }, [computedEdges, setEdges]);
 
@@ -987,7 +1090,9 @@ export function ERDView() {
     }
     return {
       displayNodes: nodes.map((n) =>
-        connected.has(n.id) ? n : { ...n, style: { ...n.style, opacity: 0.25 } },
+        connected.has(n.id)
+          ? n
+          : { ...n, style: { ...n.style, opacity: 0.25 } },
       ),
       displayEdges: edges.map((e) =>
         e.source === hoveredTable || e.target === hoveredTable
@@ -1014,7 +1119,8 @@ export function ERDView() {
         >
           {schemas.map((s) => (
             <option key={s} value={s}>
-              {s} · {Object.keys(schemaSnapshot?.namespace?.[s] || {}).length} tables
+              {s} · {Object.keys(schemaSnapshot?.namespace?.[s] || {}).length}{" "}
+              tables
             </option>
           ))}
         </ControlSelect>
@@ -1024,21 +1130,11 @@ export function ERDView() {
             selects so typing jumps to a table without building a combobox. */}
         <div className="flex items-center h-8 rounded-lg border border-border bg-surface-base overflow-hidden">
           <Crosshair className="ml-2.5 w-3.5 h-3.5 text-text-tertiary shrink-0" />
-          <BareSelect
+          <TableFocusSelect
+            tables={tablesInSchema}
             value={tablesInSchema[focusTable] ? focusTable : ""}
             onChange={setFocusTable}
-            className="max-w-60"
-            title="Focus on one table and its neighbours"
-          >
-            <option value="">All tables</option>
-            {Object.keys(tablesInSchema)
-              .sort()
-              .map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-          </BareSelect>
+          />
 
           {tablesInSchema[focusTable] && (
             <>
@@ -1080,7 +1176,9 @@ export function ERDView() {
             setExpandedTables((current) =>
               Object.values(current).some(Boolean)
                 ? {}
-                : Object.fromEntries(Object.keys(visibleTables).map((t) => [t, true])),
+                : Object.fromEntries(
+                    Object.keys(visibleTables).map((t) => [t, true]),
+                  ),
             )
           }
         >
@@ -1097,7 +1195,7 @@ export function ERDView() {
 
         <div className="flex-1" />
 
-        {indexes.length === 0 && (
+        {indexQuery.isSuccess && indexes.length === 0 && (
           <span
             className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-status-warning/10 text-status-warning text-caption-11"
             title="No index metadata for this schema, so every relation is drawn as one-to-many. One-to-one needs a unique index to prove it."
@@ -1108,29 +1206,76 @@ export function ERDView() {
         )}
 
         <div className="flex items-center gap-3 text-caption-11 text-text-secondary">
-          <span className="flex items-center gap-1.5" title="Foreign keys the database actually enforces">
+          <span
+            className="flex items-center gap-1.5"
+            title="Foreign keys the database actually enforces"
+          >
             <span className="w-4 h-px bg-status-info" />
             {declaredFKs.length} declared
           </span>
-          <span className="flex items-center gap-1.5" title="Guessed from column names and types — not enforced by the database">
+          <span
+            className="flex items-center gap-1.5"
+            title="Guessed from column names and types — not enforced by the database"
+          >
             <span className="w-4 border-t border-dashed border-text-tertiary" />
             {inferredRelationships.length} inferred
           </span>
         </div>
 
-        <button
-          type="button"
-          className="p-1 text-text-tertiary hover:text-text-primary rounded"
-          title={`Crow's foot = many · bar = one · circle = optional. Edges stop animating above ${ANIMATED_NODE_LIMIT} visible tables.`}
+        <ActionTooltip
+          label={`Crow's foot = many · bar = one · circle = optional. Edges stop animating above ${ANIMATED_NODE_LIMIT} tables.`}
         >
-          <Info className="w-3.5 h-3.5" />
-        </button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Relationship legend"
+          >
+            <Info className="size-3.5" />
+          </Button>
+        </ActionTooltip>
       </div>
 
+      {metadataPending ? (
+        <PendingStatus className="px-3 py-1">
+          Refreshing relation metadata…
+        </PendingStatus>
+      ) : null}
+      {metadataError ? (
+        <FeedbackBanner
+          tone="warning"
+          title="Relation metadata incomplete"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={metadataPending}
+              onClick={() => {
+                void fkQuery.refetch();
+                void indexQuery.refetch();
+              }}
+            >
+              Retry
+            </Button>
+          }
+        >
+          {errorMessage(metadataError)}. Existing metadata stays visible;
+          inferred links are guesses.
+        </FeedbackBanner>
+      ) : null}
+      {limited || computedEdges.length >= ERD_EDGE_LIMIT ? (
+        <FeedbackBanner title="Showing a bounded diagram">
+          Up to 100 tables and 400 links are shown. Choose a focused table from
+          the sidebar or focus control to explore another part of the schema.
+        </FeedbackBanner>
+      ) : null}
       {/* React Flow Canvas */}
       <div className="flex-1 relative">
         <ERDMarkers />
-        {nodes.length > 0 ? (
+        {!schemaSnapshot ? (
+          <PendingStatus className="p-6">
+            Waiting for the indexed schema…
+          </PendingStatus>
+        ) : nodes.length > 0 ? (
           <ReactFlow
             nodes={displayNodes}
             edges={displayEdges}
@@ -1139,12 +1284,9 @@ export function ERDView() {
             onNodeMouseEnter={(_, node) => setHoveredTable(node.id)}
             onNodeMouseLeave={() => setHoveredTable("")}
             nodeTypes={nodeTypes}
-            // React Flow ships a light palette and only switches on its own
-            // `dark` class, which is why the controls and minimap rendered
-            // white on a dark canvas. The app has light tokens but nothing
-            // stamps data-theme yet — when a ThemeProvider lands this follows
-            // it, and the minimap colours below already flip on their own.
-            colorMode="dark"
+            // Controls follow the resolved app theme; canvas colors retain theme tokens.
+            colorMode={resolvedTheme}
+            onlyRenderVisibleElements
             fitView
             fitViewOptions={{ maxZoom: 1 }}
             minZoom={0.2}
@@ -1168,7 +1310,8 @@ export function ERDView() {
               No Tables in Schema &ldquo;{selectedSchema}&rdquo;
             </h3>
             <p className="text-body-12 max-w-sm text-text-secondary">
-              The selected schema has no tables indexed in the local cache. Index your schema from the sidebar explorer.
+              The selected schema has no tables indexed in the local cache.
+              Index your schema from the sidebar explorer.
             </p>
           </div>
         )}

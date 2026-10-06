@@ -15,13 +15,15 @@ describe("Database tab views, first paint", () => {
     ["activity", <LiveActivityView />, "No active queries running"],
     ["history", <QueryHistoryView />, "No queries recorded"],
     ["saved", <SavedQueriesView />, "No saved queries yet"],
-  ])("%s shows a skeleton, not the empty copy", (_name, view, emptyCopy) => {
-    const html = renderToString(
-      <QueryClientProvider client={queryClient}>
-        {view}
-      </QueryClientProvider>
-    );
-    expect(html).toContain('aria-label="Loading"');
-    expect(html).not.toContain(emptyCopy);
-  });
+  ])(
+    "%s shows loading or connection guidance, not the empty copy",
+    (_name, view, emptyCopy) => {
+      const html = renderToString(
+        <QueryClientProvider client={queryClient}>{view}</QueryClientProvider>,
+      );
+      if (_name === "activity") expect(html).toContain('aria-label="Loading"');
+      else expect(html).toContain("Choose a connection");
+      expect(html).not.toContain(emptyCopy);
+    },
+  );
 });

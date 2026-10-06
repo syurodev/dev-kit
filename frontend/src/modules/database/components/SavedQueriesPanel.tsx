@@ -1,3 +1,5 @@
+import { FeedbackBanner } from "@/components/ui/feedback";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,19 +29,26 @@ import { openSavedQuery, openSavedTab } from "../documents";
  * live, and the footer goes there.
  */
 export function SavedQueriesPanel() {
+  const active = useWorkbenchTabsStore((s) => s.activeModuleId === "database");
   const selectedProfileId = useDatabaseStore((s) => s.selectedProfileId);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     // The same key the Saved queries document uses, so saving in one place
     // refreshes the other without either knowing about it.
     queryKey: ["database", "saved", selectedProfileId],
-    queryFn: () => (selectedProfileId ? listSavedQueries(selectedProfileId) : Promise.resolve([])),
-    enabled: Boolean(selectedProfileId),
+    queryFn: () =>
+      selectedProfileId
+        ? listSavedQueries(selectedProfileId)
+        : Promise.resolve([]),
+    enabled: active && Boolean(selectedProfileId),
   });
 
   if (!selectedProfileId) {
     return (
-      <EmptyState size="rail" body="Pick a connection to see the queries saved against it." />
+      <EmptyState
+        size="rail"
+        body="Pick a connection to see the queries saved against it."
+      />
     );
   }
 
@@ -47,16 +56,23 @@ export function SavedQueriesPanel() {
     return <ListSkeleton className="px-2 pt-2" />;
   }
 
-  if (error) {
+  if (error && (!data || isVaultLockedError(errorMessage(error)))) {
     // A locked vault is not a failure to read: the queries are there and
     // sealed, and the answer is the Master Password, not a retry.
     const message = errorMessage(error);
-    return (
-      isVaultLockedError(message) ? (
-        <EmptyState size="rail" icon={Lock} body="Unlock the vault to see saved queries." />
-      ) : (
-        <EmptyState size="rail" tone="danger" title="Could not load saved queries" body={message} />
-      )
+    return isVaultLockedError(message) ? (
+      <EmptyState
+        size="rail"
+        icon={Lock}
+        body="Unlock the vault to see saved queries."
+      />
+    ) : (
+      <EmptyState
+        size="rail"
+        tone="danger"
+        title="Could not load saved queries"
+        body={message}
+      />
     );
   }
 
@@ -73,17 +89,37 @@ export function SavedQueriesPanel() {
 
   return (
     <>
-      {queries.map((entry) => (
+      {error ? (
+        <FeedbackBanner
+          tone="error"
+          title="Could not refresh saved queries"
+          action={
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          {errorMessage(error)}
+        </FeedbackBanner>
+      ) : null}
+      {queries.slice(0, 50).map((entry) => (
         <SidebarRow
           key={entry.id}
-          icon={<Bookmark className="size-(--icon-12) shrink-0 text-text-tertiary" />}
+          icon={
+            <Bookmark className="size-(--icon-12) shrink-0 text-text-tertiary" />
+          }
           label={entry.name}
           onClick={() => openSavedQuery(entry)}
         />
       ))}
       <div className="px-3 pt-2">
-        <Button variant="ghost" size="sm" className="w-full" onClick={() => openSavedTab()}>
-          Open the full list
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full"
+          onClick={() => openSavedTab()}
+        >
+          Open the full list ({queries.length})
         </Button>
       </div>
     </>

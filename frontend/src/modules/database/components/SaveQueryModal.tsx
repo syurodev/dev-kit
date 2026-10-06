@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useId } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bookmark } from "lucide-react";
-import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { Field, FieldLabel, FieldError } from "@/components/ui/field";
+import { InlineFeedback, PendingStatus } from "@/components/ui/feedback";
 import {
   Dialog,
   DialogContent,
@@ -13,118 +12,126 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useShallow } from "zustand/react/shallow";
-import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
-import { saveQuery } from "../../../bridge/database";
-import { errorMessage } from "../../../bridge/errors";
+import { CodeBlock } from "@/components/code/CodeBlock";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { useDatabaseStore } from "../databaseStore";
+import { runDraftOperation, useDatabaseDrafts } from "../documentDrafts";
+import { saveQuery } from "@/bridge/database";
+import { errorMessage } from "@/bridge/errors";
 
 export function SaveQueryModal() {
-  const queryClient = useQueryClient();
-  // Not named `console`: shadowing the global inside a component is a trap.
-  const modalConsoleId = useDatabaseStore((s) => s.modalConsoleId);
-  const slice = useDatabaseStore((s) => s.consoles[modalConsoleId] ?? EMPTY_CONSOLE);
-  const {
-    selectedProfileId,
-    showSaveQueryModal,
-    setShowSaveQueryModal,
-  } = useDatabaseStore(
-    useShallow((s) => ({
-      selectedProfileId: s.selectedProfileId,
-      showSaveQueryModal: s.showSaveQueryModal,
-      setShowSaveQueryModal: s.setShowSaveQueryModal,
-    }))
-  );
-  const sql = slice.sql;
-  const engine = useDatabaseStore(
-    (s) => s.profiles.find((p) => p.id === s.selectedProfileId)?.engine,
-  );
-
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  // The console's own editor and dialect, read-only: the preview should look
-  // like the statement being named, not like a log of it.
-  const sqlExtensions = useMemo(() => {
-    const kind = (engine || "postgres").toLowerCase();
-    const dialect = kind === "mysql" ? MySQL : kind === "mariadb" ? MariaSQL : PostgreSQL;
-    return [codemirrorSql({ dialect, upperCaseKeywords: true })];
-  }, [engine]);
-
-  async function handleSave() {
-    if (!selectedProfileId || !name.trim() || !sql.trim()) return;
-    setSaving(true);
-    setError("");
-    try {
-      await saveQuery(selectedProfileId, name.trim(), sql);
-      void queryClient.invalidateQueries({ queryKey: ["database", "saved", selectedProfileId] });
-      setShowSaveQueryModal(false);
-      setName("");
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
+  const client = useQueryClient();
+  const visible = useModuleVisibility();
+  const draft = useDatabaseDrafts((s) => s.save);
+  const show = useDatabaseStore((s) => s.showSaveQueryModal);
+  const id = useId();
+  if (!draft) return null;
+  const patch = (value: Partial<typeof draft>) =>
+    useDatabaseDrafts.getState().patchSave(draft.id, value);
+  const close = () => useDatabaseStore.getState().setShowSaveQueryModal(false);
   return (
-    <Dialog open={showSaveQueryModal} onOpenChange={setShowSaveQueryModal}>
-      <DialogContent className="gap-4 p-5 sm:max-w-2xl">
+    <Dialog
+      open={show && visible}
+      onOpenChange={(open) => {
+        if (!open && visible && !draft.pending) close();
+      }}
+    >
+      <DialogContent
+        showCloseButton={!draft.pending}
+        className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl"
+      >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-title-14 text-text-primary">
-            <Bookmark className="size-4 text-action-primary" />
-            Save Query
-          </DialogTitle>
-          <DialogDescription className="text-body-12 text-text-secondary">
-            Give this statement a memorable name. Saved queries sync securely with your vault across devices.
+          <DialogTitle>Save query</DialogTitle>
+          <DialogDescription>
+            Name this statement snapshot. Saving does not execute SQL; it stores
+            an encrypted query against{" "}
+            {draft.profileName || "the original connection"}.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-2">
-          <label htmlFor="save-query-name" className="text-label-12 text-text-primary">
-            Query Name
-          </label>
-          <Input
-            id="save-query-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Monthly active users count"
-            className="text-label-12 h-8"
-            autoFocus
-          />
-        </div>
-
-        <div className="space-y-1">
-          <span className="text-caption-11-medium text-text-tertiary">SQL Preview</span>
-          <div className="h-72 overflow-hidden rounded-md border border-border bg-surface-raised">
-            <CodeEditor value={sql} onChange={() => {}} extensions={sqlExtensions} readOnly wrap />
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!draft.name.trim()) {
+              patch({ error: "Enter a query name." });
+              e.currentTarget.querySelector<HTMLInputElement>("input")?.focus();
+              return;
+            }
+            if (!draft.profileId || !draft.sql.trim()) {
+              patch({
+                error:
+                  "Open a console with a connection and SQL before saving.",
+              });
+              return;
+            }
+            void runDraftOperation("save", async (snapshot) => {
+              try {
+                await saveQuery(
+                  snapshot.profileId,
+                  snapshot.name.trim(),
+                  snapshot.sql,
+                );
+                void client.invalidateQueries({
+                  queryKey: ["database", "saved", snapshot.profileId],
+                });
+                useDatabaseDrafts
+                  .getState()
+                  .patchSave(snapshot.id, { pending: false });
+                if (useDatabaseDrafts.getState().save?.id === snapshot.id)
+                  close();
+              } catch (err) {
+                useDatabaseDrafts
+                  .getState()
+                  .patchSave(snapshot.id, { error: errorMessage(err) });
+              }
+            });
+          }}
+        >
+          <Field>
+            <FieldLabel htmlFor={id}>Query name</FieldLabel>
+            <Input
+              id={id}
+              autoFocus
+              value={draft.name}
+              disabled={draft.pending}
+              onChange={(e) => patch({ name: e.target.value, error: "" })}
+              aria-invalid={!!draft.error && !draft.name.trim()}
+              aria-describedby={draft.error ? `${id}-error` : undefined}
+            />
+            {draft.error && !draft.name.trim() ? (
+              <FieldError id={`${id}-error`}>{draft.error}</FieldError>
+            ) : null}
+          </Field>
+          <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface-raised p-3">
+            <CodeBlock
+              code={draft.sql.slice(0, 12000)}
+              language="sql"
+              className="whitespace-pre-wrap break-words text-code-12"
+            />
           </div>
-        </div>
-
-        {error && (
-          <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger">
-            {error}
-          </div>
-        )}
-
-        <DialogFooter className="-mx-5 -mb-5 px-5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSaveQueryModal(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleSave}
-            disabled={saving || !name.trim()}
-          >
-            {saving ? "Saving…" : "Save Query"}
-          </Button>
-        </DialogFooter>
+          {draft.sql.length > 12000 ? (
+            <p className="text-body-12 text-text-secondary">
+              Preview shortened. The complete statement will be saved.
+            </p>
+          ) : null}
+          {draft.error && draft.name.trim() ? (
+            <InlineFeedback id={`${id}-error`}>{draft.error}</InlineFeedback>
+          ) : null}
+          {draft.pending ? <PendingStatus>Saving query…</PendingStatus> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={draft.pending}
+              onClick={close}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={draft.pending}>
+              {draft.pending ? "Saving…" : "Save query"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

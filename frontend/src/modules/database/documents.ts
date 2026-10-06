@@ -1,6 +1,10 @@
 import { getModule, viewIcon } from "@/modules/registry";
 import { perfLog } from "@/lib/perfLog";
-import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import {
+  moduleTabs,
+  tabKey,
+  useWorkbenchTabsStore,
+} from "@/stores/workbenchTabs";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
 /**
@@ -12,16 +16,25 @@ import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
  * a second click on something else replaces it, so browsing the rail does not
  * leave a trail of tabs behind.
  */
-function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true) {
+function open(
+  viewId: string,
+  title: string,
+  params?: Record<string, unknown>,
+  preview = true,
+) {
   // Start the chunk before React needs it: the tab appears in the same frame
   // either way, but the view lands sooner.
-  const preload = getModule("database")?.views.find((v) => v.id === viewId)?.preload;
+  const preload = getModule("database")?.views.find(
+    (v) => v.id === viewId,
+  )?.preload;
   if (preload) {
     const startedAt = performance.now();
     void preload()
       .then(() => {
         if (import.meta.env.DEV || localStorage.getItem("devkitPerf") === "1") {
-          perfLog(`[perf] chunk ${viewId} ready in ${Math.round(performance.now() - startedAt)}ms`);
+          perfLog(
+            `[perf] chunk ${viewId} ready in ${Math.round(performance.now() - startedAt)}ms`,
+          );
         }
       })
       .catch(() => undefined);
@@ -39,7 +52,11 @@ function open(viewId: string, title: string, params?: Record<string, unknown>, p
   });
 }
 
-export function openTableTab(schema: string, table: string, preview = false): void {
+export function openTableTab(
+  schema: string,
+  table: string,
+  preview = false,
+): void {
   open("database.table", table, { schema, table }, preview);
 }
 
@@ -104,9 +121,14 @@ export function openNewConsoleTab(): void {
  * and the rail's Saved list — and two copies of the id rule is one console
  * too many.
  */
-export function openSavedQuery(entry: { id: string; name: string; sql: string }): void {
+export function openSavedQuery(entry: {
+  id: string;
+  name: string;
+  sql: string;
+}): void {
   const consoleId = consoleIdFor(`saved-${entry.id}`);
-  useDatabaseStore.getState().setSql(consoleId, entry.sql);
+  const store = useDatabaseStore.getState();
+  if (!store.consoles[consoleId]) store.setSql(consoleId, entry.sql);
   openConsoleTab(consoleId, entry.name || "Console");
 }
 
@@ -140,5 +162,15 @@ export function activeConsoleId(): string {
   const tabs = moduleTabs(state.modules, "database");
   const active = tabs.openTabs.find((tab) => tab.id === tabs.activeTabId);
   if (!active || active.viewId !== "database.console") return "";
-  return typeof active.params?.consoleId === "string" ? active.params.consoleId : DEFAULT_CONSOLE_ID;
+  return typeof active.params?.consoleId === "string"
+    ? active.params.consoleId
+    : DEFAULT_CONSOLE_ID;
+}
+
+/** Reopening a history statement focuses its console without erasing an edited draft. */
+export function openHistoryQuery(entry: { id: string; sql: string }): void {
+  const id = consoleIdFor(`history-${entry.id}`);
+  const store = useDatabaseStore.getState();
+  if (!store.consoles[id]) store.setSql(id, entry.sql);
+  openConsoleTab(id);
 }
