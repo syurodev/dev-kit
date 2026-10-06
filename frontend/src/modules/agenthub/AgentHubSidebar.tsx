@@ -26,6 +26,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { AgentSidebarTree } from "./surfaces";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
+import { useSubagentPanel } from "./subagents";
 import { useSidebarWorkspaces } from "./sidebarWorkspaces";
 import { forgetAgentTranscript, loadWholeTranscript } from "./transcript";
 import { transcriptToMarkdown } from "./exportMarkdown";
@@ -189,6 +190,12 @@ export function AgentHubSidebar() {
         onSelectSession={(id) => {
           const session = sessions.find((s) => s.id === id);
           if (session) openAgentSession(session);
+        }}
+        // A subagent's work, beside its session: the session's tab, and the
+        // module's right-hand pane on that subagent (subagents.tsx).
+        onSelectSubagent={(session, subagent) => {
+          useSubagentPanel.getState().show(session.id, subagent.id);
+          openAgentSession(session);
         }}
         onNewSession={() => openNewAgentSession()}
         // The "No project" group's + starts another scratch session, not one

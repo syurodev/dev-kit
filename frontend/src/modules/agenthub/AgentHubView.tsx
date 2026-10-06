@@ -64,6 +64,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAgentSession, sessionTitle, useAgentDraftRequests } from "./documents";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { AgentActivityPanel, useFollowing } from "./follow";
+import { SubagentPanel, useSubagentPanel } from "./subagents";
 
 // Until the backend answers: the agents DevKit ships. The mock adapter is a
 // test double and is not offered.
@@ -395,8 +396,21 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   const [following, toggleFollowing] = useFollowing(activeSession?.id);
   const followedId = following ? activeSession?.id ?? "" : "";
   const followedTitle = activeSession ? sessionTitle(activeSession) : "";
+  // A subagent opened from the sidebar goes in the same pane, ahead of the
+  // follow feed while it is open; closing it gives the pane back.
+  const openSubagent = useSubagentPanel((s) => s.open);
+  const closeSubagent = useSubagentPanel((s) => s.close);
+  const activeId = activeSession?.id ?? "";
+  const subagentId = openSubagent && openSubagent.sessionId === activeId ? openSubagent.subagentId : "";
   useEffect(() => {
     if (!visible) return;
+    if (subagentId && activeId) {
+      openPanel(<SubagentPanel sessionId={activeId} subagentId={subagentId} onClose={closeSubagent} />, {
+        width: 420,
+        onClose: closeSubagent,
+      });
+      return;
+    }
     if (!followedId) {
       closePanel();
       return;
@@ -405,7 +419,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       width: 400,
       onClose: toggleFollowing,
     });
-  }, [visible, followedId, followedTitle, openPanel, closePanel, toggleFollowing]);
+  }, [visible, subagentId, activeId, followedId, followedTitle, openPanel, closePanel, toggleFollowing, closeSubagent]);
 
   // A draft asked for from elsewhere — the sidebar's project or child "+" —
   // lands in the new-session tab, once it is on screen.

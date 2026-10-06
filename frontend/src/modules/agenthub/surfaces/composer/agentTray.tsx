@@ -4,7 +4,8 @@ import { Bot, Boxes, Eye, Folder, GitBranch, ListTodo, MessageCircleQuestion, Sh
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { dispatchIntent } from "@/workbench/intents";
 import { cn } from "@/lib/utils";
-import { runningSubagents } from "../../turns";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { sessionRunningSubagents } from "../../subagents";
 import type { TranscriptItem } from "../../types";
 import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
@@ -65,7 +66,11 @@ function folderName(path: string): string {
 export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; panel: TrayPanel | null } {
   const { size, session, projectPath, live, items, onOpenFile, leading, permission, question } = input;
   const status = useTrayStatus(projectPath, session?.id ?? "", `${session?.id}:${live}`);
-  const running = React.useMemo(() => (live ? runningSubagents(items).running.length : 0), [items, live]);
+  // Running by the tracked state, not only while the turn runs: a lead agent
+  // that ends its turn to wait on background subagents used to make the chip
+  // vanish while they were still working (and the sidebar said so).
+  const tracked = useAgentSessionsStore((s) => (session ? s.subagents[session.id] : undefined));
+  const running = React.useMemo(() => sessionRunningSubagents(items, tracked, live).length, [items, tracked, live]);
   // Shell commands still running, oldest first — the one the clock reads.
   const commands = React.useMemo(() => (live ? items.filter(isRunningCommand) : []), [items, live]);
   const commandsFor = useElapsed(commands[0]?.createdAt, commands.length > 0);
@@ -135,7 +140,7 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
   } else if (openedNow === "subagents") {
     panel = {
       key: "subagents",
-      content: <AgentSubagentTracker items={items} live={live} onOpenFile={onOpenFile} variant="tray" />,
+      content: <AgentSubagentTracker items={items} live={live} tracked={tracked} onOpenFile={onOpenFile} variant="tray" />,
     };
   } else if (openedNow === "commands") {
     panel = { key: "commands", content: <TrayCommandList commands={commands} /> };
