@@ -1,8 +1,10 @@
+import { lazy } from "react";
 import { Bot } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { AgentHubBadge, AgentHubPeek } from "./AgentHubSwitcher";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { registerAttachIntent } from "@/workbench/intents";
+import { openNewAgentSession } from "./documents";
 
 function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
   useAgentSessionsStore.getState().requestAgentHubCommand(command);
@@ -14,6 +16,13 @@ export const agenthubModule: ModuleManifest = {
   // The session list is where every Agent Hub visit starts. Its home costs nothing to open, so it opens
   // rather than showing "has nothing open" (ModuleManifest.opensHome).
   opensHome: true,
+  // One tab per session (documents.ts); the home tab is where a new one is
+  // drafted, and the strip's + opens it.
+  tabs: true,
+  newTab: () => openNewAgentSession(),
+  // The swarm tree, as the module's rail: there with no tab open, and not
+  // registered by every session tab (AgentHubSidebar).
+  sidebar: lazy(() => import("./AgentHubSidebar").then(({ AgentHubSidebar }) => ({ default: AgentHubSidebar }))),
   version: "1.0.0",
   apiVersion: "1",
   icon: Bot,

@@ -134,6 +134,27 @@ Dùng `useModuleVisibility()` cho dialog/portal thuộc document. Một tab đan
 
 Các trang [Sidebar](../dev-kit/sidebar.mdx), [Module tabs](../dev-kit/module-tabs.mdx) và [Layout](../dev-kit/layout.mdx) có thêm bối cảnh thiết kế; các phần ghi là lịch sử phải đối chiếu với runtime và hướng dẫn này trước khi áp dụng.
 
+### Agent Hub: một session, một tab
+
+Agent Hub bật `tabs: true`; mỗi session là một document `agenthub.sessions` với
+`params.sessionId`, mở qua helper trong [`documents.ts`](../../frontend/src/modules/agenthub/documents.ts)
+(sidebar, palette, peek, notification, permission toast đều đi qua đó). Tab không có
+`sessionId` là tab "New session": draft sống trong tab này; tạo xong thì mở tab của
+session và đóng tab draft. Nút + và ⌘N mở tab draft; `+` theo project/child trong
+sidebar gửi yêu cầu qua `useAgentDraftRequests`. Đóng tab **không** đóng session.
+
+- Sidebar là `ModuleManifest.sidebar` (`AgentHubSidebar`), không đăng ký từ từng tab;
+  dòng được chọn là session của focused group (`activeAgentHubSessionId`).
+- Agent panel bên phải (`AgentCompanionSlot`) **không hiện khi Agent Hub là module
+  đang active** — nhường cột cho panel của module (diff, file đổi, kết quả query).
+  `chatOpen` giữ nguyên lựa chọn, nên panel quay lại khi rời Agent Hub; nút toggle
+  bị disable ở đó. Mở một session từ ngoài dùng `showAgentSession`: trong Agent Hub
+  mở tab, nơi khác mở panel.
+- Tab của panel (`AgentPaneTabs`, trong header của pane như Terminal) chính là các tab
+  session của Agent Hub: cùng tập, cùng thứ tự. Chọn tab ở panel chỉ đổi session panel
+  hiển thị (`activeSessionId`), không kéo màn hình chính sang Agent Hub; thêm tab từ
+  panel dùng `addAgentSessionTabInBackground`.
+
 ### Kafka: một connection, một explorer
 
 Kafka đăng ký `sidebar` trong manifest để rail/form tạo cluster tồn tại độc lập với explorer.

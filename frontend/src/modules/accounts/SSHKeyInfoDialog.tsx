@@ -64,7 +64,7 @@ export function SSHKeyInfoDialog({
                 readOnly
                 rows={3}
                 value={info.publicKey}
-                className="font-mono text-code-12"
+                className="font-mono text-code-12 break-all"
               />
             </Field>
           </FieldSet>

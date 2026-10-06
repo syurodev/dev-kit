@@ -33,6 +33,8 @@ import { databaseModule } from "../modules/database/manifest";
 import { sshModule } from "../modules/ssh/manifest";
 import { kafkaModule } from "../modules/kafka/manifest";
 import { agenthubModule } from "../modules/agenthub/manifest";
+import { NEW_SESSION_TITLE } from "../modules/agenthub/documents";
+import { agentPanelAllowed } from "./AgentCompanionSlot";
 import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
 import { codegraphModule } from "../modules/codegraph/manifest";
@@ -317,6 +319,7 @@ export function Workbench() {
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const activeModuleId = useWorkbenchTabsStore((state) => state.activeModuleId);
   const activeHasRail = useModuleHasRail(activeModuleId);
+  const agentPanelShown = chatOpen && agentPanelAllowed(activeModuleId);
   const tabModules = useWorkbenchTabsStore((state) => state.modules);
   // The strip and the switcher see one module's tabs; only the views layer
   // sees everyone's, because it keeps recently-left modules mounted. Memoised
@@ -645,9 +648,14 @@ export function Workbench() {
   // start its folder picker without moving that ownership into the shell.
   useEffect(() => {
     if (!pendingAgentHubCommand) return;
+    // With a tab open, Agent Hub comes on screen as it was left and that tab
+    // takes the command (a session tab hands "create" to the new-session tab);
+    // with none, the new-session tab opens to take it.
     const agentTabs = moduleTabs(tabModules, "agenthub").openTabs;
-    if (activeModuleId !== "agenthub" || agentTabs.length === 0) {
-      openTab({ moduleId: "agenthub", viewId: "agenthub.sessions", title: "Agent Hub" });
+    if (agentTabs.length === 0) {
+      openTab({ moduleId: "agenthub", viewId: "agenthub.sessions", title: NEW_SESSION_TITLE });
+    } else if (activeModuleId !== "agenthub") {
+      focusModuleRef.current("agenthub");
     }
   }, [activeModuleId, openTab, pendingAgentHubCommand, tabModules]);
 
@@ -867,23 +875,32 @@ export function Workbench() {
 
               {/* Always visible, like the bottom-panel toggle beside it: the
                   conversation belongs to the shell, so its control cannot
-                  appear and disappear with the active module. */}
+                  appear and disappear with the active module. Disabled in
+                  Agent Hub, where the conversation is the module itself
+                  (AgentCompanionSlot) — the wrapper keeps its tooltip. */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="titlebar"
-                    size="icon-sm"
-                    aria-label="Toggle agent conversation"
-                    aria-pressed={chatOpen}
-                    className={cn(
-                      chatOpen && "bg-accent text-foreground",
-                    )}
-                    onClick={() => setChatOpen(!chatOpen)}
-                  >
-                    <MessageSquare className="size-4" />
-                  </Button>
+                  <span className="inline-flex">
+                    <Button
+                      variant="titlebar"
+                      size="icon-sm"
+                      aria-label="Toggle agent conversation"
+                      aria-pressed={agentPanelShown}
+                      disabled={!agentPanelAllowed(activeModuleId)}
+                      className={cn(
+                        agentPanelShown && "bg-accent text-foreground",
+                      )}
+                      onClick={() => setChatOpen(!chatOpen)}
+                    >
+                      <MessageSquare className="size-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Toggle agent conversation</TooltipContent>
+                <TooltipContent side="bottom">
+                  {agentPanelAllowed(activeModuleId)
+                    ? "Toggle agent conversation"
+                    : "Agent Hub shows the conversation itself"}
+                </TooltipContent>
               </Tooltip>
             </div>
           </div>

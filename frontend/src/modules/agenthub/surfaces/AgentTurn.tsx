@@ -268,11 +268,10 @@ export const AgentTurn = React.memo(function AgentTurn({
  *
  * Closed by default: this is the only fold a run of thinking, tool calls or
  * subagents sits behind now (see AgentTurn — the words around it are never
- * folded), so nothing above it is hiding the steps for it. A long run scrolls
- * inside a 240px well (max-h-60) and fades at the foot, so one directory crawl
- * cannot push the answer a screen down.
+ * folded), so nothing above it is hiding the steps for it. Opened, it shows
+ * every step at full height: opening it is the request to read them, and a
+ * scrolling well inside the transcript's own scroller hid most of a long run.
  */
-const LONG_RUN = 8;
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
 
@@ -290,7 +289,6 @@ export function StepGroup({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
-  const long = items.length > LONG_RUN;
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing.
   if (items.length === 1) return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
@@ -309,25 +307,10 @@ export function StepGroup({
         />
       </button>
       <AnimatedCollapse open={open} className="pt-2">
-        <div
-          className={cn("w-full", long && "max-h-60 overflow-y-auto")}
-          // The fade covers the last 32px (page step) of the well, and the list
-          // carries the same padding at its foot, so the final row can always
-          // be scrolled clear of it.
-          style={
-            long
-              ? {
-                  maskImage: "linear-gradient(to bottom, black calc(100% - var(--space-page)), transparent)",
-                  WebkitMaskImage: "linear-gradient(to bottom, black calc(100% - var(--space-page)), transparent)",
-                }
-              : undefined
-          }
-        >
-          <div className={cn("flex w-full flex-col gap-2", long && "pb-8")}>
-            {items.map((item) => (
-              <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
-            ))}
-          </div>
+        <div className="flex w-full flex-col gap-2">
+          {items.map((item) => (
+            <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+          ))}
         </div>
       </AnimatedCollapse>
     </div>

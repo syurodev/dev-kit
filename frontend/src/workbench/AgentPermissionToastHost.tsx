@@ -6,6 +6,16 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { AgentPermissionToast } from "@/modules/agenthub/surfaces/AgentPermissionToast";
 import { AgentQuestionToast } from "@/modules/agenthub/surfaces/AgentQuestionToast";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import {
+  AGENTHUB_MODULE,
+  activeAgentHubSessionId,
+  agentPanelSessionId,
+  agentSessionTabs,
+  showAgentSession,
+  tabSessionId,
+} from "@/modules/agenthub/documents";
+import { useAgentPaneSessionIds } from "./AgentPaneTabs";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { SHELL_FLOAT_ATTR } from "@/lib/shellFloat";
 
@@ -49,8 +59,8 @@ export function AgentPermissionToastHost({
   const storeSessions = useAgentSessionList();
   const storeActiveSessionId = useAgentSessionsStore((s) => s.activeSessionId);
   const storeChatOpen = useAgentSessionsStore((s) => s.chatOpen);
-  const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
-  const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
+  const storeHubSessionId = useWorkbenchTabsStore(activeAgentHubSessionId);
+  const storePanelTabIds = useAgentPaneSessionIds();
 
   // In SSR / bun test without DOM window, Zustand getServerSnapshot returns immutable initial state,
   // so we fallback to getState() when window is undefined.
@@ -76,9 +86,13 @@ export function AgentPermissionToastHost({
   // Both inline surfaces read the same activeSessionId, and both fall back to
   // the first session when nothing is selected — so does this, or a request on
   // that session would be asked inline AND floated here.
-  const shownSessionId = activeSessionId ?? sessions[0]?.id ?? null;
+  // In Agent Hub that is the session its tab on screen shows (the Agent panel
+  // is not shown there); elsewhere, the panel's session when it is open.
+  const panelTabIds = isSSR ? agentSessionTabs(useWorkbenchTabsStore.getState()).map(tabSessionId) : storePanelTabIds;
+  const shownSessionId = agentPanelSessionId(panelTabIds, activeSessionId) || null;
+  const hubSessionId = isSSR ? activeAgentHubSessionId(useWorkbenchTabsStore.getState()) : storeHubSessionId;
   const askedInline = (sessionId: string) =>
-    shownSessionId === sessionId && (chatOpen || activeModuleId === "agenthub");
+    activeModuleId === AGENTHUB_MODULE ? hubSessionId === sessionId : chatOpen && shownSessionId === sessionId;
 
   const permissionShowing = pending != null && !askedInline(pending.sessionId);
   // The oldest question nobody is looking at. The inline card only ever takes
@@ -118,8 +132,7 @@ export function AgentPermissionToastHost({
   const session = propSession ?? sessions.find((s) => s.id === card.item.sessionId) ?? null;
 
   function openRailOn(sessionId: string) {
-    setActiveSessionId(sessionId);
-    setChatOpen(true);
+    showAgentSession(sessionId);
   }
 
   return (

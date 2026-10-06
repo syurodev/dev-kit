@@ -65,6 +65,9 @@ const CANNOT_TAKE_PROMPT = new Set(["running", "awaiting_permission", "closed"])
 type AgentSessionsState = {
   sessionsById: Record<string, AgentSession>;
   sessionIds: string[];
+  /** The backend's session list has arrived at least once: a tab naming a
+   * session missing before then is still loading, not gone. */
+  sessionsLoaded: boolean;
   activeSessionId: string;
   /**
    * The conversations themselves. They live here, not in AgentHubView state,
@@ -172,6 +175,7 @@ type AgentSessionsState = {
 export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   sessionsById: {},
   sessionIds: [],
+  sessionsLoaded: false,
   activeSessionId: "",
   transcriptsById: {},
   transcriptLoadingById: {},
@@ -195,6 +199,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     set({
       sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
       sessionIds: sessions.map((session) => session.id),
+      sessionsLoaded: true,
     }),
   upsertSession: (session) =>
     set((state) => {
