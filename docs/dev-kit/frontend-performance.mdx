@@ -281,6 +281,9 @@ Query result có thể lớn hơn mọi giới hạn render thông thường.
 - Cell formatter không parse JSON/date lại trên mọi render; detail/pretty view
   mở theo yêu cầu.
 - SQL draft local theo tab/profile. Gõ SQL không render profile form/result cũ.
+- WHERE có draft riêng; chỉ Enter/Apply mới đổi applied filter và phát query/count. Gõ filter không subscribe/render lại grid.
+- Staged cells giữ identity row chưa sửa; không map toàn bộ cells để overlay vài edits.
+- Evidence native fixture của phase 7: [Database forms/table](../design/database-ui-performance.md), kèm giới hạn trace/bridge còn pending.
 - Multi-engine tương lai không được làm UI load driver-specific editor/tooling
   của mọi engine ngay startup.
 

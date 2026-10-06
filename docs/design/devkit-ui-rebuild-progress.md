@@ -20,7 +20,8 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 | 3 | Áp dụng quy tắc vào SSH làm module mẫu | Đã polish bố cục, shadcn và keyboard; browser/SSH protocol test đạt; còn native và server SSH bên ngoài |
 | 4 | Kafka theo chuẩn shell và feedback | Đã triển khai và kiểm tra browser; còn E2E broker/native |
 | 5 | Git: review commit/file và tối ưu tương tác | Đã triển khai; browser và Git trong repository thử nghiệm đạt; còn native/remote thật |
-| 6 | Database theo audit | Chưa bắt đầu |
+| 6 | Database: console/schema | Đã triển khai; frontend/browser đạt; còn database thật |
+| 7 | Database: connection forms/table editing | Đã triển khai; regression và fixture WKWebView đạt; trace đầy đủ/database thật còn pending |
 
 ## Bước 1 — Nền app và shell
 
@@ -203,16 +204,54 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Giữ kiến trúc một connection active chung cho Database; đổi connection giữ SQL nhưng xóa result/error cũ đúng ownership. Không thêm connection độc lập cho mỗi console.
 - Phase này tập trung console/schema feedback, chưa làm lại toàn bộ form connection, ERD, history/export và table editing.
 
+## Bước 7 — Database: connection forms và table editing
+
+### Đã triển khai
+
+- New Connection/Options dùng shadcn Dialog, Field, Input, NativeSelect, Switch và Textarea. Validation gắn field/focus, chọn environment rõ ràng; Options khởi tạo đúng target trước paint, không ghi đè draft khi refetch.
+- Credential draft chỉ nằm cục bộ ở form, giữ khi module ẩn và xóa khi đóng rõ ràng/lưu thành công. Module ẩn không sở hữu portal.
+- Test connection dùng cancellable bridge thật, có elapsed clock riêng; Cancel mở khóa ngay và bỏ completion cũ. Save/Delete/Apply khóa đồng bộ chống gửi lặp/đóng khi pending, lỗi ở vùng thao tác, giữ draft/staged để Retry.
+- Delete dùng ConfirmDialog; Apply dùng AlertDialog/CodeEditor rộng, Cancel nhận focus. Bỏ fetch toàn bộ history/saved queries chỉ để đếm trước Delete.
+- Tách WHERE draft khỏi browse state: gõ không render lại grid hoặc phát COUNT; Enter mới áp dụng. Draft ephemeral theo table, xóa khi đóng document. Context-menu filter cập nhật cả draft và applied filter.
+- Overlay staged chỉ copy row array và những row sửa, giữ identity các row còn lại. Virtual grid tiếp tục bounded; toolbar wrap theo pane.
+- Store giữ write pending/error/status theo table, chặn reload/filter/sort/page/transaction giữa lúc ghi; success cũ không reload/xóa staged của target mới kể cả A → B → A. Chỉ xóa staged sau write được chấp nhận, không cho áp lại vì reload lỗi.
+- Rows cũ giữ khi reload pending/error; lần đầu có Loading, failure có Retry. Catalog/page/count effects không khởi phát khi document ẩn. Giữ shell/sidebar/tab strip và palette component hiện có.
+
+### Kiểm tra
+
+- Frontend: **2597 pass, 0 fail**; gồm 17 test mới về validation, row identity/10.000×30, write locking/failure/reload, stale target và filter draft cleanup.
+- `go test ./internal/arch/ ./internal/database/ -count=1`: đạt. Không đổi Go backend/bindings.
+- Production TypeScript/build/performance budget: đạt, initial JS 1020,7 KiB và CSS 259,7 KiB; không tăng ceiling. Smoothness ratchet blur giảm 35 → 33 sau bỏ hai overlay tự dựng.
+- Native Wails/WKWebView production profiling fixture dùng component thật/bridge giả lập: gõ 6 ký tự WHERE, COUNT 6 → 0; max React update 9 → 2 ms; khoảng 40 row DOM trên nguồn 10.000×30. Overlay staged median 41 ms → dưới độ phân giải timer. Chi tiết hardware/runtime/scenario và giới hạn: [database-ui-performance.md](./database-ui-performance.md).
+- Native dark/light: validation/focus, probe pending/Cancel/elapsed, Save failure giữ draft; Options đúng target; Apply safe focus/pending/Escape/double-click/failure/Retry; Delete safe focus/pending/failure. Screenshot và harness tạm nằm ngoài repository; source harness tạm đã dọn.
+
+### Giới hạn
+
+- Fixture chạy native frontend, bridge mô phỏng. Chưa xác minh database/network/driver thật, transaction/prod confirmation hoặc Cancel Go context end-to-end.
+- Đã lấy React duration/DOM/bridge-call counts trên WKWebView; chưa thu được trace scripting/style/layout/paint/memory đầy đủ từ WebKit Inspector của fixture. Phần này còn pending cùng đo bridge serialize/transfer/parse thật và p95/frame/memory gates; không coi performance audit toàn app hoàn tất.
+- Chưa chuyển ERD/history/saved queries/export sang scope phase này; cấu trúc một connection active chung cho Database vẫn giữ.
+
+## Follow-up Database table editing — 2026-10-06
+
+- Đã thêm shadcn typed cell editor: boolean, date/time/timestamp, offset, JSON, UUID và numeric; NULL riêng với text rỗng, giữ bigint/decimal/microsecond. Text fallback cho precision hoặc giá trị temporal không phù hợp native picker.
+- Bulk edit page đã tải: selection/Shift/gutter, nhiều cột với giá trị riêng, stage rồi review; một UPDATE mỗi hàng dùng khóa gốc, hỗ trợ đổi composite key cùng lúc. Giữ read-only/pending/env guards; giới hạn 10.000 cells/1 MiB giá trị mỗi bulk operation.
+- Draft cục bộ và bulk dialog lazy; giữ draft khi module ẩn/hiện, trả focus về grid. Quy tắc cho người sau: [Database table editing](database-table-editing.md).
+- Frontend 2.655 test, build/budget và Go architecture/database đạt. Live metadata/typed values + ApplyEdits đạt trên MariaDB 12.3 disposable; chưa test MySQL 8/PostgreSQL thật cho follow-up này.
+- Native fixture 10k × 30: typed validation/selection/bulk/focus; editor scenario update lớn nhất 2 ms, DOM 43 rows. Browser bổ sung microsecond fallback, light theme, bulk limits và hidden draft. Fixture bridge vẫn mô phỏng; full WebKit trace/native DB E2E còn pending, không đánh dấu toàn bộ performance audit hoàn tất.
+
 ## Bước tiếp theo
 
 1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
 2. Smoke Git native với repository/remote thử nghiệm: stage/commit/hook failure, guarded commit/push, stash conflict và đổi folder trong lúc thao tác.
-3. Smoke Database với connection thử nghiệm: Run/Cancel/Explain, đổi connection và transaction; tiếp tục audit connection forms/table editing sau phase 6.
+3. Smoke Database với connection thử nghiệm: Run/Cancel/Test/Explain, đổi connection, direct/staged edits và transaction; thu trace WebKit/bridge thật.
+4. Phase UI tiếp theo: ERD, query history/saved queries và export; tiếp tục dùng shadcn/shared feedback, draft lifecycle và performance gates.
 
 ## Nhật ký
 
 | Ngày | Cập nhật |
 |---|---|
+| 2026-10-06 | Database typed editor + bulk nhiều cột; SQL gom mỗi hàng/khóa gốc; frontend 2655 test, build và Go đạt, live MariaDB riêng đạt |
+| 2026-10-05 | Phase 7 Database forms/table: shadcn, cancellable probe, scoped writes; WHERE không COUNT theo phím gõ, staged row identity; frontend 2597 test đạt |
 | 2026-10-05 | Phase 6 Database: responsive console/schema feedback, giữ result pending/Cancel, chống schema/Explain cũ và focused overlay |
 | 2026-10-05 | Phase 5 Git: sửa commit params/root/merge diff, staged review; tối ưu pane, History và async feedback; frontend 2551 test, build và Go regression đạt |
 | 2026-10-04 | Viết bộ quy tắc UI/UX v1 và triển khai nền/surface shell của bước 1 |

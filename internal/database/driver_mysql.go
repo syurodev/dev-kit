@@ -478,7 +478,10 @@ func (c *mysqlConn) ListTables(ctx context.Context, schema string) ([]TableInfo,
 
 func (c *mysqlConn) ListColumns(ctx context.Context, schema, table string) ([]ColumnInfo, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT column_name, data_type, is_nullable = 'YES', ordinal_position
+		SELECT column_name,
+		       CASE WHEN column_type IN ('tinyint(1)', 'tinyint(1) unsigned')
+		            THEN column_type ELSE data_type END,
+		       is_nullable = 'YES', ordinal_position
 		FROM information_schema.columns
 		WHERE table_schema = ? AND table_name = ?
 		ORDER BY ordinal_position`, schema, table)

@@ -16,27 +16,38 @@ describe("updateRefusal", () => {
   // The one that matters: without a key there is no way to name ONE row, so an
   // UPDATE would hit every row that happens to match.
   test("no key is a refusal, not a fallback", () => {
-    expect(updateRefusal({ ...base, keyColumns: null, readOnly: false })).toContain(
-      "no primary key",
-    );
-    expect(updateRefusal({ ...base, keyColumns: [], readOnly: false })).toContain("no primary key");
+    expect(
+      updateRefusal({ ...base, keyColumns: null, readOnly: false }),
+    ).toContain("no primary key");
+    expect(
+      updateRefusal({ ...base, keyColumns: [], readOnly: false }),
+    ).toContain("no primary key");
   });
 
   test("safe mode is a refusal, and says where to turn it off", () => {
-    expect(updateRefusal({ ...base, readOnly: true })).toContain("Connection options");
+    expect(updateRefusal({ ...base, readOnly: true })).toContain(
+      "Connection options",
+    );
   });
 
   // A console result can be a join or an expression; there is no single table
   // behind it to write to.
   test("rows from no single table are a refusal", () => {
-    expect(updateRefusal({ ...base, schema: "", readOnly: false })).toContain("single table");
+    expect(updateRefusal({ ...base, schema: "", readOnly: false })).toContain(
+      "single table",
+    );
   });
 });
 
 describe("buildUpdate", () => {
   test("one cell", () => {
     expect(
-      buildUpdate({ ...base, rows: [{ values: ["7"] }], columns: ["name"], value: "ada" }),
+      buildUpdate({
+        ...base,
+        rows: [{ values: ["7"] }],
+        columns: ["name"],
+        value: "ada",
+      }),
     ).toBe(`UPDATE "chiro"."ba_user" SET "name" = 'ada' WHERE "id" = '7'`);
   });
 
@@ -57,18 +68,35 @@ describe("buildUpdate", () => {
 
   test("many columns are one SET list", () => {
     expect(
-      buildUpdate({ ...base, rows: [{ values: ["1"] }], columns: ["a", "b"], value: "x" }),
-    ).toBe(`UPDATE "chiro"."ba_user" SET "a" = 'x', "b" = 'x' WHERE "id" = '1'`);
+      buildUpdate({
+        ...base,
+        rows: [{ values: ["1"] }],
+        columns: ["a", "b"],
+        value: "x",
+      }),
+    ).toBe(
+      `UPDATE "chiro"."ba_user" SET "a" = 'x', "b" = 'x' WHERE "id" = '1'`,
+    );
   });
 
   // NULL is a value, not the four letters — typing NULL into a cell sets the
   // string, which is what DataGrip does too.
-  test("null sets NULL, and a typed \"NULL\" sets the text", () => {
+  test('null sets NULL, and a typed "NULL" sets the text', () => {
     expect(
-      buildUpdate({ ...base, rows: [{ values: ["1"] }], columns: ["note"], value: null }),
+      buildUpdate({
+        ...base,
+        rows: [{ values: ["1"] }],
+        columns: ["note"],
+        value: null,
+      }),
     ).toContain(`SET "note" = NULL`);
     expect(
-      buildUpdate({ ...base, rows: [{ values: ["1"] }], columns: ["note"], value: "NULL" }),
+      buildUpdate({
+        ...base,
+        rows: [{ values: ["1"] }],
+        columns: ["note"],
+        value: "NULL",
+      }),
     ).toContain(`SET "note" = 'NULL'`);
   });
 
@@ -97,7 +125,9 @@ describe("buildUpdate", () => {
       columns: ["note"],
       value: "x",
     });
-    expect(sql).toContain(`("tenant" = 't1' AND "id" = '1') OR ("tenant" = 't2' AND "id" = '2')`);
+    expect(sql).toContain(
+      `("tenant" = 't1' AND "id" = '1') OR ("tenant" = 't2' AND "id" = '2')`,
+    );
   });
 
   test("MySQL gets backticks and its own escaping", () => {
@@ -113,14 +143,23 @@ describe("buildUpdate", () => {
   });
 
   test("nothing to change is a programming error, not an empty statement", () => {
-    expect(() => buildUpdate({ ...base, rows: [], columns: ["a"], value: "x" })).toThrow();
-    expect(() => buildUpdate({ ...base, rows: [{ values: ["1"] }], columns: [], value: "x" })).toThrow();
+    expect(() =>
+      buildUpdate({ ...base, rows: [], columns: ["a"], value: "x" }),
+    ).toThrow();
+    expect(() =>
+      buildUpdate({
+        ...base,
+        rows: [{ values: ["1"] }],
+        columns: [],
+        value: "x",
+      }),
+    ).toThrow();
   });
 });
 
 // #52. Staged cells become one statement each, keyed by the row as it loaded,
 // and a change to the key itself runs after the row's other changes.
-test("staged changes become statements, key changes last in their row", () => {
+test("staged edits to one row share a SET list and its original key", () => {
   const statements = buildStagedUpdates({
     schema: "public",
     table: "users",
@@ -134,9 +173,76 @@ test("staged changes become statements, key changes last in their row", () => {
     staged: { "0:0": "7", "0:1": "anna", "1:2": null },
   });
   expect(statements).toEqual([
-    `UPDATE "public"."users" SET "name" = 'anna' WHERE "id" = '1'`,
-    `UPDATE "public"."users" SET "id" = '7' WHERE "id" = '1'`,
+    `UPDATE "public"."users" SET "id" = '7', "name" = 'anna' WHERE "id" = '1'`,
     `UPDATE "public"."users" SET "email" = NULL WHERE "id" = '2'`,
   ]);
 });
 
+test("two changed composite key columns stay in one atomic row UPDATE", () => {
+  const statements = buildStagedUpdates({
+    schema: "public",
+    table: "users",
+    engine: "postgres",
+    keyColumns: ["tenant", "id"],
+    columns: ["tenant", "id", "name"],
+    rows: [["old", "1", "before"]],
+    staged: { "0:0": "new", "0:1": "2", "0:2": "after" },
+  });
+  expect(statements).toEqual([
+    `UPDATE "public"."users" SET "tenant" = 'new', "id" = '2', "name" = 'after' WHERE ("tenant" = 'old' AND "id" = '1')`,
+  ]);
+});
+test.each(["postgres", "mysql"])(
+  "boolean assignments use portable literals on %s",
+  (engine) => {
+    const sql = buildUpdate({
+      schema: "public",
+      table: "users",
+      engine,
+      keyColumns: ["id"],
+      rows: [{ values: ["1"] }],
+      columns: ["active"],
+      value: "t",
+      columnTypes: { active: "boolean" },
+    });
+    expect(sql).toContain(" = TRUE WHERE ");
+    expect(sql).not.toContain("'true'");
+  },
+);
+test("staged rows retain separate no-match checks while columns share one SET list", () => {
+  const statements = buildStagedUpdates({
+    schema: "public",
+    table: "users",
+    engine: "mysql",
+    keyColumns: ["id"],
+    columns: ["id", "active", "updated"],
+    rows: [
+      ["1", "0", null],
+      ["2", "1", null],
+    ],
+    staged: {
+      "0:1": "true",
+      "0:2": "2026-10-05T12:00:00.123456",
+      "1:1": "false",
+    },
+    columnTypes: { active: "tinyint(1)" },
+  });
+  expect(statements).toHaveLength(2);
+  expect(statements[0]).toContain(
+    "`active` = TRUE, `updated` = '2026-10-05T12:00:00.123456'",
+  );
+  expect(statements[1]).toContain("`active` = FALSE");
+});
+test("stale staged indices refuse rather than constructing another row's UPDATE", () => {
+  expect(() =>
+    buildStagedUpdates({
+      schema: "public",
+      table: "users",
+      engine: "postgres",
+      keyColumns: ["id"],
+      columns: ["id"],
+      rows: [["1"]],
+      staged: { "8:0": "2" },
+    }),
+  ).toThrow("outside");
+});

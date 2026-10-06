@@ -185,7 +185,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
   `frontend/src/smoothnessRatchet.test.ts` với baseline đo hôm nay:
   `useState([])` cạnh effect trong `modules/` là 7 (một chỗ là state preview
   ảnh draft), bảng `.map` không virtualizer là 2,
-  `backdrop-filter`/`backdrop-blur` là 36, `animate-in`
+  `backdrop-filter`/`backdrop-blur` là 33, `animate-in`
   không kèm `duration-(--motion-*)` là 3. Cố ý đếm thô — regex không phân biệt
   được fetch với subscription, cũng không biết bảng 12 dòng hay 12 000 dòng —
   và như design-system ratchet, test cũng đỏ khi số **thấp hơn** baseline, để
