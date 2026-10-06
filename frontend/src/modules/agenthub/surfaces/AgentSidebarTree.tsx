@@ -52,6 +52,11 @@ export type AgentSidebarTreeProps = {
    */
   subagents?: Record<string, Subagent[]>;
   onSelectSession: (sessionId: string) => void;
+  /**
+   * A subagent's row: show what it did. Without it, the row selects the
+   * session it belongs to, as it used to.
+   */
+  onSelectSubagent?: (session: AgentSession, subagent: Subagent) => void;
   onNewSession: () => void;
   /** Session ids the user pinned; these sort to the top of their project. */
   pinnedIds?: string[];
@@ -331,6 +336,7 @@ export function AgentSidebarTree({
   turnCounts = {},
   subagents = {},
   onSelectSession,
+  onSelectSubagent,
   onNewSession,
   pinnedIds = [],
   onTogglePin,
@@ -470,9 +476,9 @@ export function AgentSidebarTree({
       label: agent.name || agent.id.slice(0, 8),
       title: agent.task || undefined,
       icon: <Bot />,
-      // No session of DevKit's to open, so the row hands focus to the session
-      // that owns it — where the subagent's own output is, in the transcript.
-      onSelect: () => onSelectSession(session.id),
+      // No session of DevKit's to open: the row opens the session that owns
+      // it, with the subagent's own work beside it (onSelectSubagent).
+      onSelect: () => (onSelectSubagent ? onSelectSubagent(session, agent) : onSelectSession(session.id)),
       trailing: <AgentState status={toSubagentStatus(agent.state)} labelHidden />,
     });
 
@@ -599,6 +605,7 @@ export function AgentSidebarTree({
     collapsed,
     descendantCounts,
     onSelectSession,
+    onSelectSubagent,
     onToggleCollapsed,
     onTogglePin,
     onNewSessionIn,

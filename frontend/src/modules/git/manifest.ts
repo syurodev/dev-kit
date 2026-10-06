@@ -6,7 +6,8 @@ import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { registerGitActivities } from "./toolActivities";
 import { parseDiffResult } from "./diffResult";
-import { parseCommitResult } from "./commitResult";
+import { parseCommitResult, parseHistoryResult } from "./commitResult";
+import { stringField } from "@/workbench/toolActivity";
 
 export const gitModule: ModuleManifest = {
   id: "git",
@@ -69,7 +70,10 @@ export const gitModule: ModuleManifest = {
  * internal/agenthub/attachedref.go's own ref kind for a git commit.
  *
  * `kind: "worktree"` opens Changes and its composer. Staged and unstaged
- * files can then be reviewed in the diff viewer.
+ * files can then be reviewed in the diff viewer. With an `id` it is that
+ * repository's path: Git is pinned to it first (the work folder's pin, the
+ * same one Git's own folder picker sets), so a workspace of several
+ * repositories can be opened at the one asked about.
  */
 registerIntent(
   "git.reveal",
@@ -81,6 +85,10 @@ registerIntent(
       return;
     }
     if (ref.kind === "worktree") {
+      if (ref.id) {
+        const { pinWorkFolder } = await import("@/bridge/workfolder");
+        await pinWorkFolder("git", ref.id).catch(() => undefined);
+      }
       const { openChanges } = await import("./documents");
       openChanges({ beside });
     }
@@ -107,11 +115,37 @@ registerToolResultView("git.diff", ({ rawInput, rawOutput }) => {
 const LazyGitCommitResultCard = lazy(() =>
   import("./GitCommitResultCard").then(({ GitCommitResultCard }) => ({ default: GitCommitResultCard })),
 );
-registerToolResultView("git.commit", ({ rawOutput, heading }) => {
-  const commit = parseCommitResult(rawOutput);
-  if (!commit) return null;
-  return createElement(LazyGitCommitResultCard, { commit, heading });
-});
+for (const [tool, title] of [
+  ["git.commit", undefined],
+  ["git.amend", "Amended commit"],
+  ["git.squash", "Squashed commit"],
+] as const) {
+  registerToolResultView(tool, ({ rawOutput, heading }) => {
+    const commit = parseCommitResult(rawOutput);
+    if (!commit) return null;
+    return createElement(LazyGitCommitResultCard, { commit, heading: heading ?? title });
+  });
+}
+
+/**
+ * ToolResultView for the history tools that can stop on a conflict: the new
+ * head when they finished, the conflicted paths when they did not.
+ */
+const LazyGitHistoryResultCard = lazy(() =>
+  import("./GitHistoryResultCard").then(({ GitHistoryResultCard }) => ({ default: GitHistoryResultCard })),
+);
+for (const [tool, title] of [
+  ["git.rebase", "Rebase"],
+  ["git.cherryPick", "Cherry-pick"],
+  ["git.revert", "Revert"],
+] as const) {
+  registerToolResultView(tool, ({ rawInput, rawOutput, heading }) => {
+    const result = parseHistoryResult(rawOutput);
+    if (!result) return null;
+    const repo = stringField(rawInput, "repo");
+    return createElement(LazyGitHistoryResultCard, { result, heading: heading ?? title, repo: repo.startsWith("/") ? repo : undefined });
+  });
+}
 
 // What this module's tools that change something do, for the transcript's
 // always-visible cards (workbench/toolActivity.ts).

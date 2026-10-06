@@ -269,6 +269,15 @@ thứ được lưu:
 | `git.conflicts` | `git:read` | Danh sách file conflict + ba phiên bản của một file (FR-14) |
 | `git.resolve` | `git:write` | Ghi nội dung đã hợp nhất cho một file rồi `git add`. Không có `--abort` qua MCP: huỷ cả lượt merge là việc của người |
 | `git.push` | `git:push` | gate env; chặn default branch; không có `--force` |
+| `git.fetch` / `git.pull` | `git:write` | dùng account gắn với remote; pull chỉ `--ff-only` — nhánh đã lệch thì từ chối, rebase thay vì merge ngầm. Trả branch/upstream/ahead/behind |
+| `git.amend` / `git.squash` | `git:write` | chỉ trên commit **chưa push** (không remote-tracking ref nào chứa): không có force push nên viết lại commit đã push là tạo lịch sử không đẩy lên được. Squash giữ mọi `Task:` trailer, không gộp qua merge commit, work tree phải sạch |
+| `git.rebase` | `git:write` | không tương tác; mọi commit được replay phải chưa push. Dừng ở conflict → `git.resolve` rồi `action: continue`, hoặc `abort` để trả nhánh về y như cũ |
+| `git.cherryPick` / `git.revert` | `git:write` | thêm lịch sử nên được phép trên commit đã push; cherry-pick ghi `-x`. Conflict xử lý như rebase |
+
+Mọi tool viết lại/thêm lịch sử đi qua `git-guard` như commit (fail closed khi
+headless) và ghi commit bằng identity của account. Hook PreToolUse của Claude
+chặn `git pull` / `rebase` / `cherry-pick` / `revert` trong shell và chỉ sang
+tool tương ứng; `git fetch` trong shell vẫn để yên.
 
 Không có `git.reset --hard`, không có `git.remote.set`, không có
 `git.config`. Ba thứ đó là cách một agent làm mất việc của người khác mà lịch

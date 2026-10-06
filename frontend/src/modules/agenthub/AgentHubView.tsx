@@ -61,7 +61,10 @@ import { imageAttachmentFromFile } from "./imageAttachments";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
 import { EmptyState } from "@/components/ui/empty-state";
-import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAgentSession, useAgentDraftRequests } from "./documents";
+import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAgentSession, sessionTitle, useAgentDraftRequests } from "./documents";
+import { useSplitPanel } from "@/components/ui/split-panel";
+import { AgentActivityPanel, useFollowing } from "./follow";
+import { SubagentPanel, useSubagentPanel } from "./subagents";
 
 // Until the backend answers: the agents DevKit ships. The mock adapter is a
 // test double and is not offered.
@@ -383,6 +386,40 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   useEffect(() => {
     if (visible && tabSessionId) setActiveSessionId(tabSessionId);
   }, [visible, tabSessionId, setActiveSessionId]);
+
+  // Following this session: the module's right-hand pane shows what the agent
+  // changes in DevKit as it happens (follow.tsx). Only the tab on screen
+  // drives it, so switching tabs moves the pane to that session — or closes
+  // it, if that one is not followed. The panel reads the transcript itself,
+  // so it is handed one element per session, not one per streamed token.
+  const { openPanel, closePanel } = useSplitPanel();
+  const [following, toggleFollowing] = useFollowing(activeSession?.id);
+  const followedId = following ? activeSession?.id ?? "" : "";
+  const followedTitle = activeSession ? sessionTitle(activeSession) : "";
+  // A subagent opened from the sidebar goes in the same pane, ahead of the
+  // follow feed while it is open; closing it gives the pane back.
+  const openSubagent = useSubagentPanel((s) => s.open);
+  const closeSubagent = useSubagentPanel((s) => s.close);
+  const activeId = activeSession?.id ?? "";
+  const subagentId = openSubagent && openSubagent.sessionId === activeId ? openSubagent.subagentId : "";
+  useEffect(() => {
+    if (!visible) return;
+    if (subagentId && activeId) {
+      openPanel(<SubagentPanel sessionId={activeId} subagentId={subagentId} onClose={closeSubagent} />, {
+        width: 420,
+        onClose: closeSubagent,
+      });
+      return;
+    }
+    if (!followedId) {
+      closePanel();
+      return;
+    }
+    openPanel(<AgentActivityPanel sessionId={followedId} title={followedTitle} onStop={toggleFollowing} />, {
+      width: 400,
+      onClose: toggleFollowing,
+    });
+  }, [visible, subagentId, activeId, followedId, followedTitle, openPanel, closePanel, toggleFollowing, closeSubagent]);
 
   // A draft asked for from elsewhere — the sidebar's project or child "+" —
   // lands in the new-session tab, once it is on screen.

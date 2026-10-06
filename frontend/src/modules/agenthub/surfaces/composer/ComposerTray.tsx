@@ -204,9 +204,9 @@ const CHIP_MOTION = {
  *
  * `tone="attention"` is for something waiting on the person — a permission or
  * a question folded away to read the transcript — and pulses so it is not
- * forgotten there. `live` is for something working right now (subagents): its
- * icon beats like a heart, which is also all the icon-only strip has to say
- * it.
+ * forgotten there. Nothing else moves: a chip for work under way (subagents)
+ * says so with its count, and an icon beating beside the composer for the
+ * whole of a long run pulled the eye from what was being typed.
  */
 export function TrayChip({
   icon,
@@ -214,7 +214,6 @@ export function TrayChip({
   count,
   title,
   tone = "default",
-  live = false,
   active = false,
   onClick,
   testId,
@@ -224,7 +223,6 @@ export function TrayChip({
   count?: number;
   title?: string;
   tone?: "default" | "attention";
-  live?: boolean;
   active?: boolean;
   onClick?: () => void;
   testId?: string;
@@ -239,7 +237,6 @@ export function TrayChip({
         className={cn(
           "flex shrink-0 items-center [&_svg]:size-3.5",
           tone === "attention" ? "text-status-warning" : "text-icon-secondary",
-          live && "motion-safe:animate-heartbeat",
         )}
       >
         {icon}

@@ -88,19 +88,31 @@ func preToolUseDecision(raw []byte) map[string]any {
 var gitRedirects = map[string]string{
 	"commit": "DevKit runs git commits itself: stage with mcp__devkit__git_stage and commit with " +
 		"mcp__devkit__git_commit (pass `repo` for another service; mcp__devkit__git_repos lists them). " +
+		"To change the last commit use mcp__devkit__git_amend; to fold several into one, mcp__devkit__git_squash. " +
 		"The shell skips the branch guards and the task trailer DevKit applies.",
 	"push": "DevKit pushes for you: use mcp__devkit__git_push. It pushes a branch recorded on a task you " +
 		"hold (mcp__devkit__tasks_setFields) and asks the user where the remote requires it — the shell skips both.",
+	"pull": "DevKit pulls for you: use mcp__devkit__git_pull (fast-forward only; mcp__devkit__git_fetch just " +
+		"updates what the remote has). It authenticates with the account bound to the remote, which the shell " +
+		"does not have, and never starts a merge behind the user's back.",
+	"rebase": "DevKit rebases for you: use mcp__devkit__git_rebase (action start with `onto`, then continue or " +
+		"abort after a conflict; resolve with mcp__devkit__git_resolve). It replays only commits no remote has, " +
+		"since DevKit never force-pushes, and it honours the branch guards the shell skips.",
+	"cherry-pick": "DevKit cherry-picks for you: use mcp__devkit__git_cherryPick (commits oldest first; continue or " +
+		"abort after a conflict). It commits as the account's identity under the branch guards the shell skips.",
+	"revert": "DevKit reverts for you: use mcp__devkit__git_revert (commits newest first; continue or abort after a " +
+		"conflict). It commits as the account's identity under the branch guards the shell skips.",
 }
 
-// shellGitWrite reports which git write a shell command runs — "commit" or
-// "push" — or "".
+// shellGitWrite reports which git write a shell command runs — one of the
+// keys of gitRedirects — or "".
 //
-// These two are the ones DevKit's prompt says go through its tools, and the
+// These are the ones DevKit's prompt says go through its tools, and the
 // prompt alone did not hold: a real session committed with `git commit`
-// against it. They are also the two whose rules a shell bypasses — a guarded
+// against it. They are also the ones whose rules a shell bypasses — a guarded
 // branch's confirmation, the task trailer, the push-only-your-task's-branch
-// rule — so refusing them here is enforcing those rules, not a preference.
+// rule, rewriting only history no remote has — so refusing them here is
+// enforcing those rules, not a preference.
 // Everything else git does (status, diff, log, add, stash…) stays the
 // agent's to run as it likes.
 //
@@ -117,7 +129,7 @@ func shellGitWrite(toolName string, input map[string]any) string {
 	}
 	command, _ := input["command"].(string)
 	for _, segment := range shellSegments(command) {
-		if sub := gitSubcommand(strings.Fields(segment)); sub == "commit" || sub == "push" {
+		if sub := gitSubcommand(strings.Fields(segment)); gitRedirects[sub] != "" {
 			return sub
 		}
 	}

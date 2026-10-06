@@ -1,26 +1,44 @@
 import { useEffect, useState } from "react";
 
-import { gitRepositories } from "@/bridge/git";
+import { gitRepositories, type Repository } from "@/bridge/git";
 import { listBoards, listTasks, onTasksChanged, type Board, type Task } from "@/bridge/tasks";
 import { listWorkspaceServices, listWorkspaces } from "@/bridge/workspace";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 
-export type TrayWorkspace = { id: string; name: string; folders: number };
+export type TrayWorkspace = { id: string; name: string; folders: number; paths: string[] };
 
-/** A task the strip counts, with what the list beside it needs to say. */
-export type TrayTask = { task: Task; board: Board; statusName: string; active: boolean; mine: boolean };
+/**
+ * A task the tray lists, with what its row needs to say. `held`: this session
+ * has claimed it. `done`: it is in a terminal column — shown for the
+ * session's own tasks (what it finished is part of what it did), never for
+ * the rest of the workspace.
+ */
+export type TrayTask = { task: Task; board: Board; statusName: string; active: boolean; done: boolean; held: boolean };
 
 export type TrayStatus = {
   /** The workspace whose folders include this one, if any does. */
   workspace: TrayWorkspace | null;
   /** The branch the folder's repository is on; null outside a repository. */
   branch: string | null;
+  /**
+   * Every repository this work spans: under each folder of the workspace, or
+   * under the session's own folder outside one. A workspace of several
+   * services is several repositories, and the one branch above said nothing
+   * about any of them. `own` marks the one holding the session's folder.
+   */
+  repos: (Repository & { own: boolean })[];
   /** Whether any board is bound to the workspace — without one there is no task count to give. */
   hasBoards: boolean;
+  /** This session's tasks: the ones it holds, made, or moved. What the chip counts. */
   tasks: TrayTask[];
+  /** The workspace's other open tasks — there to pick up, not this session's. */
+  others: TrayTask[];
 };
 
-const EMPTY: TrayStatus = { workspace: null, branch: null, hasBoards: false, tasks: [] };
+type FoundTasks = Pick<TrayStatus, "hasBoards" | "tasks" | "others">;
+
+const NO_TASKS: FoundTasks = { hasBoards: false, tasks: [], others: [] };
+const EMPTY: TrayStatus = { workspace: null, branch: null, repos: [], ...NO_TASKS };
 
 function within(path: string, folder: string): boolean {
   const root = folder.replace(/[\\/]+$/, "");
@@ -39,44 +57,90 @@ async function findWorkspace(projectPath: string, currentId: string | null): Pro
   for (const workspace of ordered) {
     const services = await listWorkspaceServices(workspace.id);
     if (services.some((service) => within(projectPath, service.path))) {
-      return { id: workspace.id, name: workspace.name, folders: services.length };
+      return { id: workspace.id, name: workspace.name, folders: services.length, paths: services.map((s) => s.path) };
     }
   }
   return null;
 }
 
-async function findBranch(projectPath: string): Promise<string | null> {
-  const repos = await gitRepositories(projectPath);
-  const repo = repos.find((r) => r.path === projectPath) ?? (repos.length === 1 ? repos[0] : undefined);
-  if (!repo) return null;
+/**
+ * The repositories under every folder this work spans, read in parallel and
+ * once each (two services can sit in one repository). A folder that cannot be
+ * read leaves only itself out.
+ */
+async function findRepos(projectPath: string, folders: string[]): Promise<TrayStatus["repos"]> {
+  const roots = folders.length > 0 ? folders : [projectPath];
+  const lists = await Promise.all(roots.map((root) => gitRepositories(root).catch(() => [] as Repository[])));
+  const seen = new Set<string>();
+  const out: TrayStatus["repos"] = [];
+  for (const repo of lists.flat()) {
+    if (seen.has(repo.path)) continue;
+    seen.add(repo.path);
+    out.push({ ...repo, own: within(projectPath, repo.path) });
+  }
+  // The session's own repository first, then by name.
+  out.sort((a, b) => Number(b.own) - Number(a.own) || a.name.localeCompare(b.name));
+  return out;
+}
+
+/** The branch line for one repository. */
+export function repoBranch(repo: Pick<Repository, "branch" | "detached">): string | null {
   return repo.detached ? "detached" : repo.branch || null;
 }
 
 /**
- * The tasks worth counting for this work: every task still open or in
- * progress on a board bound to the workspace, those this session holds first.
- * A board's workflow names its statuses, so every rule reads a status's
- * category, never its name (a terminal column may be called anything).
+ * Whether a task is this session's: the session made it, or picked it up —
+ * holds it now, or claimed it before and has since let go or been taken over.
+ * Both are in the task's history (internal/tasks): its creation is the entry
+ * from "", a pick is an entry whose from and to are the same column. A task
+ * made by one session and picked by another is in both lists. Moving a task
+ * alone does not make it the mover's.
+ *
+ * Every session of a workspace used to be shown the same list, the whole
+ * workspace's, as if each were working on all of it.
  */
-async function findTasks(workspaceId: string, sessionId: string): Promise<{ hasBoards: boolean; tasks: TrayTask[] }> {
+export function sessionLinked(task: Pick<Task, "sessionId" | "history">, sessionId: string): boolean {
+  if (!sessionId) return false;
+  if (task.sessionId === sessionId) return true;
+  const author = `agent:${sessionId}`;
+  return (task.history ?? []).some(
+    (entry) => entry.by === author && (entry.from === "" || entry.from === entry.to),
+  );
+}
+
+/**
+ * The tasks for this work, split in two: this session's own, any status but
+ * archived — held first, then active, then open, then finished — and the
+ * rest of the workspace's still-open tasks. A board's workflow names its
+ * statuses, so every rule reads a status's category, never its name (a
+ * terminal column may be called anything).
+ */
+async function findTasks(workspaceId: string, sessionId: string): Promise<FoundTasks> {
   const boards = (await listBoards()).filter((board) => board.workspaceId === workspaceId);
   const lists = await Promise.all(boards.map((board) => listTasks(board.id).then((tasks) => ({ board, tasks }))));
-  const out: TrayTask[] = [];
+  const mine: TrayTask[] = [];
+  const others: TrayTask[] = [];
   for (const { board, tasks } of lists) {
     for (const task of tasks) {
       const status = board.workflow.statuses.find((s) => s.id === task.status);
-      if (task.archivedAt || !status || status.category === "terminal") continue;
-      out.push({
+      if (task.archivedAt || !status) continue;
+      const done = status.category === "terminal";
+      const row: TrayTask = {
         task,
         board,
         statusName: status.name,
         active: status.category === "active",
-        mine: Boolean(sessionId) && task.sessionId === sessionId,
-      });
+        done,
+        held: Boolean(sessionId) && task.sessionId === sessionId,
+      };
+      if (sessionLinked(task, sessionId)) mine.push(row);
+      else if (!done) others.push(row);
     }
   }
-  out.sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.active) - Number(a.active));
-  return { hasBoards: boards.length > 0, tasks: out };
+  const rank = (row: TrayTask) => (row.held ? 0 : row.active ? 1 : row.done ? 3 : 2);
+  mine.sort((a, b) => rank(a) - rank(b));
+  others.sort((a, b) => Number(b.active) - Number(a.active));
+  return { hasBoards: boards.length > 0, tasks: mine, others };
 }
 
 /**
@@ -93,8 +157,8 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [workspace, setWorkspace] = useState<TrayWorkspace | null>(null);
-  const [branch, setBranch] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<{ hasBoards: boolean; tasks: TrayTask[] }>({ hasBoards: false, tasks: [] });
+  const [repos, setRepos] = useState<TrayStatus["repos"]>([]);
+  const [tasks, setTasks] = useState<FoundTasks>(NO_TASKS);
   const [tasksVersion, setTasksVersion] = useState(0);
 
   useEffect(() => {
@@ -109,19 +173,22 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
     };
   }, [projectPath, currentId, servicesVersion]);
 
+  // Read again when the folders change and whenever refreshKey moves (a turn
+  // ended: the agent may have switched a branch or committed).
+  const folderKey = workspace?.paths.join("\n") ?? "";
   useEffect(() => {
     if (!projectPath) {
-      setBranch(null);
+      setRepos([]);
       return;
     }
     let live = true;
-    findBranch(projectPath)
-      .then((found) => live && setBranch(found))
-      .catch(() => live && setBranch(null));
+    findRepos(projectPath, folderKey ? folderKey.split("\n") : [])
+      .then((found) => live && setRepos(found))
+      .catch(() => live && setRepos([]));
     return () => {
       live = false;
     };
-  }, [projectPath, refreshKey]);
+  }, [projectPath, folderKey, refreshKey]);
 
   const workspaceId = workspace?.id ?? "";
   useEffect(() => {
@@ -132,14 +199,14 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
 
   useEffect(() => {
     if (!workspaceId) {
-      setTasks({ hasBoards: false, tasks: [] });
+      setTasks(NO_TASKS);
       return;
     }
     let live = true;
     const timer = setTimeout(() => {
       findTasks(workspaceId, sessionId)
         .then((found) => live && setTasks(found))
-        .catch(() => live && setTasks({ hasBoards: false, tasks: [] }));
+        .catch(() => live && setTasks(NO_TASKS));
     }, tasksVersion ? 150 : 0);
     return () => {
       live = false;
@@ -148,5 +215,6 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
   }, [workspaceId, sessionId, tasksVersion]);
 
   if (!projectPath) return EMPTY;
-  return { workspace, branch, hasBoards: tasks.hasBoards, tasks: tasks.tasks };
+  const own = repos.find((repo) => repo.own) ?? (repos.length === 1 ? repos[0] : undefined);
+  return { workspace, branch: own ? repoBranch(own) : null, repos, ...tasks };
 }

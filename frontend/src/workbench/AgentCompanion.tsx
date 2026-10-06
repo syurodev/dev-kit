@@ -21,6 +21,7 @@ import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
+import { useFollowToasts, useFollowing } from "@/modules/agenthub/follow";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -81,6 +82,10 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   // read the same way, since Claude never reports that through the vendor's
   // failure channel (see AgentContextMeter's rateLimitFailure).
   const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
+  // Following this session from outside Agent Hub: each change it finishes is
+  // a toast with Open — there is no pane here to fill (follow.tsx).
+  const [following] = useFollowing(session?.id);
+  useFollowToasts(session?.id ?? "", transcriptModel.items, visible && following);
 
   useEffect(() => {
     if (!visible || !session) return;

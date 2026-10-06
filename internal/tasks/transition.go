@@ -63,16 +63,24 @@ func (s *Service) applyTransition(id string, caller Caller, to string) (Task, er
 		if meta.Status == to {
 			return nil
 		}
-		meta.History = append(meta.History, Transition{
-			From: meta.Status, To: to, By: caller.Author(), At: at,
-		})
-		if len(meta.History) > HistoryLimit {
-			meta.History = meta.History[len(meta.History)-HistoryLimit:]
-		}
+		appendHistory(meta, Transition{From: meta.Status, To: to, By: caller.Author(), At: at})
 		meta.Status = to
 		return nil
 	})
 }
+
+// appendHistory adds one entry and keeps the history bounded.
+func appendHistory(meta *taskMetadata, entry Transition) {
+	meta.History = append(meta.History, entry)
+	if len(meta.History) > HistoryLimit {
+		meta.History = meta.History[len(meta.History)-HistoryLimit:]
+	}
+}
+
+// IsPick reports whether a history entry records a claim rather than a move:
+// From and To are the same column. A task's first entry, From "", is its
+// creation (Service.Create).
+func (t Transition) IsPick() bool { return t.From != "" && t.From == t.To }
 
 // Claim gives a task to an agent session.
 //
@@ -104,17 +112,26 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 	if !ok {
 		return Task{}, ErrInvalid
 	}
-	claimed, err := s.mutate(id, func(meta *taskMetadata) error {
+	// One write: the holder, the move into the first active column when the
+	// task is not in one, and — when this session did not already hold it — a
+	// pick in the history: an entry whose From and To are the same column.
+	// That is what keeps a task in the list of the session that picked it up
+	// after it lets go or another takes it over, beside the session that made
+	// it (Agent Hub's tray). A shape every version of the history already
+	// reads, not a new field the strict decoder would refuse on an older one.
+	at := s.now().UTC().Format(time.RFC3339)
+	picked := task.SessionID != caller.SessionID
+	return s.mutate(id, func(meta *taskMetadata) error {
 		meta.SessionID = caller.SessionID
+		if meta.Status != active {
+			appendHistory(meta, Transition{From: meta.Status, To: active, By: caller.Author(), At: at})
+			meta.Status = active
+		}
+		if picked {
+			appendHistory(meta, Transition{From: active, To: active, By: caller.Author(), At: at})
+		}
 		return nil
 	})
-	if err != nil {
-		return Task{}, err
-	}
-	if claimed.Status != active {
-		return s.applyTransition(id, caller, active)
-	}
-	return claimed, nil
 }
 
 // Release drops a claim without moving the task. A dead session's claim is

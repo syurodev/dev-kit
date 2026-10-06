@@ -119,3 +119,32 @@ describe("StepGroup with activities", () => {
     expect(html).not.toContain("step-activities");
   });
 });
+
+describe("git history activities", () => {
+  const head = { sha: "abc123def", short: "abc123d", subject: "feat: x" };
+
+  it("name the new head once a rebase finished, and the stop when it did not", () => {
+    const rebase = toolActivityOf("mcp__devkit__git_rebase")!;
+    expect(rebase.target({ name: "", rawInput: { onto: "main" }, rawOutput: undefined, state: "running" })).toEqual({ label: "onto main" });
+    expect(rebase.target({ name: "", rawInput: { onto: "main" }, rawOutput: { head }, state: "done" })?.ref).toMatchObject({ kind: "commit", id: "abc123def" });
+    expect(
+      rebase.target({ name: "", rawInput: { onto: "main" }, rawOutput: { head, stopped: "rebase", conflicted: ["a.go", "b.go"] }, state: "done" }),
+    ).toEqual({ label: "Stopped on 2 conflicts", detail: "a.go" });
+  });
+
+  it("count a squash and name picked commits", () => {
+    const squash = toolActivityOf("git.squash")!;
+    expect(squash.target({ name: "", rawInput: { count: 3 }, rawOutput: head, state: "done" })).toMatchObject({ label: "feat: x", detail: "3 commits · abc123d" });
+    const pick = toolActivityOf("git.cherryPick")!;
+    expect(pick.target({ name: "", rawInput: { commits: ["abc", "def"] }, rawOutput: undefined, state: "running" })).toEqual({ label: "abc +1" });
+    expect(toolActivityOf("git.revert")!.failed).toBe("Couldn't revert");
+  });
+
+  it("say where the branch stands after a pull", () => {
+    const pull = toolActivityOf("git.pull")!;
+    expect(pull.target({ name: "", rawInput: {}, rawOutput: { branch: "main", upstream: "origin/main", ahead: 0, behind: 0 }, state: "done" })).toEqual({
+      label: "main",
+      detail: "origin/main · up to date",
+    });
+  });
+});

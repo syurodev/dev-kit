@@ -14,6 +14,7 @@
  * later the follow panel, read.
  */
 
+import type * as React from "react";
 import type { EntityRef } from "./intents";
 import { createToolRegistry, type ToolResultInput } from "./toolResultViews";
 
@@ -62,6 +63,35 @@ export function registerToolActivity(name: string, activity: ToolActivity): () =
 /** The activity a call's tool declared, if it is one that changes something. */
 export function toolActivityOf(callName: string | undefined): ToolActivity | undefined {
   return activities.lookup(callName);
+}
+
+/**
+ * A live view of one entity, for Agent Hub's activity panel to show the thing
+ * an agent just made or changed — the task itself, not a card about it. The
+ * owning module renders it (lazily), keyed by the ref's module and kind, the
+ * same way it owns its result cards; null is "nothing to embed", and the
+ * panel keeps the card and its Open.
+ */
+export type EntityPreview = (ref: EntityRef) => React.ReactNode | null;
+
+const previews = new Map<string, EntityPreview>();
+
+export function registerEntityPreview(module: string, kind: string, render: EntityPreview): () => void {
+  const key = `${module}:${kind}`;
+  previews.set(key, render);
+  return () => {
+    if (previews.get(key) === render) previews.delete(key);
+  };
+}
+
+/** Whether the owning module offers a live view of this kind of entity. */
+export function hasEntityPreview(ref: Pick<EntityRef, "module" | "kind">): boolean {
+  return previews.has(`${ref.module}:${ref.kind}`);
+}
+
+/** The owning module's live view of `ref`, if it offers one. May suspend. */
+export function renderEntityPreview(ref: EntityRef): React.ReactNode | null {
+  return previews.get(`${ref.module}:${ref.kind}`)?.(ref) ?? null;
 }
 
 /** rawInput/rawOutput as an object, whether the transport parsed it or not. */

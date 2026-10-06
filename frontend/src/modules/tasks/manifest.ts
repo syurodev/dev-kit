@@ -5,6 +5,7 @@ import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { registerTaskActivities } from "./toolActivities";
+import { registerEntityPreview } from "@/workbench/toolActivity";
 import { parseTaskResult } from "./taskResult";
 
 export const tasksModule: ModuleManifest = {
@@ -96,3 +97,11 @@ for (const toolName of ["tasks.create", "tasks.get", "tasks.update", "tasks.tran
 // What this module's tools that change something do, for the transcript's
 // always-visible cards (workbench/toolActivity.ts).
 registerTaskActivities();
+
+/**
+ * A task, live, for Agent Hub's activity panel: the same detail the board's
+ * own side panel shows, which follows tasks:changed on its own — so a task an
+ * agent is moving or commenting on updates there as it happens.
+ */
+const LazyTaskDetail = lazy(() => import("./detail/TaskDetail").then(({ TaskDetail }) => ({ default: TaskDetail })));
+registerEntityPreview("tasks", "task", (ref) => createElement(LazyTaskDetail, { taskId: ref.id, layout: "panel" }));

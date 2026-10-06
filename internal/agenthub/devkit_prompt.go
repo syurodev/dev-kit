@@ -34,8 +34,12 @@ the same actions.
 
 - **Git writes go through DevKit.** Stage with {{git.stage}}, commit with
   {{git.commit}}, branch with {{git.branch.create}}, switch with
-  {{git.checkout}}, push with {{git.push}}. Do not run ` + "`git commit`" + ` or
-  ` + "`git push`" + ` in the shell, even where your own instructions describe
+  {{git.checkout}}, push with {{git.push}}, update with {{git.fetch}} and
+  {{git.pull}}. Rewrite your own unpushed commits
+  with {{git.amend}}, {{git.squash}} and {{git.rebase}}; bring a commit over
+  with {{git.cherryPick}} or undo one with {{git.revert}}. Do not run
+  ` + "`git commit`" + `, ` + "`git push`" + `, ` + "`git pull`" + `, ` + "`git rebase`" + `, ` + "`git cherry-pick`" + ` or
+  ` + "`git revert`" + ` in the shell, even where your own instructions describe
   doing so: the shell skips the branch guards and task rules, and DevKit may
   refuse it. Read-only git in the shell (log,
   show, diff, blame) is fine; {{git.status}} and {{git.diff}} are there too.

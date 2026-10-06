@@ -5,13 +5,19 @@ import { cn } from "@/lib/utils";
 import { Shimmer } from "@/components/ui/shimmer";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { currentStep, runningSubagents, stepCount } from "../turns";
-import type { TranscriptItem } from "../types";
+import type { Subagent, TranscriptItem } from "../types";
+import { sessionRunningSubagents } from "../subagents";
 import { SubagentActivity } from "./AgentTurn";
 
 export type AgentSubagentTrackerProps = {
   items: TranscriptItem[];
-  /** A turn is running. Only then is a subagent without an end still running. */
+  /** A turn is running: the transcript's own count of who is running is trusted only then. */
   live: boolean;
+  /**
+   * The session's tracked subagents (the store's `subagents`): what says one
+   * is still running after the lead agent's turn has ended to wait for it.
+   */
+  tracked?: readonly Subagent[];
   onOpenFile?: (path: string, line?: number) => void;
   /**
    * "tray": the list only, for the composer tray's panel — the tray is the
@@ -33,10 +39,10 @@ export type AgentSubagentTrackerProps = {
  *
  * Nothing is drawn when none is running, so it costs an idle session nothing.
  */
-export function AgentSubagentTracker({ items, live, onOpenFile, variant = "card", className }: AgentSubagentTrackerProps) {
+export function AgentSubagentTracker({ items, live, tracked, onOpenFile, variant = "card", className }: AgentSubagentTrackerProps) {
   const { running, activity } = React.useMemo(
-    () => (live ? runningSubagents(items) : { running: [], activity: {} }),
-    [items, live],
+    () => ({ running: sessionRunningSubagents(items, tracked, live), activity: runningSubagents(items).activity }),
+    [items, tracked, live],
   );
   const [openId, setOpenId] = React.useState<string | null>(null);
   if (running.length === 0) return null;
