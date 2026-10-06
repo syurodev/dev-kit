@@ -42,3 +42,32 @@ describe("a session's tasks", () => {
     expect(html).toContain("No tasks from this session yet");
   });
 });
+
+describe("the tray's repositories", () => {
+  const repo = (name: string, patch: Record<string, unknown> = {}) => ({
+    path: `/ws/${name}`, name, branch: "main", detached: false, ahead: 0, behind: 0, changed: 0, conflicted: 0, error: "", own: false, ...patch,
+  });
+
+  it("lists every repository of a multi-repo workspace with what needs attention", async () => {
+    const { TrayRepoList } = await import("./agentTray");
+    const html = renderToString(
+      <TrayRepoList
+        repos={[
+          repo("api", { own: true, ahead: 2, changed: 3 }),
+          repo("web", { branch: "feature/x", behind: 1 }),
+          repo("infra", { conflicted: 1 }),
+          repo("broken", { error: "not a git repository" }),
+        ]}
+      />,
+    );
+    expect(html.match(/data-testid="tray-repo"/g)?.length).toBe(4);
+    expect(html).toContain("this session");
+    expect(html).toContain("↑2");
+    expect(html).toContain("3 changed");
+    expect(html).toContain("feature/x");
+    expect(html).toContain("↓1");
+    expect(html).toContain("1 conflicted");
+    expect(html).toContain("unreadable");
+    expect(html).toContain("clean");
+  });
+});

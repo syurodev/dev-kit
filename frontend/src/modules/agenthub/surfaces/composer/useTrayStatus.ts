@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
-import { gitRepositories } from "@/bridge/git";
+import { gitRepositories, type Repository } from "@/bridge/git";
 import { listBoards, listTasks, onTasksChanged, type Board, type Task } from "@/bridge/tasks";
 import { listWorkspaceServices, listWorkspaces } from "@/bridge/workspace";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 
-export type TrayWorkspace = { id: string; name: string; folders: number };
+export type TrayWorkspace = { id: string; name: string; folders: number; paths: string[] };
 
 /**
  * A task the tray lists, with what its row needs to say. `held`: this session
@@ -20,6 +20,13 @@ export type TrayStatus = {
   workspace: TrayWorkspace | null;
   /** The branch the folder's repository is on; null outside a repository. */
   branch: string | null;
+  /**
+   * Every repository this work spans: under each folder of the workspace, or
+   * under the session's own folder outside one. A workspace of several
+   * services is several repositories, and the one branch above said nothing
+   * about any of them. `own` marks the one holding the session's folder.
+   */
+  repos: (Repository & { own: boolean })[];
   /** Whether any board is bound to the workspace — without one there is no task count to give. */
   hasBoards: boolean;
   /** This session's tasks: the ones it holds, made, or moved. What the chip counts. */
@@ -31,7 +38,7 @@ export type TrayStatus = {
 type FoundTasks = Pick<TrayStatus, "hasBoards" | "tasks" | "others">;
 
 const NO_TASKS: FoundTasks = { hasBoards: false, tasks: [], others: [] };
-const EMPTY: TrayStatus = { workspace: null, branch: null, ...NO_TASKS };
+const EMPTY: TrayStatus = { workspace: null, branch: null, repos: [], ...NO_TASKS };
 
 function within(path: string, folder: string): boolean {
   const root = folder.replace(/[\\/]+$/, "");
@@ -50,16 +57,34 @@ async function findWorkspace(projectPath: string, currentId: string | null): Pro
   for (const workspace of ordered) {
     const services = await listWorkspaceServices(workspace.id);
     if (services.some((service) => within(projectPath, service.path))) {
-      return { id: workspace.id, name: workspace.name, folders: services.length };
+      return { id: workspace.id, name: workspace.name, folders: services.length, paths: services.map((s) => s.path) };
     }
   }
   return null;
 }
 
-async function findBranch(projectPath: string): Promise<string | null> {
-  const repos = await gitRepositories(projectPath);
-  const repo = repos.find((r) => r.path === projectPath) ?? (repos.length === 1 ? repos[0] : undefined);
-  if (!repo) return null;
+/**
+ * The repositories under every folder this work spans, read in parallel and
+ * once each (two services can sit in one repository). A folder that cannot be
+ * read leaves only itself out.
+ */
+async function findRepos(projectPath: string, folders: string[]): Promise<TrayStatus["repos"]> {
+  const roots = folders.length > 0 ? folders : [projectPath];
+  const lists = await Promise.all(roots.map((root) => gitRepositories(root).catch(() => [] as Repository[])));
+  const seen = new Set<string>();
+  const out: TrayStatus["repos"] = [];
+  for (const repo of lists.flat()) {
+    if (seen.has(repo.path)) continue;
+    seen.add(repo.path);
+    out.push({ ...repo, own: within(projectPath, repo.path) });
+  }
+  // The session's own repository first, then by name.
+  out.sort((a, b) => Number(b.own) - Number(a.own) || a.name.localeCompare(b.name));
+  return out;
+}
+
+/** The branch line for one repository. */
+export function repoBranch(repo: Pick<Repository, "branch" | "detached">): string | null {
   return repo.detached ? "detached" : repo.branch || null;
 }
 
@@ -126,7 +151,7 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [workspace, setWorkspace] = useState<TrayWorkspace | null>(null);
-  const [branch, setBranch] = useState<string | null>(null);
+  const [repos, setRepos] = useState<TrayStatus["repos"]>([]);
   const [tasks, setTasks] = useState<FoundTasks>(NO_TASKS);
   const [tasksVersion, setTasksVersion] = useState(0);
 
@@ -142,19 +167,22 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
     };
   }, [projectPath, currentId, servicesVersion]);
 
+  // Read again when the folders change and whenever refreshKey moves (a turn
+  // ended: the agent may have switched a branch or committed).
+  const folderKey = workspace?.paths.join("\n") ?? "";
   useEffect(() => {
     if (!projectPath) {
-      setBranch(null);
+      setRepos([]);
       return;
     }
     let live = true;
-    findBranch(projectPath)
-      .then((found) => live && setBranch(found))
-      .catch(() => live && setBranch(null));
+    findRepos(projectPath, folderKey ? folderKey.split("\n") : [])
+      .then((found) => live && setRepos(found))
+      .catch(() => live && setRepos([]));
     return () => {
       live = false;
     };
-  }, [projectPath, refreshKey]);
+  }, [projectPath, folderKey, refreshKey]);
 
   const workspaceId = workspace?.id ?? "";
   useEffect(() => {
@@ -181,5 +209,6 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
   }, [workspaceId, sessionId, tasksVersion]);
 
   if (!projectPath) return EMPTY;
-  return { workspace, branch, ...tasks };
+  const own = repos.find((repo) => repo.own) ?? (repos.length === 1 ? repos[0] : undefined);
+  return { workspace, branch: own ? repoBranch(own) : null, repos, ...tasks };
 }

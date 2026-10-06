@@ -10,7 +10,7 @@ import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
 import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
-import { useTrayStatus, type TrayTask } from "./useTrayStatus";
+import { repoBranch, useTrayStatus, type TrayStatus, type TrayTask } from "./useTrayStatus";
 
 export type AgentTrayInput = {
   size: "wide" | "rail";
@@ -36,7 +36,7 @@ export type AgentTrayInput = {
   } | null;
 };
 
-type Opened = "subagents" | "tasks" | null;
+type Opened = "subagents" | "tasks" | "repos" | null;
 
 function folderName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
@@ -81,7 +81,13 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
   // A panel opened from a chip whose subject has gone (the last subagent
   // finished) closes with it rather than showing an empty list.
   const openedNow: Opened =
-    opened === "subagents" && running === 0 ? null : opened === "tasks" && !status.hasBoards ? null : opened;
+    opened === "subagents" && running === 0
+      ? null
+      : opened === "tasks" && !status.hasBoards
+        ? null
+        : opened === "repos" && status.repos.length === 0
+          ? null
+          : opened;
 
   let panel: TrayPanel | null = null;
   if (permissionOpen) {
@@ -122,6 +128,8 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
       key: "subagents",
       content: <AgentSubagentTracker items={items} live={live} onOpenFile={onOpenFile} variant="tray" />,
     };
+  } else if (openedNow === "repos") {
+    panel = { key: "repos", content: <TrayRepoList repos={status.repos} /> };
   } else if (openedNow === "tasks") {
     panel = { key: "tasks", content: <TrayTaskList tasks={status.tasks} others={status.others} session={Boolean(session)} /> };
   }
@@ -147,8 +155,20 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
           title={projectPath || undefined}
         />
       )}
-      {status.branch ? (
-        <TrayChip key="branch" testId="tray-branch" icon={<GitBranch />} label={status.branch} title={`Branch ${status.branch}`} />
+      {status.repos.length > 0 ? (
+        <TrayChip
+          key="branch"
+          testId="tray-branch"
+          icon={<GitBranch />}
+          // One repository: its branch, as it always was. Several (a workspace
+          // of services): how many, with what needs attention — the single
+          // branch said nothing about any of them.
+          label={status.repos.length === 1 ? (status.branch ?? status.repos[0].name) : `${status.repos.length} repos`}
+          count={repoAttention(status.repos) || undefined}
+          title={repoTitle(status.repos, status.branch)}
+          active={panel?.key === "repos"}
+          onClick={() => toggle("repos")}
+        />
       ) : null}
       {status.hasBoards ? (
         <TrayChip
@@ -282,6 +302,74 @@ function TrayTaskRows({ tasks, testId }: { tasks: TrayTask[]; testId: string }) 
               )}
             >
               {statusName}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type TrayRepo = TrayStatus["repos"][number];
+
+/** Repositories with something to look at: changes or conflicts. */
+function repoAttention(repos: TrayRepo[]): number {
+  return repos.filter((repo) => repo.changed > 0 || repo.conflicted > 0).length;
+}
+
+function repoTitle(repos: TrayRepo[], branch: string | null): string {
+  if (repos.length === 1) return branch ? `Branch ${branch}` : repos[0].name;
+  const dirty = repoAttention(repos);
+  return `${repos.length} repositories${dirty ? ` · ${dirty} with changes` : ""}`;
+}
+
+/**
+ * Every repository this work spans, one row each: branch, how far it is from
+ * its upstream, what is changed. A row opens Git's Changes on that
+ * repository (git.reveal), beside the conversation.
+ */
+export function TrayRepoList({ repos }: { repos: TrayRepo[] }) {
+  return (
+    <ul data-testid="tray-repo-list" className="flex max-h-64 flex-col overflow-y-auto p-1">
+      {repos.map((repo) => (
+        <li key={repo.path}>
+          <button
+            type="button"
+            data-testid="tray-repo"
+            title={repo.error || repo.path}
+            onClick={() =>
+              void dispatchIntent(
+                "git.reveal",
+                { module: "git", kind: "worktree", id: repo.path, label: repo.name },
+                { placement: "beside" },
+              )
+            }
+            className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 text-left text-body-13 hover:bg-state-soft"
+          >
+            <span className="min-w-0 shrink truncate text-text-primary">{repo.name}</span>
+            {repo.own ? (
+              <span className="shrink-0 rounded-full bg-state-soft px-1.5 text-caption-11 text-text-secondary">this session</span>
+            ) : null}
+            <span className="ml-auto flex shrink-0 items-center gap-2 text-caption-11 tabular-nums">
+              {repo.error ? (
+                <span className="text-status-danger">unreadable</span>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1 font-mono text-code-11 text-text-secondary">
+                    <GitBranch className="size-3" aria-hidden="true" />
+                    {repoBranch(repo) ?? "—"}
+                  </span>
+                  {repo.ahead ? <span className="text-text-tertiary">{`↑${repo.ahead}`}</span> : null}
+                  {repo.behind ? <span className="text-text-tertiary">{`↓${repo.behind}`}</span> : null}
+                  {repo.conflicted ? (
+                    <span className="text-status-danger">{`${repo.conflicted} conflicted`}</span>
+                  ) : repo.changed ? (
+                    <span className="text-status-warning">{`${repo.changed} changed`}</span>
+                  ) : (
+                    <span className="text-text-tertiary">clean</span>
+                  )}
+                </>
+              )}
             </span>
           </button>
         </li>

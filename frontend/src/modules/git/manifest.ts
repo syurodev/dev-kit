@@ -69,7 +69,10 @@ export const gitModule: ModuleManifest = {
  * internal/agenthub/attachedref.go's own ref kind for a git commit.
  *
  * `kind: "worktree"` opens Changes and its composer. Staged and unstaged
- * files can then be reviewed in the diff viewer.
+ * files can then be reviewed in the diff viewer. With an `id` it is that
+ * repository's path: Git is pinned to it first (the work folder's pin, the
+ * same one Git's own folder picker sets), so a workspace of several
+ * repositories can be opened at the one asked about.
  */
 registerIntent(
   "git.reveal",
@@ -81,6 +84,10 @@ registerIntent(
       return;
     }
     if (ref.kind === "worktree") {
+      if (ref.id) {
+        const { pinWorkFolder } = await import("@/bridge/workfolder");
+        await pinWorkFolder("git", ref.id).catch(() => undefined);
+      }
       const { openChanges } = await import("./documents");
       openChanges({ beside });
     }
