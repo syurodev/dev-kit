@@ -115,7 +115,11 @@ function HistoryList({ board, history }: { board: Board; history: readonly Trans
           key={`${entry.at}-${index}`}
           className="flex h-8 items-center gap-2 border-t border-border-subtle first:border-t-0"
         >
-          <span className="text-body-12 text-text-secondary">{statusLabel(board, entry.from)}</span>
+          {/* A move from nothing is the task being made (internal/tasks:
+              Create records who made it as its first entry). */}
+          <span className="text-body-12 text-text-secondary">
+            {entry.from ? statusLabel(board, entry.from) : "Created"}
+          </span>
           <ArrowRight aria-hidden className="size-(--icon-12) text-text-tertiary" />
           <span className="text-label-12 text-text-primary">{statusLabel(board, entry.to)}</span>
           <span className="ml-auto">

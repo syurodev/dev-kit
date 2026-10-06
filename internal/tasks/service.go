@@ -285,6 +285,13 @@ func (s *Service) Create(caller Caller, in CreateInput) (Task, error) {
 		BoardID: in.BoardID, Key: Key(board.KeyPrefix, id), Title: in.Title,
 		Status: first, Priority: in.Priority, Labels: in.Labels,
 		Assignee: in.Assignee, ParentID: in.ParentID, PlanNodeID: in.PlanNodeID,
+		// Who made it, as the first entry of its history: a move from nothing
+		// into the first column. In the history rather than a field of its own
+		// because the metadata decoder is strict — an older DevKit on another
+		// device would refuse a record with a field it does not know — and a
+		// transition is a shape every version already reads. It is what lets
+		// Agent Hub show a session the tasks it made, not the whole board.
+		History: []Transition{{From: "", To: first, By: caller.Author(), At: s.now().UTC().Format(time.RFC3339)}},
 	}
 	raw, err := json.Marshal(meta)
 	if err != nil {

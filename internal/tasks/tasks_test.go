@@ -125,11 +125,31 @@ func TestAgentMovesFreelyBelowTerminal(t *testing.T) {
 		}
 	}
 	after, _ := svc.Get(user, task.ID)
-	if len(after.History) != 3 {
+	// The creation, then the three moves.
+	if len(after.History) != 4 {
 		t.Fatalf("history = %+v", after.History)
 	}
-	if after.History[0].By != "agent:sess-1" {
-		t.Fatalf("history author = %q", after.History[0].By)
+	if created := after.History[0]; created.From != "" || created.To != "todo" || created.By != "user" {
+		t.Fatalf("creation entry = %+v", created)
+	}
+	if after.History[1].By != "agent:sess-1" {
+		t.Fatalf("history author = %q", after.History[1].By)
+	}
+}
+
+func TestATaskRecordsWhoCreatedIt(t *testing.T) {
+	svc, _ := newService(t)
+	board := newBoard(t, svc)
+	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "made by an agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(task.History) != 1 || task.History[0].From != "" || task.History[0].By != "agent:sess-1" {
+		t.Fatalf("history = %+v, want one creation entry by the agent", task.History)
+	}
+	listed, err := svc.List(user, ListInput{BoardID: board.ID})
+	if err != nil || len(listed) != 1 || len(listed[0].History) != 1 {
+		t.Fatalf("a list carries the creation too: %+v, %v", listed, err)
 	}
 }
 

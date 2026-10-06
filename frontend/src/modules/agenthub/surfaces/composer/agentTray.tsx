@@ -123,10 +123,9 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
       content: <AgentSubagentTracker items={items} live={live} onOpenFile={onOpenFile} variant="tray" />,
     };
   } else if (openedNow === "tasks") {
-    panel = { key: "tasks", content: <TrayTaskList tasks={status.tasks} /> };
+    panel = { key: "tasks", content: <TrayTaskList tasks={status.tasks} others={status.others} session={Boolean(session)} /> };
   }
 
-  const mine = status.tasks.filter((t) => t.mine).length;
   const strip = (
     <TrayChips>
       {leading ? (
@@ -157,8 +156,14 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
           testId="tray-tasks"
           icon={<ListTodo />}
           label="tasks"
-          count={status.tasks.length}
-          title={`${status.tasks.length} open task${status.tasks.length === 1 ? "" : "s"} in this workspace${mine ? ` · ${mine} held by this session` : ""}`}
+          // This session's tasks, not the workspace's: every session of a
+          // workspace used to show the same number.
+          count={session ? status.tasks.length : status.others.length}
+          title={
+            session
+              ? `${status.tasks.length} task${status.tasks.length === 1 ? "" : "s"} from this session · ${status.others.length} other open in the workspace`
+              : `${status.others.length} open task${status.others.length === 1 ? "" : "s"} in this workspace`
+          }
           active={panel?.key === "tasks"}
           onClick={() => toggle("tasks")}
         />
@@ -171,7 +176,6 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
           label={running === 1 ? "subagent" : "subagents"}
           count={running}
           title={`${running} subagent${running === 1 ? "" : "s"} running`}
-          live
           active={panel?.key === "subagents"}
           onClick={() => toggle("subagents")}
         />
@@ -215,20 +219,48 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
 }
 
 /**
- * The workspace's open tasks, this session's first. A row opens the task beside
- * the conversation (tasks.reveal), the way a file mentioned in it does.
+ * This session's tasks, then — apart, under their own label — the rest of the
+ * workspace's open ones. A row opens the task beside the conversation
+ * (tasks.reveal), the way a file mentioned in it does.
  */
-function TrayTaskList({ tasks }: { tasks: TrayTask[] }) {
-  if (tasks.length === 0) {
+export function TrayTaskList({ tasks, others, session }: { tasks: TrayTask[]; others: TrayTask[]; session: boolean }) {
+  if (tasks.length === 0 && others.length === 0) {
     return <p className="flex h-8 items-center px-3 text-body-13 text-text-tertiary">No open tasks on this workspace's boards</p>;
   }
   return (
-    <ul data-testid="tray-task-list" className="flex max-h-64 flex-col overflow-y-auto p-1">
-      {tasks.map(({ task, statusName, active, mine }) => (
+    <div data-testid="tray-task-list" className="flex max-h-64 flex-col overflow-y-auto p-1">
+      {session ? (
+        <>
+          <TrayTaskHeading>This session</TrayTaskHeading>
+          {tasks.length > 0 ? (
+            <TrayTaskRows tasks={tasks} testId="tray-task" />
+          ) : (
+            <p className="flex h-7 items-center px-2 text-body-13 text-text-tertiary">No tasks from this session yet</p>
+          )}
+        </>
+      ) : null}
+      {others.length > 0 ? (
+        <>
+          {session ? <TrayTaskHeading>Open in the workspace</TrayTaskHeading> : null}
+          <TrayTaskRows tasks={others} testId="tray-task-other" />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function TrayTaskHeading({ children }: { children: React.ReactNode }) {
+  return <p className="px-2 pt-1.5 pb-0.5 text-caption-11-medium text-text-tertiary">{children}</p>;
+}
+
+function TrayTaskRows({ tasks, testId }: { tasks: TrayTask[]; testId: string }) {
+  return (
+    <ul className="flex flex-col">
+      {tasks.map(({ task, statusName, active, done, held }) => (
         <li key={task.id}>
           <button
             type="button"
-            data-testid="tray-task"
+            data-testid={testId}
             onClick={() =>
               void dispatchIntent(
                 "tasks.reveal",
@@ -240,10 +272,15 @@ function TrayTaskList({ tasks }: { tasks: TrayTask[] }) {
           >
             <span className="shrink-0 font-mono text-code-11 text-text-tertiary">{task.key}</span>
             <span className="min-w-0 flex-1 truncate text-text-primary">{task.title}</span>
-            {mine ? (
-              <span className="shrink-0 rounded-full bg-state-soft px-1.5 text-caption-11 text-text-secondary">this session</span>
+            {held ? (
+              <span className="shrink-0 rounded-full bg-state-soft px-1.5 text-caption-11 text-text-secondary">held</span>
             ) : null}
-            <span className={cn("shrink-0 text-caption-11", active ? "text-status-info" : "text-text-tertiary")}>
+            <span
+              className={cn(
+                "shrink-0 text-caption-11",
+                active ? "text-status-info" : done ? "text-status-success" : "text-text-tertiary",
+              )}
+            >
               {statusName}
             </span>
           </button>
