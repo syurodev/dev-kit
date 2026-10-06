@@ -120,7 +120,38 @@ const PRELOAD_MARGIN_PX = 120;
 
 /** Transcript turns are variable-height, so large histories need real windowing. */
 export const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 300;
+/**
+ * Turns are not equal: forty of them can be 3,000 rows and 60,000 DOM nodes,
+ * and every layout of the pane around the transcript (a panel or the terminal
+ * opening, a window resize) pays for all of them even when only one is on
+ * screen. Counting turns alone left a session of a few dozen heavy turns
+ * entirely mounted, so the weight — the rows held — decides as well.
+ */
+export const TRANSCRIPT_VIRTUALIZE_ITEMS = 200;
 export const TRANSCRIPT_OVERSCAN = 6;
+/**
+ * Overscan counts rows, and a row is a whole turn. Past the point where the
+ * rows are heavy, six on each side is a dozen turns of DOM around a viewport
+ * that shows one.
+ */
+export const TRANSCRIPT_HEAVY_OVERSCAN = 2;
+
+export function shouldVirtualizeTranscript(turnCount: number, itemCount: number): boolean {
+  return turnCount > TRANSCRIPT_VIRTUALIZE_THRESHOLD || itemCount > TRANSCRIPT_VIRTUALIZE_ITEMS;
+}
+
+/**
+ * A row's height before it is measured. Close enough that the scrollbar does
+ * not lurch when a heavy turn lands in the window: a folded run of steps is a
+ * line, what the agent said between them is a paragraph, an answer is its text.
+ */
+export function estimateTurnSize(turn: Turn | undefined): number {
+  if (!turn) return 180;
+  let size = 96;
+  for (const item of turn.work) size += item.text ? 72 : 10;
+  for (const item of turn.answer) size += 24 + Math.min(item.text?.length ?? 0, 6000) / 4;
+  return Math.min(size, 4000);
+}
 
 /**
  * TranscriptStream
@@ -218,7 +249,8 @@ export function TranscriptStream({
   // inserted, so the line being read does not jump.
   const prependAnchorRef = useRef<PrependAnchor | null>(null);
 
-  const virtualized = turns.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
+  const virtualized = shouldVirtualizeTranscript(turns.length, items.length);
+  const overscan = turns.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD ? TRANSCRIPT_OVERSCAN : TRANSCRIPT_HEAVY_OVERSCAN;
   // virtual-core rebuilds every measurement (O(turns)) when the key function
   // changes identity, and a new closure per render did that on every flush.
   // The keys only change when turns are prepended, appended or replaced, and
@@ -245,8 +277,8 @@ export function TranscriptStream({
     getScrollElement: () => scrollRef.current,
     getItemKey,
     scrollMargin,
-    estimateSize: () => 180,
-    overscan: TRANSCRIPT_OVERSCAN,
+    estimateSize: (index) => estimateTurnSize(turns[index]),
+    overscan,
     paddingStart: virtualized && hasMore && items.length > 0 ? 40 : 0,
     initialRect: { width: 0, height: 800 },
   });
