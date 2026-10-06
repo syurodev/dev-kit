@@ -580,9 +580,12 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
 - **Closing a task is the one gate.** A board may declare a `verify` command;
   DevKit runs it and the exit code decides. An agent's own claim that tests
   passed is a sentence with nothing behind it — DevKit cannot see the tools it
-  ran. A red result refuses and does **not** fall back to asking. Boards are
-  `tasks:admin` and UI-only, so an agent can trigger the command and never
-  choose it. Runs are background, one per project (they share a work tree),
+  ran. A red result refuses and does **not** fall back to asking. Changing a
+  board (workflow, verify, binding) is `tasks:admin` and UI-only, so an agent
+  can trigger the command and never choose it. An agent may *create* a board
+  (`tasks.board.create`, `tasks:write` `board:new`): it gets no verify command
+  — its gate is the person's confirmation — and is bound only into one of the
+  session's own workspaces (`tasks.Service.CreateBoardFor`). Runs are background, one per project (they share a work tree),
   queued durably in `task_verify_runs`; `Recover` puts an interrupted run back
   to `queued` and never infers a result, and a request older than 24h goes
   stale rather than grading code it was never made against.

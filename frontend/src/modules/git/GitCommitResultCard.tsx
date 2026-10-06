@@ -4,12 +4,12 @@ import { dispatchIntent } from "@/workbench/intents";
 import type { CommitResult } from "./commitResult";
 
 /** `git.commit` — the commit made: its subject, its SHA, and a way to its diff. */
-export function GitCommitResultCard({ commit }: { commit: CommitResult }) {
+export function GitCommitResultCard({ commit, heading }: { commit: CommitResult; heading?: string }) {
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader
         icon={GitCommitHorizontal}
-        title="Commit"
+        title={heading ?? "Commit"}
         meta={<span className="text-code-11">{commit.short}</span>}
         action={
           <FramedCardAction

@@ -99,6 +99,15 @@ function toToolState(status?: string): ToolState {
   }
 }
 
+/**
+ * The three states an activity card draws (workbench/toolActivity.ts): queued,
+ * running and awaiting permission are all "under way" to someone watching.
+ */
+export function toolActivityState(status?: string): "running" | "done" | "failed" {
+  const state = toToolState(status);
+  return state === "done" ? "done" : state === "failed" ? "failed" : "running";
+}
+
 const DOT: Record<ToolState, string> = {
   pending: "border border-text-tertiary",
   running: "bg-status-info",
@@ -336,7 +345,11 @@ export function AgentToolCall({
       ) : null}
 
       {toolResultNode ? (
-        <div data-testid="tool-call-result-view">{toolResultNode}</div>
+        // The card may load lazily (registerToolResultView); this boundary
+        // keeps a suspending card to itself rather than the whole transcript.
+        <div data-testid="tool-call-result-view">
+          <React.Suspense fallback={null}>{toolResultNode}</React.Suspense>
+        </div>
       ) : (
         <>
           {content.map((item, idx) => {

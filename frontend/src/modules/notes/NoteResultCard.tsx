@@ -8,12 +8,12 @@ import type { NoteResult } from "./noteResult";
  * body: that is decrypted vault data, and less of it on screen than the raw
  * JSON used to show is the point.
  */
-export function NoteResultCard({ note }: { note: NoteResult }) {
+export function NoteResultCard({ note, heading }: { note: NoteResult; heading?: string }) {
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader
         icon={FileText}
-        title="Note"
+        title={heading ?? "Note"}
         action={
           <FramedCardAction
             onClick={() =>

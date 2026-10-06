@@ -23,5 +23,10 @@ function isTaskResult(value: unknown): value is TaskResult {
  */
 export function parseTaskResult(rawOutput: unknown): TaskResult | null {
   const parsed = parseToolOutput(rawOutput);
-  return isTaskResult(parsed) ? parsed : null;
+  if (isTaskResult(parsed)) return parsed;
+  // tasks.transition answers with a TransitionResult — the task under `task`,
+  // beside whether a verify run now decides the close. Read as a bare Task it
+  // matched nothing, and its card fell back to JSON every time.
+  const task = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).task : undefined;
+  return isTaskResult(task) ? task : null;
 }

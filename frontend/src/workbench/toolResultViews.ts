@@ -24,6 +24,12 @@ export type ToolResultInput = {
   name: string;
   rawInput: unknown;
   rawOutput: unknown;
+  /**
+   * What the transcript calls this call when it draws the card on its own —
+   * the activity's verb, "Created task" (./toolActivity.ts). A card puts it
+   * in place of its noun ("Task"); unset inside a run's fold.
+   */
+  heading?: string;
 };
 
 export type ToolResultRenderer = (input: ToolResultInput) => React.ReactNode | null;
@@ -44,27 +50,48 @@ function wireForm(name: string): string {
   return WIRE_PREFIX + name.split(".").join("_");
 }
 
-const byExactName = new Map<string, ToolResultRenderer>();
-const byWireName = new Map<string, ToolResultRenderer>();
+/**
+ * Something registered per DevKit tool, found again from the name a vendor
+ * reports — its own form or the wire-mangled one. Shared by this registry and
+ * ./toolActivity.ts, so both answer for exactly the same names.
+ */
+export function createToolRegistry<T>() {
+  const byExactName = new Map<string, T>();
+  const byWireName = new Map<string, T>();
+  return {
+    register(name: string, value: T): () => void {
+      byExactName.set(name, value);
+      byWireName.set(wireForm(name), value);
+      return () => {
+        if (byExactName.get(name) === value) byExactName.delete(name);
+        if (byWireName.get(wireForm(name)) === value) byWireName.delete(wireForm(name));
+      };
+    },
+    lookup(callName: string | undefined): T | undefined {
+      if (!callName) return undefined;
+      return byWireName.get(callName) ?? byExactName.get(callName);
+    },
+  };
+}
+
+const views = createToolRegistry<ToolResultRenderer>();
 
 /**
  * Registers a renderer for the tool named `name` — the Go source's own
  * `Name:` field (e.g. "codegraph.getApiFlow"), not the mangled wire form.
  * Registered in the owning module's manifest.ts (rule 6: the module that
  * owns the tool registers it), which is eager — the renderer component
- * itself should still load lazily. Registering a name twice replaces it.
+ * itself should still load lazily, and may suspend while it does: the caller
+ * of renderToolResult provides the Suspense boundary, so the transcript can
+ * keep what was on screen (the running card) as the fallback instead of an
+ * empty gap. Registering a name twice replaces it.
  */
 export function registerToolResultView(name: string, renderer: ToolResultRenderer): () => void {
-  byExactName.set(name, renderer);
-  byWireName.set(wireForm(name), renderer);
-  return () => {
-    if (byExactName.get(name) === renderer) byExactName.delete(name);
-    if (byWireName.get(wireForm(name)) === renderer) byWireName.delete(wireForm(name));
-  };
+  return views.register(name, renderer);
 }
 
 function lookup(callName: string): ToolResultRenderer | undefined {
-  return byWireName.get(callName) ?? byExactName.get(callName);
+  return views.lookup(callName);
 }
 
 export function hasToolResultView(callName: string | undefined): boolean {
@@ -72,7 +99,8 @@ export function hasToolResultView(callName: string | undefined): boolean {
 }
 
 /**
- * Runs the registered renderer, if any. Returns null both when nobody
+ * Runs the registered renderer, if any. The node may suspend (a card that
+ * loads lazily): render it inside a Suspense boundary. Returns null both when nobody
  * registered `input.name` and when the renderer itself declined (bad or
  * truncated rawOutput it could not make sense of) — the caller treats both
  * the same way: fall back to the generic JSON view, never an empty card

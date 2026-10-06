@@ -1,9 +1,10 @@
-import { lazy, Suspense, createElement } from "react";
+import { lazy, createElement } from "react";
 import { FileText } from "lucide-react";
 import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
+import { registerNoteActivities } from "./toolActivities";
 import { parseNoteResult } from "./noteResult";
 
 export const notesModule: ModuleManifest = {
@@ -81,13 +82,17 @@ const LazyNoteResultCard = lazy(() =>
 );
 
 function registerNoteResultView(toolName: string): void {
-  registerToolResultView(toolName, ({ rawOutput }) => {
+  registerToolResultView(toolName, ({ rawOutput, heading }) => {
     const note = parseNoteResult(rawOutput);
     if (!note) return null;
-    return createElement(Suspense, { fallback: null }, createElement(LazyNoteResultCard, { note }));
+    return createElement(LazyNoteResultCard, { note, heading });
   });
 }
 
 for (const toolName of ["notes.create", "notes.update"]) {
   registerNoteResultView(toolName);
 }
+
+// What this module's tools that change something do, for the transcript's
+// always-visible cards (workbench/toolActivity.ts).
+registerNoteActivities();

@@ -1716,6 +1716,22 @@
     }
   }
 
+  /* A tool activity card arriving while the agent works, and the result card
+     that takes its place (agenthub/transcript/AgentToolActivity). Only ever
+     applied to a card that was born live: the transcript is virtualised, and a
+     history card remounting on scroll must not fade in again. */
+  .activity-enter {
+    opacity: 1;
+    translate: 0 0;
+    transition:
+      opacity var(--motion-base) var(--ease-out-strong),
+      translate var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+      translate: 0 4px;
+    }
+  }
+
   /* Vault gate → workbench, as one crossfade rather than a cut (smoothness
      8.1). The gate is unmounted and the workbench mounts in its place, so
      @starting-style is what gives the arriving shell its start; the gate needs
@@ -1782,6 +1798,9 @@
         animation: none;
     }
     .module-enter {
+        transition: none;
+    }
+    .activity-enter {
         transition: none;
     }
     .shell-enter > * {

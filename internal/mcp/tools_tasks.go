@@ -12,6 +12,7 @@ import (
 // TasksAPI is the board surface MCP tools invoke.
 type TasksAPI interface {
 	Boards(caller tasks.Caller) ([]tasks.Board, error)
+	CreateBoardFor(caller tasks.Caller, in tasks.CreateBoardInput) (tasks.Board, error)
 	List(caller tasks.Caller, in tasks.ListInput) ([]tasks.Task, error)
 	Get(caller tasks.Caller, id string) (tasks.Task, error)
 	Create(caller tasks.Caller, in tasks.CreateInput) (tasks.Task, error)
@@ -55,6 +56,15 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 		Description: "List boards, with each board's workflow so you know which statuses exist and what category each one is",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolTasksBoardList)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "tasks.board.create",
+		Description: "Create a board in one of your session's workspaces (the first one when workspaceId is empty). " +
+			"statuses are its columns in order, each with a category: open, active or terminal — at least one of each; " +
+			"leave them out for To do / In progress / In review / Done / Won't do. A new board has no verify command, " +
+			"so closing a task on it asks the user every time; only the user can add one",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolTasksBoardCreate)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tasks.list",
@@ -157,14 +167,47 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 	// Deliberately absent, whatever the grant:
 	//
 	//   tasks.delete — permanent; archive is the reversible one.
-	//   tasks.board.create / update / delete — changing a board's workflow or
-	//     its verify command is changing the rule that binds the agent. An
-	//     agent that can edit the gate has no gate.
+	//   tasks.board.update / delete — changing a board's workflow or its
+	//     verify command is changing the rule that binds the agent. An agent
+	//     that can edit the gate has no gate. Creating one is allowed
+	//     (tasks.board.create) because a new board carries no verify command —
+	//     its gate is the user's confirmation — and lands only in a workspace
+	//     the session already sees (tasks.Service.CreateBoardFor).
 }
 
 func (s *Server) toolTasksBoardList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "board:list", meta("board_list", nil), func(context.Context) (any, error) {
 		return s.deps.Tasks.Boards(taskCaller(ctx))
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type tasksBoardStatusInput struct {
+	Name     string `json:"name"`
+	Category string `json:"category" jsonschema:"open, active or terminal"`
+}
+
+type tasksBoardCreateInput struct {
+	Name        string                  `json:"name"`
+	KeyPrefix   string                  `json:"keyPrefix" jsonschema:"short prefix for task keys, e.g. API gives API-1a2b3c"`
+	Color       string                  `json:"color,omitempty"`
+	Statuses    []tasksBoardStatusInput `json:"statuses,omitempty"`
+	WorkspaceID string                  `json:"workspaceId,omitempty" jsonschema:"one of your session's workspaces (workspace.list); empty for the first"`
+}
+
+func (s *Server) toolTasksBoardCreate(ctx context.Context, _ *sdk.CallToolRequest, in tasksBoardCreateInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "board:new", meta("board_create", nil), func(context.Context) (any, error) {
+		workflow := tasks.Workflow{}
+		for _, status := range in.Statuses {
+			workflow.Statuses = append(workflow.Statuses, tasks.Status{Name: status.Name, Category: tasks.Category(status.Category)})
+		}
+		return s.deps.Tasks.CreateBoardFor(taskCaller(ctx), tasks.CreateBoardInput{
+			Name: in.Name, KeyPrefix: in.KeyPrefix, Color: in.Color,
+			Workflow: workflow, WorkspaceID: in.WorkspaceID,
+		})
 	})
 	if err != nil {
 		return nil, nil, err
