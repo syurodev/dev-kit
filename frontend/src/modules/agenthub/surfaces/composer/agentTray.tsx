@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bot, Boxes, Folder, GitBranch, ListTodo, MessageCircleQuestion, ShieldAlert } from "lucide-react";
+import { Bot, Boxes, Folder, GitBranch, ListTodo, MessageCircleQuestion, ShieldAlert, Terminal } from "lucide-react";
 
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { dispatchIntent } from "@/workbench/intents";
@@ -10,6 +10,7 @@ import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
 import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
+import { SLOW_COMMAND_MS, commandText, formatElapsed, isRunningCommand, useElapsed } from "../../transcript/AgentRunningCommand";
 import { repoBranch, useTrayStatus, type TrayStatus, type TrayTask } from "./useTrayStatus";
 
 export type AgentTrayInput = {
@@ -36,7 +37,7 @@ export type AgentTrayInput = {
   } | null;
 };
 
-type Opened = "subagents" | "tasks" | "repos" | null;
+type Opened = "subagents" | "tasks" | "repos" | "commands" | null;
 
 function folderName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
@@ -64,6 +65,10 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
   const { size, session, projectPath, live, items, onOpenFile, leading, permission, question } = input;
   const status = useTrayStatus(projectPath, session?.id ?? "", `${session?.id}:${live}`);
   const running = React.useMemo(() => (live ? runningSubagents(items).running.length : 0), [items, live]);
+  // Shell commands still running, oldest first — the one the clock reads.
+  const commands = React.useMemo(() => (live ? items.filter(isRunningCommand) : []), [items, live]);
+  const commandsFor = useElapsed(commands[0]?.createdAt, commands.length > 0);
+  const slowCommands = commands.length > 0 && commandsFor >= SLOW_COMMAND_MS;
   const [opened, setOpened] = React.useState<Opened>(null);
   const [folded, setFolded] = React.useState<ReadonlySet<string>>(() => new Set());
 
@@ -87,7 +92,9 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
         ? null
         : opened === "repos" && status.repos.length === 0
           ? null
-          : opened;
+          : opened === "commands" && !slowCommands
+            ? null
+            : opened;
 
   let panel: TrayPanel | null = null;
   if (permissionOpen) {
@@ -128,6 +135,8 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
       key: "subagents",
       content: <AgentSubagentTracker items={items} live={live} onOpenFile={onOpenFile} variant="tray" />,
     };
+  } else if (openedNow === "commands") {
+    panel = { key: "commands", content: <TrayCommandList commands={commands} /> };
   } else if (openedNow === "repos") {
     panel = { key: "repos", content: <TrayRepoList repos={status.repos} /> };
   } else if (openedNow === "tasks") {
@@ -186,6 +195,20 @@ export function useAgentTray(input: AgentTrayInput): { strip: React.ReactNode; p
           }
           active={panel?.key === "tasks"}
           onClick={() => toggle("tasks")}
+        />
+      ) : null}
+      {slowCommands ? (
+        <TrayChip
+          key="commands"
+          testId="tray-commands"
+          icon={<Terminal />}
+          // The clock of the longest-running one: what a long build is
+          // waiting on, in view next to where the next message is typed.
+          label={formatElapsed(commandsFor)}
+          count={commands.length > 1 ? commands.length : undefined}
+          title={`${commands.length} command${commands.length === 1 ? "" : "s"} running — ${commandText(commands[0].toolCall!)}`}
+          active={panel?.key === "commands"}
+          onClick={() => toggle("commands")}
         />
       ) : null}
       {running > 0 ? (
@@ -375,5 +398,28 @@ export function TrayRepoList({ repos }: { repos: TrayRepo[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The shell commands still running, each with its own clock. */
+function TrayCommandList({ commands }: { commands: TranscriptItem[] }) {
+  return (
+    <ul data-testid="tray-command-list" className="flex max-h-64 flex-col overflow-y-auto p-1">
+      {commands.map((item) => (
+        <TrayCommandRow key={item.id} item={item} />
+      ))}
+    </ul>
+  );
+}
+
+function TrayCommandRow({ item }: { item: TranscriptItem }) {
+  const elapsed = useElapsed(item.createdAt, true);
+  const command = commandText(item.toolCall!);
+  return (
+    <li data-testid="tray-command" className="flex h-7 min-w-0 items-center gap-2 px-2" title={command}>
+      <Terminal className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
+      <code className="min-w-0 flex-1 truncate text-code-12 text-text-primary">{command}</code>
+      <span className="shrink-0 text-caption-11 text-text-tertiary tabular-nums">{formatElapsed(elapsed)}</span>
+    </li>
   );
 }

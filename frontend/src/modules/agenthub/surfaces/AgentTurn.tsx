@@ -18,6 +18,7 @@ import {
   AgentToolCall,
 } from "../transcript/index";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
+import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { AgentTurnChanges } from "./AgentTurnChanges";
@@ -297,10 +298,14 @@ export function StepGroup({
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
+  // A shell command still running: it gets a card with its clock while it
+  // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
+  // behind the fold.
+  const commands = React.useMemo(() => items.filter(isRunningCommand), [items]);
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing. Unless it
   // is a card: then the line is the way to its raw call.
-  if (items.length === 1 && activities.length === 0) {
+  if (items.length === 1 && activities.length === 0 && commands.length === 0) {
     return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
   }
   return (
@@ -324,10 +329,13 @@ export function StepGroup({
           ))}
         </div>
       </AnimatedCollapse>
-      {activities.length > 0 ? (
-        <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2">
+      {activities.length > 0 || commands.length > 0 ? (
+        <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
             <AgentToolActivity key={item.id} call={item.toolCall!} />
+          ))}
+          {commands.map((item) => (
+            <AgentRunningCommand key={item.id} item={item} />
           ))}
         </div>
       ) : null}
