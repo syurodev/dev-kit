@@ -88,8 +88,8 @@ func TestUserTransitionNotifies(t *testing.T) {
 	}
 }
 
-// Claim writes twice — the session id, then the transition to the active
-// status — and each write is its own notification.
+// Claim is one write — the session id, the move to the active status and the
+// pick in the history together — so one notification, not one per part.
 func TestClaimNotifiesOncePerWrite(t *testing.T) {
 	svc, rec := wired(t)
 	board := newBoard(t, svc)
@@ -102,7 +102,7 @@ func TestClaimNotifiesOncePerWrite(t *testing.T) {
 	if _, err := svc.Claim(agent, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	want := []changedCall{{board.ID, task.ID}, {board.ID, task.ID}}
+	want := []changedCall{{board.ID, task.ID}}
 	if !equalCalls(rec.calls, want) {
 		t.Fatalf("calls = %+v, want %+v", rec.calls, want)
 	}

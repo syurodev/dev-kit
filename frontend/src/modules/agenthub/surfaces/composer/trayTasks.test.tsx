@@ -15,15 +15,31 @@ const board = { id: "b", name: "Backend", workflow: { statuses: [] } } as unknow
 const row = (t: Task, extra: Partial<TrayTask> = {}): TrayTask => ({ task: t, board, statusName: "To do", active: false, done: false, held: false, ...extra });
 
 describe("a session's tasks", () => {
-  it("are the ones it holds, made or moved — not every task in the workspace", () => {
+  it("are the ones it made or picked up — not every task in the workspace, nor one it only moved", () => {
     const made = task("1", { history: [{ from: "", to: "todo", by: "agent:s1", at: "" }] });
     const moved = task("2", { history: [{ from: "todo", to: "doing", by: "agent:s1", at: "" }] });
     const held = task("3", { sessionId: "s1" });
     const someoneElses = task("4", { history: [{ from: "", to: "todo", by: "agent:s2", at: "" }] });
     const user = task("5", { history: [{ from: "", to: "todo", by: "user", at: "" }] });
-    expect([made, moved, held, someoneElses, user].map((t) => sessionLinked(t, "s1"))).toEqual([true, true, true, false, false]);
+    expect([made, moved, held, someoneElses, user].map((t) => sessionLinked(t, "s1"))).toEqual([true, false, true, false, false]);
+  });
+
+  it("belong to both the session that made them and the one that picked them up, even after letting go", () => {
+    // s1 made it; s2 picked it up (moved into the active column, then the
+    // pick) and has since let go: no holder any more.
+    const history = [
+      { from: "", to: "todo", by: "agent:s1", at: "" },
+      { from: "todo", to: "doing", by: "agent:s2", at: "" },
+      { from: "doing", to: "doing", by: "agent:s2", at: "" },
+    ];
+    const released = task("6", { history, sessionId: "" });
+    expect(sessionLinked(released, "s1")).toBe(true);
+    expect(sessionLinked(released, "s2")).toBe(true);
+    expect(sessionLinked(released, "s3")).toBe(false);
+    // Taken over by s3: still s1's and s2's, now s3's too.
+    expect(sessionLinked(task("7", { history, sessionId: "s3" }), "s3")).toBe(true);
     // A draft has no session, so nothing is its own.
-    expect(sessionLinked(made, "")).toBe(false);
+    expect(sessionLinked(released, "")).toBe(false);
   });
 
   it("are listed apart from the workspace's other open tasks", () => {

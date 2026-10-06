@@ -743,3 +743,45 @@ func mustCreate(t *testing.T, svc *Service, boardID, title string) Task {
 	}
 	return task
 }
+
+// The session that made a task and every session that picked it up are both
+// in its history, so each keeps it after the other takes it over.
+func TestAPickIsRecordedBesideTheCreation(t *testing.T) {
+	svc, _ := newService(t)
+	svc.SetLiveness(liveness{}) // nobody alive: a later claim may take over
+	board := newBoard(t, svc)
+	maker := Caller{SessionID: "sess-maker"}
+	task, err := svc.Create(maker, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := svc.Claim(agent, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Created by the maker, moved into the active column, picked by sess-1.
+	h := claimed.History
+	if len(h) != 3 || h[0].By != "agent:sess-maker" || h[0].From != "" || h[1].IsPick() || !h[2].IsPick() || h[2].By != "agent:sess-1" {
+		t.Fatalf("history = %+v", h)
+	}
+	if claimed.Status != "in_progress" || claimed.SessionID != "sess-1" {
+		t.Fatalf("claimed = %+v", claimed)
+	}
+
+	// Claiming what it already holds records nothing more.
+	again, err := svc.Claim(agent, task.ID)
+	if err != nil || len(again.History) != 3 {
+		t.Fatalf("re-claim history = %+v, %v", again.History, err)
+	}
+
+	// sess-1 is dead; sess-2 takes it over. Already active: a pick, no move.
+	taken, err := svc.Claim(Caller{SessionID: "sess-2"}, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := taken.History[len(taken.History)-1]
+	if len(taken.History) != 4 || !last.IsPick() || last.By != "agent:sess-2" || taken.SessionID != "sess-2" {
+		t.Fatalf("takeover history = %+v", taken.History)
+	}
+}

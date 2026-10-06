@@ -115,13 +115,20 @@ function HistoryList({ board, history }: { board: Board; history: readonly Trans
           key={`${entry.at}-${index}`}
           className="flex h-8 items-center gap-2 border-t border-border-subtle first:border-t-0"
         >
-          {/* A move from nothing is the task being made (internal/tasks:
-              Create records who made it as its first entry). */}
-          <span className="text-body-12 text-text-secondary">
-            {entry.from ? statusLabel(board, entry.from) : "Created"}
-          </span>
-          <ArrowRight aria-hidden className="size-(--icon-12) text-text-tertiary" />
-          <span className="text-label-12 text-text-primary">{statusLabel(board, entry.to)}</span>
+          {/* A move from nothing is the task being made, and one that stays in
+              its column is a session picking it up (internal/tasks: Create,
+              Claim) — neither is a move. */}
+          {entry.from && entry.from === entry.to ? (
+            <span className="text-body-12 text-text-secondary">Picked up</span>
+          ) : (
+            <>
+              <span className="text-body-12 text-text-secondary">
+                {entry.from ? statusLabel(board, entry.from) : "Created"}
+              </span>
+              <ArrowRight aria-hidden className="size-(--icon-12) text-text-tertiary" />
+              <span className="text-label-12 text-text-primary">{statusLabel(board, entry.to)}</span>
+            </>
+          )}
           <span className="ml-auto">
             <Author author={entry.by} at={entry.at} />
           </span>

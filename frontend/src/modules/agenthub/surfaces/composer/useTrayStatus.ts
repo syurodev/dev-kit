@@ -89,17 +89,23 @@ export function repoBranch(repo: Pick<Repository, "branch" | "detached">): strin
 }
 
 /**
- * Whether a task is this session's: it holds it, or its history says this
- * session made it or moved it (a task records who created it as its first
- * history entry — internal/tasks Create). Every session of a workspace used
- * to be shown the same list, the whole workspace's, as if each were working
- * on all of it.
+ * Whether a task is this session's: the session made it, or picked it up —
+ * holds it now, or claimed it before and has since let go or been taken over.
+ * Both are in the task's history (internal/tasks): its creation is the entry
+ * from "", a pick is an entry whose from and to are the same column. A task
+ * made by one session and picked by another is in both lists. Moving a task
+ * alone does not make it the mover's.
+ *
+ * Every session of a workspace used to be shown the same list, the whole
+ * workspace's, as if each were working on all of it.
  */
 export function sessionLinked(task: Pick<Task, "sessionId" | "history">, sessionId: string): boolean {
   if (!sessionId) return false;
   if (task.sessionId === sessionId) return true;
   const author = `agent:${sessionId}`;
-  return (task.history ?? []).some((entry) => entry.by === author);
+  return (task.history ?? []).some(
+    (entry) => entry.by === author && (entry.from === "" || entry.from === entry.to),
+  );
 }
 
 /**
