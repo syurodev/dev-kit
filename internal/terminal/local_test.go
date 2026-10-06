@@ -146,3 +146,33 @@ func TestLocalPTYCloseReapsZombieProcess(t *testing.T) {
 		t.Fatalf("process pid=%d is a zombie (state=Z) after Close", pid)
 	}
 }
+
+// The bug this pins: a desktop launcher gives DevKit no TERM, zsh then finds
+// no terminfo, and its prompt glyphs come out as "?➜" with every redraw
+// leaving the old text behind. The shell must see xterm-256color.
+func TestLocalPTYShellSeesXtermTerm(t *testing.T) {
+	t.Setenv("TERM", "")
+	pty, err := NewLocalPTY("/bin/sh", t.TempDir(), 24, 80)
+	if err != nil {
+		t.Fatalf("NewLocalPTY: %v", err)
+	}
+	defer pty.Close()
+
+	if _, err := pty.Write([]byte("echo \"T=[$TERM]\"\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	var output strings.Builder
+	buf := make([]byte, 4096)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		n, err := pty.Read(buf)
+		output.Write(buf[:n])
+		if strings.Contains(output.String(), "T=[xterm-256color]") {
+			return
+		}
+		if err != nil {
+			break
+		}
+	}
+	t.Fatalf("shell did not see TERM=xterm-256color, got: %q", output.String())
+}

@@ -75,7 +75,10 @@ export function TerminalPane({
     const term = new Terminal({
       fontSize: prefs.terminalSize,
       fontFamily: monoFontStack(prefs.terminalFont),
-      convertEol: true,
+      // No convertEol: every tab is a PTY, and the tty already turns "\n"
+      // into "\r\n" while output processing is on. A full-screen program
+      // turns it off and means a bare LF as cursor-down in the same column;
+      // converting it as well breaks their layout.
       cursorBlink: true,
       // The bottom slot is glass now, so the terminal must not paint its own
       // background — the pane shows the panel's tint and the vibrancy behind
@@ -126,8 +129,14 @@ export function TerminalPane({
 
     void (async () => {
       try {
+        let startedRows = 0;
+        let startedCols = 0;
         const attached = await attachTerminal(
-          () => startRef.current(term.rows, term.cols),
+          () => {
+            startedRows = term.rows;
+            startedCols = term.cols;
+            return startRef.current(startedRows, startedCols);
+          },
           (chunk) => {
             if (!disposed) term.write(chunk);
           },
@@ -149,6 +158,14 @@ export function TerminalPane({
         sessionId = id;
         detach = attached.detach;
         term.onData((data) => void writeTerminal(id, data));
+        // The size the shell was started with is whatever the first fit saw.
+        // The ResizeObserver's first call and the webfont re-measure usually
+        // land while start is still in flight, with no session to tell — and a
+        // shell that believes in a different width than xterm draws redraws
+        // its line over the wrong cells. Catch up once it exists.
+        if (term.rows !== startedRows || term.cols !== startedCols) {
+          void resizeTerminal(id, term.rows, term.cols);
+        }
       } catch (e) {
         if (!disposed) setError(errorMessage(e));
       }
@@ -186,7 +203,13 @@ export function TerminalPane({
           </Button>
         </div>
       )}
-      <div ref={hostRef} className="terminal-glass min-h-0 flex-1 overflow-hidden p-2" />
+      {/* The padding is on a wrapper, not on the node xterm opens into: the
+          fit addon sizes the grid from that node's computed box, which with
+          border-box includes its own padding — two columns and a row that
+          overflow-hidden then cut off. */}
+      <div className="terminal-glass min-h-0 flex-1 overflow-hidden p-2">
+        <div ref={hostRef} className="size-full" />
+      </div>
     </div>
   );
 }
