@@ -49,8 +49,7 @@ describe("layout stability", () => {
     const scrollers: [string, string][] = [
       // The console's result scroller moved into the shared grid.
       ["modules/database/grid/ResultGrid.tsx", "result grid"],
-      ["modules/database/components/QueryHistoryView.tsx", "history list"],
-      ["modules/database/components/SavedQueriesView.tsx", "saved list"],
+      ["modules/database/components/QueryLibraryView.tsx", "history/saved list"],
       ["modules/database/components/LiveActivityView.tsx", "activity table"],
       ["modules/kafka/KafkaView.tsx", "peek table"],
       ["modules/kafka/KafkaSidebar.tsx", "rail"],
@@ -66,8 +65,7 @@ describe("layout stability", () => {
 
   it("converted empty states use the shared primitive, not py-16 copy", () => {
     for (const file of [
-      "modules/database/components/QueryHistoryView.tsx",
-      "modules/database/components/SavedQueriesView.tsx",
+      "modules/database/components/QueryLibraryView.tsx",
       "modules/database/components/LiveActivityView.tsx",
       "modules/kafka/KafkaView.tsx",
     ]) {

@@ -166,7 +166,7 @@ const BASELINE = {
   // the folder comes from the project row or the native picker. 36 → 35: the
   // permission toast wore a hand-rolled backdrop-blur and now wears glass-float.
   // 35 → 33: Database New Connection/Delete use shared dialog overlays.
-  blurSurfaces: 33,
+  blurSurfaces: 32,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
   unstableStoreSelectors: 0,

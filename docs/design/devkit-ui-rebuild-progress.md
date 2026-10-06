@@ -1,6 +1,6 @@
 # DevKit — Tiến độ rebuild UI/UX
 
-Cập nhật: 2026-10-05.
+Cập nhật: 2026-10-06.
 
 File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bước triển khai. Quy tắc thiết kế nằm tại [devkit-ui-ux-rules.md](./devkit-ui-ux-rules.md).
 
@@ -22,6 +22,7 @@ File này theo dõi đợt rebuild UI/UX và được cập nhật sau mỗi bư
 | 5 | Git: review commit/file và tối ưu tương tác | Đã triển khai; browser và Git trong repository thử nghiệm đạt; còn native/remote thật |
 | 6 | Database: console/schema | Đã triển khai; frontend/browser đạt; còn database thật |
 | 7 | Database: connection forms/table editing | Đã triển khai; regression và fixture WKWebView đạt; trace đầy đủ/database thật còn pending |
+| 8 | Database: History/Saved, ERD và Export | Đã triển khai; regression/browser đạt; native smoke/trace còn pending |
 
 ## Bước 1 — Nền app và shell
 
@@ -239,17 +240,27 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Frontend 2.655 test, build/budget và Go architecture/database đạt. Live metadata/typed values + ApplyEdits đạt trên MariaDB 12.3 disposable; chưa test MySQL 8/PostgreSQL thật cho follow-up này.
 - Native fixture 10k × 30: typed validation/selection/bulk/focus; editor scenario update lớn nhất 2 ms, DOM 43 rows. Browser bổ sung microsecond fallback, light theme, bulk limits và hidden draft. Fixture bridge vẫn mô phỏng; full WebKit trace/native DB E2E còn pending, không đánh dấu toàn bộ performance audit hoàn tất.
 
+## Bước 8 — Database: query library, ERD và Export
+
+- History/Saved dùng shared virtual rows, compact plain-text rows và một SQL preview theo yêu cầu. Search/clear/no-match, refresh lỗi giữ rows, cache đúng connection; saved rail bounded 50 entries. Open console giữ draft đã sửa.
+- Saved Delete dùng ConfirmDialog/lock/intent ngoài mounting; error giữ target và Retry. Save/Export dùng shadcn và snapshot/draft ephemeral, validation/focus/pending guards; giữ draft qua hidden/unmount, không retarget theo connection mới.
+- Export lớn serialize trong worker, giữ precision/NULL; kiểm tra filename và từ chối JSON duplicate columns, native picker cancellation có trạng thái riêng. Không thêm dependency hoặc tăng ceiling.
+- ERD dùng theme dark/light, shadcn controls/filter và snapshot typed columns, bỏ bridge fan-out; metadata lỗi có Retry. Graph bounded 100 nodes/400 edges/80 columns mỗi node, chỉ render viewport; inferred key phải được metadata chứng minh.
+- Kiểm tra cuối: frontend **2.676 pass, 0 fail** (247 files); TypeScript/build/budget đạt, initial JS 1022,3 KiB, CSS 259,5 KiB. Go architecture đạt. Ratchet blur giảm 33 → 32 sau thay Export overlay; không nâng budget. Worker serialization thật trong test giữ bigint string/NULL và cell lớn.
+- Chi tiết quy tắc, bằng chứng browser và giới hạn: [Database phase 8](database-library-erd-export.md). Native smoke chưa chạy vì Mac khóa; WebKit trace và native picker/worker/bridge/database E2E vẫn pending.
+
 ## Bước tiếp theo
 
 1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
 2. Smoke Git native với repository/remote thử nghiệm: stage/commit/hook failure, guarded commit/push, stash conflict và đổi folder trong lúc thao tác.
 3. Smoke Database với connection thử nghiệm: Run/Cancel/Test/Explain, đổi connection, direct/staged edits và transaction; thu trace WebKit/bridge thật.
-4. Phase UI tiếp theo: ERD, query history/saved queries và export; tiếp tục dùng shadcn/shared feedback, draft lifecycle và performance gates.
+4. Phase UI tiếp theo: Notes dashboard/search và editor feedback; giữ nguyên autosave/resource lifecycle, tiếp tục shadcn/shared feedback và performance gates.
 
 ## Nhật ký
 
 | Ngày | Cập nhật |
 |---|---|
+| 2026-10-06 | Phase 8 Database: query library/ERD/export, snapshots và bounded previews/worker; xem kiểm tra và giới hạn ở phần Bước 8 |
 | 2026-10-06 | Database typed editor + bulk nhiều cột; SQL gom mỗi hàng/khóa gốc; frontend 2655 test, build và Go đạt, live MariaDB riêng đạt |
 | 2026-10-05 | Phase 7 Database forms/table: shadcn, cancellable probe, scoped writes; WHERE không COUNT theo phím gõ, staged row identity; frontend 2597 test đạt |
 | 2026-10-05 | Phase 6 Database: responsive console/schema feedback, giữ result pending/Cancel, chống schema/Explain cũ và focused overlay |

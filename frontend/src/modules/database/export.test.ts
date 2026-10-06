@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { escapeCSVCell, serializeCSV, serializeJSON, tableExportFilename } from "./export";
+import {
+  escapeCSVCell,
+  serializeCSV,
+  serializeJSON,
+  tableExportFilename,
+  exportFilenameError,
+  exportQueryResult,
+  serializeExport,
+} from "./export";
 import type { QueryResult } from "../../bridge/database";
 
 describe("Database Query Result Export", () => {
@@ -108,4 +116,66 @@ describe("Database Query Result Export", () => {
       expect(tableExportFilename("users.")).toBe("users");
     });
   });
+});
+
+it("keeps reserved object keys as exported data", () => {
+  const result = {
+    columns: ["__proto__", "constructor"],
+    rows: [["data", "value"]],
+    rowCount: 1,
+    truncated: false,
+  };
+  expect(JSON.parse(serializeJSON(result))[0]["__proto__"]).toBe("data");
+  expect(JSON.parse(serializeJSON(result))[0].constructor).toBe("value");
+});
+
+it("refuses ambiguous JSON names before opening a file picker", async () => {
+  const result = {
+    columns: ["x", "x"],
+    rows: [["a", "b"]],
+    rowCount: 1,
+    truncated: false,
+  };
+  await expect(exportQueryResult(result, "json")).rejects.toThrow(
+    "unique column names",
+  );
+});
+it("checks suggested basenames without erasing Unicode", () => {
+  expect(exportFilenameError("../bad")).not.toBe("");
+  expect(exportFilenameError(".json")).not.toBe("");
+  expect(exportFilenameError("dữ liệu.json")).toBe("");
+});
+
+it("worker serialization preserves large result precision and NULL", async () => {
+  const rows = Array.from({ length: 1000 }, () => [
+    "9007199254740993",
+    null,
+    "dữ liệu",
+  ]);
+  const content = await serializeExport(
+    {
+      columns: ["id", "missing", "text"],
+      rows,
+      rowCount: 1000,
+      truncated: false,
+    },
+    "json",
+  );
+  const parsed = JSON.parse(content);
+  expect(parsed.length).toBe(1000);
+  expect(parsed[999]).toEqual({
+    id: "9007199254740993",
+    missing: null,
+    text: "dữ liệu",
+  });
+});
+it("one large cell also serializes with exact CSV escaping", async () => {
+  const text = '"' + "x".repeat(150000) + "\n";
+  const result = {
+    columns: ["value"],
+    rows: [[text]],
+    rowCount: 1,
+    truncated: false,
+  };
+  expect(await serializeExport(result, "csv")).toBe(serializeCSV(result));
 });

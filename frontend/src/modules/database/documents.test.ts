@@ -1,15 +1,30 @@
+import { useDatabaseStore } from "./databaseStore";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { consoleIdFor, openNewConsoleTab, openTableTab } from "./documents";
+import {
+  consoleIdFor,
+  openNewConsoleTab,
+  openTableTab,
+  openSavedQuery,
+  openHistoryQuery,
+} from "./documents";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({
+    activeModuleId: "",
+    modules: {},
+    groups: [],
+    focusedGroupId: "",
+  });
 });
 
 describe("table documents", () => {
   test("opening a table opens one tab titled after it", () => {
     openTableTab("chiro", "ba_user");
-    const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+    const tabs = moduleTabs(
+      useWorkbenchTabsStore.getState().modules,
+      "database",
+    );
     expect(tabs.openTabs).toHaveLength(1);
     expect(tabs.openTabs[0].title).toBe("ba_user");
   });
@@ -20,14 +35,20 @@ describe("table documents", () => {
   test("opening the same table twice focuses the first tab", () => {
     openTableTab("chiro", "ba_user");
     openTableTab("chiro", "ba_user");
-    const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+    const tabs = moduleTabs(
+      useWorkbenchTabsStore.getState().modules,
+      "database",
+    );
     expect(tabs.openTabs).toHaveLength(1);
   });
 
   test("the same table name in two schemas is two tabs", () => {
     openTableTab("chiro", "users");
     openTableTab("billing", "users");
-    const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+    const tabs = moduleTabs(
+      useWorkbenchTabsStore.getState().modules,
+      "database",
+    );
     expect(tabs.openTabs).toHaveLength(2);
   });
 });
@@ -70,4 +91,23 @@ describe("console ids that have to survive being file names", () => {
       expect(consoleIdFor(seed)).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
     }
   });
+});
+
+test("reopening library statements keeps edited console drafts", () => {
+  const saved = { id: "preserve-saved", name: "Saved", sql: "select original" };
+  openSavedQuery(saved);
+  const savedId = consoleIdFor(`saved-${saved.id}`);
+  useDatabaseStore.getState().setSql(savedId, "select edited");
+  openSavedQuery(saved);
+  expect(useDatabaseStore.getState().consoles[savedId].sql).toBe(
+    "select edited",
+  );
+  const history = { id: "preserve-history", sql: "select original" };
+  openHistoryQuery(history);
+  const historyId = consoleIdFor(`history-${history.id}`);
+  useDatabaseStore.getState().setSql(historyId, "select edited history");
+  openHistoryQuery(history);
+  expect(useDatabaseStore.getState().consoles[historyId].sql).toBe(
+    "select edited history",
+  );
 });
