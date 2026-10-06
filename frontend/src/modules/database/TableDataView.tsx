@@ -7,6 +7,7 @@ import {
   PendingStatus,
 } from "@/components/ui/feedback";
 import { stagedResult } from "./grid/stagedResult";
+import { sameCellValue } from "./sql/cellValue";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { listColumns, listIndexes } from "@/bridge/database";
@@ -55,6 +56,9 @@ export function TableDataView({
   // drawn from, and asking for it again would be a second round trip for bytes
   // already in hand.
   const [columnTypes, setColumnTypes] = useState<Record<string, string>>({});
+  const [columnNullable, setColumnNullable] = useState<Record<string, boolean>>(
+    {},
+  );
 
   useDatabaseChrome();
   useBrowseLifetime(key);
@@ -159,6 +163,9 @@ export function TableDataView({
       .then(([indexes, columns]) => {
         if (!cancelled) {
           setPageKey(key, pageKeyFor(indexes, columns, schema, table));
+          setColumnNullable(
+            Object.fromEntries(columns.map((c) => [c.name, c.nullable])),
+          );
           setColumnTypes(
             Object.fromEntries(columns.map((c) => [c.name, c.dataType])),
           );
@@ -172,6 +179,7 @@ export function TableDataView({
         if (!cancelled) {
           setPageKey(key, null);
           setColumnTypes({});
+          setColumnNullable({});
         }
       });
     return () => {
@@ -241,6 +249,7 @@ export function TableDataView({
           columns: browse.rows.columns,
           rows: browse.rows.rows,
           staged: browse.staged,
+          columnTypes,
         })
       : [];
   // The page as it reads once the staged changes are applied.
@@ -372,7 +381,9 @@ export function TableDataView({
         <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-1 text-body-12 text-text-primary">
           <span className="min-w-0 flex-1">
             {stagedCount} change{stagedCount === 1 ? "" : "s"} not applied —{" "}
-            {profile?.env} asks for a review before anything is written.
+            {reviewEdits
+              ? `${profile?.env} requires review.`
+              : "Review staged changes before writing."}
           </span>
           <Button
             variant="ghost"
@@ -408,6 +419,26 @@ export function TableDataView({
           }}
           onInspectCell={setInspectedCell}
           columnTypes={columnTypes}
+          columnNullable={columnNullable}
+          engine={engine}
+          editScope={`${selectedProfileId}:${key}:${browse.runId}`}
+          onStageCells={(cells) => {
+            if (busy || editRefusal || !browse.rows) return;
+            stageBrowseEdits(
+              key,
+              cells.map((cell) => {
+                const original =
+                  browse.rows!.rows[cell.row]?.[cell.column] ?? null;
+                return sameCellValue(
+                  original,
+                  cell.value,
+                  columnTypes[browse.rows!.columns[cell.column]],
+                )
+                  ? { ...cell, value: original }
+                  : cell;
+              }),
+            );
+          }}
           keyColumns={pageKey ?? undefined}
           // Rows are numbered through the table, not through the page.
           rowOffset={browse.pageIndex * pageSize}
@@ -446,21 +477,45 @@ export function TableDataView({
             if (busy || editRefusal || !browse.rows || !pageKey) {
               return;
             }
-            if (reviewEdits) {
+            if (rowIndices.length * columnIndices.length > 1 || reviewEdits) {
               stageBrowseEdits(
                 key,
                 rowIndices.flatMap((row) =>
-                  columnIndices.map((column) => ({ row, column, value })),
+                  columnIndices.map((column) => {
+                    const original = browse.rows!.rows[row]?.[column] ?? null;
+                    return {
+                      row,
+                      column,
+                      value: sameCellValue(
+                        original,
+                        value,
+                        columnTypes[browse.rows!.columns[column]],
+                      )
+                        ? original
+                        : value,
+                    };
+                  }),
                 ),
               );
               return;
             }
+            if (
+              rowIndices.length === 1 &&
+              columnIndices.length === 1 &&
+              sameCellValue(
+                browse.rows.rows[rowIndices[0]][columnIndices[0]] ?? null,
+                value,
+                columnTypes[browse.rows.columns[columnIndices[0]]],
+              )
+            )
+              return;
             const columns = browse.rows.columns;
             const sql = buildUpdate({
               schema,
               table,
               engine,
               keyColumns: pageKey,
+              columnTypes,
               // The row's OWN key values, read out of the page in hand. The
               // grid names cells by position; only this side knows which
               // columns identify a row.

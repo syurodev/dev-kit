@@ -36,3 +36,13 @@ Nguyên nhân: baseline gõ WHERE cập nhật `browse.where`, làm TableDataVie
 ## Giới hạn
 
 Đây là native frontend fixture với bridge giả lập, không phải E2E database. Số đo một lượt phục vụ khoanh vùng bottleneck, chưa phải thống kê p95 hoặc gate throughput. Chưa thu được trace scripting/style/layout/paint/memory đầy đủ từ WebKit Inspector của fixture. Chưa đo serialize/transfer/JS parse của bridge thật, mạng/driver/database, memory plateau, hay warm module activation toàn app. Không suy ra FPS từ React commit duration. Các phần đó cần fixture database thử nghiệm và trace ứng dụng đầy đủ theo `docs/dev-kit/frontend-performance.mdx`; không tăng budget hoặc đánh dấu native DB smoke hoàn thành.
+
+## Follow-up typed editor và bulk update — 2026-10-06
+
+Cùng máy/runtime và production profiling configuration ở trên, native fixture 10.000 × 30. Reset metrics, mở editor tên, gõ sáu ký tự, Escape rồi đọc metrics: 17 React subtree update commits, lớn nhất 2 ms, 43 rows trong DOM. Số này gồm mở/đóng và updates của editor, không phải chỉ grid renders; chưa có baseline cho scenario mới và không suy ra p95/FPS.
+
+Cell editor giữ draft cục bộ, JSON chỉ parse lúc submit; không parse date/JSON của toàn bộ grid. Bulk dialog lazy-load, giới hạn cells/UTF-8 trước khi mở rộng assignments. Build cuối initial JS 1020,7 KiB, CSS 259,7 KiB; budget giữ nguyên và đạt.
+
+Native đã thử date lỗi/năm nhuận, boolean, selection bằng Shift, bulk ba hàng/hai cột, offset gõ dở và focus sau save. Text fallback cho microsecond được kiểm tra thêm trong browser sau khi native picker bộc lộ giới hạn precision; browser cũng thử light theme, từ chối bulk vượt giới hạn và giữ draft qua module hide/show. Live MariaDB 12.3 riêng xác nhận metadata/value và ApplyEdits backend; chưa nối native fixture với database thật. Các trace/memory/bridge gates ở mục Giới hạn vẫn pending.
+
+Quy tắc sử dụng và giới hạn kiểu dữ liệu: [Database table editing](database-table-editing.md).

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -18,11 +19,12 @@ statement and not the session, and closing the session ends it.
 func liveMySQLProfile(t *testing.T) (*Service, string) {
 	t.Helper()
 	svc := newService(t)
+	port, _ := strconv.Atoi(envOr("DEVKIT_MYSQL_PORT", "3307"))
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Engine:   EngineMySQL,
 		Name:     "sessions-live",
 		Host:     envOr("DEVKIT_MYSQL_HOST", "127.0.0.1"),
-		Port:     3307,
+		Port:     port,
 		Database: envOr("DEVKIT_MYSQL_DB", "devkitdb"),
 		Username: envOr("DEVKIT_MYSQL_USER", "devkit"),
 		Password: envOr("DEVKIT_MYSQL_PASSWORD", "devkitpass"),

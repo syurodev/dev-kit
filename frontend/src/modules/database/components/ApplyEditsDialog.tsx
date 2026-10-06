@@ -60,7 +60,7 @@ export function ApplyEditsDialog({
       }),
     ];
   }, [engine]);
-  const count = `${statements.length} change${statements.length === 1 ? "" : "s"}`;
+  const count = `${statements.length} row update${statements.length === 1 ? "" : "s"}`;
   return (
     <AlertDialog
       open={open && visible}

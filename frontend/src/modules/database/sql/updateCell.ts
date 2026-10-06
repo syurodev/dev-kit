@@ -1,4 +1,5 @@
 import { quoteIdentifier, quoteLiteral } from "./identifier";
+import { booleanValue, cellKind } from "./cellValue";
 
 /** A cell's new value. `null` is SQL NULL, not the four letters. */
 export type CellValue = string | null;
@@ -19,6 +20,7 @@ export type UpdateRequest = {
   /** The columns to set, and what to set them to. */
   columns: readonly string[];
   value: CellValue;
+  columnTypes?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -50,9 +52,9 @@ export function updateRefusal(opts: {
 /**
  * One UPDATE for a rectangle of cells.
  *
- * One statement, not one per row: a bulk edit is a single intention and it
- * should be a single thing to undo, and a hundred round trips to set a hundred
- * cells is a hundred chances to end up half-applied.
+ * Shared-value helper retained for direct edits. Reviewed bulk edits use
+ * buildStagedUpdates: one statement per row, all changed columns together,
+ * so the backend can refuse each missing row in its transaction.
  *
  * The row list is a disjunction of full key comparisons rather than
  * `key IN (…)`, because a composite key's tuple syntax is not portable — MySQL
@@ -64,17 +66,40 @@ export function updateRefusal(opts: {
  * quoteIdentifier for every name.
  */
 export function buildUpdate(request: UpdateRequest): string {
-  const { schema, table, engine, keyColumns, rows, columns, value } = request;
-  if (rows.length === 0 || columns.length === 0) {
+  const { columns, value, ...rest } = request;
+  return buildRowUpdate({
+    ...rest,
+    assignments: columns.map((column) => ({ column, value })),
+  });
+}
+
+export function buildRowUpdate(
+  request: Omit<UpdateRequest, "columns" | "value"> & {
+    assignments: readonly { column: string; value: CellValue }[];
+  },
+): string {
+  const { schema, table, engine, keyColumns, rows, assignments, columnTypes } =
+    request;
+  if (rows.length === 0 || assignments.length === 0) {
     throw new Error("an update needs at least one row and one column");
   }
   if (keyColumns.length === 0) {
     throw new Error("an update needs a key to identify its rows");
   }
   const q = (name: string) => quoteIdentifier(name, engine);
-  const literal = (v: CellValue) => (v === null ? "NULL" : quoteLiteral(v, engine));
-
-  const assignments = columns.map((column) => `${q(column)} = ${literal(value)}`).join(", ");
+  const literal = (column: string, v: CellValue) => {
+    if (v === null) return "NULL";
+    if (cellKind(columnTypes?.[column]) === "boolean") {
+      const b = booleanValue(v);
+      if (b !== "true" && b !== "false")
+        throw new Error("Invalid boolean value.");
+      return b.toUpperCase();
+    }
+    return quoteLiteral(v, engine);
+  };
+  const setList = assignments
+    .map(({ column, value }) => `${q(column)} = ${literal(column, value)}`)
+    .join(", ");
   const predicate = rows
     .map((row) =>
       keyColumns
@@ -91,16 +116,12 @@ export function buildUpdate(request: UpdateRequest): string {
     .map((clause) => (keyColumns.length > 1 ? `(${clause})` : clause))
     .join(" OR ");
 
-  return `UPDATE ${q(schema)}.${q(table)} SET ${assignments} WHERE ${predicate}`;
+  return `UPDATE ${q(schema)}.${q(table)} SET ${setList} WHERE ${predicate}`;
 }
 
-/**
- * The staged changes of a table tab as statements, one per cell (#52).
- *
- * Staged cells are positions on the page — "row:column" — and each is named by
- * its row's key as the page loaded it. A change to a key column goes last in its
- * row: run first, it would move the row out from under every other change to
- * that row, and each of those would match nothing.
+/** One UPDATE per row, including every edited key column in the same SET list.
+ * Original keys remain the predicate. Each row keeps a no-match check in ApplyEdits;
+ * grouping rows into an OR statement would lose that check for a deleted row.
  */
 export function buildStagedUpdates(request: {
   schema: string;
@@ -108,32 +129,61 @@ export function buildStagedUpdates(request: {
   engine: string | undefined;
   keyColumns: readonly string[];
   columns: readonly string[];
-  rows: readonly (readonly (string | null)[])[];
+  rows: readonly (readonly CellValue[])[];
   staged: Readonly<Record<string, CellValue>>;
+  columnTypes?: Readonly<Record<string, string>>;
 }): string[] {
-  const { schema, table, engine, keyColumns, columns, rows, staged } = request;
-  const cells = Object.entries(staged).map(([position, value]) => {
-    const [row, column] = position.split(":").map(Number);
-    return { row, column, value, isKey: keyColumns.includes(columns[column]) };
-  });
-  cells.sort((a, b) => a.row - b.row || Number(a.isKey) - Number(b.isKey) || a.column - b.column);
-  return cells.map(({ row, column, value }) =>
-    buildUpdate({
-      schema,
-      table,
-      engine,
-      keyColumns,
-      rows: [
-        {
-          values: keyColumns.map((key) => {
-            const at = columns.indexOf(key);
-            return at === -1 ? null : (rows[row]?.[at] ?? null);
-          }),
-        },
-      ],
-      columns: [columns[column]],
-      value,
-    }),
-  );
+  const {
+    schema,
+    table,
+    engine,
+    keyColumns,
+    columns,
+    rows,
+    staged,
+    columnTypes,
+  } = request;
+  const changes = new Map<
+    number,
+    { column: string; value: CellValue; index: number }[]
+  >();
+  for (const [position, value] of Object.entries(staged)) {
+    const parts = position.split(":");
+    const [row, column] = parts.map(Number);
+    if (
+      parts.length !== 2 ||
+      !Number.isInteger(row) ||
+      !Number.isInteger(column) ||
+      row < 0 ||
+      column < 0 ||
+      !rows[row] ||
+      columns[column] === undefined
+    )
+      throw new Error("A staged cell is outside the current page.");
+    const list = changes.get(row) ?? [];
+    list.push({ column: columns[column], value, index: column });
+    changes.set(row, list);
+  }
+  return [...changes]
+    .sort(([a], [b]) => a - b)
+    .map(([row, assignments]) =>
+      buildRowUpdate({
+        schema,
+        table,
+        engine,
+        keyColumns,
+        columnTypes,
+        rows: [
+          {
+            values: keyColumns.map((key) => {
+              const at = columns.indexOf(key);
+              if (at < 0)
+                throw new Error("The row key is missing from the result.");
+              return rows[row][at] ?? null;
+            }),
+          },
+        ],
+        assignments: assignments.sort((a, b) => a.index - b.index),
+      }),
+    );
 }
-

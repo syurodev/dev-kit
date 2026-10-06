@@ -231,6 +231,14 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 - Đã lấy React duration/DOM/bridge-call counts trên WKWebView; chưa thu được trace scripting/style/layout/paint/memory đầy đủ từ WebKit Inspector của fixture. Phần này còn pending cùng đo bridge serialize/transfer/parse thật và p95/frame/memory gates; không coi performance audit toàn app hoàn tất.
 - Chưa chuyển ERD/history/saved queries/export sang scope phase này; cấu trúc một connection active chung cho Database vẫn giữ.
 
+## Follow-up Database table editing — 2026-10-06
+
+- Đã thêm shadcn typed cell editor: boolean, date/time/timestamp, offset, JSON, UUID và numeric; NULL riêng với text rỗng, giữ bigint/decimal/microsecond. Text fallback cho precision hoặc giá trị temporal không phù hợp native picker.
+- Bulk edit page đã tải: selection/Shift/gutter, nhiều cột với giá trị riêng, stage rồi review; một UPDATE mỗi hàng dùng khóa gốc, hỗ trợ đổi composite key cùng lúc. Giữ read-only/pending/env guards; giới hạn 10.000 cells/1 MiB giá trị mỗi bulk operation.
+- Draft cục bộ và bulk dialog lazy; giữ draft khi module ẩn/hiện, trả focus về grid. Quy tắc cho người sau: [Database table editing](database-table-editing.md).
+- Frontend 2.655 test, build/budget và Go architecture/database đạt. Live metadata/typed values + ApplyEdits đạt trên MariaDB 12.3 disposable; chưa test MySQL 8/PostgreSQL thật cho follow-up này.
+- Native fixture 10k × 30: typed validation/selection/bulk/focus; editor scenario update lớn nhất 2 ms, DOM 43 rows. Browser bổ sung microsecond fallback, light theme, bulk limits và hidden draft. Fixture bridge vẫn mô phỏng; full WebKit trace/native DB E2E còn pending, không đánh dấu toàn bộ performance audit hoàn tất.
+
 ## Bước tiếp theo
 
 1. Smoke test native SSH và Kafka với endpoint thử nghiệm.
@@ -242,6 +250,7 @@ Chi tiết rà soát, contract và backlog: [devkit-feedback-audit.md](./devkit-
 
 | Ngày | Cập nhật |
 |---|---|
+| 2026-10-06 | Database typed editor + bulk nhiều cột; SQL gom mỗi hàng/khóa gốc; frontend 2655 test, build và Go đạt, live MariaDB riêng đạt |
 | 2026-10-05 | Phase 7 Database forms/table: shadcn, cancellable probe, scoped writes; WHERE không COUNT theo phím gõ, staged row identity; frontend 2597 test đạt |
 | 2026-10-05 | Phase 6 Database: responsive console/schema feedback, giữ result pending/Cancel, chống schema/Explain cũ và focused overlay |
 | 2026-10-05 | Phase 5 Git: sửa commit params/root/merge diff, staged review; tối ưu pane, History và async feedback; frontend 2551 test, build và Go regression đạt |

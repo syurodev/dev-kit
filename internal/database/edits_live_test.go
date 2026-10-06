@@ -75,3 +75,46 @@ func TestApplyEditsMySQL(t *testing.T) {
 	svc, id := liveMySQLProfile(t)
 	assertApplyEdits(t, svc, id)
 }
+
+// Metadata must retain the boolean alias's width: data_type alone says tinyint.
+func TestMySQLTypedEditMetadataAndValues(t *testing.T) {
+	if os.Getenv("DEVKIT_MYSQL_TEST") != "1" {
+		t.Skip("set DEVKIT_MYSQL_TEST=1 to run the typed edits test")
+	}
+	ctx := context.Background()
+	conn := dialMySQL(t)
+	t.Cleanup(conn.Close)
+	guardTable(t, conn, "devkit_typed_edits",
+		"CREATE TABLE devkit_typed_edits (id int PRIMARY KEY, active BOOLEAN NOT NULL, due DATE, happened DATETIME(6), duration TIME(6), amount DECIMAL(30,10)) ENGINE=InnoDB",
+		"INSERT INTO devkit_typed_edits VALUES (1, FALSE, NULL, NULL, NULL, NULL)")
+	columns, err := conn.ListColumns(ctx, envOr("DEVKIT_MYSQL_DB", "devkitdb"), "devkit_typed_edits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 6 || columns[1].DataType != "tinyint(1)" || columns[1].Nullable {
+		t.Fatalf("boolean metadata lost: %+v", columns)
+	}
+	rows, err := conn.Query(ctx, "UPDATE devkit_typed_edits SET active=TRUE, due='2024-02-29', happened='2026-10-05 12:30:01.123456', duration='-838:59:59.123456', amount='12345678901234567890.1234567890' WHERE id=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	rows, err = conn.Query(ctx, "SELECT active, due, happened, duration, amount FROM devkit_typed_edits WHERE id=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("no updated row")
+	}
+	values, err := rows.Values()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1", "2024-02-29", "2026-10-05 12:30:01.123456", "-838:59:59.123456", "12345678901234567890.1234567890"}
+	for i, v := range values {
+		if v == nil || *v != want[i] {
+			t.Fatalf("column %d: got %v, want %s", i, v, want[i])
+		}
+	}
+}

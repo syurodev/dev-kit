@@ -1,6 +1,11 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 import type { LucideIcon } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { CellEditor } from "./CellEditor";
+import { bulkEditRefusal } from "./bulkEditLimits";
+import { validateCellValue, booleanValue, cellKind } from "../sql/cellValue";
+import type { CellValue } from "../sql/updateCell";
 import {
   DndContext,
   PointerSensor,
@@ -82,6 +87,10 @@ const ROW_HEIGHT = 28;
 // runs per visible cell, so it stays arithmetic rather than a DOM read.
 const CHAR_PX_APPROX = 7.3;
 
+const BulkEditDialog = lazy(() =>
+  import("./BulkEditDialog").then((m) => ({ default: m.BulkEditDialog })),
+);
+
 /** The header's own height, which the sticky row occupies above the first row. */
 const HEADER_HEIGHT = 28;
 
@@ -124,10 +133,14 @@ export function ResultGrid({
   frozen = 0,
   onFreeze,
   columnTypes,
+  columnNullable,
+  engine,
+  editScope,
   keyColumns,
   rowOffset = 0,
   onFilterByValue,
   onEditCells,
+  onStageCells,
   changedCells,
   editRefusal = "",
 }: {
@@ -161,6 +174,10 @@ export function ResultGrid({
    * exist, and the neutral glyph is the honest answer rather than a guess.
    */
   columnTypes?: Readonly<Record<string, string>>;
+  columnNullable?: Readonly<Record<string, boolean>>;
+  engine?: string;
+  /** A new load invalidates positional selection/editors, unlike a staged overlay. */
+  editScope?: string;
   /** The columns of the table's key, drawn with a key glyph instead of a type. */
   keyColumns?: readonly string[];
   /**
@@ -174,7 +191,11 @@ export function ResultGrid({
    * engine, which is the caller's to know.
    */
   /** `value` is null for a NULL cell, which filters with IS NULL (#47). */
-  onFilterByValue?: (filter: { column: string; value: string | null; negate: boolean }) => void;
+  onFilterByValue?: (filter: {
+    column: string;
+    value: string | null;
+    negate: boolean;
+  }) => void;
   /**
    * Commits an edit. Absent means the grid is a reader — the console's result
    * can be a join or an expression, and there is no single table to write to.
@@ -182,7 +203,15 @@ export function ResultGrid({
    * Row and column INDICES, not values: the caller owns the key columns and
    * the statement, and the grid owns only which cells the user picked.
    */
-  onEditCells?: (edit: { rows: number[]; columns: number[]; value: string | null }) => void;
+  onEditCells?: (edit: {
+    rows: number[];
+    columns: number[];
+    value: string | null;
+  }) => void;
+  /** Multiple edits are always staged, including on non-production connections. */
+  onStageCells?: (
+    cells: readonly { row: number; column: number; value: CellValue }[],
+  ) => void;
   /** #52: cells holding a staged change, as "row:column", drawn as changed. */
   changedCells?: ReadonlySet<string>;
   /** Why editing is refused, shown where the attempt is made. "" means it is not. */
@@ -214,10 +243,20 @@ export function ResultGrid({
    * grid is one control).
    */
   const [selection, setSelection] = useState<GridSelection | null>(null);
-  /** The cell being typed into, and what has been typed. */
-  const [editing, setEditing] = useState<{ row: number; position: number; draft: string } | null>(
-    null,
-  );
+  /** The active editor position. Its draft stays inside CellEditor. */
+  const [editing, setEditing] = useState<{
+    row: number;
+    position: number;
+  } | null>(null);
+  const [bulkRows, setBulkRows] = useState<number[] | null>(null);
+  const [scope, setScope] = useState(editScope);
+  if (scope !== editScope) {
+    setScope(editScope);
+    setEditing(null);
+    setSelection(null);
+    setBulkRows(null);
+    setTarget(null);
+  }
   const focus = selection?.focus ?? null;
   const range = selection ? selectedRange(selection) : null;
 
@@ -228,7 +267,8 @@ export function ResultGrid({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
-  const widthOf = (index: number) => widths[index] ?? measured[index] ?? DEFAULT_COLUMN_WIDTH_PX;
+  const widthOf = (index: number) =>
+    widths[index] ?? measured[index] ?? DEFAULT_COLUMN_WIDTH_PX;
   // A drag starts from what is on screen, not from a default: seeding the
   // untouched columns with 180 made dragging the fourth column snap the first
   // three to a width nobody chose.
@@ -277,7 +317,10 @@ export function ResultGrid({
       // a row scrolled flush to the top would be under it.
       if (top < scroller.scrollTop + HEADER_HEIGHT) {
         scroller.scrollTop = Math.max(0, top - HEADER_HEIGHT);
-      } else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
+      } else if (
+        top + ROW_HEIGHT >
+        scroller.scrollTop + scroller.clientHeight
+      ) {
         scroller.scrollTop = top + ROW_HEIGHT - scroller.clientHeight;
       }
     }
@@ -291,7 +334,8 @@ export function ResultGrid({
     // Everything pinned stays painted over the left edge, so that band is not
     // free space to scroll a cell into.
     const pinned = offsets.reduce<number>(
-      (sum, offset, i) => (offset === undefined ? sum : sum + widthOf(order[i])),
+      (sum, offset, i) =>
+        offset === undefined ? sum : sum + widthOf(order[i]),
       ROW_NUMBER_WIDTH_PX,
     );
     if (left < scroller.scrollLeft + pinned) {
@@ -317,7 +361,7 @@ export function ResultGrid({
       toast.error("This result cannot be edited", { description: editRefusal });
       return;
     }
-    setEditing({ row, position, draft: result.rows[row]?.[order[position]] ?? "" });
+    setEditing({ row, position });
   }
 
   /**
@@ -325,23 +369,80 @@ export function ResultGrid({
    *
    * The whole rectangle, not the one cell being typed into: that is what makes
    * this a bulk edit, and it is the DataGrip gesture — pick a run of rows, type
-   * once. The caller turns the indices into one statement.
+   * once. The caller stages the cells and builds one UPDATE per affected row.
    */
-  function commitEdit(value: string | null): void {
-    const target = range ?? (editing ? { top: editing.row, bottom: editing.row, left: editing.position, right: editing.position } : null);
-    setEditing(null);
-    if (!onEditCells || !target || target.top < 0) return;
-    const rows: number[] = [];
-    for (let row = target.top; row <= target.bottom; row += 1) rows.push(row);
-    const columns: number[] = [];
-    for (let position = target.left; position <= target.right; position += 1) {
-      columns.push(order[position]);
+  function commitEdit(value: CellValue): string {
+    const target =
+      range ??
+      (editing
+        ? {
+            top: editing.row,
+            bottom: editing.row,
+            left: editing.position,
+            right: editing.position,
+          }
+        : null);
+    if (!onEditCells || !target || target.top < 0)
+      return "Select a data cell to edit.";
+    if (editRefusal) return editRefusal;
+    const limit = bulkEditRefusal(
+      target.bottom - target.top + 1,
+      Array.from({ length: target.right - target.left + 1 }, () => value),
+    );
+    if (limit) return limit;
+    const edits: { row: number; column: number; value: CellValue }[] = [];
+    const selectedRows: number[] = [],
+      selectedColumns: number[] = [];
+    for (let position = target.left; position <= target.right; position++) {
+      const column = order[position],
+        name = result.columns[column];
+      const error = validateCellValue(
+        value,
+        columnTypes?.[name],
+        columnNullable?.[name] !== false,
+        engine,
+      );
+      if (error) return `${name}: ${error}`;
+      selectedColumns.push(column);
     }
-    onEditCells({ rows, columns, value });
+    for (let row = target.top; row <= target.bottom; row++) {
+      if (!result.rows[row])
+        return "The selected row is no longer on this page.";
+      selectedRows.push(row);
+      for (const column of selectedColumns)
+        edits.push({
+          row,
+          column,
+          value:
+            value !== null &&
+            cellKind(columnTypes?.[result.columns[column]]) === "boolean"
+              ? booleanValue(value)
+              : value,
+        });
+    }
+    if (edits.length > 1 && onStageCells) onStageCells(edits);
+    else
+      onEditCells({
+        rows: selectedRows,
+        columns: selectedColumns,
+        value: edits[0].value,
+      });
+    setEditing(null);
+    return "";
+  }
+  function openBulk() {
+    if (!range || range.top < 0 || !onStageCells || editRefusal) return;
+    const selected: number[] = [];
+    for (let row = range.top; row <= range.bottom; row++)
+      if (result.rows[row]) selected.push(row);
+    if (selected.length) setBulkRows(selected);
   }
 
   function onGridKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
-    const here = selection ?? { anchor: { row: 0, position: 0 }, focus: { row: 0, position: 0 } };
+    const here = selection ?? {
+      anchor: { row: 0, position: 0 },
+      focus: { row: 0, position: 0 },
+    };
 
     if (editing) {
       // While typing, the grid's own keys belong to the input — except the two
@@ -354,7 +455,7 @@ export function ResultGrid({
       event.currentTarget.blur();
       return;
     }
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.key === "Enter" || event.key === " " || event.key === "F2") {
       if (here.focus.row === HEADER_ROW) {
         onSort?.(order[here.focus.position]);
       } else if (onEditCells) {
@@ -377,7 +478,11 @@ export function ResultGrid({
         rows: result.rows.length,
         columns: order.length,
         // One row of overlap, so a page turn keeps a line of context.
-        page: Math.max(1, Math.floor((rows.scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) - 1),
+        page: Math.max(
+          1,
+          Math.floor((rows.scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) -
+            1,
+        ),
         jump: event.metaKey || event.ctrlKey,
       },
       event.shiftKey,
@@ -425,6 +530,50 @@ export function ResultGrid({
         onReorder?.(reorderColumn(order, from, to));
       }}
     >
+      {onStageCells ? (
+        <div
+          className="flex shrink-0 flex-wrap items-center gap-2 py-1 text-body-12 text-text-secondary"
+          aria-label="Table selection actions"
+        >
+          <span className="mr-auto tabular-nums">
+            {range && range.top >= 0
+              ? `${range.bottom - range.top + 1} rows · ${rangeSize(range)} cells selected`
+              : "Select cells or row numbers; Shift extends selection."}
+          </span>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={!result.rows.length || Boolean(editRefusal)}
+            onClick={() =>
+              setSelection({
+                anchor: { row: 0, position: 0 },
+                focus: {
+                  row: result.rows.length - 1,
+                  position: order.length - 1,
+                },
+              })
+            }
+          >
+            Select loaded page
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={!selection}
+            onClick={() => setSelection(null)}
+          >
+            Clear selection
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!range || range.top < 0 || Boolean(editRefusal)}
+            onClick={openBulk}
+          >
+            Edit selected rows…
+          </Button>
+        </div>
+      ) : null}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -438,11 +587,22 @@ export function ResultGrid({
               if (raw) {
                 const [row, column] = raw.split(":").map(Number);
                 setTarget(Number.isNaN(row) ? null : { row, column });
+                const position = order.indexOf(column);
+                if (position >= 0 && (!range || !inRange(range, row, position)))
+                  setSelection({
+                    anchor: { row, position },
+                    focus: { row, position },
+                  });
                 return;
               }
               const gutter = Number(el?.getAttribute("data-row"));
               if (!Number.isNaN(gutter) && el?.hasAttribute("data-row")) {
                 setTarget({ row: gutter, column: order[0] ?? 0 });
+                if (!range || gutter < range.top || gutter > range.bottom)
+                  setSelection({
+                    anchor: { row: gutter, position: 0 },
+                    focus: { row: gutter, position: order.length - 1 },
+                  });
                 return;
               }
               const column = Number(el?.getAttribute("data-column"));
@@ -461,7 +621,10 @@ export function ResultGrid({
               onFocus={() =>
                 setSelection(
                   (current) =>
-                    current ?? { anchor: { row: 0, position: 0 }, focus: { row: 0, position: 0 } },
+                    current ?? {
+                      anchor: { row: 0, position: 0 },
+                      focus: { row: 0, position: 0 },
+                    },
                 )
               }
             >
@@ -485,7 +648,10 @@ export function ResultGrid({
                     style={{ position: "sticky", left: 0, zIndex: 3 }}
                     className="h-7 border-r border-b border-border-subtle bg-surface-raised p-0"
                   />
-                  <SortableContext items={order} strategy={horizontalListSortingStrategy}>
+                  <SortableContext
+                    items={order}
+                    strategy={horizontalListSortingStrategy}
+                  >
                     {order.map((index, position) => (
                       <HeaderCell
                         key={`${result.columns[index]}-${index}`}
@@ -494,7 +660,10 @@ export function ResultGrid({
                         sorted={sort?.column === index ? sort.direction : null}
                         frozenAt={offsets[position]}
                         onSort={onSort}
-                        focused={focus?.row === HEADER_ROW && focus.position === position}
+                        focused={
+                          focus?.row === HEADER_ROW &&
+                          focus.position === position
+                        }
                         glyph={
                           keyColumns?.includes(result.columns[index])
                             ? KeyRound
@@ -510,7 +679,9 @@ export function ResultGrid({
                 </tr>
               </thead>
               <tbody>
-                {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
+                {rows.padTop > 0 && (
+                  <tr style={{ height: rows.padTop }} aria-hidden />
+                )}
                 {rows.indices.map((rowIndex) => (
                   <tr
                     key={rowIndex}
@@ -533,6 +704,22 @@ export function ResultGrid({
                         on the same opaque ground the pinned cells use — the
                         scrolling columns pass beneath it. */}
                     <td
+                      onMouseDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        window.getSelection()?.removeAllRanges();
+                        setSelection((current) => ({
+                          anchor: {
+                            row:
+                              event.shiftKey && current
+                                ? current.anchor.row
+                                : rowIndex,
+                            position: 0,
+                          },
+                          focus: { row: rowIndex, position: order.length - 1 },
+                        }));
+                        event.currentTarget.closest("table")?.focus();
+                      }}
                       data-row={rowIndex}
                       style={{
                         position: "sticky",
@@ -550,10 +737,14 @@ export function ResultGrid({
                         animate a column that snaps into place on drop anyway. */}
                     {order.map((columnIndex, position) => {
                       const value = result.rows[rowIndex][columnIndex] ?? null;
-                      const isFocused = focus?.row === rowIndex && focus.position === position;
-                      const isSelected = range ? inRange(range, rowIndex, position) : false;
+                      const isFocused =
+                        focus?.row === rowIndex && focus.position === position;
+                      const isSelected = range
+                        ? inRange(range, rowIndex, position)
+                        : false;
                       const isEditing =
-                        editing?.row === rowIndex && editing.position === position;
+                        editing?.row === rowIndex &&
+                        editing.position === position;
                       return (
                         <td
                           key={columnIndex}
@@ -590,21 +781,26 @@ export function ResultGrid({
                             onEditCells
                               ? beginEdit(rowIndex, position)
                               : onInspectCell({
-                                  columnName: result.columns[columnIndex] || `col_${columnIndex}`,
+                                  columnName:
+                                    result.columns[columnIndex] ||
+                                    `col_${columnIndex}`,
                                   value,
                                 })
                           }
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
-                            changedCells?.has(`${rowIndex}:${columnIndex}`) && "bg-status-warning/10",
+                            changedCells?.has(`${rowIndex}:${columnIndex}`) &&
+                              "bg-status-warning/10",
                             // A number goes right, and in figures of one
                             // width: that is what makes a column of ids
                             // scannable — the four-digit one is visibly
                             // longer instead of being one character further
                             // along a ragged right edge.
                             numeric[columnIndex] && "text-right tabular-nums",
-                            isSelected && !isFocused && "bg-(--feedback-selected)",
+                            isSelected &&
+                              !isFocused &&
+                              "bg-(--feedback-selected)",
                             isFocused &&
                               "outline outline-1 -outline-offset-1 outline-status-info",
                             "text-text-primary",
@@ -620,15 +816,24 @@ export function ResultGrid({
                           // narrow to show it. "Click to inspect cell" on
                           // every cell meant scanning forty rows raised four
                           // hundred tooltips saying the same thing.
-                          title={value !== null && value.length * CHAR_PX_APPROX > widthOf(columnIndex) ? value : undefined}
+                          title={
+                            value !== null &&
+                            value.length * CHAR_PX_APPROX > widthOf(columnIndex)
+                              ? value
+                              : undefined
+                          }
                         >
                           {isEditing ? (
                             <CellEditor
-                              draft={editing.draft}
-                              cells={range ? rangeSize(range) : 1}
-                              onChange={(draft) =>
-                                setEditing((current) => (current ? { ...current, draft } : current))
+                              initialValue={value}
+                              column={result.columns[columnIndex]}
+                              type={columnTypes?.[result.columns[columnIndex]]}
+                              nullable={
+                                columnNullable?.[
+                                  result.columns[columnIndex]
+                                ] !== false
                               }
+                              cells={range ? rangeSize(range) : 1}
                               onCommit={commitEdit}
                               onCancel={() => setEditing(null)}
                             />
@@ -638,7 +843,13 @@ export function ResultGrid({
                                saturated letters repeated down a column of
                                empty cells, louder than the data they were
                                standing in for, and warning of nothing. */
-                            <span className="text-code-11 text-text-tertiary italic">null</span>
+                            <span className="text-code-11 text-text-tertiary italic">
+                              null
+                            </span>
+                          ) : cellKind(
+                              columnTypes?.[result.columns[columnIndex]],
+                            ) === "boolean" ? (
+                            booleanValue(value)
                           ) : (
                             value
                           )}
@@ -647,7 +858,9 @@ export function ResultGrid({
                     })}
                   </tr>
                 ))}
-                {rows.padBottom > 0 && <tr style={{ height: rows.padBottom }} aria-hidden />}
+                {rows.padBottom > 0 && (
+                  <tr style={{ height: rows.padBottom }} aria-hidden />
+                )}
               </tbody>
             </table>
             {/* A result with columns but no rows used to render as the header
@@ -672,12 +885,17 @@ export function ResultGrid({
         <ContextMenuContent>
           {cell ? (
             <>
-              <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(cell.value ?? "")}>
+              <ContextMenuItem
+                icon={<Copy />}
+                onSelect={() => void copyText(cell.value ?? "")}
+              >
                 Copy cell
               </ContextMenuItem>
               <ContextMenuItem
                 icon={<Braces />}
-                onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
+                onSelect={() =>
+                  void copyText(rowAsJSON(result.columns, cell.row))
+                }
               >
                 Copy row as JSON
               </ContextMenuItem>
@@ -713,14 +931,20 @@ export function ResultGrid({
           ) : null}
           {column ? (
             <>
-              <ContextMenuItem icon={<Columns3 />} onSelect={() => void copyText(column.name)}>
+              <ContextMenuItem
+                icon={<Columns3 />}
+                onSelect={() => void copyText(column.name)}
+              >
                 Copy column name
               </ContextMenuItem>
               <ContextMenuItem
                 icon={<List />}
-                onSelect={() => void copyText(columnValues(result.rows, column.index))}
+                onSelect={() =>
+                  void copyText(columnValues(result.rows, column.index))
+                }
               >
-                Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
+                Copy {result.rows.length} value
+                {result.rows.length === 1 ? "" : "s"}
               </ContextMenuItem>
               {/* The count is what is loaded, not what the query would have
                   returned. Offering "the column" over a capped result would hand
@@ -733,21 +957,55 @@ export function ResultGrid({
               {onEditCells && cell ? (
                 <>
                   <ContextMenuSeparator />
+                  {onStageCells ? (
+                    <ContextMenuItem
+                      disabled={Boolean(editRefusal)}
+                      onSelect={openBulk}
+                    >
+                      Edit selected rows…
+                    </ContextMenuItem>
+                  ) : null}
+                  <ContextMenuItem
+                    disabled={Boolean(editRefusal)}
+                    onSelect={() => {
+                      if (target?.row !== null && target)
+                        beginEdit(target.row, order.indexOf(target.column));
+                    }}
+                  >
+                    Edit value…
+                  </ContextMenuItem>
                   {/* A value, not the four letters — typing NULL into a cell
                       sets the string, which is why it needs an item of its
                       own. It follows the SELECTION, like any other edit. */}
-                  <ContextMenuItem icon={<Eraser />} onSelect={() => commitEdit(null)}>
-                    Set {range && rangeSize(range) > 1 ? `${rangeSize(range)} cells` : "cell"} to
-                    NULL
+                  <ContextMenuItem
+                    icon={<Eraser />}
+                    disabled={Boolean(editRefusal)}
+                    onSelect={() => {
+                      const error = commitEdit(null);
+                      if (error)
+                        toast.error("Could not set NULL", {
+                          description: error,
+                        });
+                    }}
+                  >
+                    Set{" "}
+                    {range && rangeSize(range) > 1
+                      ? `${rangeSize(range)} cells`
+                      : "cell"}{" "}
+                    to NULL
                   </ContextMenuItem>
                 </>
               ) : null}
               {onFreeze ? (
                 <ContextMenuItem
                   icon={column.position < frozen ? <PinOff /> : <Pin />}
-                  onSelect={() => onFreeze(pinColumn(order, frozen, column.index))}
+                  onSelect={() =>
+                    onFreeze(pinColumn(order, frozen, column.index))
+                  }
                 >
-                  {column.position < frozen ? `Unpin ${column.name}` : `Pin ${column.name}`}
+                  {column.position < frozen
+                    ? `Unpin ${column.name}`
+                    : `Pin ${column.name}`}
                 </ContextMenuItem>
               ) : null}
             </>
@@ -761,6 +1019,43 @@ export function ResultGrid({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      {bulkRows && onStageCells ? (
+        <Suspense fallback={null}>
+          <BulkEditDialog
+            rows={bulkRows}
+            columns={result.columns}
+            columnTypes={columnTypes}
+            columnNullable={columnNullable}
+            keyColumns={keyColumns}
+            engine={engine}
+            onClose={() => setBulkRows(null)}
+            onRestoreFocus={() =>
+              rows.scrollRef.current
+                ?.querySelector<HTMLElement>('[role="grid"]')
+                ?.focus()
+            }
+            onStage={(assignments) => {
+              if (editRefusal) return editRefusal;
+              const limit = bulkEditRefusal(
+                bulkRows.length,
+                assignments.map((a) => a.value),
+              );
+              if (limit) return limit;
+              const edits = bulkRows.flatMap((row) =>
+                assignments.map((a) => ({
+                  row,
+                  column: a.column,
+                  value: a.value,
+                })),
+              );
+              if (edits.some((e) => !result.rows[e.row]))
+                return "Selection changed. Select rows again.";
+              onStageCells(edits);
+              return "";
+            }}
+          />
+        </Suspense>
+      ) : null}
     </DndContext>
   );
 }
@@ -796,9 +1091,10 @@ function HeaderCell({
   isKey: boolean;
 }) {
   const dragStart = useRef<number | null>(null);
-  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: index,
-  });
+  const { listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({
+      id: index,
+    });
 
   // `listeners` go on the `<th>`, not on the sort button: a drag handle nested
   // inside a click target is the same fight over the pointer the resize handle
@@ -856,14 +1152,20 @@ function HeaderCell({
         onClick={() => onSort?.(index)}
       >
         <Glyph
-          className={cn("size-3 shrink-0", isKey ? "text-status-info" : "text-text-tertiary")}
+          className={cn(
+            "size-3 shrink-0",
+            isKey ? "text-status-info" : "text-text-tertiary",
+          )}
           aria-hidden
         />
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {/* The slot is always here, whether or not anything is in it. Revealing
             the caret on hover by inserting it would re-flow the label under the
             pointer — and measureColumns has already paid for the width. */}
-        <span aria-hidden className="flex size-3 shrink-0 items-center justify-center">
+        <span
+          aria-hidden
+          className="flex size-3 shrink-0 items-center justify-center"
+        >
           {sorted === "asc" ? (
             <ArrowUp className="size-3 text-text-primary" />
           ) : sorted === "desc" ? (
@@ -908,69 +1210,3 @@ function HeaderCell({
 }
 
 export { MIN_COLUMN_WIDTH_PX };
-
-/**
- * The input that replaces a cell while it is being typed into.
- *
- * Its own component so the grid does not re-render 2,220 cells on every
- * keystroke: the draft lives here until it is committed, and only this cell
- * subscribes to it.
- *
- * Enter commits and Escape cancels, both handled here and stopped from
- * bubbling — the grid's own keydown would otherwise move the selection out
- * from under the edit. The cell count is shown when a bulk edit is about to
- * change more than the one cell being typed into, because it is the only
- * warning that a keystroke is about to touch forty rows.
- */
-function CellEditor({
-  draft,
-  cells,
-  onChange,
-  onCommit,
-  onCancel,
-}: {
-  draft: string;
-  cells: number;
-  onChange: (draft: string) => void;
-  onCommit: (value: string | null) => void;
-  onCancel: () => void;
-}) {
-  return (
-    <span className="flex h-full items-center gap-1">
-      <input
-        autoFocus
-        // Selected on open, so the first keystroke REPLACES the value the way
-        // it does in a spreadsheet. With the caret merely at the end, typing
-        // "closed" over "open" produced "openclosed".
-        onFocus={(event) => event.target.select()}
-        value={draft}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={() => onCancel()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            onCommit(draft);
-          } else if (event.key === "Escape") {
-            onCancel();
-          } else {
-            // Everything else belongs to the input. Without this the grid's
-            // arrows would move the selection while the caret tried to move.
-            event.stopPropagation();
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        className="h-6 w-full min-w-0 rounded-sm border border-status-info bg-surface-base px-1 text-code-12 text-text-primary outline-none"
-      />
-      {cells > 1 ? (
-        // Inside the cell, not floating above it: the cell is `truncate`, so
-        // an absolutely positioned badge was clipped by its own overflow and
-        // the one warning that a keystroke is about to change forty rows never
-        // appeared at all.
-        <span className="shrink-0 rounded-sm bg-status-info px-1 text-code-11 text-surface-base">
-          {cells}
-        </span>
-      ) : null}
-    </span>
-  );
-}
