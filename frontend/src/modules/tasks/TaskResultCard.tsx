@@ -4,12 +4,12 @@ import { dispatchIntent } from "@/workbench/intents";
 import type { TaskResult } from "./taskResult";
 
 /** `tasks.create` / `get` / `update` / `transition` — all four answer with a Task, so one card: key, title, status. */
-export function TaskResultCard({ task }: { task: TaskResult }) {
+export function TaskResultCard({ task, heading }: { task: TaskResult; heading?: string }) {
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader
         icon={KanbanSquare}
-        title="Task"
+        title={heading ?? "Task"}
         meta={task.status}
         action={
           <FramedCardAction

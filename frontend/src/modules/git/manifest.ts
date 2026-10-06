@@ -1,9 +1,10 @@
 import { GitBranch } from "lucide-react";
-import { lazy, Suspense, createElement } from "react";
+import { lazy, createElement } from "react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { withGitFolder } from "./GitFolderGate";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
+import { registerGitActivities } from "./toolActivities";
 import { parseDiffResult } from "./diffResult";
 import { parseCommitResult } from "./commitResult";
 
@@ -97,11 +98,7 @@ const LazyGitDiffResultCard = lazy(() =>
 registerToolResultView("git.diff", ({ rawInput, rawOutput }) => {
   const parsed = parseDiffResult(rawInput, rawOutput);
   if (!parsed) return null;
-  return createElement(
-    Suspense,
-    { fallback: null },
-    createElement(LazyGitDiffResultCard, { changes: parsed.changes, rev: parsed.rev }),
-  );
+  return createElement(LazyGitDiffResultCard, { changes: parsed.changes, rev: parsed.rev });
 });
 
 /**
@@ -110,8 +107,12 @@ registerToolResultView("git.diff", ({ rawInput, rawOutput }) => {
 const LazyGitCommitResultCard = lazy(() =>
   import("./GitCommitResultCard").then(({ GitCommitResultCard }) => ({ default: GitCommitResultCard })),
 );
-registerToolResultView("git.commit", ({ rawOutput }) => {
+registerToolResultView("git.commit", ({ rawOutput, heading }) => {
   const commit = parseCommitResult(rawOutput);
   if (!commit) return null;
-  return createElement(Suspense, { fallback: null }, createElement(LazyGitCommitResultCard, { commit }));
+  return createElement(LazyGitCommitResultCard, { commit, heading });
 });
+
+// What this module's tools that change something do, for the transcript's
+// always-visible cards (workbench/toolActivity.ts).
+registerGitActivities();

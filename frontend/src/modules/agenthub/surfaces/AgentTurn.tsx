@@ -17,6 +17,7 @@ import {
   AgentThinking,
   AgentToolCall,
 } from "../transcript/index";
+import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { AgentTurnChanges } from "./AgentTurnChanges";
@@ -271,6 +272,12 @@ export const AgentTurn = React.memo(function AgentTurn({
  * folded), so nothing above it is hiding the steps for it. Opened, it shows
  * every step at full height: opening it is the request to read them, and a
  * scrolling well inside the transcript's own scroller hid most of a long run.
+ *
+ * The steps that changed something in DevKit — a board or task made, a commit,
+ * a push, a request sent (workbench/toolActivity.ts) — are not left behind the
+ * fold: each stays on screen as a card under the run's line, running while it
+ * runs. Reading forty files is the account; making a board is news. The fold
+ * still holds every step, those included, for their raw input and output.
  */
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
@@ -289,9 +296,13 @@ export function StepGroup({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
   // One step needs no summary: "Thought" over a row reading "Thought" says the
-  // same thing twice, and a fold around a single line hides nothing.
-  if (items.length === 1) return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
+  // same thing twice, and a fold around a single line hides nothing. Unless it
+  // is a card: then the line is the way to its raw call.
+  if (items.length === 1 && activities.length === 0) {
+    return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
+  }
   return (
     <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
       <button
@@ -313,6 +324,13 @@ export function StepGroup({
           ))}
         </div>
       </AnimatedCollapse>
+      {activities.length > 0 ? (
+        <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2">
+          {activities.map((item) => (
+            <AgentToolActivity key={item.id} call={item.toolCall!} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

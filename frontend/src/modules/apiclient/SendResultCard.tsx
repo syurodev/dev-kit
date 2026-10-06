@@ -21,12 +21,20 @@ function statusTone(status: number): string {
  * `api.send` — how the request went: status, time, size. Never the body: the
  * request was really sent, and what came back may be real data.
  */
-export function SendResultCard({ response, requestId }: { response: SendResult; requestId: string }) {
+export function SendResultCard({
+  response,
+  requestId,
+  heading,
+}: {
+  response: SendResult;
+  requestId: string;
+  heading?: string;
+}) {
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader
         icon={Send}
-        title="Response"
+        title={heading ?? "Response"}
         meta={`${response.durationMs} ms`}
         action={
           <FramedCardAction

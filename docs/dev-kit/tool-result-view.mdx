@@ -137,6 +137,50 @@ không parse được — kể cả khi bị cắt giữa chừng bởi `ToolRaw
   `AgentToolCall` rơi về nhánh `ToolOutput` JSON như hiện tại — không vỡ UI,
   không có card rỗng, không cần sửa gì ở nơi gọi.
 
+- **Renderer không tự bọc `Suspense`.** Card lazy có thể suspend; nơi gọi
+  `renderToolResult` giữ boundary — `AgentToolCall` dùng `fallback={null}`,
+  card hoạt động (bên dưới) dùng chính card "đang chạy" làm fallback để lúc
+  chuyển sang kết quả không có khung trống.
+
+### Tool hoạt động: card luôn hiện, kể cả khi đang chạy
+
+`frontend/src/workbench/toolActivity.ts` — registry thứ hai, cùng khoá tên
+(`createToolRegistry`) với `registerToolResultView`, dành cho các tool **thay
+đổi** thứ gì đó (tạo board/task, commit, push, gửi request…). Tool chỉ đọc
+không đăng ký gì ở đây. Module sở hữu tool khai báo trong `toolActivities.ts`
+của nó, gọi từ `manifest.ts`:
+
+```ts
+registerToolActivity("tasks.board.create", {
+  module: "tasks",
+  running: "Creating board", done: "Created board", failed: "Couldn't create board",
+  // rawInput khi đang chạy (chưa có id: chỉ label), rawOutput khi xong (có ref để Open)
+  target: ({ rawInput, rawOutput, state }) => ({ label, detail, ref }),
+  preload: () => import("./SomeResultCard"), // tải sẵn chunk card kết quả lúc tool đang chạy
+});
+```
+
+- Trong transcript (`StepGroup` của `AgentTurn`), mỗi tool hoạt động thành một
+  card **nằm ngoài phần gập**: dòng tóm tắt của run vẫn gập như cũ (và vẫn
+  chứa đủ mọi bước, kể cả các tool này, để xem input/output thô), còn card
+  luôn hiện dưới nó. Một run chỉ có một tool hoạt động vẫn có dòng tóm tắt —
+  đó là đường tới call thô.
+- Đang chạy: "Creating board… · Backend" (từ `rawInput`). Xong: card kết quả
+  của module (nhận `heading` = động từ của activity, vd "Created task", thay
+  cho danh từ "Task") hoặc card chung có nút Open (`<module>.reveal`, riêng
+  API client là `api.reveal`). Lỗi: động từ `failed` màu danger.
+- Mượt: card đang chạy và card kết quả cùng khung `FramedCard` (header + một
+  dòng) nên đổi trạng thái không đẩy nội dung bên dưới; chỉ card sinh ra lúc
+  agent đang làm mới có hiệu ứng (`.activity-enter`, tắt dưới reduced
+  motion) — transcript được ảo hoá, card lịch sử mount lại khi cuộn phải đứng
+  yên.
+- `target` là khai báo "tool này tác động lên đối tượng nào" dùng chung: nút
+  Open của card đọc nó, và panel theo dõi (sau này) cũng sẽ đọc nó.
+
+Đã khai báo: `tasks.board.create`, `tasks.create/update/setFields/transition/
+claim/release/archive/comment.add/createFromPlan`, `notes.create/update/delete`,
+`git.commit/push/branch.create/checkout`, `api.send/sendAdhoc`.
+
 ### Mở beside từ card (một hành động, không phải cơ chế mới)
 
 Card có thể thêm nút "Open" dùng đúng `dispatchIntent(name, ref, {placement:
@@ -190,7 +234,7 @@ tự nâng cấp lên card mà không cần refresh.
 | `codegraph.listEndpoints` | Danh sách endpoint, mỗi dòng tự bấm được | `codegraph.reveal` (kind `endpoint`) trên từng dòng |
 | `api.fromEndpoint` | Method + URL của bản nháp, ghi chú về body (không hiện body — có thể chứa dữ liệu thật) | "Try in API Client" (`api.fromEndpoint` intent đã có sẵn) |
 | `api.send` | Status code + thời gian + kích thước + cờ `truncated` (không hiện body — request đã gửi thật, khác bản nháp) | "Open" (`api.reveal`, mở request đã lưu) |
-| `tasks.create` / `tasks.get` / `tasks.update` / `tasks.transition` | Key + title + status (một card dùng chung cho cả 4, vì cả 4 đều trả về `Task`) | "Open" (`tasks.reveal`) |
+| `tasks.create` / `tasks.get` / `tasks.update` / `tasks.transition` | Key + title + status (một card dùng chung cho cả 4; `transition` trả `{task, verifying}` nên đọc task ở `task`) | "Open" (`tasks.reveal`) |
 | `notes.create` / `notes.update` | Chỉ tiêu đề — không hiện `preview`/`body`, dữ liệu đã giải mã của note (ít lộ hơn cả JSON thô hôm nay, vốn đang hiện nguyên) | "Open" (`notes.reveal`) |
 | `git.commit` | Short SHA + subject | "View diff" (`git.reveal`, kind `commit`, bằng SHA đầy đủ) |
 | `git.diff` | Tên file đổi + số dòng (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | "View diff" — chỉ hiện khi `rawInput.rev` khác rỗng; diff work tree không có view riêng để mở lại đúng những gì tool đã thấy (xem `git.reveal` trong `manifest.ts`) |

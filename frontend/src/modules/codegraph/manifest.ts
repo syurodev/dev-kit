@@ -1,4 +1,4 @@
-import { lazy, Suspense, createElement } from "react";
+import { lazy, createElement } from "react";
 import { Code, FileCode2, ListChecks, Workflow } from "lucide-react";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
@@ -115,11 +115,7 @@ const LazyApiFlowResultCard = lazy(() =>
 registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
   const parsed = parseApiFlow(rawOutput);
   if (!parsed) return null;
-  return createElement(
-    Suspense,
-    { fallback: null },
-    createElement(LazyApiFlowResultCard, { flow: parsed.flow, entryPointId: parsed.entryPointId }),
-  );
+  return createElement(LazyApiFlowResultCard, { flow: parsed.flow, entryPointId: parsed.entryPointId });
 });
 
 /**
@@ -133,7 +129,7 @@ const LazySymbolMatchResultCard = lazy(() =>
 registerToolResultView("codegraph.searchSymbol", ({ rawOutput }) => {
   const matches = parseSymbolMatches(rawOutput);
   if (!matches) return null;
-  return createElement(Suspense, { fallback: null }, createElement(LazySymbolMatchResultCard, { matches }));
+  return createElement(LazySymbolMatchResultCard, { matches });
 });
 
 const LazyEntryPointListResultCard = lazy(() =>
@@ -142,5 +138,5 @@ const LazyEntryPointListResultCard = lazy(() =>
 registerToolResultView("codegraph.listEndpoints", ({ rawOutput }) => {
   const entries = parseEntryPointMatches(rawOutput);
   if (!entries) return null;
-  return createElement(Suspense, { fallback: null }, createElement(LazyEntryPointListResultCard, { entries }));
+  return createElement(LazyEntryPointListResultCard, { entries });
 });

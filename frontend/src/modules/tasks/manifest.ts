@@ -1,9 +1,10 @@
-import { lazy, Suspense, createElement } from "react";
+import { lazy, createElement } from "react";
 import { KanbanSquare } from "lucide-react";
 import { PLAN_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
+import { registerTaskActivities } from "./toolActivities";
 import { parseTaskResult } from "./taskResult";
 
 export const tasksModule: ModuleManifest = {
@@ -58,6 +59,12 @@ export const tasksModule: ModuleManifest = {
 registerIntent(
   "tasks.reveal",
   async (ref, { placement }) => {
+    // A board too: the card for a board an agent made opens the board.
+    if (ref.kind === "board") {
+      const { openBoard } = await import("./documents");
+      openBoard(ref.id, ref.label, { preview: false, beside: placement === "beside" });
+      return;
+    }
     if (ref.kind !== "task") return;
     const { openTaskDetail } = await import("./documents");
     openTaskDetail(ref.id, ref.label, { preview: false, beside: placement === "beside" });
@@ -75,13 +82,17 @@ const LazyTaskResultCard = lazy(() =>
 );
 
 function registerTaskResultView(toolName: string): void {
-  registerToolResultView(toolName, ({ rawOutput }) => {
+  registerToolResultView(toolName, ({ rawOutput, heading }) => {
     const task = parseTaskResult(rawOutput);
     if (!task) return null;
-    return createElement(Suspense, { fallback: null }, createElement(LazyTaskResultCard, { task }));
+    return createElement(LazyTaskResultCard, { task, heading });
   });
 }
 
 for (const toolName of ["tasks.create", "tasks.get", "tasks.update", "tasks.transition"]) {
   registerTaskResultView(toolName);
 }
+
+// What this module's tools that change something do, for the transcript's
+// always-visible cards (workbench/toolActivity.ts).
+registerTaskActivities();

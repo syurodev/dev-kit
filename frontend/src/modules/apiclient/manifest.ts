@@ -1,9 +1,10 @@
-import { lazy, Suspense, createElement } from "react";
+import { lazy, createElement } from "react";
 import { Send, Variable } from "lucide-react";
 import { UTILITIES_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { registerIntent } from "@/workbench/intents";
 import { registerToolResultView } from "@/workbench/toolResultViews";
+import { registerApiActivities } from "./toolActivities";
 import { parseEndpointDraft } from "./endpointDraftResult";
 import { parseSendResult } from "./sendResult";
 
@@ -90,11 +91,7 @@ const LazyEndpointDraftResultCard = lazy(() =>
 registerToolResultView("api.fromEndpoint", ({ rawInput, rawOutput }) => {
   const parsed = parseEndpointDraft(rawInput, rawOutput);
   if (!parsed) return null;
-  return createElement(
-    Suspense,
-    { fallback: null },
-    createElement(LazyEndpointDraftResultCard, { draft: parsed.draft, endpointId: parsed.endpointId }),
-  );
+  return createElement(LazyEndpointDraftResultCard, { draft: parsed.draft, endpointId: parsed.endpointId });
 });
 
 /**
@@ -122,12 +119,12 @@ registerIntent(
 const LazySendResultCard = lazy(() =>
   import("./SendResultCard").then(({ SendResultCard }) => ({ default: SendResultCard })),
 );
-registerToolResultView("api.send", ({ rawInput, rawOutput }) => {
+registerToolResultView("api.send", ({ rawInput, rawOutput, heading }) => {
   const parsed = parseSendResult(rawInput, rawOutput);
   if (!parsed) return null;
-  return createElement(
-    Suspense,
-    { fallback: null },
-    createElement(LazySendResultCard, { response: parsed.response, requestId: parsed.requestId }),
-  );
+  return createElement(LazySendResultCard, { response: parsed.response, requestId: parsed.requestId, heading });
 });
+
+// What this module's tools that change something do, for the transcript's
+// always-visible cards (workbench/toolActivity.ts).
+registerApiActivities();
