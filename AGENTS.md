@@ -120,6 +120,14 @@ as production-verified against a real Claude Code session in cloud CI.
   a view sharing guards, remotes, credentials and the confirmation gate, keyed by the
   workspace folder like the Git view, so a guarded branch is guarded whichever way it is
   reached — and never moves the app's open repository.
+- **History tools never need a force push** (`internal/git/history.go`). `git.amend`,
+  `git.squash` and `git.rebase` rewrite only commits no remote-tracking ref reaches
+  (`git.pushedHistory` otherwise); `git.cherryPick` / `git.revert` add commits, so pushed
+  history is fine. Rebase/pick/revert stop on a conflict with the paths (`stopped`,
+  `conflicted`) and take `action: continue|abort`. All go through the branch guard and
+  commit as the account identity. `git.fetch` / `git.pull` (ff-only) use the remote's bound
+  account and answer ahead/behind. The Claude hook also refuses shell `git pull`,
+  `rebase`, `cherry-pick` and `revert`.
 - Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.

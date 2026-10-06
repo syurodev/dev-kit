@@ -18,6 +18,7 @@ import (
 type fakeGit struct {
 	name   string
 	staged []string
+	synced []string
 }
 
 func (f *fakeGit) Status(context.Context) (gitservice.Status, error) {
@@ -48,6 +49,29 @@ func (f *fakeGit) Conflict(context.Context, string) (gitservice.Conflict, error)
 	return gitservice.Conflict{}, nil
 }
 func (f *fakeGit) Resolve(context.Context, string, string) error { return nil }
+func (f *fakeGit) Amend(context.Context, gitservice.AmendInput) (gitservice.Commit, error) {
+	return gitservice.Commit{Subject: f.name}, nil
+}
+func (f *fakeGit) Squash(context.Context, gitservice.SquashInput) (gitservice.Commit, error) {
+	return gitservice.Commit{Subject: f.name}, nil
+}
+func (f *fakeGit) Rebase(context.Context, gitservice.RebaseInput) (gitservice.HistoryResult, error) {
+	return gitservice.HistoryResult{Head: gitservice.Commit{Subject: f.name}}, nil
+}
+func (f *fakeGit) CherryPick(context.Context, gitservice.PickInput) (gitservice.HistoryResult, error) {
+	return gitservice.HistoryResult{Head: gitservice.Commit{Subject: f.name}}, nil
+}
+func (f *fakeGit) Revert(context.Context, gitservice.PickInput) (gitservice.HistoryResult, error) {
+	return gitservice.HistoryResult{Head: gitservice.Commit{Subject: f.name}}, nil
+}
+func (f *fakeGit) Fetch(_ context.Context, remote string) error {
+	f.synced = append(f.synced, "fetch "+remote)
+	return nil
+}
+func (f *fakeGit) Pull(_ context.Context, remote string) error {
+	f.synced = append(f.synced, "pull "+remote)
+	return nil
+}
 
 // fakeRepos holds a repository per workspace folder; anything else is not one.
 type fakeRepos map[string]*fakeGit
@@ -198,4 +222,69 @@ func appCode(err error) string {
 		return app.Code
 	}
 	return ""
+}
+
+// The history tools write: they take the same grant as a commit, and the
+// session's own repository needs none.
+func TestGitHistoryToolsWriteOnlyGrantedFolders(t *testing.T) {
+	srv, _, _ := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: kong, ExtraReadWritePaths: []string{auth}})
+	ungranted := gitRepoInput{Repo: "fsap-config-service"}
+	calls := map[string]func(gitRepoInput) error{
+		"amend": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitAmend(agentCtx(), &sdk.CallToolRequest{}, gitAmendInput{gitRepoInput: r})
+			return err
+		},
+		"squash": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitSquash(agentCtx(), &sdk.CallToolRequest{}, gitSquashInput{gitRepoInput: r, Count: 2})
+			return err
+		},
+		"rebase": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitRebase(agentCtx(), &sdk.CallToolRequest{}, gitRebaseInput{gitRepoInput: r, Onto: "main"})
+			return err
+		},
+		"cherryPick": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitCherryPick(agentCtx(), &sdk.CallToolRequest{}, gitPickInput{gitRepoInput: r, Commits: []string{"abc"}})
+			return err
+		},
+		"fetch": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitFetch(agentCtx(), &sdk.CallToolRequest{}, gitRemoteInput{gitRepoInput: r})
+			return err
+		},
+		"pull": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitPull(agentCtx(), &sdk.CallToolRequest{}, gitRemoteInput{gitRepoInput: r})
+			return err
+		},
+		"revert": func(r gitRepoInput) error {
+			_, _, err := srv.toolGitRevert(agentCtx(), &sdk.CallToolRequest{}, gitPickInput{gitRepoInput: r, Commits: []string{"abc"}})
+			return err
+		},
+	}
+	for name, call := range calls {
+		if err := call(ungranted); appCode(err) != "git.repoNotGranted" {
+			t.Errorf("%s on an ungranted folder = %v, want git.repoNotGranted", name, err)
+		}
+		if err := call(gitRepoInput{}); err != nil {
+			t.Errorf("%s on the session's own repository: %v", name, err)
+		}
+	}
+}
+
+// Fetch and pull reach the session's own repository, default to origin, and
+// answer where the branch stands.
+func TestGitFetchAndPullReportTheBranch(t *testing.T) {
+	srv, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth})
+	_, v, err := srv.toolGitPull(agentCtx(), &sdk.CallToolRequest{}, gitRemoteInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := unwrap(v).(gitSyncResult)
+	if got.Repo != auth || got.Remote != "origin" || got.Branch != "auth" {
+		t.Fatalf("pull = %+v", got)
+	}
+	if _, _, err := srv.toolGitFetch(agentCtx(), &sdk.CallToolRequest{}, gitRemoteInput{Remote: "upstream"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pull origin", "fetch upstream"}; len(repos[auth].synced) != 2 || repos[auth].synced[0] != want[0] || repos[auth].synced[1] != want[1] {
+		t.Fatalf("synced = %v, want %v", repos[auth].synced, want)
+	}
 }

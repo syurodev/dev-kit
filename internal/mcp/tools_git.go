@@ -18,7 +18,10 @@ import (
 // Note what is not on it: no force push, no reset, no remote configuration and
 // no config. Those are the three ways an agent destroys work that history
 // cannot give back, so they are absent from the interface rather than guarded
-// behind a grant.
+// behind a grant. The history tools that are here (amend, squash, rebase)
+// rewrite only commits no remote has — without a force push, a rewritten
+// pushed commit is a branch that can never be pushed again — and revert and
+// cherry-pick only add commits (internal/git/history.go).
 type GitAPI interface {
 	Status(ctx context.Context) (gitservice.Status, error)
 	Diff(ctx context.Context, rev string, staged bool) ([]gitparse.Change, error)
@@ -35,6 +38,13 @@ type GitAPI interface {
 	Conflicts(ctx context.Context) ([]string, error)
 	Conflict(ctx context.Context, path string) (gitservice.Conflict, error)
 	Resolve(ctx context.Context, path, merged string) error
+	Amend(ctx context.Context, in gitservice.AmendInput) (gitservice.Commit, error)
+	Squash(ctx context.Context, in gitservice.SquashInput) (gitservice.Commit, error)
+	Rebase(ctx context.Context, in gitservice.RebaseInput) (gitservice.HistoryResult, error)
+	CherryPick(ctx context.Context, in gitservice.PickInput) (gitservice.HistoryResult, error)
+	Revert(ctx context.Context, in gitservice.PickInput) (gitservice.HistoryResult, error)
+	Fetch(ctx context.Context, remote string) error
+	Pull(ctx context.Context, remote string) error
 }
 
 // TaskBranches reports the branches recorded on tasks a session holds. It is
@@ -151,6 +161,21 @@ func (s *Server) registerGit(ms *sdk.Server) {
 	}, s.toolGitPush)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.fetch",
+		Description: "Fetch a remote (default origin) with the account bound to it, then report the branch's " +
+			"upstream and how far ahead/behind it is. Changes no branch and no file",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.toolGitFetch)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.pull",
+		Description: "Bring the current branch up to its upstream on a remote (default origin), fast-forward only: " +
+			"a branch that has diverged is refused rather than merged — rebase your unpushed commits onto the " +
+			"upstream with git.rebase instead. Reports ahead/behind afterwards",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.toolGitPull)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "git.conflicts",
 		Description: "List unmerged paths, or read one path's three versions",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
@@ -161,6 +186,44 @@ func (s *Server) registerGit(ms *sdk.Server) {
 		Description: "Write the merged content for one conflicted path and mark it resolved",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.toolGitResolve)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.amend",
+		Description: "Fold what is staged into the last commit, and/or replace its message (empty keeps it). " +
+			"Only an unpushed commit: DevKit never force-pushes, so a pushed one is refused — commit again instead",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitAmend)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.squash",
+		Description: "Combine the newest `count` (≥2) commits into one, keeping every change and every Task trailer. " +
+			"All of them must be unpushed and none a merge; the work tree must be clean. Empty message joins theirs",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitSquash)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.rebase",
+		Description: "Replay the branch's own commits onto `onto` (a branch or commit), non-interactively. Every " +
+			"replayed commit must be unpushed (pushed work: merge instead). On a conflict it stops and returns the " +
+			"paths: resolve each with git.resolve, then call again with action \"continue\" — or \"abort\" to put " +
+			"the branch back exactly as it was",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitRebase)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.cherryPick",
+		Description: "Copy commits (oldest first) onto the current branch as new commits, recording where each came " +
+			"from. Adds history, so pushed commits may be picked. Stops on a conflict like git.rebase: resolve, then " +
+			"action \"continue\" or \"abort\"",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitCherryPick)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "git.revert",
+		Description: "Write commits that undo the given ones. The way to take back a commit that is already pushed. " +
+			"Stops on a conflict like git.rebase: resolve, then action \"continue\" or \"abort\"",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitRevert)
 
 	// Deliberately absent, whatever the grant: a force push, a hard reset,
 	// changing a remote's URL and writing git config. Each is a way to lose
@@ -500,4 +563,154 @@ func (s *Server) gitRepos(ctx context.Context) ([]GitRepoInfo, error) {
 		})
 	}
 	return out, nil
+}
+
+type gitAmendInput struct {
+	gitRepoInput
+	Message string `json:"message,omitempty" jsonschema:"the new message; empty keeps the commit's own"`
+	TaskKey string `json:"taskKey,omitempty"`
+}
+
+func (s *Server) toolGitAmend(ctx context.Context, _ *sdk.CallToolRequest, in gitAmendInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:commit", meta("amend", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.Amend(ctx, gitservice.AmendInput{Message: in.Message, TaskKey: in.TaskKey})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitSquashInput struct {
+	gitRepoInput
+	Count   int    `json:"count" jsonschema:"how many of the newest commits become one; at least 2"`
+	Message string `json:"message,omitempty" jsonschema:"the combined commit's message; empty joins theirs, oldest first"`
+}
+
+func (s *Server) toolGitSquash(ctx context.Context, _ *sdk.CallToolRequest, in gitSquashInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:commit", meta("squash", repoMeta(in.Repo, map[string]any{"count": in.Count})), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.Squash(ctx, gitservice.SquashInput{Count: in.Count, Message: in.Message})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitRebaseInput struct {
+	gitRepoInput
+	Action string `json:"action,omitempty" jsonschema:"start (default), continue or abort"`
+	Onto   string `json:"onto,omitempty" jsonschema:"the branch or commit to replay onto; required to start"`
+}
+
+func (s *Server) toolGitRebase(ctx context.Context, _ *sdk.CallToolRequest, in gitRebaseInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:history", meta("rebase", repoMeta(in.Repo, map[string]any{
+		"action": in.Action,
+		"onto":   in.Onto,
+	})), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.Rebase(ctx, gitservice.RebaseInput{Action: gitservice.RebaseAction(in.Action), Onto: in.Onto})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitPickInput struct {
+	gitRepoInput
+	Action  string   `json:"action,omitempty" jsonschema:"start (default), continue or abort"`
+	Commits []string `json:"commits,omitempty" jsonschema:"commits to apply, oldest first; required to start"`
+	TaskKey string   `json:"taskKey,omitempty"`
+}
+
+func (s *Server) toolGitCherryPick(ctx context.Context, _ *sdk.CallToolRequest, in gitPickInput) (*sdk.CallToolResult, any, error) {
+	return s.gitPick(ctx, in, "cherry_pick", func(git GitAPI, ctx context.Context, p gitservice.PickInput) (any, error) {
+		return git.CherryPick(ctx, p)
+	})
+}
+
+func (s *Server) toolGitRevert(ctx context.Context, _ *sdk.CallToolRequest, in gitPickInput) (*sdk.CallToolResult, any, error) {
+	return s.gitPick(ctx, in, "revert", func(git GitAPI, ctx context.Context, p gitservice.PickInput) (any, error) {
+		return git.Revert(ctx, p)
+	})
+}
+
+func (s *Server) gitPick(ctx context.Context, in gitPickInput, op string, run func(GitAPI, context.Context, gitservice.PickInput) (any, error)) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:commit", meta(op, repoMeta(in.Repo, map[string]any{
+		"action":  in.Action,
+		"commits": len(in.Commits),
+	})), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return run(git, ctx, gitservice.PickInput{Action: gitservice.PickAction(in.Action), Commits: in.Commits, TaskKey: in.TaskKey})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitRemoteInput struct {
+	gitRepoInput
+	Remote string `json:"remote,omitempty" jsonschema:"the remote to talk to; default origin"`
+}
+
+// gitSyncResult is what git.fetch and git.pull answer: where the branch
+// stands against its upstream afterwards, which is why one calls them.
+type gitSyncResult struct {
+	Repo     string `json:"repo,omitempty"`
+	Remote   string `json:"remote"`
+	Branch   string `json:"branch"`
+	Upstream string `json:"upstream,omitempty"`
+	Ahead    int    `json:"ahead"`
+	Behind   int    `json:"behind"`
+}
+
+func (s *Server) toolGitFetch(ctx context.Context, _ *sdk.CallToolRequest, in gitRemoteInput) (*sdk.CallToolResult, any, error) {
+	return s.gitSync(ctx, in, "fetch", GitAPI.Fetch)
+}
+
+func (s *Server) toolGitPull(ctx context.Context, _ *sdk.CallToolRequest, in gitRemoteInput) (*sdk.CallToolResult, any, error) {
+	return s.gitSync(ctx, in, "pull", GitAPI.Pull)
+}
+
+// gitSync is fetch and pull: both write the repository (remote-tracking refs,
+// and for pull the branch and work tree), so both take a granted folder.
+func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run func(GitAPI, context.Context, string) error) (*sdk.CallToolResult, any, error) {
+	remote := in.Remote
+	if remote == "" {
+		remote = "origin"
+	}
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "remote:"+remote, meta(op, repoMeta(in.Repo, map[string]any{"remote": remote})), func(ctx context.Context) (any, error) {
+		git, repo, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		if err := run(git, ctx, remote); err != nil {
+			return nil, err
+		}
+		status, err := git.Status(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return gitSyncResult{Repo: repo, Remote: remote, Branch: status.Branch, Upstream: status.Upstream, Ahead: status.Ahead, Behind: status.Behind}, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
 }
