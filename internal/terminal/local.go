@@ -15,16 +15,19 @@ import (
 // SSH wraps an x/crypto/ssh Session instead, satisfying the same PTY
 // interface without either consumer knowing the difference.
 func NewLocalPTY(shellPath, workDir string, rows, cols int) (PTY, error) {
-	return startLocal(exec.Command(shellPath), workDir, rows, cols)
+	cmd := exec.Command(shellPath)
+	cmd.Env = terminalEnv(nil)
+	return startLocal(cmd, workDir, rows, cols)
 }
 
 // NewLocalCommandPTY runs one program instead of a shell — path with args, and
-// exactly env (nil inherits the app's). Unsandboxed, like the user typing it:
+// env (nil inherits the app's) with the terminal's own variables — TERM, a
+// UTF-8 locale — set for it (terminalEnv). Unsandboxed, like the user typing it:
 // Agent Hub's sign-in uses it for the agent's own login command, which needs a
 // browser, a localhost callback and the keychain.
 func NewLocalCommandPTY(path string, args, env []string, workDir string, rows, cols int) (*localPTY, error) {
 	cmd := exec.Command(path, args...)
-	cmd.Env = env
+	cmd.Env = terminalEnv(env)
 	return startLocal(cmd, workDir, rows, cols)
 }
 

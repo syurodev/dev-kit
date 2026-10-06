@@ -153,6 +153,11 @@ func main() {
 	container.Notes.OnChanged = func(id string) {
 		emitAppEvent("notes:changed", map[string]any{"id": id})
 	}
+	// And for the API client: an agent creating a collection, a request or
+	// an environment over MCP must show up in the sidebar as it lands.
+	container.APIClient.OnChanged = func() {
+		emitAppEvent("apiclient:changed", map[string]any{})
+	}
 	// Query consoles are files, DataGrip-style: one .sql per console, with the
 	// connection it belongs to on the first line. Not vault items — those are
 	// the saved queries, which are named, deliberate and synced, and are

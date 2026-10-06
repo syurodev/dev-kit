@@ -50,17 +50,70 @@ type Service struct {
 	confirm Confirmer
 	history *historyStore
 	client  *http.Client
+
+	// OnChanged is told after any write to a request, collection,
+	// environment or the globals, whoever made it — so the window follows an
+	// agent creating a collection over MCP without being refreshed by hand.
+	// Set during startup wiring; nil is fine.
+	OnChanged func()
 }
 
 func NewService(items ItemStore, envs EnvLookup) *Service {
-	return &Service{
-		items: items,
-		envs:  envs,
+	s := &Service{
+		envs: envs,
 		client: &http.Client{
 			Timeout:       DefaultTimeout,
 			CheckRedirect: noRedirectToAnotherOrigin,
 		},
 	}
+	// Every write in this package goes through the item store, so watching
+	// the store is the one place that cannot miss a method added later.
+	s.items = notifyingStore{ItemStore: items, changed: s.changed}
+	return s
+}
+
+func (s *Service) changed() {
+	if s.OnChanged != nil {
+		s.OnChanged()
+	}
+}
+
+// notifyingStore reports each successful write to the store it wraps.
+type notifyingStore struct {
+	ItemStore
+	changed func()
+}
+
+func (n notifyingStore) Create(itemType, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error) {
+	record, err := n.ItemStore.Create(itemType, keyID, metadata, secret)
+	if err == nil {
+		n.changed()
+	}
+	return record, err
+}
+
+func (n notifyingStore) UpdateMetadata(id string, metadata json.RawMessage) (vaultitem.Record, error) {
+	record, err := n.ItemStore.UpdateMetadata(id, metadata)
+	if err == nil {
+		n.changed()
+	}
+	return record, err
+}
+
+func (n notifyingStore) Update(id, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error) {
+	record, err := n.ItemStore.Update(id, keyID, metadata, secret)
+	if err == nil {
+		n.changed()
+	}
+	return record, err
+}
+
+func (n notifyingStore) Delete(id string) error {
+	err := n.ItemStore.Delete(id)
+	if err == nil {
+		n.changed()
+	}
+	return err
 }
 
 func (s *Service) SetCredentials(c Credentials) { s.creds = c }

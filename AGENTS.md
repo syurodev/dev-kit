@@ -643,6 +643,20 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   (`SendInput.Adhoc`) that carries a bound account or a secret variable asks
   the person every time, on any tag: the agent chose the host, so the tag
   cannot have answered "send this token there".
+- **Agents build the API client's contents, through the person**
+  (`internal/mcp/tools_apiclient_write.go`): `api.listCollections`,
+  `api.{create,update,delete}Collection`, `api.saveRequest`, `api.deleteRequest`,
+  `api.{create,update}Environment`. Every write is `confirmAPIWrite` (kind `api`,
+  inside the capability check). It asks EVERY time, no allow_always, for an
+  environment (it names the hosts and its tag decides whether sending asks), a
+  request that `Service.Carries` a credential (bound account, a secret variable under
+  any environment, a credential typed into a row — `api.send` fires a saved request on
+  the tag's rule alone), a collection's variables or parent, and any delete. Other
+  writes offer allow_always. Variable edits are set/remove, the rest kept; a masked
+  row sent back keeps the stored value (`Service.RestoreMasked`), and a masked value
+  with nothing to keep is refused. Deleting an environment and Globals stay UI-only.
+  Every write emits `apiclient:changed` (`Service.OnChanged`, via a wrapped item
+  store), which the sidebar follows.
 - **Boards bind to workspaces through local `task_board_bindings`** (not synced):
   each machine maintains its own binding of board → workspace, never written into
   the synced board metadata. `workspace_id` is nullable; a row's mere presence

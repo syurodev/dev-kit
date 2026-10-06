@@ -10,15 +10,35 @@ import (
 
 // APIClientAPI is the HTTP surface MCP tools invoke.
 //
-// Editing or deleting an environment is deliberately not on it: an environment
-// decides which host an agent is allowed to fire at and whether doing so asks
-// first, so an agent that can edit one can point itself at production.
+// An agent may build the module's contents — collections, saved requests,
+// environments — but every write asks the person first (confirmAPIWrite).
+// The writes that decide where a credential goes ask EVERY time, without
+// allow_always: an environment (it names the hosts and, by its tag, whether
+// firing at them asks first — an agent that could write one silently could
+// aim itself at production), a saved request that carries a credential
+// (api.send fires a saved request on the tag's rule alone), a collection's
+// variables or parent (they flow into every request inside), and any delete
+// (a vault item has no undo). Deleting an environment and the globals stay
+// UI-only.
 type APIClientAPI interface {
 	Requests() ([]apiclient.Request, error)
 	Request(id string) (apiclient.Request, error)
 	Environments() ([]apiclient.Environment, error)
 	Send(ctx context.Context, in apiclient.SendInput) (apiclient.Response, error)
 	DraftFromEndpoint(ctx context.Context, endpointID string) (apiclient.EndpointDraft, error)
+
+	Collections() ([]apiclient.Collection, error)
+	SaveCollection(c apiclient.Collection) (apiclient.Collection, error)
+	SetCollectionVariables(id string, update apiclient.VarsUpdate) (apiclient.Collection, error)
+	DeleteCollection(id string) error
+	SaveRequest(req apiclient.Request) (apiclient.Request, error)
+	DeleteRequest(id string) error
+	CreateEnvironment(name, env string, vars, secrets map[string]string) (apiclient.Environment, error)
+	UpdateEnvironment(id, name, env string, update apiclient.VarsUpdate) (apiclient.Environment, error)
+	// Carries and RestoreMasked are the two questions an agent's save needs
+	// answered (internal/apiclient/agent.go).
+	Carries(req apiclient.Request) ([]string, error)
+	RestoreMasked(req apiclient.Request) (apiclient.Request, error)
 }
 
 func (s *Server) registerAPIClient(ms *sdk.Server) {
@@ -75,9 +95,7 @@ func (s *Server) registerAPIClient(ms *sdk.Server) {
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAPIFromEndpoint)
 
-	// Deliberately absent: creating, editing or deleting an environment. An
-	// environment names the hosts and decides whether firing at them asks
-	// first — an agent that can write one can aim itself at production.
+	s.registerAPIClientWrites(ms)
 }
 
 func (s *Server) toolAPIListRequests(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
