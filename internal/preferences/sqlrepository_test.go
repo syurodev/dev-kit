@@ -54,6 +54,34 @@ func TestSQLRepositoryAgentNotificationsDefaultOnAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSQLRepositoryUpdateChecksDefaultOnAndRoundTrip(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	service := preferences.NewService(preferences.NewSQLRepository(db))
+	if got, err := service.UpdateChecks(); err != nil || !got {
+		t.Fatalf("initial = %v, err = %v; want on by default", got, err)
+	}
+	if err := service.SetUpdateChecks(false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.UpdateChecks(); err != nil || got {
+		t.Fatalf("after turning off = %v, err = %v", got, err)
+	}
+	if _, err := db.Exec(`UPDATE app_preferences SET value = 'garbage' WHERE key = 'update_checks'`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := service.UpdateChecks(); err != nil || !got {
+		t.Fatalf("unreadable row = %v, err = %v; want the default", got, err)
+	}
+}
+
 // checkpointRepo opens a migrated database and a repository over it.
 func checkpointRepo(t *testing.T) (*preferences.SQLRepository, *sql.DB) {
 	t.Helper()

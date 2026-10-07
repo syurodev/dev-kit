@@ -59,6 +59,12 @@ const DefaultRevealRequiresPassword = true
 // switched away is not left waiting on an agent that is waiting on them.
 const DefaultAgentNotifications = true
 
+// DefaultUpdateChecks is on: a person who never opens Settings still learns a
+// release exists. The check is one unauthenticated GET for public release
+// metadata, sends nothing about the person or the machine, and installs
+// nothing; Settings turns it off for good.
+const DefaultUpdateChecks = true
+
 // AgentCheckpointSettings is how Agent Hub's file checkpoints behave.
 //
 // One value rather than four keys: the three numbers only make sense against
@@ -235,6 +241,8 @@ type Repository interface {
 	SetThemeFamily(family ThemeFamily) error
 	GetAgentNotifications() (bool, bool, error)
 	SetAgentNotifications(enabled bool) error
+	GetUpdateChecks() (bool, bool, error)
+	SetUpdateChecks(enabled bool) error
 	GetRevealRequiresPassword() (bool, bool, error)
 	SetRevealRequiresPassword(required bool) error
 	GetAgentCheckpoints() (AgentCheckpointSettings, bool, error)
@@ -327,6 +335,23 @@ func (s *Service) AgentNotifications() (bool, error) {
 
 func (s *Service) SetAgentNotifications(enabled bool) error {
 	return s.repo.SetAgentNotifications(enabled)
+}
+
+// UpdateChecks reports whether DevKit looks for a newer release when it
+// starts. Unset reads as DefaultUpdateChecks.
+func (s *Service) UpdateChecks() (bool, error) {
+	enabled, found, err := s.repo.GetUpdateChecks()
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return DefaultUpdateChecks, nil
+	}
+	return enabled, nil
+}
+
+func (s *Service) SetUpdateChecks(enabled bool) error {
+	return s.repo.SetUpdateChecks(enabled)
 }
 
 // RevealRequiresPassword reports whether showing a credential's value asks for

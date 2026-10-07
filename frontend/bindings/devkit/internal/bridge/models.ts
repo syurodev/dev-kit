@@ -174,6 +174,51 @@ export interface TaskFieldsPatch {
 }
 
 /**
+ * UpdateStatus is the answer to "is there a newer release". It describes; it
+ * never installs.
+ */
+export interface UpdateStatus {
+    /**
+     * Current is the running version ("dev" for an unstamped build).
+     */
+    "current": string;
+
+    /**
+     * Skipped says why no lookup was made or why there is nothing to report:
+     * "dev" (an unstamped build), "disabled" (the person turned automatic
+     * checks off) or "no_release" (nothing published yet). Empty means the
+     * lookup ran and Latest is set.
+     */
+    "skipped": string;
+
+    /**
+     * Latest is the newest published version. Empty when Skipped is set.
+     */
+    "latest": string;
+
+    /**
+     * Available is true when Latest is newer than Current.
+     */
+    "available": boolean;
+
+    /**
+     * Prerelease is true when Latest is a beta (only offered to a person
+     * already running one).
+     */
+    "prerelease": boolean;
+
+    /**
+     * URL is the release page to open in the browser; empty unless Available.
+     */
+    "url": string;
+
+    /**
+     * PublishedAt is when Latest was published, RFC 3339.
+     */
+    "publishedAt": string;
+}
+
+/**
  * VaultSearchResult is one cross-type search hit. Label is the item's plaintext
  * display name (note title or profile name); no secret content is included.
  */

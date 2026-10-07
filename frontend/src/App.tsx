@@ -5,6 +5,7 @@ import "./app.css";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { queryClient } from "./lib/query";
 import { VaultGate } from "./workbench/VaultGate";
+import { UpdateNotifier } from "./workbench/UpdateNotifier";
 import { Workbench } from "./workbench/Workbench";
 import { ThemeProvider } from "./theme/ThemeProvider";
 
@@ -81,6 +82,7 @@ function App() {
           <Suspense fallback={null}>
             <Toaster />
           </Suspense>
+          <UpdateNotifier />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

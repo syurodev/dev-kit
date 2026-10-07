@@ -11,6 +11,8 @@ type MemoryRepository struct {
 
 	agentNotifications    bool
 	hasAgentNotifications bool
+	updateChecks          bool
+	hasUpdateChecks       bool
 	agentCheckpoints      AgentCheckpointSettings
 	hasAgentCheckpoints   bool
 	agentSandbox          AgentSandboxSettings
@@ -121,5 +123,19 @@ func (r *MemoryRepository) SetCodexAPIKeyAccount(accountID string) error {
 	defer r.mu.Unlock()
 	r.codexAPIKeyAccount = accountID
 	r.hasCodexAPIKeyAccount = true
+	return nil
+}
+
+func (r *MemoryRepository) GetUpdateChecks() (bool, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.updateChecks, r.hasUpdateChecks, nil
+}
+
+func (r *MemoryRepository) SetUpdateChecks(enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.updateChecks = enabled
+	r.hasUpdateChecks = true
 	return nil
 }

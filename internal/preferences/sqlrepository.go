@@ -11,6 +11,7 @@ const (
 	themeKey              = "theme"
 	themeFamilyKey        = "theme_family"
 	agentNotificationsKey = "agent_notifications"
+	updateChecksKey       = "update_checks"
 	agentCheckpointsKey   = "agent_checkpoints"
 	agentSandboxKey       = "agent_sandbox"
 	codexAPIKeyAccountKey = "agent_codex_api_key_account"
@@ -207,5 +208,31 @@ func (r *SQLRepository) SetThemeFamily(family ThemeFamily) error {
 	_, err := r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, themeFamilyKey, string(family))
+	return err
+}
+
+// GetUpdateChecks treats a value it cannot read as unset, so the default
+// applies rather than the setting becoming unreadable.
+func (r *SQLRepository) GetUpdateChecks() (bool, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", updateChecksKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	enabled, parseErr := strconv.ParseBool(value)
+	if parseErr != nil {
+		return false, false, nil
+	}
+	return enabled, true, nil
+}
+
+func (r *SQLRepository) SetUpdateChecks(enabled bool) error {
+	_, err := r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, updateChecksKey, strconv.FormatBool(enabled))
 	return err
 }

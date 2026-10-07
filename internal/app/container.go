@@ -11,6 +11,7 @@ import (
 	"devkit/internal/apiclient"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
+	"devkit/internal/buildinfo"
 	"devkit/internal/capabilities"
 	"devkit/internal/codegraph"
 	"devkit/internal/codexsessions"
@@ -32,6 +33,7 @@ import (
 	"devkit/internal/terminal"
 	"devkit/internal/tools"
 	"devkit/internal/uistate"
+	"devkit/internal/updater"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 	"devkit/internal/workfolder"
@@ -150,6 +152,12 @@ type Container struct {
 	// AgentHubElicitations answers the questions agents put to the user.
 	// Nil when AgentHub is unset.
 	AgentHubElicitations *agenthub.ElicitationWaiter
+	// Updates looks up the newest published release; Version is the release
+	// this binary was built from, "dev" when unstamped. Together they answer
+	// "is there something newer" and nothing else — DevKit never downloads or
+	// installs a release itself.
+	Updates *updater.Checker
+	Version string
 	// AgentNotifications raises Agent Hub's OS notifications. Nil in server
 	// mode and in tests that do not set it.
 	AgentNotifications *notify.Notifier
@@ -352,6 +360,12 @@ func NewContainerWithStores(
 		// optimistically and reverts when the save rejects.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme_family"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "update_checks"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "update_checks"},
+		// The one outbound request an update check makes. Separate from the
+		// stored preference so that "off" is enforced where the request is
+		// made, not only in the toggle.
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "update_check"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_notifications"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_notifications"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_checkpoints"},
@@ -442,6 +456,8 @@ func NewContainerWithStores(
 		Notes:        notes.NewService(itemStore),
 		Environments: envService,
 		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
+		Updates:      &updater.Checker{},
+		Version:      buildinfo.Version,
 		UIState:      uistate.NewService(uistate.NewMemoryRepository()),
 		Database:     dbService,
 		SSH:          sshService,

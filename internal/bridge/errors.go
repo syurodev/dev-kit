@@ -206,6 +206,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, app.ErrCodexAPIKeyAccount) {
 		return apperrors.New(codeValidationFailed, codexAPIKeyAccountMessage, true)
 	}
+	if errors.Is(err, errUpdateCheckFailed) {
+		return apperrors.New(codeConnectionFailed, "Could not check for updates. Check your internet connection and try again.", true)
+	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}

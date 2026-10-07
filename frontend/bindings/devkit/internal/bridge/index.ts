@@ -21,6 +21,7 @@ export type {
     SyncReportDTO,
     SyncStatusDTO,
     TaskFieldsPatch,
+    UpdateStatus,
     VaultSearchResult,
     VaultStatusDTO,
     WorkspaceAddResult
