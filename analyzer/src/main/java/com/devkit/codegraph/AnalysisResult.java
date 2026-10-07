@@ -11,4 +11,8 @@ public class AnalysisResult {
     public List<FieldAccess> fieldAccesses = new ArrayList<>();
     public List<CallSite> callSites = new ArrayList<>();
     public List<OutboundCall> outboundCalls = new ArrayList<>();
+    public List<ConfigKey> configKeys = new ArrayList<>();
+    public List<ConfigUsage> configUsages = new ArrayList<>();
+    public List<EntityTable> entityTables = new ArrayList<>();
+    public List<TableAccess> tableAccesses = new ArrayList<>();
 }

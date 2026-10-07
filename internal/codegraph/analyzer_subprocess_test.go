@@ -143,3 +143,156 @@ class AccessService {
 		t.Fatalf("byRole guard = %q, edges %+v", got, result.Edges)
 	}
 }
+
+// The whole path on the feedback's own example: a flag in application.yaml
+// fed by an environment variable, injected with @Value, branched on, behind
+// an endpoint — from the real jar, through the index, to "what changes".
+func TestSubprocessAnalyzerFeedsFindConfigUsage(t *testing.T) {
+	toolchain := builtJavaAnalyzer(t)
+	dir := t.TempDir()
+	files := map[string]string{
+		"src/main/resources/application.yaml": "fsap:\n  access:\n    module-based-enabled: ${FSAP_ACCESS_MODULE_BASED_ENABLED:false}\n  db:\n    password: hunter2\n",
+		"src/main/java/acme/AccessController.java": `package acme;
+import org.springframework.web.bind.annotation.*;
+@RestController
+class AccessController {
+    private final AccessService service = new AccessService();
+    @GetMapping("/v1/access/{org}")
+    boolean get(@PathVariable String org) { return service.isAvailable(org); }
+}
+`,
+		"src/main/java/acme/AccessService.java": `package acme;
+import org.springframework.beans.factory.annotation.Value;
+class AccessService {
+    @Value("${fsap.access.module-based-enabled:false}")
+    private boolean moduleBasedAccessEnabled;
+    boolean isAvailable(String org) {
+        if (moduleBasedAccessEnabled) { return byModule(org); }
+        return byRole(org);
+    }
+    boolean byModule(String org) { return true; }
+    boolean byRole(String org) { return false; }
+}
+`,
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := toolchain.Analyzer().Analyze(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	svc := openWith(t, result)
+
+	report, err := svc.FindConfigUsage(t.Context(), ConfigUsageQuery{Key: "FSAP_ACCESS_MODULE_BASED_ENABLED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Keys) != 1 || report.Keys[0].File != "src/main/resources/application.yaml" || report.Keys[0].Line != 3 {
+		t.Fatalf("keys = %+v", report.Keys)
+	}
+	if len(report.Usages) != 1 || report.Usages[0].Kind != ConfigUseValue || report.Usages[0].Field != "moduleBasedAccessEnabled" {
+		t.Fatalf("usages = %+v", report.Usages)
+	}
+	u := report.Usages[0]
+	if len(u.Readers) != 1 || len(u.Guarded) != 2 {
+		t.Fatalf("readers = %+v, guarded = %+v", u.Readers, u.Guarded)
+	}
+	if report.EntryPointTotal != 1 || report.EntryPoints[0].Target != "/v1/access/{org}" {
+		t.Fatalf("entry points = %+v", report.EntryPoints)
+	}
+
+	secret, err := svc.FindConfigUsage(t.Context(), ConfigUsageQuery{Key: "fsap.db.password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secret.Keys) != 1 || !secret.Keys[0].Redacted || secret.Keys[0].Value != "" {
+		t.Fatalf("a secret must come back redacted: %+v", secret.Keys)
+	}
+}
+
+// The whole path on the feedback's table question: an entity with the default
+// table name, a service that saves it and a repository that purges it, two
+// endpoints — from the real jar, through the index, to who reads or writes it.
+func TestSubprocessAnalyzerFeedsFindTableUsage(t *testing.T) {
+	toolchain := builtJavaAnalyzer(t)
+	dir := t.TempDir()
+	files := map[string]string{
+		"src/main/java/acme/OrganizationApiEnablement.java": `package acme;
+import jakarta.persistence.*;
+@Entity
+class OrganizationApiEnablement { @Id Long id; String org; }
+`,
+		"src/main/java/acme/EnablementRepo.java": `package acme;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.CrudRepository;
+interface EnablementRepo extends CrudRepository<OrganizationApiEnablement, Long> {
+    @Modifying
+    @Query("delete from OrganizationApiEnablement e where e.org = ?1")
+    void purge(String org);
+}
+`,
+		"src/main/java/acme/EnablementService.java": `package acme;
+class EnablementService {
+    private final EnablementRepo repo = null;
+    void enable(OrganizationApiEnablement e) { repo.save(e); }
+    void reset(String org) { repo.purge(org); }
+}
+`,
+		"src/main/java/acme/Controllers.java": `package acme;
+import org.springframework.web.bind.annotation.*;
+@RestController
+class Controllers {
+    private final EnablementService service = new EnablementService();
+    @PostMapping("/v1/enable") void enable(@RequestBody OrganizationApiEnablement e) { service.enable(e); }
+    @PostMapping("/admin/reset") void reset(@RequestParam String org) { service.reset(org); }
+}
+`,
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := toolchain.Analyzer().Analyze(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	svc := openWith(t, result)
+
+	report, err := svc.FindTableUsage(t.Context(), TableUsageQuery{Table: "organization_api_enablement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Entities) != 1 || report.Entities[0].Table != "organization_api_enablement" {
+		t.Fatalf("entities = %+v", report.Entities)
+	}
+	if report.AccessTotal != 2 || report.Writes != 2 {
+		t.Fatalf("accesses = %+v", report.Accesses)
+	}
+	vias := map[string]string{}
+	for _, a := range report.Accesses {
+		vias[a.Via] = a.Label
+	}
+	if vias[TableViaCrud] != "acme.EnablementService.enable" || vias[TableViaQuery] != "acme.EnablementRepo.purge" {
+		t.Fatalf("vias = %v", vias)
+	}
+	if report.EntryPointTotal != 2 {
+		t.Fatalf("entry points = %+v", report.EntryPoints)
+	}
+	for _, e := range report.EntryPoints {
+		if e.Access != "write" {
+			t.Fatalf("%s reaches the table by %q, want write", e.Target, e.Access)
+		}
+	}
+}

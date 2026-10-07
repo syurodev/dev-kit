@@ -50,6 +50,12 @@ func (f fakeCodeGraphAPI) GetApiFlow(ctx context.Context, id string) (codegraph.
 func (f fakeCodeGraphAPI) SearchSymbolsPage(ctx context.Context, q codegraph.SymbolQuery) (codegraph.SymbolPage, error) {
 	return codegraph.SymbolPage{Result: f.matches, Total: len(f.matches)}, f.err
 }
+func (f fakeCodeGraphAPI) FindConfigUsage(ctx context.Context, q codegraph.ConfigUsageQuery) (codegraph.ConfigUsageReport, error) {
+	return codegraph.ConfigUsageReport{Query: q.Key, Canonical: codegraph.CanonicalConfigKey(q.Key)}, f.err
+}
+func (f fakeCodeGraphAPI) FindTableUsage(ctx context.Context, q codegraph.TableUsageQuery) (codegraph.TableUsageReport, error) {
+	return codegraph.TableUsageReport{Query: q.Table, Canonical: codegraph.CanonicalConfigKey(q.Table)}, f.err
+}
 func (f fakeCodeGraphAPI) ListFiles(ctx context.Context) ([]codegraph.FileEntry, error) {
 	return f.files, f.err
 }
@@ -406,5 +412,59 @@ func TestCodeGraphQueryPassesOtherErrorsThrough(t *testing.T) {
 	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{err: codegraph.ErrNoActiveProject}})
 	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{}); !errors.Is(err, codegraph.ErrNoActiveProject) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestToolCodeGraphFindConfigUsage(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	_, v, err := s.toolCodeGraphFindConfigUsage(context.Background(), nil, codeGraphFindConfigUsageInput{Key: "FSAP_ACCESS_MODULE_BASED_ENABLED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := unwrap(v).(codegraph.ConfigUsageReport)
+	if !ok || report.Canonical != "fsapaccessmodulebasedenabled" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+// It waits for the index like every other graph read.
+func TestFindConfigUsageWaitsForTheIndex(t *testing.T) {
+	cg := &configWaiting{}
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: cg})
+	if _, _, err := s.toolCodeGraphFindConfigUsage(context.Background(), nil, codeGraphFindConfigUsageInput{Key: "a.b"}); err != nil {
+		t.Fatal(err)
+	}
+	if cg.waits != 1 || cg.queries != 2 {
+		t.Fatalf("waits = %d, queries = %d, want 1 and 2", cg.waits, cg.queries)
+	}
+}
+
+type configWaiting struct {
+	fakeCodeGraphAPI
+	queries, waits int
+}
+
+func (f *configWaiting) FindConfigUsage(ctx context.Context, q codegraph.ConfigUsageQuery) (codegraph.ConfigUsageReport, error) {
+	f.queries++
+	if f.queries == 1 {
+		return codegraph.ConfigUsageReport{}, codegraph.ErrIndexNotReady
+	}
+	return codegraph.ConfigUsageReport{}, nil
+}
+
+func (f *configWaiting) WaitForIndexReady(ctx context.Context) (int, error) {
+	f.waits++
+	return 1, nil
+}
+
+func TestToolCodeGraphFindTableUsage(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	_, v, err := s.toolCodeGraphFindTableUsage(context.Background(), nil, codeGraphFindTableUsageInput{Table: "organization_api_enablement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := unwrap(v).(codegraph.TableUsageReport)
+	if !ok || report.Canonical != "organizationapienablement" {
+		t.Fatalf("unexpected result: %#v", v)
 	}
 }

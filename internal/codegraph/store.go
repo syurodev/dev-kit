@@ -35,6 +35,58 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
+CREATE TABLE IF NOT EXISTS config_keys (
+	key TEXT NOT NULL,
+	canon TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	value TEXT NOT NULL,
+	redacted INTEGER NOT NULL,
+	profile TEXT NOT NULL,
+	env_vars TEXT NOT NULL,
+	-- " A B " (space-padded) so one LIKE finds a variable: the names are canonical, with no spaces of their own.
+	env_canon TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_config_keys_canon ON config_keys(canon);
+CREATE TABLE IF NOT EXISTS config_usages (
+	key TEXT NOT NULL,
+	canon TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	from_id TEXT NOT NULL,
+	field TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	default_value TEXT NOT NULL,
+	detail TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_config_usages_canon ON config_usages(canon);
+CREATE INDEX IF NOT EXISTS idx_config_usages_kind ON config_usages(kind);
+CREATE TABLE IF NOT EXISTS entity_tables (
+	entity_id TEXT NOT NULL,
+	entity_name TEXT NOT NULL,
+	table_name TEXT NOT NULL,
+	schema_name TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	canon_table TEXT NOT NULL,
+	canon_entity TEXT NOT NULL,
+	canon_class TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_tables_table ON entity_tables(canon_table);
+CREATE INDEX IF NOT EXISTS idx_entity_tables_entity ON entity_tables(canon_entity);
+CREATE TABLE IF NOT EXISTS table_accesses (
+	from_id TEXT NOT NULL,
+	table_name TEXT NOT NULL,
+	schema_name TEXT NOT NULL,
+	canon TEXT NOT NULL,
+	access TEXT NOT NULL,
+	via TEXT NOT NULL,
+	detail TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_table_accesses_canon ON table_accesses(canon);
 CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
 	verb TEXT NOT NULL,
@@ -264,7 +316,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites"} {
+	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -377,6 +429,63 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 
 	// Commit the revision atomically with the graph, including empty indexes.
+	keyStmt, err := insert(`INSERT INTO config_keys (key, canon, file, line, value, redacted, profile, env_vars, env_canon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer keyStmt.Close()
+	for _, k := range result.ConfigKeys {
+		envJSON, err := json.Marshal(k.EnvVars)
+		if err != nil {
+			return fmt.Errorf("codegraph: marshal env vars of %q: %w", k.Key, err)
+		}
+		envCanon := " "
+		for _, name := range k.EnvVars {
+			envCanon += CanonicalConfigKey(name) + " "
+		}
+		redacted := 0
+		if k.Redacted {
+			redacted = 1
+		}
+		if _, err := keyStmt.ExecContext(ctx, k.Key, CanonicalConfigKey(k.Key), k.File, k.Line, k.Value, redacted, k.Profile, string(envJSON), envCanon); err != nil {
+			return fmt.Errorf("codegraph: insert config key %q: %w", k.Key, err)
+		}
+	}
+
+	useStmt, err := insert(`INSERT INTO config_usages (key, canon, kind, from_id, field, file, line, default_value, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer useStmt.Close()
+	for _, u := range result.ConfigUsages {
+		if _, err := useStmt.ExecContext(ctx, u.Key, CanonicalConfigKey(u.Key), u.Kind, u.From, u.Field, u.File, u.Line, u.DefaultValue, u.Detail); err != nil {
+			return fmt.Errorf("codegraph: insert config use %q: %w", u.Key, err)
+		}
+	}
+
+	entityStmt, err := insert(`INSERT INTO entity_tables (entity_id, entity_name, table_name, schema_name, kind, file, line, canon_table, canon_entity, canon_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer entityStmt.Close()
+	for _, e := range result.EntityTables {
+		if _, err := entityStmt.ExecContext(ctx, e.Entity, e.EntityName, e.Table, e.Schema, e.Kind, e.File, e.Line,
+			CanonicalConfigKey(e.Table), CanonicalConfigKey(e.EntityName), CanonicalConfigKey(simpleNodeName(e.Entity))); err != nil {
+			return fmt.Errorf("codegraph: insert entity table %q: %w", e.Table, err)
+		}
+	}
+
+	tableAccessStmt, err := insert(`INSERT INTO table_accesses (from_id, table_name, schema_name, canon, access, via, detail, file, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer tableAccessStmt.Close()
+	for _, a := range result.TableAccesses {
+		if _, err := tableAccessStmt.ExecContext(ctx, a.From, a.Table, a.Schema, CanonicalConfigKey(a.Table), a.Access, a.Via, a.Detail, a.File, a.Line); err != nil {
+			return fmt.Errorf("codegraph: insert table access to %q: %w", a.Table, err)
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `INSERT INTO index_meta(key, value) VALUES ('version', '1')
         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
 		return fmt.Errorf("codegraph: increment index version: %w", err)
@@ -1064,4 +1173,187 @@ func (s *sqliteStore) FindNodesByName(ctx context.Context, identifier string) ([
 		return nil, fmt.Errorf("codegraph: FindNodesByName: %w", err)
 	}
 	return scanNodes(rows)
+}
+
+// maxConfigRows caps one config lookup. A prefix like "spring" matches
+// thousands of keys; the answer is a place to start reading, not the file.
+const maxConfigRows = 2000
+
+func (s *sqliteStore) FindConfigKeys(ctx context.Context, canon string, prefix bool) ([]ConfigKey, error) {
+	var where string
+	var args []any
+	switch {
+	case canon == "":
+		where = "1 = 1"
+	case prefix:
+		where = `canon LIKE ? OR env_canon LIKE ?`
+		args = []any{canon + "%", "% " + canon + "%"}
+	default:
+		where = `canon = ? OR env_canon LIKE ?`
+		args = []any{canon, "% " + canon + " %"}
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, file, line, value, redacted, profile, env_vars FROM config_keys WHERE `+where+` ORDER BY file, line LIMIT ?`,
+		append(args, maxConfigRows)...)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindConfigKeys: %w", err)
+	}
+	defer rows.Close()
+	var out []ConfigKey
+	for rows.Next() {
+		var k ConfigKey
+		var redacted int
+		var envJSON string
+		if err := rows.Scan(&k.Key, &k.File, &k.Line, &k.Value, &redacted, &k.Profile, &envJSON); err != nil {
+			return nil, fmt.Errorf("codegraph: scan config key: %w", err)
+		}
+		k.Redacted = redacted == 1
+		if err := json.Unmarshal([]byte(envJSON), &k.EnvVars); err != nil {
+			return nil, fmt.Errorf("codegraph: unmarshal env vars of %q: %w", k.Key, err)
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) FindConfigUsages(ctx context.Context, canons []string, prefix bool, kinds []string) ([]ConfigUsage, error) {
+	var conds []string
+	var args []any
+	if len(canons) > 0 {
+		var alternatives []string
+		for _, c := range canons {
+			if prefix {
+				alternatives = append(alternatives, "canon LIKE ?")
+				args = append(args, c+"%")
+			} else {
+				alternatives = append(alternatives, "canon = ?")
+				args = append(args, c)
+			}
+		}
+		conds = append(conds, "("+strings.Join(alternatives, " OR ")+")")
+	}
+	if len(kinds) > 0 {
+		conds = append(conds, "kind IN ("+placeholders(len(kinds))+")")
+		args = append(args, stringArgs(kinds)...)
+	}
+	where := "1 = 1"
+	if len(conds) > 0 {
+		where = strings.Join(conds, " AND ")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, kind, from_id, field, file, line, default_value, detail FROM config_usages WHERE `+where+` ORDER BY kind, key, from_id, line LIMIT ?`,
+		append(args, maxConfigRows)...)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindConfigUsages: %w", err)
+	}
+	defer rows.Close()
+	var out []ConfigUsage
+	for rows.Next() {
+		var u ConfigUsage
+		if err := rows.Scan(&u.Key, &u.Kind, &u.From, &u.Field, &u.File, &u.Line, &u.DefaultValue, &u.Detail); err != nil {
+			return nil, fmt.Errorf("codegraph: scan config use: %w", err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
+	var alternatives []string
+	var args []any
+	for _, t := range terms {
+		alternatives = append(alternatives, `guard LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLike(t)+"%")
+	}
+	where := "(" + strings.Join(alternatives, " OR ") + ")"
+	if fromPrefix != "" {
+		where += ` AND from_id LIKE ? ESCAPE '\'`
+		args = append(args, escapeLike(fromPrefix)+"%")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, to_id, kind, guard FROM edges WHERE guard <> '' AND `+where+` ORDER BY from_id, to_id LIMIT ?`,
+		append(args, maxConfigRows)...)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindEdgesByGuard: %w", err)
+	}
+	defer rows.Close()
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		if err := rows.Scan(&e.From, &e.To, &e.Kind, &e.Guard); err != nil {
+			return nil, fmt.Errorf("codegraph: scan edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) FindEntityTables(ctx context.Context, canon string, prefix bool) ([]EntityTable, error) {
+	op, arg := "=", canon
+	if prefix {
+		op, arg = "LIKE", canon+"%"
+	}
+	// Every row of a matching entity — its join tables are tables of it too —
+	// so match on the entity first, then take all of its rows.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT entity_id, entity_name, table_name, schema_name, kind, file, line FROM entity_tables
+		 WHERE entity_id IN (SELECT entity_id FROM entity_tables WHERE canon_table `+op+` ? OR canon_entity `+op+` ? OR canon_class `+op+` ?)
+		    OR canon_table `+op+` ?
+		 ORDER BY entity_id, kind, table_name LIMIT ?`,
+		arg, arg, arg, arg, maxConfigRows)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindEntityTables: %w", err)
+	}
+	defer rows.Close()
+	var out []EntityTable
+	for rows.Next() {
+		var e EntityTable
+		if err := rows.Scan(&e.Entity, &e.EntityName, &e.Table, &e.Schema, &e.Kind, &e.File, &e.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan entity table: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) FindTableAccesses(ctx context.Context, canons []string, prefix bool, access string) ([]TableAccess, error) {
+	if len(canons) == 0 {
+		return nil, nil
+	}
+	var alternatives []string
+	var args []any
+	for _, c := range canons {
+		if prefix {
+			alternatives = append(alternatives, "canon LIKE ?")
+			args = append(args, c+"%")
+		} else {
+			alternatives = append(alternatives, "canon = ?")
+			args = append(args, c)
+		}
+	}
+	where := "(" + strings.Join(alternatives, " OR ") + ")"
+	if access != "" {
+		where += " AND access = ?"
+		args = append(args, access)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, table_name, schema_name, access, via, detail, file, line FROM table_accesses WHERE `+where+
+			` ORDER BY table_name, access DESC, from_id, line LIMIT ?`,
+		append(args, maxConfigRows)...)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindTableAccesses: %w", err)
+	}
+	defer rows.Close()
+	var out []TableAccess
+	for rows.Next() {
+		var a TableAccess
+		if err := rows.Scan(&a.From, &a.Table, &a.Schema, &a.Access, &a.Via, &a.Detail, &a.File, &a.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan table access: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

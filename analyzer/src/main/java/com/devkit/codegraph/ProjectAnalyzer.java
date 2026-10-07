@@ -243,6 +243,7 @@ public class ProjectAnalyzer {
             addFieldAccesses(scope, index, result);
         }
         extractOutboundCalls(index, scopes, annotations, constants, result);
+        extractConfig(index, scopes, annotations, constants, nodeIds, result);
 
         for (ParsedFile file : files) {
             addTypeDependencies(file, index, result);
@@ -250,6 +251,43 @@ public class ProjectAnalyzer {
         result.edges = dedupeEdges(result.edges);
         result.fileDependencies = dedupeFileDependencies(result.fileDependencies);
         return result;
+    }
+
+    /**
+     * The properties the project's config files set, and every place the code
+     * reads or switches on one. Both are text: no value is looked up, so what
+     * the index holds is "this key is set to X in this file" and "this field
+     * is bound to that key", and joining the two is a question for the reader.
+     */
+    private void extractConfig(Index index, List<CallScope> scopes, Annotations annotations,
+                               ConstantResolver constants, Set<String> nodeIds, AnalysisResult result) {
+        result.configKeys = ConfigFiles.read(projectRoot);
+        List<ConfigExtractor.Owner> owners = new ArrayList<>();
+        for (TypeInfo type : index.all) {
+            List<ConfigExtractor.Member> methods = new ArrayList<>();
+            for (MethodInfo method : type.methods) {
+                methods.add(new ConfigExtractor.Member(method.decl(), method.id()));
+            }
+            owners.add(new ConfigExtractor.Owner(type.decl, type.id, type.file.relativePath(), methods));
+        }
+        List<ConfigExtractor.Scope> configScopes = new ArrayList<>();
+        for (CallScope scope : scopes) {
+            configScopes.add(new ConfigExtractor.Scope(scope.node(), scope.ownerIds(), scope.owner().file.relativePath()));
+        }
+        result.configUsages = ConfigExtractor.extract(owners, configScopes, annotations, constants, nodeIds);
+
+        // Which class a call's receiver is, asked of the solver — the one thing
+        // table access needs that the annotations cannot say.
+        IdentityHashMap<com.github.javaparser.ast.Node, String> moduleOfScope = new IdentityHashMap<>();
+        for (CallScope scope : scopes) {
+            moduleOfScope.put(scope.node(), scope.owner().file.module());
+        }
+        TableExtractor.Result tables = TableExtractor.extract(owners, configScopes, annotations, constants, nodeIds,
+                (scope, call) -> call.getScope()
+                        .map(receiver -> receiverTypeId(receiver, index, moduleOfScope.getOrDefault(scope.node(), "")))
+                        .orElse(null));
+        result.entityTables = tables.entities();
+        result.tableAccesses = tables.accesses();
     }
 
     /**

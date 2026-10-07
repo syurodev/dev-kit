@@ -370,6 +370,16 @@ type AnalysisResult struct {
 	FileDependencies []FileDependency `json:"fileDependencies"`
 	FieldAccesses    []FieldAccess    `json:"fieldAccesses"`
 	CallSites        []CallSite       `json:"callSites"`
+	// ConfigKeys are the properties the project's config files set, and
+	// ConfigUsages the places its code reads or switches on one. Both are
+	// text: the index says what a file sets and what a field is bound to, and
+	// joining the two (FindConfigUsage) is a read.
+	ConfigKeys   []ConfigKey   `json:"configKeys"`
+	ConfigUsages []ConfigUsage `json:"configUsages"`
+	// EntityTables map JPA entities to their tables and TableAccesses say who
+	// reads or writes one (FindTableUsage joins them with the call graph).
+	EntityTables  []EntityTable `json:"entityTables"`
+	TableAccesses []TableAccess `json:"tableAccesses"`
 }
 
 // Validate checks internal consistency: every Edge and EntryPoint must
@@ -400,6 +410,21 @@ func (r AnalysisResult) Validate() error {
 	for _, ep := range r.EntryPoints {
 		if !ids[ep.EntryNode] {
 			return fmt.Errorf("codegraph: entry point %q references unknown entry node %q", ep.ID, ep.EntryNode)
+		}
+	}
+	for _, u := range r.ConfigUsages {
+		if !ids[u.From] {
+			return fmt.Errorf("codegraph: config use %q (%s) references unknown node %q", u.Key, u.Kind, u.From)
+		}
+	}
+	for _, e := range r.EntityTables {
+		if !ids[e.Entity] {
+			return fmt.Errorf("codegraph: entity table %q references unknown node %q", e.Table, e.Entity)
+		}
+	}
+	for _, a := range r.TableAccesses {
+		if !ids[a.From] {
+			return fmt.Errorf("codegraph: table access to %q references unknown node %q", a.Table, a.From)
 		}
 	}
 	return nil
@@ -457,6 +482,23 @@ type Store interface {
 	// candidates by proximity when several files declare the same name.
 	GetDependencies(ctx context.Context, filePath string) ([]string, error)
 	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
+	// FindConfigKeys returns what the config files set for the canonical key
+	// (see CanonicalConfigKey) — matched by the key itself or by an
+	// environment variable that feeds it; prefix matches every key beneath.
+	FindConfigKeys(ctx context.Context, canon string, prefix bool) ([]ConfigKey, error)
+	// FindConfigUsages returns the code's uses of any of the canonical keys
+	// (none: every use), of the given kinds (none: every kind).
+	FindConfigUsages(ctx context.Context, canons []string, prefix bool, kinds []string) ([]ConfigUsage, error)
+	// FindEntityTables returns the entities whose table, JPQL name or class name
+	// has the canonical form (CanonicalConfigKey: letters and digits, lower-cased),
+	// every table row of each — primary, secondary, join, collection.
+	FindEntityTables(ctx context.Context, canon string, prefix bool) ([]EntityTable, error)
+	// FindTableAccesses returns the accesses to any of the canonical table names,
+	// of one access kind ("" for both).
+	FindTableAccesses(ctx context.Context, canons []string, prefix bool, access string) ([]TableAccess, error)
+	// FindEdgesByGuard returns the call edges whose guard contains any of the
+	// terms, from callers whose id starts with fromPrefix (empty: any).
+	FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error)
 	// GetFieldAccessesAt returns the field accesses recorded at one exact
 	// source line in filePath — FindDefinitions' field-access tier, scoped to
 	// a single field name so a coincidental line/name match in another file
