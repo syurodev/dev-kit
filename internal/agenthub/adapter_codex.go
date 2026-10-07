@@ -49,6 +49,8 @@ var codexModes = []acp.SessionMode{
 // codexModelOption is the one config option a Codex session has.
 const codexModelOption = "model"
 
+const codexEffortOption = "reasoning_effort"
+
 // codexDisabledFeatures keep outside code out of a session: hooks could
 // approve a request before it reaches DevKit (a project's .codex/config.toml
 // can declare them), and plugins, apps and computer use pull in tools, MCP
@@ -233,7 +235,10 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		DenyWritePaths:      denyWrite,
 		AllowUnixSockets:    append([]string(nil), spec.AllowUnixSockets...),
 		ListenLoopbackPorts: append([]int(nil), listen...),
-		PrivateHome:         spec.PrivateHome,
+		// 0.160.1 reloads macOS managed preferences during account/read.
+		// Grant only Codex's domain; do not bypass administrator requirements.
+		ReadPreferenceDomains: []string{"com.openai.codex"},
+		PrivateHome:           spec.PrivateHome,
 	}
 	args := append(append([]string(nil), l.args...), codexArgs(store, spec.McpServers)...)
 	return pol, sandbox.Cmd{Path: l.path, Args: args}, nil
@@ -495,7 +500,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		store = codexStoreEphemeral
 	}
 
-	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAsk, network: true}
+	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAsk, network: true, gateOwnedMCP: spec.GateOwnedMCP}
 	p, err := a.start(workDir, l, spec, store, &codexConnHandler{rt: rt})
 	if err != nil {
 		return nil, err
@@ -569,6 +574,10 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 	// reads the thread id to tell this thread's from another's.
 	rt.mu.Lock()
 	rt.threadID, rt.model, rt.models = thread.Thread.ID, thread.Model, models
+	if thread.ReasoningEffort != nil {
+		rt.effort = *thread.ReasoningEffort
+	}
+	rt.normalizeEffortLocked()
 	rt.mu.Unlock()
 	rt.tr.setThread(thread.Thread.ID)
 	log.Printf("agenthub: codex: session ready (thread %s, model %q)", thread.Thread.ID, thread.Model)
@@ -642,8 +651,8 @@ func (a *CodexAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([
 	return nil, "", nil
 }
 
-// Probe starts an installed codex under a session's jail, sends initialize
-// and stops it: agentruntime.Manager.Verifiers[CodexCLI], the proof that the
+// Probe starts an installed codex under a session's jail, initializes it and
+// reloads configuration: agentruntime.Manager.Verifiers[CodexCLI], the proof that the
 // binary runs from where it was installed before a version is activated. In
 // a throwaway home, so verifying an install never touches the sign-in.
 func (a *CodexAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) error {
@@ -668,7 +677,17 @@ func (a *CodexAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) erro
 	defer p.stop()
 	callCtx, cancel := p.bounded(ctx, probeTimeout)
 	defer cancel()
-	return probe.initialize(callCtx, p)
+	if err := probe.initialize(callCtx, p); err != nil {
+		return err
+	}
+	// initialize alone succeeds even when newer Codex versions cannot reload
+	// managed requirements. Validate this before activating an update; signed-out
+	// account/read falls back to startup config and would mask the failure.
+	var config json.RawMessage
+	if err := p.conn.Call(callCtx, "config/read", map[string]any{"includeLayers": false}, &config); err != nil {
+		return p.failure("config/read", err)
+	}
+	return nil
 }
 
 // codexNoHandler serves a connection nobody converses on: notifications are
@@ -683,12 +702,13 @@ func (codexNoHandler) Request(_ context.Context, method string, _ json.RawMessag
 
 // codexRuntime is one Codex thread in one app-server process.
 type codexRuntime struct {
-	conn        *codexapp.Conn
-	proc        *sandbox.Proc
-	tr          *codexTranslator
-	network     bool
-	cancelServe context.CancelFunc
-	serveDone   chan struct{}
+	gateOwnedMCP map[string][]string
+	conn         *codexapp.Conn
+	proc         *sandbox.Proc
+	tr           *codexTranslator
+	network      bool
+	cancelServe  context.CancelFunc
+	serveDone    chan struct{}
 	// approvals numbers MCP approval cards that have no call of their own.
 	approvals atomic.Int64
 
@@ -697,6 +717,7 @@ type codexRuntime struct {
 	// mu because the read loop is running by then.
 	threadID  string
 	models    []codexapp.Model
+	effort    string
 	handlers  RuntimeHandlers
 	announced bool
 	mode      string
@@ -815,23 +836,38 @@ func (r *codexRuntime) SetMode(_ context.Context, modeID string) error {
 
 // SetConfigOption changes the model, from the next turn on.
 func (r *codexRuntime) SetConfigOption(_ context.Context, optionID, value string) error {
-	if optionID != codexModelOption {
+	if optionID != codexModelOption && optionID != codexEffortOption {
 		return fmt.Errorf("%w: unknown option %q", ErrInvalidConfigOption, optionID)
 	}
 	r.mu.Lock()
 	known := false
-	for _, m := range r.models {
-		known = known || codexModelSlug(m) == value
+	if optionID == codexModelOption {
+		for _, m := range r.models {
+			known = known || codexModelSlug(m) == value
+		}
+	} else {
+		for _, m := range r.models {
+			if codexModelSlug(m) == r.model {
+				for _, effort := range m.SupportedReasoningEfforts {
+					known = known || effort.ReasoningEffort == value
+				}
+			}
+		}
 	}
 	if !known {
 		r.mu.Unlock()
-		return fmt.Errorf("%w: unknown model %q", ErrInvalidConfigOption, value)
+		return fmt.Errorf("%w: unsupported %s %q", ErrInvalidConfigOption, optionID, value)
 	}
 	if r.closed {
 		r.mu.Unlock()
 		return ErrSessionNotFound
 	}
-	r.model = value
+	if optionID == codexModelOption {
+		r.model = value
+		r.normalizeEffortLocked()
+	} else {
+		r.effort = value
+	}
 	update := r.configOptionsLocked()
 	r.mu.Unlock()
 	r.emit([]codexUpdate{{Update: update}})
@@ -840,24 +876,9 @@ func (r *codexRuntime) SetConfigOption(_ context.Context, optionID, value string
 
 // configOptionsLocked is the config_option_update for the model picker.
 func (r *codexRuntime) configOptionsLocked() json.RawMessage {
-	options := make([]map[string]string, 0, len(r.models))
-	for _, m := range r.models {
-		name := m.DisplayName
-		if name == "" {
-			name = codexModelSlug(m)
-		}
-		options = append(options, map[string]string{"value": codexModelSlug(m), "name": name, "description": m.Description})
-	}
 	return marshalUpdate(map[string]any{
 		"sessionUpdate": string(UpdateConfigOptions),
-		"configOptions": []map[string]any{{
-			"id":           codexModelOption,
-			"name":         "Model",
-			"category":     "model",
-			"type":         "select",
-			"currentValue": r.model,
-			"options":      options,
-		}},
+		"configOptions": codexConfigOptions(r.models, r.model, r.effort),
 	})
 }
 
@@ -976,6 +997,7 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 		ApprovalsReviewer: codexapp.ReviewerUser,
 		SandboxPolicy:     &sandboxPolicy,
 		Model:             r.model,
+		Effort:            r.effort,
 	}
 	r.mu.Unlock()
 	defer func() {
@@ -1398,6 +1420,11 @@ func (h *codexConnHandler) Request(ctx context.Context, method string, params js
 		r.emit(notice)
 		return response, nil
 	case codexapp.MethodMcpElicitation:
+		if r.delegatesMCPGate(params) {
+			// Dispatch only. The tool's own gate still asks via the broker and
+			// must approve before its handler can execute the operation.
+			return codexElicitationAnswer(codexapp.DecisionAccept), nil
+		}
 		ref := strconv.FormatInt(r.approvals.Add(1), 10)
 		a, ok := r.tr.mcpToolApprovalFor(r.thread(), ref, params)
 		if !ok {

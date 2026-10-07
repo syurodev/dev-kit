@@ -35,3 +35,38 @@ func TestPermissionWaiterQueuesTwoSessions(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionBrokerQueuesParallelGatesAndStopDeniesAll(t *testing.T) {
+	notify := make(chan PendingPermission, 2)
+	w := NewPermissionWaiter(func(p PendingPermission) { notify <- p })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	done := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := w.ResolveGate(ctx, "same-session", json.RawMessage(`{"origin":"devkit_gate"}`))
+			done <- err
+		}()
+	}
+	for range 2 {
+		select {
+		case p := <-notify:
+			if p.ExpiresAt.IsZero() {
+				t.Fatal("gate deadline missing")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("parallel gate not queued")
+		}
+	}
+	if w.CancelSession("same-session") != 2 {
+		t.Fatal("stop did not cancel both gates")
+	}
+	for range 2 {
+		if err := <-done; err == nil {
+			t.Fatal("stopped gate accepted")
+		}
+	}
+	if len(w.PendingList()) != 0 {
+		t.Fatal("stopped card remains pending")
+	}
+}

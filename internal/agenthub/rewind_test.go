@@ -208,6 +208,7 @@ func transcriptTexts(t *testing.T, store agenthub.Store, sessionID string) []str
 // exist take their rows with them.
 func TestRewindCutsTheConversationAndTheFiles(t *testing.T) {
 	svc, store, mock, sessionID, project, prompts := rewindHarness(t)
+	svc.MCPEndpoints = &fakeEndpoints{gateOwnedTools: []string{"db.query"}}
 	ctx := context.Background()
 
 	before, err := store.GetSession(ctx, sessionID)
@@ -233,6 +234,9 @@ func TestRewindCutsTheConversationAndTheFiles(t *testing.T) {
 	result, err := svc.ApplyRewind(ctx, preview.Token, nil)
 	if err != nil {
 		t.Fatalf("ApplyRewind: %v", err)
+	}
+	if owned := mock.LastSpec().GateOwnedMCP["devkit"]; len(owned) != 1 || owned[0] != "db.query" {
+		t.Fatalf("rewind lost gate ownership: %v", owned)
 	}
 
 	// The conversation: prompts 2 and 3 are gone, 1 remains.

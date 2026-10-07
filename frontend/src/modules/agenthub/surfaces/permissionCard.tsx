@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission, PermissionOption } from "@/bridge/agenthub";
 import { permissionCommand, permissionDetail, permissionToolTitle } from "@/bridge/agenthub";
 import { AgentState } from "./AgentState";
+import { GatePermissionDetails, gatePermission } from "./GatePermissionDetails";
 
 export type PermissionEnv = "open" | "locked";
 
@@ -112,6 +113,7 @@ export function PermissionIdentity({
   expired,
   testIdPrefix,
   trailing,
+  environment,
 }: {
   /**
    * Who is asking. Structural rather than PendingPermission: a question from the
@@ -121,6 +123,7 @@ export function PermissionIdentity({
   pending: Pick<PendingPermission, "sessionId" | "title" | "depth">;
   session?: AgentSession | null;
   env: PermissionEnv;
+  environment?: string;
   /**
    * The deadline. Omitted, the clock is not drawn: a question has no deadline,
    * and a clock counting nothing would promise a denial that never comes.
@@ -152,7 +155,7 @@ export function PermissionIdentity({
         </p>
       </div>
       {trailing}
-      <PermissionMarks env={env} secondsLeft={secondsLeft} expired={expired} testIdPrefix={testIdPrefix} />
+      <PermissionMarks env={env} environment={environment} secondsLeft={secondsLeft} expired={expired} testIdPrefix={testIdPrefix} />
     </div>
   );
 }
@@ -167,8 +170,10 @@ export function PermissionMarks({
   secondsLeft,
   expired,
   testIdPrefix,
+  environment,
 }: {
   env: PermissionEnv;
+  environment?: string;
   secondsLeft?: number;
   expired?: boolean;
   testIdPrefix: string;
@@ -177,12 +182,12 @@ export function PermissionMarks({
   const urgent = timed && !expired && secondsLeft <= URGENT_SECONDS;
   return (
     <>
-      {env === "locked" ? (
+      {env === "locked" || environment ? (
         <span
-          data-testid={`${testIdPrefix}-env-locked`}
-          className="shrink-0 rounded-full bg-(--feedback-danger-soft) px-2 py-0.5 text-caption-11-medium text-status-danger"
+          data-testid={`${testIdPrefix}-env${env === "locked" ? "-locked" : ""}`}
+          className={cn("shrink-0 rounded-full px-2 py-0.5 text-caption-11-medium", env === "locked" ? "bg-(--feedback-danger-soft) text-status-danger" : "bg-state-soft text-text-secondary")}
         >
-          prod
+          {environment || "prod"}
         </span>
       ) : null}
       {timed ? (
@@ -205,11 +210,11 @@ export function PermissionMarks({
 }
 
 /** The line that says an environment asks every time. Locked only. */
-export function PermissionLockedNote({ env }: { env: PermissionEnv }) {
+export function PermissionLockedNote({ env, environment }: { env: PermissionEnv; environment?: string }) {
   if (env !== "locked") return null;
   return (
     <p className="w-full text-caption-11 text-text-tertiary">
-      prod requires confirmation every time
+      {`${environment || "prod"} requires confirmation every time`}
     </p>
   );
 }
@@ -221,6 +226,7 @@ export function PermissionAsk({
   pending: PendingPermission;
   className?: string;
 }) {
+  if (gatePermission(pending.params)) return <GatePermissionDetails params={pending.params} className={className} />;
   const toolTitle = permissionToolTitle(pending.params);
   const command = permissionCommand(pending.params);
   const detail = command ? {} : permissionDetail(pending.params);

@@ -276,6 +276,32 @@ func (s *AppService) AgentHubCreateSession(input agenthub.CreateInput) (agenthub
 	return result.(agenthub.AgentSession), nil
 }
 
+func (s *AppService) AgentHubConfigCatalog(ctx context.Context, agent string) ([]agenthub.ConfigOption, error) {
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "catalog:"+agent, map[string]any{"action": "config_catalog", "agent": agent}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ConfigCatalog(callCtx, agenthub.AgentType(agent))
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.ConfigOption), nil
+}
+
+func (s *AppService) AgentHubPrepareSession(ctx context.Context, id string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{"action": "prepare_session", "session_id": opaqueID}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.PrepareSession(callCtx, id)
+	})
+	return err
+}
+
 func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error) {
 	opaqueID := hubSessionID(id)
 	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{

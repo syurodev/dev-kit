@@ -2,6 +2,7 @@ import { usePermissionDeadline } from "./usePermissionDeadline";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { gatePermission } from "./GatePermissionDetails";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import { parsePermissionOptions } from "@/bridge/agenthub";
 import {
@@ -86,6 +87,7 @@ export function AgentPermissionToast({
         pending={pending}
         session={session}
         env={env}
+        environment={gatePermission(pending.params)?.env}
         secondsLeft={secondsLeft}
         expired={expired}
         testIdPrefix="toast"
@@ -102,7 +104,7 @@ export function AgentPermissionToast({
       />
 
       <PermissionAsk pending={pending} />
-      <PermissionLockedNote env={env} />
+      <PermissionLockedNote env={env} environment={gatePermission(pending.params)?.env} />
 
       {/* The action row escalates left to right: Open rail for the full
           transcript, then Deny, then Allow once. No allow-always, per the note. */}

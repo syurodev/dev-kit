@@ -58,6 +58,22 @@ describe("runtimeStatusLine", () => {
     const line = runtimeStatusLine(status({ current: installed("0.76.0"), latestVersion: "0.76.0" }));
     expect(line).toEqual({ headline: "Claude Agent 0.76.0 · not tested by DevKit", latest: null });
   });
+
+  test("Codex offers the newer npm version", () => {
+    const line = runtimeStatusLine(status({
+      testedVersion: "0.147.0", current: installed("0.147.0"), latestVersion: "0.150.0",
+    }), "Codex");
+    expect(line).toEqual({ headline: "Codex 0.147.0 · tested", latest: "0.150.0 available (not tested by DevKit)" });
+  });
+
+  test("an older cached catalog does not offer a downgrade as an update", () => {
+    expect(runtimeStatusLine(status({
+      testedVersion: "0.147.0", current: installed("0.151.0"), latestVersion: "0.150.0",
+    }), "Codex").latest).toBeNull();
+    expect(runtimeStatusLine(status({
+      testedVersion: "0.147.0", latestVersion: "0.146.0",
+    }), "Codex").latest).toBeNull();
+  });
 });
 
 test("runtimeBlocked: no install, or an unmet requirement", () => {

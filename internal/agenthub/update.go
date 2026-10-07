@@ -152,10 +152,12 @@ type Usage struct {
 // Claude groups its models, and a flat list with the grouping still readable is
 // less to get wrong than two shapes for the same menu.
 type ConfigSelectOption struct {
-	Value       string `json:"value"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Group       string `json:"group,omitempty"`
+	Value            string               `json:"value"`
+	Name             string               `json:"name,omitempty"`
+	Description      string               `json:"description,omitempty"`
+	Group            string               `json:"group,omitempty"`
+	DefaultEffort    string               `json:"defaultEffort,omitempty"`
+	SupportedEfforts []ConfigSelectOption `json:"supportedEfforts,omitempty"`
 }
 
 // ConfigOption is one per-session setting from a config_option_update.
@@ -171,6 +173,7 @@ type ConfigOption struct {
 	Category     string               `json:"category,omitempty"`
 	Type         string               `json:"type,omitempty"`
 	CurrentValue json.RawMessage      `json:"currentValue,omitempty"`
+	DefaultValue string               `json:"defaultValue,omitempty"`
 	Options      []ConfigSelectOption `json:"options,omitempty"`
 }
 
@@ -419,6 +422,7 @@ type wireConfigOption struct {
 	Category     string          `json:"category"`
 	Type         string          `json:"type"`
 	CurrentValue json.RawMessage `json:"currentValue"`
+	DefaultValue string          `json:"defaultValue"`
 	Options      []struct {
 		ConfigSelectOption
 		Options []ConfigSelectOption `json:"options"`
@@ -531,6 +535,7 @@ func parseConfigOptions(raw json.RawMessage) []ConfigOption {
 			Category:     w.Category,
 			Type:         w.Type,
 			CurrentValue: w.CurrentValue,
+			DefaultValue: w.DefaultValue,
 		}
 		for _, entry := range w.Options {
 			if len(entry.Options) == 0 {

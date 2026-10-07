@@ -173,6 +173,12 @@ func runFakeCodex(scenario, logPath string) {
 			} else {
 				reply(map[string]any{"account": map[string]any{"type": "chatgpt", "email": "me@example.com", "planType": "plus"}, "requiresOpenaiAuth": true})
 			}
+		case "config/read":
+			if scenario == "configReloadFails" {
+				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32603, "message": "failed to synchronize managed preferences"}})
+			} else {
+				reply(map[string]any{"config": map[string]any{}})
+			}
 		case "account/login/start":
 			var login codexapp.LoginStartParams
 			_ = json.Unmarshal(m.Params, &login)
@@ -210,6 +216,15 @@ func runFakeCodex(scenario, logPath string) {
 			thread = p.ThreadID
 			reply(map[string]any{"thread": map[string]any{"id": thread}, "model": "gpt-5.5"})
 		case "model/list":
+			if scenario == "effort" {
+				reply(map[string]any{"data": []any{
+					map[string]any{"id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5", "isDefault": true, "defaultReasoningEffort": "high", "supportedReasoningEfforts": []any{
+						map[string]any{"reasoningEffort": "low"}, map[string]any{"reasoningEffort": "high"},
+					}},
+					map[string]any{"id": "gpt-5.5-mini", "model": "gpt-5.5-mini", "defaultReasoningEffort": "low", "supportedReasoningEfforts": []any{map[string]any{"reasoningEffort": "low"}}},
+				}, "nextCursor": nil})
+				continue
+			}
 			reply(map[string]any{"data": []any{
 				map[string]any{"id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5"},
 				map[string]any{"id": "gpt-5.5-mini", "model": "gpt-5.5-mini", "displayName": "GPT-5.5 mini"},
@@ -423,6 +438,9 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	}
 	defer rt.Close(context.Background())
 	pol, cmd := f.runner.started()
+	if !slices.Equal(pol.ReadPreferenceDomains, []string{"com.openai.codex"}) {
+		t.Fatalf("Codex must read only its managed preferences: %v", pol.ReadPreferenceDomains)
+	}
 
 	if pol.Env["CODEX_HOME"] != f.home {
 		t.Errorf("CODEX_HOME = %q, want %q", pol.Env["CODEX_HOME"], f.home)
@@ -644,6 +662,53 @@ func TestCodexModelPicker(t *testing.T) {
 	_ = json.Unmarshal(f.runner.sent(t, "turn/start")[0], &ts)
 	if ts.Model != "gpt-5.5-mini" {
 		t.Fatalf("model = %q", ts.Model)
+	}
+}
+
+func TestCodexEffortFollowsModelAndReachesTheFirstTurn(t *testing.T) {
+	f := newCodexFixture(t, "effort")
+	rt := f.open(t)
+	var log updateLog
+	rt.SetHandlers(RuntimeHandlers{OnUpdate: log.add})
+	opts := ParseSessionUpdate(log.updates[0]).ConfigOptions
+	if len(opts) != 2 || opts[0].DefaultValue != "gpt-5.5" || opts[1].DefaultValue != "high" || len(opts[0].Options[0].SupportedEfforts) != 2 {
+		t.Fatalf("model/effort metadata lost: %+v", opts)
+	}
+	config := rt.(RuntimeConfigurator)
+	if err := config.SetConfigOption(context.Background(), codexEffortOption, "medium"); !errors.Is(err, ErrInvalidConfigOption) {
+		t.Fatalf("unsupported effort accepted: %v", err)
+	}
+	if err := config.SetConfigOption(context.Background(), codexEffortOption, "low"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Prompt(context.Background(), TextPrompt("go"), nil); err != nil {
+		t.Fatal(err)
+	}
+	var turn codexapp.TurnStartParams
+	_ = json.Unmarshal(f.runner.sent(t, "turn/start")[0], &turn)
+	if turn.Effort != "low" {
+		t.Fatalf("first turn effort = %q", turn.Effort)
+	}
+	if err := config.SetConfigOption(context.Background(), codexEffortOption, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetConfigOption(context.Background(), codexModelOption, "gpt-5.5-mini"); err != nil {
+		t.Fatal(err)
+	}
+	opts = ParseSessionUpdate(log.updates[len(log.updates)-1]).ConfigOptions
+	if string(opts[1].CurrentValue) != `"low"` || len(opts[1].Options) != 1 {
+		t.Fatalf("effort did not follow model: %+v", opts)
+	}
+}
+
+func TestCodexCatalogDoesNotCreateAThreadOrTurn(t *testing.T) {
+	f := newCodexFixture(t, "effort")
+	opts, err := f.adapter.ConfigCatalog(context.Background(), OpenSpec{})
+	if err != nil || len(opts) != 2 {
+		t.Fatalf("catalog = %+v, %v", opts, err)
+	}
+	if len(f.runner.sent(t, "thread/start")) != 0 || len(f.runner.sent(t, "turn/start")) != 0 {
+		t.Fatal("catalog created a conversation or inference")
 	}
 }
 
@@ -964,6 +1029,14 @@ func TestCodexProbeUsesAThrowawayHome(t *testing.T) {
 	pol, _ := f.runner.started()
 	if pol.Env["CODEX_HOME"] == f.home {
 		t.Fatal("Probe ran with the real CODEX_HOME")
+	}
+}
+
+func TestCodexProbeRejectsConfigReloadFailure(t *testing.T) {
+	f := newCodexFixture(t, "configReloadFails")
+	err := f.adapter.Probe(context.Background(), agentruntimeResolved(f.adapter.opts.Command))
+	if !errors.Is(err, ErrProcessFailed) || !strings.Contains(err.Error(), "config/read") {
+		t.Fatalf("Probe accepted a runtime that cannot reload config: %v", err)
 	}
 }
 

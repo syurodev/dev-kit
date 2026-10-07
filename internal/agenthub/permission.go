@@ -41,10 +41,10 @@ type PendingPermission struct {
 
 // PermissionWaiter blocks ACP session/request_permission until Complete or timeout.
 //
-// Dedicated waiter (not interaction.Hub): ACP permission option lists
-// (allow_once / reject_once / allow_always / …) do not map cleanly onto
-// interaction's select/confirm kinds. Bridge/UI should emit
-// agenthub:permission and resolve via Complete (mirror interaction.Complete).
+// Shared broker for vendor requests and tool gates. Gates translate their
+// policy-owned options into the same request shape through ResolveGate; the
+// gate still validates the returned decision. UI uses agenthub:permission
+// and resolves one request ID through Complete.
 type PermissionWaiter struct {
 	notify func(PendingPermission)
 	// Timeout must match Service.PermissionTimeout — it only stamps ExpiresAt
@@ -54,13 +54,14 @@ type PermissionWaiter struct {
 	Timeout time.Duration
 
 	mu      sync.Mutex
-	pending map[string]*permissionWait // by ID; at most one per SessionID
+	pending map[string]*permissionWait // by ID; independent gated calls may queue
 }
 
 type permissionWait struct {
 	PendingPermission
 	result   chan json.RawMessage
 	finished bool
+	gate     bool
 }
 
 // NewPermissionWaiter creates a waiter. notify may be nil (still waits for Complete).
@@ -75,6 +76,18 @@ func (w *PermissionWaiter) Resolve(ctx context.Context, sessionID string, params
 
 // Wait registers a pending prompt and blocks until Complete, ctx cancel, or deadline.
 func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
+	return w.wait(ctx, sessionID, params, false)
+}
+
+// ResolveGate queues independently correlated tool gates from the same session.
+func (w *PermissionWaiter) ResolveGate(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
+	return w.wait(ctx, sessionID, params, true)
+}
+
+func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params json.RawMessage, gate bool) (json.RawMessage, error) {
+	if ctx.Err() != nil {
+		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+	}
 	id, err := vaultitem.NewID()
 	if err != nil {
 		return nil, err
@@ -91,17 +104,20 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 	if timeout := w.timeout(); timeout > 0 {
 		p.ExpiresAt = now.Add(timeout)
 	}
+	if deadline, ok := ctx.Deadline(); gate && ok && (p.ExpiresAt.IsZero() || deadline.Before(p.ExpiresAt)) {
+		p.ExpiresAt = deadline
+	}
 
 	w.mu.Lock()
 	for _, other := range w.pending {
-		if other.SessionID == sessionID {
+		if other.SessionID == sessionID && !(gate && other.gate) {
 			// A session prompts synchronously; a second prompt from the same
 			// session is a protocol violation, not a queue case.
 			w.mu.Unlock()
 			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 		}
 	}
-	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh}
+	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate}
 	w.mu.Unlock()
 
 	defer w.invalidate(id)
@@ -115,6 +131,9 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 		w.invalidate(id)
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	case outcome := <-resCh:
+		if ctx.Err() != nil {
+			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+		}
 		if isDeniedPermissionOutcome(outcome) {
 			return outcome, ErrPermissionDenied
 		}
@@ -258,11 +277,43 @@ const HookDenyReason = "DevKit blocks agent access to Claude Code's own credenti
 // Never auto-approves. Returns an ACP cancelled/rejected Result body together
 // with ErrPermissionDenied so Conn can deliver Result while Invoke fails closed.
 func (s *Service) mediatePermission(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
-	if s.ResolvePermission == nil {
+	return s.mediatePermissionWith(ctx, sessionID, params, s.ResolvePermission)
+}
+
+type permissionState struct {
+	count    int
+	previous SessionStatus
+}
+
+func (s *Service) mediatePermissionWith(ctx context.Context, sessionID string, params json.RawMessage, resolver PermissionResolver) (json.RawMessage, error) {
+	if resolver == nil {
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	}
 
-	if err := s.setSessionStatus(ctx, sessionID, SessionStatusAwaitingPermission); err != nil {
+	s.permissionMu.Lock()
+	sess, getErr := s.store.GetSession(ctx, sessionID)
+	if getErr != nil || sess.Status == SessionStatusClosed {
+		s.permissionMu.Unlock()
+		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+	}
+	if s.permissionStates == nil {
+		s.permissionStates = map[string]*permissionState{}
+	}
+	state := s.permissionStates[sessionID]
+	if state == nil {
+		state = &permissionState{previous: sess.Status}
+		s.permissionStates[sessionID] = state
+	}
+	state.count++
+	err := s.setSessionStatus(ctx, sessionID, SessionStatusAwaitingPermission)
+	s.permissionMu.Unlock()
+	if err != nil {
+		s.permissionMu.Lock()
+		state.count--
+		if state.count == 0 {
+			delete(s.permissionStates, sessionID)
+		}
+		s.permissionMu.Unlock()
 		return nil, err
 	}
 
@@ -278,7 +329,7 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 		defer cancel()
 	}
 
-	outcome, err := s.ResolvePermission(waitCtx, sessionID, params)
+	outcome, err := resolver(waitCtx, sessionID, params)
 
 	// Answered, refused, dismissed or timed out, the turn goes on — the agent
 	// is told and keeps working — so the session is running again. Left
@@ -286,11 +337,26 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 	// rest of the turn and the UI took down its running indicator while the
 	// agent was still writing. Only a stopped turn is left alone: Invoke's
 	// error path gives it its final status.
-	if ctx.Err() == nil {
-		if setErr := s.setSessionStatus(ctx, sessionID, SessionStatusRunning); setErr != nil {
-			return nil, setErr
+	s.permissionMu.Lock()
+	state.count--
+	if state.count == 0 {
+		delete(s.permissionStates, sessionID)
+		s.mu.Lock()
+		_, turnActive := s.invoking[sessionID]
+		s.mu.Unlock()
+		if ctx.Err() == nil || turnActive || state.previous == SessionStatusIdle {
+			// Gate expiry cancels the request, not the conversation. Restore
+			// status with a recording context after that deadline has elapsed.
+			restoreCtx := context.WithoutCancel(ctx)
+			if current, getErr := s.store.GetSession(restoreCtx, sessionID); getErr == nil && current.Status == SessionStatusAwaitingPermission {
+				if setErr := s.setSessionStatus(restoreCtx, sessionID, state.previous); setErr != nil {
+					s.permissionMu.Unlock()
+					return nil, setErr
+				}
+			}
 		}
 	}
+	s.permissionMu.Unlock()
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {

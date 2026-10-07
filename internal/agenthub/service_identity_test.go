@@ -16,14 +16,15 @@ import (
 	"devkit/internal/storage"
 )
 
-type fakeEndpoints struct{ opened, closed []string }
+type fakeEndpoints struct{ opened, closed, gateOwnedTools []string }
 
 func (f *fakeEndpoints) Open(sessionID string) (agenthub.MCPEndpoint, error) {
 	f.opened = append(f.opened, sessionID)
 	return agenthub.MCPEndpoint{
-		SocketPath: "/tmp/" + sessionID[:8] + ".sock",
-		Server:     acp.McpServerStdio{Name: "devkit", Command: "/opt/devkit-mcp", Args: []string{"--socket", "/tmp/x.sock"}, Env: []acp.EnvVariable{}},
-		Close:      func() { f.closed = append(f.closed, sessionID) },
+		GateOwnedTools: f.gateOwnedTools,
+		SocketPath:     "/tmp/" + sessionID[:8] + ".sock",
+		Server:         acp.McpServerStdio{Name: "devkit", Command: "/opt/devkit-mcp", Args: []string{"--socket", "/tmp/x.sock"}, Env: []acp.EnvVariable{}},
+		Close:          func() { f.closed = append(f.closed, sessionID) },
 	}, nil
 }
 
@@ -63,6 +64,7 @@ func projectDir(t *testing.T) string {
 
 func TestCreateSessionOpensEndpointAndPassesSpec(t *testing.T) {
 	svc, mock, eps := newIdentityService(t)
+	eps.gateOwnedTools = []string{"db.query"}
 	sess, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)})
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +73,9 @@ func TestCreateSessionOpensEndpointAndPassesSpec(t *testing.T) {
 		t.Fatalf("endpoint opened for %v, want [%s]", eps.opened, sess.ID)
 	}
 	spec := mock.LastSpec()
+	if !slices.Equal(spec.GateOwnedMCP["devkit"], eps.gateOwnedTools) {
+		t.Fatal("endpoint ownership did not reach the runtime")
+	}
 	if len(spec.McpServers) != 1 || spec.McpServers[0].Name != "devkit" {
 		t.Fatalf("spec.McpServers = %+v", spec.McpServers)
 	}

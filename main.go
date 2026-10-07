@@ -531,6 +531,7 @@ func main() {
 		})
 	})
 	agentSvc.ResolvePermission = agentWaiter.Resolve
+	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
@@ -822,6 +823,36 @@ func main() {
 	// Headless makes selection and confirmation fail fast instead, which is
 	// what AGENTS.md always said server mode does.
 	hub.Headless = application.System.IsServer()
+	hub.ConfirmAgent = agentSvc.ConfirmTool
+	agentSvc.GateTargetName = func(kind, id string) string {
+		switch interaction.Kind(kind) {
+		case interaction.KindDatabase:
+			if profiles, err := container.Database.ListProfiles(); err == nil {
+				for _, p := range profiles {
+					if p.ID == id {
+						return p.Name
+					}
+				}
+			}
+		case interaction.KindSSH:
+			if profiles, err := container.SSH.ListProfiles(); err == nil {
+				for _, p := range profiles {
+					if p.ID == id {
+						return p.Name
+					}
+				}
+			}
+		case interaction.KindKafka:
+			if profiles, err := container.Kafka.ListProfiles(); err == nil {
+				for _, p := range profiles {
+					if p.ID == id {
+						return p.Name
+					}
+				}
+			}
+		}
+		return id
+	}
 	container.Interaction = hub
 	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
 	// Accounts, Tasks, Git and the API client need the database, the vault and

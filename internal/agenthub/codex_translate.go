@@ -34,6 +34,7 @@ type codexOpenItem struct {
 	// McpServer is the server of an mcpToolCall item, so an approval for it —
 	// which names the server but not the item — can find the card it is about.
 	McpServer string
+	McpTool   string
 	Content   []ToolCallContent
 	Locations []ToolCallLocation
 	RawInput  json.RawMessage
@@ -270,7 +271,7 @@ func codexToolItem(itemType string, item json.RawMessage) (codexOpenItem, bool) 
 		if json.Unmarshal(item, &m) != nil {
 			return codexOpenItem{}, false
 		}
-		return codexOpenItem{Title: m.Server + "." + m.Tool, Kind: "other", McpServer: m.Server, RawInput: m.Arguments}, true
+		return codexOpenItem{Title: m.Server + "." + m.Tool, Kind: "other", McpServer: m.Server, McpTool: m.Tool, RawInput: m.Arguments}, true
 	case codexapp.ItemWebSearch:
 		var w codexapp.WebSearchItem
 		if json.Unmarshal(item, &w) != nil {

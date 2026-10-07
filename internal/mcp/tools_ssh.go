@@ -30,14 +30,14 @@ func (s *Server) registerSSH(ms *sdk.Server) {
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolSSHActiveProfile)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "ssh.runCommand",
 		Description: "Run a command on the active SSH profile (gated)",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
 		},
-	}, s.toolSSHRunCommand)
+	}), s.toolSSHRunCommand)
 }
 
 func (s *Server) toolSSHListProfiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {

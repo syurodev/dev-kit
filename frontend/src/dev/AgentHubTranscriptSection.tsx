@@ -7,6 +7,14 @@ import { AgentSessionError } from "@/modules/agenthub/surfaces/AgentSessionError
 import { AgentSessionFailure } from "@/modules/agenthub/surfaces/AgentSessionFailure";
 import { AgentToolDiff } from "@/modules/agenthub/transcript/AgentToolDiff";
 import type { TranscriptItem } from "@/modules/agenthub/types";
+import { draftConfigOptions, initialModelConfig } from "@/modules/agenthub/modelSettings";
+import type { ConfigOption } from "@/modules/agenthub/types";
+
+const modelCatalog: ConfigOption[] = [{ id: "model", category: "model", name: "Model", currentValue: "sol", defaultValue: "sol", options: [
+  { value: "sol", name: "GPT-6.1 Sol", defaultEffort: "medium", supportedEfforts: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value })) },
+  { value: "astra", name: "GPT-6 Astra", defaultEffort: "high", supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })) },
+  { value: "luna", name: "GPT-6 Luna", defaultEffort: "low", supportedEfforts: ["low", "medium", "high"].map((value) => ({ value })) },
+] }];
 
 /**
  * The Agent Hub conversation with a finished turn and a live one, through the
@@ -158,6 +166,8 @@ export function AgentHubTranscriptSection() {
   const [draftPrompt, setDraftPrompt] = useState("");
   const [draftProject, setDraftProject] = useState(session.projectPath);
   const [activeId, setActiveId] = useState(session.id);
+  const [modelSelection, setModelSelection] = useState<Record<string, string>>({});
+  const modelOptions = draftConfigOptions(modelCatalog, modelSelection);
   return (
     <section id="agenthub-transcript" className="flex flex-col gap-3">
       <h2 className="text-title-16 text-text-primary">Agent Hub — conversation</h2>
@@ -203,9 +213,12 @@ export function AgentHubTranscriptSection() {
           projects={[session.projectPath, "/Users/dev/billing-service", "/Users/dev/work/api"]}
           onProjectChange={setDraftProject}
           onChooseProject={() => setDraftProject("/Users/dev/picked-folder")}
-          agents={["claude"]}
-          agent="claude"
+          agents={["codex"]}
+          agent="codex"
           onAgentChange={() => {}}
+          configOptions={modelOptions}
+          onSetConfigOption={(id, value) => setModelSelection((previous) => initialModelConfig(draftConfigOptions(modelCatalog, { ...previous, [id]: value })))}
+          onRefreshConfig={() => {}}
           promptValue={draftPrompt}
           onPromptChange={setDraftPrompt}
           onSend={() => {}}
