@@ -57,7 +57,10 @@ the same actions.
   step's ` + "`guard`" + ` is the condition its caller reaches it under: read it
   before saying a path always runs. Before turning a flag or env var on, ask
   {{codegraph.findConfigUsage}} which code and endpoints depend on it, and before changing or dropping a table,
-  {{codegraph.findTableUsage}} for who reads and writes it. Grep is for
+  {{codegraph.findTableUsage}} for who reads and writes it; to know which
+  services call an endpoint or what a service calls, {{codegraph.findServiceCalls}}; to see which Redis
+  keys services share, {{codegraph.findRedisKeyUsage}}; which services produce to
+  and consume from a Kafka topic, {{codegraph.findKafkaTopicUsage}}. Grep is for
   text, not structure. If
   CodeGraph answers ` + "`unsupported_project`" + `, no analyzer reads that language:
   read the files.

@@ -44,6 +44,11 @@ type luaValue struct {
 	module *luaModule
 	lib    string
 	table  string
+	// text is the string a local was set to, when it is a literal the file
+	// spells out — what lets `local base = "/v1/internal"` be seen through in
+	// the URL of a request. Cleared when the name is assigned again.
+	text    string
+	hasText bool
 }
 
 // luaScope is a chain of lexical scopes. Shadowing matters: a `local kong =
@@ -69,6 +74,17 @@ func (s *luaScope) get(name string) (luaValue, bool) {
 }
 
 func (s *luaScope) set(name string, value luaValue) { s.vars[name] = value }
+
+// forget wipes what is known about name wherever it lives: it was assigned
+// again, so a constant or an origin it had no longer holds.
+func (s *luaScope) forget(name string) {
+	for scope := s; scope != nil; scope = scope.parent {
+		if _, ok := scope.vars[name]; ok {
+			scope.vars[name] = luaValue{}
+			return
+		}
+	}
+}
 
 // luaKnownGlobals is the standard library plus the globals every OpenResty and
 // Kong file is written against. A call rooted at one of these is a wall, not a
@@ -204,7 +220,43 @@ func (m *luaModule) moduleScope() *luaScope {
 		}
 		scope.set(table, luaValue{kind: luaTableValue, table: table})
 	}
+	m.bindStringConstants(scope)
 	return scope
+}
+
+// bindStringConstants makes the file's top-level `local BASE = "/v1/x"` visible
+// inside its functions, where a request URL is usually built from it. A name
+// assigned anywhere at the top level other than where it is declared is not a
+// constant, and is left alone.
+func (m *luaModule) bindStringConstants(scope *luaScope) {
+	assigned := map[string]bool{}
+	for _, stmt := range m.chunk.Block {
+		if a, ok := stmt.(*lua.AssignStmt); ok {
+			for _, target := range a.Targets {
+				if name, isName := target.(*lua.NameExpr); isName {
+					assigned[name.Name] = true
+				}
+			}
+		}
+	}
+	folder := &luaResolver{module: m}
+	for _, stmt := range m.chunk.Block {
+		local, ok := stmt.(*lua.LocalStmt)
+		if !ok {
+			continue
+		}
+		for i, name := range local.Names {
+			if i >= len(local.Exprs) || assigned[name] {
+				continue
+			}
+			if _, taken := scope.get(name); taken {
+				continue
+			}
+			if text, literal := folder.literalText(local.Exprs[i], scope); literal {
+				scope.set(name, luaValue{text: text, hasText: true})
+			}
+		}
+	}
 }
 
 // walkTopLevel walks a file's own statements without descending into the
@@ -333,6 +385,10 @@ func (r *luaResolver) walkStmt(stmt lua.Stmt, scope *luaScope) {
 // node's walk, since they already have nodes of their own.
 func (r *luaResolver) walkAssign(s *lua.AssignStmt, scope *luaScope, topLevel bool) {
 	for _, target := range s.Targets {
+		if name, isName := target.(*lua.NameExpr); isName {
+			scope.forget(name.Name)
+			continue
+		}
 		index, ok := target.(*lua.IndexExpr)
 		if !ok {
 			continue
@@ -387,6 +443,9 @@ func (r *luaResolver) walkExpr(expr lua.Expr, scope *luaScope) {
 		r.walkExprs(e.Args, scope)
 	case *lua.MethodCallExpr:
 		r.recordCall(e.Recv, &e.Method, e.Line, scope)
+		r.recordOutbound(e, scope)
+		r.recordRedis(e, scope)
+		r.recordKafka(e, scope)
 		r.walkExpr(e.Recv, scope)
 		r.walkExprs(e.Args, scope)
 	case *lua.IndexExpr:
@@ -654,6 +713,9 @@ func (r *luaResolver) bindLocals(names []string, exprs []lua.Expr, scope *luaSco
 			// what makes `local Policies = {}` followed by
 			// `function Policies.redis()` resolvable.
 			value = luaValue{kind: luaTableValue, table: name}
+		}
+		if text, ok := r.literalText(exprs[i], scope); ok {
+			value.text, value.hasText = text, true
 		}
 		scope.set(name, value)
 	}

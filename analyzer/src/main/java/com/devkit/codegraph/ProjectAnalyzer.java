@@ -288,6 +288,32 @@ public class ProjectAnalyzer {
                         .orElse(null));
         result.entityTables = tables.entities();
         result.tableAccesses = tables.accesses();
+
+        result.kafkaAccesses = KafkaExtractor.extract(owners, configScopes, annotations, constants, nodeIds);
+
+        // Redis keys are read from the same calls.
+        for (CallScope scope : scopes) {
+            for (MethodCallExpr expr : scope.node().findAll(MethodCallExpr.class)) {
+                if (!belongsTo(expr, scope.node())) {
+                    continue;
+                }
+                RedisExtractor.access(expr, constants).ifPresent(access -> {
+                    for (String owner : scope.ownerIds()) {
+                        if (!nodeIds.contains(owner)) {
+                            continue;
+                        }
+                        RedisAccess copy = new RedisAccess();
+                        copy.from = owner;
+                        copy.key = access.key;
+                        copy.access = access.access;
+                        copy.command = access.command;
+                        copy.line = access.line;
+                        copy.file = scope.owner().file.relativePath();
+                        result.redisAccesses.add(copy);
+                    }
+                });
+            }
+        }
     }
 
     /**
@@ -818,7 +844,9 @@ public class ProjectAnalyzer {
     private void extractOutboundCalls(Index index, List<CallScope> scopes, Annotations annotations,
                                       ConstantResolver constants, AnalysisResult result) {
         for (TypeInfo type : index.all) {
-            for (OutboundCallExtractor.Found found : OutboundCallExtractor.feign(type.decl, annotations, constants)) {
+            List<OutboundCallExtractor.Found> declarative = new ArrayList<>(OutboundCallExtractor.feign(type.decl, annotations, constants));
+            declarative.addAll(OutboundCallExtractor.httpInterface(type.decl, annotations, constants));
+            for (OutboundCallExtractor.Found found : declarative) {
                 OutboundCall call = found.call();
                 call.from = type.methods.stream().filter(m -> m.decl() == found.in())
                         .map(MethodInfo::id).findFirst().orElse(type.id);

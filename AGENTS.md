@@ -608,6 +608,45 @@ read time by `Service.FindTableUsage` (MCP `codegraph.findTableUsage`).
 - Not read: `@NamedQuery`, `EntityManager.persist/merge`, tables named by a variable, triggers/cascades/views,
   Liquibase. Gaps are in `docs/dev-kit/codegraph.mdx` § Truy vấn nối với bảng DB.
 
+### CodeGraph: calls between services
+`internal/crossservice` joins what each service's index says — the routes it serves, the HTTP calls it
+makes (`OutboundCall`, table `outbound_calls`) — into edges, **when asked**; nothing stores them.
+`codegraph.ServiceSnapshot` is what one service offers the join: from a resident service, or read from
+its index on disk with no Service opened (`Registry.Snapshot`; no watcher, no resident slot).
+- Callers: Java (`OutboundCallExtractor`: Feign, Spring HTTP interfaces, RestTemplate, WebClient,
+  RestClient) and Lua (`analyzer_lua_http.go`: `resty.http`, recognised by provenance of
+  `require "resty.http"`, never by a method name). A `foldString` hole is `{expr}`, the shape Java uses.
+- `workspace.ResolveTarget` resolves a host against the CALLER's config. With no host (a plugin's
+  `{conf.url}`, an HTTP interface) the route alone links it, as `path-unique`, only when it has ≥ 2
+  literal segments and exactly one other service serves it; several is `ambiguous-path`. Never pick one.
+- An unreadable service is named, not skipped (`not-indexed`), and every edge carries how old the
+  other end's index is. A service nothing watches can be wrong without saying so.
+- Layering: `crossservice` imports `codegraph` and `workspace`; `codegraph` still does not import
+  `workspace` (arch test). The MCP tool resolves "the asker's workspace" from `workspace.list`'s logic.
+
+### CodeGraph: shared Redis keys
+Same shape as the HTTP join: each service records `RedisAccess` (table `redis_accesses`; Java
+`RedisExtractor`, Lua `recordRedis`), `crossservice.RunRedis` joins at read time (MCP
+`codegraph.findRedisKeyUsage`). A key is a PATTERN (`fsap:access:{org}:{api}`); two are one resource
+when some string matches both (`overlaps`, a DP over `*`), and a pattern needs ≥ 3 fixed leading
+characters to count — `*` and `{key}` overlap everything, so they are dropped and a query by one is refused.
+- Redis is recognised by the receiver (an `opsFor*()` chain, a declared template/client/command type,
+  Lua provenance of `require "resty.redis"`), never by a method name like `get`.
+- Not seen: keys built elsewhere and passed in, `@Cacheable`, Lua `EVAL`, pub/sub, Redisson. Say so in
+  the answer's notes instead of widening the match.
+
+### CodeGraph: Kafka topics
+Same shape as Redis (table `kafka_accesses`; Java `KafkaExtractor`, Lua `recordKafka`;
+`crossservice.RunKafka`, MCP `codegraph.findKafkaTopicUsage`), with two differences:
+- **The topic name is folded against the config of the service that WROTE it** (`Service.Config.Resolve`),
+  never against another's — two services spell one topic by different properties. A property the
+  service's config does not set is `unresolved`, listed, not dropped.
+- **Topics have a direction**, so the answer carries `gap` (`no-consumer` / `no-producer`). It is a gap in
+  THIS workspace only; say so (the notes do) instead of calling the topic dead.
+- Kafka is recognised by annotation, constructor or declared receiver type, never by a method name. Kafka's
+  own `Producer`/`Consumer` interfaces are NOT in the type sets on purpose: a project's own `Producer.send`
+  would become a topic. Not seen: Spring Cloud Stream bindings, `@SendTo`, `sendDefault`, `@RetryableTopic`.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.

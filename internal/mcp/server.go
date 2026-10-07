@@ -152,6 +152,10 @@ type CodeGraphServices interface {
 	// Focus makes path the focused project, taking it from a resident
 	// service already open on it.
 	Focus(ctx context.Context, path string) (CodeGraphAPI, error)
+	// Snapshot reads a service's routes and outbound calls without making it
+	// resident: from the open service when there is one, else from its index
+	// on disk.
+	Snapshot(ctx context.Context, servicePath string) (codegraph.ServiceSnapshot, error)
 }
 
 // RegistryServices adapts a codegraph.Registry to CodeGraphServices.
@@ -165,6 +169,10 @@ func (s registryServices) Service(ctx context.Context, servicePath string) (Code
 
 func (s registryServices) Focus(ctx context.Context, path string) (CodeGraphAPI, error) {
 	return s.r.Focus(ctx, path)
+}
+
+func (s registryServices) Snapshot(ctx context.Context, servicePath string) (codegraph.ServiceSnapshot, error) {
+	return s.r.Snapshot(ctx, servicePath)
 }
 
 // VaultStatusResult is the structured output of vault.status.

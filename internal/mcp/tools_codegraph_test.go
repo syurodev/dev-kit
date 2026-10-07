@@ -279,8 +279,9 @@ func TestCodeGraphToolsRunOnTheGatewayContext(t *testing.T) {
 }
 
 type fakeCodeGraphServices struct {
-	byPath  map[string]CodeGraphAPI
-	focused []string
+	byPath    map[string]CodeGraphAPI
+	focused   []string
+	snapshots map[string]codegraph.ServiceSnapshot
 }
 
 func (f *fakeCodeGraphServices) Service(_ context.Context, path string) (CodeGraphAPI, error) {
@@ -289,6 +290,13 @@ func (f *fakeCodeGraphServices) Service(_ context.Context, path string) (CodeGra
 		return nil, errors.New("no such service")
 	}
 	return svc, nil
+}
+
+func (f *fakeCodeGraphServices) Snapshot(_ context.Context, path string) (codegraph.ServiceSnapshot, error) {
+	if snap, ok := f.snapshots[path]; ok {
+		return snap, nil
+	}
+	return codegraph.ServiceSnapshot{Path: path, State: codegraph.SnapshotNotIndexed}, nil
 }
 
 func (f *fakeCodeGraphServices) Focus(_ context.Context, path string) (CodeGraphAPI, error) {

@@ -20,6 +20,7 @@ class OutboundCallExtractorTest {
         List<OutboundCall> out = new ArrayList<>();
         for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
             OutboundCallExtractor.feign(type, annotations, constants).forEach(f -> out.add(f.call()));
+            OutboundCallExtractor.httpInterface(type, annotations, constants).forEach(f -> out.add(f.call()));
         }
         for (MethodCallExpr call : cu.findAll(MethodCallExpr.class)) {
             OutboundCallExtractor.call(call, constants).ifPresent(out::add);
@@ -202,5 +203,49 @@ class OutboundCallExtractorTest {
                 }
                 """);
         assertEquals("{url}/x", call.url);
+    }
+
+    @Test
+    void httpInterfaceMethodsCallTheirRouteWithNoServiceNamed() {
+        List<OutboundCall> found = calls("""
+                @HttpExchange("/v1/internal")
+                interface AccessClient {
+                    @GetExchange("/api-access/{org}/api/{api}")
+                    Access get(@PathVariable String org, @PathVariable String api);
+                    @PostExchange("/api-access")
+                    void enable(@RequestBody Access body);
+                    @DeleteExchange(url = "/api-access/{org}")
+                    void remove(@PathVariable String org);
+                    default void helper() {}
+                }
+                """);
+        assertEquals(3, found.size(), found.toString());
+        assertTrue(found.stream().allMatch(c -> c.client.equals("http-interface") && c.serviceName.isEmpty()));
+        assertEquals(List.of("GET /v1/internal/api-access/{org}/api/{api}", "POST /v1/internal/api-access", "DELETE /v1/internal/api-access/{org}"),
+                found.stream().map(c -> c.httpMethod + " " + c.url).toList());
+    }
+
+    @Test
+    void anInterfaceWithoutClassLevelExchangeStillCountsWhenItsMethodsAreExchanges() {
+        OutboundCall call = only("""
+                interface Bare {
+                    @GetExchange("/ping")
+                    String ping();
+                }
+                """);
+        assertEquals("GET", call.httpMethod);
+        assertEquals("/ping", call.url);
+    }
+
+    @Test
+    void aControllerWithExchangeAnnotationsIsServingNotCalling() {
+        assertTrue(calls("""
+                @RestController
+                interface Served {
+                    @GetExchange("/ping")
+                    String ping();
+                }
+                """).isEmpty());
+        assertTrue(calls("interface Plain { String ping(); }").isEmpty());
     }
 }

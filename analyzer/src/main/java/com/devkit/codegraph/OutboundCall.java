@@ -17,7 +17,7 @@ public class OutboundCall {
     public String from;
     public String file;
     public int line;
-    /** "feign" | "rest-template" | "web-client" | "rest-client" */
+    /** "feign" | "http-interface" | "rest-template" | "web-client" | "rest-client" */
     public String client;
     /** GET, POST, ... or "ANY" when the source does not say. */
     public String httpMethod;

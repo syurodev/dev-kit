@@ -1,6 +1,7 @@
 package com.devkit.codegraph;
 
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -35,11 +36,13 @@ import java.util.Set;
  * says its type in the source. Matching is by simple type name, for the
  * reason LayerClassifier gives.
  *
- * Four clients, the ones Spring code actually uses:
+ * Five clients, the ones Spring code actually uses:
  * <ul>
  * <li>{@code @FeignClient} interfaces — every mapped method is a call to
  *     the service the annotation names, at its route (same mapping
  *     annotations EndpointExtractor reads, read as the route called).</li>
+ * <li>Spring HTTP interfaces ({@code @HttpExchange}, {@code @GetExchange}…) —
+ *     the same, but bound to a base URL elsewhere, so no service is named.</li>
  * <li>{@code RestTemplate} — the first argument of getForObject/exchange/...
  *     is the URL; exchange and execute take the HTTP method as the second.</li>
  * <li>{@code WebClient} and {@code RestClient} — {@code client.get().uri(x)},
@@ -105,6 +108,39 @@ public final class OutboundCallExtractor {
                 String route = EndpointExtractor.joinPath(path, mapping.path());
                 found.add(new Found(method, new OutboundCall("feign", mapping.httpMethod(), name,
                         stripTrailingSlash(url) + route, line(method))));
+            }
+        }
+        return found;
+    }
+
+    /** Method annotations that make an interface a Spring 6 HTTP interface. */
+    private static final List<String> EXCHANGE_METHODS = List.of(
+            "GetExchange", "PostExchange", "PutExchange", "DeleteExchange", "PatchExchange", "HttpExchange");
+
+    /**
+     * Every {@code @GetExchange}-style method of a Spring HTTP interface: a call
+     * to the route it declares, joined to the interface's own {@code @HttpExchange}
+     * prefix. The target service is not named here — an HTTP interface is bound
+     * to a base URL where {@code HttpServiceProxyFactory} builds it, which is
+     * elsewhere and often a @Bean — so {@code serviceName} stays empty and the
+     * caller resolves it by the route alone. Empty for any other type.
+     */
+    public static List<Found> httpInterface(TypeDeclaration<?> type, Annotations annotations, ConstantResolver constants) {
+        boolean controller = annotations.has(type, "RestController") || annotations.has(type, "Controller");
+        if (controller || annotations.has(type, "FeignClient") || !(type instanceof ClassOrInterfaceDeclaration decl) || !decl.isInterface()) {
+            return List.of();
+        }
+        boolean declared = annotations.has(type, "HttpExchange")
+                || type.getMethods().stream().anyMatch(m -> annotations.findAny(m, EXCHANGE_METHODS).isPresent());
+        if (!declared) {
+            return List.of();
+        }
+        List<Found> found = new ArrayList<>();
+        for (MethodDeclaration method : type.getMethods()) {
+            for (EndpointExtractor.HttpMapping mapping :
+                    EndpointExtractor.clientMappings(type, method, annotations, constants)) {
+                found.add(new Found(method, new OutboundCall("http-interface", mapping.httpMethod(), "",
+                        mapping.path(), line(method))));
             }
         }
         return found;
@@ -184,7 +220,7 @@ public final class OutboundCallExtractor {
     }
 
     /** A declaration's type as written and the expression it is set to, if any. */
-    private record Declared(Type type, Optional<Expression> value) {}
+    record Declared(Type type, Optional<Expression> value) {}
 
     /**
      * Where a name used at {@code at} is declared: a local or a parameter of
@@ -192,7 +228,7 @@ public final class OutboundCallExtractor {
      * field of an enclosing type. A field's value is its initializer or the
      * one expression its constructors assign it.
      */
-    private static Optional<Declared> declaration(Expression at, String name, boolean fieldOnly) {
+    static Optional<Declared> declaration(Expression at, String name, boolean fieldOnly) {
         Optional<com.github.javaparser.ast.Node> current = at.getParentNode();
         while (current.isPresent()) {
             com.github.javaparser.ast.Node node = current.get();
@@ -294,7 +330,7 @@ public final class OutboundCallExtractor {
         return Optional.empty();
     }
 
-    private static String simpleName(Type type) {
+    static String simpleName(Type type) {
         String written = type.asString();
         int generic = written.indexOf('<');
         if (generic >= 0) {

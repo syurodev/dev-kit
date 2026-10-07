@@ -110,6 +110,9 @@ func TestLayering(t *testing.T) {
 		pkg("agenthub"): {pkg("mcp"), pkg("bridge"), pkg("app"), pkg("storage")},
 		// acp is a leaf transport: no hub/sandbox/host imports (adapters own sandbox).
 		pkg("acp"): {pkg("agenthub"), pkg("sandbox"), pkg("mcp"), pkg("bridge"), pkg("app")},
+		// crossservice joins service snapshots with the workspace's resolver; it is
+		// domain logic that hosts call, never a host or a store itself.
+		pkg("crossservice"): {pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"), pkg("agenthub")},
 		// mcp is an alternate host boundary: capability-gated tools only, never
 		// storage/crypto/sync, and never bridge/app (Caller is defined locally).
 		pkg("mcp"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto"), pkg("app"), pkg("bridge")},

@@ -87,6 +87,34 @@ CREATE TABLE IF NOT EXISTS table_accesses (
 	line INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_table_accesses_canon ON table_accesses(canon);
+CREATE TABLE IF NOT EXISTS outbound_calls (
+	from_id TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	client TEXT NOT NULL,
+	http_method TEXT NOT NULL,
+	service_name TEXT NOT NULL,
+	url TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outbound_calls_from ON outbound_calls(from_id);
+CREATE TABLE IF NOT EXISTS redis_accesses (
+	from_id TEXT NOT NULL,
+	key TEXT NOT NULL,
+	access TEXT NOT NULL,
+	command TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kafka_accesses (
+	from_id TEXT NOT NULL,
+	topic TEXT NOT NULL,
+	role TEXT NOT NULL,
+	client TEXT NOT NULL,
+	group_id TEXT NOT NULL,
+	is_pattern INTEGER NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
 	verb TEXT NOT NULL,
@@ -316,7 +344,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses"} {
+	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses", "outbound_calls", "redis_accesses", "kafka_accesses"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -483,6 +511,43 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	for _, a := range result.TableAccesses {
 		if _, err := tableAccessStmt.ExecContext(ctx, a.From, a.Table, a.Schema, CanonicalConfigKey(a.Table), a.Access, a.Via, a.Detail, a.File, a.Line); err != nil {
 			return fmt.Errorf("codegraph: insert table access to %q: %w", a.Table, err)
+		}
+	}
+
+	outboundStmt, err := insert(`INSERT INTO outbound_calls (from_id, file, line, client, http_method, service_name, url) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer outboundStmt.Close()
+	for _, o := range result.OutboundCalls {
+		if _, err := outboundStmt.ExecContext(ctx, o.From, o.File, o.Line, o.Client, o.HTTPMethod, o.ServiceName, o.URL); err != nil {
+			return fmt.Errorf("codegraph: insert outbound call %q: %w", o.URL, err)
+		}
+	}
+
+	redisStmt, err := insert(`INSERT INTO redis_accesses (from_id, key, access, command, file, line) VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer redisStmt.Close()
+	for _, a := range result.RedisAccesses {
+		if _, err := redisStmt.ExecContext(ctx, a.From, a.Key, a.Access, a.Command, a.File, a.Line); err != nil {
+			return fmt.Errorf("codegraph: insert redis access %q: %w", a.Key, err)
+		}
+	}
+
+	kafkaStmt, err := insert(`INSERT INTO kafka_accesses (from_id, topic, role, client, group_id, is_pattern, file, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer kafkaStmt.Close()
+	for _, a := range result.KafkaAccesses {
+		pattern := 0
+		if a.Pattern {
+			pattern = 1
+		}
+		if _, err := kafkaStmt.ExecContext(ctx, a.From, a.Topic, a.Role, a.Client, a.GroupID, pattern, a.File, a.Line); err != nil {
+			return fmt.Errorf("codegraph: insert kafka access %q: %w", a.Topic, err)
 		}
 	}
 
@@ -1353,6 +1418,62 @@ func (s *sqliteStore) FindTableAccesses(ctx context.Context, canons []string, pr
 		if err := rows.Scan(&a.From, &a.Table, &a.Schema, &a.Access, &a.Via, &a.Detail, &a.File, &a.Line); err != nil {
 			return nil, fmt.Errorf("codegraph: scan table access: %w", err)
 		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) ListOutboundCalls(ctx context.Context) ([]OutboundCall, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, file, line, client, http_method, service_name, url FROM outbound_calls ORDER BY file, line, url`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListOutboundCalls: %w", err)
+	}
+	defer rows.Close()
+	var out []OutboundCall
+	for rows.Next() {
+		var o OutboundCall
+		if err := rows.Scan(&o.From, &o.File, &o.Line, &o.Client, &o.HTTPMethod, &o.ServiceName, &o.URL); err != nil {
+			return nil, fmt.Errorf("codegraph: scan outbound call: %w", err)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) ListRedisAccesses(ctx context.Context) ([]RedisAccess, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, key, access, command, file, line FROM redis_accesses ORDER BY key, file, line`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListRedisAccesses: %w", err)
+	}
+	defer rows.Close()
+	var out []RedisAccess
+	for rows.Next() {
+		var a RedisAccess
+		if err := rows.Scan(&a.From, &a.Key, &a.Access, &a.Command, &a.File, &a.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan redis access: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) ListKafkaAccesses(ctx context.Context) ([]KafkaAccess, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, topic, role, client, group_id, is_pattern, file, line FROM kafka_accesses ORDER BY topic, role, file, line`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListKafkaAccesses: %w", err)
+	}
+	defer rows.Close()
+	var out []KafkaAccess
+	for rows.Next() {
+		var a KafkaAccess
+		var pattern int
+		if err := rows.Scan(&a.From, &a.Topic, &a.Role, &a.Client, &a.GroupID, &pattern, &a.File, &a.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan kafka access: %w", err)
+		}
+		a.Pattern = pattern == 1
 		out = append(out, a)
 	}
 	return out, rows.Err()

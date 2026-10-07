@@ -50,6 +50,24 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphFindTableUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findServiceCalls",
+		Description: "Which services a service calls over HTTP, and which call it — across the workspace's services. For servicePath (default: the service the session works in): outbound lists each HTTP call it makes (client: feign, http-interface, rest-template, web-client, rest-client, resty-http for a Kong plugin) and where it goes; inbound lists the calls from other services that land on its routes (endpointId narrows it to one route from codegraph.listEndpoints — \"who calls this endpoint\"). Each edge has a status: linked (callee: the service, route and method behind it; provenance: feign-name, literal or property say the code or config named the host, port is a guess from a localhost setup, path-unique means no host was known but exactly one service serves a route that specific), or why it stopped short: endpoint-gone (the service is known, no route of it matches), dynamic-url (the host is only known at run time), unknown-service, ambiguous-service / ambiguous-path (candidates lists them), not-indexed, external. Read from each service's index, not its source now: services[].indexedAt says how old, and a service the workspace has but that has no index is named in notes. Java (Feign, HTTP interfaces, RestTemplate, WebClient, RestClient) and Lua (resty.http) callers; routes are Java's.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindServiceCalls)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findRedisKeyUsage",
+		Description: "Which Redis keys services of the workspace share: one writes fsap:access:{org}:{api}, another reads fsap:access:*. key is a pattern (a {hole} or * is any run of characters; at least 3 fixed characters before the first wildcard); two patterns are one resource when some string matches both. Returns each matching pattern with writers and readers (service, method, file:line, the key as written, the Redis command), the services touching it or anything overlapping it, and crossService — true when one service writes what a different one reads, so changing the key's shape or its writer is felt elsewhere. With no key it lists every key two or more services touch, cross-service ones first. Read from each service's index: keys given by a literal or constant to Spring Data Redis (opsForValue()… / RedisTemplate), Jedis/Lettuce command objects or Lua resty.redis; a key built elsewhere, Spring cache annotations, Lua scripts and pub/sub channels are not seen. servicePath names the workspace (default: the session's); services without an index are named in notes.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindRedisKeyUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findKafkaTopicUsage",
+		Description: "Who produces to and consumes from Kafka topics across the workspace's services — which service consumes the topic this one publishes to, and what a topic's producers are. topic is a name or a pattern (* or {hole} is any run of characters; at least 3 fixed characters before the first wildcard). Each topic lists producers and consumers (service, method, file:line, the topic as written, resolved: the name after folding the writing service's own config — @KafkaListener(topics = \"${app.kafka.topic.access}\") is read against that service's application.yml, default profile only — client, a consumer's groupId, and pattern for a regex topicPattern, which matches every topic whose name it fits), the services touching it or one that overlaps it, crossService (one service produces what a different one consumes) and gap: no-consumer (produced, nothing in the workspace consumes it — it may be read outside the workspace) or no-producer. gaps=true lists only topics with a gap; no topic lists every topic two or more services touch, cross-service first. Uses whose property is not set in their service's config are listed under unresolved, not dropped. Seen: @KafkaListener, KafkaTemplate.send, ProducerRecord, consumer.subscribe, Kafka Streams, Lua resty.kafka.producer; not seen: Spring Cloud Stream bindings, @SendTo, sendDefault, a topic built elsewhere and passed in.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindKafkaTopicUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
