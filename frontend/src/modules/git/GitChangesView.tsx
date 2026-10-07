@@ -3,7 +3,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { gitUI, useGitBusy, useGitDraft, useGitOperation } from "./gitUI";
-import { openFileDiff, openHistory } from "./documents";
+import { openFileDiff, openHistory, openRemotes } from "./documents";
 import { useEffect, useMemo, useState, useId, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
@@ -13,6 +13,7 @@ import {
   ArrowUpFromLine,
   ChevronDown,
   ChevronRight,
+  Cloud,
   CloudDownload,
   Eye,
   GitBranch,
@@ -502,6 +503,7 @@ export function GitChangesView() {
           <span className="min-w-0 flex-1" />
           <div className="flex flex-wrap items-center gap-1.5">
             <IconAction label="Open full history" icon={<History />} onClick={openHistory} />
+            <IconAction label="Remotes — choose the account a remote uses" icon={<Cloud />} onClick={openRemotes} />
             <DropdownMenu open={moreOpen && visible} onOpenChange={setMoreOpen}>
               <DropdownMenuTrigger asChild>
                 <IconAction label="More Git actions" icon={<Ellipsis />} disabled={busy} />
@@ -808,6 +810,14 @@ function Composer({
           <FieldDescription className={identity.tone === "warning" ? "text-status-warning" : undefined}>
             {identity.text}
             {identity.hint ? ` — ${identity.hint}` : ""}
+            {identity.tone === "warning" ? (
+              <>
+                {" "}
+                <button type="button" className="underline underline-offset-2" onClick={openRemotes}>
+                  Choose account
+                </button>
+              </>
+            ) : null}
           </FieldDescription>
         ) : null}
       </Field>
