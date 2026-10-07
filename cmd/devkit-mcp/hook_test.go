@@ -171,6 +171,13 @@ func TestSessionToolResultsAreReadable(t *testing.T) {
 		{"shell removes the spill", payload("Bash", "command", "cat "+spill+"; rm "+spill, session, own), true},
 		{"shell substitutes a command", payload("Bash", "command", "cat "+spill+" $(cat ~/.claude/.credentials.json)", session, own), true},
 		{"shell reads credentials beside the spill", payload("Bash", "command", "cat "+spill+" ~/.claude/.credentials.json", session, own), true},
+		{"shell with variable and redirect to /tmp", payload("Bash", "command", "F="+spill+"; jq -r '.content.nodes[0].body' $F > /tmp/checklist.html && wc -c /tmp/checklist.html && jq -c '.content.nodes[0] | del(.body)' $F | cut -c1-600", session, own), false},
+		{"shell variable holding another session's spill", payload("Bash", "command", "F="+project+"/other-session/tool-results/x.txt; cat $F", session, own), true},
+		{"shell variables assembling credentials", payload("Bash", "command", "A=~/.cl; B=aude/.credentials.json; cat $A$B", session, own), true},
+		{"shell variables assembling settings", payload("Bash", "command", "A="+home+"/.cla; cat ${A}ude/settings.json", session, own), true},
+		{"shell variable beside the spill", payload("Bash", "command", "F="+spill+"; cat $F ~/.claude/settings.json", session, own), true},
+		{"shell redirect into the spill", payload("Bash", "command", "F="+spill+"; cat $F > "+spill+".new", session, own), true},
+		{"shell redirect onto the transcript", payload("Bash", "command", "cat "+spill+" > "+own, session, own), true},
 		{"shell with no transcript_path", payload("Bash", "command", "cat "+spill, session, ""), true},
 		{"no transcript_path", payload("Read", "file_path", spill, session, ""), true},
 		{"no session_id", payload("Read", "file_path", spill, "", own), true},
@@ -190,9 +197,18 @@ func TestSessionToolResultsAreReadable(t *testing.T) {
 	}
 }
 
-// A command earns the spill directory only when it can neither write nor
-// link: read-only programs, joined by pipes, with quotes honoured.
+// A command earns the spill directory only when it can neither write into it
+// nor link out of it: read-only programs, joined by pipes, with quotes
+// honoured, variables written out in the command and redirects only to a path
+// outside the directory.
 func TestReadOnlyShell(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory: %v", err)
+	}
+	home = filepath.ToSlash(home)
+	spill := home + "/.claude/projects/p/s/tool-results"
+	file := spill + "/x.txt"
 	cases := []struct {
 		command string
 		want    bool
@@ -204,15 +220,38 @@ func TestReadOnlyShell(t *testing.T) {
 		{"jq . f | head -c 100", true},
 		{`jq -r '.[] | select(.a > 1) | .text' f`, true},
 		{`jq '.a // "x"; .b' f`, true},
+		{`jq -r '$x' f`, true},
 		{"grep -o 'a|b' f && wc -c f", true},
 		{"cat f 2>/dev/null", true},
 		{"cat f 2>&1 | head", true},
 		{"cat f; wc -l f", true},
+		// Variables: a statement of their own, value written out.
+		{"F=" + file + "; cat $F", true},
+		{"F=" + file + "; cat ${F} | head", true},
+		{`F=` + file + `; cat "$F"`, true},
+		{"D=" + spill + "; F=$D/x.txt; cat $F", true},
+		{"F=" + file + "; jq -r '.a' $F > /tmp/out.html && wc -c /tmp/out.html && jq -c 'del(.a)' $F | cut -c1-600", true},
+		// Redirects to a plain path outside the spill directory.
+		{"cat f > /tmp/out", true},
+		{"cat f >> /tmp/out", true},
+		{"cat f >/tmp/out", true},
+		{"cat f > ~/out.txt", true},
+		{`cat f > "/tmp/out file"`, true},
 		{"", false},
 		{"cat f > g", false},
 		{"cat f >> g", false},
 		{"cat f 2> g", false},
 		{"cat f 2>&1>g", false},
+		{"cat f >&2", false},
+		{"cat f >| /tmp/o", false},
+		{"cat f >", false},
+		{"cat f > && ls", false},
+		{"cat f > > /tmp/o", false},
+		{"cat f > /tmp/*", false},
+		{"cat f > ~/.cl*/x", false},
+		{"cat f > " + file, false},
+		{"cat f > " + spill + "/../tool-results/y", false},
+		{"cat f >> ~/.claude/projects/p/s/tool-results/y", false},
 		{"cat < f", false},
 		{"cat f | tee g", false},
 		{"cat f &", false},
@@ -223,22 +262,45 @@ func TestReadOnlyShell(t *testing.T) {
 		{"cd d && cat f", false},
 		{"sort -o g f", false},
 		{"sed -i s/a/b/ f", false},
-		{"FOO=1 cat f", false},
+		{"echo hi", false},
+		// Variables the hook cannot read as written.
+		{"cat $UNSET", false},
+		{"cat $HOME/f", false},
+		{`cat "$HOME/f"`, false},
+		{"cat $1", false},
+		{"cat $?", false},
 		{"cat $(echo f)", false},
 		{"cat `echo f`", false},
-		{`cat "$HOME/f"`, false},
 		{`cat "$(echo f)"`, false},
-		{"cat $HOME/f", false},
+		{`cat "${F"`, false},
+		{"F=" + file + " cat f", false},
+		{"F=" + file + " cat $F", false},
+		{"F=" + file, false},
+		{"F=$G; cat $F", false},
+		{"PATH=/tmp/x; cat f", false},
+		{"HOME=/tmp; cat f", false},
+		{"IFS=x; cat f", false},
+		{"LD_PRELOAD=/tmp/x.so; cat f", false},
+		{"BASH_ENV=/tmp/x; cat f", false},
+		{"'F=" + file + "'; cat f", false},
 		{"cat f\\ g", false},
 		{"(cat f)", false},
 		{"cat 'f", false},
 		{`cat "f`, false},
-		{"echo hi", false},
 	}
 	for _, c := range cases {
-		if got := readOnlyShell(c.command); got != c.want {
+		if _, got := readOnlyShell(c.command, spill); got != c.want {
 			t.Errorf("readOnlyShell(%q) = %v, want %v", c.command, got, c.want)
 		}
+	}
+}
+
+// The expanded command is what the hook scans, so a variable cannot carry a
+// protected path past it.
+func TestReadOnlyShellExpandsVariables(t *testing.T) {
+	expanded, ok := readOnlyShell("A=/x/y; cat $A/z ${A}", "/spill")
+	if !ok || !strings.Contains(expanded, "cat /x/y/z /x/y") {
+		t.Fatalf("expanded = %q, ok = %v", expanded, ok)
 	}
 }
 

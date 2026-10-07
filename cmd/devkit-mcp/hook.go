@@ -84,8 +84,16 @@ func preToolUseDecision(raw []byte) map[string]any {
 	case "Bash":
 		// A shell can write and link as well as read, so it gets the directory
 		// only for a command that cannot do either; see readOnlyShell.
-		if command, _ := toolInput["command"].(string); readOnlyShell(command) {
-			spill = sessionToolResultsDir(fields)
+		if dir := sessionToolResultsDir(fields); dir != "" {
+			command, _ := toolInput["command"].(string)
+			if expanded, ok := readOnlyShell(command, dir); ok {
+				spill = dir
+				// Variables are read by the shell, not the hook: scan the
+				// command with their values written in as well.
+				if hit := protectedPathHitIn(toolName, map[string]any{"command": expanded}, spill); hit != "" {
+					return hookDenyDecision(agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.")
+				}
+			}
 		}
 	}
 	if hit := protectedPathHitIn(toolName, toolInput, spill); hit != "" {
@@ -361,45 +369,123 @@ var readOnlyShellCommands = map[string]bool{
 var stderrRedirect = regexp.MustCompile(`\s2>(&1|/dev/null)(\s|$)`)
 
 // readOnlyShell reports whether command is nothing but readOnlyShellCommands
-// joined by | && || ; or newlines. It is deliberately narrow and fails closed:
-// no redirects (but 2>&1 and 2>/dev/null), no variable or command expansion,
-// no subshell, background job, backslash or environment prefix, and every
-// quote must close. Quotes are honoured, so a jq program such as
-// '.[] | select(.a > 1)' is text, not a redirect or a pipe.
+// joined by | && || ; or newlines, and returns the command with every $NAME
+// replaced by its value so the caller can scan the paths it really names.
+// It is deliberately narrow and fails closed:
 //
-// What it protects is the spill directory itself: with it, "read the
-// tool-results file" cannot become "write into it" or "link out of it". It
-// does not make the rest of the hook any stronger or weaker.
-func readOnlyShell(command string) bool {
+//   - Variables are NAME=value statements of their own, value written out in
+//     the command; $NAME and ${NAME} read only those. An unset variable, $(…),
+//     $?, $1, a backtick, a subshell, a background job, a backslash or an
+//     environment prefix (NAME=value cmd) is refused, and so are the names
+//     that change how the shell itself behaves (PATH, HOME, IFS, LD_*…).
+//   - The only redirects are 2>&1 and 2>/dev/null, plus > and >> to an
+//     absolute or ~/ path with no glob that is not inside spill. A command
+//     that writes where the hook cannot see could otherwise write into the
+//     spill directory itself.
+//   - Every quote must close. Quotes are honoured, so a jq program such as
+//     '.[] | select(.a > 1)' is text, not a redirect or a pipe.
+//
+// What it protects is the spill directory: with it, "read the tool-results
+// file" cannot become "write into it" or "link out of it". It does not make
+// the rest of the hook any stronger or weaker.
+func readOnlyShell(command, spill string) (string, bool) {
 	command = " " + strings.TrimSpace(command)
 	command = stderrRedirect.ReplaceAllString(command, " ")
 	runes := []rune(command)
 
 	var (
-		words  []string
-		word   strings.Builder
-		inWord bool
-		quote  rune
+		expanded   strings.Builder
+		vars       = map[string]string{}
+		segAssign  = map[string]string{}
+		words      []string
+		word       strings.Builder
+		inWord     bool
+		wordQuoted bool
+		wordAssign string // NAME of the NAME=value the current word is
+		redirect   bool   // a > was read and its target has not been
+		ran        bool
+		quote      rune
 	)
-	flush := func() {
-		if inWord {
-			words = append(words, word.String())
-			word.Reset()
-			inWord = false
+	flush := func() bool {
+		if !inWord {
+			return true
 		}
+		text, assign := word.String(), wordAssign
+		word.Reset()
+		inWord, wordQuoted, wordAssign = false, false, ""
+		switch {
+		case redirect:
+			redirect = false
+			return redirectTargetOK(text, spill)
+		case assign != "" && len(words) == 0:
+			segAssign[assign] = text[len(assign)+1:]
+		default:
+			words = append(words, text)
+		}
+		return true
 	}
 	endSegment := func() bool {
-		flush()
-		ok := len(words) > 0 && readOnlyShellCommands[filepath.Base(words[0])]
-		words = nil
-		return ok
+		if !flush() || redirect {
+			return false
+		}
+		assigns, cmd := segAssign, words
+		words, segAssign = nil, map[string]string{}
+		switch {
+		case len(cmd) == 0 && len(assigns) > 0:
+			for name, value := range assigns {
+				vars[name] = value
+			}
+			return true
+		case len(cmd) > 0 && len(assigns) == 0 && readOnlyShellCommands[filepath.Base(cmd[0])]:
+			ran = true
+			return true
+		}
+		return false
 	}
+	// dollar reads $NAME or ${NAME} at runes[i] and answers its value and how
+	// many runes after the $ it used.
+	dollar := func(i int) (string, int, bool) {
+		j := i + 1
+		if j < len(runes) && runes[j] == '{' {
+			end := j + 1
+			for end < len(runes) && runes[end] != '}' {
+				end++
+			}
+			if end >= len(runes) {
+				return "", 0, false
+			}
+			value, ok := vars[string(runes[j+1:end])]
+			return value, end - i, ok
+		}
+		end := j
+		for end < len(runes) && (runes[end] == '_' || unicode.IsLetter(runes[end]) || (end > j && unicode.IsDigit(runes[end]))) {
+			end++
+		}
+		if end == j {
+			return "", 0, false
+		}
+		value, ok := vars[string(runes[j:end])]
+		return value, end - 1 - i, ok
+	}
+
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
 		next := rune(0)
 		if i+1 < len(runes) {
 			next = runes[i+1]
 		}
+		if r == '$' && quote != '\'' {
+			value, skip, ok := dollar(i)
+			if !ok {
+				return "", false
+			}
+			word.WriteString(value)
+			expanded.WriteString(value)
+			inWord = true
+			i += skip
+			continue
+		}
+		expanded.WriteRune(r)
 		switch {
 		case quote == '\'':
 			if r == '\'' {
@@ -411,42 +497,96 @@ func readOnlyShell(command string) bool {
 			switch r {
 			case '"':
 				quote = 0
-			case '`', '$', '\\':
-				return false
+			case '`', '\\':
+				return "", false
 			default:
 				word.WriteRune(r)
 			}
 		default:
 			switch r {
 			case '\'', '"':
-				quote, inWord = r, true
-			case '`', '$', '(', ')', '{', '}', '<', '>', '\\':
-				return false
+				quote, inWord, wordQuoted = r, true, true
+			case '`', '(', ')', '{', '}', '<', '\\':
+				return "", false
 			case ' ', '\t':
-				flush()
+				if !flush() {
+					return "", false
+				}
 			case '\n', ';':
 				if !endSegment() {
-					return false
+					return "", false
 				}
+			case '>':
+				if !flush() || redirect {
+					return "", false
+				}
+				if next == '>' {
+					i++
+					expanded.WriteRune(next)
+				}
+				redirect = true
 			case '|', '&':
 				if next == r {
 					i++
+					expanded.WriteRune(next)
 				} else if r == '&' {
-					return false
+					return "", false
 				}
 				if !endSegment() {
-					return false
+					return "", false
 				}
 			default:
+				if r == '=' && wordAssign == "" && !wordQuoted && len(words) == 0 && shellName.MatchString(word.String()) {
+					if !assignableShellName(word.String()) {
+						return "", false
+					}
+					wordAssign = word.String()
+				}
 				word.WriteRune(r)
 				inWord = true
 			}
 		}
 	}
-	if quote != 0 {
+	if quote != 0 || !endSegment() {
+		return "", false
+	}
+	return expanded.String(), ran
+}
+
+var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// assignableShellName refuses the variables that change how the shell finds
+// programs, expands ~ or splits words: assigning one would make the hook read
+// a command differently from the shell that runs it.
+func assignableShellName(name string) bool {
+	switch name {
+	case "PATH", "HOME", "IFS", "SHELL", "ENV", "CDPATH", "GLOBIGNORE", "SHELLOPTS", "PS4", "PROMPT_COMMAND":
 		return false
 	}
-	return endSegment()
+	return !strings.HasPrefix(name, "LD_") && !strings.HasPrefix(name, "DYLD_") && !strings.HasPrefix(name, "BASH")
+}
+
+// redirectTargetOK accepts a redirect target the hook can read as written: an
+// absolute or ~/ path with no glob, outside the spill directory.
+func redirectTargetOK(target, spill string) bool {
+	if strings.ContainsAny(target, "*?[") {
+		return false
+	}
+	if strings.HasPrefix(target, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return false
+		}
+		target = home + target[1:]
+	}
+	if !strings.HasPrefix(target, "/") {
+		return false
+	}
+	target = filepath.ToSlash(filepath.Clean(target))
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		target, spill = strings.ToLower(target), strings.ToLower(spill)
+	}
+	return target != spill && !strings.HasPrefix(target, spill+"/")
 }
 
 // sessionIDPattern is what a session id may look like before it is allowed
