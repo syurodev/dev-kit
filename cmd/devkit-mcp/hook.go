@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"unicode"
@@ -73,7 +74,15 @@ func preToolUseDecision(raw []byte) map[string]any {
 		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (invalid tool_input); the tool call was denied.")
 	}
 
-	if hit := protectedPathHit(toolName, toolInput); hit != "" {
+	// Claude Code writes a result too large for the context to this session's
+	// tool-results directory and tells the agent to read it back. That is the
+	// one place in ~/.claude a reading tool may reach; see sessionToolResultsDir.
+	spill := ""
+	switch toolName {
+	case "Read", "Grep", "Glob":
+		spill = sessionToolResultsDir(fields)
+	}
+	if hit := protectedPathHitIn(toolName, toolInput, spill); hit != "" {
 		return hookDenyDecision(agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.")
 	}
 	if sub := shellGitWrite(toolName, toolInput); sub != "" {
@@ -192,6 +201,12 @@ func currentUsername() (string, error) {
 }
 
 func protectedPathHit(toolName string, input map[string]any) string {
+	return protectedPathHitIn(toolName, input, "")
+}
+
+// protectedPathHitIn is protectedPathHit with one directory carved out: spill,
+// the session's own tool-results directory, or "" for none.
+func protectedPathHitIn(toolName string, input map[string]any, spill string) string {
 	// Built-in tools have documented, stable path/command fields. Inspect only
 	// those fields so source code, prompts, and replacement text may discuss
 	// Claude configuration without being mistaken for an attempted read.
@@ -222,7 +237,7 @@ func protectedPathHit(toolName string, input map[string]any) string {
 		}
 		switch t := v.(type) {
 		case string:
-			if matched := protectedReferenceHit(t); matched != "" {
+			if matched := protectedReferenceHit(t, spill); matched != "" {
 				hit = matched
 				return
 			}
@@ -246,7 +261,7 @@ func protectedPathHit(toolName string, input map[string]any) string {
 // Claude emits. It intentionally does not try to interpret arbitrary shell
 // programs. Complete isolation requires keeping vendor credentials outside the
 // tool process; this hook only reduces exposure while that is not yet possible.
-func protectedReferenceHit(value string) string {
+func protectedReferenceHit(value, spill string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
@@ -263,7 +278,7 @@ func protectedReferenceHit(value string) string {
 		for offset := indexPath(expanded, home); offset >= 0; {
 			candidate := strings.TrimRight(expanded[offset:], ",:]}\"")
 			candidate = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(candidate, "\\", "/")))
-			if isProtectedHomePath(candidate, home) {
+			if isProtectedHomePath(candidate, home, spill) {
 				return candidate
 			}
 			next := indexPath(expanded[offset+1:], home)
@@ -309,10 +324,11 @@ func indexPath(value, path string) int {
 	return strings.Index(value, path)
 }
 
-func isProtectedHomePath(candidate, home string) bool {
+func isProtectedHomePath(candidate, home, spill string) bool {
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		candidate = strings.ToLower(candidate)
 		home = strings.ToLower(home)
+		spill = strings.ToLower(spill)
 	}
 	dir := home + "/.claude"
 	if candidate == home+"/.claude.json" {
@@ -321,7 +337,54 @@ func isProtectedHomePath(candidate, home string) bool {
 	if candidate != dir && !strings.HasPrefix(candidate, dir+"/") {
 		return false
 	}
+	if spill != "" && (candidate == spill || strings.HasPrefix(candidate, spill+"/")) {
+		return false
+	}
 	return !isAgentOwnedClaudePath(strings.TrimPrefix(candidate, dir))
+}
+
+// sessionIDPattern is what a session id may look like before it is allowed
+// into a path: no separators and no dots, so it cannot name anything but a
+// single directory entry.
+var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// sessionToolResultsDir is the one directory of ~/.claude a reading tool may
+// reach: <home>/.claude/projects/<project>/<session>/tool-results, the place
+// Claude Code spills a tool result too large for the context and then tells
+// the agent to read. It holds what the session's own tools returned, not
+// credentials, and is the same data the model already saw the head of.
+//
+// The directory is derived from the hook payload's session_id and
+// transcript_path, which the harness writes, not the model; the model only
+// controls tool_input. Anything that does not have exactly the expected shape
+// yields "" and so grants nothing: the transcript must sit directly in a
+// project directory of ~/.claude/projects and be named <session_id>.jsonl.
+// That ties the grant to this session, not to every session or project.
+func sessionToolResultsDir(fields map[string]json.RawMessage) string {
+	var sessionID, transcript string
+	if json.Unmarshal(fields["session_id"], &sessionID) != nil || json.Unmarshal(fields["transcript_path"], &transcript) != nil {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || !sessionIDPattern.MatchString(sessionID) || transcript == "" {
+		return ""
+	}
+	home = filepath.ToSlash(filepath.Clean(home))
+	transcript = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(transcript, "\\", "/")))
+
+	projects := home + "/.claude/projects/"
+	fold := func(s string) string { return s }
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		fold = strings.ToLower
+	}
+	if !strings.HasPrefix(fold(transcript), fold(projects)) {
+		return ""
+	}
+	parts := strings.Split(transcript[len(projects):], "/")
+	if len(parts) != 2 || parts[0] == "" || parts[0] == ".." || fold(parts[1]) != fold(sessionID+".jsonl") {
+		return ""
+	}
+	return projects + parts[0] + "/" + sessionID + "/tool-results"
 }
 
 // isAgentOwnedClaudePath reports whether rel — a path inside ~/.claude,

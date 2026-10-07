@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,63 @@ func TestPreToolUseDecisionPayloads(t *testing.T) {
 			got := preToolUseDecision([]byte(tc.raw)) != nil
 			if got != tc.wantDenied {
 				t.Fatalf("preToolUseDecision denied = %v, want %v", got, tc.wantDenied)
+			}
+		})
+	}
+}
+
+// Claude Code spills a large tool result into this session's tool-results
+// directory and tells the agent to read it. A reading tool may reach that
+// directory and nothing else in ~/.claude.
+func TestSessionToolResultsAreReadable(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory: %v", err)
+	}
+	home = filepath.ToSlash(home)
+	const session = "42e768a5-3a41-4ea3-8824-a1f4d67e3430"
+	project := home + "/.claude/projects/-home-u-Workspace-kong"
+	spill := project + "/" + session + "/tool-results/mcp-Atlassian-getConfluencePage-1.txt"
+
+	payload := func(tool, field, path, sessionID, transcript string) []byte {
+		raw, _ := json.Marshal(map[string]any{
+			"tool_name":       tool,
+			"tool_input":      map[string]any{field: path},
+			"session_id":      sessionID,
+			"transcript_path": transcript,
+		})
+		return raw
+	}
+	own := project + "/" + session + ".jsonl"
+	cases := []struct {
+		name   string
+		raw    []byte
+		denied bool
+	}{
+		{"read own spill", payload("Read", "file_path", spill, session, own), false},
+		{"grep own spill directory", payload("Grep", "path", project+"/"+session+"/tool-results", session, own), false},
+		{"glob own spill directory", payload("Glob", "path", project+"/"+session+"/tool-results/", session, own), false},
+		{"another session's spill", payload("Read", "file_path", project+"/other-session/tool-results/x.txt", session, own), true},
+		{"another project's spill", payload("Read", "file_path", home+"/.claude/projects/-home-u-other/"+session+"/tool-results/x.txt", session, own), true},
+		{"traversal out of the spill", payload("Read", "file_path", project+"/"+session+"/tool-results/../../../../.credentials.json", session, own), true},
+		{"the transcript itself", payload("Read", "file_path", own, session, own), true},
+		{"credentials", payload("Read", "file_path", home+"/.claude/.credentials.json", session, own), true},
+		{"settings", payload("Read", "file_path", home+"/.claude/settings.json", session, own), true},
+		{"write is not a reading tool", payload("Write", "file_path", spill, session, own), true},
+		{"shell is not a reading tool", payload("Bash", "command", "cat "+spill, session, own), true},
+		{"no transcript_path", payload("Read", "file_path", spill, session, ""), true},
+		{"no session_id", payload("Read", "file_path", spill, "", own), true},
+		{"transcript of another session", payload("Read", "file_path", spill, session, project+"/other-session.jsonl"), true},
+		{"transcript outside projects", payload("Read", "file_path", spill, session, home+"/elsewhere/"+session+".jsonl"), true},
+		{"transcript too deep", payload("Read", "file_path", spill, session, project+"/sub/"+session+".jsonl"), true},
+		{"transcript traversing projects", payload("Read", "file_path", spill, session, home+"/.claude/projects/../"+session+".jsonl"), true},
+		{"session id carrying a path", payload("Read", "file_path", home+"/.claude/projects/p/../x/tool-results/y", "../x", home+"/.claude/projects/p/../x.jsonl"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := preToolUseDecision(tc.raw) != nil
+			if got != tc.denied {
+				t.Fatalf("denied = %v, want %v", got, tc.denied)
 			}
 		})
 	}
