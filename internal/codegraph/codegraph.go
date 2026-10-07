@@ -129,6 +129,12 @@ type Edge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Kind string `json:"kind"` // "call" | "di"
+	// Guard is the condition the call runs under, as the source writes it
+	// ("!moduleBasedEnabled", "mode == A && flag"); empty when it runs whenever
+	// the caller does. Read from the code around the call and never evaluated:
+	// a claim about the source, not about any value. Only the Java analyzer
+	// sets it so far.
+	Guard string `json:"guard,omitempty"`
 }
 
 // EntryPoint is where a flow starts because something outside the code calls
@@ -162,6 +168,13 @@ type EntryPoint struct {
 
 // FlowStep is one hop in an API flow.
 type FlowStep struct {
+	// Depth is how many calls below the entry point this step is. Steps are
+	// listed depth-first, so Depth is what turns the flat list back into a
+	// tree: a step's caller is the nearest step above it that is one less deep.
+	Depth int `json:"depth"`
+	// Guard is the condition under which the caller reaches this step (Edge.Guard);
+	// empty when it always does. The entry point itself has none.
+	Guard    string  `json:"guard,omitempty"`
 	Label    string  `json:"label"` // matches the Node.Label it came from
 	FilePath string  `json:"filePath"`
 	Line     int     `json:"line"`
@@ -431,6 +444,8 @@ type Store interface {
 	GetOutEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	GetInEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
+	// SearchSymbols is SearchSymbol with filters and paging (see SymbolQuery).
+	SearchSymbols(ctx context.Context, q SymbolQuery) (SymbolPage, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	// FindNodesByName returns every node whose label names identifier (see
 	// matchesIdentifier) — FindDefinitions' fallback-by-name tier, e.g.

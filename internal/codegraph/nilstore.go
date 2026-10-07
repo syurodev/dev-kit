@@ -41,6 +41,9 @@ func (nilStore) GetInEdges(context.Context, string) ([]Edge, error)  { return ni
 func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) SearchSymbols(context.Context, SymbolQuery) (SymbolPage, error) {
+	return SymbolPage{}, ErrNoActiveProject
+}
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }

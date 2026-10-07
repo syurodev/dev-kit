@@ -1,13 +1,21 @@
 import { Workflow } from "lucide-react";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardMore, FramedCardPreview, FramedCardRow } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
-import type { ApiFlow } from "./apiFlowResult";
+import type { ApiFlow, ApiFlowStep } from "./apiFlowResult";
 
 function fileName(path: string): string {
   return path.split("/").pop() || path;
 }
 
 const MAX_STEPS = 6;
+const INDENT_PX = 10;
+const MAX_INDENT = 4;
+
+/** A branch says what it depends on ("if moduleBased"), ahead of the doc comment. */
+function stepDetail(step: ApiFlowStep): string | undefined {
+  const parts = [step.guard ? `if ${step.guard}` : "", step.summary ?? ""].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
 
 /**
  * `codegraph.getApiFlow` — the chain from the entry point down, one step per row
@@ -43,12 +51,13 @@ export function ApiFlowResultCard({ flow, entryPointId }: { flow: ApiFlow; entry
             key={`${step.label}:${index}`}
             label={
               <>
+                <span style={{ paddingLeft: `${Math.min(step.depth ?? 0, MAX_INDENT) * INDENT_PX}px` }} />
                 <span className="text-text-tertiary tabular-nums">{index + 1}. </span>
                 {step.label}
               </>
             }
             trailing={step.filePath ? `${fileName(step.filePath)}${step.line ? `:${step.line}` : ""}` : undefined}
-            detail={step.summary}
+            detail={stepDetail(step)}
           />
         ))}
         <FramedCardMore count={flow.steps.length - shown.length} />

@@ -2,6 +2,8 @@ package com.devkit.codegraph;
 
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Range;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
@@ -49,6 +51,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class ProjectAnalyzer {
@@ -63,9 +70,30 @@ public class ProjectAnalyzer {
     private static final Set<String> LOMBOK_LOGGERS = Set.of(
             "Slf4j", "XSlf4j", "Log4j", "Log4j2", "Log", "CommonsLog", "JBossLog", "Flogger", "CustomLog");
 
+    /** Property that fixes the number of parse threads; 1 parses on the calling thread, as the analyzer once always did. */
+    static final String PARSE_THREADS_PROPERTY = "devkit.analyzer.parseThreads";
+    /**
+     * More parse threads than this stop paying: the pass is memory-bound long
+     * before it is core-bound, and each thread holds a syntax tree in flight
+     * inside a heap the launcher caps (-Xmx2g).
+     */
+    private static final int MAX_DEFAULT_PARSE_THREADS = 8;
+
+    private final int parseThreads;
+
     public ProjectAnalyzer(Path projectRoot) {
+        this(projectRoot, defaultParseThreads());
+    }
+
+    ProjectAnalyzer(Path projectRoot, int parseThreads) {
         this.projectRoot = projectRoot;
         this.sourceRoots = discoverSourceRoots(projectRoot);
+        this.parseThreads = Math.max(1, parseThreads);
+    }
+
+    private static int defaultParseThreads() {
+        return Integer.getInteger(PARSE_THREADS_PROPERTY,
+                Math.min(Runtime.getRuntime().availableProcessors(), MAX_DEFAULT_PARSE_THREADS));
     }
 
     /**
@@ -143,16 +171,17 @@ public class ProjectAnalyzer {
         //
         // Raise this, not the release, when a newer Java ships. Verified against
         // the installed javaparser-core 3.28.2 jar that this constant exists.
-        StaticJavaParser.setConfiguration(new ParserConfiguration()
+        ParserConfiguration parserConfiguration = new ParserConfiguration()
                 .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_25)
-                .setSymbolResolver(new JavaSymbolSolver(typeSolver)));
+                .setSymbolResolver(new JavaSymbolSolver(typeSolver));
+        StaticJavaParser.setConfiguration(parserConfiguration);
 
         // One list across every source root: the passes below need to see
         // the whole repository at once, which is what lets a call from one
         // service into a shared module resolve. Roots and files are both
         // sorted, so which of two same-named classes is "first" — and so
         // keeps the plain id — is the same on every run.
-        List<ParsedFile> files = new ArrayList<>();
+        List<SourceFile> sources = new ArrayList<>();
         Set<Path> seen = new HashSet<>();
         for (Path root : sourceRoots) {
             String module = moduleLabel(root);
@@ -160,10 +189,11 @@ public class ProjectAnalyzer {
                 // Nested source roots would otherwise parse a file twice
                 // and duplicate every node it declares.
                 if (seen.add(javaFile.toAbsolutePath().normalize())) {
-                    parseFile(javaFile, module).ifPresent(files::add);
+                    sources.add(new SourceFile(javaFile, module));
                 }
             }
         }
+        List<ParsedFile> files = parseAll(sources, parserConfiguration);
         List<CompilationUnit> units = files.stream().map(ParsedFile::cu).toList();
         Annotations annotations = Annotations.of(units);
         ConstantResolver constants = ConstantResolver.of(units);
@@ -240,20 +270,88 @@ public class ProjectAnalyzer {
         return label;
     }
 
-    private Optional<ParsedFile> parseFile(Path javaFile, String module) {
-        CompilationUnit cu;
-        // IOException: the file is unreadable. ParseProblemException is a
-        // RuntimeException; deeply nested expressions can overflow the
-        // parser's stack. Either way, one bad file must not abort indexing
-        // the rest of the project (FR-8's "unresolved, not fatal" principle
-        // applied one level up: unparseable, not just unresolvable). Real
-        // errors (OOM etc.) still propagate.
+    private record SourceFile(Path path, String module) {}
+
+    /**
+     * Parses every file, on {@code parseThreads} threads, and returns them in
+     * the order given — which is what keeps the index the same on every run
+     * whatever order the threads finish in: the passes below take "the first
+     * class of a name" from this list's order.
+     *
+     * Only this pass is parallel. Parsing reads nothing but its own file and
+     * the (read-only) configuration; every later pass shares the symbol
+     * solver's caches, which are not safe to use from several threads.
+     *
+     * The threads do not use StaticJavaParser: its configuration is
+     * thread-local, so a worker would parse with the default language level —
+     * too old for records — and every such file would vanish from the index.
+     */
+    private List<ParsedFile> parseAll(List<SourceFile> sources, ParserConfiguration configuration) {
+        List<ParsedFile> parsed = new ArrayList<>(sources.size());
+        if (parseThreads == 1 || sources.size() < 2) {
+            JavaParser parser = new JavaParser(configuration);
+            for (SourceFile source : sources) {
+                parseFile(parser, source).ifPresent(parsed::add);
+            }
+            return parsed;
+        }
+
+        int threads = Math.min(parseThreads, sources.size());
+        AtomicInteger threadNumber = new AtomicInteger();
+        // Daemon threads: a run that dies must not be kept alive by its pool.
+        ExecutorService pool = Executors.newFixedThreadPool(threads, task -> {
+            Thread thread = new Thread(task, "parse-" + threadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
         try {
-            cu = StaticJavaParser.parse(javaFile);
+            // A JavaParser per thread: it is cheap, and not documented as shareable.
+            ThreadLocal<JavaParser> parsers = ThreadLocal.withInitial(() -> new JavaParser(configuration));
+            List<Future<Optional<ParsedFile>>> futures = new ArrayList<>(sources.size());
+            for (SourceFile source : sources) {
+                futures.add(pool.submit(() -> parseFile(parsers.get(), source)));
+            }
+            for (Future<Optional<ParsedFile>> future : futures) {
+                future.get().ifPresent(parsed::add);
+            }
+            return parsed;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while parsing", e);
+        } catch (ExecutionException e) {
+            // parseFile absorbs a bad file; what gets here is a real error
+            // (an OutOfMemoryError Main reports by name), which must not be
+            // wrapped into something it no longer recognises.
+            if (e.getCause() instanceof Error error) {
+                throw error;
+            }
+            if (e.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IllegalStateException(e.getCause());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private Optional<ParsedFile> parseFile(JavaParser parser, SourceFile source) {
+        // IOException: the file is unreadable. A parse that fails comes back
+        // as a result without a unit (a ParseProblemException from the static
+        // API); deeply nested expressions can overflow the parser's stack.
+        // Either way, one bad file must not abort indexing the rest of the
+        // project (FR-8's "unresolved, not fatal" principle applied one level
+        // up: unparseable, not just unresolvable). Real errors (OOM etc.)
+        // still propagate.
+        try {
+            ParseResult<CompilationUnit> result = parser.parse(source.path());
+            if (!result.isSuccessful() || result.getResult().isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ParsedFile(result.getResult().get(),
+                    projectRoot.relativize(source.path()).toString(), source.module()));
         } catch (IOException | RuntimeException | StackOverflowError e) {
             return Optional.empty();
         }
-        return Optional.of(new ParsedFile(cu, projectRoot.relativize(javaFile).toString(), module));
     }
 
     // --- Pass 1: declarations -------------------------------------------------
@@ -800,7 +898,7 @@ public class ProjectAnalyzer {
             // real, but the flow cannot go past it.
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
-            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result);
+            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result, Guards.of(call, scope.node()));
         }
 
         // `new Foo(...)`, `this(...)` and `super(...)` run a constructor. Only
@@ -824,7 +922,8 @@ public class ProjectAnalyzer {
                 continue;
             }
             if (nodeIds.contains(toNodeId)) {
-                recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result);
+                recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result,
+                        Guards.of(construction, scope.node()));
             }
         }
 
@@ -847,7 +946,7 @@ public class ProjectAnalyzer {
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
             recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
-                    dangling ? "interface" : "", index, result);
+                    dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()));
         }
     }
 
@@ -890,11 +989,11 @@ public class ProjectAnalyzer {
     }
 
     private void recordCall(CallScope scope, String toNodeId, int line, String unresolved, Index index,
-                            AnalysisResult result) {
+                            AnalysisResult result, String guard) {
         for (String owner : scope.ownerIds()) {
             // A wall keeps the shape every other wall has: no callee named.
             result.callSites.add(new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved));
-            result.edges.add(new Edge(owner, toNodeId, "call"));
+            result.edges.add(new Edge(owner, toNodeId, "call", guard));
         }
 
         // File-level dependency: only when the callee is declared in this
@@ -1132,14 +1231,20 @@ public class ProjectAnalyzer {
     }
 
     // The same target called repeatedly in one body yields identical edges;
-    // keep the first of each from/to/kind triple, preserving order. One pass
+    // keep one of each from/to/kind triple, preserving order. One pass
     // at the end instead of a contains-check per added edge keeps large
-    // projects linear rather than quadratic.
+    // projects linear rather than quadratic. The guards of the calls it
+    // stands for are merged (Guards.merge): called once unconditionally and
+    // once under a flag, the edge is unconditional.
     private static List<Edge> dedupeEdges(List<Edge> edges) {
         Map<String, Edge> byKey = new LinkedHashMap<>();
+        Map<String, List<String>> guards = new HashMap<>();
         for (Edge e : edges) {
-            byKey.putIfAbsent(e.from + "\n" + e.to + "\n" + e.kind, e);
+            String key = e.from + "\n" + e.to + "\n" + e.kind;
+            byKey.putIfAbsent(key, e);
+            guards.computeIfAbsent(key, k -> new ArrayList<>()).add(e.guard);
         }
+        byKey.forEach((key, e) -> e.guard = Guards.merge(guards.get(key)));
         return new ArrayList<>(byKey.values());
     }
 

@@ -374,6 +374,41 @@ Three languages, three shapes, and `Toolchain` is the thing they differ in.
   ships, raise the language level, never the release. A file whose syntax the parser
   rejects is swallowed by `parseFile`'s catch-all and vanishes from the index with no node,
   no edge and no error — `parsesSyntaxNewerThanTheAnalyzerOwnBytecode` guards that.
+- **Parsing runs on several threads** (`ProjectAnalyzer.parseAll`): a fixed pool of
+  `min(cores, 8)` platform threads, one `JavaParser` per thread, results gathered in
+  submission order so the index is byte-identical to a single-threaded run (tests compare
+  1/2/4/8 threads). Never use `StaticJavaParser` from a worker: its configuration is
+  thread-local, so a worker parses at the default language level and every record/pattern
+  file silently vanishes (`workerThreadsParseWithTheNewestLanguageLevel` has teeth).
+  `-Ddevkit.analyzer.parseThreads=1` restores the old behaviour (reach the jar's JVM through
+  `JAVA_TOOL_OPTIONS`; `Toolchain.Run` is a fixed argv). Only parsing is parallel: every later
+  pass shares the symbol solver's caches, which are not thread-safe.
+- **Preparing for Java 25.** Nothing in the analyzer needs 25, and the floor stays 21 because
+  people run it on an IDE's JDK or a distro's `openjdk-21`; Locate already picks the NEWEST JDK
+  that clears the floor, so a machine with 25 runs on 25. Measured on a synthetic 1500-file
+  project (4 cores, JDK 21; 21k methods): 55s cold, of which `collectDeclarations` ≈ 38%
+  (almost all `addMethodNode`'s `resolve()` + `getSignature()` per method), `parseFile` ≈ 34%,
+  `addCallEdges` ≈ 16% (mostly `resolve()`), GC ≈ 8%, peak heap ≈ 1 GB. Parallel parsing took
+  parse 5.6s → 2.1s and the whole run to ≈ 46s. What that says about 25:
+  - **Virtual threads do not help** — indexing is CPU-bound, and they have been final since 21.
+    A virtual-thread pool measured the same as 4 platform threads (it runs on the same cores).
+  - **The real next win is the solver passes**, not the JDK: `addMethodNode` and `addCallEdges`
+    are ≈ 54% together and are shared-solver work. Options, in order of risk: resolve a
+    signature only when a parameter type needs qualifying (most do not); audit
+    `JavaParserFacade`'s caches and parallelise per source root; one `JavaSymbolSolver` per
+    thread (N× the type-solver memory under a 2g heap). Verify any of them the way parsing was:
+    byte-identical output on the big project (`cmp`) before and after.
+  - **Possible 25-only gain, unmeasured**: `-XX:+UseCompactObjectHeaders` (product in 25) should
+    cut the memory of millions of tiny AST nodes. It does not exist on 21 (the JVM refuses to
+    start), so it would be added together with `-XX:+IgnoreUnrecognizedVMOptions` in
+    `JavaToolchain.Run` — and only after measuring on a real project with JDK 25. JDK 25 was not
+    available when this was written.
+  - **Raising the floor to 25 means changing together**: `maven.compiler.release` in
+    `analyzer/pom.xml`; `javaRequirement().MinVersion` and `javaInstallCommands()` in
+    `internal/codegraph/toolchain_java.go` (plus its doc comment); the precondition message in
+    `build/Taskfile.yml`; the comment in `.github/workflows/build-prod.yml` (CI already builds on
+    JDK 25); this file. After that a machine with only JDK 21 gets the setup panel — decide that
+    on purpose. Add a test that the jar is `class file version 69`.
 - The build is unsandboxed by design: it is the developer's own repository, built with
   their own toolchain, and Maven needs the network and `~/.m2`.
 - End-to-end (real Maven, minutes, network):
@@ -528,6 +563,17 @@ the list. The UI groups kind → service → owner and does no guessing of its o
   (agents and saved transcripts resolve it), and the API Client's `EndpointDraft` (an HTTP
   concept). Only `http` entries offer "Try in API Client". Tool-result cards read both the
   new (`verb`/`target`, `entryPointId`) and the old field names, since transcripts outlive builds.
+
+### CodeGraph: guards on call edges
+`Edge.Guard` is the condition a call runs under, read from the Java source around it
+(`analyzer/.../Guards.java`): `if`/`else`, `? :`, `switch` entries, the right side of `&&`/`||`
+and the guard clause (`if (!enabled) return;` guards what follows). **Syntactic, never evaluated** —
+a guard names a flag, not its value. One edge per `(from, to, kind)`: one unconditional call makes
+the edge unconditional, otherwise guards are joined with `||` (`Guards.merge`). `edges.guard` is a
+migrated column (`migrateEdgeGuard`); old indexes read as unguarded until a re-index, which a new
+DevKit build triggers anyway. `FlowStep` carries `Depth` (the flat DFS list is a tree) and `Guard`.
+`call_sites` does not carry it; Lua and TypeScript do not set it. Design:
+`docs/dev-kit/codegraph.mdx` § Guard trên cạnh gọi.
 
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version

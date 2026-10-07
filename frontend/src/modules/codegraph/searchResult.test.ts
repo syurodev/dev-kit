@@ -37,3 +37,12 @@ test("returns null when rawOutput isn't a list at all", () => {
   expect(parseSymbolMatches("nope")).toBeNull();
   expect(parseEntryPointMatches({ result: "not an array" })).toBeNull();
 });
+
+test("reads one page of results, which carries its total and cursor beside the rows", () => {
+  const page = { result: [symbol], total: 120, nextCursor: "abc" };
+  expect(parseSymbolMatches(page)).toEqual([symbol]);
+  expect(parseSymbolMatches(JSON.stringify(page))).toEqual([symbol]);
+  expect(parseEntryPointMatches({ result: [entry], total: 300, nextCursor: "abc" })).toEqual([
+    { id: "e1", verb: "POST", target: "/refunds" },
+  ]);
+});

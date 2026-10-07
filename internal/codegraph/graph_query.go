@@ -45,6 +45,25 @@ func (s *Service) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch
 	return store.SearchSymbol(ctx, query)
 }
 
+// ListEntryPointsPage is ListEntryPoints narrowed and cut to one page.
+func (s *Service) ListEntryPointsPage(ctx context.Context, q EntryPointQuery) (EntryPointPage, error) {
+	entries, err := s.ListEntryPoints(ctx)
+	if err != nil {
+		return EntryPointPage{}, err
+	}
+	return PageEntryPoints(entries, q)
+}
+
+// SearchSymbolsPage is SearchSymbol with filters and paging.
+func (s *Service) SearchSymbolsPage(ctx context.Context, q SymbolQuery) (SymbolPage, error) {
+	store, release, err := s.activeStore()
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	defer release()
+	return store.SearchSymbols(ctx, q)
+}
+
 // GetApiFlow walks the call graph from the endpoint's entry node, in Go
 // (not SQL), so the traversal — including cycle protection — is testable
 // without a database.
@@ -82,7 +101,7 @@ func (s *Service) GetApiFlow(ctx context.Context, entryPointID string) (ApiFlow,
 // it by a shortest route.
 func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, error) {
 	depth := map[string]int{rootNodeID: 0}
-	calls := map[string][]string{}
+	calls := map[string][]Edge{}
 	order := []string{rootNodeID}
 	frontier := []string{rootNodeID}
 	for d := 0; d < maxFlowDepth && len(frontier) > 0 && len(depth) < maxFlowSteps; d++ {
@@ -96,7 +115,7 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 				if e.Kind != "call" {
 					continue
 				}
-				calls[id] = append(calls[id], e.To)
+				calls[id] = append(calls[id], e)
 				if _, seen := depth[e.To]; seen || len(depth) >= maxFlowSteps {
 					continue
 				}
@@ -118,11 +137,13 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 
 	steps := make([]FlowStep, 0, len(depth))
 	emitted := make(map[string]bool, len(depth))
-	var walk func(id string)
-	walk = func(id string) {
+	var walk func(id, guard string)
+	walk = func(id, guard string) {
 		emitted[id] = true
 		if node, ok := nodes[id]; ok {
 			steps = append(steps, FlowStep{
+				Depth:    depth[id],
+				Guard:    guard,
 				Label:    node.Label,
 				FilePath: node.FilePath,
 				Line:     node.Line,
@@ -130,13 +151,13 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 				Params:   node.Params,
 			})
 		}
-		for _, callee := range calls[id] {
-			if calleeDepth, ok := depth[callee]; ok && !emitted[callee] && calleeDepth == depth[id]+1 {
-				walk(callee)
+		for _, call := range calls[id] {
+			if calleeDepth, ok := depth[call.To]; ok && !emitted[call.To] && calleeDepth == depth[id]+1 {
+				walk(call.To, call.Guard)
 			}
 		}
 	}
-	walk(rootNodeID)
+	walk(rootNodeID, "")
 	return steps, nil
 }
 

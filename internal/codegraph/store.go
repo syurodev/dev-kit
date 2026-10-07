@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE TABLE IF NOT EXISTS edges (
 	from_id TEXT NOT NULL,
 	to_id TEXT NOT NULL,
-	kind TEXT NOT NULL
+	kind TEXT NOT NULL,
+	guard TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
@@ -188,7 +190,42 @@ func migrateSchema(db *sql.DB) error {
 			return fmt.Errorf("codegraph: add params column: %w", err)
 		}
 	}
+	if err := migrateEdgeGuard(db); err != nil {
+		return err
+	}
 	return migrateEndpointsTable(db)
+}
+
+// migrateEdgeGuard adds edges.guard to an index written before edges carried
+// the condition they run under. Its rows read as unguarded, which is what the
+// old index said; the next re-index fills it in.
+func migrateEdgeGuard(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(edges)")
+	if err != nil {
+		return fmt.Errorf("codegraph: inspect edges table: %w", err)
+	}
+	has := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("codegraph: scan table_info: %w", err)
+		}
+		has = has || name == "guard"
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("codegraph: table_info rows: %w", err)
+	}
+	rows.Close()
+	if !has {
+		if _, err := db.Exec("ALTER TABLE edges ADD COLUMN guard TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("codegraph: add edges.guard column: %w", err)
+		}
+	}
+	return nil
 }
 
 // migrateEndpointsTable moves an index written when entry points were called
@@ -270,13 +307,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
-	edgeStmt, err := insert(`INSERT INTO edges (from_id, to_id, kind) VALUES (?, ?, ?)`)
+	edgeStmt, err := insert(`INSERT INTO edges (from_id, to_id, kind, guard) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer edgeStmt.Close()
 	for _, e := range result.Edges {
-		if _, err := edgeStmt.ExecContext(ctx, e.From, e.To, e.Kind); err != nil {
+		if _, err := edgeStmt.ExecContext(ctx, e.From, e.To, e.Kind, e.Guard); err != nil {
 			return fmt.Errorf("codegraph: insert edge %q->%q: %w", e.From, e.To, err)
 		}
 	}
@@ -498,7 +535,7 @@ func (s *sqliteStore) GetNode(ctx context.Context, nodeID string) (Node, error) 
 }
 
 func (s *sqliteStore) GetOutEdges(ctx context.Context, nodeID string) ([]Edge, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind FROM edges WHERE from_id = ?`, nodeID)
+	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind, guard FROM edges WHERE from_id = ?`, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetOutEdges: %w", err)
 	}
@@ -507,7 +544,7 @@ func (s *sqliteStore) GetOutEdges(ctx context.Context, nodeID string) ([]Edge, e
 	var out []Edge
 	for rows.Next() {
 		var e Edge
-		if err := rows.Scan(&e.From, &e.To, &e.Kind); err != nil {
+		if err := rows.Scan(&e.From, &e.To, &e.Kind, &e.Guard); err != nil {
 			return nil, fmt.Errorf("codegraph: scan edge: %w", err)
 		}
 		out = append(out, e)
@@ -519,7 +556,7 @@ func (s *sqliteStore) GetOutEdges(ctx context.Context, nodeID string) ([]Edge, e
 // GetOutEdges. Used by GetNeighbors, which explores both directions around a
 // node (unlike walkFlow's directed-only call-chain walk).
 func (s *sqliteStore) GetInEdges(ctx context.Context, nodeID string) ([]Edge, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind FROM edges WHERE to_id = ? ORDER BY from_id`, nodeID)
+	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind, guard FROM edges WHERE to_id = ? ORDER BY from_id`, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetInEdges: %w", err)
 	}
@@ -528,7 +565,7 @@ func (s *sqliteStore) GetInEdges(ctx context.Context, nodeID string) ([]Edge, er
 	var out []Edge
 	for rows.Next() {
 		var e Edge
-		if err := rows.Scan(&e.From, &e.To, &e.Kind); err != nil {
+		if err := rows.Scan(&e.From, &e.To, &e.Kind, &e.Guard); err != nil {
 			return nil, fmt.Errorf("codegraph: scan edge: %w", err)
 		}
 		out = append(out, e)
@@ -566,6 +603,91 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// symbolWhere is the WHERE clause of a SearchSymbols query without its
+// cursor, and its arguments. LIKE is how the plain search matches, so the
+// three modes stay case-insensitive the same way.
+func symbolWhere(q SymbolQuery) (string, []any) {
+	var conds []string
+	var args []any
+	esc := escapeLike(q.Query)
+	switch q.Match {
+	case MatchExact:
+		conds = append(conds, `(label LIKE ? ESCAPE '\' OR label LIKE ? ESCAPE '\')`)
+		args = append(args, esc, "%."+esc)
+	case MatchPrefix:
+		conds = append(conds, `(label LIKE ? ESCAPE '\' OR label LIKE ? ESCAPE '\')`)
+		args = append(args, esc+"%", "%."+esc+"%")
+	default:
+		conds = append(conds, `label LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+esc+"%")
+	}
+	if q.Kind != "" {
+		conds = append(conds, `kind = ?`)
+		args = append(args, q.Kind)
+	}
+	if q.Layer != "" {
+		conds = append(conds, `layer = ?`)
+		args = append(args, q.Layer)
+	}
+	if q.PathPrefix != "" {
+		conds = append(conds, `substr(file_path, 1, ?) = ?`)
+		args = append(args, utf8.RuneCountInString(q.PathPrefix), q.PathPrefix)
+	}
+	return strings.Join(conds, " AND "), args
+}
+
+// SearchSymbols is SearchSymbol with filters and a keyset cursor over
+// (label, id), so a page costs the same however deep it is.
+func (s *sqliteStore) SearchSymbols(ctx context.Context, q SymbolQuery) (SymbolPage, error) {
+	limit, err := q.normalize()
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	binding := q.binding()
+	cursor, err := decodePageCursor(q.Cursor, binding)
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	where, args := symbolWhere(q)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes WHERE `+where, args...).Scan(&total); err != nil {
+		return SymbolPage{}, fmt.Errorf("codegraph: SearchSymbols: %w", err)
+	}
+
+	statement := `SELECT id, label, kind, layer, file_path, line FROM nodes WHERE ` + where
+	if cursor.After != "" {
+		statement += ` AND (label > ? OR (label = ? AND id > ?))`
+		args = append(args, cursor.Label, cursor.Label, cursor.After)
+	}
+	statement += ` ORDER BY label, id LIMIT ?`
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return SymbolPage{}, fmt.Errorf("codegraph: SearchSymbols: %w", err)
+	}
+	defer rows.Close()
+
+	page := SymbolPage{Result: []SymbolMatch{}, Total: total}
+	for rows.Next() {
+		var m SymbolMatch
+		if err := rows.Scan(&m.NodeID, &m.Label, &m.Kind, &m.Layer, &m.FilePath, &m.Line); err != nil {
+			return SymbolPage{}, fmt.Errorf("codegraph: scan symbol match: %w", err)
+		}
+		page.Result = append(page.Result, m)
+	}
+	if err := rows.Err(); err != nil {
+		return SymbolPage{}, err
+	}
+	if len(page.Result) > limit {
+		page.Result = page.Result[:limit]
+		last := page.Result[limit-1]
+		page.NextCursor = encodePageCursor(pageCursor{Binding: binding, After: last.NodeID, Label: last.Label})
+	}
+	return page, nil
 }
 
 // batchSize keeps an IN (...) list under SQLite's bound-parameter limit.
@@ -635,16 +757,16 @@ func (s *sqliteStore) GetAdjacentEdges(ctx context.Context, ids []string) ([]Edg
 		in := placeholders(len(chunk))
 		args := append(stringArgs(chunk), stringArgs(chunk)...)
 		rows, err := s.db.QueryContext(ctx,
-			`SELECT from_id, to_id, kind FROM edges WHERE from_id IN (`+in+`)
+			`SELECT from_id, to_id, kind, guard FROM edges WHERE from_id IN (`+in+`)
 			 UNION
-			 SELECT from_id, to_id, kind FROM edges WHERE to_id IN (`+in+`)
+			 SELECT from_id, to_id, kind, guard FROM edges WHERE to_id IN (`+in+`)
 			 ORDER BY from_id, to_id, kind`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("codegraph: GetAdjacentEdges: %w", err)
 		}
 		for rows.Next() {
 			var e Edge
-			if err := rows.Scan(&e.From, &e.To, &e.Kind); err != nil {
+			if err := rows.Scan(&e.From, &e.To, &e.Kind, &e.Guard); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("codegraph: scan edge: %w", err)
 			}

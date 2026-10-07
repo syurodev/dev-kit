@@ -129,6 +129,15 @@ export interface Edge {
      * "call" | "di"
      */
     "kind": string;
+
+    /**
+     * Guard is the condition the call runs under, as the source writes it
+     * ("!moduleBasedEnabled", "mode == A && flag"); empty when it runs whenever
+     * the caller does. Read from the code around the call and never evaluated:
+     * a claim about the source, not about any value. Only the Java analyzer
+     * sets it so far.
+     */
+    "guard"?: string;
 }
 
 /**
@@ -230,6 +239,19 @@ export interface FileEntry {
  * FlowStep is one hop in an API flow.
  */
 export interface FlowStep {
+    /**
+     * Depth is how many calls below the entry point this step is. Steps are
+     * listed depth-first, so Depth is what turns the flat list back into a
+     * tree: a step's caller is the nearest step above it that is one less deep.
+     */
+    "depth": number;
+
+    /**
+     * Guard is the condition under which the caller reaches this step (Edge.Guard);
+     * empty when it always does. The entry point itself has none.
+     */
+    "guard"?: string;
+
     /**
      * matches the Node.Label it came from
      */

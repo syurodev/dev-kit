@@ -10,6 +10,9 @@
   <packaging>jar</packaging>
 
   <properties>
+    <!-- Stays 21 on purpose: it is the bytecode level, so it sets the oldest JDK the jar
+         runs on. Raising it to 25 is a floor change in five places, listed in AGENTS.md
+         under "Preparing for Java 25"; do not raise it for performance (nothing here needs 25). -->
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <javaparser.version>3.28.2</javaparser.version>
