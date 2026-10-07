@@ -81,6 +81,12 @@ func preToolUseDecision(raw []byte) map[string]any {
 	switch toolName {
 	case "Read", "Grep", "Glob":
 		spill = sessionToolResultsDir(fields)
+	case "Bash":
+		// A shell can write and link as well as read, so it gets the directory
+		// only for a command that cannot do either; see readOnlyShell.
+		if command, _ := toolInput["command"].(string); readOnlyShell(command) {
+			spill = sessionToolResultsDir(fields)
+		}
 	}
 	if hit := protectedPathHitIn(toolName, toolInput, spill); hit != "" {
 		return hookDenyDecision(agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.")
@@ -341,6 +347,106 @@ func isProtectedHomePath(candidate, home, spill string) bool {
 		return false
 	}
 	return !isAgentOwnedClaudePath(strings.TrimPrefix(candidate, dir))
+}
+
+// readOnlyShellCommands are the programs a command may run to count as a
+// read of a spill file: ones that only read their arguments and write to
+// stdout. Left out on purpose: sed -i, sort -o and uniq's second operand write
+// files, and cd/ln/cp/mv/rm/tee/echo are not reads.
+var readOnlyShellCommands = map[string]bool{
+	"cat": true, "head": true, "tail": true, "wc": true, "cut": true, "tr": true, "grep": true, "jq": true,
+}
+
+// stderrRedirect is the one redirect a read-only command may carry.
+var stderrRedirect = regexp.MustCompile(`\s2>(&1|/dev/null)(\s|$)`)
+
+// readOnlyShell reports whether command is nothing but readOnlyShellCommands
+// joined by | && || ; or newlines. It is deliberately narrow and fails closed:
+// no redirects (but 2>&1 and 2>/dev/null), no variable or command expansion,
+// no subshell, background job, backslash or environment prefix, and every
+// quote must close. Quotes are honoured, so a jq program such as
+// '.[] | select(.a > 1)' is text, not a redirect or a pipe.
+//
+// What it protects is the spill directory itself: with it, "read the
+// tool-results file" cannot become "write into it" or "link out of it". It
+// does not make the rest of the hook any stronger or weaker.
+func readOnlyShell(command string) bool {
+	command = " " + strings.TrimSpace(command)
+	command = stderrRedirect.ReplaceAllString(command, " ")
+	runes := []rune(command)
+
+	var (
+		words  []string
+		word   strings.Builder
+		inWord bool
+		quote  rune
+	)
+	flush := func() {
+		if inWord {
+			words = append(words, word.String())
+			word.Reset()
+			inWord = false
+		}
+	}
+	endSegment := func() bool {
+		flush()
+		ok := len(words) > 0 && readOnlyShellCommands[filepath.Base(words[0])]
+		words = nil
+		return ok
+	}
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		next := rune(0)
+		if i+1 < len(runes) {
+			next = runes[i+1]
+		}
+		switch {
+		case quote == '\'':
+			if r == '\'' {
+				quote = 0
+			} else {
+				word.WriteRune(r)
+			}
+		case quote == '"':
+			switch r {
+			case '"':
+				quote = 0
+			case '`', '$', '\\':
+				return false
+			default:
+				word.WriteRune(r)
+			}
+		default:
+			switch r {
+			case '\'', '"':
+				quote, inWord = r, true
+			case '`', '$', '(', ')', '{', '}', '<', '>', '\\':
+				return false
+			case ' ', '\t':
+				flush()
+			case '\n', ';':
+				if !endSegment() {
+					return false
+				}
+			case '|', '&':
+				if next == r {
+					i++
+				} else if r == '&' {
+					return false
+				}
+				if !endSegment() {
+					return false
+				}
+			default:
+				word.WriteRune(r)
+				inWord = true
+			}
+		}
+	}
+	if quote != 0 {
+		return false
+	}
+	return endSegment()
 }
 
 // sessionIDPattern is what a session id may look like before it is allowed

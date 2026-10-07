@@ -162,7 +162,16 @@ func TestSessionToolResultsAreReadable(t *testing.T) {
 		{"credentials", payload("Read", "file_path", home+"/.claude/.credentials.json", session, own), true},
 		{"settings", payload("Read", "file_path", home+"/.claude/settings.json", session, own), true},
 		{"write is not a reading tool", payload("Write", "file_path", spill, session, own), true},
-		{"shell is not a reading tool", payload("Bash", "command", "cat "+spill, session, own), true},
+		{"shell reads own spill", payload("Bash", "command", "cat "+spill, session, own), false},
+		{"shell pipes jq into head", payload("Bash", "command", `jq -r '.[] | select(.a > 1) | .text' `+spill+` 2>/dev/null | head -c 3000`, session, own), false},
+		{"shell reads spill by tilde", payload("Bash", "command", "wc -c ~/.claude/projects/-home-u-Workspace-kong/"+session+"/tool-results/*", session, own), false},
+		{"shell reads another session's spill", payload("Bash", "command", "cat "+project+"/other-session/tool-results/x.txt", session, own), true},
+		{"shell writes into the spill", payload("Bash", "command", "cat "+spill+" > "+spill+".copy", session, own), true},
+		{"shell links out of the spill", payload("Bash", "command", "ln -s ~/.claude/.credentials.json "+spill, session, own), true},
+		{"shell removes the spill", payload("Bash", "command", "cat "+spill+"; rm "+spill, session, own), true},
+		{"shell substitutes a command", payload("Bash", "command", "cat "+spill+" $(cat ~/.claude/.credentials.json)", session, own), true},
+		{"shell reads credentials beside the spill", payload("Bash", "command", "cat "+spill+" ~/.claude/.credentials.json", session, own), true},
+		{"shell with no transcript_path", payload("Bash", "command", "cat "+spill, session, ""), true},
 		{"no transcript_path", payload("Read", "file_path", spill, session, ""), true},
 		{"no session_id", payload("Read", "file_path", spill, "", own), true},
 		{"transcript of another session", payload("Read", "file_path", spill, session, project+"/other-session.jsonl"), true},
@@ -178,6 +187,58 @@ func TestSessionToolResultsAreReadable(t *testing.T) {
 				t.Fatalf("denied = %v, want %v", got, tc.denied)
 			}
 		})
+	}
+}
+
+// A command earns the spill directory only when it can neither write nor
+// link: read-only programs, joined by pipes, with quotes honoured.
+func TestReadOnlyShell(t *testing.T) {
+	cases := []struct {
+		command string
+		want    bool
+	}{
+		{"cat f", true},
+		{"cat f\n", true},
+		{"/usr/bin/cat f", true},
+		{"head -c 3000 f", true},
+		{"jq . f | head -c 100", true},
+		{`jq -r '.[] | select(.a > 1) | .text' f`, true},
+		{`jq '.a // "x"; .b' f`, true},
+		{"grep -o 'a|b' f && wc -c f", true},
+		{"cat f 2>/dev/null", true},
+		{"cat f 2>&1 | head", true},
+		{"cat f; wc -l f", true},
+		{"", false},
+		{"cat f > g", false},
+		{"cat f >> g", false},
+		{"cat f 2> g", false},
+		{"cat f 2>&1>g", false},
+		{"cat < f", false},
+		{"cat f | tee g", false},
+		{"cat f &", false},
+		{"cat f;", false},
+		{"cat f &&", false},
+		{"ln -s a b", false},
+		{"rm f", false},
+		{"cd d && cat f", false},
+		{"sort -o g f", false},
+		{"sed -i s/a/b/ f", false},
+		{"FOO=1 cat f", false},
+		{"cat $(echo f)", false},
+		{"cat `echo f`", false},
+		{`cat "$HOME/f"`, false},
+		{`cat "$(echo f)"`, false},
+		{"cat $HOME/f", false},
+		{"cat f\\ g", false},
+		{"(cat f)", false},
+		{"cat 'f", false},
+		{`cat "f`, false},
+		{"echo hi", false},
+	}
+	for _, c := range cases {
+		if got := readOnlyShell(c.command); got != c.want {
+			t.Errorf("readOnlyShell(%q) = %v, want %v", c.command, got, c.want)
+		}
 	}
 }
 
