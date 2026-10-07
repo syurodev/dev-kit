@@ -216,3 +216,83 @@ class AccessService {
 		t.Fatalf("a secret must come back redacted: %+v", secret.Keys)
 	}
 }
+
+// The whole path on the feedback's table question: an entity with the default
+// table name, a service that saves it and a repository that purges it, two
+// endpoints — from the real jar, through the index, to who reads or writes it.
+func TestSubprocessAnalyzerFeedsFindTableUsage(t *testing.T) {
+	toolchain := builtJavaAnalyzer(t)
+	dir := t.TempDir()
+	files := map[string]string{
+		"src/main/java/acme/OrganizationApiEnablement.java": `package acme;
+import jakarta.persistence.*;
+@Entity
+class OrganizationApiEnablement { @Id Long id; String org; }
+`,
+		"src/main/java/acme/EnablementRepo.java": `package acme;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.CrudRepository;
+interface EnablementRepo extends CrudRepository<OrganizationApiEnablement, Long> {
+    @Modifying
+    @Query("delete from OrganizationApiEnablement e where e.org = ?1")
+    void purge(String org);
+}
+`,
+		"src/main/java/acme/EnablementService.java": `package acme;
+class EnablementService {
+    private final EnablementRepo repo = null;
+    void enable(OrganizationApiEnablement e) { repo.save(e); }
+    void reset(String org) { repo.purge(org); }
+}
+`,
+		"src/main/java/acme/Controllers.java": `package acme;
+import org.springframework.web.bind.annotation.*;
+@RestController
+class Controllers {
+    private final EnablementService service = new EnablementService();
+    @PostMapping("/v1/enable") void enable(@RequestBody OrganizationApiEnablement e) { service.enable(e); }
+    @PostMapping("/admin/reset") void reset(@RequestParam String org) { service.reset(org); }
+}
+`,
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := toolchain.Analyzer().Analyze(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	svc := openWith(t, result)
+
+	report, err := svc.FindTableUsage(t.Context(), TableUsageQuery{Table: "organization_api_enablement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Entities) != 1 || report.Entities[0].Table != "organization_api_enablement" {
+		t.Fatalf("entities = %+v", report.Entities)
+	}
+	if report.AccessTotal != 2 || report.Writes != 2 {
+		t.Fatalf("accesses = %+v", report.Accesses)
+	}
+	vias := map[string]string{}
+	for _, a := range report.Accesses {
+		vias[a.Via] = a.Label
+	}
+	if vias[TableViaCrud] != "acme.EnablementService.enable" || vias[TableViaQuery] != "acme.EnablementRepo.purge" {
+		t.Fatalf("vias = %v", vias)
+	}
+	if report.EntryPointTotal != 2 {
+		t.Fatalf("entry points = %+v", report.EntryPoints)
+	}
+	for _, e := range report.EntryPoints {
+		if e.Access != "write" {
+			t.Fatalf("%s reaches the table by %q, want write", e.Target, e.Access)
+		}
+	}
+}

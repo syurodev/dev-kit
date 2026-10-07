@@ -275,6 +275,19 @@ public class ProjectAnalyzer {
             configScopes.add(new ConfigExtractor.Scope(scope.node(), scope.ownerIds(), scope.owner().file.relativePath()));
         }
         result.configUsages = ConfigExtractor.extract(owners, configScopes, annotations, constants, nodeIds);
+
+        // Which class a call's receiver is, asked of the solver — the one thing
+        // table access needs that the annotations cannot say.
+        IdentityHashMap<com.github.javaparser.ast.Node, String> moduleOfScope = new IdentityHashMap<>();
+        for (CallScope scope : scopes) {
+            moduleOfScope.put(scope.node(), scope.owner().file.module());
+        }
+        TableExtractor.Result tables = TableExtractor.extract(owners, configScopes, annotations, constants, nodeIds,
+                (scope, call) -> call.getScope()
+                        .map(receiver -> receiverTypeId(receiver, index, moduleOfScope.getOrDefault(scope.node(), "")))
+                        .orElse(null));
+        result.entityTables = tables.entities();
+        result.tableAccesses = tables.accesses();
     }
 
     /**

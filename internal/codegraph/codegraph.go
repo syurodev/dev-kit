@@ -376,6 +376,10 @@ type AnalysisResult struct {
 	// joining the two (FindConfigUsage) is a read.
 	ConfigKeys   []ConfigKey   `json:"configKeys"`
 	ConfigUsages []ConfigUsage `json:"configUsages"`
+	// EntityTables map JPA entities to their tables and TableAccesses say who
+	// reads or writes one (FindTableUsage joins them with the call graph).
+	EntityTables  []EntityTable `json:"entityTables"`
+	TableAccesses []TableAccess `json:"tableAccesses"`
 }
 
 // Validate checks internal consistency: every Edge and EntryPoint must
@@ -411,6 +415,16 @@ func (r AnalysisResult) Validate() error {
 	for _, u := range r.ConfigUsages {
 		if !ids[u.From] {
 			return fmt.Errorf("codegraph: config use %q (%s) references unknown node %q", u.Key, u.Kind, u.From)
+		}
+	}
+	for _, e := range r.EntityTables {
+		if !ids[e.Entity] {
+			return fmt.Errorf("codegraph: entity table %q references unknown node %q", e.Table, e.Entity)
+		}
+	}
+	for _, a := range r.TableAccesses {
+		if !ids[a.From] {
+			return fmt.Errorf("codegraph: table access to %q references unknown node %q", a.Table, a.From)
 		}
 	}
 	return nil
@@ -475,6 +489,13 @@ type Store interface {
 	// FindConfigUsages returns the code's uses of any of the canonical keys
 	// (none: every use), of the given kinds (none: every kind).
 	FindConfigUsages(ctx context.Context, canons []string, prefix bool, kinds []string) ([]ConfigUsage, error)
+	// FindEntityTables returns the entities whose table, JPQL name or class name
+	// has the canonical form (CanonicalConfigKey: letters and digits, lower-cased),
+	// every table row of each — primary, secondary, join, collection.
+	FindEntityTables(ctx context.Context, canon string, prefix bool) ([]EntityTable, error)
+	// FindTableAccesses returns the accesses to any of the canonical table names,
+	// of one access kind ("" for both).
+	FindTableAccesses(ctx context.Context, canons []string, prefix bool, access string) ([]TableAccess, error)
 	// FindEdgesByGuard returns the call edges whose guard contains any of the
 	// terms, from callers whose id starts with fromPrefix (empty: any).
 	FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error)

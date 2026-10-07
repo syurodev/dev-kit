@@ -127,6 +127,7 @@ type CodeGraphAPI interface {
 	GetApiFlow(ctx context.Context, entryPointID string) (codegraph.ApiFlow, error)
 	SearchSymbolsPage(ctx context.Context, q codegraph.SymbolQuery) (codegraph.SymbolPage, error)
 	FindConfigUsage(ctx context.Context, q codegraph.ConfigUsageQuery) (codegraph.ConfigUsageReport, error)
+	FindTableUsage(ctx context.Context, q codegraph.TableUsageQuery) (codegraph.TableUsageReport, error)
 	ListFiles(ctx context.Context) ([]codegraph.FileEntry, error)
 	ReadFile(ctx context.Context, relativePath string) (string, error)
 	GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error)

@@ -44,6 +44,12 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphFindConfigUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findTableUsage",
+		Description: "Who reads or writes a database table — the question before dropping or changing one. table is the table (organization_api_enablement), the JPQL entity name or the class (OrganizationApiEnablement); case and separators are ignored. When the name is also one of an entity's tables it asks about that table only; an entity name that differs from its table (@Entity(name=...)) brings all of the entity's tables (join/collection ones included). Returns the entities stored in it, every access (accesses: the method that makes it, read|write, via repository-query (@Query, JPQL or native), repository-derived (findByX), repository-crud (save/findById… inherited from Spring Data, recorded where called), jdbc (a SQL string passed to JdbcTemplate query/update/execute) or entity-manager (createQuery/createNativeQuery), the statement, and calledBy: its nearest callers), and entryPoints whose flow reaches an access (access says read, write or both; via: the first method on the way; depth: calls from the entry point to it). access=write narrows to the writers. Read from the source: a table named only by a variable, a trigger, a cascade or a view is not seen. Java projects only.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindTableUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
@@ -273,6 +279,29 @@ func (s *Server) toolCodeGraphFindConfigUsage(ctx context.Context, _ *sdk.CallTo
 		}
 		q := codegraph.ConfigUsageQuery{Key: in.Key, Match: in.Match, Limit: in.Limit}
 		return whenIndexReady(ctx, cg, func() (codegraph.ConfigUsageReport, error) { return cg.FindConfigUsage(ctx, q) })
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type codeGraphFindTableUsageInput struct {
+	Table       string `json:"table" jsonschema:"table name, JPQL entity name or entity class name; with match=prefix, the start of one"`
+	Match       string `json:"match,omitempty" jsonschema:"optional; exact (default) or prefix"`
+	Access      string `json:"access,omitempty" jsonschema:"optional; read or write to narrow to one; both when empty"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; entry points to list (default 50, at most 200)"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
+}
+
+func (s *Server) toolCodeGraphFindTableUsage(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphFindTableUsageInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("find_table_usage", map[string]any{"table": in.Table, "match": in.Match, "access": in.Access, "limit": in.Limit}), func(ctx context.Context) (any, error) {
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		q := codegraph.TableUsageQuery{Table: in.Table, Match: in.Match, Access: in.Access, Limit: in.Limit}
+		return whenIndexReady(ctx, cg, func() (codegraph.TableUsageReport, error) { return cg.FindTableUsage(ctx, q) })
 	})
 	if err != nil {
 		return nil, nil, err

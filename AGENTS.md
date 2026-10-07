@@ -592,6 +592,22 @@ binding), so an env var, a kebab key and a camelCase key are one setting.
   Lombok/implicit record accessors are unresolvable so `properties` readers can be missing;
   `@ConfigurationProperties` on a `@Bean` method is not read; Lua and TypeScript record no config.
 
+### CodeGraph: database tables
+Java only, same shape as configuration: the analyzer records `EntityTable` (`@Entity`/`@Table`, Spring
+Boot's snake_case default, secondary/join/collection tables) and `TableAccess` (`TableExtractor.java`,
+SQL read by `SqlTables.java`), two tables `entity_tables` / `table_accesses`, joined with the call graph at
+read time by `Service.FindTableUsage` (MCP `codegraph.findTableUsage`).
+- **SQL is read by tokens, not parsed**: FROM/JOIN/USING read, UPDATE/INSERT INTO/DELETE/MERGE/TRUNCATE write.
+  Anything that looks like a clause but is not (`EXTRACT(.. FROM ..)`, `FOR UPDATE`, CTE names, string
+  literals) has a test in `SqlTablesTest`; add one before adding a rule.
+- **Inherited Spring Data CRUD has no node and no edge** — `repo.save(x)` is recorded at the CALL
+  (`repository-crud`), recognised by the receiver's type from the solver. A method the repository
+  declares is attributed to that method, and its callers come from the call edges, never twice.
+- **A name that is also one of an entity's tables asks about that table** (`FindTableUsage`): with the
+  default naming class, entity and table are one word. An entity name that differs brings all its tables.
+- Not read: `@NamedQuery`, `EntityManager.persist/merge`, tables named by a variable, triggers/cascades/views,
+  Liquibase. Gaps are in `docs/dev-kit/codegraph.mdx` § Truy vấn nối với bảng DB.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.

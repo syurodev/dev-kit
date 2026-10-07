@@ -47,8 +47,8 @@ type ConfigUsageReport struct {
 	Usages     []ConfigUsageDetail `json:"usages"`
 	UsageTotal int                 `json:"usageTotal"`
 	// EntryPoints are the entry points whose flow reaches anything a use touches.
-	EntryPoints     []ConfigEntryPoint `json:"entryPoints"`
-	EntryPointTotal int                `json:"entryPointTotal"`
+	EntryPoints     []ReachedEntryPoint `json:"entryPoints"`
+	EntryPointTotal int                 `json:"entryPointTotal"`
 	// Notes say what this answer cannot see.
 	Notes []string `json:"notes,omitempty"`
 }
@@ -83,17 +83,20 @@ type ConfigGuardedCall struct {
 	Guard string `json:"guard"`
 }
 
-// ConfigEntryPoint is an entry point that reaches a setting, and through what.
-type ConfigEntryPoint struct {
+// ReachedEntryPoint is an entry point whose flow reaches something a question is about — a
+// setting's readers, a table's accesses — and through which method.
+type ReachedEntryPoint struct {
 	ID      string `json:"id"`
 	Verb    string `json:"verb"`
 	Target  string `json:"target"`
 	Kind    string `json:"kind"`
 	Service string `json:"service,omitempty"`
-	// Via is the first method on the way that the setting touches.
+	// Via is the first method on the way that the question touches.
 	Via string `json:"via"`
 	// Depth is how many calls from the entry point to Via.
 	Depth int `json:"depth"`
+	// Access says how, where that matters: "read", "write" or "read, write" for a table.
+	Access string `json:"access,omitempty"`
 }
 
 // FindConfigUsage answers "if I change this setting, what changes": the files
@@ -118,7 +121,7 @@ func (s *Service) FindConfigUsage(ctx context.Context, q ConfigUsageQuery) (Conf
 		return ConfigUsageReport{}, errBadConfigMatch(q.Match)
 	}
 
-	report := ConfigUsageReport{Query: q.Key, Keys: []ConfigKey{}, Usages: []ConfigUsageDetail{}, EntryPoints: []ConfigEntryPoint{}}
+	report := ConfigUsageReport{Query: q.Key, Keys: []ConfigKey{}, Usages: []ConfigUsageDetail{}, EntryPoints: []ReachedEntryPoint{}}
 
 	// No key: the switches that name none — profiles, bean conditions.
 	if strings.TrimSpace(q.Key) == "" {
@@ -331,14 +334,13 @@ func touchOf(n Node, access string) ConfigTouch {
 // entryPointsReaching walks from every method the uses touch up through its
 // callers to the entry points, nearest first. The walk is bounded: it answers
 // "which endpoints can this change", not "everything that ever calls this".
-func (s *Service) entryPointsReaching(ctx context.Context, store Store, details []ConfigUsageDetail, limit int) ([]ConfigEntryPoint, int, error) {
-	type seed struct{ id, label string }
-	var seeds []seed
+func (s *Service) entryPointsReaching(ctx context.Context, store Store, details []ConfigUsageDetail, limit int) ([]ReachedEntryPoint, int, error) {
+	var seeds []reachSeed
 	seen := map[string]bool{}
 	add := func(id, label string) {
 		if id != "" && !seen[id] && len(seeds) < maxConfigSeeds {
 			seen[id] = true
-			seeds = append(seeds, seed{id, label})
+			seeds = append(seeds, reachSeed{id, label})
 		}
 	}
 	for _, d := range details {
@@ -353,12 +355,28 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 		}
 	}
 	if len(seeds) == 0 {
-		return []ConfigEntryPoint{}, 0, nil
+		return []ReachedEntryPoint{}, 0, nil
 	}
-
-	entries, err := store.ListEntryPoints(ctx)
+	byNode, err := entryPointsByNode(ctx, store)
 	if err != nil {
 		return nil, 0, err
+	}
+	found, err := reachEntryPoints(ctx, store, seeds, byNode)
+	if err != nil {
+		return nil, 0, err
+	}
+	out, total := sortedReached(found, limit)
+	return out, total, nil
+}
+
+// reachSeed is a method a question touches, and what to call it in an answer.
+type reachSeed struct{ id, label string }
+
+// entryPointsByNode indexes the project's entry points by the node they start at.
+func entryPointsByNode(ctx context.Context, store Store) (map[string][]EntryPoint, error) {
+	entries, err := store.ListEntryPoints(ctx)
+	if err != nil {
+		return nil, err
 	}
 	entries = completeEntryPoints(entries)
 	sortEntryPoints(entries)
@@ -366,9 +384,13 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 	for _, e := range entries {
 		byNode[e.EntryNode] = append(byNode[e.EntryNode], e)
 	}
+	return byNode, nil
+}
 
-	// Breadth-first from all seeds at once, so the first time an entry node
-	// is reached is by its nearest seed.
+// reachEntryPoints walks up the call edges from all the seeds at once, so the
+// first time an entry node is reached is by its nearest seed. Bounded in depth
+// and in nodes visited.
+func reachEntryPoints(ctx context.Context, store Store, seeds []reachSeed, byNode map[string][]EntryPoint) (map[string]ReachedEntryPoint, error) {
 	type step struct {
 		id    string
 		via   string
@@ -377,15 +399,17 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 	visited := map[string]bool{}
 	queue := make([]step, 0, len(seeds))
 	for _, sd := range seeds {
-		visited[sd.id] = true
-		queue = append(queue, step{sd.id, sd.label, 0})
+		if !visited[sd.id] {
+			visited[sd.id] = true
+			queue = append(queue, step{sd.id, sd.label, 0})
+		}
 	}
-	found := map[string]ConfigEntryPoint{}
+	found := map[string]ReachedEntryPoint{}
 	for head := 0; head < len(queue) && len(visited) < maxConfigReach; head++ {
 		cur := queue[head]
 		for _, ep := range byNode[cur.id] {
 			if _, ok := found[ep.ID]; !ok {
-				found[ep.ID] = ConfigEntryPoint{ID: ep.ID, Verb: ep.Verb, Target: ep.Target, Kind: ep.Kind, Service: ep.Service, Via: cur.via, Depth: cur.depth}
+				found[ep.ID] = ReachedEntryPoint{ID: ep.ID, Verb: ep.Verb, Target: ep.Target, Kind: ep.Kind, Service: ep.Service, Via: cur.via, Depth: cur.depth}
 			}
 		}
 		if cur.depth >= configReachDepth {
@@ -393,7 +417,7 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 		}
 		callers, err := store.GetInEdges(ctx, cur.id)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		for _, e := range callers {
 			if e.Kind != "call" || visited[e.From] {
@@ -403,8 +427,13 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 			queue = append(queue, step{e.From, cur.via, cur.depth + 1})
 		}
 	}
+	return found, nil
+}
 
-	out := make([]ConfigEntryPoint, 0, len(found))
+// sortedReached orders what reachEntryPoints found nearest first and cuts it
+// to limit, returning how many there were before the cut.
+func sortedReached(found map[string]ReachedEntryPoint, limit int) ([]ReachedEntryPoint, int) {
+	out := make([]ReachedEntryPoint, 0, len(found))
 	for _, e := range found {
 		out = append(out, e)
 	}
@@ -421,5 +450,5 @@ func (s *Service) entryPointsReaching(ctx context.Context, store Store, details 
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, total, nil
+	return out, total
 }

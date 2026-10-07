@@ -53,6 +53,9 @@ func (f fakeCodeGraphAPI) SearchSymbolsPage(ctx context.Context, q codegraph.Sym
 func (f fakeCodeGraphAPI) FindConfigUsage(ctx context.Context, q codegraph.ConfigUsageQuery) (codegraph.ConfigUsageReport, error) {
 	return codegraph.ConfigUsageReport{Query: q.Key, Canonical: codegraph.CanonicalConfigKey(q.Key)}, f.err
 }
+func (f fakeCodeGraphAPI) FindTableUsage(ctx context.Context, q codegraph.TableUsageQuery) (codegraph.TableUsageReport, error) {
+	return codegraph.TableUsageReport{Query: q.Table, Canonical: codegraph.CanonicalConfigKey(q.Table)}, f.err
+}
 func (f fakeCodeGraphAPI) ListFiles(ctx context.Context) ([]codegraph.FileEntry, error) {
 	return f.files, f.err
 }
@@ -452,4 +455,16 @@ func (f *configWaiting) FindConfigUsage(ctx context.Context, q codegraph.ConfigU
 func (f *configWaiting) WaitForIndexReady(ctx context.Context) (int, error) {
 	f.waits++
 	return 1, nil
+}
+
+func TestToolCodeGraphFindTableUsage(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	_, v, err := s.toolCodeGraphFindTableUsage(context.Background(), nil, codeGraphFindTableUsageInput{Table: "organization_api_enablement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := unwrap(v).(codegraph.TableUsageReport)
+	if !ok || report.Canonical != "organizationapienablement" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
 }

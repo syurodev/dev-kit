@@ -53,6 +53,12 @@ func (nilStore) FindConfigUsages(context.Context, []string, bool, []string) ([]C
 func (nilStore) FindEdgesByGuard(context.Context, []string, string) ([]Edge, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) FindEntityTables(context.Context, string, bool) ([]EntityTable, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) FindTableAccesses(context.Context, []string, bool, string) ([]TableAccess, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }
