@@ -1983,6 +1983,14 @@ export function PreferencesGetThemeFamily(): $CancellablePromise<preferences$0.T
 }
 
 /**
+ * PreferencesGetUpdateChecks reports whether DevKit looks for a newer release
+ * when it starts. On by default.
+ */
+export function PreferencesGetUpdateChecks(): $CancellablePromise<boolean> {
+    return $Call.ByID(1065361748);
+}
+
+/**
  * PreferencesSetAgentCheckpoints stores the settings and applies them to the
  * running engine.
  * 
@@ -2032,6 +2040,13 @@ export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePro
 
 export function PreferencesSetThemeFamily(family: preferences$0.ThemeFamily): $CancellablePromise<void> {
     return $Call.ByID(1107014777, family);
+}
+
+/**
+ * PreferencesSetUpdateChecks turns the startup check on or off.
+ */
+export function PreferencesSetUpdateChecks(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2245792128, enabled);
 }
 
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
@@ -2337,6 +2352,26 @@ export function UnlockVault(masterPassword: string): $CancellablePromise<void> {
 
 export function UnlockVaultWithRecovery(recoveryKey: string): $CancellablePromise<void> {
     return $Call.ByID(4016602009, recoveryKey);
+}
+
+/**
+ * UpdatesCheck looks up the newest published release.
+ * 
+ * automatic is true for the check DevKit makes by itself at startup and false
+ * for the person pressing "Check now". Only an automatic check honours the
+ * preference: pressing the button is a request, so it is answered even with
+ * automatic checks off, and with them off nothing else ever reaches the
+ * network.
+ */
+export function UpdatesCheck(automatic: boolean): $CancellablePromise<$models.UpdateStatus> {
+    return $Call.ByID(462025424, automatic);
+}
+
+/**
+ * UpdatesCurrentVersion reports the version this binary was built from.
+ */
+export function UpdatesCurrentVersion(): $CancellablePromise<string> {
+    return $Call.ByID(3777357311);
 }
 
 /**

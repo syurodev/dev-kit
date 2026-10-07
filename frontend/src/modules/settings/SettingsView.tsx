@@ -38,6 +38,7 @@ import { CODEX_VENDOR } from "@/bridge/agenthub";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
+import { UpdatesSetting } from "./UpdatesSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import { AgentSandboxSetting } from "./AgentSandboxSetting";
 import {
@@ -383,6 +384,11 @@ function AccountTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>SAVED CREDENTIALS</GroupLabel>
         <RevealPasswordSetting />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <GroupLabel>UPDATES</GroupLabel>
+        <UpdatesSetting />
       </div>
 
       <SecurityNotice

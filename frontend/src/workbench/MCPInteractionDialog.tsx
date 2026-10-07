@@ -53,7 +53,7 @@ export function MCPInteractionDialog({ pending, profiles = [], selectedId = "", 
     try { await copyText(pending.summary); setCopied(true); } catch { /* The request remains selectable. */ }
   }
   return <Dialog open onOpenChange={() => {}}>
-    <DialogContent showCloseButton={false} className="gap-5 rounded-2xl p-5 sm:max-w-[540px]" aria-describedby="mcp-interaction-description">
+    <DialogContent showCloseButton={false} className="gap-5 rounded-2xl p-5 sm:max-w-xl" aria-describedby="mcp-interaction-description">
       <DialogHeader className="gap-3">
         <div className="flex items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-state-soft text-text-secondary"><Icon aria-hidden className="size-5" /></div>

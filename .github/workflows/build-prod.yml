@@ -61,10 +61,16 @@ jobs:
         # Empty on workflow_dispatch: a manual run has no tag to take a version
         # from, and stamping something invented would put a fake version on a
         # package. The stamping steps below are skipped in that case and the
-        # values committed in the repo stand.
+        # values committed in the repo stand; the binary then reports "dev" and
+        # its update check stays quiet.
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            # The Taskfiles read this into -ldflags -X for
+            # internal/buildinfo.Version, which is what the in-app "is there a
+            # newer release" check compares against. Exported for every later
+            # step because the packaging tasks run `build` as a dependency.
+            echo "DEVKIT_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           else
             echo "version=" >> "$GITHUB_OUTPUT"
           fi

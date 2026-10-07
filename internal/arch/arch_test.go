@@ -159,6 +159,16 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: gitssh must not import %s", short(imp))
 	}
 
+	// updater and buildinfo are leaves. updater takes the running version as a
+	// parameter instead of importing it, so it can be tested against any
+	// version and knows nothing about how the linker stamps one; buildinfo is
+	// a string the linker overwrites and must not pull anything in.
+	for _, leaf := range []string{"updater", "buildinfo"} {
+		for _, imp := range graph[pkg(leaf)] {
+			t.Errorf("layering violation: %s must not import %s", leaf, short(imp))
+		}
+	}
+
 	// codexapp is a leaf transport for `codex app-server`, like acp: the
 	// adapter in agenthub owns the sandbox and the translation to ACP.
 	for _, imp := range graph[pkg("codexapp")] {
