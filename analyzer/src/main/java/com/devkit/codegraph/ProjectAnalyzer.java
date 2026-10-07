@@ -800,7 +800,7 @@ public class ProjectAnalyzer {
             // real, but the flow cannot go past it.
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
-            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result);
+            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result, Guards.of(call, scope.node()));
         }
 
         // `new Foo(...)`, `this(...)` and `super(...)` run a constructor. Only
@@ -824,7 +824,8 @@ public class ProjectAnalyzer {
                 continue;
             }
             if (nodeIds.contains(toNodeId)) {
-                recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result);
+                recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result,
+                        Guards.of(construction, scope.node()));
             }
         }
 
@@ -847,7 +848,7 @@ public class ProjectAnalyzer {
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
             recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
-                    dangling ? "interface" : "", index, result);
+                    dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()));
         }
     }
 
@@ -890,11 +891,11 @@ public class ProjectAnalyzer {
     }
 
     private void recordCall(CallScope scope, String toNodeId, int line, String unresolved, Index index,
-                            AnalysisResult result) {
+                            AnalysisResult result, String guard) {
         for (String owner : scope.ownerIds()) {
             // A wall keeps the shape every other wall has: no callee named.
             result.callSites.add(new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved));
-            result.edges.add(new Edge(owner, toNodeId, "call"));
+            result.edges.add(new Edge(owner, toNodeId, "call", guard));
         }
 
         // File-level dependency: only when the callee is declared in this
@@ -1132,14 +1133,20 @@ public class ProjectAnalyzer {
     }
 
     // The same target called repeatedly in one body yields identical edges;
-    // keep the first of each from/to/kind triple, preserving order. One pass
+    // keep one of each from/to/kind triple, preserving order. One pass
     // at the end instead of a contains-check per added edge keeps large
-    // projects linear rather than quadratic.
+    // projects linear rather than quadratic. The guards of the calls it
+    // stands for are merged (Guards.merge): called once unconditionally and
+    // once under a flag, the edge is unconditional.
     private static List<Edge> dedupeEdges(List<Edge> edges) {
         Map<String, Edge> byKey = new LinkedHashMap<>();
+        Map<String, List<String>> guards = new HashMap<>();
         for (Edge e : edges) {
-            byKey.putIfAbsent(e.from + "\n" + e.to + "\n" + e.kind, e);
+            String key = e.from + "\n" + e.to + "\n" + e.kind;
+            byKey.putIfAbsent(key, e);
+            guards.computeIfAbsent(key, k -> new ArrayList<>()).add(e.guard);
         }
+        byKey.forEach((key, e) -> e.guard = Guards.merge(guards.get(key)));
         return new ArrayList<>(byKey.values());
     }
 

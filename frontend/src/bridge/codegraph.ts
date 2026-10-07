@@ -40,6 +40,10 @@ export type CodeGraphEntryPoint = {
 };
 
 export type CodeGraphFlowStep = {
+  /** Calls below the entry point; steps are depth-first, so this rebuilds the tree. */
+  depth: number;
+  /** The condition the caller reaches this step under, as the source writes it. Empty when it always does. */
+  guard?: string;
   label: string;
   filePath: string;
   line: number;
@@ -119,6 +123,8 @@ export async function getCodeGraphApiFlow(entryPointId: string, servicePath = ""
     return {
       entryPointId: flow.entryPointId,
       steps: (flow.steps ?? []).map((s) => ({
+        depth: s.depth,
+        guard: s.guard,
         label: s.label,
         filePath: s.filePath,
         line: s.line,

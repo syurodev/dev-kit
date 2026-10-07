@@ -184,7 +184,7 @@ Kafka (`kafka:connect` khác `kafka:produce`) và Database
 |---|---|---|
 | `codegraph.openProject` | `execute` | Trigger parse + build index cho 1 project path. Các tool đọc index (`listEndpoints`, `getApiFlow`, `searchSymbol`, `getCodeSnippet`, `getBlastRadius`, `getNeighbors`, `traceDataFlow`, `listFields`) tự chờ index tối đa 10s rồi truy vấn lại một lần; quá hạn thì lỗi gợi ý gọi `waitForIndexReady`, index lỗi thì lỗi kèm lý do và gợi ý mở lại project |
 | `codegraph.listEndpoints` | `read` | Liệt kê entry point đã phát hiện trong project active. **Phân trang**: trả `{result, total, nextCursor}` (mặc định 100 dòng, tối đa 300); lọc theo `kind`, `service`, `verb`, `pathPrefix`, `contains`; cursor gắn với bộ lọc và với dòng cuối đã trả (index đổi mất dòng đó → `ErrInvalidCursor`, gọi lại không cursor). UI vẫn đọc toàn bộ qua bridge |
-| `codegraph.getApiFlow` | `read` | Trả flow `Controller → Service → Repository` cho 1 endpoint |
+| `codegraph.getApiFlow` | `read` | Trả flow `Controller → Service → Repository` cho 1 endpoint. Mỗi bước có `depth` (dựng lại cây từ danh sách duyệt sâu) và `guard` (điều kiện để caller đi tới bước đó, đọc từ `if`/`?:`/`switch`/`&&`/guard clause trong code, không evaluate — xem [Guard trên cạnh gọi](#guard-trên-cạnh-gọi)) |
 | `codegraph.searchSymbol` | `read` | Tìm class/method theo tên. **Phân trang** như trên (mặc định 50, tối đa 200, keyset theo `label,id`); `match` = `contains` (mặc định) / `prefix` (một đoạn tên phân tách bằng dấu chấm bắt đầu bằng query) / `exact`; lọc `kind`, `layer`, `pathPrefix`; `query` rỗng được nếu có bộ lọc |
 | `codegraph.listFiles` | `read` | Liệt kê toàn bộ file trong project active (không riêng `.java`) — trước đây chỉ có ở bridge cho UI, thiếu bản MCP nên agent phải suy gián tiếp qua `listEndpoints`/`searchSymbol`, xem [File editing](#file-editing-add-on-v1) |
 | `codegraph.readFile` | `read` | Đọc nguyên văn 1 file trong project active — path verify lại phía Go, xem [File editing](#file-editing-add-on-v1) |
@@ -1100,6 +1100,17 @@ chưa xong thì thay thế, không giữ lịch sử nhiều plan song song ở 
 - AI verify/enhance index qua agent-spawn riêng — xem lý do bỏ ở mục
   "Điều kiện trên cạnh" trên đây; `condition` do agent tự ghi lúc lên plan
   (đọc `GetCodeSnippet`) là đủ, không cần lớp xác minh chạy sau.
+
+## Guard trên cạnh gọi
+
+Một cạnh `A → B` mặc định đọc như "luôn gọi". `if (flag) return byModule(x); return byRole(x);` cho `A` hai callee mà đồ thị không cho biết cái nào phụ thuộc `flag`. `Edge.Guard` (Java analyzer, `Guards.java`) là điều kiện **như viết trong source**, ngoài vào trong, nối bằng `&&`: `byModule` có guard `flag`, `byRole` có `!flag`.
+
+- **Năm hình dạng điều kiện**: nhánh `if`/`else`, nhánh `? :`, `case` của `switch` (cả mũi tên), vế phải của `&&`/`||`, và *guard clause* — `if (!enabled) return;` làm mọi lệnh sau nó trong block có guard `enabled` (kiểu viết phổ biến nhất). Vòng lặp và `try` không phải điều kiện: chúng lặp lại lời gọi chứ không chọn nó.
+- **Không evaluate, không resolve**: guard là một khẳng định về source, không phải về giá trị. `flag` ở đây chỉ là *tên* cờ; ánh xạ tên đó tới env/property là việc của "cấu hình là một loại node" (chưa làm).
+- Phủ định viết như người viết: `x == null` → `x != null`, `!a` → `a`, còn lại `!(…)`. Cắt ở 240 ký tự.
+- **Nhiều lời gọi, một cạnh**: cạnh được dedupe theo `(from, to, kind)`. Có một lời gọi không điều kiện → cạnh không guard; còn lại → các guard nối bằng `||`.
+- `ApiFlow.steps[]` có `depth` + `guard` của cạnh từ cha đi xuống. Một method có nhiều cha cùng độ sâu chỉ hiện một lần, dưới cha đầu tiên — guard hiện là của cạnh đó (`getNeighbors` trả đủ mọi cạnh kèm guard).
+- Index cũ đọc là không guard; jar/DevKit mới tự re-index khi mở lại. `call_sites` chưa mang guard. Chỉ Java; Lua và TypeScript chưa đặt `guard`.
 
 ## Open questions
 

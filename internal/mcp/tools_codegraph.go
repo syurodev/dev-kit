@@ -27,7 +27,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getApiFlow",
-		Description: "Get the call chain below one entry point (Controller -> Service -> Repository for an HTTP route). endpointId is an id from codegraph.listEndpoints.",
+		Description: "Get the call chain below one entry point (Controller -> Service -> Repository for an HTTP route). endpointId is an id from codegraph.listEndpoints. Steps are depth-first; depth rebuilds the tree (a step's caller is the nearest step above it that is one level shallower). guard, when present, is the condition the caller reaches that step under, as the source writes it (e.g. \"moduleBasedAccessEnabled\", \"!moduleBasedAccessEnabled\"): two siblings with opposite guards are the two sides of one branch. Read from the code, never evaluated, so it says what the flag is called, not what it is set to. Java projects only; a step with no guard is called whenever its caller runs.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetApiFlow)
 
@@ -69,7 +69,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getNeighbors",
-		Description: "Get a bounded subgraph (nodes + edges) around one symbol, both call directions, paginated",
+		Description: "Get a bounded subgraph (nodes + edges) around one symbol, both call directions, paginated. An edge's guard, when present, is the condition the call runs under (see codegraph.getApiFlow).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetNeighbors)
 

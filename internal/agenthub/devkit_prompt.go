@@ -53,7 +53,9 @@ the same actions.
   Open the project first: {{codegraph.openProject}} with its absolute path,
   then {{codegraph.waitForIndexReady}}. Entry points and symbol searches are
   paged: narrow them (kind, service, pathPrefix, layer) instead of reading
-  everything, and pass ` + "`nextCursor`" + ` back for the next page. Grep is for
+  everything, and pass ` + "`nextCursor`" + ` back for the next page. In a flow, a
+  step's ` + "`guard`" + ` is the condition its caller reaches it under: read it
+  before saying a path always runs. Grep is for
   text, not structure. If
   CodeGraph answers ` + "`unsupported_project`" + `, no analyzer reads that language:
   read the files.

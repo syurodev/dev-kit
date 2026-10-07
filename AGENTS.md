@@ -529,6 +529,17 @@ the list. The UI groups kind → service → owner and does no guessing of its o
   concept). Only `http` entries offer "Try in API Client". Tool-result cards read both the
   new (`verb`/`target`, `entryPointId`) and the old field names, since transcripts outlive builds.
 
+### CodeGraph: guards on call edges
+`Edge.Guard` is the condition a call runs under, read from the Java source around it
+(`analyzer/.../Guards.java`): `if`/`else`, `? :`, `switch` entries, the right side of `&&`/`||`
+and the guard clause (`if (!enabled) return;` guards what follows). **Syntactic, never evaluated** —
+a guard names a flag, not its value. One edge per `(from, to, kind)`: one unconditional call makes
+the edge unconditional, otherwise guards are joined with `||` (`Guards.merge`). `edges.guard` is a
+migrated column (`migrateEdgeGuard`); old indexes read as unguarded until a re-index, which a new
+DevKit build triggers anyway. `FlowStep` carries `Depth` (the flat DFS list is a tree) and `Guard`.
+`call_sites` does not carry it; Lua and TypeScript do not set it. Design:
+`docs/dev-kit/codegraph.mdx` § Guard trên cạnh gọi.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.

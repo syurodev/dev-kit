@@ -101,7 +101,7 @@ func (s *Service) GetApiFlow(ctx context.Context, entryPointID string) (ApiFlow,
 // it by a shortest route.
 func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, error) {
 	depth := map[string]int{rootNodeID: 0}
-	calls := map[string][]string{}
+	calls := map[string][]Edge{}
 	order := []string{rootNodeID}
 	frontier := []string{rootNodeID}
 	for d := 0; d < maxFlowDepth && len(frontier) > 0 && len(depth) < maxFlowSteps; d++ {
@@ -115,7 +115,7 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 				if e.Kind != "call" {
 					continue
 				}
-				calls[id] = append(calls[id], e.To)
+				calls[id] = append(calls[id], e)
 				if _, seen := depth[e.To]; seen || len(depth) >= maxFlowSteps {
 					continue
 				}
@@ -137,11 +137,13 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 
 	steps := make([]FlowStep, 0, len(depth))
 	emitted := make(map[string]bool, len(depth))
-	var walk func(id string)
-	walk = func(id string) {
+	var walk func(id, guard string)
+	walk = func(id, guard string) {
 		emitted[id] = true
 		if node, ok := nodes[id]; ok {
 			steps = append(steps, FlowStep{
+				Depth:    depth[id],
+				Guard:    guard,
 				Label:    node.Label,
 				FilePath: node.FilePath,
 				Line:     node.Line,
@@ -149,13 +151,13 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 				Params:   node.Params,
 			})
 		}
-		for _, callee := range calls[id] {
-			if calleeDepth, ok := depth[callee]; ok && !emitted[callee] && calleeDepth == depth[id]+1 {
-				walk(callee)
+		for _, call := range calls[id] {
+			if calleeDepth, ok := depth[call.To]; ok && !emitted[call.To] && calleeDepth == depth[id]+1 {
+				walk(call.To, call.Guard)
 			}
 		}
 	}
-	walk(rootNodeID)
+	walk(rootNodeID, "")
 	return steps, nil
 }
 

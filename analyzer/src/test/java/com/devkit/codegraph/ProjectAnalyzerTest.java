@@ -39,6 +39,54 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void edgesCarryTheConditionTheCallRunsUnder(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("example"));
+        Files.writeString(root.resolve("example/AccessService.java"), """
+                package example;
+                class AccessService {
+                    private boolean moduleBased;
+                    boolean isAvailable(String org) {
+                        if (moduleBased) {
+                            return byModule(org);
+                        }
+                        audit(org);
+                        return byRole(org);
+                    }
+                    boolean byModule(String org) { return true; }
+                    boolean byRole(String org) { return true; }
+                    void audit(String org) {}
+                    void twice(String org) {
+                        if (moduleBased) { audit(org); }
+                        if (!moduleBased) { audit(org); }
+                    }
+                    void always(String org) {
+                        audit(org);
+                        if (moduleBased) { audit(org); }
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        String isAvailable = "example.AccessService.isAvailable(java.lang.String)";
+        assertEquals("moduleBased", guardOf(result, isAvailable, "example.AccessService.byModule(java.lang.String)"));
+        // The guard clause: byRole runs only past the `return`, audit too.
+        assertEquals("!moduleBased", guardOf(result, isAvailable, "example.AccessService.byRole(java.lang.String)"));
+        assertEquals("!moduleBased", guardOf(result, isAvailable, "example.AccessService.audit(java.lang.String)"));
+        // One edge for two calls: it runs under either condition.
+        assertEquals("moduleBased || !moduleBased",
+                guardOf(result, "example.AccessService.twice(java.lang.String)", "example.AccessService.audit(java.lang.String)"));
+        // One unconditional call makes the edge unconditional.
+        assertEquals("", guardOf(result, "example.AccessService.always(java.lang.String)", "example.AccessService.audit(java.lang.String)"));
+    }
+
+    private static String guardOf(AnalysisResult result, String from, String to) {
+        List<Edge> matching = result.edges.stream().filter(e -> e.from.equals(from) && e.to.equals(to)).toList();
+        assertEquals(1, matching.size(), "edges " + from + " -> " + to + ": " + matching.size());
+        return matching.get(0).guard;
+    }
+
+    @Test
     void recordsOutboundCallsAgainstTheMethodMakingThem(@TempDir Path root) throws IOException {
         Files.createDirectories(root.resolve("example"));
         Files.writeString(root.resolve("example/BillingClient.java"), """
