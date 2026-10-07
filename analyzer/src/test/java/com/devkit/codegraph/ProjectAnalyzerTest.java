@@ -86,6 +86,76 @@ class ProjectAnalyzerTest {
         return matching.get(0).guard;
     }
 
+    /** A project of enough files, in two modules sharing a class name, that threads finish in a different order than they started. */
+    private static void writeManyFiles(Path root) throws IOException {
+        for (String module : List.of("billing", "orders")) {
+            Path dir = root.resolve(module + "/src/main/java/acme/" + module);
+            Files.createDirectories(dir);
+            for (int i = 0; i < 40; i++) {
+                int next = (i + 1) % 40;
+                Files.writeString(dir.resolve("C" + i + ".java"), """
+                        package acme.%1$s;
+                        class C%2$d {
+                            private final C%3$d next = new C%3$d();
+                            boolean flag;
+                            String run(String s) {
+                                if (flag) { return next.run(s); }
+                                return s.trim();
+                            }
+                        }
+                        """.formatted(module, i, next));
+            }
+            // The same class name in both modules: which one keeps the plain
+            // id depends on the order files are handed to the passes.
+            Files.writeString(dir.resolve("Shared.java"), "package acme." + module + "; class Shared { void go() {} }");
+        }
+    }
+
+    private static String indexOf(Path root, int parseThreads) throws IOException {
+        return new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(new ProjectAnalyzer(root, parseThreads).analyze());
+    }
+
+    @Test
+    void parsingOnSeveralThreadsGivesTheSameIndexAsOneThread(@TempDir Path root) throws IOException {
+        writeManyFiles(root);
+        String sequential = indexOf(root, 1);
+        assertEquals(sequential, indexOf(root, 1), "the sequential index must itself be stable");
+        for (int threads : List.of(2, 4, 8)) {
+            assertEquals(sequential, indexOf(root, threads), threads + " parse threads changed the index");
+        }
+        assertTrue(sequential.contains("acme.billing.C0"), "the project was actually indexed");
+    }
+
+    @Test
+    void workerThreadsParseWithTheNewestLanguageLevel(@TempDir Path root) throws IOException {
+        // A record is Java 16: the parser's default level cannot read it, and a
+        // worker that fell back to the default would drop the file silently.
+        Files.createDirectories(root.resolve("example"));
+        for (int i = 0; i < 12; i++) {
+            Files.writeString(root.resolve("example/R" + i + ".java"),
+                    "package example; record R" + i + "(String a) { String twice() { return a + a; } }");
+        }
+        for (int threads : List.of(1, 4)) {
+            AnalysisResult result = new ProjectAnalyzer(root, threads).analyze();
+            long records = result.nodes.stream().filter(n -> n.kind.equals("class") && n.label.startsWith("example.R")).count();
+            assertEquals(12, records, "with " + threads + " parse thread(s)");
+        }
+    }
+
+    @Test
+    void aFileThatDoesNotParseIsSkippedWhateverTheThreadCount(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("example"));
+        for (int i = 0; i < 10; i++) {
+            Files.writeString(root.resolve("example/Ok" + i + ".java"), "package example; class Ok" + i + " { void run() {} }");
+        }
+        Files.writeString(root.resolve("example/Broken.java"), "package example; class Broken { void run( {");
+        for (int threads : List.of(1, 4)) {
+            AnalysisResult result = new ProjectAnalyzer(root, threads).analyze();
+            assertEquals(10, result.nodes.stream().filter(n -> n.kind.equals("class")).count(), "with " + threads + " parse thread(s)");
+        }
+    }
+
     @Test
     void recordsOutboundCallsAgainstTheMethodMakingThem(@TempDir Path root) throws IOException {
         Files.createDirectories(root.resolve("example"));

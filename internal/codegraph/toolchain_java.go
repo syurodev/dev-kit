@@ -31,7 +31,8 @@ const javaAnalyzerJar = "codegraph-analyzer.jar"
 // javac, so reading Java 25 source needs no JDK 25 anywhere.
 //
 // A newer JDK is fine to build and run with. When a newer Java ships, raise the
-// language level, not this floor.
+// language level, not this floor. Raising the floor itself (to 25) is a
+// decision with a checklist: AGENTS.md, "Preparing for Java 25".
 //
 // repoRoot is where the analyzer source lives, which for a process started from
 // the repository root is ".". A packaged install has no source to build and
@@ -83,6 +84,8 @@ func javaRequirement() Requirement {
 	return Requirement{
 		Program:    "java",
 		Label:      "Java Development Kit",
+		// The floor is the jar's bytecode (analyzer/pom.xml, release 21). One of the
+		// places AGENTS.md "Preparing for Java 25" lists to change together.
 		MinVersion: "21",
 		locate:     javaCandidates,
 		// java writes its version to stderr, hence CombinedOutput in the probe.
