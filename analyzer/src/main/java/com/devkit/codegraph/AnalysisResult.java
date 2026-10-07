@@ -15,4 +15,5 @@ public class AnalysisResult {
     public List<ConfigUsage> configUsages = new ArrayList<>();
     public List<EntityTable> entityTables = new ArrayList<>();
     public List<TableAccess> tableAccesses = new ArrayList<>();
+    public List<RedisAccess> redisAccesses = new ArrayList<>();
 }

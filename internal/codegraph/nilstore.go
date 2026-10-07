@@ -62,6 +62,9 @@ func (nilStore) FindTableAccesses(context.Context, []string, bool, string) ([]Ta
 func (nilStore) ListOutboundCalls(context.Context) ([]OutboundCall, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) ListRedisAccesses(context.Context) ([]RedisAccess, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }

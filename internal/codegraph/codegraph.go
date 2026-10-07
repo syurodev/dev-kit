@@ -383,6 +383,9 @@ type AnalysisResult struct {
 	// OutboundCalls are the HTTP requests this service makes to others, for
 	// the cross-service join to match against their entry points.
 	OutboundCalls []OutboundCall `json:"outboundCalls"`
+	// RedisAccesses are the Redis keys the code reads and writes, for the
+	// cross-service join to find the ones two services share.
+	RedisAccesses []RedisAccess `json:"redisAccesses"`
 }
 
 // Validate checks internal consistency: every Edge and EntryPoint must
@@ -433,6 +436,11 @@ func (r AnalysisResult) Validate() error {
 	for _, o := range r.OutboundCalls {
 		if !ids[o.From] {
 			return fmt.Errorf("codegraph: outbound call to %q references unknown node %q", o.URL, o.From)
+		}
+	}
+	for _, a := range r.RedisAccesses {
+		if !ids[a.From] {
+			return fmt.Errorf("codegraph: redis access to %q references unknown node %q", a.Key, a.From)
 		}
 	}
 	return nil
@@ -506,6 +514,8 @@ type Store interface {
 	FindTableAccesses(ctx context.Context, canons []string, prefix bool, access string) ([]TableAccess, error)
 	// ListOutboundCalls returns every outbound HTTP call the service makes.
 	ListOutboundCalls(ctx context.Context) ([]OutboundCall, error)
+	// ListRedisAccesses returns every Redis key access in the service.
+	ListRedisAccesses(ctx context.Context) ([]RedisAccess, error)
 	// FindEdgesByGuard returns the call edges whose guard contains any of the
 	// terms, from callers whose id starts with fromPrefix (empty: any).
 	FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error)

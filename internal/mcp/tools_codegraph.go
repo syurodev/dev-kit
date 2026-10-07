@@ -56,6 +56,12 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphFindServiceCalls)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findRedisKeyUsage",
+		Description: "Which Redis keys services of the workspace share: one writes fsap:access:{org}:{api}, another reads fsap:access:*. key is a pattern (a {hole} or * is any run of characters; at least 3 fixed characters before the first wildcard); two patterns are one resource when some string matches both. Returns each matching pattern with writers and readers (service, method, file:line, the key as written, the Redis command), the services touching it or anything overlapping it, and crossService — true when one service writes what a different one reads, so changing the key's shape or its writer is felt elsewhere. With no key it lists every key two or more services touch, cross-service ones first. Read from each service's index: keys given by a literal or constant to Spring Data Redis (opsForValue()… / RedisTemplate), Jedis/Lettuce command objects or Lua resty.redis; a key built elsewhere, Spring cache annotations, Lua scripts and pub/sub channels are not seen. servicePath names the workspace (default: the session's); services without an index are named in notes.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindRedisKeyUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},

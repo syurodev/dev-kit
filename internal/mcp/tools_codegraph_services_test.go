@@ -94,3 +94,37 @@ func TestFindServiceCallsNeedsAServiceAndAWorkspace(t *testing.T) {
 		t.Fatal("without workspaces wired there is nothing to join")
 	}
 }
+
+// The same workspace, asked about a Redis key: the plugin reads what the
+// authentication service writes.
+func TestFindRedisKeyUsageAnswersAcrossTheWorkspace(t *testing.T) {
+	writer := snapshotWith(auth, nil)
+	writer.Redis = []codegraph.SnapshotRedis{{
+		RedisAccess: codegraph.RedisAccess{From: "auth.cache", Key: "fsap:session:{token}", Access: "write", Command: "set", File: "Cache.java", Line: 8},
+		Label:       "SessionCache.put",
+	}}
+	reader := snapshotWith(kong, nil)
+	reader.Redis = []codegraph.SnapshotRedis{{
+		RedisAccess: codegraph.RedisAccess{From: "kong.access", Key: "fsap:session:{token}", Access: "read", Command: "get", File: "handler.lua", Line: 14},
+		Label:       "kong.plugins.x.handler.access",
+	}}
+	srv := servicesServer(map[string]codegraph.ServiceSnapshot{auth: writer, kong: reader})
+	ctx := identity.WithCaller(context.Background(), identity.UserTerminal())
+
+	_, v, err := srv.toolCodeGraphFindRedisKeyUsage(ctx, nil, codeGraphFindRedisKeyUsageInput{ServicePath: kong, Key: "fsap:session:*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := unwrap(v).(crossservice.RedisReport)
+	if !ok || report.KeyTotal != 1 {
+		t.Fatalf("report = %#v", v)
+	}
+	key := report.Keys[0]
+	if !key.CrossService || key.Writers[0].Service != "fsap-authentication-service" || key.Readers[0].Service != "kong-plugin" {
+		t.Fatalf("key = %+v", key)
+	}
+
+	if _, _, err := srv.toolCodeGraphFindRedisKeyUsage(ctx, nil, codeGraphFindRedisKeyUsageInput{ServicePath: kong, Key: "*"}); err == nil {
+		t.Fatal("a key that matches everything must be refused")
+	}
+}

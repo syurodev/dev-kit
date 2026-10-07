@@ -33,17 +33,47 @@ func (s *Server) toolCodeGraphFindServiceCalls(ctx context.Context, _ *sdk.CallT
 
 // findServiceCalls reads every service of the asker's workspace and joins them.
 func (s *Server) findServiceCalls(ctx context.Context, in codeGraphFindServiceCallsInput) (crossservice.Report, error) {
-	if s.deps.Workspace == nil || s.deps.CodeGraphServices == nil {
-		return crossservice.Report{}, apperrors.New("internal_error", "Workspaces are not available.", true)
-	}
-	if in.ServicePath != "" && !filepath.IsAbs(in.ServicePath) {
-		return crossservice.Report{}, fmt.Errorf("codegraph: servicePath must be absolute (got %q)", in.ServicePath)
-	}
-	folders, subject, err := s.serviceScope(ctx, in.ServicePath)
+	services, subject, err := s.workspaceSnapshots(ctx, in.ServicePath)
 	if err != nil {
 		return crossservice.Report{}, err
 	}
+	return crossservice.Run(services, crossservice.Query{Service: subject, Direction: in.Direction, EndpointID: in.EndpointID, Limit: in.Limit})
+}
 
+type codeGraphFindRedisKeyUsageInput struct {
+	Key         string `json:"key,omitempty" jsonschema:"optional; a key pattern such as fsap:access:* or fsap:access:{org}, at least 3 fixed characters before any wildcard; empty lists the keys two or more services touch"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of any service of the workspace, to say which workspace; default is the one the session's working directory is in"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; keys listed (default 50, at most 500)"`
+}
+
+func (s *Server) toolCodeGraphFindRedisKeyUsage(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphFindRedisKeyUsageInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("find_redis_key_usage", map[string]any{"key": in.Key, "limit": in.Limit}), func(ctx context.Context) (any, error) {
+		services, _, err := s.workspaceSnapshots(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return crossservice.RunRedis(services, crossservice.RedisQuery{Key: in.Key, Limit: in.Limit})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+// workspaceSnapshots reads every service of the asker's workspace: its Spring
+// config (which folds its calls' URLs) and its snapshot (what its index offers).
+// subject is the folder of the service asked about.
+func (s *Server) workspaceSnapshots(ctx context.Context, servicePath string) ([]crossservice.Service, string, error) {
+	if s.deps.Workspace == nil || s.deps.CodeGraphServices == nil {
+		return nil, "", apperrors.New("internal_error", "Workspaces are not available.", true)
+	}
+	if servicePath != "" && !filepath.IsAbs(servicePath) {
+		return nil, "", fmt.Errorf("codegraph: servicePath must be absolute (got %q)", servicePath)
+	}
+	folders, subject, err := s.serviceScope(ctx, servicePath)
+	if err != nil {
+		return nil, "", err
+	}
 	services := make([]crossservice.Service, 0, len(folders))
 	for _, f := range folders {
 		config, err := workspace.ReadSpringConfig(f.Path)
@@ -53,13 +83,13 @@ func (s *Server) findServiceCalls(ctx context.Context, in codeGraphFindServiceCa
 		snapshot, err := s.deps.CodeGraphServices.Snapshot(ctx, f.Path)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return crossservice.Report{}, err
+				return nil, "", err
 			}
 			snapshot = codegraph.ServiceSnapshot{Path: f.Path, State: codegraph.SnapshotNotIndexed}
 		}
 		services = append(services, crossservice.Service{Name: f.Name, Path: f.Path, Config: config, Snapshot: snapshot})
 	}
-	return crossservice.Run(services, crossservice.Query{Service: subject, Direction: in.Direction, EndpointID: in.EndpointID, Limit: in.Limit})
+	return services, subject, nil
 }
 
 // serviceScope is the services of the workspace the asker is in, and which of

@@ -1,6 +1,7 @@
 package codegraph
 
 import (
+	"regexp"
 	"strings"
 
 	"devkit/internal/lua"
@@ -10,6 +11,10 @@ import (
 // reads: OpenResty's resty.http, the client every Kong plugin that talks to
 // another service uses.
 const luaHTTPClient = "resty.http"
+
+// luaRedisClient is the library whose commands this analyzer reads as Redis
+// accesses: OpenResty's resty.redis.
+const luaRedisClient = "resty.redis"
 
 // recordOutbound records `httpc:request_uri(url, opts)` and
 // `httpc:request({ path = …, method = … })` as the HTTP calls they are.
@@ -209,3 +214,33 @@ func luaExprText(expr lua.Expr) string {
 	}
 	return "expr"
 }
+
+// recordRedis records `red:get(key)`, `red:hset(key, …)` and the rest of
+// resty.redis's commands as the Redis access they are. The receiver is Redis by
+// provenance — a value that traces back to `require "resty.redis"` through
+// `redis:new()` — so a method called get on anything else is not one.
+func (r *luaResolver) recordRedis(call *lua.MethodCallExpr, scope *luaScope) {
+	read, write := redisReadCommands[call.Method], redisWriteCommands[call.Method]
+	if (!read && !write) || len(call.Args) == 0 {
+		return
+	}
+	client := r.eval(call.Recv, scope)
+	if client.kind != luaLibraryValue || client.lib != luaRedisClient {
+		return
+	}
+	key := r.foldString(call.Args[0], scope)
+	// A key that is only a hole names nothing two services could share.
+	if strings.TrimSpace(luaHoles.ReplaceAllString(key, "")) == "" {
+		return
+	}
+	access := "read"
+	if write {
+		access = "write"
+	}
+	r.result.RedisAccesses = append(r.result.RedisAccesses, RedisAccess{
+		From: r.from, Key: key, Access: access, Command: call.Method, File: r.module.rel, Line: call.Line,
+	})
+}
+
+// luaHoles matches the {expr} holes foldString leaves.
+var luaHoles = regexp.MustCompile(`\{[^{}]*\}`)

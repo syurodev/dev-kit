@@ -124,3 +124,61 @@ return M
 		t.Fatalf("outbound calls = %+v", result.OutboundCalls)
 	}
 }
+
+// The other half of the feedback's shared resource: the plugin READS the keys a
+// Java service writes.
+func TestLuaRestyRedisCommandsBecomeRedisAccesses(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"kong/plugins/fsap-api-access/handler.lua": `local redis = require "resty.redis"
+local plugin = { PRIORITY = 900 }
+function plugin:access(conf)
+  local org = kong.request.get_header("x-org")
+  local api = kong.router.get_service().name
+  local red = redis:new()
+  red:connect(conf.redis_host, 6379)
+  local enabled = red:get("fsap:access:" .. org .. ":" .. api)
+  red:setex(string.format("fsap:seen:%s", org), 60, "1")
+  red:del("fsap:access:" .. org)
+  local dynamic = red:get(conf.key)
+  local notRedis = org:get("fsap:not:redis")
+end
+return plugin
+`,
+	})
+	type use struct{ access, key, command string }
+	var got []use
+	for _, a := range result.RedisAccesses {
+		got = append(got, use{a.Access, a.Key, a.Command})
+	}
+	want := []use{
+		{"read", "fsap:access:{org}:{api}", "get"},
+		{"write", "fsap:seen:{org}", "setex"},
+		{"write", "fsap:access:{org}", "del"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("redis accesses = %+v", result.RedisAccesses)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("access %d = %+v, want %+v (all: %+v)", i, got[i], want[i], got)
+		}
+	}
+	node := nodeByLabel(t, result, "kong.plugins.fsap-api-access.handler.access")
+	if result.RedisAccesses[0].From != node.ID || result.RedisAccesses[0].File != "kong/plugins/fsap-api-access/handler.lua" {
+		t.Fatalf("access = %+v", result.RedisAccesses[0])
+	}
+}
+
+func TestLuaOnlyRestyRedisCommandsAreRedis(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"lib/cache.lua": `local M = {}
+local store = {}
+function M.a(t) return t:get("fsap:a:b") end
+function M.b() return store:set("fsap:c:d", 1) end
+return M
+`,
+	})
+	if len(result.RedisAccesses) != 0 {
+		t.Fatalf("get/set on something that is not resty.redis is not Redis: %+v", result.RedisAccesses)
+	}
+}

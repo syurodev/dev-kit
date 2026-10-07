@@ -288,6 +288,30 @@ public class ProjectAnalyzer {
                         .orElse(null));
         result.entityTables = tables.entities();
         result.tableAccesses = tables.accesses();
+
+        // Redis keys are read from the same calls.
+        for (CallScope scope : scopes) {
+            for (MethodCallExpr expr : scope.node().findAll(MethodCallExpr.class)) {
+                if (!belongsTo(expr, scope.node())) {
+                    continue;
+                }
+                RedisExtractor.access(expr, constants).ifPresent(access -> {
+                    for (String owner : scope.ownerIds()) {
+                        if (!nodeIds.contains(owner)) {
+                            continue;
+                        }
+                        RedisAccess copy = new RedisAccess();
+                        copy.from = owner;
+                        copy.key = access.key;
+                        copy.access = access.access;
+                        copy.command = access.command;
+                        copy.line = access.line;
+                        copy.file = scope.owner().file.relativePath();
+                        result.redisAccesses.add(copy);
+                    }
+                });
+            }
+        }
     }
 
     /**

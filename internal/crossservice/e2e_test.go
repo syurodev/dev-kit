@@ -62,6 +62,14 @@ class AccessController {
     @PostMapping("/{org}/enable") void enable(@PathVariable String org) {}
 }
 `,
+		"src/main/java/acme/AccessCache.java": `package acme;
+import org.springframework.data.redis.core.StringRedisTemplate;
+class AccessCache {
+    static final String PREFIX = "fsap:access:";
+    private final StringRedisTemplate redis = null;
+    void put(String org, String api) { redis.opsForValue().set(PREFIX + org + ":" + api, "1"); }
+}
+`,
 	})
 	writeTree(t, orders, map[string]string{
 		"src/main/java/acme/AccessClient.java": `package acme;
@@ -82,10 +90,13 @@ class EnableService {
 	})
 	writeTree(t, plugin, map[string]string{
 		"kong/plugins/fsap-api-access/handler.lua": `local http = require "resty.http"
+local redis = require "resty.redis"
 local plugin = { PRIORITY = 900 }
 function plugin:access(conf)
   local org = kong.request.get_header("x-org")
   local api = kong.router.get_service().name
+  local red = redis:new()
+  local cached = red:get("fsap:access:" .. org .. ":" .. api)
   local res = http.new():request_uri(conf.access_url .. "/v1/internal/api-access/" .. org .. "/api/" .. api, { method = "GET" })
 end
 return plugin
@@ -147,5 +158,22 @@ return plugin
 	}
 	if gone != 1 {
 		t.Errorf("endpoint-gone edges = %d, want the one ping call: %+v", gone, report.Inbound)
+	}
+
+	// The same two services share a Redis key: Java writes it, the plugin reads it.
+	keys, err := RunRedis(services, RedisQuery{Key: "fsap:access:*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys.KeyTotal != 1 {
+		t.Fatalf("keys = %+v", keys.Keys)
+	}
+	shared := keys.Keys[0]
+	if !shared.CrossService || len(shared.Writers) != 1 || len(shared.Readers) != 1 ||
+		shared.Writers[0].Service != "access-service" || shared.Readers[0].Service != "fsap-api-access" {
+		t.Fatalf("key = %+v", shared)
+	}
+	if shared.Writers[0].Key != "fsap:access:{org}:{api}" || shared.Readers[0].Key != "fsap:access:{org}:{api}" {
+		t.Fatalf("keys as written: %q / %q", shared.Writers[0].Key, shared.Readers[0].Key)
 	}
 }

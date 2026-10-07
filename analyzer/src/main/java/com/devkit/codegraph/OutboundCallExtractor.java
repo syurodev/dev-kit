@@ -220,7 +220,7 @@ public final class OutboundCallExtractor {
     }
 
     /** A declaration's type as written and the expression it is set to, if any. */
-    private record Declared(Type type, Optional<Expression> value) {}
+    record Declared(Type type, Optional<Expression> value) {}
 
     /**
      * Where a name used at {@code at} is declared: a local or a parameter of
@@ -228,7 +228,7 @@ public final class OutboundCallExtractor {
      * field of an enclosing type. A field's value is its initializer or the
      * one expression its constructors assign it.
      */
-    private static Optional<Declared> declaration(Expression at, String name, boolean fieldOnly) {
+    static Optional<Declared> declaration(Expression at, String name, boolean fieldOnly) {
         Optional<com.github.javaparser.ast.Node> current = at.getParentNode();
         while (current.isPresent()) {
             com.github.javaparser.ast.Node node = current.get();
@@ -330,7 +330,7 @@ public final class OutboundCallExtractor {
         return Optional.empty();
     }
 
-    private static String simpleName(Type type) {
+    static String simpleName(Type type) {
         String written = type.asString();
         int generic = written.indexOf('<');
         if (generic >= 0) {

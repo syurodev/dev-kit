@@ -624,6 +624,17 @@ its index on disk with no Service opened (`Registry.Snapshot`; no watcher, no re
 - Layering: `crossservice` imports `codegraph` and `workspace`; `codegraph` still does not import
   `workspace` (arch test). The MCP tool resolves "the asker's workspace" from `workspace.list`'s logic.
 
+### CodeGraph: shared Redis keys
+Same shape as the HTTP join: each service records `RedisAccess` (table `redis_accesses`; Java
+`RedisExtractor`, Lua `recordRedis`), `crossservice.RunRedis` joins at read time (MCP
+`codegraph.findRedisKeyUsage`). A key is a PATTERN (`fsap:access:{org}:{api}`); two are one resource
+when some string matches both (`overlaps`, a DP over `*`), and a pattern needs ≥ 3 fixed leading
+characters to count — `*` and `{key}` overlap everything, so they are dropped and a query by one is refused.
+- Redis is recognised by the receiver (an `opsFor*()` chain, a declared template/client/command type,
+  Lua provenance of `require "resty.redis"`), never by a method name like `get`.
+- Not seen: keys built elsewhere and passed in, `@Cacheable`, Lua `EVAL`, pub/sub, Redisson. Say so in
+  the answer's notes instead of widening the match.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.

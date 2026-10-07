@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS outbound_calls (
 	url TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_outbound_calls_from ON outbound_calls(from_id);
+CREATE TABLE IF NOT EXISTS redis_accesses (
+	from_id TEXT NOT NULL,
+	key TEXT NOT NULL,
+	access TEXT NOT NULL,
+	command TEXT NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
 	verb TEXT NOT NULL,
@@ -326,7 +334,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses", "outbound_calls"} {
+	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses", "outbound_calls", "redis_accesses"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -504,6 +512,17 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	for _, o := range result.OutboundCalls {
 		if _, err := outboundStmt.ExecContext(ctx, o.From, o.File, o.Line, o.Client, o.HTTPMethod, o.ServiceName, o.URL); err != nil {
 			return fmt.Errorf("codegraph: insert outbound call %q: %w", o.URL, err)
+		}
+	}
+
+	redisStmt, err := insert(`INSERT INTO redis_accesses (from_id, key, access, command, file, line) VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer redisStmt.Close()
+	for _, a := range result.RedisAccesses {
+		if _, err := redisStmt.ExecContext(ctx, a.From, a.Key, a.Access, a.Command, a.File, a.Line); err != nil {
+			return fmt.Errorf("codegraph: insert redis access %q: %w", a.Key, err)
 		}
 	}
 
@@ -1393,6 +1412,24 @@ func (s *sqliteStore) ListOutboundCalls(ctx context.Context) ([]OutboundCall, er
 			return nil, fmt.Errorf("codegraph: scan outbound call: %w", err)
 		}
 		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) ListRedisAccesses(ctx context.Context) ([]RedisAccess, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, key, access, command, file, line FROM redis_accesses ORDER BY key, file, line`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListRedisAccesses: %w", err)
+	}
+	defer rows.Close()
+	var out []RedisAccess
+	for rows.Next() {
+		var a RedisAccess
+		if err := rows.Scan(&a.From, &a.Key, &a.Access, &a.Command, &a.File, &a.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan redis access: %w", err)
+		}
+		out = append(out, a)
 	}
 	return out, rows.Err()
 }
