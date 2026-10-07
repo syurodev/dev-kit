@@ -78,10 +78,7 @@ function render(actions: RowAction[], family: Family, keyPrefix: string): ReactN
     if (action.kind === "submenu") {
       return (
         <Sub key={key}>
-          <SubTrigger>
-            {action.icon}
-            {action.label}
-          </SubTrigger>
+          <SubTrigger icon={action.icon}>{action.label}</SubTrigger>
           <SubContent>{render(action.items, family, key)}</SubContent>
         </Sub>
       );
@@ -92,8 +89,10 @@ function render(actions: RowAction[], family: Family, keyPrefix: string): ReactN
         onSelect={action.onSelect}
         disabled={action.disabled}
         variant={action.destructive ? "destructive" : undefined}
+        // The icon column, not a child: children land in the label span, where
+        // the svg (display: block) stacks above the text.
+        icon={action.icon}
       >
-        {action.icon}
         {action.label}
       </Item>
     );
