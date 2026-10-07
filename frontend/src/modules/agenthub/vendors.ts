@@ -33,6 +33,7 @@ export const CLAUDE_INFO: VendorInfo = {
   runtimeId: CLAUDE_AGENT,
   runtimeName: "Claude Agent",
   signIn: "terminal",
+  configCatalog: true,
 };
 
 export const CODEX_INFO: VendorInfo = {

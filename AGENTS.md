@@ -145,6 +145,12 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.
+- **Both vendors pick model and effort before the session exists.** `VendorConfigCatalog`
+  (`ConfigCatalog`) is implemented by Codex (`codex_config.go`) and Claude (`claude_config.go`):
+  a short-lived agent in a scratch folder, no prompt. Claude only lists the effort levels of the
+  model it is on, so the catalog switches to each model and reads them back from
+  `session/set_config_option`. The draft picker calls effort `reasoning_effort` for every vendor;
+  `claudeRuntime.SetConfigOption` maps it to Claude's own `effort`.
 - **Codex signs in inside DevKit, UI only.** Bridge `AgentHubSignInStatus` /
   `AgentHubStart{Browser,Device}SignIn` / `AgentHubCancelSignIn` / `AgentHubSignOut`
   (`auth:codex`), event `agenthub:signInCompleted`. There is no MCP tool for it
