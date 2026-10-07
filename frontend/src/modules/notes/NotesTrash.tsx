@@ -1,3 +1,4 @@
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useState } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -41,7 +42,7 @@ export function daysUntilPurge(purgesAt: string, now: number = Date.now()): numb
  * days" (warning; danger once it is close) and Restore / Delete at 24px.
  */
 export function NotesTrash({ onChanged }: { onChanged: () => void }) {
-  const [trashListRef] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const [trashListRef] = useAutoAnimate<HTMLUListElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");

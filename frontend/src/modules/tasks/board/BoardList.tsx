@@ -1,3 +1,4 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useState } from "react";
 import { ChevronRight, GitBranch, Hourglass } from "lucide-react";
 import { progressOf, type Board, type Task } from "@/bridge/tasks";
@@ -126,7 +127,7 @@ export function BoardList({
               <StatusDot category={column.status?.category} />
               {column.name}
               <span className="rounded-full bg-state-soft px-1.5 text-caption-11 text-text-tertiary tabular-nums">
-                {column.tasks.length}
+                <AnimatedNumber value={column.tasks.length} />
               </span>
             </button>
             <AnimatedCollapse open={!isFolded}>

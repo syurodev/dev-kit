@@ -1,3 +1,4 @@
+import { AnimatedNumber, AnimatedNumberGroup } from "@/components/ui/animated-number";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
@@ -51,10 +52,10 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 /** Figma `meter/*` (779:127): head, a 12px segmented track, a dotted legend. */
 function Meter({ label, total, segments }: { label: string; total: number; segments: MeterSegment[] }) {
   return (
-    <div className="flex flex-col gap-2.5">
+    <AnimatedNumberGroup><div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2 text-label-11-caps">
         <span className="flex-1 text-text-tertiary">{label}</span>
-        <span className="text-text-primary normal-case">{total} records</span>
+        <span className="text-text-primary normal-case"><AnimatedNumber value={total} suffix=" records" /></span>
       </div>
       <div className="flex h-3 gap-0.5">
         {segments.map((s) => (
@@ -66,12 +67,12 @@ function Meter({ label, total, segments }: { label: string; total: number; segme
         {segments.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5 text-code-11">
             <span className={cn("size-1.5 rounded-full", s.className)} />
-            <span className="text-text-primary">{s.count}</span>
+            <AnimatedNumber value={s.count} className="text-text-primary" />
             <span className="text-text-tertiary">{s.label}</span>
           </span>
         ))}
       </div>
-    </div>
+    </div></AnimatedNumberGroup>
   );
 }
 

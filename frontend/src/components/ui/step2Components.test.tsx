@@ -17,15 +17,21 @@ import { join } from "node:path";
 
 describe("Step 2 Form Controls Reconciliation", () => {
   describe("Input (Figma 28:62)", () => {
-    it("renders field with shared glass recipe and body-14 typography", () => {
+    it("links a field to its label and helper without replacing caller descriptions", () => {
+      const html = renderToString(<Input id="profile-name" label="Profile" helperText="Saved locally" aria-describedby="external-help" />)
+      expect(html).toContain('for="profile-name"')
+      expect(html).toContain('id="profile-name-description"')
+      expect(html).toContain('aria-describedby="external-help profile-name-description"')
+    })
+    it("renders field with shared theme surface recipe and body-14 typography", () => {
       const html = renderToString(
         <Input placeholder="Enter username..." defaultValue="dev-kit" />,
       )
 
       expect(html).toContain('data-slot="input"')
       expect(html).toContain("rounded-md")
-      expect(html).toContain("border-status-info/16")
-      expect(html).toContain("bg-white/6")
+      expect(html).toContain("border-border-subtle")
+      expect(html).toContain("bg-surface-well")
       expect(html).toContain("text-body-14")
       expect(html).toContain("text-text-primary")
       expect(html).toContain("placeholder:text-text-tertiary")
@@ -79,14 +85,14 @@ describe("Step 2 Form Controls Reconciliation", () => {
   })
 
   describe("Checkbox (Figma 28:78)", () => {
-    it("renders 18x18 r=6 control with shared glass surface recipe", () => {
+    it("renders 18x18 r=6 control with shared theme surface recipe", () => {
       const html = renderToString(<Checkbox id="test-check" />)
 
       expect(html).toContain('data-slot="checkbox"')
       expect(html).toContain("size-4.5")
       expect(html).toContain("rounded-sm")
-      expect(html).toContain("bg-white/6")
-      expect(html).toContain("border-status-info/16")
+      expect(html).toContain("bg-surface-well")
+      expect(html).toContain("border-border-subtle")
     })
 
     it("renders checked indicator and styling", () => {
@@ -117,8 +123,8 @@ describe("Step 2 Form Controls Reconciliation", () => {
       expect(html).toContain("h-4.5")
       expect(html).toContain("w-8")
       expect(html).toContain("rounded-full")
-      expect(html).toContain("bg-white/6")
-      expect(html).toContain("border-transparent")
+      expect(html).toContain("bg-surface-well")
+      expect(html).toContain("border-border-subtle")
       expect(html).toContain('data-slot="switch-thumb"')
       expect(html).toContain("size-4")
       expect(html).toContain("rounded-full")
@@ -129,7 +135,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
 
       expect(html).toContain('data-state="checked"')
       expect(html).toContain("data-checked:bg-action-primary")
-      expect(html).toContain("group-data-[state=checked]/switch:bg-palette-onyx")
+      expect(html).toContain("group-data-[state=checked]/switch:bg-action-primary-foreground")
     })
   })
 
@@ -147,8 +153,8 @@ describe("Step 2 Form Controls Reconciliation", () => {
       expect(html).toContain("max-w-55")
       expect(html).toContain("h-(--control-height-md)")
       expect(html).toContain("rounded-md")
-      expect(html).toContain("border-status-info/16")
-      expect(html).toContain("bg-white/6")
+      expect(html).toContain("border-border-subtle")
+      expect(html).toContain("bg-surface-well")
       expect(html).toContain("text-body-13")
     })
 

@@ -15,7 +15,7 @@ import { Kbd } from "@/components/ui/kbd"
  * flex row. Both menu components use this, so they cannot drift apart.
  */
 export const MENU_ROW = cn(
-  "relative grid h-7 w-full min-w-50 cursor-pointer grid-cols-menu-row items-center gap-x-2 rounded-sm px-2 text-body-13 outline-none select-none transition-colors",
+  "relative grid h-7 w-full min-w-50 cursor-pointer grid-cols-menu-row items-center gap-x-2 rounded-sm px-2 text-body-13 outline-none select-none transition-control",
   "bg-transparent text-text-primary",
   "focus:bg-state-soft hover:bg-state-soft data-open:bg-state-soft",
   "data-disabled:pointer-events-none data-disabled:opacity-50",

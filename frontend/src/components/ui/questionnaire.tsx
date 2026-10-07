@@ -33,9 +33,9 @@ import { cn } from "@/lib/utils"
  * only uses on row 1.
  */
 export const QUESTIONNAIRE_CHOICE = cn(
-  "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-auto-fr-auto items-start gap-x-2.5 gap-y-0.5 rounded-md border border-status-info/16 bg-white/6 px-3 py-2 text-start text-body-13 text-text-primary transition-colors outline-none select-none",
+  "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-auto-fr-auto items-start gap-x-2.5 gap-y-0.5 rounded-md border border-border-subtle bg-surface-well px-3 py-2 text-start text-body-13 text-text-primary transition-control outline-none select-none",
   "hover:bg-state-soft",
-  "has-[>input:focus-visible]:border-(length:--stroke-1-5) has-[>input:focus-visible]:border-status-info",
+  "has-[>input:focus-visible]:ring-2 has-[>input:focus-visible]:ring-status-info/20 has-[>input:focus-visible]:border-status-info",
   "data-checked:border-status-info data-checked:bg-state-soft",
   "data-invalid:border-status-danger",
   "data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50"
@@ -43,7 +43,7 @@ export const QUESTIONNAIRE_CHOICE = cn(
 
 /** The radio dot or checkbox tick, sharing Checkbox's checked fill. */
 export const QUESTIONNAIRE_INDICATOR = cn(
-  "pointer-events-none relative col-start-1 row-start-1 flex size-4 shrink-0 translate-y-px items-center justify-center rounded-xs border border-status-info/16 bg-white/6",
+  "pointer-events-none relative col-start-1 row-start-1 flex size-4 shrink-0 translate-y-px items-center justify-center rounded-xs border border-border-subtle bg-surface-well",
   "group-has-data-[slot=questionnaire-choice-description]/questionnaire-choice:translate-y-0.5",
   "group-data-[type=radio]/questionnaire-choice:rounded-full",
   "group-data-checked/questionnaire-choice:border-action-primary group-data-checked/questionnaire-choice:bg-action-primary group-data-checked/questionnaire-choice:text-action-primary-foreground"
@@ -238,9 +238,9 @@ function QuestionnaireInput({
       <QuestionnairePrimitive.Input
         data-slot="questionnaire-input"
         className={cn(
-          "h-(--control-height-md) w-full min-w-0 rounded-md border border-status-info/16 bg-white/6 px-3 text-body-13 text-text-primary transition-colors outline-none",
+          "h-(--control-height-md) w-full min-w-0 rounded-md border border-border-subtle bg-surface-well px-3 text-body-13 text-text-primary transition-control outline-none",
           "placeholder:text-text-tertiary",
-          "focus-visible:border-(length:--stroke-1-5) focus-visible:border-status-info",
+          "focus-visible:ring-2 focus-visible:ring-status-info/20 focus-visible:border-status-info",
           "data-filled:border-status-info",
           "disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-text-tertiary",
           "aria-invalid:border-status-danger",

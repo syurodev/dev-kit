@@ -1,4 +1,4 @@
-import NumberFlow from "@number-flow/react";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import type * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
@@ -202,7 +202,7 @@ export function PermissionMarks({
               looking at, movement is what says the deadline is still running.
               NumberFlow owns the aria-label too, so a reader hears "44s" rather
               than two digits. */}
-          {expired ? "expired" : <NumberFlow value={secondsLeft} suffix="s" willChange />}
+          {expired ? "expired" : <AnimatedNumber value={secondsLeft} suffix="s" className="min-w-[3ch]" />}
         </span>
       ) : null}
     </>

@@ -1,3 +1,4 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -310,7 +311,7 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
                 <ChevronLeft />
               </Button>
               <span className="text-code-11 text-text-tertiary">
-                {index + 1}/{changes.length}
+                <AnimatedNumber value={index + 1} />/<AnimatedNumber value={changes.length} />
               </span>
               <Button
                 variant="ghost"

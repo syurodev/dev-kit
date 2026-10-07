@@ -6,9 +6,7 @@ import { Tag } from "@/components/ui/tag";
  * Tag Input (Figma 378:2698)
  * Variants: State Default / Focus
  * Standard dimensions: 320×32, min-h-(--control-height-md), r=8 (rounded-md)
- * Surface matches Figma: white 6% fill, candy-blue hairline at 16% at rest and
- * at full strength on focus — the same translucent tier as the chips inside it,
- * not an opaque surface/base panel. Placeholder is Body/12 text/tertiary.
+ * Theme-aware recessed surface; focus adds a ring without changing geometry.
  */
 export interface TagInputProps
   extends Omit<React.ComponentProps<"div">, "onChange"> {
@@ -19,6 +17,8 @@ export interface TagInputProps
   maxTags?: number;
   delimiter?: string | RegExp;
   tagDotColor?: (tag: string) => string | undefined;
+  /** Connect an external label to the editable input, rather than its wrapper. */
+  inputId?: string;
 }
 
 const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
@@ -32,6 +32,9 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
       maxTags,
       delimiter = /[,]/,
       tagDotColor,
+      inputId,
+      "aria-label": ariaLabel,
+      "aria-describedby": describedBy,
       ...props
     },
     ref,
@@ -98,8 +101,8 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
         data-disabled={disabled}
         onClick={() => inputRef.current?.focus()}
         className={cn(
-          "flex min-h-(--control-height-md) w-full max-w-80 flex-wrap items-center gap-1.5 rounded-md border border-status-info/16 bg-white/6 px-2 py-1 transition-all",
-          "focus-within:border-status-info",
+          "flex min-h-(--control-height-md) w-full max-w-80 flex-wrap items-center gap-1.5 rounded-md border border-border-subtle bg-surface-well px-2 py-1 transition-control",
+          "focus-within:border-status-info focus-within:ring-2 focus-within:ring-status-info/20",
           disabled && "pointer-events-none opacity-38",
           className,
         )}
@@ -116,6 +119,9 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
         ))}
         {(!maxTags || value.length < maxTags) && (
           <input
+            id={inputId}
+            aria-label={ariaLabel}
+            aria-describedby={describedBy}
             ref={inputRef}
             type="text"
             disabled={disabled}

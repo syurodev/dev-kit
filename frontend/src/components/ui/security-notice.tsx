@@ -34,9 +34,9 @@ function SecurityNotice({
       data-slot="security-notice"
       data-type={type}
       className={cn(
-        "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-colors backdrop-blur-md shadow-glass-edge",
-        isSecure && "h-18 min-h-18 border-status-success bg-status-success/12",
-        isIrreversible && "h-21 min-h-21 border-glass-border bg-glass-panel",
+        "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-control",
+        isSecure && "min-h-18 border-status-success bg-status-success/12",
+        isIrreversible && "min-h-21 border-border-subtle bg-surface-well",
         className
       )}
       {...props}

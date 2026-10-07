@@ -56,7 +56,7 @@ export function TranscriptTicks({ ticks, active, onJump, className }: Transcript
           >
             <span
               className={cn(
-                "block h-0.5 rounded-full transition-all duration-150 ease-out motion-reduce:transition-none",
+                "block h-0.5 rounded-full transition-colors duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
                 distance === 0 ? "w-7" : distance === 1 ? "w-5" : distance === 2 ? "w-4" : "w-3",
                 index === active || distance === 0
                   ? "bg-text-primary"

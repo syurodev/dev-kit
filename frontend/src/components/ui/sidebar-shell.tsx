@@ -18,6 +18,7 @@ import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 import { armBeside } from "@/stores/workbenchTabs";
 import { MOTION_FAST, MOTION_SLOW, noMotion } from "@/lib/motion";
+import { AnimatedNumber } from "./animated-number";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -115,7 +116,7 @@ export function SidebarSection({
         {label}
       </span>
       {count !== undefined && (
-        <span className="text-code-11 text-text-tertiary/70">{count}</span>
+        <AnimatedNumber value={count} className="min-w-counter text-code-11 text-text-tertiary/70" />
       )}
     </>
   );

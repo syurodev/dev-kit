@@ -1,3 +1,4 @@
+import { AnimatedNumber, AnimatedNumberGroup } from "@/components/ui/animated-number";
 import { Bot, Hourglass, Timer } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import type { BoardSummary } from "../taskModel";
@@ -12,32 +13,32 @@ export function BoardSummaryBar({ summary }: { summary: BoardSummary }) {
   if (summary.total === 0) return null;
   const percent = Math.round((summary.done / summary.total) * 100);
   return (
-    <div className="flex min-w-0 items-center gap-4 text-caption-11 text-text-tertiary">
+    <AnimatedNumberGroup><div className="flex min-w-0 items-center gap-4 text-caption-11 text-text-tertiary">
       <div className="flex items-center gap-2" title={`${summary.done} of ${summary.total} tasks finished`}>
         <Progress value={percent} className="w-28" aria-label="Board progress" />
         <span className="text-text-secondary tabular-nums">
-          {summary.done}/{summary.total}
+          <AnimatedNumber value={summary.done} />/<AnimatedNumber value={summary.total} />
         </span>
-        <span className="tabular-nums">{percent}%</span>
+        <span className="tabular-nums"><AnimatedNumber value={percent} suffix="%" className="min-w-[4ch]" /></span>
       </div>
       {summary.active > 0 ? (
         <span className="inline-flex items-center gap-1 text-status-info">
           <Timer aria-hidden className="size-(--icon-12)" />
-          <span className="tabular-nums">{summary.active}</span> in progress
+          <span className="tabular-nums"><AnimatedNumber value={summary.active} /></span> in progress
         </span>
       ) : null}
       {summary.blocked > 0 ? (
         <span className="inline-flex items-center gap-1 text-status-warning">
           <Hourglass aria-hidden className="size-(--icon-12)" />
-          <span className="tabular-nums">{summary.blocked}</span> waiting
+          <span className="tabular-nums"><AnimatedNumber value={summary.blocked} /></span> waiting
         </span>
       ) : null}
       {summary.heldByAgent > 0 ? (
         <span className="inline-flex items-center gap-1 text-status-success">
           <Bot aria-hidden className="size-(--icon-12)" />
-          <span className="tabular-nums">{summary.heldByAgent}</span> with agents
+          <span className="tabular-nums"><AnimatedNumber value={summary.heldByAgent} /></span> with agents
         </span>
       ) : null}
-    </div>
+    </div></AnimatedNumberGroup>
   );
 }

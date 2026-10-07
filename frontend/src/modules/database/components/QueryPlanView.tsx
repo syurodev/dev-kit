@@ -303,7 +303,7 @@ function PlanNodeItem({
         {node.selfMillis > 0 && (
           <div className="w-full bg-surface-base h-1.5 rounded-full overflow-hidden border border-border/50">
             <div
-              className={`h-full rounded-full transition-all ${
+              className={`h-full rounded-full transition-colors duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none ${
                 isSlow
                   ? "bg-status-danger"
                   : hasHighDeviation

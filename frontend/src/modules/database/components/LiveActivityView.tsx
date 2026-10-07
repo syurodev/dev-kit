@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 
 const SESSION_ROW_HEIGHT = 42;
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -110,6 +111,9 @@ export function LiveActivityView() {
     },
   });
 
+  const previousAction = useRef(confirmAction);
+  useEffect(() => { if (confirmAction) previousAction.current = confirmAction; }, [confirmAction]);
+  const dialogAction = confirmAction ?? previousAction.current;
   const actionInProgress = cancelMutation.isPending || terminateMutation.isPending;
   const loading = isFetching;
 
@@ -307,35 +311,35 @@ export function LiveActivityView() {
       </div>
 
       {/* Destructive Action Confirmation Dialog (Screen 12) */}
-      {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-md p-5 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
+      {dialogAction && (
+        <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => { if (!open && !actionInProgress) setConfirmAction(null); }}>
+          <AlertDialogContent className="sm:max-w-md">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-status-danger/10 border border-status-danger/30 flex items-center justify-center shrink-0 text-status-danger">
                 <AlertTriangle className="w-5 h-5" />
               </div>
-              <div className="space-y-1">
-                <h3 className="text-title-14 text-text-primary">
-                  {confirmAction.type === "cancel"
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {dialogAction.type === "cancel"
                     ? "Cancel Query Statement?"
                     : "Terminate Session Connection?"}
-                </h3>
-                <p className="text-body-13 text-text-secondary">
-                  {confirmAction.type === "cancel"
-                    ? `This will cancel the currently executing query on PID ${confirmAction.session.pid}. The client connection remains open.`
-                    : `This will forcefully disconnect session PID ${confirmAction.session.pid} and roll back its transaction.`}
-                </p>
-              </div>
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {dialogAction.type === "cancel"
+                    ? `This will cancel the currently executing query on PID ${dialogAction.session.pid}. The client connection remains open.`
+                    : `This will forcefully disconnect session PID ${dialogAction.session.pid} and roll back its transaction.`}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
             </div>
 
             {/* Target Statement Detail */}
             <div className="p-2.5 rounded-lg bg-surface-raised border border-border text-code-12 space-y-1">
               <div className="flex justify-between text-caption-11 text-text-tertiary">
-                <span>PID: {confirmAction.session.pid}</span>
-                <span>User: {confirmAction.session.user}</span>
+                <span>PID: {dialogAction.session.pid}</span>
+                <span>User: {dialogAction.session.user}</span>
               </div>
               <div className="text-caption-11 text-text-secondary truncate">
-                {confirmAction.session.query}
+                {dialogAction.session.query}
               </div>
             </div>
 
@@ -354,26 +358,19 @@ export function LiveActivityView() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmAction(null)}
-                disabled={actionInProgress}
-              >
-                Cancel
-              </Button>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={actionInProgress}>Cancel</AlertDialogCancel>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={handleConfirmAction}
                 disabled={actionInProgress}
               >
-                {actionInProgress ? "Processing…" : `Yes, ${confirmAction.type === "cancel" ? "Cancel Query" : "Terminate"}`}
+                {actionInProgress ? "Processing…" : `Yes, ${dialogAction.type === "cancel" ? "Cancel Query" : "Terminate"}`}
               </Button>
-            </div>
-          </div>
-        </div>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );

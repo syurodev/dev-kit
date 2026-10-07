@@ -14,6 +14,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // all: VaultGate needs the Wails bridge, so without this every shared component
 // is unreachable outside the desktop app.
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
+const CalmComponentsPreview = lazy(() => import("./dev/CalmComponentsPreview"));
 const ShellHarness = lazy(() => import("./dev/ShellHarness"));
 
 // Lazy for the same reason: sonner is 36 KiB of the shell's initial JS for a
@@ -32,6 +33,9 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("calm-preview")) {
+    return <Suspense fallback={null}><CalmComponentsPreview /></Suspense>;
+  }
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("shell-harness")) {
     return (
       <QueryClientProvider client={queryClient}>

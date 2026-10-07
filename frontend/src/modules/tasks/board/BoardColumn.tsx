@@ -1,3 +1,5 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
@@ -11,7 +13,7 @@ import { createIn } from "../taskActions";
 import { collapsesWhenEmpty, openBlockers, type Column } from "../taskModel";
 import { TaskCard } from "./TaskCard";
 
-const LIST_MOTION = { duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
+const LIST_MOTION = { duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS };
 
 /**
  * A column's "Add task": a button until it is used, then a card-shaped field
@@ -141,7 +143,7 @@ export function BoardColumn({
         <StatusDot category={status?.category} />
         <span className="min-w-0 truncate">{column.name}</span>
         <span className="rounded-full bg-state-soft px-1.5 text-caption-11 text-text-tertiary tabular-nums">
-          {column.tasks.length}
+          <AnimatedNumber value={column.tasks.length} />
         </span>
         {opened && collapsesWhenEmpty(column) ? (
           <Button

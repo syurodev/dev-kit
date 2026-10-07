@@ -5,8 +5,9 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { Tabs as TabsPrimitive } from "radix-ui"
 
-import { noMotion, slideTransition, slideVariants, type SlideCustom } from "@/lib/motion"
+import { noMotion, slideTransition, slideVariants, SPRING_LAYOUT, type SlideCustom } from "@/lib/motion"
 import { cn } from "@/lib/utils"
+import { AnimatedNumber } from "./animated-number"
 
 /**
  * What the triggers and panels need that Radix keeps to itself: the selected
@@ -130,7 +131,7 @@ function TabsTrigger({
         // ("text-sm font-medium" in the node description). Step 2 moved this off
         // caption-11 but landed on 13; the real value is 14, which is why
         // `text-title-14` / `text-body-14-medium` were added to the scale.
-        "group/tabs-trigger relative inline-flex h-6 items-center justify-center gap-1.5 rounded-sm px-2 py-0.5 text-body-14-medium whitespace-nowrap text-text-tertiary transition-all",
+        "group/tabs-trigger relative inline-flex h-6 items-center justify-center gap-1.5 rounded-sm px-2 py-0.5 text-body-14-medium whitespace-nowrap text-text-tertiary transition-control",
         "hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info",
         "disabled:pointer-events-none disabled:opacity-50",
         "data-active:text-text-primary",
@@ -147,7 +148,7 @@ function TabsTrigger({
           aria-hidden
           data-slot="tabs-indicator"
           layoutId={`${ctx.id}-indicator`}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+          transition={ctx.reduced ? noMotion : SPRING_LAYOUT}
           className={cn(
             "absolute rounded-sm",
             "group-data-[variant=default]/tabs-list:inset-0 group-data-[variant=default]/tabs-list:border group-data-[variant=default]/tabs-list:border-border-default group-data-[variant=default]/tabs-list:bg-(--segment-chip)",
@@ -206,17 +207,19 @@ function TabsContent({
   )
 }
 
-function TabsCount({ className, ...props }: React.ComponentProps<"span">) {
+function TabsCount({ className, children, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       data-slot="tabs-count"
       className={cn(
         "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1",
-        "bg-white/6 text-body-14-medium tabular-nums text-text-tertiary",
+        "bg-state-soft text-body-14-medium tabular-nums text-text-tertiary",
         className,
       )}
       {...props}
-    />
+    >
+      {typeof children === "number" ? <AnimatedNumber value={children} /> : children}
+    </span>
   )
 }
 

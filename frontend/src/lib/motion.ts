@@ -37,8 +37,24 @@ export const noMotion: Transition = { duration: 0 };
 export const MOTION_FAST = 0.12;
 export const MOTION_BASE = 0.18;
 export const MOTION_SLOW = 0.24;
-/** --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1). */
-export const EASE_OUT_STRONG = [0.23, 1, 0.32, 1] as const;
+/** Easing curves mirror index.css. Keep CSS and Motion controls in one family. */
+export const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+export const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const;
+export const EASE_DRAWER = [0.32, 0.72, 0, 1] as const;
+export const EASE_OUT_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
+export const EASE_OUT_STRONG = EASE_OUT;
+
+/** Tactile feedback on a control; never used to bounce reading surfaces. */
+export const SPRING_PRESS = { type: "spring", stiffness: 500, damping: 30, mass: 0.6 } as const;
+/** Small label or icon swaps within a fixed slot. */
+export const SPRING_SWAP = { type: "spring", stiffness: 460, damping: 30, mass: 0.55 } as const;
+/** Panel physics for surfaces with an interruptible Motion lifecycle. */
+export const SPRING_PANEL = { type: "spring", stiffness: 420, damping: 40, mass: 0.5 } as const;
+export const SPRING_LAYOUT = { type: "spring", stiffness: 360, damping: 32, mass: 0.6 } as const;
+/** Decorative pointer following, not input value updates. */
+export const SPRING_MOUSE = { stiffness: 200, damping: 15, mass: 0.3 } as const;
+/** Damped pointer glide, without overshoot at either end. */
+export const SPRING_GLIDE = { stiffness: 700, damping: 50, mass: 0.5 } as const;
 
 /** Content trailing its container, so the panel leads and the body follows. */
 export const CONTENT_FADE_DELAY = 0.06;

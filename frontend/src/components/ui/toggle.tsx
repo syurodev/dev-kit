@@ -5,12 +5,13 @@ import { Toggle as TogglePrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-control text-body-13-medium whitespace-nowrap transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-[state=on]:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-control text-body-13-medium whitespace-nowrap transition-control outline-none hover:bg-state-soft hover:text-foreground focus-visible:ring-2 focus-visible:ring-status-info/20 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-status-danger aria-invalid:ring-status-danger/15 aria-pressed:bg-state-soft data-[state=on]:bg-state-soft [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: "bg-transparent",
-        outline: "border border-input bg-transparent hover:bg-muted",
+        outline:
+          "border border-border-subtle bg-surface-well hover:bg-state-soft",
       },
       size: {
         default:

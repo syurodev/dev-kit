@@ -1,3 +1,5 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useEffect } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
@@ -93,7 +95,7 @@ export function KafkaView() {
     return () => closePanel();
   }, [inspected, selectedTopic, resultPartition, peekPartition, openPanel, closePanel, inspect]);
 
-  const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
 
   const jsonExtension = useLanguageExtension("json");
   const profile = profiles.find((p) => p.id === (connection.connected ? connection.profileId : selectedId));
@@ -189,7 +191,7 @@ export function KafkaView() {
         {activeTab === "groups" ? (
           <>
             <h1 className="text-title-16 text-text-primary">Consumer groups</h1>
-            <Chip><span className="tabular-nums">{groups.length}</span> group{groups.length === 1 ? "" : "s"}</Chip>
+            <Chip><AnimatedNumber value={groups.length} /> group{groups.length === 1 ? "" : "s"}</Chip>
           </>
         ) : activeTab === "publish" ? (
           <h1 className="text-title-16 text-text-primary">Publish</h1>
@@ -204,10 +206,10 @@ export function KafkaView() {
                 count up to three digits, so the swap moves nothing either. */}
             <div className={cn("flex items-center gap-2", !topicDetail && "invisible")} aria-hidden={!topicDetail}>
               <Chip className="min-w-24 justify-center">
-                <span className="tabular-nums">{partitions.length}</span> partition{partitions.length === 1 ? "" : "s"}
+                <AnimatedNumber value={partitions.length} /> partition{partitions.length === 1 ? "" : "s"}
               </Chip>
               <Chip className="min-w-22 justify-center">
-                <span className="tabular-nums">{topicDetail?.replicationFactor ?? 0}</span> replica{topicDetail?.replicationFactor === 1 ? "" : "s"}
+                <AnimatedNumber value={topicDetail?.replicationFactor ?? 0} /> replica{topicDetail?.replicationFactor === 1 ? "" : "s"}
               </Chip>
             </div>
           </>
@@ -303,10 +305,10 @@ export function KafkaView() {
             {peeked && !peekError && (
               <>
                 <span className="text-body-13-medium text-text-primary">
-                  <span className="tabular-nums">{messages.length}</span> message{messages.length === 1 ? "" : "s"}
+                  <AnimatedNumber value={messages.length} /> message{messages.length === 1 ? "" : "s"}
                 </span>
                 {peekDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary tabular-nums">{peekDurationMs} ms</span>
+                  <AnimatedNumber value={peekDurationMs} suffix=" ms" className="text-body-13-medium text-text-primary" />
                 )}
               </>
             )}

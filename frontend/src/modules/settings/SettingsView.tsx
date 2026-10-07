@@ -1,3 +1,4 @@
+import { NumberStepper as SizeStepper } from "@/components/ui/number-stepper";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -404,52 +405,6 @@ function AccountTab() {
 // 2. Appearance Tab — Figma `Settings Content / Appearance` (763:1792)
 // ----------------------------------------------------------------------
 
-/** stepper (763:1818): − · value · + in one 104×36 raised control. The
- * value is mono; the two buttons are sans, because they are buttons. */
-function SizeStepper({
-  value,
-  onChange,
-  min = 10,
-  max = 24,
-  step: increment = 1,
-  label,
-}: {
-  value: number;
-  onChange: (size: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  /** Names what the two buttons change, when a section has more than one stepper. */
-  label?: string;
-}) {
-  function step(delta: number) {
-    onChange(Math.min(max, Math.max(min, value + delta * increment)));
-  }
-  return (
-    <div className="flex h-9 w-26 overflow-hidden rounded-md border border-border bg-surface-raised">
-      <button
-        type="button"
-        aria-label={label ? `${label}: smaller` : "Smaller"}
-        onClick={() => step(-1)}
-        className="w-8 text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary"
-      >
-        −
-      </button>
-      <span className="flex w-10 items-center justify-center text-code-12 text-text-primary">
-        {value}
-      </span>
-      <button
-        type="button"
-        aria-label={label ? `${label}: larger` : "Larger"}
-        onClick={() => step(1)}
-        className="w-8 text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary"
-      >
-        +
-      </button>
-    </div>
-  );
-}
-
 function FontSettingRow({
   label,
   font,
@@ -487,7 +442,7 @@ function FontSettingRow({
       </div>
       <div className="flex flex-col gap-1.5">
         <span className="text-label-12 text-text-secondary">Size</span>
-        <SizeStepper value={size} onChange={onSize} />
+        <SizeStepper value={size} min={10} max={24} label={`${label} size`} onChange={onSize} />
       </div>
     </div>
   );

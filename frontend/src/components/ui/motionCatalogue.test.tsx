@@ -10,16 +10,16 @@ const CSS = readFileSync(join(import.meta.dir, "../../index.css"), "utf8");
 
 /** The rule from smoothness 4.1: everything reads its timing off a token. */
 function usesMotionToken(html: string): boolean {
-  return /duration-\(--motion-(fast|base|slow)\)/.test(html);
+  return html.includes("transition-control") || /duration-\(--motion-(fast|base|slow)\)/.test(html);
 }
 
 describe("motion catalogue", () => {
   it("Button presses and transitions on tokens", () => {
     const html = renderToString(<Button>Run</Button>);
-    expect(html).toContain("active:scale-98");
     expect(usesMotionToken(html)).toBe(true);
-    // disabled↔enabled is a colour and opacity change; transition-all covers it.
-    expect(html).toContain("transition-all");
+    // Colour/opacity/press feedback has a bounded recipe, without layout motion.
+    expect(html).toContain("transition-control");
+    expect(html).toContain("motion-control");
   });
 
   it("Chip transitions its colours rather than snapping", () => {

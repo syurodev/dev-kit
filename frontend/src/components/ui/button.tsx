@@ -1,15 +1,24 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
+import { motion, useReducedMotion } from "framer-motion"
 
 import { cn } from "@/lib/utils"
+import { SPRING_PRESS } from "@/lib/motion"
+
+// Keeping HTML callbacks in controlProps prevents Motion's gesture callback
+// names (onDrag/onAnimationStart) from consuming native button events.
+const MotionButton = motion.create(React.forwardRef<
+  HTMLButtonElement,
+  { asChild?: boolean; controlProps: React.ComponentProps<"button">; style?: React.CSSProperties }
+>(({ asChild, controlProps, style, ...visualProps }, ref) => {
+  const Comp = asChild ? Slot.Root : "button"
+  return <Comp {...visualProps} {...controlProps} ref={ref} style={{ ...controlProps.style, ...style }} />
+}))
 
 const buttonVariants = cva(
-  // active:scale is the press feedback from the catalogue (smoothness 4.4);
-  // transition-all already covers the disabled↔enabled colour and opacity
-  // change, and the duration comes off the token rather than Tailwind's 150ms
-  // default so buttons move at the same speed as everything else.
-  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-(--motion-fast) ease-(--ease-out-strong) active:scale-98 outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  // CSS owns colours; Motion owns the press transform and can retarget it.
+  "group/button motion-control inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-control outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -18,9 +27,9 @@ const buttonVariants = cva(
         primary:
           "bg-action-primary text-action-primary-foreground hover:bg-(--action-primary-hover) active:bg-(--action-primary-pressed)",
         secondary:
-          "bg-(--glass-panel-bg) border border-(--glass-border) text-text-primary hover:border-status-info hover:bg-(--glass-float-bg) active:bg-(--glass-panel-bg)",
+          "bg-(--glass-panel-bg) border border-(--glass-border) text-text-primary hover:border-border hover:bg-state-soft active:bg-(--glass-panel-bg)",
         outline:
-          "border border-border bg-transparent text-text-primary hover:bg-surface-raised hover:border-status-info active:bg-surface-base",
+          "border border-border bg-transparent text-text-primary hover:bg-state-soft hover:border-border active:bg-surface-base",
         ghost:
           "bg-transparent text-text-secondary hover:bg-surface-raised hover:text-text-primary active:bg-surface-base",
         // A ghost for chrome that has no material of its own — the title bar
@@ -91,17 +100,21 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  ref,
   ...props
 }: ButtonProps) {
-  const Comp = asChild ? Slot.Root : "button"
+  const reduced = useReducedMotion()
 
   return (
-    <Comp
+    <MotionButton
+      ref={ref}
+      asChild={asChild}
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
+      whileTap={reduced || props.disabled || variant === "link" ? undefined : { scale: 0.98 }}
+      transition={SPRING_PRESS}
+      controlProps={{ ...props, className: cn(buttonVariants({ variant, size, className })) }}
     />
   )
 }

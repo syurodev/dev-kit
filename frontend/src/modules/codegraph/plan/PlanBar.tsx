@@ -1,3 +1,4 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Check, Info, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,7 +110,7 @@ export function PlanMeta({
   return (
     <>
       <span className="text-code-11 whitespace-nowrap text-text-tertiary">
-        {aggregateLabel(plan.aggregate)} · {done}/{plan.nodes.length} nodes · {edgeCount} edges
+        {aggregateLabel(plan.aggregate)} · <AnimatedNumber value={done} />/<AnimatedNumber value={plan.nodes.length} /> nodes · <AnimatedNumber value={edgeCount} /> edges
       </span>
       {plan.state === "draft" ? (
         <Button size="xs" disabled={busy} onClick={onApprove}>

@@ -1,3 +1,4 @@
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useState } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ArrowRight, Bot, User } from "lucide-react";
@@ -10,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { comment } from "../taskActions";
 import { relativeTime, statusLabel } from "../taskModel";
 
-const LIST_MOTION = { duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
+const LIST_MOTION = { duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS };
 
 /** "user" is the person at this machine; "agent:<session>" is an agent session. */
 function authorName(author: string): { name: string; agent: boolean } {

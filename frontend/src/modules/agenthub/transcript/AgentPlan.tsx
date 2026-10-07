@@ -1,3 +1,4 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { cn } from "@/lib/utils";
 import type { PlanEntry } from "../types";
 
@@ -60,7 +61,7 @@ export function AgentPlan({ entries, className }: AgentPlanProps) {
         <span className="min-w-0 flex-1 text-caption-11-medium">Plan</span>
         {entries.length > 0 ? (
           <span className="shrink-0 whitespace-nowrap">
-            {`${completed} of ${entries.length}`}
+            <AnimatedNumber value={completed} /> of <AnimatedNumber value={entries.length} />
           </span>
         ) : null}
       </div>

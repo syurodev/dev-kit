@@ -482,7 +482,7 @@ function ColorDropdownMenuItem({
           size: 'icon',
           variant: 'outline',
         }),
-        'my-1 flex size-6 items-center justify-center rounded-full border border-muted border-solid p-0 transition-all hover:scale-125',
+        'my-1 flex size-6 items-center justify-center rounded-full border border-muted border-solid p-0 transition-control hover:scale-110 motion-reduce:hover:scale-100',
         !isBrightColor && 'border-transparent text-white',
         className
       )}

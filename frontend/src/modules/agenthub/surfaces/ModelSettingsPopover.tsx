@@ -92,7 +92,7 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
             </div>
             {efforts.length > 1 && <div className="relative mt-3 rounded-full border border-border bg-muted">
               <div aria-hidden className="pointer-events-none absolute inset-x-3 inset-y-0 z-10 flex items-center justify-between">
-                {efforts.map((choice) => <span key={choice.value} className="size-1 rounded-full bg-white/30" />)}
+                {efforts.map((choice) => <span key={choice.value} className="size-1 rounded-full bg-text-tertiary/40" />)}
               </div>
               <SliderPrimitive.Root aria-label="Reasoning effort" aria-valuetext={reasoningLabel(activeEffort?.value ?? "")}
                 min={0} max={efforts.length - 1} step={1} value={[position]} disabled={resetting}

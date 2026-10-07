@@ -4,6 +4,7 @@ import * as React from "react"
 import { Select as SelectPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { CONTROL_SURFACE, CONTROL_FOCUS } from "./control-styles"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
 function Select({
@@ -44,8 +45,10 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-full max-w-55 items-center justify-between gap-2 rounded-md border border-status-info/16 bg-white/6 px-3 py-1.5 text-body-13 text-text-primary whitespace-nowrap transition-colors outline-none select-none",
-        "focus:border-status-info focus-visible:border-status-info data-[state=open]:border-status-info focus-visible:outline-none focus-visible:ring-0",
+        "group/select-trigger flex w-full max-w-55 items-center justify-between gap-2 rounded-md px-3 py-1.5 text-body-13 text-text-primary whitespace-nowrap outline-none select-none",
+        CONTROL_SURFACE,
+        CONTROL_FOCUS,
+        "data-[state=open]:border-status-info",
         "disabled:cursor-not-allowed disabled:text-text-tertiary disabled:opacity-50",
         "aria-invalid:border-status-danger",
         "data-placeholder:text-text-tertiary",
@@ -56,7 +59,7 @@ function SelectTrigger({
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="pointer-events-none size-(--icon-14) text-text-secondary" />
+        <ChevronDownIcon className="pointer-events-none size-(--icon-14) text-text-secondary transition-control group-data-[state=open]/select-trigger:rotate-180" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -75,9 +78,9 @@ function SelectContent({
       data-slot="select-content"
       data-align-trigger={position === "item-aligned"}
       className={cn(
-        "relative z-50 max-h-(--radix-select-content-available-height) min-w-55 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-control border border-glass-border bg-surface-glass-modal p-1.5 text-text-primary shadow-2xl backdrop-blur-xl duration-(--motion-base) data-[state=closed]:duration-(--motion-fast)",
+        "relative z-50 max-h-(--radix-select-content-available-height) min-w-55 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg glass-float p-1.5 text-text-primary duration-(--motion-base) ease-(--ease-out-strong) data-[state=closed]:duration-(--motion-fast)",
         "data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+        "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-calm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-calm",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className,
       )}
@@ -129,8 +132,8 @@ function SelectItem({
       data-slot="select-item"
       className={cn(
         "relative flex h-8 w-full cursor-default items-center justify-between rounded-sm px-2.5 py-1.5 text-body-13 text-text-primary outline-hidden select-none transition-colors",
-        "hover:bg-white/4 focus:bg-white/6 focus:text-text-primary",
-        "data-[state=checked]:bg-white/6 data-[state=checked]:text-text-primary",
+        "hover:bg-state-soft focus:bg-state-soft focus:text-text-primary",
+        "data-[state=checked]:bg-state-soft data-[state=checked]:text-text-primary",
         "data-disabled:pointer-events-none data-disabled:opacity-50",
         className,
       )}
