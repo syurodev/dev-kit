@@ -56,6 +56,20 @@ export function latestTarget(
 }
 
 /**
+ * How many of the newest cards the panel draws, and how many more each "Show
+ * earlier" adds. The feed is every change the session ever made in DevKit: a
+ * long one is hundreds of cards, all mounted at once when the panel opens and
+ * all walked again on every streamed token, so only the newest are drawn.
+ */
+export const FOLLOW_FEED_PAGE = 40;
+
+/** The newest `limit` cards of a feed (it is newest first), and how many are left out. */
+export function feedWindow<T>(feed: readonly T[], limit: number): { drawn: readonly T[]; hidden: number } {
+  const drawn = feed.length > limit ? feed.slice(0, limit) : feed;
+  return { drawn, hidden: feed.length - drawn.length };
+}
+
+/**
  * Agent Hub's activity panel, in the module's own right-hand pane while the
  * person follows a session: what the agent is changing in DevKit as it happens
  * — the card of the call under way at the top — and, below, a live view of
@@ -69,6 +83,10 @@ export function latestTarget(
 export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: string; title: string; onStop: () => void }) {
   const items = useAgentSessionsStore((s) => s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY);
   const feed = React.useMemo(() => activityFeed(items), [items]);
+  // Keyed to the session so following another one starts from its newest again.
+  const [extra, setExtra] = React.useState({ sessionId, count: 0 });
+  const limit = FOLLOW_FEED_PAGE + (extra.sessionId === sessionId ? extra.count : 0);
+  const { drawn, hidden } = React.useMemo(() => feedWindow(feed, limit), [feed, limit]);
   const latest = React.useMemo(() => latestTarget(feed, hasEntityPreview), [feed]);
   // Keyed by what the preview is OF, not the object: the feed is rebuilt on
   // every streamed token, and the embedded view must not be with it.
@@ -103,13 +121,23 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
             data-testid="agent-activity-feed"
             className={preview ? "flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"}
           >
-            {feed.map((item) =>
+            {drawn.map((item) =>
               isRunningCommand(item) ? (
                 <AgentRunningCommand key={item.id} item={item} />
               ) : (
                 <AgentToolActivity key={item.id} call={item.toolCall!} />
               ),
             )}
+            {hidden > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="agent-activity-more"
+                onClick={() => setExtra({ sessionId, count: limit })}
+              >
+                {`Show ${Math.min(hidden, FOLLOW_FEED_PAGE)} earlier`}
+              </Button>
+            ) : null}
           </div>
           {preview && latest ? (
             <div data-testid="agent-activity-preview" className="flex min-h-0 flex-1 flex-col border-t border-border-subtle">

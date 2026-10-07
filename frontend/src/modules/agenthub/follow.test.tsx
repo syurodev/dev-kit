@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import type { TranscriptItem } from "./types";
-import { AgentActivityPanel, activityFeed, latestTarget, revealIntent } from "./follow";
+import { AgentActivityPanel, FOLLOW_FEED_PAGE, activityFeed, feedWindow, latestTarget, revealIntent } from "./follow";
 import { useAgentPinsStore } from "@/stores/agentPins";
 import { hasEntityPreview, renderEntityPreview } from "@/workbench/toolActivity";
 import "@/modules/tasks/manifest";
@@ -61,5 +61,17 @@ describe("following a session", () => {
     const html = renderToString(<AgentActivityPanel sessionId="s-empty" title="Fix login" onStop={() => {}} />);
     expect(html).toContain("Following Fix login");
     expect(html).toContain("Nothing changed yet");
+  });
+
+  it("draws only the newest cards of a long feed, and counts the rest", () => {
+    const feed = Array.from({ length: FOLLOW_FEED_PAGE + 25 }, (_, i) => i);
+    const first = feedWindow(feed, FOLLOW_FEED_PAGE);
+    expect(first.drawn).toHaveLength(FOLLOW_FEED_PAGE);
+    expect(first.drawn[0]).toBe(0);
+    expect(first.hidden).toBe(25);
+    // One more page reaches the end, and a short feed is handed back as it is.
+    const all = feedWindow(feed, FOLLOW_FEED_PAGE * 2);
+    expect(all.hidden).toBe(0);
+    expect(all.drawn).toBe(feed);
   });
 });
