@@ -52,7 +52,14 @@ func TestRealAnalyzersFeedTheJoin(t *testing.T) {
 	plugin := filepath.Join(ws, "kong-plugin")
 
 	writeTree(t, access, map[string]string{
-		"src/main/resources/application.yml": "server:\n  port: 8081\n",
+		"src/main/resources/application.yml": "server:\n  port: 8081\naccess:\n  topics:\n    revoked: fsap.session.revoked\n",
+		"src/main/java/acme/AccessEvents.java": `package acme;
+import org.springframework.kafka.annotation.KafkaListener;
+class AccessEvents {
+    @KafkaListener(topics = "${access.topics.revoked}", groupId = "access-service")
+    void onRevoked(String message) {}
+}
+`,
 		"src/main/java/acme/AccessController.java": `package acme;
 import org.springframework.web.bind.annotation.*;
 @RestController
@@ -91,12 +98,14 @@ class EnableService {
 	writeTree(t, plugin, map[string]string{
 		"kong/plugins/fsap-api-access/handler.lua": `local http = require "resty.http"
 local redis = require "resty.redis"
+local producer = require "resty.kafka.producer"
 local plugin = { PRIORITY = 900 }
 function plugin:access(conf)
   local org = kong.request.get_header("x-org")
   local api = kong.router.get_service().name
   local red = redis:new()
   local cached = red:get("fsap:access:" .. org .. ":" .. api)
+  producer:new(conf.brokers):send("fsap.session.revoked", nil, org)
   local res = http.new():request_uri(conf.access_url .. "/v1/internal/api-access/" .. org .. "/api/" .. api, { method = "GET" })
 end
 return plugin
@@ -175,5 +184,22 @@ return plugin
 	}
 	if shared.Writers[0].Key != "fsap:access:{org}:{api}" || shared.Readers[0].Key != "fsap:access:{org}:{api}" {
 		t.Fatalf("keys as written: %q / %q", shared.Writers[0].Key, shared.Readers[0].Key)
+	}
+
+	// And a Kafka topic: the plugin produces it, the Java service consumes it by a property of its own.
+	topics, err := RunKafka(services, KafkaQuery{Topic: "fsap.session.*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if topics.TopicTotal != 1 {
+		t.Fatalf("topics = %+v (unresolved %+v)", topics.Topics, topics.Unresolved)
+	}
+	topic := topics.Topics[0]
+	if !topic.CrossService || topic.Gap != "" || len(topic.Producers) != 1 || len(topic.Consumers) != 1 ||
+		topic.Producers[0].Service != "fsap-api-access" || topic.Consumers[0].Service != "access-service" {
+		t.Fatalf("topic = %+v", topic)
+	}
+	if topic.Consumers[0].Topic != "${access.topics.revoked}" || topic.Consumers[0].Resolved != "fsap.session.revoked" {
+		t.Fatalf("the consumer wrote a property and the join folded it: %+v", topic.Consumers[0])
 	}
 }

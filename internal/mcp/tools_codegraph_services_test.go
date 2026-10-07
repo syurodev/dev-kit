@@ -128,3 +128,38 @@ func TestFindRedisKeyUsageAnswersAcrossTheWorkspace(t *testing.T) {
 		t.Fatal("a key that matches everything must be refused")
 	}
 }
+
+// The authentication service publishes; the plugin's workspace neighbour consumes
+// by a property of its own.
+func TestFindKafkaTopicUsageFoldsTheConsumersTopicAgainstItsConfig(t *testing.T) {
+	producer := snapshotWith(auth, nil)
+	producer.Kafka = []codegraph.SnapshotKafka{{
+		KafkaAccess: codegraph.KafkaAccess{From: "auth.publish", Topic: "fsap.session.revoked", Role: codegraph.KafkaProduce, Client: codegraph.KafkaTemplate, File: "Events.java", Line: 9},
+		Label:       "SessionEvents.revoked",
+	}}
+	consumer := snapshotWith(config, nil)
+	consumer.Kafka = []codegraph.SnapshotKafka{{
+		KafkaAccess: codegraph.KafkaAccess{From: "config.listen", Topic: "fsap.session.revoked", Role: codegraph.KafkaConsume, Client: codegraph.KafkaListener, GroupID: "config-service", File: "Listener.java", Line: 14},
+		Label:       "RevokeListener.onRevoked",
+	}}
+	srv := servicesServer(map[string]codegraph.ServiceSnapshot{auth: producer, config: consumer})
+	ctx := identity.WithCaller(context.Background(), identity.UserTerminal())
+
+	_, v, err := srv.toolCodeGraphFindKafkaTopicUsage(ctx, nil, codeGraphFindKafkaTopicUsageInput{ServicePath: auth, Topic: "fsap.session.*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := unwrap(v).(crossservice.KafkaReport)
+	if !ok || report.TopicTotal != 1 {
+		t.Fatalf("report = %#v", v)
+	}
+	topic := report.Topics[0]
+	if !topic.CrossService || topic.Producers[0].Service != "fsap-authentication-service" || topic.Consumers[0].Service != "fsap-config-service" {
+		t.Fatalf("topic = %+v", topic)
+	}
+
+	_, v, err = srv.toolCodeGraphFindKafkaTopicUsage(ctx, nil, codeGraphFindKafkaTopicUsageInput{ServicePath: auth, Topic: "*"})
+	if err == nil {
+		t.Fatalf("a topic that matches everything must be refused: %#v", v)
+	}
+}

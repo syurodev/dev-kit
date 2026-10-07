@@ -34,6 +34,14 @@ type ServiceSnapshot struct {
 	Outbound  []SnapshotCall     `json:"outbound"`
 	// Redis are the Redis keys it reads and writes.
 	Redis []SnapshotRedis `json:"redis"`
+	// Kafka are the topics it produces to and consumes from.
+	Kafka []SnapshotKafka `json:"kafka"`
+}
+
+// SnapshotKafka is a Kafka access and the method that makes it.
+type SnapshotKafka struct {
+	KafkaAccess
+	Label string `json:"label"`
 }
 
 // SnapshotRedis is a Redis access and the method that makes it.
@@ -60,7 +68,7 @@ type SnapshotCall struct {
 func (s *Service) Snapshot(ctx context.Context, path string) (ServiceSnapshot, error) {
 	store, release, err := s.activeStore()
 	if errors.Is(err, ErrIndexNotReady) {
-		return ServiceSnapshot{Path: path, State: SnapshotIndexing, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}}, nil
+		return ServiceSnapshot{Path: path, State: SnapshotIndexing, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}, Kafka: []SnapshotKafka{}}, nil
 	}
 	if err != nil {
 		return ServiceSnapshot{}, err
@@ -73,7 +81,7 @@ func (s *Service) Snapshot(ctx context.Context, path string) (ServiceSnapshot, e
 // opening a Service. A folder with no index of its own — or whose file holds
 // another project's — is reported as not indexed rather than as an error.
 func ReadStoredSnapshot(ctx context.Context, configDir, projectPath string) (ServiceSnapshot, error) {
-	empty := ServiceSnapshot{Path: projectPath, State: SnapshotNotIndexed, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}}
+	empty := ServiceSnapshot{Path: projectPath, State: SnapshotNotIndexed, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}, Kafka: []SnapshotKafka{}}
 	if configDir == "" {
 		return empty, nil
 	}
@@ -106,7 +114,7 @@ func (r *Registry) Snapshot(ctx context.Context, servicePath string) (ServiceSna
 }
 
 func snapshotOf(ctx context.Context, store Store, path string) (ServiceSnapshot, error) {
-	snap := ServiceSnapshot{Path: path, State: SnapshotIndexed, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}}
+	snap := ServiceSnapshot{Path: path, State: SnapshotIndexed, Endpoints: []SnapshotEndpoint{}, Outbound: []SnapshotCall{}, Redis: []SnapshotRedis{}, Kafka: []SnapshotKafka{}}
 	snap.IndexedAt, _ = store.IndexedAt(ctx)
 
 	entries, err := store.ListEntryPoints(ctx)
@@ -125,7 +133,15 @@ func snapshotOf(ctx context.Context, store Store, path string) (ServiceSnapshot,
 		return ServiceSnapshot{}, err
 	}
 
+	kafka, err := store.ListKafkaAccesses(ctx)
+	if err != nil {
+		return ServiceSnapshot{}, err
+	}
+
 	var ids []string
+	for _, a := range kafka {
+		ids = append(ids, a.From)
+	}
 	for _, a := range redis {
 		ids = append(ids, a.From)
 	}
@@ -152,6 +168,9 @@ func snapshotOf(ctx context.Context, store Store, path string) (ServiceSnapshot,
 		snap.Outbound = append(snap.Outbound, SnapshotCall{OutboundCall: c, Label: nodes[c.From].Label})
 	}
 
+	for _, a := range kafka {
+		snap.Kafka = append(snap.Kafka, SnapshotKafka{KafkaAccess: a, Label: nodes[a.From].Label})
+	}
 	for _, a := range redis {
 		snap.Redis = append(snap.Redis, SnapshotRedis{RedisAccess: a, Label: nodes[a.From].Label})
 	}

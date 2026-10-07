@@ -16,6 +16,10 @@ const luaHTTPClient = "resty.http"
 // accesses: OpenResty's resty.redis.
 const luaRedisClient = "resty.redis"
 
+// luaKafkaProducer is the library whose send() this analyzer reads as a
+// produce to a Kafka topic: lua-resty-kafka's producer.
+const luaKafkaProducer = "resty.kafka.producer"
+
 // recordOutbound records `httpc:request_uri(url, opts)` and
 // `httpc:request({ path = …, method = … })` as the HTTP calls they are.
 //
@@ -244,3 +248,24 @@ func (r *luaResolver) recordRedis(call *lua.MethodCallExpr, scope *luaScope) {
 
 // luaHoles matches the {expr} holes foldString leaves.
 var luaHoles = regexp.MustCompile(`\{[^{}]*\}`)
+
+// recordKafka records `p:send(topic, key, message)` on a resty.kafka.producer as a
+// produce to that topic. By provenance, like the HTTP and Redis clients: a
+// producer is a value that traces back to `require "resty.kafka.producer"`.
+func (r *luaResolver) recordKafka(call *lua.MethodCallExpr, scope *luaScope) {
+	if call.Method != "send" || len(call.Args) < 2 {
+		return
+	}
+	producer := r.eval(call.Recv, scope)
+	if producer.kind != luaLibraryValue || producer.lib != luaKafkaProducer {
+		return
+	}
+	topic := r.foldString(call.Args[0], scope)
+	// A topic that is only a hole (a config field, a parameter) names nothing to match.
+	if strings.TrimSpace(luaHoles.ReplaceAllString(topic, "")) == "" {
+		return
+	}
+	r.result.KafkaAccesses = append(r.result.KafkaAccesses, KafkaAccess{
+		From: r.from, Topic: topic, Role: KafkaProduce, Client: KafkaResty, File: r.module.rel, Line: call.Line,
+	})
+}

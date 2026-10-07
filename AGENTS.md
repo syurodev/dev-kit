@@ -635,6 +635,18 @@ characters to count — `*` and `{key}` overlap everything, so they are dropped 
 - Not seen: keys built elsewhere and passed in, `@Cacheable`, Lua `EVAL`, pub/sub, Redisson. Say so in
   the answer's notes instead of widening the match.
 
+### CodeGraph: Kafka topics
+Same shape as Redis (table `kafka_accesses`; Java `KafkaExtractor`, Lua `recordKafka`;
+`crossservice.RunKafka`, MCP `codegraph.findKafkaTopicUsage`), with two differences:
+- **The topic name is folded against the config of the service that WROTE it** (`Service.Config.Resolve`),
+  never against another's — two services spell one topic by different properties. A property the
+  service's config does not set is `unresolved`, listed, not dropped.
+- **Topics have a direction**, so the answer carries `gap` (`no-consumer` / `no-producer`). It is a gap in
+  THIS workspace only; say so (the notes do) instead of calling the topic dead.
+- Kafka is recognised by annotation, constructor or declared receiver type, never by a method name. Kafka's
+  own `Producer`/`Consumer` interfaces are NOT in the type sets on purpose: a project's own `Producer.send`
+  would become a topic. Not seen: Spring Cloud Stream bindings, `@SendTo`, `sendDefault`, `@RetryableTopic`.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.

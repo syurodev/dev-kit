@@ -445,6 +445,7 @@ func (r *luaResolver) walkExpr(expr lua.Expr, scope *luaScope) {
 		r.recordCall(e.Recv, &e.Method, e.Line, scope)
 		r.recordOutbound(e, scope)
 		r.recordRedis(e, scope)
+		r.recordKafka(e, scope)
 		r.walkExpr(e.Recv, scope)
 		r.walkExprs(e.Args, scope)
 	case *lua.IndexExpr:

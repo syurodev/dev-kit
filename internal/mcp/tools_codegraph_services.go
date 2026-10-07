@@ -60,6 +60,27 @@ func (s *Server) toolCodeGraphFindRedisKeyUsage(ctx context.Context, _ *sdk.Call
 	return nil, structured(v), nil
 }
 
+type codeGraphFindKafkaTopicUsageInput struct {
+	Topic       string `json:"topic,omitempty" jsonschema:"optional; a topic name or a pattern with * or {hole}, at least 3 fixed characters before any wildcard; empty lists the topics two or more services touch"`
+	Gaps        bool   `json:"gaps,omitempty" jsonschema:"optional; list the topics with a gap instead: produced and consumed by nothing in the workspace, or consumed and produced by nothing"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of any service of the workspace, to say which workspace; default is the one the session's working directory is in"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; topics listed (default 50, at most 500)"`
+}
+
+func (s *Server) toolCodeGraphFindKafkaTopicUsage(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphFindKafkaTopicUsageInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("find_kafka_topic_usage", map[string]any{"topic": in.Topic, "gaps": in.Gaps, "limit": in.Limit}), func(ctx context.Context) (any, error) {
+		services, _, err := s.workspaceSnapshots(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		return crossservice.RunKafka(services, crossservice.KafkaQuery{Topic: in.Topic, Gaps: in.Gaps, Limit: in.Limit})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
 // workspaceSnapshots reads every service of the asker's workspace: its Spring
 // config (which folds its calls' URLs) and its snapshot (what its index offers).
 // subject is the folder of the service asked about.

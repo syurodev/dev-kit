@@ -62,6 +62,12 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphFindRedisKeyUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findKafkaTopicUsage",
+		Description: "Who produces to and consumes from Kafka topics across the workspace's services — which service consumes the topic this one publishes to, and what a topic's producers are. topic is a name or a pattern (* or {hole} is any run of characters; at least 3 fixed characters before the first wildcard). Each topic lists producers and consumers (service, method, file:line, the topic as written, resolved: the name after folding the writing service's own config — @KafkaListener(topics = \"${app.kafka.topic.access}\") is read against that service's application.yml, default profile only — client, a consumer's groupId, and pattern for a regex topicPattern, which matches every topic whose name it fits), the services touching it or one that overlaps it, crossService (one service produces what a different one consumes) and gap: no-consumer (produced, nothing in the workspace consumes it — it may be read outside the workspace) or no-producer. gaps=true lists only topics with a gap; no topic lists every topic two or more services touch, cross-service first. Uses whose property is not set in their service's config are listed under unresolved, not dropped. Seen: @KafkaListener, KafkaTemplate.send, ProducerRecord, consumer.subscribe, Kafka Streams, Lua resty.kafka.producer; not seen: Spring Cloud Stream bindings, @SendTo, sendDefault, a topic built elsewhere and passed in.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindKafkaTopicUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},

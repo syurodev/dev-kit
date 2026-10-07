@@ -65,6 +65,9 @@ func (nilStore) ListOutboundCalls(context.Context) ([]OutboundCall, error) {
 func (nilStore) ListRedisAccesses(context.Context) ([]RedisAccess, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) ListKafkaAccesses(context.Context) ([]KafkaAccess, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }

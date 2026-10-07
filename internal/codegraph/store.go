@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS redis_accesses (
 	file TEXT NOT NULL,
 	line INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS kafka_accesses (
+	from_id TEXT NOT NULL,
+	topic TEXT NOT NULL,
+	role TEXT NOT NULL,
+	client TEXT NOT NULL,
+	group_id TEXT NOT NULL,
+	is_pattern INTEGER NOT NULL,
+	file TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
 	verb TEXT NOT NULL,
@@ -334,7 +344,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses", "outbound_calls", "redis_accesses"} {
+	for _, table := range []string{"nodes", "edges", "entry_points", "file_dependencies", "field_accesses", "call_sites", "config_keys", "config_usages", "entity_tables", "table_accesses", "outbound_calls", "redis_accesses", "kafka_accesses"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -523,6 +533,21 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	for _, a := range result.RedisAccesses {
 		if _, err := redisStmt.ExecContext(ctx, a.From, a.Key, a.Access, a.Command, a.File, a.Line); err != nil {
 			return fmt.Errorf("codegraph: insert redis access %q: %w", a.Key, err)
+		}
+	}
+
+	kafkaStmt, err := insert(`INSERT INTO kafka_accesses (from_id, topic, role, client, group_id, is_pattern, file, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer kafkaStmt.Close()
+	for _, a := range result.KafkaAccesses {
+		pattern := 0
+		if a.Pattern {
+			pattern = 1
+		}
+		if _, err := kafkaStmt.ExecContext(ctx, a.From, a.Topic, a.Role, a.Client, a.GroupID, pattern, a.File, a.Line); err != nil {
+			return fmt.Errorf("codegraph: insert kafka access %q: %w", a.Topic, err)
 		}
 	}
 
@@ -1429,6 +1454,26 @@ func (s *sqliteStore) ListRedisAccesses(ctx context.Context) ([]RedisAccess, err
 		if err := rows.Scan(&a.From, &a.Key, &a.Access, &a.Command, &a.File, &a.Line); err != nil {
 			return nil, fmt.Errorf("codegraph: scan redis access: %w", err)
 		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) ListKafkaAccesses(ctx context.Context) ([]KafkaAccess, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, topic, role, client, group_id, is_pattern, file, line FROM kafka_accesses ORDER BY topic, role, file, line`)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListKafkaAccesses: %w", err)
+	}
+	defer rows.Close()
+	var out []KafkaAccess
+	for rows.Next() {
+		var a KafkaAccess
+		var pattern int
+		if err := rows.Scan(&a.From, &a.Topic, &a.Role, &a.Client, &a.GroupID, &pattern, &a.File, &a.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan kafka access: %w", err)
+		}
+		a.Pattern = pattern == 1
 		out = append(out, a)
 	}
 	return out, rows.Err()

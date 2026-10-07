@@ -182,3 +182,30 @@ return M
 		t.Fatalf("get/set on something that is not resty.redis is not Redis: %+v", result.RedisAccesses)
 	}
 }
+
+// A Kong plugin that publishes an event for the Java service that consumes it.
+func TestLuaRestyKafkaProducerSendIsAProduce(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"kong/plugins/fsap-api-access/handler.lua": `local producer = require "resty.kafka.producer"
+local plugin = { PRIORITY = 900 }
+local TOPIC = "fsap.access.denied"
+function plugin:log(conf)
+  local p = producer:new(conf.brokers, { producer_type = "async" })
+  p:send(TOPIC, nil, "denied")
+  p:send("fsap.audit." .. kong.request.get_header("x-org"), nil, "x")
+  p:send(conf.topic, nil, "dynamic")
+  local other = {}
+  other:send("fsap.not.kafka", nil, "x")
+end
+return plugin
+`,
+	})
+	var got []string
+	for _, a := range result.KafkaAccesses {
+		got = append(got, a.Role+" "+a.Topic+" ["+a.Client+"]")
+	}
+	want := []string{"produce fsap.access.denied [resty-kafka]", "produce fsap.audit.{kong.request.get_header()} [resty-kafka]"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("kafka accesses = %v, want %v", got, want)
+	}
+}

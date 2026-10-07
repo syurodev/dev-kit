@@ -386,6 +386,9 @@ type AnalysisResult struct {
 	// RedisAccesses are the Redis keys the code reads and writes, for the
 	// cross-service join to find the ones two services share.
 	RedisAccesses []RedisAccess `json:"redisAccesses"`
+	// KafkaAccesses are the topics the code produces to and consumes from,
+	// for the cross-service join to connect producers with consumers.
+	KafkaAccesses []KafkaAccess `json:"kafkaAccesses"`
 }
 
 // Validate checks internal consistency: every Edge and EntryPoint must
@@ -441,6 +444,11 @@ func (r AnalysisResult) Validate() error {
 	for _, a := range r.RedisAccesses {
 		if !ids[a.From] {
 			return fmt.Errorf("codegraph: redis access to %q references unknown node %q", a.Key, a.From)
+		}
+	}
+	for _, a := range r.KafkaAccesses {
+		if !ids[a.From] {
+			return fmt.Errorf("codegraph: kafka access to %q references unknown node %q", a.Topic, a.From)
 		}
 	}
 	return nil
@@ -516,6 +524,8 @@ type Store interface {
 	ListOutboundCalls(ctx context.Context) ([]OutboundCall, error)
 	// ListRedisAccesses returns every Redis key access in the service.
 	ListRedisAccesses(ctx context.Context) ([]RedisAccess, error)
+	// ListKafkaAccesses returns every Kafka topic access in the service.
+	ListKafkaAccesses(ctx context.Context) ([]KafkaAccess, error)
 	// FindEdgesByGuard returns the call edges whose guard contains any of the
 	// terms, from callers whose id starts with fromPrefix (empty: any).
 	FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error)

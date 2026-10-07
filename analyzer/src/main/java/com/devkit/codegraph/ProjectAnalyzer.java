@@ -289,6 +289,8 @@ public class ProjectAnalyzer {
         result.entityTables = tables.entities();
         result.tableAccesses = tables.accesses();
 
+        result.kafkaAccesses = KafkaExtractor.extract(owners, configScopes, annotations, constants, nodeIds);
+
         // Redis keys are read from the same calls.
         for (CallScope scope : scopes) {
             for (MethodCallExpr expr : scope.node().findAll(MethodCallExpr.class)) {
