@@ -143,3 +143,76 @@ class AccessService {
 		t.Fatalf("byRole guard = %q, edges %+v", got, result.Edges)
 	}
 }
+
+// The whole path on the feedback's own example: a flag in application.yaml
+// fed by an environment variable, injected with @Value, branched on, behind
+// an endpoint — from the real jar, through the index, to "what changes".
+func TestSubprocessAnalyzerFeedsFindConfigUsage(t *testing.T) {
+	toolchain := builtJavaAnalyzer(t)
+	dir := t.TempDir()
+	files := map[string]string{
+		"src/main/resources/application.yaml": "fsap:\n  access:\n    module-based-enabled: ${FSAP_ACCESS_MODULE_BASED_ENABLED:false}\n  db:\n    password: hunter2\n",
+		"src/main/java/acme/AccessController.java": `package acme;
+import org.springframework.web.bind.annotation.*;
+@RestController
+class AccessController {
+    private final AccessService service = new AccessService();
+    @GetMapping("/v1/access/{org}")
+    boolean get(@PathVariable String org) { return service.isAvailable(org); }
+}
+`,
+		"src/main/java/acme/AccessService.java": `package acme;
+import org.springframework.beans.factory.annotation.Value;
+class AccessService {
+    @Value("${fsap.access.module-based-enabled:false}")
+    private boolean moduleBasedAccessEnabled;
+    boolean isAvailable(String org) {
+        if (moduleBasedAccessEnabled) { return byModule(org); }
+        return byRole(org);
+    }
+    boolean byModule(String org) { return true; }
+    boolean byRole(String org) { return false; }
+}
+`,
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := toolchain.Analyzer().Analyze(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	svc := openWith(t, result)
+
+	report, err := svc.FindConfigUsage(t.Context(), ConfigUsageQuery{Key: "FSAP_ACCESS_MODULE_BASED_ENABLED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Keys) != 1 || report.Keys[0].File != "src/main/resources/application.yaml" || report.Keys[0].Line != 3 {
+		t.Fatalf("keys = %+v", report.Keys)
+	}
+	if len(report.Usages) != 1 || report.Usages[0].Kind != ConfigUseValue || report.Usages[0].Field != "moduleBasedAccessEnabled" {
+		t.Fatalf("usages = %+v", report.Usages)
+	}
+	u := report.Usages[0]
+	if len(u.Readers) != 1 || len(u.Guarded) != 2 {
+		t.Fatalf("readers = %+v, guarded = %+v", u.Readers, u.Guarded)
+	}
+	if report.EntryPointTotal != 1 || report.EntryPoints[0].Target != "/v1/access/{org}" {
+		t.Fatalf("entry points = %+v", report.EntryPoints)
+	}
+
+	secret, err := svc.FindConfigUsage(t.Context(), ConfigUsageQuery{Key: "fsap.db.password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secret.Keys) != 1 || !secret.Keys[0].Redacted || secret.Keys[0].Value != "" {
+		t.Fatalf("a secret must come back redacted: %+v", secret.Keys)
+	}
+}

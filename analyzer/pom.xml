@@ -17,6 +17,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <javaparser.version>3.28.2</javaparser.version>
     <jackson.version>2.18.2</jackson.version>
+    <snakeyaml.version>2.3</snakeyaml.version>
     <junit.version>5.11.4</junit.version>
   </properties>
 
@@ -30,6 +31,12 @@
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
       <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <!-- Config files: compose() only, no object construction. -->
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>

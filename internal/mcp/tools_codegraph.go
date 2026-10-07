@@ -38,6 +38,12 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphSearchSymbol)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findConfigUsage",
+		Description: "Where a setting matters: the answer to \"if I turn this flag on, what changes?\". key is an environment variable (FSAP_ACCESS_MODULE_BASED_ENABLED), a property (fsap.access.module-based-enabled) or, with match=prefix, a property prefix; case and separators are ignored, as Spring ignores them. Returns the config files that set it (keys: file, line, value per profile — a secret's value is never returned), the environment variables behind it, the code that uses it (usages: @Value fields, @ConfigurationProperties bindings, @ConditionalOnProperty beans, Environment.getProperty, System.getenv) with what each touches (readers of the field, gated: methods that exist only when the condition holds, guarded: calls written under a condition naming the field), and entryPoints whose flow reaches any of that (via: the first touched method, depth: calls from the entry point to it). Read from the source, never evaluated: it says which code depends on the flag, not what the flag is set to. Java projects only. With an empty key it lists the switches that name no key: @Profile and @ConditionalOnMissingBean-style bean conditions.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindConfigUsage)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
@@ -245,6 +251,28 @@ func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolR
 		}
 		q := codegraph.SymbolQuery{Query: in.Query, Match: in.Match, Kind: in.Kind, Layer: in.Layer, PathPrefix: in.PathPrefix, Limit: in.Limit, Cursor: in.Cursor}
 		return whenIndexReady(ctx, cg, func() (codegraph.SymbolPage, error) { return cg.SearchSymbolsPage(ctx, q) })
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type codeGraphFindConfigUsageInput struct {
+	Key         string `json:"key,omitempty" jsonschema:"environment variable, property or property prefix; empty lists the switches that name no key"`
+	Match       string `json:"match,omitempty" jsonschema:"optional; exact (default) or prefix"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; entry points to list (default 50, at most 200)"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
+}
+
+func (s *Server) toolCodeGraphFindConfigUsage(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphFindConfigUsageInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("find_config_usage", map[string]any{"key": in.Key, "match": in.Match, "limit": in.Limit}), func(ctx context.Context) (any, error) {
+		cg, err := s.codeGraph(ctx, in.ServicePath)
+		if err != nil {
+			return nil, err
+		}
+		q := codegraph.ConfigUsageQuery{Key: in.Key, Match: in.Match, Limit: in.Limit}
+		return whenIndexReady(ctx, cg, func() (codegraph.ConfigUsageReport, error) { return cg.FindConfigUsage(ctx, q) })
 	})
 	if err != nil {
 		return nil, nil, err

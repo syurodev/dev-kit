@@ -55,7 +55,8 @@ the same actions.
   paged: narrow them (kind, service, pathPrefix, layer) instead of reading
   everything, and pass ` + "`nextCursor`" + ` back for the next page. In a flow, a
   step's ` + "`guard`" + ` is the condition its caller reaches it under: read it
-  before saying a path always runs. Grep is for
+  before saying a path always runs. Before turning a flag or env var on, ask
+  {{codegraph.findConfigUsage}} which code and endpoints depend on it. Grep is for
   text, not structure. If
   CodeGraph answers ` + "`unsupported_project`" + `, no analyzer reads that language:
   read the files.

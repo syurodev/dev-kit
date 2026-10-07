@@ -575,6 +575,23 @@ DevKit build triggers anyway. `FlowStep` carries `Depth` (the flat DFS list is a
 `call_sites` does not carry it; Lua and TypeScript do not set it. Design:
 `docs/dev-kit/codegraph.mdx` § Guard trên cạnh gọi.
 
+### CodeGraph: configuration
+Java only. The analyzer records what config files SET (`ConfigKey`: `ConfigFiles.java`, YAML via
+SnakeYAML `compose()` — never constructed, alias-bomb capped — plus `.properties`) and what the code
+USES (`ConfigUsage`: `ConfigExtractor.java`). Two tables, `config_keys` and `config_usages`, joined
+at read time on `CanonicalConfigKey` (letters and digits only, lower-cased — Spring's relaxed
+binding), so an env var, a kebab key and a camelCase key are one setting.
+- **Secrets never enter the index as values**: a key whose separator-stripped name contains
+  `password|secret|token|apikey|…` is stored `redacted` with no value (its env var names are kept).
+  `FindConfigUsage` and every other reader inherit that; do not add a path that returns raw file text.
+- `Service.FindConfigUsage` (MCP `codegraph.findConfigUsage`): per use, readers (`field_accesses`, or
+  a `@ConfigurationProperties` field's getter/record accessor), gated methods (conditions), calls whose
+  `Edge.Guard` names the field; then a bounded reverse walk over call edges to the entry points.
+  It reads source, never evaluates: "what depends on the flag", not "is it on".
+- Known gaps, all noted in the answer or in `docs/dev-kit/codegraph.mdx` § Cấu hình là một loại node:
+  Lombok/implicit record accessors are unresolvable so `properties` readers can be missing;
+  `@ConfigurationProperties` on a `@Bean` method is not read; Lua and TypeScript record no config.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.
