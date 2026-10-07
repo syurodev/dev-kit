@@ -51,7 +51,11 @@ type SessionNewRequest struct {
 type SessionNewResult struct {
 	SessionID string            `json:"sessionId"`
 	Modes     *SessionModeState `json:"modes,omitempty"`
-	Meta      json.RawMessage   `json:"_meta,omitempty"`
+	// ConfigOptions is the agent's settings (model, effort, …) as of the new
+	// session, kept raw: agenthub parses them with the same code that reads a
+	// config_option_update.
+	ConfigOptions json.RawMessage `json:"configOptions,omitempty"`
+	Meta          json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionModeState is the mode set session/new and session/load answer with

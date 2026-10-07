@@ -82,6 +82,7 @@ var (
 	_ RuntimeForker        = (*ClaudeAdapter)(nil)
 	_ RuntimeDeleter       = (*claudeRuntime)(nil)
 	_ VendorSessionDeleter = (*claudeRuntime)(nil)
+	_ VendorConfigCatalog  = (*ClaudeAdapter)(nil)
 )
 
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
@@ -815,6 +816,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	log.Printf("agenthub: claude: session ready (acp session %s)", newRes.SessionID)
 	rt.acpSessionID = newRes.SessionID
 	rt.modes = newRes.Modes
+	rt.configOptions = newRes.ConfigOptions
 	return rt, nil
 }
 
@@ -1150,12 +1152,16 @@ type claudeRuntime struct {
 	// never written again. steering and goal are read from the same answer:
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
-	modes       *acp.SessionModeState
-	steering    bool
-	goalControl string
-	cwd         string
-	cancelServe context.CancelFunc
-	serveDone   chan struct{}
+	modes *acp.SessionModeState
+	// configOptions is what session/new said the agent's settings are; only a
+	// fresh session has it (a load or fork answers without). ConfigCatalog reads
+	// it, nothing else does.
+	configOptions json.RawMessage
+	steering      bool
+	goalControl   string
+	cwd           string
+	cancelServe   context.CancelFunc
+	serveDone     chan struct{}
 
 	mu       sync.Mutex
 	handlers RuntimeHandlers
@@ -1218,17 +1224,32 @@ func (r *claudeRuntime) SetMode(ctx context.Context, modeID string) error {
 }
 
 func (r *claudeRuntime) SetConfigOption(ctx context.Context, optionID, value string) error {
+	// The draft picker is vendor-neutral and says reasoning_effort; Claude's own
+	// name for it is effort.
+	if optionID == codexEffortOption {
+		optionID = claudeEffortOption
+	}
+	_, err := r.setConfigOption(ctx, optionID, value)
+	return err
+}
+
+// setConfigOption answers with the agent's settings after the change: the
+// effort levels on offer follow the model, so this is how a model's levels are
+// read without running a turn.
+func (r *claudeRuntime) setConfigOption(ctx context.Context, optionID, value string) ([]ConfigOption, error) {
 	r.mu.Lock()
 	conn, sid, closed := r.conn, r.acpSessionID, r.closed
 	r.mu.Unlock()
 	if closed {
-		return ErrSessionNotFound
+		return nil, ErrSessionNotFound
 	}
-	var result json.RawMessage
+	var result struct {
+		ConfigOptions json.RawMessage `json:"configOptions"`
+	}
 	if err := conn.Call(ctx, "session/set_config_option", acp.SessionSetConfigOptionRequest{SessionID: sid, ConfigID: optionID, Value: value}, &result); err != nil {
-		return fmt.Errorf("%w: session/set_config_option: %v", ErrProcessFailed, err)
+		return nil, fmt.Errorf("%w: session/set_config_option: %v", ErrProcessFailed, err)
 	}
-	return nil
+	return parseConfigOptions(result.ConfigOptions), nil
 }
 
 func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
