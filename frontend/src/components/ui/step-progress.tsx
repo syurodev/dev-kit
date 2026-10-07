@@ -65,7 +65,7 @@ function StepProgress({
             <div
               data-slot="step-progress-milestone"
               className={cn(
-                "h-0.75 rounded-full transition-all duration-300",
+                "h-0.75 rounded-full transition-colors duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
                 isActive && "w-14 bg-action-primary",
                 isCompleted && "w-8 bg-action-primary",
                 isPending && "w-8 bg-border"

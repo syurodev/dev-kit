@@ -38,7 +38,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs duration-(--motion-base) ease-(--ease-out-strong) data-[state=closed]:duration-(--motion-fast) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
         className
       )}
       {...props}
@@ -65,62 +65,11 @@ const INHERIT_LAYOUT: React.CSSProperties = {
   justifyItems: "inherit",
   justifyContent: "inherit",
   gridTemplateColumns: "inherit",
+  maxHeight: "inherit",
 }
 
-/**
- * The dialog follows its content's height instead of jumping to it.
- *
- * The body is `h-fit shrink-0`, so its height is what the content needs and
- * never what the animating box is passing through. When it changes, the box
- * animates from the height it was showing to the height it now has.
- *
- * WAAPI on the element rather than React state: nothing re-renders, the box's
- * own height stays `auto` once the animation ends, and a caller's `max-h`
- * still clamps both ends. A ref callback rather than an effect, because Radix
- * mounts the content only when the dialog opens.
- */
-function followContentHeight(body: HTMLDivElement | null) {
-  const box = body?.parentElement
-  if (!body || !box || typeof ResizeObserver === "undefined") return
-
-  const overflow = box.style.overflow
-  let settled = box.offsetHeight
-  let running: Animation | null = null
-
-  const observer = new ResizeObserver(() => {
-    // Mid-animation the box is where the animation has it; start from there.
-    const from = running ? parseFloat(getComputedStyle(box).height) : settled
-    running?.cancel()
-    running = null
-    const to = box.offsetHeight
-    settled = to
-
-    if (Math.abs(from - to) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      box.style.overflow = overflow
-      return
-    }
-
-    const tokens = getComputedStyle(document.documentElement)
-    box.style.overflow = "hidden"
-    const animation = box.animate([{ height: `${from}px` }, { height: `${to}px` }], {
-      duration: parseFloat(tokens.getPropertyValue("--motion-base")) || 180,
-      easing: tokens.getPropertyValue("--ease-out-strong").trim() || "ease-out",
-    })
-    running = animation
-    animation.onfinish = () => {
-      if (running !== animation) return
-      running = null
-      box.style.overflow = overflow
-    }
-  })
-  observer.observe(body)
-
-  return () => {
-    observer.disconnect()
-    running?.cancel()
-  }
-}
-
+// Dialog content has its final layout immediately. Animate the outer surface
+// with opacity/scale; never observe and reflow the form's height each frame.
 function DialogContent({
   className,
   children,
@@ -136,16 +85,15 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-gutter -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-surface-glass-modal glass-modal p-4 text-body-14 text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-gutter -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-surface-glass-modal glass-modal p-4 text-body-14 text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm duration-(--motion-base) ease-(--ease-out-strong) data-[state=closed]:duration-(--motion-fast) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-calm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-calm",
           className
         )}
         onInteractOutside={(event) => ignoreShellFloatInteraction(event, onInteractOutside)}
         {...props}
       >
         <div
-          ref={followContentHeight}
           data-slot="dialog-body"
-          className="h-fit w-full min-w-0 shrink-0"
+          className="h-fit w-full min-h-0 min-w-0 shrink-0"
           style={INHERIT_LAYOUT}
         >
           {children}
@@ -210,7 +158,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t border-border-subtle bg-transparent p-4 sm:flex-row sm:justify-end",
         className
       )}
       {...props}

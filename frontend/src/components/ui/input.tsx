@@ -1,14 +1,15 @@
 import * as React from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { CONTROL_SURFACE, CONTROL_FOCUS } from "./control-styles"
 
 /**
  * Input (Figma 28:62) — 8 variants, Type (Text/Password) × State (Default/Focus/Error/Disabled).
  *
  * Field: 360×40, r=8 (rounded-md), padding 0/12/0/12 (px-3).
  * Shared form surface recipe:
- * - rest: bg-white/6 border border-status-info/16
- * - focus: border-(--stroke-1-5) border-status-info (1.5px)
+ * - rest: theme surface-well and subtle border
+ * - focus: semantic ring; border width stays fixed
  * - error: border-status-danger (1px)
  * - disabled: text dims to text-text-tertiary (#8b8e8a)
  *
@@ -37,15 +38,20 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       helperText,
       error,
       disabled,
+      id,
+      "aria-describedby": describedBy,
       ...props
     },
     ref,
   ) => {
     const [showPassword, setShowPassword] = React.useState(false)
+    const generatedId = React.useId()
     const isPassword = type === "password"
     const resolvedType = isPassword && showPassword ? "text" : type
     const isError = Boolean(error)
     const errorMessage = typeof error === "string" ? error : undefined
+    const fieldId = id ?? (label || helperText || errorMessage ? generatedId : undefined)
+    const descriptionId = helperText || errorMessage ? `${fieldId}-description` : undefined
 
     const inputElement = (
       // No width cap when the caller supplies its own label: it has taken over
@@ -58,16 +64,18 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <div className="relative flex w-full items-center">
         <input
           ref={ref}
+          id={fieldId}
+          aria-describedby={[describedBy, descriptionId].filter(Boolean).join(" ") || undefined}
           type={resolvedType}
           disabled={disabled}
           data-slot="input"
           aria-invalid={isError ? true : props["aria-invalid"]}
           className={cn(
-            "w-full min-w-0 rounded-md border border-status-info/16 bg-white/6 px-3 text-body-14 text-text-primary transition-colors outline-none",
+            "w-full min-w-0 rounded-md px-3 text-body-14 outline-none",
+            CONTROL_SURFACE,
+            CONTROL_FOCUS,
             "placeholder:text-text-tertiary",
-            "focus-visible:border-(--stroke-1-5) focus-visible:border-status-info focus-visible:outline-none focus-visible:ring-0",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-text-tertiary disabled:placeholder:text-text-tertiary/60",
-            "aria-invalid:border-status-danger aria-invalid:ring-0",
             inputSize === "sm" && "h-(--control-height-md) text-body-12 px-3",
             inputSize === "default" && "h-(--control-height-xl)",
             inputSize === "lg" && "h-(--control-height-2xl) text-body-16 px-4",
@@ -103,13 +111,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex w-full max-w-90 flex-col gap-1.5" data-slot="input-container">
         {label && (
-          <label className="text-label-12 text-text-secondary select-none">
+          <label htmlFor={fieldId} className="text-label-12 text-text-secondary select-none">
             {label}
           </label>
         )}
         {inputElement}
         {(helperText || errorMessage) && (
           <span
+            id={descriptionId}
             className={cn(
               "text-caption-11 select-none",
               isError ? "text-status-danger" : "text-text-tertiary",

@@ -1,3 +1,4 @@
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useState } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { CodeBlock } from "@/components/code/CodeBlock";
@@ -28,7 +29,7 @@ import { useDatabaseChrome } from "../useDatabaseChrome";
 
 export function QueryHistoryView() {
   useDatabaseChrome();
-  const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
   const { selectedProfileId, setSql } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,

@@ -80,6 +80,26 @@ cái gì vẫn là nó. Không có motion trang trí.
 cho dock. Đóng luôn nhanh hơn mở. `prefers-reduced-motion` tắt sạch ở một chỗ
 (`index.css`). Framer chia sẻ số qua `frontend/src/lib/motion.ts`.
 
+Control motion dùng chung `EASE_OUT [0.16, 1, 0.3, 1]`, `EASE_IN_OUT` và
+`EASE_DRAWER`; CSS mirror qua `--ease-out-strong`, `--ease-in-out-strong`,
+`--ease-drawer`. `SPRING_PRESS` cho phản hồi nhấn nhỏ, `SPRING_SWAP` cho
+label/icon, `SPRING_LAYOUT` cho indicator và switch thumb; `SPRING_PANEL`
+chỉ cho panel có lifecycle Motion ngắt được. `SPRING_MOUSE` dành cho phần tử
+theo con trỏ, `SPRING_GLIDE` dành cho visual glide, không trì hoãn giá trị input.
+Checkbox/radio giữ Radix để bảo toàn form và bàn phím. Dấu checkbox vẽ stroke
+trên SVG 12px; không animate blur. Reduced Motion bỏ cả spring và stroke draw.
+Popup Radix giữ CSS Presence: vào 0.98→1 / fade 180 ms, ra 120 ms.
+
+Số nhỏ thay đổi khi thao tác dùng `ui/AnimatedNumber` (`@number-flow/react`
+đã có trong app): digit/width transform 240 ms, opacity 120 ms, cùng `EASE_OUT`.
+Thư viện tôn trọng Reduce Motion, ngừng animate ở document ẩn và fallback
+ở engine thiếu hỗ trợ. Không bật `willChange` thường trực trên mọi counter.
+`NumberStepper` giữ ô số cố định, cập nhật giá trị thật/ARIA ngay, hỗ trợ phím
+mũi tên, Page Up/Down, Home/End và vô hiệu hóa nút tại min/max. Dùng cho Size
+trong Settings; counter tabs/sidebar và các header tổng kết dùng cùng wrapper.
+Các giá trị trong bảng, số dòng code, định danh và input đang gõ vẫn là text;
+không nhân animation lên hàng trăm cell khi refresh.
+
 ### 4.2 Chỉ animate thứ compositor làm được
 
 `transform` và `opacity`. Không animate `width/height/top/left/margin` của cây
@@ -108,7 +128,7 @@ phẩm thiết kế (Figma Smart Animate ghép layer theo tên — đúng 1:1 v�
 | Dialog | Scale 0.98→1 + fade 180 ms, overlay fade, đóng 120 ms | Đã có (`duration-(--motion-base)` vào, `duration-(--motion-fast)` ra qua `tw-animate-css`) |
 | Skeleton → nội dung | Crossfade 180 ms, không cắt | Đã có (`.module-enter` + `@starting-style`, mount cùng chunk nên chỉ chạy đúng lúc đổi). Đo trên Chromium: opacity 0.00 → 0.37 → 0.65 trong ba frame đầu, một transition 180 ms |
 | Chip trạng thái | Đổi màu có transition; số đổi nhấp một nhịp | Đã có: `transition-colors` `--motion-fast` trên `Chip`; lag của bảng groups nhấp một nhịp khi đổi giá trị (key theo giá trị). Không gắn ở peek: một lần peek thay cả 500 dòng |
-| Button | Press scale 0.98; disabled ↔ enabled có transition màu | Đã có: `active:scale-[0.98]`, `transition-all` đọc `--motion-fast` thay cho mặc định 150 ms của Tailwind |
+| Button | Press scale 0.98; disabled ↔ enabled có transition màu | `SPRING_PRESS` điều khiển transform; CSS chỉ transition màu/opacity theo `--motion-fast` để không trì hoãn spring. `useReducedMotion` bỏ press motion |
 | Toast | Trượt lên + fade; rời 120 ms | Đã mount `<Toaster/>` (lazy) — trước đó **không có** trong cây, nên mọi `toast.error` của Notes đều im lặng. Motion để nguyên của sonner, chỉ chốt một `duration` dùng chung |
 | Dock | Đã có, cần đồng bộ về token | Cố ý giữ nguyên 500 ms mở / 350 ms đóng: `--motion-slow` là 240 ms nên đổi sang token sẽ rút gần một nửa, và 350 ms được canh theo cú morph bo góc 18px → 7.5px mà chính comment trong file dặn đừng chỉnh rời. Dock vẫn là chỗ duy nhất dùng `--ease-house-spring` |
 

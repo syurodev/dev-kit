@@ -1,3 +1,4 @@
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { ChevronRight, ExternalLink, FilePlus, FileText, MoreHorizontal, Plus, Tag, Trash2, Type } from "lucide-react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
@@ -285,7 +286,7 @@ function NoteRows({
   onOpenNoteInTab: (note: NoteSummary) => void;
   onTrashNote: (note: NoteSummary) => void;
 }) {
-  const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
 
   if (notes.length === 0) {
     return (

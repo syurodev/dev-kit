@@ -56,7 +56,7 @@ function RecoveryKeyField({
       <div
         data-slot="recovery-key-field"
         className={cn(
-          "flex flex-col justify-between w-full max-w-160 h-33 min-h-33 rounded-float border border-glass-border bg-glass-panel px-(--space-recovery-x) py-(--space-step-label) backdrop-blur-float shadow-glass-edge transition-colors",
+          "flex flex-col justify-between w-full max-w-160 h-33 min-h-33 rounded-float border border-border-subtle bg-surface-well px-(--space-recovery-x) py-(--space-step-label) transition-control",
           className
         )}
         {...props}
@@ -66,7 +66,7 @@ function RecoveryKeyField({
           <span
             data-slot="recovery-key-label"
             className={cn(
-              "text-label-11-caps transition-colors",
+              "text-label-11-caps transition-control",
               isCopied ? "text-status-success" : "text-status-recovery"
             )}
           >
@@ -77,7 +77,7 @@ function RecoveryKeyField({
             type="button"
             data-slot="recovery-key-reveal-toggle"
             onClick={() => setIsRevealed(!isRevealed)}
-            className="text-text-tertiary hover:text-text-primary text-caption-11-medium flex items-center gap-1 transition-colors cursor-pointer"
+            className="text-text-tertiary hover:text-text-primary text-caption-11-medium flex items-center gap-1 transition-control cursor-pointer"
           >
             {isRevealed ? (
               <>
@@ -110,7 +110,7 @@ function RecoveryKeyField({
                   data-slot="recovery-key-copy-button"
                   onClick={handleCopy}
                   aria-label="Copy recovery key"
-                  className="flex size-9 items-center justify-center rounded-control border border-glass-border bg-glass-panel backdrop-blur-md text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
+                  className="flex size-9 items-center justify-center rounded-control border border-border-subtle bg-surface-well text-text-primary hover:bg-state-soft transition-control cursor-pointer"
                 >
                   {isCopied ? (
                     <Check className="size-4 text-status-success" strokeWidth={2} />
@@ -131,7 +131,7 @@ function RecoveryKeyField({
                   data-slot="recovery-key-download-button"
                   onClick={handleDownload}
                   aria-label="Download recovery key"
-                  className="flex size-9 items-center justify-center rounded-control border border-glass-border bg-glass-panel backdrop-blur-md text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
+                  className="flex size-9 items-center justify-center rounded-control border border-border-subtle bg-surface-well text-text-primary hover:bg-state-soft transition-control cursor-pointer"
                 >
                   <Download className="size-4 text-text-primary" strokeWidth={1.5} />
                 </button>
@@ -145,7 +145,7 @@ function RecoveryKeyField({
         <p
           data-slot="recovery-key-footer"
           className={cn(
-            "text-caption-11 transition-colors",
+            "text-caption-11 transition-control",
             isCopied ? "text-status-success" : "text-text-tertiary"
           )}
         >

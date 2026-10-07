@@ -610,7 +610,11 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(html).toContain("Plan");
-      expect(html).toContain("1 of 3");
+      const visibleText = html
+        .replace(/<template\b[^>]*>[\s\S]*?<\/template\s*>/g, "")
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/g, "")
+        .replace(/<[^>]+>/g, "");
+      expect(visibleText).toContain("1 of 3");
       // ACP's own status words, per step — that is where the agent is.
       expect(html).toContain("in progress");
       expect(html).toContain("pending");

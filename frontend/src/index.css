@@ -32,8 +32,10 @@
        feeds GSAP a CustomEase from the same 36 points. Emitted here as a CSS
        linear() so a size morph springs with zero JS and zero bundle. */
     --ease-house-spring: linear(0, 0.0289 2.8%, 0.1062 5.6%, 0.2182 8.3%, 0.3519 11.1%, 0.4957 13.9%, 0.6396 16.7%, 0.7755 19.4%, 0.8974 22.2%, 1.0013 25%, 1.0849 27.8%, 1.1474 30.6%, 1.1896 33.3%, 1.213 36.1%, 1.22 38.9%, 1.2134 41.7%, 1.1961 44.4%, 1.1714 47.2%, 1.1419 50%, 1.1102 52.8%, 1.0786 55.6%, 1.0487 58.3%, 1.022 61.1%, 0.9992 63.9%, 0.981 66.7%, 0.9673 69.4%, 0.9581 72.2%, 0.9531 75%, 0.9516 77.8%, 0.9531 80.6%, 0.957 83.3%, 0.9624 86.1%, 0.969 88.9%, 0.9759 91.7%, 0.9829 94.4%, 0.9894 97.2%, 1 100%);
-    /* Same file's OUT_STRONG — the family's non-overshooting exit curve. */
-    --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+    /* Mirrors EASE_OUT / EASE_IN_OUT / EASE_DRAWER in lib/motion.ts. */
+    --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
     /* Motion is three durations, not a number per component: fast for hover,
        press and chips; base for open/close and tab switches; slow for panels,
@@ -42,6 +44,10 @@
     --motion-fast: 120ms;
     --motion-base: 180ms;
     --motion-slow: 240ms;
+
+    /* Quiet compositor motion for anchored surfaces; no bounce on reading UI. */
+    --floating-enter-scale: 0.98;
+    --floating-exit-scale: 0.98;
 
     /* Semantic tokens */
     --color-bg-app: var(--background-app);
@@ -902,7 +908,7 @@
    they cannot drift apart the way a copied value always eventually does. The
    fill stays on the caller, which already uses the surface/glass-modal token. */
 .glass-modal {
-  box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.48);
+  box-shadow: var(--calm-modal-shadow, 0 20px 48px -8px rgba(0, 0, 0, 0.38));
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
@@ -912,7 +918,27 @@
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
-    0 8px 32px rgba(0, 0, 0, 0.35);
+    var(--calm-float-shadow, 0 8px 24px rgba(0, 0, 0, 0.24));
+}
+
+:root[data-theme="light"] {
+  --calm-modal-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.14);
+  --calm-float-shadow: 0 6px 20px rgba(0, 0, 0, 0.10);
+}
+
+/* Only control paint and compositor properties; never width/height/layout. */
+@utility transition-control {
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform, scale, rotate;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-out-strong);
+}
+
+/* Keep Radix Presence and tw-animate-css responsible for entry/exit lifetimes. */
+@utility zoom-in-calm {
+  --tw-enter-scale: var(--floating-enter-scale);
+}
+@utility zoom-out-calm {
+  --tw-exit-scale: var(--floating-exit-scale);
 }
 
 /* The Agent Hub composer. Same glass, a shorter shadow: a menu floats over
@@ -1780,7 +1806,32 @@
   }
 }
 
+/* Motion owns the root transform; CSS only transitions the control's colours. */
+.motion-control {
+    transition-property: background-color, border-color, color, box-shadow, opacity;
+}
+.checkbox-mark {
+    transition: opacity var(--motion-fast) var(--ease-out-strong),
+                transform var(--motion-fast) var(--ease-out-strong);
+}
+.checkbox-mark[data-state="checked"] .checkbox-check-path {
+    animation: checkbox-draw 300ms var(--ease-out-strong) 40ms both;
+}
+.checkbox-mark[data-state="indeterminate"] .checkbox-mixed-path {
+    animation: checkbox-draw 200ms var(--ease-out-strong) 40ms both;
+}
+@keyframes checkbox-draw {
+    from { stroke-dasharray: 1; stroke-dashoffset: 1; }
+    to { stroke-dasharray: 1; stroke-dashoffset: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+    .checkbox-mark { transition: none; }
+    .checkbox-mark path { animation: none !important; }
+    .transition-control {
+        transition: none;
+        scale: 1;
+    }
     .animate-in, .animate-out {
         animation: none !important;
     }

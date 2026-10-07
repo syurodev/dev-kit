@@ -1,7 +1,17 @@
 import * as React from "react"
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
+import { motion, useReducedMotion } from "framer-motion"
 
 import { cn } from "@/lib/utils"
+import { SPRING_PRESS } from "@/lib/motion"
+import { CONTROL_FOCUS, CONTROL_SURFACE } from "./control-styles"
+
+const MotionRadioItem = motion.create(React.forwardRef<
+  React.ComponentRef<typeof RadioGroupPrimitive.Item>,
+  { controlProps: React.ComponentProps<typeof RadioGroupPrimitive.Item>; style?: React.CSSProperties }
+>(({ controlProps, style, ...visualProps }, ref) => (
+  <RadioGroupPrimitive.Item {...visualProps} {...controlProps} ref={ref} style={{ ...controlProps.style, ...style }} />
+)))
 
 function RadioGroup({
   className,
@@ -18,24 +28,36 @@ function RadioGroup({
 
 function RadioGroupItem({
   className,
+  ref,
+  disabled,
   ...props
 }: React.ComponentProps<typeof RadioGroupPrimitive.Item>) {
+  const reduced = useReducedMotion()
   return (
-    <RadioGroupPrimitive.Item
+    <MotionRadioItem
+      ref={ref}
       data-slot="radio-group-item"
-      className={cn(
-        "group/radio-group-item peer relative flex aspect-square size-4 shrink-0 rounded-full border border-input outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary",
-        className
-      )}
-      {...props}
-    >
-      <RadioGroupPrimitive.Indicator
-        data-slot="radio-group-indicator"
-        className="flex size-4 items-center justify-center"
-      >
-        <span className="absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-foreground" />
-      </RadioGroupPrimitive.Indicator>
-    </RadioGroupPrimitive.Item>
+      whileTap={reduced || disabled ? undefined : { scale: 0.92 }}
+      transition={SPRING_PRESS}
+      controlProps={{
+        ...props,
+        disabled,
+        className: cn(
+          "group/radio-group-item peer motion-control relative flex aspect-square size-4 shrink-0 rounded-full outline-none after:absolute after:-inset-x-3 after:-inset-y-2 disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-action-primary data-checked:bg-action-primary data-checked:text-action-primary-foreground",
+          CONTROL_SURFACE,
+          CONTROL_FOCUS,
+          className
+        ),
+        children: (
+          <RadioGroupPrimitive.Indicator
+            data-slot="radio-group-indicator"
+            className="flex size-4 items-center justify-center animate-in fade-in-0 zoom-in-calm duration-(--motion-fast) ease-(--ease-out-strong)"
+          >
+            <span className="absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-action-primary-foreground" />
+          </RadioGroupPrimitive.Indicator>
+        ),
+      }}
+    />
   )
 }
 

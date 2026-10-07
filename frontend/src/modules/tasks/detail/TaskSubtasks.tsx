@@ -1,3 +1,4 @@
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { useState } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { Plus } from "lucide-react";
@@ -13,7 +14,7 @@ import { useTasksStore } from "../tasksStore";
 import { isTerminal, statusOf } from "../taskModel";
 
 /** The list motion every other list in the app uses (smoothness 4.4). */
-const LIST_MOTION = { duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
+const LIST_MOTION = { duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS };
 
 /**
  * A parent's checklist. The dot is a checkbox: done moves a subtask to the

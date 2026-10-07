@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { copyText } from "../../../bridge/clipboard";
-import { Copy, Check, X } from "lucide-react";
+import { Copy, Check } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
@@ -15,11 +16,15 @@ export function CellInspector() {
   const [copied, setCopied] = useState(false);
   const [format, setFormat] = useState<"auto" | "raw" | "json">("auto");
 
-  if (!inspectedCell) return null;
+  // Keep the last value for Radix's short exit animation after closing.
+  const previousCell = useRef(inspectedCell);
+  useEffect(() => { if (inspectedCell) previousCell.current = inspectedCell; }, [inspectedCell]);
+  const cell = inspectedCell ?? previousCell.current;
+  if (!cell) return null;
 
   // SQL NULL has no text to show, copy or parse (#47).
-  const isNull = inspectedCell.value === null;
-  const rawValue = inspectedCell.value ?? "";
+  const isNull = cell.value === null;
+  const rawValue = cell.value ?? "";
   let formattedJson: string | null = null;
   let isJson = false;
 
@@ -47,26 +52,26 @@ export function CellInspector() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-screen-85 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
+    <Dialog open={Boolean(inspectedCell)} onOpenChange={(open) => { if (!open) setInspectedCell(null); }}>
+      <DialogContent className="sm:max-w-2xl max-h-screen-85 flex flex-col gap-4 overflow-hidden [&>[data-slot=dialog-body]]:shrink [&>[data-slot=dialog-body]]:overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
-          <div className="flex items-center gap-2">
-            <span className="text-title-13 text-text-primary">Cell Inspector</span>
-            <span className="text-code-12 text-action-primary bg-action-primary/10 px-1.5 py-0.5 rounded border border-action-primary/20">
-              {inspectedCell.columnName}
+        <DialogHeader>
+          <DialogTitle>Cell Inspector</DialogTitle>
+          <DialogDescription className="flex flex-wrap items-center gap-2">
+            <span className="text-code-12 text-text-primary bg-state-soft px-1.5 py-0.5 rounded border border-border-subtle">
+              {cell.columnName}
             </span>
             <span className="text-caption-11 text-text-tertiary">
               ({isNull ? "NULL" : `${rawValue.length} chars`} {isJson ? "· JSON" : ""})
             </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
+          </DialogDescription>
+        </DialogHeader>
+          <div className="flex flex-wrap items-center gap-1.5">
             {isJson && (
               <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 mr-2 text-caption-11">
                 <button
                   type="button"
-                  className={`px-2 py-0.5 rounded transition-colors ${
+                  className={`px-2 py-0.5 rounded transition-control ${
                     format !== "raw" ? "bg-surface-raised text-text-primary font-medium" : "text-text-tertiary hover:text-text-primary"
                   }`}
                   onClick={() => setFormat("json")}
@@ -75,7 +80,7 @@ export function CellInspector() {
                 </button>
                 <button
                   type="button"
-                  className={`px-2 py-0.5 rounded transition-colors ${
+                  className={`px-2 py-0.5 rounded transition-control ${
                     format === "raw" ? "bg-surface-raised text-text-primary font-medium" : "text-text-tertiary hover:text-text-primary"
                   }`}
                   onClick={() => setFormat("raw")}
@@ -95,24 +100,15 @@ export function CellInspector() {
               <span>{copied ? "Copied" : "Copy"}</span>
             </Button>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-text-tertiary hover:text-text-primary"
-              onClick={() => setInspectedCell(null)}
-            >
-              <X className="w-4 h-4" />
-            </Button>
           </div>
-        </div>
 
         {/* Content */}
-        <div className="p-4 overflow-auto flex-1 text-code-12 text-text-primary bg-surface-base/80 select-text whitespace-pre-wrap break-all">
+        <div className="min-h-0 overflow-auto flex-1 rounded-md bg-surface-well p-3 text-code-12 text-text-primary select-text whitespace-pre-wrap break-all">
           {displayText}
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 border-t border-border bg-surface-raised/30 flex items-center justify-between text-caption-11 text-text-tertiary">
+        <DialogFooter className="items-center sm:justify-between text-caption-11 text-text-tertiary">
           <span>Click outside or press Escape to close</span>
           <Button
             variant="secondary"
@@ -122,8 +118,8 @@ export function CellInspector() {
           >
             Close
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

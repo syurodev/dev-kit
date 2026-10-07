@@ -1,3 +1,4 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Bot, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,7 +30,7 @@ export function BoardFilters({
   const filtering = isFiltering(filter);
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
-      <label className="flex h-(--control-height-sm) w-60 items-center gap-2 rounded-md border border-status-info/16 bg-white/6 px-2.5 transition-colors focus-within:border-status-info">
+      <label className="flex h-(--control-height-sm) w-60 items-center gap-2 rounded-md border border-border-subtle bg-surface-well px-2.5 transition-control focus-within:border-status-info focus-within:ring-2 focus-within:ring-status-info/20">
         <Search aria-hidden className="size-(--icon-14) shrink-0 text-text-tertiary" />
         <input
           value={filter.query}
@@ -99,7 +100,7 @@ export function BoardFilters({
         }
         aria-hidden={!filtering}
       >
-        {shown} shown
+        <AnimatedNumber value={shown} /> shown
         <Button
           size="icon-xs"
           variant="ghost"

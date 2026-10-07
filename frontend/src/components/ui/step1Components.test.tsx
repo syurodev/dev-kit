@@ -51,8 +51,8 @@ describe("Step 1 Shared Components Reconciliation", () => {
       expect(html).toContain("h-5");
       expect(html).toContain("rounded-sm");
       expect(html).toContain("text-caption-11-medium");
-      expect(html).toContain("bg-white/6");
-      expect(html).toContain("border-status-info/8");
+      expect(html).toContain("bg-surface-well");
+      expect(html).toContain("border-border-subtle");
       expect(html).toContain("text-text-secondary");
         expect(html).toContain("Architecture");
     });
@@ -86,8 +86,8 @@ describe("Step 1 Shared Components Reconciliation", () => {
       expect(html).toContain('data-slot="tag-input"');
       expect(html).toContain("min-h-(--control-height-md)");
       expect(html).toContain("rounded-md");
-      expect(html).toContain("border-status-info/16");
-      expect(html).toContain("bg-white/6");
+      expect(html).toContain("border-border-subtle");
+      expect(html).toContain("bg-surface-well");
         expect(html).toContain("focus-within:border-status-info");
       expect(html).toContain("react");
       expect(html).toContain("tailwind");

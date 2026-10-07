@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "group/alert relative flex w-full h-18 min-h-18 items-center gap-3 rounded-control border px-4 py-3 text-left transition-colors backdrop-blur-md shadow-glass-edge [&_svg]:size-4.5 [&_svg]:shrink-0",
+  "group/alert relative flex w-full min-h-18 items-center gap-3 rounded-control border px-4 py-3 text-left transition-control [&_svg]:size-4.5 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -79,4 +79,3 @@ function AlertContent({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 export { Alert, AlertTitle, AlertDescription, AlertContent, alertVariants }
-

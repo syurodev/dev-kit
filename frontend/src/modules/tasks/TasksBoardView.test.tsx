@@ -227,8 +227,12 @@ describe("TasksBoardView", () => {
         b1: [task({ id: "t1", blockedBy: ["t2"] }), task({ id: "t2", key: "PAY-def456", status: "done" }), task({ id: "t3", key: "PAY-ghi789", blockedBy: ["t1"] })],
       },
     });
-    // Text only: the count and its word sit in separate spans.
-    const html = render({ boardId: "b1" }).replace(/<[^>]+>/g, "");
+    // NumberFlow's declarative shadow DOM has a fallback number in light DOM.
+    // Keep that visible text, excluding inert templates and embedded CSS.
+    const html = render({ boardId: "b1" })
+      .replace(/<template\b[^>]*>[\s\S]*?<\/template\s*>/g, "")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/g, "")
+      .replace(/<[^>]+>/g, "");
     expect(html).toContain("1/3");
     expect(html).toContain("1 waiting");
     expect(html).not.toContain("in progress");

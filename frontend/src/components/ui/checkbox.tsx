@@ -2,24 +2,22 @@
 
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
 import * as React from "react"
-import { Check } from "lucide-react"
+import { motion, useReducedMotion } from "framer-motion"
 
 import { cn } from "@/lib/utils"
+import { CONTROL_SURFACE, CONTROL_FOCUS } from "./control-styles"
+import { SPRING_PRESS } from "@/lib/motion"
 
-/**
- * Checkbox (Figma 28:78) — 4 states (Unchecked/Checked/Focus/Disabled).
- *
- * Row: 220×32, gap 8.
- * Control: 18×18, r=6 (rounded-sm).
- * Shared form surface recipe:
- * - Unchecked / Focus / Disabled: bg-white/6 border border-status-info/16
- * - Focus: border-(--stroke-1-5) border-status-info (1.5px)
- * - Checked: fill #c6ff34 (bg-action-primary) but the hairline stays
- *   #b2d5e5 @16% — Figma does not switch the border to lime — plus a 12×12
- *   check glyph stroked #020202 at 1.5px
- *
- * Label: text-body-13 text-text-primary (#f0f1eb), dims to text-text-tertiary (#8b8e8a) when disabled.
- */
+// Native DOM callbacks stay inside controlProps: Motion's onDrag and
+// onAnimationStart have different signatures from the HTML events.
+const MotionCheckboxRoot = motion.create(React.forwardRef<
+  React.ComponentRef<typeof CheckboxPrimitive.Root>,
+  { controlProps: React.ComponentProps<typeof CheckboxPrimitive.Root>; style?: React.CSSProperties }
+>(({ controlProps, style, ...visualProps }, ref) => (
+  <CheckboxPrimitive.Root {...visualProps} {...controlProps} ref={ref} style={{ ...controlProps.style, ...style }} />
+)))
+
+/** Radix owns checked/form state. Motion only supplies tactile press feedback. */
 export interface CheckboxProps
   extends React.ComponentProps<typeof CheckboxPrimitive.Root> {
   label?: React.ReactNode
@@ -31,30 +29,41 @@ const Checkbox = React.forwardRef<
 >(({ className, label, id, disabled, ...props }, ref) => {
   const generatedId = React.useId()
   const checkboxId = id || (label ? generatedId : undefined)
+  const reduce = useReducedMotion()
 
   const control = (
-    <CheckboxPrimitive.Root
+    <MotionCheckboxRoot
       ref={ref}
-      id={checkboxId}
-      disabled={disabled}
       data-slot="checkbox"
-      className={cn(
-        "peer relative flex size-4.5 shrink-0 items-center justify-center rounded-sm border border-status-info/16 bg-white/6 transition-colors outline-none",
-        "focus-visible:border-(--stroke-1-5) focus-visible:border-status-info focus-visible:outline-none focus-visible:ring-0",
-        "disabled:cursor-not-allowed disabled:text-text-tertiary disabled:opacity-50",
-        "data-checked:bg-action-primary data-checked:text-action-primary-foreground",
-        "aria-invalid:border-status-danger",
-        className,
-      )}
-      {...props}
-    >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="grid place-content-center text-current"
-      >
-        <Check className="size-(--icon-12)" strokeWidth={2} />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
+      whileTap={reduce || disabled ? undefined : { scale: 0.92 }}
+      transition={SPRING_PRESS}
+      controlProps={{
+        ...props,
+        id: checkboxId,
+        disabled,
+        className: cn(
+          "peer motion-control relative flex size-4.5 shrink-0 items-center justify-center rounded-sm outline-none",
+          CONTROL_SURFACE,
+          CONTROL_FOCUS,
+          "disabled:cursor-not-allowed disabled:text-text-tertiary disabled:opacity-50",
+          "data-checked:border-action-primary data-checked:bg-action-primary data-checked:text-action-primary-foreground",
+          "data-[state=indeterminate]:border-action-primary data-[state=indeterminate]:bg-action-primary data-[state=indeterminate]:text-action-primary-foreground",
+          className,
+        ),
+        children: (
+          <CheckboxPrimitive.Indicator
+            forceMount
+            data-slot="checkbox-indicator"
+            className="checkbox-mark group/check grid place-content-center text-current data-[state=unchecked]:opacity-0 data-[state=unchecked]:scale-50"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" className="size-(--icon-12)">
+              <path pathLength={1} d="M5 13l4 4L19 7" className="checkbox-check-path group-data-[state=indeterminate]/check:hidden" />
+              <path pathLength={1} d="M6 12h12" className="checkbox-mixed-path hidden group-data-[state=indeterminate]/check:block" />
+            </svg>
+          </CheckboxPrimitive.Indicator>
+        ),
+      }}
+    />
   )
 
   if (!label) {

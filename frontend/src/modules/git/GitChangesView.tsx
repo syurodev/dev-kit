@@ -1,3 +1,5 @@
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -224,8 +226,8 @@ function ChangeSection({
   // Rows that come and go — a file staged, a hunk done — slide instead of
   // cutting; the same 180 ms as every other list in the app.
   const [list] = useAutoAnimate<HTMLUListElement>({
-    duration: 180,
-    easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+    duration: MOTION_BASE * 1000,
+    easing: EASE_OUT_CSS,
   });
   const hidden = limit !== undefined && count > limit ? count - limit : 0;
   return (
@@ -238,7 +240,7 @@ function ChangeSection({
           )}
         >
           {title}
-          <span className="text-code-11 tabular-nums opacity-70">{count}</span>
+          <AnimatedNumber value={count} className="min-w-counter text-code-11 opacity-70" />
         </h3>
         {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
       </header>

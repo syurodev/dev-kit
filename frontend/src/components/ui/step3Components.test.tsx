@@ -22,7 +22,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain("h-18")
       expect(html).toContain("border-status-info")
       expect(html).toContain("bg-status-info/8")
-      expect(html).toContain("backdrop-blur-md")
+      expect(html).not.toContain("backdrop-blur")
       expect(html).toContain("text-title-13")
       expect(html).toContain("text-body-12")
       expect(html).toContain("gap-1")
@@ -94,7 +94,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
   })
 
   describe("Loading / Vault status (Figma 29:77)", () => {
-    it("renders 320x48 frame with radius 12, grey spinner, and float glass bg", () => {
+    it("renders 320x48 frame with radius 12, grey spinner, and raised surface", () => {
       const html = renderToString(
         <LoadingStatus text="Checking secure storage status…" />,
       )
@@ -103,9 +103,9 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain("w-80")
       expect(html).toContain("h-12")
       expect(html).toContain("rounded-lg")
-      expect(html).toContain("bg-glass-float")
-      expect(html).toContain("border-glass-border")
-      expect(html).toContain("backdrop-blur-md")
+      expect(html).toContain("bg-surface-raised")
+      expect(html).toContain("border-border-subtle")
+      expect(html).not.toContain("backdrop-blur")
       // Spinner is grey --icon-secondary #c6c8c2
       expect(html).toContain("text-icon-secondary")
       expect(html).toContain("text-body-13-medium")
@@ -121,9 +121,9 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain('data-slot="recovery-key-field"')
       expect(html).toContain("h-33")
       expect(html).toContain("rounded-float")
-      expect(html).toContain("bg-glass-panel")
-      expect(html).toContain("backdrop-blur-float")
-      expect(html).toContain("border-glass-border")
+      expect(html).toContain("bg-surface-well")
+      expect(html).not.toContain("backdrop-blur")
+      expect(html).toContain("border-border-subtle")
       expect(html).toContain("RECOVERY KEY · SHOWN ONCE")
       expect(html).toContain("text-code-12-medium")
       expect(html).toContain("size-9")
@@ -140,15 +140,15 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain("bg-status-success/12")
       expect(html).toContain("text-title-14")
       expect(html).toContain("items-center")
-      expect(html).toContain("backdrop-blur-md")
+      expect(html).not.toContain("backdrop-blur")
     })
 
-    it("renders Irreversible type with 84px height, accent bar, and glass-panel bg", () => {
+    it("renders Irreversible type with 84px height, accent bar, and recessed surface", () => {
       const html = renderToString(<SecurityNotice type="irreversible" />)
 
       expect(html).toContain("h-21")
-      expect(html).toContain("border-glass-border")
-      expect(html).toContain("bg-glass-panel")
+      expect(html).toContain("border-border-subtle")
+      expect(html).toContain("bg-surface-well")
       expect(html).toContain('data-slot="security-notice-accent-bar"')
       expect(html).toContain("h-10")
       expect(html).toContain("w-0.75")

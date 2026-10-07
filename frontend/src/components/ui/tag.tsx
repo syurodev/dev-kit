@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
  * height is fixed. Flagged as Figma-side drift, not copied.
  */
 const tagVariants = cva(
-  "inline-flex h-5 items-center justify-center gap-1 rounded-sm border px-2 bg-white/6 border-status-info/8 text-text-secondary text-caption-11-medium whitespace-nowrap transition-all select-none shrink-0",
+  "inline-flex h-5 items-center justify-center gap-1 rounded-sm border px-2 bg-surface-well border-border-subtle text-text-secondary text-caption-11-medium whitespace-nowrap transition-control select-none shrink-0",
 );
 
 export interface TagProps extends React.ComponentProps<"span"> {
