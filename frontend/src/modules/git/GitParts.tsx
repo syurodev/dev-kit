@@ -1,5 +1,6 @@
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { MarkKind } from "./rail";
 
@@ -65,22 +66,50 @@ export function StatusMark({ kind }: { kind: MarkKind }) {
   );
 }
 
-/** The small bordered action at the end of a row: Stage, Unstage, Stage hunk. */
-export function RowAction({ children, className, ...props }: React.ComponentProps<"button">) {
+/**
+ * An action drawn as its icon alone, named by a tooltip that is also its
+ * accessible name. Every Git control that used to be a word beside a row or a
+ * heading is this: the list is the content, and the buttons only need to be
+ * findable. `wrap` is always on because most of them are disabled while a Git
+ * operation runs, and a disabled button gives a tooltip nothing to hang on.
+ */
+export function IconAction({
+  label,
+  icon,
+  size = "icon-sm",
+  variant = "ghost",
+  side = "bottom",
+  className,
+  ...props
+}: Omit<ComponentProps<"button">, "children" | "aria-label"> & {
+  label: string;
+  icon: ReactNode;
+  size?: "icon-xs" | "icon-sm";
+  variant?: "ghost" | "outline" | "default";
+  side?: "top" | "right" | "bottom" | "left";
+}) {
   return (
-    <Button variant="outline" size="sm" className={cn("shrink-0", className)} {...props}>
-      {children}
-    </Button>
+    <ActionTooltip label={label} side={side} wrap>
+      <Button type="button" variant={variant} size={size} className={cn("shrink-0", className)} {...props}>
+        {icon}
+      </Button>
+    </ActionTooltip>
   );
 }
 
-/** A quiet text action in a section heading: Stage all, Unstage all, Refresh. */
-export function HeadingAction({ children, className, ...props }: React.ComponentProps<"button">) {
-  return (
-    <Button variant="ghost" size="sm" className={cn("shrink-0 px-1 text-text-tertiary", className)} {...props}>
-      {children}
-    </Button>
-  );
+/** The small action at the end of a row: Stage, Unstage, Stage hunk. */
+export function RowAction({ label, icon, ...props }: Omit<ComponentProps<typeof IconAction>, "variant" | "size">) {
+  return <IconAction variant="outline" label={label} icon={icon} {...props} />;
+}
+
+/** A quiet action in a section heading: Stage all, Unstage all, Refresh. */
+export function HeadingAction({
+  label,
+  icon,
+  className,
+  ...props
+}: Omit<ComponentProps<typeof IconAction>, "variant" | "size">) {
+  return <IconAction size="icon-xs" label={label} icon={icon} className={cn("text-text-tertiary", className)} {...props} />;
 }
 
 /** A fact about the folder or branch, in a soft pill — with a dot when it has a state to show. */

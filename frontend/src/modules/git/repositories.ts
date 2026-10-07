@@ -69,3 +69,40 @@ export function folderStatus(input: {
   if (project === "") return { tone: "warning", text: "Not a repository · following Code Graph" };
   return { tone: "success", text: `Following Code Graph · ${pathTail(folder, 2)}` };
 }
+
+/** The repositories found under one place Git can be pointed at: a workspace folder, or the project Code Graph has open. */
+export type RepositorySource = { key: string; label: string; repos: Repository[] | undefined };
+export type RepositoryGroup = { key: string; label: string; repos: Repository[] };
+
+/**
+ * What the repository switcher lists: each source's repositories under its own
+ * heading, in the order the sources were given. A repository found under two
+ * sources — a service inside the open project — is listed under the first, so
+ * choosing it is one row and not two that mean the same folder. A source with
+ * nothing in it, or not read yet, is left out.
+ */
+export function groupRepositories(sources: RepositorySource[]): RepositoryGroup[] {
+  const seen = new Set<string>();
+  const groups: RepositoryGroup[] = [];
+  for (const source of sources) {
+    const repos = (source.repos ?? []).filter((repo) => {
+      if (seen.has(repo.path)) return false;
+      seen.add(repo.path);
+      return true;
+    });
+    if (repos.length > 0) groups.push({ key: source.key, label: source.label, repos });
+  }
+  return groups;
+}
+
+/**
+ * Workspace folders that are each one repository named after the folder — the
+ * usual shape of a workspace of services — would list as "api" over "api" and
+ * "web" over "web". When every group is like that the headings say nothing the
+ * rows do not, so they are folded into one plain list.
+ */
+export function collapseTrivialGroups(groups: RepositoryGroup[]): RepositoryGroup[] {
+  if (groups.length < 2) return groups;
+  const trivial = groups.every((group) => group.repos.length === 1 && group.repos[0].name === group.label);
+  return trivial ? [{ key: "repositories", label: "Repositories", repos: groups.flatMap((group) => group.repos) }] : groups;
+}

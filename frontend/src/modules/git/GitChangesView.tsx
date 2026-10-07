@@ -7,7 +7,26 @@ import { openFileDiff, openHistory } from "./documents";
 import { useEffect, useMemo, useState, useId, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { ArrowRight, ChevronDown, ChevronRight, GitBranch, ShieldCheck, Ellipsis } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowRight,
+  ArrowUpFromLine,
+  ChevronDown,
+  ChevronRight,
+  CloudDownload,
+  Eye,
+  GitBranch,
+  GitMerge,
+  History,
+  ListMinus,
+  ListPlus,
+  Minus,
+  Plus,
+  ShieldCheck,
+  Ellipsis,
+  Undo2,
+  WandSparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -45,7 +64,7 @@ import { buildPatch, parsePatch, type FilePatch, type Hunk } from "./hunks";
 import { GitBranchMenu } from "./GitBranchMenu";
 import { GitConflictPanel } from "./GitConflictPanel";
 import { GitFolderBar } from "./GitFolderGate";
-import { HeadingAction, RowAction, StatusMark } from "./GitParts";
+import { HeadingAction, IconAction, RowAction, StatusMark } from "./GitParts";
 import { focusGitPath, useGitFocus } from "./gitFocus";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { markKind, splitPath, syncText, type MarkKind } from "./rail";
@@ -161,9 +180,7 @@ function HunkCard({ path, hunk, busy, onStage }: { path: string; hunk: Hunk; bus
         <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary" title={hunk.header}>
           {hunk.header}
         </span>
-        <RowAction disabled={busy} onClick={onStage}>
-          Stage hunk
-        </RowAction>
+        <RowAction label="Stage hunk" icon={<Plus />} disabled={busy} onClick={onStage} />
       </div>
       <div className="overflow-x-auto pb-1">
         {rows.slice(0, PREVIEW_LINES).map((row, index) => (
@@ -251,6 +268,7 @@ function ChangeRow({
   path,
   kind,
   action,
+  actionIcon,
   onAction,
   open,
   onToggle,
@@ -259,7 +277,9 @@ function ChangeRow({
 }: {
   path: string;
   kind: MarkKind;
+  /** What the row's button does, as its tooltip and accessible name. */
   action: string;
+  actionIcon: ReactNode;
   onAction: () => void;
   /** Undefined for a row that cannot unfold. */
   open?: boolean;
@@ -305,14 +325,8 @@ function ChangeRow({
             {label}
           </div>
         )}
-        {onReview && (
-          <Button size="sm" variant="ghost" onClick={onReview} aria-label={`Review ${path}`}>
-            Review
-          </Button>
-        )}
-        <RowAction disabled={busy} onClick={onAction}>
-          {action}
-        </RowAction>
+        {onReview && <IconAction label={`Review ${name}`} icon={<Eye />} onClick={onReview} />}
+        <RowAction label={action} icon={actionIcon} disabled={busy} onClick={onAction} />
       </div>
       {unfolded ? children : null}
     </li>
@@ -487,14 +501,10 @@ export function GitChangesView() {
           )}
           <span className="min-w-0 flex-1" />
           <div className="flex flex-wrap items-center gap-1.5">
-            <Button variant="ghost" onClick={openHistory}>
-              History
-            </Button>
+            <IconAction label="Open full history" icon={<History />} onClick={openHistory} />
             <DropdownMenu open={moreOpen && visible} onOpenChange={setMoreOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="More Git actions" disabled={busy}>
-                  <Ellipsis />
-                </Button>
+                <IconAction label="More Git actions" icon={<Ellipsis />} disabled={busy} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem disabled={clean || conflicted.length > 0} onSelect={() => ask("stash")}>
@@ -515,25 +525,34 @@ export function GitChangesView() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
+            <IconAction
               variant="outline"
-              disabled={busy || !remote}
-              title={
-                remote ? "Goes over the network and changes nothing in the work tree" : "This repository has no remote"
+              icon={<CloudDownload />}
+              label={
+                remote
+                  ? `Fetch ${remote} — goes over the network and changes nothing in the work tree`
+                  : "Fetch — this repository has no remote"
               }
-              onClick={() => network("fetch", () => gitFetch(remote), `Fetched ${remote}`)}
-            >
-              Fetch
-            </Button>
-            <Button
-              variant="outline"
               disabled={busy || !remote}
-              title="Fast-forward only"
+              onClick={() => network("fetch", () => gitFetch(remote), `Fetched ${remote}`)}
+            />
+            <IconAction
+              variant="outline"
+              icon={<ArrowDownToLine />}
+              label={remote ? `Pull ${remote} — fast-forward only` : "Pull — this repository has no remote"}
+              disabled={busy || !remote}
               onClick={() => network("pull", () => gitPull(remote), `Pulled ${remote}`)}
-            >
-              Pull
-            </Button>
-            <Button
+            />
+            <IconAction
+              variant="default"
+              icon={<ArrowUpFromLine />}
+              label={
+                !remote
+                  ? "Push — this repository has no remote"
+                  : status.branch
+                    ? `Push ${status.branch} to ${remote}`
+                    : "Push — there is no branch to push"
+              }
               disabled={busy || !remote || !status.branch}
               onClick={() =>
                 network(
@@ -544,9 +563,7 @@ export function GitChangesView() {
                   `Pushed ${status.branch} to ${remote}`,
                 )
               }
-            >
-              Push
-            </Button>
+            />
           </div>
         </div>
       </div>
@@ -563,16 +580,22 @@ export function GitChangesView() {
             onMore={more("conflicted")}
             actions={
               <HeadingAction
+                label="Abort merge — throw it away and go back to before it started"
+                icon={<Undo2 />}
                 disabled={busy}
-                title="Throw the whole merge away and go back to before it started"
                 onClick={() => ask("abort")}
-              >
-                Abort merge
-              </HeadingAction>
+              />
             }
           >
             {conflicted.slice(0, limitOf("conflicted")).map((path) => (
-              <ChangeRow key={path} path={path} kind="conflict" action="Resolve" onAction={() => setResolving(path)} />
+              <ChangeRow
+                key={path}
+                path={path}
+                kind="conflict"
+                action="Resolve"
+                actionIcon={<GitMerge />}
+                onAction={() => setResolving(path)}
+              />
             ))}
           </ChangeSection>
         ) : null}
@@ -584,9 +607,12 @@ export function GitChangesView() {
             limit={limitOf("staged")}
             onMore={more("staged")}
             actions={
-              <HeadingAction disabled={busy} onClick={() => change(() => gitUnstage(staged))}>
-                Unstage all
-              </HeadingAction>
+              <HeadingAction
+                label="Unstage all"
+                icon={<ListMinus />}
+                disabled={busy}
+                onClick={() => change(() => gitUnstage(staged))}
+              />
             }
           >
             {staged.slice(0, limitOf("staged")).map((path) => (
@@ -596,6 +622,7 @@ export function GitChangesView() {
                 onReview={() => openFileDiff(path, true)}
                 kind={markKind("staged", status.files[path])}
                 action="Unstage"
+                actionIcon={<Minus />}
                 onAction={() => change(() => gitUnstage([path]))}
               />
             ))}
@@ -609,9 +636,12 @@ export function GitChangesView() {
             limit={limitOf("unstaged")}
             onMore={more("unstaged")}
             actions={
-              <HeadingAction disabled={busy} onClick={() => change(() => gitStage(unstaged))}>
-                Stage all
-              </HeadingAction>
+              <HeadingAction
+                label="Stage all"
+                icon={<ListPlus />}
+                disabled={busy}
+                onClick={() => change(() => gitStage(unstaged))}
+              />
             }
           >
             {unstaged.slice(0, limitOf("unstaged")).map((path) => (
@@ -621,6 +651,7 @@ export function GitChangesView() {
                 onReview={() => openFileDiff(path, false)}
                 kind={markKind("unstaged", status.files[path])}
                 action="Stage"
+                actionIcon={<Plus />}
                 onAction={() => change(() => gitStage([path]))}
                 open={expanded === path}
                 onToggle={() => toggle(path)}
@@ -638,9 +669,12 @@ export function GitChangesView() {
             limit={limitOf("untracked")}
             onMore={more("untracked")}
             actions={
-              <HeadingAction disabled={busy} onClick={() => change(() => gitStage(untracked))}>
-                Stage all
-              </HeadingAction>
+              <HeadingAction
+                label="Stage all"
+                icon={<ListPlus />}
+                disabled={busy}
+                onClick={() => change(() => gitStage(untracked))}
+              />
             }
           >
             {untracked.slice(0, limitOf("untracked")).map((path) => (
@@ -648,7 +682,11 @@ export function GitChangesView() {
                 key={path}
                 path={path}
                 kind="untracked"
+                // Git does not diff an untracked file, so there are no hunks to
+                // unfold — but the diff viewer shows it as a new file.
+                onReview={() => openFileDiff(path, false)}
                 action="Stage"
+                actionIcon={<Plus />}
                 onAction={() => change(() => gitStage([path]))}
               />
             ))}
@@ -774,16 +812,14 @@ function Composer({
         ) : null}
       </Field>
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
+        <IconAction
+          label="Seed message from staged paths"
+          icon={<WandSparkles />}
           disabled={busy || staged.length === 0}
           // The seeded body is the list of paths — a statement of fact. The
           // subject line stays the person's to write.
           onClick={() => setMessage(message + seedMessage(staged))}
-          className="text-caption-11 text-text-secondary transition-colors duration-(--motion-fast) ease-(--ease-out-strong) hover:text-text-primary disabled:pointer-events-none disabled:opacity-38"
-        >
-          Seed from staged
-        </button>
+        />
         <span className="min-w-0 flex-1" />
         <span className="text-caption-11 text-text-tertiary">
           {staged.length === 0 ? (

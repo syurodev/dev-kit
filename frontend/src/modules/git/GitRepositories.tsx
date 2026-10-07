@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, FolderGit2, GitBranch, RotateCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, ChevronRight, FolderGit2, GitBranch, RotateCw } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { gitProject, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
-import { StatePill } from "./GitParts";
+import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
+import { IconAction, StatePill } from "./GitParts";
 import { gitRepo, refreshRepositories } from "./gitRepo";
-import { describeRepository } from "./repositories";
+import {
+  collapseTrivialGroups,
+  describeRepository,
+  groupRepositories,
+  pathTail,
+  type RepositoryGroup,
+} from "./repositories";
 
 /**
  * The repositories at or under `root`, and a way to read them again.
@@ -32,6 +46,52 @@ export function useRepositories(root: string) {
   }, [root]);
 
   return { repos: entry?.repos ?? null, error: entry?.error ?? "", loading, reload };
+}
+
+/**
+ * Every repository Git could be pointed at: the ones under the project Code
+ * Graph has open, and the ones under each folder of the current workspace —
+ * the services of a workspace are usually separate checkouts, and listing only
+ * what is under the open project left the rest unreachable from Git.
+ *
+ * `repos` is null until every place has been read once, so a list that is
+ * about to grow is not shown as if it were complete. Scans are shared with
+ * `useRepositories` (gitRepo), so a root both ask about is walked once.
+ */
+export function useWorkspaceRepositories(root: string) {
+  const { services } = useCurrentWorkspaceServices();
+  const byRoot = gitRepo.useStore((state) => state.reposByRoot);
+  const scanningRoots = gitRepo.useStore((state) => state.scanning);
+
+  // The service folders in the workspace's own order, then the open project
+  // when it is not one of them. The project goes first when it is: it is what
+  // the person is working in.
+  const sources = useMemo(() => {
+    const folders = services.map((service) => ({ key: service.path, label: service.name, root: service.path }));
+    if (!root || folders.some((folder) => folder.root === root)) return folders;
+    return [{ key: root, label: pathTail(root, 1), root }, ...folders];
+  }, [root, services]);
+  const roots = useMemo(() => sources.map((source) => source.root), [sources]);
+
+  useEffect(() => {
+    for (const each of roots) void refreshRepositories(each);
+  }, [roots]);
+
+  const reload = useCallback(() => {
+    for (const each of roots) void refreshRepositories(each, true);
+  }, [roots]);
+
+  const loaded = roots.length > 0 && roots.every((each) => byRoot[each] !== undefined);
+  const groups: RepositoryGroup[] = useMemo(
+    () =>
+      collapseTrivialGroups(
+        groupRepositories(sources.map((source) => ({ ...source, repos: byRoot[source.root]?.repos }))),
+      ),
+    [sources, byRoot],
+  );
+  const repos = useMemo(() => (loaded ? groups.flatMap((group) => group.repos) : null), [loaded, groups]);
+  const loading = roots.some((each) => scanningRoots[each] === true);
+  return { groups, repos, loading, reload };
 }
 
 /**
@@ -83,34 +143,35 @@ export function RepositoryRow({ repo }: { repo: Repository }) {
  * Choosing one points Git at it, and nothing else moves.
  */
 export function RepositoryList({
-  root,
+  title,
   repos,
   loading,
   onReload,
   onChoose,
 }: {
-  root: string;
+  title: string;
   repos: Repository[];
   loading: boolean;
   onReload: () => void;
   onChoose: (repo: Repository) => void;
 }) {
-  const folderName = root.split("/").filter(Boolean).pop() ?? root;
   return (
     <div className="scrollbar-gutter-stable flex h-full min-h-0 flex-col gap-3 overflow-auto px-4 pt-4 pb-4">
       <div className="flex items-center gap-2.5">
         <FolderGit2 className="size-4 shrink-0 text-text-secondary" aria-hidden />
         <h2 className="min-w-0 flex-1 truncate text-title-14 text-text-primary">
-          {repos.length} repositories in {folderName}
+          {title}
         </h2>
-        <Button variant="ghost" onClick={onReload} disabled={loading} aria-label="Read the repositories again">
-          <RotateCw className={cn("size-(--icon-14)", loading && "animate-spin")} aria-hidden />
-          Refresh
-        </Button>
+        <IconAction
+          label="Read the repositories again"
+          onClick={onReload}
+          disabled={loading}
+          icon={<RotateCw className={cn(loading && "animate-spin")} aria-hidden />}
+        />
       </div>
       <p className="text-body-13 text-text-secondary">
         This folder is not a repository itself. Pick one to work in — Code Graph stays where it is, so nothing is
-        re-indexed.
+        re-indexed. Repositories of the current workspace are listed too.
       </p>
       <ul className="flex flex-col rounded-lg border border-border-subtle bg-surface-well p-1">
         {repos.map((repo) => {
@@ -159,5 +220,65 @@ export function NoRepositories({ folder, children }: { folder: string; children:
     <EmptyState icon={GitBranch} title="Not a git repository" body={`${folder} is not inside a git work tree, and holds none.`}>
       {children}
     </EmptyState>
+  );
+}
+
+/**
+ * The way to another repository: every one Git can reach, under the workspace
+ * folder it was found in. `children` is the trigger — a card in the rail, an
+ * icon on the folder bar — so both open the same list. The repository Git is
+ * in is ticked rather than disabled: it is the one true thing in the list.
+ */
+export function RepositoryMenu({
+  groups,
+  folder,
+  loading,
+  onOpen,
+  onChoose,
+  align = "start",
+  children,
+}: {
+  groups: RepositoryGroup[];
+  folder: string;
+  loading?: boolean;
+  /** The menu is about to show change counts; read them afresh. */
+  onOpen?: () => void;
+  onChoose: (repo: Repository) => void;
+  align?: "start" | "end";
+  children: ReactNode;
+}) {
+  const total = groups.reduce((sum, group) => sum + group.repos.length, 0);
+  return (
+    <DropdownMenu onOpenChange={(open) => open && onOpen?.()}>
+      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <DropdownMenuContent align={align} className="max-h-96 w-112 max-w-screen-90">
+        {total === 0 ? (
+          <DropdownMenuItem disabled>
+            {loading ? "Looking for repositories…" : "No repositories in this workspace"}
+          </DropdownMenuItem>
+        ) : (
+          groups.map((group, index) => (
+            <Fragment key={group.key}>
+              {index > 0 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuLabel>
+                {groups.length > 1 ? group.label : `${total} repositories`}
+              </DropdownMenuLabel>
+              {group.repos.map((repo) => (
+                <DropdownMenuItem
+                  key={repo.path}
+                  icon={repo.path === folder ? <Check /> : undefined}
+                  title={repo.path}
+                  onSelect={() => {
+                    if (repo.path !== folder) onChoose(repo);
+                  }}
+                >
+                  <RepositoryRow repo={repo} />
+                </DropdownMenuItem>
+              ))}
+            </Fragment>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

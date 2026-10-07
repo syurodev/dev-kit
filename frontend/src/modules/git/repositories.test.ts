@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Repository } from "@/bridge/git";
-import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./repositories";
+import {
+  collapseTrivialGroups,
+  describeRepository,
+  folderStatus,
+  groupRepositories,
+  pathTail,
+  repositoryRoot,
+} from "./repositories";
 
 const repo = (over: Partial<Repository> = {}): Repository => ({
   path: "/work/billing",
@@ -94,5 +101,69 @@ describe("folderStatus", () => {
       tone: "info",
       text: "Pinned · Code Graph has no project open",
     });
+  });
+});
+
+describe("groupRepositories", () => {
+  const repo = (path: string): Repository => ({
+    path,
+    name: path.split("/").pop() ?? path,
+    branch: "main",
+    detached: false,
+    ahead: 0,
+    behind: 0,
+    changed: 0,
+    conflicted: 0,
+    error: "",
+  });
+
+  test("lists each source under its own heading, in order", () => {
+    const groups = groupRepositories([
+      { key: "a", label: "api", repos: [repo("/w/api")] },
+      { key: "b", label: "web", repos: [repo("/w/web"), repo("/w/web/docs")] },
+    ]);
+    expect(groups.map((g) => [g.label, g.repos.length])).toEqual([
+      ["api", 1],
+      ["web", 2],
+    ]);
+  });
+
+  test("a repository two sources both found is listed once, under the first", () => {
+    const groups = groupRepositories([
+      { key: "root", label: "Open project", repos: [repo("/w/api"), repo("/w/web")] },
+      { key: "svc", label: "web", repos: [repo("/w/web")] },
+    ]);
+    expect(groups.map((g) => g.label)).toEqual(["Open project"]);
+    expect(groups[0].repos).toHaveLength(2);
+  });
+
+  test("leaves out a source with nothing in it or not read yet", () => {
+    expect(
+      groupRepositories([
+        { key: "a", label: "empty", repos: [] },
+        { key: "b", label: "pending", repos: undefined },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("collapseTrivialGroups", () => {
+  const one = (name: string): Repository => ({ ...repo(), path: `/w/${name}`, name });
+
+  test("folds groups that only repeat their one repository's name", () => {
+    const groups = collapseTrivialGroups([
+      { key: "a", label: "api", repos: [one("api")] },
+      { key: "b", label: "web", repos: [one("web")] },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].repos.map((r) => r.name)).toEqual(["api", "web"]);
+  });
+
+  test("keeps headings once any group says more than its rows do", () => {
+    const input = [
+      { key: "a", label: "api", repos: [one("api")] },
+      { key: "b", label: "platform", repos: [one("billing"), one("auth")] },
+    ];
+    expect(collapseTrivialGroups(input)).toBe(input);
   });
 });

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { History, RefreshCw, GitCommitHorizontal } from "lucide-react";
+import { ChevronsDown, History, RefreshCw, GitCommitHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { gitLog } from "@/bridge/git";
 import { errorMessage } from "@/bridge/errors";
 import { useModuleFolder } from "@/stores/workFolder";
+import { cn } from "@/lib/utils";
 import { openCommitDiff } from "./documents";
+import { IconAction } from "./GitParts";
 import { useGitRevision } from "./gitRevision";
 import { filterCommits, gitUI, useGitDraft } from "./gitUI";
 
@@ -31,10 +33,13 @@ export function GitHistoryView() {
         <History className="size-4 text-text-secondary" />
         <h1 className="mr-auto text-title-16">History</h1>
         <Badge variant="secondary">{commits.length} loaded</Badge>
-        <Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
-          <RefreshCw className="size-3.5" />
-          Refresh
-        </Button>
+        <IconAction
+          variant="outline"
+          label="Refresh"
+          disabled={query.isFetching}
+          icon={<RefreshCw className={cn(query.isFetching && "animate-spin")} />}
+          onClick={() => void query.refetch()}
+        />
       </div>
       <Input
         aria-label="Search commits"
@@ -109,6 +114,7 @@ export function GitHistoryView() {
               })
             }
           >
+            <ChevronsDown />
             Load 100 more
           </Button>
         )}
