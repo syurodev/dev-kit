@@ -818,7 +818,9 @@ public class ProjectAnalyzer {
     private void extractOutboundCalls(Index index, List<CallScope> scopes, Annotations annotations,
                                       ConstantResolver constants, AnalysisResult result) {
         for (TypeInfo type : index.all) {
-            for (OutboundCallExtractor.Found found : OutboundCallExtractor.feign(type.decl, annotations, constants)) {
+            List<OutboundCallExtractor.Found> declarative = new ArrayList<>(OutboundCallExtractor.feign(type.decl, annotations, constants));
+            declarative.addAll(OutboundCallExtractor.httpInterface(type.decl, annotations, constants));
+            for (OutboundCallExtractor.Found found : declarative) {
                 OutboundCall call = found.call();
                 call.from = type.methods.stream().filter(m -> m.decl() == found.in())
                         .map(MethodInfo::id).findFirst().orElse(type.id);

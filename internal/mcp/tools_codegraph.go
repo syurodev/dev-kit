@@ -50,6 +50,12 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 	}, s.toolCodeGraphFindTableUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.findServiceCalls",
+		Description: "Which services a service calls over HTTP, and which call it — across the workspace's services. For servicePath (default: the service the session works in): outbound lists each HTTP call it makes (client: feign, http-interface, rest-template, web-client, rest-client, resty-http for a Kong plugin) and where it goes; inbound lists the calls from other services that land on its routes (endpointId narrows it to one route from codegraph.listEndpoints — \"who calls this endpoint\"). Each edge has a status: linked (callee: the service, route and method behind it; provenance: feign-name, literal or property say the code or config named the host, port is a guess from a localhost setup, path-unique means no host was known but exactly one service serves a route that specific), or why it stopped short: endpoint-gone (the service is known, no route of it matches), dynamic-url (the host is only known at run time), unknown-service, ambiguous-service / ambiguous-path (candidates lists them), not-indexed, external. Read from each service's index, not its source now: services[].indexedAt says how old, and a service the workspace has but that has no index is named in notes. Java (Feign, HTTP interfaces, RestTemplate, WebClient, RestClient) and Lua (resty.http) callers; routes are Java's.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphFindServiceCalls)
+
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},

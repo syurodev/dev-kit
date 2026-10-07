@@ -380,6 +380,9 @@ type AnalysisResult struct {
 	// reads or writes one (FindTableUsage joins them with the call graph).
 	EntityTables  []EntityTable `json:"entityTables"`
 	TableAccesses []TableAccess `json:"tableAccesses"`
+	// OutboundCalls are the HTTP requests this service makes to others, for
+	// the cross-service join to match against their entry points.
+	OutboundCalls []OutboundCall `json:"outboundCalls"`
 }
 
 // Validate checks internal consistency: every Edge and EntryPoint must
@@ -425,6 +428,11 @@ func (r AnalysisResult) Validate() error {
 	for _, a := range r.TableAccesses {
 		if !ids[a.From] {
 			return fmt.Errorf("codegraph: table access to %q references unknown node %q", a.Table, a.From)
+		}
+	}
+	for _, o := range r.OutboundCalls {
+		if !ids[o.From] {
+			return fmt.Errorf("codegraph: outbound call to %q references unknown node %q", o.URL, o.From)
 		}
 	}
 	return nil
@@ -496,6 +504,8 @@ type Store interface {
 	// FindTableAccesses returns the accesses to any of the canonical table names,
 	// of one access kind ("" for both).
 	FindTableAccesses(ctx context.Context, canons []string, prefix bool, access string) ([]TableAccess, error)
+	// ListOutboundCalls returns every outbound HTTP call the service makes.
+	ListOutboundCalls(ctx context.Context) ([]OutboundCall, error)
 	// FindEdgesByGuard returns the call edges whose guard contains any of the
 	// terms, from callers whose id starts with fromPrefix (empty: any).
 	FindEdgesByGuard(ctx context.Context, terms []string, fromPrefix string) ([]Edge, error)

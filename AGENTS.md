@@ -608,6 +608,22 @@ read time by `Service.FindTableUsage` (MCP `codegraph.findTableUsage`).
 - Not read: `@NamedQuery`, `EntityManager.persist/merge`, tables named by a variable, triggers/cascades/views,
   Liquibase. Gaps are in `docs/dev-kit/codegraph.mdx` § Truy vấn nối với bảng DB.
 
+### CodeGraph: calls between services
+`internal/crossservice` joins what each service's index says — the routes it serves, the HTTP calls it
+makes (`OutboundCall`, table `outbound_calls`) — into edges, **when asked**; nothing stores them.
+`codegraph.ServiceSnapshot` is what one service offers the join: from a resident service, or read from
+its index on disk with no Service opened (`Registry.Snapshot`; no watcher, no resident slot).
+- Callers: Java (`OutboundCallExtractor`: Feign, Spring HTTP interfaces, RestTemplate, WebClient,
+  RestClient) and Lua (`analyzer_lua_http.go`: `resty.http`, recognised by provenance of
+  `require "resty.http"`, never by a method name). A `foldString` hole is `{expr}`, the shape Java uses.
+- `workspace.ResolveTarget` resolves a host against the CALLER's config. With no host (a plugin's
+  `{conf.url}`, an HTTP interface) the route alone links it, as `path-unique`, only when it has ≥ 2
+  literal segments and exactly one other service serves it; several is `ambiguous-path`. Never pick one.
+- An unreadable service is named, not skipped (`not-indexed`), and every edge carries how old the
+  other end's index is. A service nothing watches can be wrong without saying so.
+- Layering: `crossservice` imports `codegraph` and `workspace`; `codegraph` still does not import
+  `workspace` (arch test). The MCP tool resolves "the asker's workspace" from `workspace.list`'s logic.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.
