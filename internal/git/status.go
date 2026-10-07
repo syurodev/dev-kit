@@ -2,6 +2,11 @@ package git
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -327,8 +332,10 @@ func (s *Service) CommitsForTask(ctx context.Context, key string, limit int) ([]
 // staged, not against HEAD.
 //
 // A binary file has no hunks to pick and comes back empty: the caller stages
-// the whole file or nothing. So does an untracked one, which git does not diff
-// at all.
+// the whole file or nothing. An untracked file is not in the index, so git
+// would not diff it; it comes back as a new-file patch (every line added) so a
+// reader can see what staging it would add. That patch is for reading — hunk
+// staging only ever asks about files git already tracks.
 func (s *Service) FilePatch(ctx context.Context, path string) (string, error) {
 	return s.filePatch(ctx, path, false)
 }
@@ -355,6 +362,41 @@ func (s *Service) filePatch(ctx context.Context, path string, staged bool) (stri
 	args = append(args, "--", path)
 	out, err := r.run(ctx, nil, args...)
 	if err != nil {
+		return "", err
+	}
+	if len(out) == 0 && !staged {
+		return untrackedPatch(ctx, r, path)
+	}
+	return string(out), nil
+}
+
+// maxUntrackedPatch is the largest untracked file shown as text. A build
+// output or a data dump left in the work tree must not be read whole into the
+// window; past this it is reported the way git reports a binary file.
+const maxUntrackedPatch = 2 << 20
+
+// untrackedPatch is a new-file patch for an untracked path, "" for anything
+// else. Membership is asked of git rather than assumed from an empty diff: an
+// unchanged tracked file also diffs to nothing, and an ignored or missing path
+// must not be read just because someone named it.
+func untrackedPatch(ctx context.Context, r runner, path string) (string, error) {
+	listed, err := r.run(ctx, nil, "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimRight(string(listed), "\x00") != path {
+		return "", nil
+	}
+	if info, err := os.Lstat(filepath.Join(r.work, filepath.FromSlash(path))); err != nil {
+		return "", nil
+	} else if info.Mode().IsRegular() && info.Size() > maxUntrackedPatch {
+		return fmt.Sprintf("diff --git a/%[1]s b/%[1]s\nnew file mode 100644\nBinary files /dev/null and b/%[1]s differ\n", path), nil
+	}
+	// --no-index diffs two paths git does not have to track; it exits 1 when
+	// they differ, which is the answer here and not a failure.
+	out, err := r.run(ctx, nil, "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "--", "/dev/null", filepath.FromSlash(path))
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
 		return "", err
 	}
 	return string(out), nil
