@@ -182,10 +182,10 @@ Kafka (`kafka:connect` khác `kafka:produce`) và Database
 
 | Tool | Effect | Mô tả |
 |---|---|---|
-| `codegraph.openProject` | `execute` | Trigger parse + build index cho 1 project path |
-| `codegraph.listEndpoints` | `read` | Liệt kê endpoint đã phát hiện trong project active |
+| `codegraph.openProject` | `execute` | Trigger parse + build index cho 1 project path. Các tool đọc index (`listEndpoints`, `getApiFlow`, `searchSymbol`, `getCodeSnippet`, `getBlastRadius`, `getNeighbors`, `traceDataFlow`, `listFields`) tự chờ index tối đa 10s rồi truy vấn lại một lần; quá hạn thì lỗi gợi ý gọi `waitForIndexReady`, index lỗi thì lỗi kèm lý do và gợi ý mở lại project |
+| `codegraph.listEndpoints` | `read` | Liệt kê entry point đã phát hiện trong project active. **Phân trang**: trả `{result, total, nextCursor}` (mặc định 100 dòng, tối đa 300); lọc theo `kind`, `service`, `verb`, `pathPrefix`, `contains`; cursor gắn với bộ lọc và với dòng cuối đã trả (index đổi mất dòng đó → `ErrInvalidCursor`, gọi lại không cursor). UI vẫn đọc toàn bộ qua bridge |
 | `codegraph.getApiFlow` | `read` | Trả flow `Controller → Service → Repository` cho 1 endpoint |
-| `codegraph.searchSymbol` | `read` | Tìm class/method theo tên |
+| `codegraph.searchSymbol` | `read` | Tìm class/method theo tên. **Phân trang** như trên (mặc định 50, tối đa 200, keyset theo `label,id`); `match` = `contains` (mặc định) / `prefix` (một đoạn tên phân tách bằng dấu chấm bắt đầu bằng query) / `exact`; lọc `kind`, `layer`, `pathPrefix`; `query` rỗng được nếu có bộ lọc |
 | `codegraph.listFiles` | `read` | Liệt kê toàn bộ file trong project active (không riêng `.java`) — trước đây chỉ có ở bridge cho UI, thiếu bản MCP nên agent phải suy gián tiếp qua `listEndpoints`/`searchSymbol`, xem [File editing](#file-editing-add-on-v1) |
 | `codegraph.readFile` | `read` | Đọc nguyên văn 1 file trong project active — path verify lại phía Go, xem [File editing](#file-editing-add-on-v1) |
 | `codegraph.getCodeSnippet` | `read` | Đúng đoạn method/class theo `filePath`+`line`+`endLine` (ranh giới AST đã biết) — nhẹ hơn `readFile` cho use case "xem nhanh", xem [Graph UI § Click node](#graph-ui-node-link-add-on-v1) |

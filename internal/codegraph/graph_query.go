@@ -45,6 +45,25 @@ func (s *Service) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch
 	return store.SearchSymbol(ctx, query)
 }
 
+// ListEntryPointsPage is ListEntryPoints narrowed and cut to one page.
+func (s *Service) ListEntryPointsPage(ctx context.Context, q EntryPointQuery) (EntryPointPage, error) {
+	entries, err := s.ListEntryPoints(ctx)
+	if err != nil {
+		return EntryPointPage{}, err
+	}
+	return PageEntryPoints(entries, q)
+}
+
+// SearchSymbolsPage is SearchSymbol with filters and paging.
+func (s *Service) SearchSymbolsPage(ctx context.Context, q SymbolQuery) (SymbolPage, error) {
+	store, release, err := s.activeStore()
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	defer release()
+	return store.SearchSymbols(ctx, q)
+}
+
 // GetApiFlow walks the call graph from the endpoint's entry node, in Go
 // (not SQL), so the traversal — including cycle protection — is testable
 // without a database.

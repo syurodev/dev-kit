@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -566,6 +567,91 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// symbolWhere is the WHERE clause of a SearchSymbols query without its
+// cursor, and its arguments. LIKE is how the plain search matches, so the
+// three modes stay case-insensitive the same way.
+func symbolWhere(q SymbolQuery) (string, []any) {
+	var conds []string
+	var args []any
+	esc := escapeLike(q.Query)
+	switch q.Match {
+	case MatchExact:
+		conds = append(conds, `(label LIKE ? ESCAPE '\' OR label LIKE ? ESCAPE '\')`)
+		args = append(args, esc, "%."+esc)
+	case MatchPrefix:
+		conds = append(conds, `(label LIKE ? ESCAPE '\' OR label LIKE ? ESCAPE '\')`)
+		args = append(args, esc+"%", "%."+esc+"%")
+	default:
+		conds = append(conds, `label LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+esc+"%")
+	}
+	if q.Kind != "" {
+		conds = append(conds, `kind = ?`)
+		args = append(args, q.Kind)
+	}
+	if q.Layer != "" {
+		conds = append(conds, `layer = ?`)
+		args = append(args, q.Layer)
+	}
+	if q.PathPrefix != "" {
+		conds = append(conds, `substr(file_path, 1, ?) = ?`)
+		args = append(args, utf8.RuneCountInString(q.PathPrefix), q.PathPrefix)
+	}
+	return strings.Join(conds, " AND "), args
+}
+
+// SearchSymbols is SearchSymbol with filters and a keyset cursor over
+// (label, id), so a page costs the same however deep it is.
+func (s *sqliteStore) SearchSymbols(ctx context.Context, q SymbolQuery) (SymbolPage, error) {
+	limit, err := q.normalize()
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	binding := q.binding()
+	cursor, err := decodePageCursor(q.Cursor, binding)
+	if err != nil {
+		return SymbolPage{}, err
+	}
+	where, args := symbolWhere(q)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes WHERE `+where, args...).Scan(&total); err != nil {
+		return SymbolPage{}, fmt.Errorf("codegraph: SearchSymbols: %w", err)
+	}
+
+	statement := `SELECT id, label, kind, layer, file_path, line FROM nodes WHERE ` + where
+	if cursor.After != "" {
+		statement += ` AND (label > ? OR (label = ? AND id > ?))`
+		args = append(args, cursor.Label, cursor.Label, cursor.After)
+	}
+	statement += ` ORDER BY label, id LIMIT ?`
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return SymbolPage{}, fmt.Errorf("codegraph: SearchSymbols: %w", err)
+	}
+	defer rows.Close()
+
+	page := SymbolPage{Result: []SymbolMatch{}, Total: total}
+	for rows.Next() {
+		var m SymbolMatch
+		if err := rows.Scan(&m.NodeID, &m.Label, &m.Kind, &m.Layer, &m.FilePath, &m.Line); err != nil {
+			return SymbolPage{}, fmt.Errorf("codegraph: scan symbol match: %w", err)
+		}
+		page.Result = append(page.Result, m)
+	}
+	if err := rows.Err(); err != nil {
+		return SymbolPage{}, err
+	}
+	if len(page.Result) > limit {
+		page.Result = page.Result[:limit]
+		last := page.Result[limit-1]
+		page.NextCursor = encodePageCursor(pageCursor{Binding: binding, After: last.NodeID, Label: last.Label})
+	}
+	return page, nil
 }
 
 // batchSize keeps an IN (...) list under SQLite's bound-parameter limit.

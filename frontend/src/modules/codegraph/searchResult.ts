@@ -1,6 +1,6 @@
 import { parseToolOutput } from "@/workbench/toolResultViews";
 
-/** Mirrors internal/codegraph/codegraph.go: SymbolMatch — codegraph.searchSymbol's rawOutput (a list). */
+/** Mirrors internal/codegraph/codegraph.go: SymbolMatch — codegraph.searchSymbol's rawOutput (a list, or one page of it). */
 export type SymbolMatch = {
   nodeId: string;
   label: string;
@@ -15,6 +15,18 @@ export type EntryPointMatch = {
   verb: string;
   target: string;
 };
+
+/**
+ * The rows of a result, whichever shape carried them: a bare list (a
+ * transcript from before these tools paged) or `{ result, total, nextCursor }`,
+ * which `parseToolOutput` only unwraps when `result` is the sole key.
+ */
+function rowsOf(parsed: unknown): unknown {
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "result" in parsed) {
+    return (parsed as Record<string, unknown>).result;
+  }
+  return parsed;
+}
 
 function isSymbolMatchList(value: unknown): value is SymbolMatch[] {
   return (
@@ -39,13 +51,13 @@ function toEntryPointMatch(value: unknown): EntryPointMatch | null {
 
 /** Guards codegraph.searchSymbol's result before the Card component is imported. */
 export function parseSymbolMatches(rawOutput: unknown): SymbolMatch[] | null {
-  const parsed = parseToolOutput(rawOutput);
+  const parsed = rowsOf(parseToolOutput(rawOutput));
   return isSymbolMatchList(parsed) && parsed.length > 0 ? parsed : null;
 }
 
 /** Guards codegraph.listEndpoints's result before the Card component is imported. */
 export function parseEntryPointMatches(rawOutput: unknown): EntryPointMatch[] | null {
-  const parsed = parseToolOutput(rawOutput);
+  const parsed = rowsOf(parseToolOutput(rawOutput));
   if (!Array.isArray(parsed) || parsed.length === 0) return null;
   const rows = parsed.map(toEntryPointMatch);
   return rows.every((r): r is EntryPointMatch => r !== null) ? rows : null;

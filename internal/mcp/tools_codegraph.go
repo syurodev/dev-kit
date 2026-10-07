@@ -3,8 +3,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"devkit/internal/codegraph"
 
@@ -19,7 +21,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listEndpoints",
-		Description: "List the entry points detected in the active CodeGraph project — where a flow starts because something outside the code calls in. kind says which: http (verb GET/POST…, target a URL), plugin (a Kong plugin phase: verb ACCESS/LOG…, target the plugin), message, rpc, graphql, socket, schedule. owner/group say what declares each one; order is the run order within a group where it means something (Kong phases). (The tool keeps its old name.)",
+		Description: "List the entry points detected in the active CodeGraph project — where a flow starts because something outside the code calls in. kind says which: http (verb GET/POST…, target a URL), plugin (a Kong plugin phase: verb ACCESS/LOG…, target the plugin), message, rpc, graphql, socket, schedule. owner/group say what declares each one; order is the run order within a group where it means something (Kong phases). (The tool keeps its old name.) Paged: the answer is {result, total, nextCursor} — total counts every match, and while nextCursor is set, pass it back (with the same filters) for the next page. Narrow with kind, service, verb, pathPrefix (the target starts with it) or contains; a large project does not fit one page.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListEndpoints)
 
@@ -31,7 +33,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.searchSymbol",
-		Description: "Search classes/methods by name in the active CodeGraph project",
+		Description: "Search classes/methods by name in the active CodeGraph project. Paged: the answer is {result, total, nextCursor} — total counts every match, and while nextCursor is set, pass it back (with the same query and filters) for the next page. match: contains (default) | prefix (a dot-separated part of the name starts with query) | exact (the name or its last part equals query). Narrow with kind (class|method), layer (controller|service|repository|unknown) and pathPrefix (the file path starts with it).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphSearchSymbol)
 
@@ -147,13 +149,57 @@ func (s *Server) codeGraph(ctx context.Context, servicePath string) (CodeGraphAP
 	return s.deps.CodeGraphServices.Service(ctx, servicePath)
 }
 
-func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphServiceInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_endpoints", nil), func(ctx context.Context) (any, error) {
+// indexWait is how long a graph query waits for an index that is still being
+// built before it gives up. The first query after codegraph.openProject
+// usually lands inside that window; answering "not ready" made the agent
+// retry by hand.
+const indexWait = 10 * time.Second
+
+// whenIndexReady runs query, and if the index is still being built waits for
+// it (up to indexWait) and runs it once more. A failed index and one that is
+// merely slow are told apart, because only the second is worth retrying.
+func whenIndexReady[T any](ctx context.Context, cg CodeGraphAPI, query func() (T, error)) (T, error) {
+	v, err := query()
+	if !errors.Is(err, codegraph.ErrIndexNotReady) {
+		return v, err
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, indexWait)
+	defer cancel()
+	if _, werr := cg.WaitForIndexReady(waitCtx); werr != nil {
+		switch {
+		case ctx.Err() != nil:
+			return v, ctx.Err()
+		case errors.Is(werr, context.DeadlineExceeded):
+			return v, fmt.Errorf("codegraph: still indexing after %s — call codegraph.waitForIndexReady, then repeat this query: %w", indexWait, codegraph.ErrIndexNotReady)
+		case errors.Is(werr, codegraph.ErrIndexNotReady):
+			return v, fmt.Errorf("%w — indexing failed; call codegraph.openProject again to retry", werr)
+		default:
+			return v, werr
+		}
+	}
+	return query()
+}
+
+type codeGraphListEndpointsInput struct {
+	Kind        string `json:"kind,omitempty" jsonschema:"optional; only this kind: http, message, rpc, graphql, socket, schedule or plugin"`
+	Service     string `json:"service,omitempty" jsonschema:"optional; only entry points of this service (as listed in each row's service)"`
+	Verb        string `json:"verb,omitempty" jsonschema:"optional; only this verb, e.g. GET, POST, ACCESS (case-insensitive)"`
+	PathPrefix  string `json:"pathPrefix,omitempty" jsonschema:"optional; only entry points whose target starts with this, e.g. /v1/internal"`
+	Contains    string `json:"contains,omitempty" jsonschema:"optional; only entry points whose target or owner contains this text (case-insensitive)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; rows per page (default 100, at most 300)"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"optional; nextCursor of the previous page, with the same filters"`
+	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
+}
+
+func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphListEndpointsInput) (*sdk.CallToolResult, any, error) {
+	// Filters are audited, the cursor is not: it is an opaque position.
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_endpoints", map[string]any{"kind": in.Kind, "service": in.Service, "verb": in.Verb, "path_prefix": in.PathPrefix, "contains": in.Contains, "limit": in.Limit}), func(ctx context.Context) (any, error) {
 		cg, err := s.codeGraph(ctx, in.ServicePath)
 		if err != nil {
 			return nil, err
 		}
-		return cg.ListEntryPoints(ctx)
+		q := codegraph.EntryPointQuery{Kind: in.Kind, Service: in.Service, Verb: in.Verb, PathPrefix: in.PathPrefix, Contains: in.Contains, Limit: in.Limit, Cursor: in.Cursor}
+		return whenIndexReady(ctx, cg, func() (codegraph.EntryPointPage, error) { return cg.ListEntryPointsPage(ctx, q) })
 	})
 	if err != nil {
 		return nil, nil, err
@@ -172,7 +218,7 @@ func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolReq
 		if err != nil {
 			return nil, err
 		}
-		return cg.GetApiFlow(ctx, in.EndpointID)
+		return whenIndexReady(ctx, cg, func() (codegraph.ApiFlow, error) { return cg.GetApiFlow(ctx, in.EndpointID) })
 	})
 	if err != nil {
 		return nil, nil, err
@@ -181,17 +227,24 @@ func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolReq
 }
 
 type codeGraphSearchSymbolInput struct {
-	Query       string `json:"query"`
+	Query       string `json:"query" jsonschema:"the name to look for; may be empty when a filter (kind, layer, pathPrefix) narrows the search"`
+	Match       string `json:"match,omitempty" jsonschema:"optional; contains (default), prefix or exact"`
+	Kind        string `json:"kind,omitempty" jsonschema:"optional; class or method"`
+	Layer       string `json:"layer,omitempty" jsonschema:"optional; controller, service, repository or unknown"`
+	PathPrefix  string `json:"pathPrefix,omitempty" jsonschema:"optional; only symbols whose file path starts with this"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; matches per page (default 50, at most 200)"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"optional; nextCursor of the previous page, with the same query and filters"`
 	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
 
 func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphSearchSymbolInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query}), func(ctx context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query, "match": in.Match, "kind": in.Kind, "layer": in.Layer, "path_prefix": in.PathPrefix, "limit": in.Limit}), func(ctx context.Context) (any, error) {
 		cg, err := s.codeGraph(ctx, in.ServicePath)
 		if err != nil {
 			return nil, err
 		}
-		return cg.SearchSymbol(ctx, in.Query)
+		q := codegraph.SymbolQuery{Query: in.Query, Match: in.Match, Kind: in.Kind, Layer: in.Layer, PathPrefix: in.PathPrefix, Limit: in.Limit, Cursor: in.Cursor}
+		return whenIndexReady(ctx, cg, func() (codegraph.SymbolPage, error) { return cg.SearchSymbolsPage(ctx, q) })
 	})
 	if err != nil {
 		return nil, nil, err
@@ -245,7 +298,9 @@ func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToo
 		if err != nil {
 			return nil, err
 		}
-		return cg.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
+		return whenIndexReady(ctx, cg, func() (codegraph.CodeSnippet, error) {
+			return cg.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
+		})
 	})
 	if err != nil {
 		return nil, nil, err
@@ -264,7 +319,7 @@ func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToo
 		if err != nil {
 			return nil, err
 		}
-		return cg.GetBlastRadius(ctx, in.FilePath)
+		return whenIndexReady(ctx, cg, func() ([]string, error) { return cg.GetBlastRadius(ctx, in.FilePath) })
 	})
 	if err != nil {
 		return nil, nil, err
@@ -301,7 +356,9 @@ func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolR
 		if err != nil {
 			return nil, err
 		}
-		return cg.GetNeighbors(ctx, in.RootID, in.Depth, filter)
+		return whenIndexReady(ctx, cg, func() (codegraph.Subgraph, error) {
+			return cg.GetNeighbors(ctx, in.RootID, in.Depth, filter)
+		})
 	})
 	if err != nil {
 		return nil, nil, err
@@ -321,7 +378,9 @@ func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallTool
 		if err != nil {
 			return nil, err
 		}
-		return cg.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
+		return whenIndexReady(ctx, cg, func() (codegraph.DataFlowTrace, error) {
+			return cg.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
+		})
 	})
 	if err != nil {
 		return nil, nil, err
@@ -340,7 +399,7 @@ func (s *Server) toolCodeGraphListFields(ctx context.Context, _ *sdk.CallToolReq
 		if err != nil {
 			return nil, err
 		}
-		return cg.ListFields(ctx, in.NodeID)
+		return whenIndexReady(ctx, cg, func() ([]codegraph.FieldRef, error) { return cg.ListFields(ctx, in.NodeID) })
 	})
 	if err != nil {
 		return nil, nil, err

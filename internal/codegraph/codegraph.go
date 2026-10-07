@@ -431,6 +431,8 @@ type Store interface {
 	GetOutEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	GetInEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
+	// SearchSymbols is SearchSymbol with filters and paging (see SymbolQuery).
+	SearchSymbols(ctx context.Context, q SymbolQuery) (SymbolPage, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	// FindNodesByName returns every node whose label names identifier (see
 	// matchesIdentifier) — FindDefinitions' fallback-by-name tier, e.g.

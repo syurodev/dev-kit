@@ -51,7 +51,10 @@ the same actions.
   {{codegraph.getApiFlow}} for a call chain, {{codegraph.searchSymbol}} for a
   class or method and {{codegraph.getBlastRadius}} for what depends on a file.
   Open the project first: {{codegraph.openProject}} with its absolute path,
-  then {{codegraph.waitForIndexReady}}. Grep is for text, not structure. If
+  then {{codegraph.waitForIndexReady}}. Entry points and symbol searches are
+  paged: narrow them (kind, service, pathPrefix, layer) instead of reading
+  everything, and pass ` + "`nextCursor`" + ` back for the next page. Grep is for
+  text, not structure. If
   CodeGraph answers ` + "`unsupported_project`" + `, no analyzer reads that language:
   read the files.
 - **Saved connections, not CLIs.** Databases ({{db.listProfiles}},
