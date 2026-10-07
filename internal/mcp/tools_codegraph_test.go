@@ -4,6 +4,8 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"devkit/internal/capabilities"
@@ -36,14 +38,17 @@ func (f fakeCodeGraphAPI) OpenProjectDir(ctx context.Context, projectPath string
 func (f fakeCodeGraphAPI) ActiveDetection() codegraph.DetectedProject {
 	return f.detection
 }
-func (f fakeCodeGraphAPI) ListEntryPoints(ctx context.Context) ([]codegraph.EntryPoint, error) {
-	return f.endpoints, f.err
+func (f fakeCodeGraphAPI) ListEntryPointsPage(ctx context.Context, q codegraph.EntryPointQuery) (codegraph.EntryPointPage, error) {
+	if f.err != nil {
+		return codegraph.EntryPointPage{}, f.err
+	}
+	return codegraph.PageEntryPoints(f.endpoints, q)
 }
 func (f fakeCodeGraphAPI) GetApiFlow(ctx context.Context, id string) (codegraph.ApiFlow, error) {
 	return f.flow, f.err
 }
-func (f fakeCodeGraphAPI) SearchSymbol(ctx context.Context, q string) ([]codegraph.SymbolMatch, error) {
-	return f.matches, f.err
+func (f fakeCodeGraphAPI) SearchSymbolsPage(ctx context.Context, q codegraph.SymbolQuery) (codegraph.SymbolPage, error) {
+	return codegraph.SymbolPage{Result: f.matches, Total: len(f.matches)}, f.err
 }
 func (f fakeCodeGraphAPI) ListFiles(ctx context.Context) ([]codegraph.FileEntry, error) {
 	return f.files, f.err
@@ -137,12 +142,12 @@ func TestToolCodeGraphListEndpoints(t *testing.T) {
 		CodeGraph: fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "ep1", Target: "/orders"}}},
 	}
 	s := NewServer(deps)
-	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{})
+	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{})
 	if err != nil {
 		t.Fatalf("toolCodeGraphListEndpoints: %v", err)
 	}
-	endpoints, ok := unwrap(v).([]codegraph.EntryPoint)
-	if !ok || len(endpoints) != 1 || endpoints[0].Target != "/orders" {
+	page, ok := unwrap(v).(codegraph.EntryPointPage)
+	if !ok || len(page.Result) != 1 || page.Result[0].Target != "/orders" || page.Total != 1 {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }
@@ -248,9 +253,9 @@ type ctxRecordingCodeGraph struct {
 	seen *any
 }
 
-func (f ctxRecordingCodeGraph) ListEntryPoints(ctx context.Context) ([]codegraph.EntryPoint, error) {
+func (f ctxRecordingCodeGraph) ListEntryPointsPage(ctx context.Context, _ codegraph.EntryPointQuery) (codegraph.EntryPointPage, error) {
 	*f.seen = ctx.Value(gatewayCtxKey{})
-	return nil, nil
+	return codegraph.EntryPointPage{}, nil
 }
 
 // The handler must run on the context the gateway gives it, not the one the
@@ -259,7 +264,7 @@ func (f ctxRecordingCodeGraph) ListEntryPoints(ctx context.Context) ([]codegraph
 func TestCodeGraphToolsRunOnTheGatewayContext(t *testing.T) {
 	var seen any
 	s := NewServer(Deps{Caller: stampingCaller{}, CodeGraph: ctxRecordingCodeGraph{seen: &seen}})
-	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{}); err != nil {
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{}); err != nil {
 		t.Fatal(err)
 	}
 	if seen != "gateway" {
@@ -296,21 +301,21 @@ func TestToolCodeGraphServicePath(t *testing.T) {
 		CodeGraph:         fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "o", Target: "/orders"}}},
 		CodeGraphServices: services,
 	})
-	path := func(in codeGraphServiceInput) string {
+	path := func(in codeGraphListEndpointsInput) string {
 		t.Helper()
 		_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return unwrap(v).([]codegraph.EntryPoint)[0].Target
+		return unwrap(v).(codegraph.EntryPointPage).Result[0].Target
 	}
-	if got := path(codeGraphServiceInput{}); got != "/orders" {
+	if got := path(codeGraphListEndpointsInput{}); got != "/orders" {
 		t.Fatalf("focused = %q", got)
 	}
-	if got := path(codeGraphServiceInput{ServicePath: "/ws/billing"}); got != "/refunds" {
+	if got := path(codeGraphListEndpointsInput{ServicePath: "/ws/billing"}); got != "/refunds" {
 		t.Fatalf("named = %q", got)
 	}
-	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{ServicePath: "billing"}); err == nil {
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{ServicePath: "billing"}); err == nil {
 		t.Fatal("a relative servicePath must be refused")
 	}
 
@@ -322,7 +327,84 @@ func TestToolCodeGraphServicePath(t *testing.T) {
 	}
 
 	bare := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
-	if _, _, err := bare.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphServiceInput{ServicePath: "/ws/billing"}); err == nil {
+	if _, _, err := bare.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{ServicePath: "/ws/billing"}); err == nil {
 		t.Fatal("with no Registry wired a servicePath must be refused")
+	}
+}
+
+// waitingCodeGraph is "not ready" until the index finishes, the way the real
+// service answers while it is still building.
+type waitingCodeGraph struct {
+	fakeCodeGraphAPI
+	notReady int   // queries that answer ErrIndexNotReady before one succeeds
+	waitErr  error // what WaitForIndexReady returns
+	queries  int
+	waits    int
+}
+
+func (f *waitingCodeGraph) ListEntryPointsPage(ctx context.Context, q codegraph.EntryPointQuery) (codegraph.EntryPointPage, error) {
+	f.queries++
+	if f.queries <= f.notReady {
+		return codegraph.EntryPointPage{}, codegraph.ErrIndexNotReady
+	}
+	return codegraph.PageEntryPoints(f.endpoints, q)
+}
+
+func (f *waitingCodeGraph) WaitForIndexReady(ctx context.Context) (int, error) {
+	f.waits++
+	return 1, f.waitErr
+}
+
+// A query that lands while the index is building waits for it and answers,
+// instead of making the agent call waitForIndexReady by hand.
+func TestCodeGraphQueryWaitsForTheIndex(t *testing.T) {
+	cg := &waitingCodeGraph{notReady: 1, fakeCodeGraphAPI: fakeCodeGraphAPI{endpoints: []codegraph.EntryPoint{{ID: "ep1", Target: "/orders"}}}}
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: cg})
+	_, v, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if page := unwrap(v).(codegraph.EntryPointPage); len(page.Result) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	if cg.waits != 1 || cg.queries != 2 {
+		t.Fatalf("waits = %d, queries = %d, want 1 and 2", cg.waits, cg.queries)
+	}
+}
+
+// A ready index is not waited for.
+func TestCodeGraphQueryDoesNotWaitWhenReady(t *testing.T) {
+	cg := &waitingCodeGraph{}
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: cg})
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if cg.waits != 0 {
+		t.Fatalf("waited %d times for a ready index", cg.waits)
+	}
+}
+
+// A slow index and a failed one both stay errors, and say different things.
+func TestCodeGraphQueryExplainsWhyItGaveUp(t *testing.T) {
+	slow := &waitingCodeGraph{notReady: 99, waitErr: context.DeadlineExceeded}
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: slow})
+	_, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{})
+	if !errors.Is(err, codegraph.ErrIndexNotReady) || !strings.Contains(err.Error(), "codegraph.waitForIndexReady") {
+		t.Fatalf("slow index: err = %v", err)
+	}
+
+	failed := &waitingCodeGraph{notReady: 99, waitErr: fmt.Errorf("%w: analyzer exited 1", codegraph.ErrIndexNotReady)}
+	s = NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: failed})
+	_, _, err = s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{})
+	if !errors.Is(err, codegraph.ErrIndexNotReady) || !strings.Contains(err.Error(), "analyzer exited 1") || !strings.Contains(err.Error(), "codegraph.openProject") {
+		t.Fatalf("failed index: err = %v", err)
+	}
+}
+
+// Anything but "not ready" passes straight through, unwaited.
+func TestCodeGraphQueryPassesOtherErrorsThrough(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{err: codegraph.ErrNoActiveProject}})
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, codeGraphListEndpointsInput{}); !errors.Is(err, codegraph.ErrNoActiveProject) {
+		t.Fatalf("err = %v", err)
 	}
 }

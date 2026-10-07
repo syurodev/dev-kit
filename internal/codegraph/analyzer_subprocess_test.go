@@ -4,6 +4,7 @@ package codegraph
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -105,5 +106,40 @@ func TestToolchainAnalyzerWithoutABuiltArtifactReturnsNotConfigured(t *testing.T
 	_, err := JavaToolchain(t.TempDir()).Analyzer().Analyze(context.Background(), "/some/project")
 	if !errors.Is(err, ErrAnalyzerNotConfigured) {
 		t.Fatalf("expected ErrAnalyzerNotConfigured, got %v", err)
+	}
+}
+
+// The guard a call runs under survives the jar's JSON and arrives on the Go
+// Edge — the one place the Java and Go halves of the feature meet.
+func TestSubprocessAnalyzerCarriesEdgeGuards(t *testing.T) {
+	toolchain := builtJavaAnalyzer(t)
+	dir := t.TempDir()
+	source := `package acme;
+class AccessService {
+    private boolean moduleBasedAccessEnabled;
+    boolean isAvailable(String org) {
+        if (moduleBasedAccessEnabled) { return byModule(org); }
+        return byRole(org);
+    }
+    boolean byModule(String org) { return true; }
+    boolean byRole(String org) { return org != null; }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "AccessService.java"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := toolchain.Analyzer().Analyze(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	guards := map[string]string{}
+	for _, e := range result.Edges {
+		guards[e.To] = e.Guard
+	}
+	if got := guards["acme.AccessService.byModule(java.lang.String)"]; got != "moduleBasedAccessEnabled" {
+		t.Fatalf("byModule guard = %q, edges %+v", got, result.Edges)
+	}
+	if got := guards["acme.AccessService.byRole(java.lang.String)"]; got != "!moduleBasedAccessEnabled" {
+		t.Fatalf("byRole guard = %q, edges %+v", got, result.Edges)
 	}
 }

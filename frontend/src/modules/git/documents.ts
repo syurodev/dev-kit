@@ -55,3 +55,8 @@ export function openFileDiff(path: string, staged: boolean): void {
 export function openHistory(): void {
   useWorkbenchTabsStore.getState().openTab({ moduleId: MODULE, viewId: "git.history", title: "History" });
 }
+
+/** Which account a remote uses, and the fetch/pull/push that go with it. */
+export function openRemotes(): void {
+  useWorkbenchTabsStore.getState().openTab({ moduleId: MODULE, viewId: "git.remotes", title: "Remotes", icon: viewIcon(MODULE, "git.remotes") });
+}

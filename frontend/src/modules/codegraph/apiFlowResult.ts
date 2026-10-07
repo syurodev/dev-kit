@@ -2,6 +2,10 @@ import { parseToolOutput } from "@/workbench/toolResultViews";
 
 /** Mirrors internal/codegraph/codegraph.go: FlowStep. */
 export type ApiFlowStep = {
+  /** Calls below the entry point; steps are depth-first, so this rebuilds the tree. Absent in older transcripts. */
+  depth?: number;
+  /** The condition the caller reaches this step under, as written in the source; empty or absent when it always does. */
+  guard?: string;
   label: string;
   filePath: string;
   line: number;
