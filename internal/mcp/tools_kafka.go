@@ -22,38 +22,38 @@ func (s *Server) registerKafka(ms *sdk.Server) {
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaConnectionStatus)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "kafka.listTopics",
 		Description: "List topics on the live Kafka connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
-	}, s.toolKafkaListTopics)
+	}), s.toolKafkaListTopics)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "kafka.describeTopic",
 		Description: "Describe a Kafka topic on the live connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
-	}, s.toolKafkaDescribeTopic)
+	}), s.toolKafkaDescribeTopic)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "kafka.peekMessages",
 		Description: "Peek messages from a Kafka topic partition (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
-	}, s.toolKafkaPeekMessages)
+	}), s.toolKafkaPeekMessages)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "kafka.listConsumerGroups",
 		Description: "List Kafka consumer groups on the live connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
-	}, s.toolKafkaListConsumerGroups)
+	}), s.toolKafkaListConsumerGroups)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "kafka.publishMessage",
 		Description: "Publish a message on the live Kafka connection (gated)",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
 		},
-	}, s.toolKafkaPublishMessage)
+	}), s.toolKafkaPublishMessage)
 }
 
 func (s *Server) toolKafkaListProfiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {

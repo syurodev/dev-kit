@@ -66,14 +66,14 @@ func (s *Server) registerDatabase(ms *sdk.Server) {
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBActiveProfile)
 
-	sdk.AddTool(ms, &sdk.Tool{
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
 		Name:        "db.query",
 		Description: "Run SQL on the active database profile (gated)",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
 		},
-	}, s.toolDBQuery)
+	}), s.toolDBQuery)
 }
 
 func (s *Server) toolDBListProfiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {

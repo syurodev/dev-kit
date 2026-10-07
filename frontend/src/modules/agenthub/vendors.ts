@@ -23,6 +23,8 @@ export type VendorInfo = {
   /** The runtime's name in Settings and the install panel. */
   runtimeName: string;
   signIn: VendorSignIn;
+  /** Can read model settings without creating a conversation. */
+  configCatalog?: boolean;
 };
 
 export const CLAUDE_INFO: VendorInfo = {
@@ -39,6 +41,7 @@ export const CODEX_INFO: VendorInfo = {
   runtimeId: CODEX_AGENT,
   runtimeName: "Codex",
   signIn: "inApp",
+  configCatalog: true,
 };
 
 const KNOWN: Record<string, VendorInfo> = {

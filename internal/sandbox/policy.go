@@ -55,6 +55,9 @@ type Policy struct {
 	// NetworkHost jail shares the host's loopback, and a NetworkNone one has
 	// no loopback the browser could reach anyway.
 	ListenLoopbackPorts []int
+	// ReadPreferenceDomains grants read-only access to named macOS preference
+	// domains through cfprefsd. It never grants preference writes.
+	ReadPreferenceDomains []string
 	// AllowKeychain lets the process read the macOS login keychain. Vendor
 	// agents that authenticate with a subscription keep their OAuth token
 	// there, not in a file or an env var. No-op off darwin.

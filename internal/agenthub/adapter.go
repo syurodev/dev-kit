@@ -12,8 +12,11 @@ import (
 
 // OpenSpec is everything an adapter needs to spawn one session.
 type OpenSpec struct {
-	Cwd         string
-	WorkspaceID string
+	// GateOwnedMCP is supplied by the trusted identity-bound endpoint registry.
+	// These tools ask through DevKit's gate after vendor dispatch, exactly once.
+	GateOwnedMCP map[string][]string
+	Cwd          string
+	WorkspaceID  string
 	// AllowUnixSockets is the session's identity-bound MCP socket (see sandbox.Policy).
 	AllowUnixSockets []string
 	// McpServers is advertised to the agent via ACP session/new.mcpServers.
@@ -85,6 +88,11 @@ type SessionRuntime interface {
 type RuntimeConfigurator interface {
 	SetConfigOption(ctx context.Context, optionID, value string) error
 	SetMode(ctx context.Context, modeID string) error
+}
+
+// VendorConfigCatalog reads choices before there is a conversation or turn.
+type VendorConfigCatalog interface {
+	ConfigCatalog(context.Context, OpenSpec) ([]ConfigOption, error)
 }
 
 // SessionSteerer is implemented by runtimes whose agent advertises the

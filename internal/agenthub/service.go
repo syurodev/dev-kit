@@ -38,6 +38,8 @@ type CreateInput struct {
 	// bridge (UI) path sets this; the MCP tool's own input struct has no such
 	// field, so an agent-created session never gets one.
 	ExtraReadWritePaths []string
+	// InitialConfig is applied before the first turn and recorded by attachUpdates.
+	InitialConfig map[string]string
 }
 
 // cleanExtraReadWritePaths applies the same invariants resolveCwd holds Cwd
@@ -219,9 +221,10 @@ type InvokeResult struct {
 
 // MCPEndpoint is the identity-bound MCP socket handed to one vendor process.
 type MCPEndpoint struct {
-	SocketPath string
-	Server     acp.McpServerStdio
-	Close      func()
+	SocketPath     string
+	Server         acp.McpServerStdio
+	Close          func()
+	GateOwnedTools []string
 }
 
 // MCPEndpoints opens one MCPEndpoint per session. nil means sessions get no
@@ -246,10 +249,16 @@ type Service struct {
 	// resuming marks a session whose runtime is being reopened. A second
 	// caller waits on it rather than spawning a second process onto the same
 	// MCP socket path, and gets the same outcome.
-	resuming          map[string]*resumeCall
-	mu                sync.Mutex
-	emit              func(sessionID string, update json.RawMessage)
-	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
+	resuming              map[string]*resumeCall
+	mu                    sync.Mutex
+	emit                  func(sessionID string, update json.RawMessage)
+	ResolvePermission     PermissionResolver // nil = fail closed (no auto-approve)
+	ResolveGatePermission PermissionResolver
+	// GateTargetName resolves display metadata at the composition root, never
+	// from the model's tool arguments. The gate's ProfileID remains the scope.
+	GateTargetName   func(kind, id string) string
+	permissionMu     sync.Mutex
+	permissionStates map[string]*permissionState
 	// CancelPendingPermissions drops what a session is waiting on when its turn
 	// is stopped. Set in main.go to PermissionWaiter.CancelSession; nil means a
 	// stop leaves pending requests alone, which is the old behaviour.
@@ -515,6 +524,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint = ep.Close
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
+		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
@@ -525,6 +535,24 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		log.Printf("agenthub: open %s session in %s: %v", in.AgentType, cwd, err)
 		closeEndpoint()
 		return AgentSession{}, err
+	}
+	if len(in.InitialConfig) > 0 {
+		configurator, ok := rt.(RuntimeConfigurator)
+		if !ok {
+			_ = rt.Close(ctx)
+			closeEndpoint()
+			return AgentSession{}, ErrInvalidConfigOption
+		}
+		// Model first: it determines which effort values are supported.
+		for _, key := range []string{"model", "reasoning_effort"} {
+			if value := in.InitialConfig[key]; value != "" {
+				if err := configurator.SetConfigOption(ctx, key, value); err != nil {
+					_ = rt.Close(ctx)
+					closeEndpoint()
+					return AgentSession{}, err
+				}
+			}
+		}
 	}
 
 	now := time.Now().UTC()
@@ -1062,6 +1090,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if _, err := s.store.GetSession(ctx, id); err != nil {
 		return err
 	}
+	if s.CancelPendingPermissions != nil {
+		s.CancelPendingPermissions(id)
+	}
+	if s.CancelPendingElicitations != nil {
+		s.CancelPendingElicitations(id)
+	}
 
 	s.mu.Lock()
 	rt := s.runtimes[id]
@@ -1096,8 +1130,16 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 		s.OnRecordError(id, err)
 	}
 
-	if err := s.store.UpdateSessionStatus(ctx, id, SessionStatusClosed, time.Now().UTC()); err != nil {
-		return err
+	// Serialize closure with permission status restoration: a late gate answer
+	// must never turn a closed conversation back into an idle/running one.
+	s.permissionMu.Lock()
+	closeErr := s.store.UpdateSessionStatus(ctx, id, SessionStatusClosed, time.Now().UTC())
+	s.permissionMu.Unlock()
+	if closeErr != nil {
+		return closeErr
+	}
+	if s.CancelPendingPermissions != nil {
+		s.CancelPendingPermissions(id)
 	}
 	if s.OnSessionClosed != nil {
 		s.OnSessionClosed(id)
@@ -1820,6 +1862,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		closeEndpoint = ep.Close
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
+		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
@@ -1831,6 +1874,24 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		return nil, err
 	}
 	// After Load, not before: the replay it streams is already in the store.
+	if sess.AgentType == AgentTypeCodex {
+		if entry, found, readErr := s.store.FindTranscriptKind(ctx, sess.ID, UpdateConfigOptions); readErr == nil && found {
+			if configurator, ok := rt.(RuntimeConfigurator); ok {
+				var saved SessionUpdate
+				_ = json.Unmarshal(entry.Payload, &saved)
+				for _, option := range saved.ConfigOptions {
+					if option.ID != codexModelOption && option.ID != codexEffortOption {
+						continue
+					}
+					var value string
+					if json.Unmarshal(option.CurrentValue, &value) == nil && value != "" {
+						// A removed model/effort falls back to the runtime default.
+						_ = configurator.SetConfigOption(ctx, option.ID, value)
+					}
+				}
+			}
+		}
+	}
 	// Before the runtime is published, so a caller waiting on this resume
 	// never gets a runtime that cannot hear the agent.
 	s.attachUpdates(sess.ID, rt)
@@ -1907,6 +1968,44 @@ func (s *Service) SetConfigOption(ctx context.Context, id, optionID, value strin
 		return err
 	}
 	return configurator.SetConfigOption(ctx, optionID, value)
+}
+
+// ConfigCatalog supplies a draft without creating a persisted session.
+func (s *Service) ConfigCatalog(ctx context.Context, vendor AgentType) ([]ConfigOption, error) {
+	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
+		return nil, ErrPermissionDenied
+	}
+	adapter, ok := s.reg.Get(vendor)
+	if !ok {
+		return nil, ErrVendorUnknown
+	}
+	catalog, ok := adapter.(VendorConfigCatalog)
+	if !ok {
+		return []ConfigOption{}, nil
+	}
+	spec := OpenSpec{}
+	s.applySandboxExtras(&spec)
+	return catalog.ConfigCatalog(ctx, spec)
+}
+
+// PrepareSession wakes the selected conversation and refreshes its controls,
+// without submitting a prompt or starting inference.
+func (s *Service) PrepareSession(ctx context.Context, id string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	rt, err := s.runtimeFor(ctx, sess)
+	if err != nil {
+		return err
+	}
+	if refresh, ok := rt.(interface{ RefreshConfigOptions(context.Context) error }); ok {
+		return refresh.RefreshConfigOptions(ctx)
+	}
+	return nil
 }
 
 // SteerOutcome is what became of a steered message; see SessionSteerer.Steer.

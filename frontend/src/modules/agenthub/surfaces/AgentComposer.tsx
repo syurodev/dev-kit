@@ -43,6 +43,7 @@ import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
+import { ModelSettingsPopover } from "./ModelSettingsPopover";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
 import { ComposerTray, type TrayPanel } from "./composer/ComposerTray";
@@ -352,7 +353,10 @@ export type AgentComposerProps = {
   /** The session's advertised modes; the picker lists these when there are any. */
   availableModes?: SessionMode[];
   onSetMode?: (mode: string) => void;
-  onSetConfigOption?: (optionId: string, value: string) => void;
+  onSetConfigOption?: (optionId: string, value: string) => void | Promise<void>;
+  configLoading?: boolean;
+  configError?: string;
+  onRefreshConfig?: () => void;
   focusRequest?: number;
   disabled?: boolean;
   placeholder?: string;
@@ -472,6 +476,9 @@ export function AgentComposer({
   availableModes = [],
   onSetMode,
   onSetConfigOption,
+  configLoading,
+  configError,
+  onRefreshConfig,
   focusRequest = 0,
   disabled = false,
   placeholder,
@@ -1134,7 +1141,19 @@ export function AgentComposer({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-            {onSetConfigOption && selectableOptions.length > 0 ? (
+            {onSetConfigOption && (selectableOptions.some((option) => option.category === "model" || option.id === "model") || onRefreshConfig) ? (
+              <ModelSettingsPopover options={selectableOptions} onSelect={(id, value) => {
+                const option = selectableOptions.find((option) => option.id === id);
+                const choice = option?.options?.find((choice) => choice.value === value) ?? { value };
+                if (isPermissionBypassChoice(choice, option)) {
+                  askBypass(() => { void onSetConfigOption(id, value); });
+                  setOpenMenu("");
+                  return;
+                }
+                return onSetConfigOption(id, value);
+              }} {...menu("config")} onCloseAutoFocus={openHeldBypass}
+                loading={configLoading} error={configError} onRefresh={onRefreshConfig} />
+            ) : onSetConfigOption && selectableOptions.length > 0 ? (
               <DropdownMenu {...menu("config")}>
                 <DropdownMenuTrigger asChild>
                   <ActionTooltip label="Agent settings" side="top">

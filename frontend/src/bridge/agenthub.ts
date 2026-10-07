@@ -18,6 +18,7 @@ import type {
   RewindResult,
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
+import type { ConfigOption } from "../modules/agenthub/types";
 
 export type AgentVendor = "claude" | "codex";
 
@@ -78,6 +79,7 @@ export type CreateSessionInput = {
    * such field), so an agent-created session can never widen its own jail.
    */
   extraReadWritePaths?: string[];
+  initialConfig?: Record<string, string>;
 };
 
 export type InvokeSessionInput = {
@@ -302,9 +304,18 @@ export function agentHubCreateSession(
       ParentSessionID: input.parentSessionId ?? "",
       Title: input.title ?? null,
       ExtraReadWritePaths: input.extraReadWritePaths ?? [],
+      InitialConfig: input.initialConfig ?? {},
     });
     return toSession(created);
   });
+}
+
+export function agentHubConfigCatalog(agent: string): Promise<ConfigOption[]> {
+  return callBridge(async () => (await AppService.AgentHubConfigCatalog(agent) ?? []) as ConfigOption[]);
+}
+
+export function agentHubPrepareSession(sessionId: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubPrepareSession(sessionId));
 }
 
 export function agentHubGetStatus(sessionId: string): Promise<AgentSession> {

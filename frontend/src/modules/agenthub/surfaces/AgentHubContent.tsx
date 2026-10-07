@@ -44,7 +44,10 @@ export type AgentHubContentProps = {
   mode?: string | null;
   availableModes?: SessionMode[];
   onSetMode?: (mode: string) => void;
-  onSetConfigOption?: (optionId: string, value: string) => void;
+  onSetConfigOption?: (optionId: string, value: string) => void | Promise<void>;
+  configLoading?: boolean;
+  configError?: string;
+  onRefreshConfig?: () => void;
   focusComposerRequest?: number;
   /** Older transcript pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -198,6 +201,9 @@ export function AgentHubContent({
   availableModes = [],
   onSetMode,
   onSetConfigOption,
+  configLoading,
+  configError,
+  onRefreshConfig,
   focusComposerRequest = 0,
   hasMore = false,
   loadingOlder = false,
@@ -276,7 +282,6 @@ export function AgentHubContent({
     usage = null;
     commands = [];
     contextFiles = [];
-    configOptions = [];
     mode = null;
     availableModes = [];
   }
@@ -555,6 +560,9 @@ export function AgentHubContent({
               availableModes={availableModes}
               onSetMode={onSetMode}
               onSetConfigOption={onSetConfigOption}
+              configLoading={configLoading}
+              configError={configError}
+              onRefreshConfig={onRefreshConfig}
               focusRequest={focusComposerRequest}
               onCompact={canCompact ? onCompact : undefined}
               agents={draft ? agents : undefined}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
 import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
+import { MCPInteractionSection } from "./MCPInteractionSection";
+import { ApprovalBrokerSection } from "./ApprovalBrokerSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
 import { CodeIntelSection } from "./CodeIntelSection";
 import {
@@ -1059,6 +1061,8 @@ export default function ComponentGallery() {
       </Section>
 
       <AgentHubTranscriptSection />
+      <MCPInteractionSection />
+      <ApprovalBrokerSection />
 
       <CodeEditorWrapSection />
 
@@ -1366,4 +1370,3 @@ function Step4bMeasurementsInspector() {
     </div>
   );
 }
-

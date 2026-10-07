@@ -437,8 +437,11 @@ func devkitBaseCapabilities() map[string]any {
 // binary lives inside the jail. settingSources shuts outside settings out;
 // the hook is the one rule DevKit puts back in, and it runs before every
 // other step of the evaluation order. See runPreToolUseHook.
-func sessionNewMeta(hookCommand, prompt string) json.RawMessage {
+func sessionNewMeta(hookCommand, prompt string, gateOwnedTools ...string) json.RawMessage {
 	options := map[string]any{"settingSources": []string{}}
+	if len(gateOwnedTools) > 0 {
+		options["allowedTools"] = gateOwnedTools
+	}
 	body := map[string]any{
 		"systemPrompt": map[string]any{
 			"type":   "preset",
@@ -739,7 +742,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		}
 		mcpServers = append(mcpServers, srv)
 	}
-	meta := sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief))
+	meta := sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief), delegatedClaudeTools(spec)...)
 
 	if plan.forkFrom != "" {
 		var forkRes acp.SessionForkResult

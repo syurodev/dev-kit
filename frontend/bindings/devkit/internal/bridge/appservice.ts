@@ -388,6 +388,10 @@ export function AgentHubCloseSession(id: string): $CancellablePromise<void> {
     return $Call.ByID(1287039358, id);
 }
 
+export function AgentHubConfigCatalog(agent: string): $CancellablePromise<agenthub$0.ConfigOption[] | null> {
+    return $Call.ByID(810199431, agent);
+}
+
 export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(146979054, input);
 }
@@ -515,6 +519,10 @@ export function AgentHubPlanRestore(req: agenthub$0.RestoreRequest): $Cancellabl
  */
 export function AgentHubPlanRewind(req: agenthub$0.RewindRequest): $CancellablePromise<agenthub$0.RewindPreview> {
     return $Call.ByID(1720588606, req);
+}
+
+export function AgentHubPrepareSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2696110415, id);
 }
 
 /**
@@ -667,7 +675,7 @@ export function AgentRuntimeActivate(agent: string, version: string): $Cancellab
 }
 
 /**
- * AgentRuntimeCheckLatest refreshes the ACP registry cache. Offline is not an
+ * AgentRuntimeCheckLatest refreshes the vendor's update cache. Offline is not an
  * error; the status keeps the cached latest, or none.
  */
 export function AgentRuntimeCheckLatest(agent: string): $CancellablePromise<agentruntime$0.Status> {

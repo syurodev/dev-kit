@@ -211,13 +211,19 @@ type ModelListParams struct {
 }
 
 type Model struct {
-	ID                     string `json:"id"`
-	Model                  string `json:"model"`
-	DisplayName            string `json:"displayName"`
-	Description            string `json:"description"`
-	Hidden                 bool   `json:"hidden"`
-	IsDefault              bool   `json:"isDefault"`
-	DefaultReasoningEffort string `json:"defaultReasoningEffort"`
+	ID                        string                  `json:"id"`
+	Model                     string                  `json:"model"`
+	DisplayName               string                  `json:"displayName"`
+	Description               string                  `json:"description"`
+	Hidden                    bool                    `json:"hidden"`
+	IsDefault                 bool                    `json:"isDefault"`
+	DefaultReasoningEffort    string                  `json:"defaultReasoningEffort"`
+	SupportedReasoningEfforts []ReasoningEffortOption `json:"supportedReasoningEfforts"`
+}
+
+type ReasoningEffortOption struct {
+	ReasoningEffort string `json:"reasoningEffort"`
+	Description     string `json:"description"`
 }
 
 type ModelListResponse struct {

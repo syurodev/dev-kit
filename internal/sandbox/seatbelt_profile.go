@@ -123,6 +123,16 @@ func buildSeatbeltProfile(p Policy) string {
 	b.WriteString("(allow process-fork)\n")
 	b.WriteString("(allow sysctl-read)\n")
 
+	if len(p.ReadPreferenceDomains) > 0 {
+		b.WriteString("(allow mach-lookup (global-name \"com.apple.cfprefsd.daemon\") (global-name \"com.apple.cfprefsd.agent\") (local-name \"com.apple.cfprefsd.agent\"))\n")
+		b.WriteString("(allow ipc-posix-shm-read* (ipc-posix-name-prefix \"apple.cfprefs.\"))\n")
+		b.WriteString("(allow user-preference-read\n")
+		for _, domain := range p.ReadPreferenceDomains {
+			b.WriteString("  (preference-domain \"" + escapeSBPL(domain) + "\")\n")
+		}
+		b.WriteString(")\n")
+	}
+
 	switch p.Network {
 	case NetworkNone:
 		b.WriteString("(deny network-outbound)\n")

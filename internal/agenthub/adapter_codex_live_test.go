@@ -23,7 +23,7 @@ func codexForReal(t *testing.T, home string) *CodexAdapter {
 	t.Helper()
 	bin := os.Getenv("DEVKIT_CODEX_COMMAND")
 	if bin == "" {
-		t.Skip("set DEVKIT_CODEX_COMMAND to a codex 0.147.0 binary to run codex in the real jail")
+		t.Skip("set DEVKIT_CODEX_COMMAND to a native codex binary to run codex in the real jail")
 	}
 	if err := sandbox.DefaultRunner().Available(context.Background()); err != nil {
 		t.Skipf("sandbox unavailable: %v", err)
@@ -69,6 +69,48 @@ func TestCodexRealBinaryInTheJail(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(home, "skills")); len(entries) != 0 {
 		t.Errorf("skills/ was written: %v", entries)
+	}
+}
+
+// Reloading configuration must work inside the jail, even when signed out:
+// newer app-servers also reload it from account/read for ChatGPT accounts.
+func TestCodexRealBinaryConfigReloadInTheJail(t *testing.T) {
+	a := codexForReal(t, filepath.Join(t.TempDir(), "home"))
+	l, err := a.resolveCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := a.start(t.TempDir(), l, OpenSpec{}, codexStoreEphemeral, codexNoHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.stop()
+	ctx, cancel := p.bounded(context.Background(), probeTimeout)
+	defer cancel()
+	if err := a.initialize(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	var result json.RawMessage
+	if err := p.conn.Call(ctx, "config/read", map[string]any{"includeLayers": false}, &result); err != nil {
+		t.Fatalf("config reload: %v", err)
+	}
+}
+
+func TestCodexRealBinaryCatalogBeforeConversation(t *testing.T) {
+	a := codexForReal(t, filepath.Join(t.TempDir(), "home"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	opts, err := a.ConfigCatalog(ctx, OpenSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts) == 0 || len(opts[0].Options) == 0 {
+		t.Fatal("catalog has no models")
+	}
+	for _, choice := range opts[0].Options {
+		if len(choice.SupportedEfforts) == 0 {
+			t.Fatalf("model %s lost supported efforts", choice.Value)
+		}
 	}
 }
 

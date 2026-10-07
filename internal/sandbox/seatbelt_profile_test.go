@@ -73,6 +73,22 @@ func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
 	}
 }
 
+func TestSeatbeltPreferencesAreOptInAndReadOnly(t *testing.T) {
+	base := Policy{WorkDir: "/tmp/proj", Network: NetworkNone}
+	if prof := buildSeatbeltProfile(base); strings.Contains(prof, "cfprefsd") || strings.Contains(prof, "user-preference-read") {
+		t.Fatal("preferences must stay closed by default")
+	}
+	base.ReadPreferenceDomains = []string{"com.openai.codex"}
+	prof := buildSeatbeltProfile(base)
+	if !strings.Contains(prof, `(preference-domain "com.openai.codex")`) ||
+		!strings.Contains(prof, `(global-name "com.apple.cfprefsd.agent")`) {
+		t.Fatalf("named preference domain unavailable: %s", prof)
+	}
+	if strings.Contains(prof, "user-preference-write") || strings.Contains(prof, "(allow user-preference-read)") {
+		t.Fatalf("preferences grant must be scoped and read-only: %s", prof)
+	}
+}
+
 // A host-networking jail can check a server's certificate against the
 // system roots, and that is all the securityd lookup buys it: the login
 // keychain stays unreadable unless AllowKeychain asks for it — also under a

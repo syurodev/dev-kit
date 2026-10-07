@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"sort"
+	"sync"
 
 	"devkit/internal/capabilities"
 	"devkit/internal/codegraph"
@@ -221,8 +223,27 @@ type Deps struct {
 
 // Server hosts the MCP tool registry for DevKit.
 type Server struct {
-	deps Deps
-	mcp  *sdk.Server
+	deps      Deps
+	mcp       *sdk.Server
+	gateOwned sync.Map
+}
+
+// gateOwnedTool is an explicit registration declaration: the handler must
+// confirm through a gate before any action. Vendor wrappers may delegate it.
+func (s *Server) gateOwnedTool(tool *sdk.Tool) *sdk.Tool {
+	s.gateOwned.Store(tool.Name, struct{}{})
+	return tool
+}
+
+func (s *Server) GateOwnedTools() []string {
+	// Do not delegate when the agent confirmation transport is unavailable.
+	if s.deps.Hub == nil || s.deps.Hub.Headless || s.deps.Hub.ConfirmAgent == nil {
+		return nil
+	}
+	var names []string
+	s.gateOwned.Range(func(key, _ any) bool { names = append(names, key.(string)); return true })
+	sort.Strings(names)
+	return names
 }
 
 // NewServer builds the tool registry. The returned Server's MCP() is the

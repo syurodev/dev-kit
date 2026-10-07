@@ -463,6 +463,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 		r.closeNew = ep.Close
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
+		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)

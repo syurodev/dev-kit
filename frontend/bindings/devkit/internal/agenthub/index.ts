@@ -19,6 +19,8 @@ export type {
     CheckpointAvailability,
     CheckpointProblem,
     CheckpointSummary,
+    ConfigOption,
+    ConfigSelectOption,
     ContextFile,
     CreateInput,
     FileDiff,

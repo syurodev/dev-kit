@@ -25,6 +25,8 @@ import {
   agentHubChooseFiles,
   agentHubRenameSession,
   agentHubCreateSession,
+  agentHubConfigCatalog,
+  agentHubPrepareSession,
   agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubListContextFiles,
@@ -65,6 +67,8 @@ import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAge
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { AgentActivityPanel, useFollowing } from "./follow";
 import { SubagentPanel, useSubagentPanel } from "./subagents";
+import { draftConfigOptions, initialModelConfig } from "./modelSettings";
+import { onAgentSignInCompleted } from "@/bridge/agentSignIn";
 
 // Until the backend answers: the agents DevKit ships. The mock adapter is a
 // test double and is not offered.
@@ -81,6 +85,7 @@ type CreateParams = {
   images?: AgentImageAttachment[];
   /** The rest of a workspace's services — see chooseWorkspaceForDraft. */
   extraReadWritePaths?: string[];
+  initialConfig?: Record<string, string>;
 };
 export type TurnInput = {
   sessionId: string;
@@ -234,9 +239,9 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   // A session being started. Its folder and parent are known when it begins;
-  // its agent is picked in the composer; nothing exists on the backend until
-  // the first message is sent, because an agent is a process bound to its
-  // session and there is nothing to bind yet. This replaced a dialog that asked
+  // its agent is picked in the composer; the conversation is created on the
+  // first send. A vendor may read its catalog in a short-lived process before
+  // that, without creating a conversation. This replaced a dialog that asked
   // for the agent up front, before anyone had said what they wanted from it.
   // Images pasted into the draft belong to it: they go when it is sent or left.
   const [draft, setDraft] = useState<{
@@ -253,6 +258,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   } | null>(null);
   const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_VENDOR);
   const [draftPrompt, setDraftPrompt] = useState("");
+  const [draftSelections, setDraftSelections] = useState<Record<string, Record<string, string>>>({});
   // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
   // exited after …": the DevKit code AND what happened. errorMessage() gives
   // only the humanised half, so the card was saying "Agent process failed."
@@ -288,6 +294,18 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     queryFn: () => agentRuntimeStatus(draftVendor.runtimeId),
     enabled: draft !== null && draftVendor.runtimeId !== "",
   });
+  const draftCatalog = useQuery({
+    queryKey: ["agenthub", "configCatalog", draftAgent, draftRuntime.data?.current?.version],
+    queryFn: () => agentHubConfigCatalog(draftAgent),
+    enabled: visible && draft !== null && draftVendor.configCatalog === true && Boolean(draftRuntime.data && !runtimeBlocked(draftRuntime.data)),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const draftOptions = draftConfigOptions(draftCatalog.data ?? [], draftSelections[draftAgent] ?? {});
+  useEffect(() => onAgentSignInCompleted(() => {
+    void queryClient.invalidateQueries({ queryKey: ["agenthub", "configCatalog"] });
+    void queryClient.invalidateQueries({ queryKey: ["agenthub", "sessionConfig"] });
+  }), [queryClient]);
   // A vendor failure the user waved off. Keyed by id and revision: the agent
   // republishes a failure with a new revision when something about it changed,
   // and that is news again.
@@ -325,6 +343,13 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     () => (tabSessionId ? sessions.find((s) => s.id === tabSessionId) ?? null : null),
     [sessions, tabSessionId],
   );
+  const sessionConfig = useQuery({
+    queryKey: ["agenthub", "sessionConfig", activeSession?.id],
+    queryFn: async () => { await agentHubPrepareSession(activeSession!.id); return true; },
+    enabled: visible && !draft && Boolean(activeSession && activeSession.status !== "closed" && activeSession.status !== "running" && activeSession.status !== "awaiting_permission"),
+    staleTime: 60_000,
+    retry: false,
+  });
 
   // A cross-module `agent.attach` (docs/dev-kit/cross-module.mdx § Primitive
   // 2) leaves its refs here rather than reaching into this component
@@ -558,6 +583,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
         // A scratch session gets nothing beyond its own scratch folder — the
         // "whole workspace" pick only applies to a real cwd.
         extraReadWritePaths: scratch ? [] : params.extraReadWritePaths,
+        initialConfig: params.initialConfig,
       });
       upsertSession(session);
       if (!scratch) rememberProject(params.cwd);
@@ -783,6 +809,15 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   }
 
   async function handleSetConfigOption(optionId: string, value: string) {
+    if (draft) {
+      setDraftSelections((previous) => ({
+        ...previous,
+        [draftAgent]: initialModelConfig(draftConfigOptions(
+          draftCatalog.data ?? [], { ...previous[draftAgent], [optionId]: value },
+        )),
+      }));
+      return;
+    }
     if (!activeSession) return;
     try {
       await setSessionConfigOption(activeSession.id, optionId, value);
@@ -1027,11 +1062,14 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             onSelectCommand={handleSelectCommand}
             onSelectContext={handleSelectContext}
             onOpenFile={(path, line) => void handleOpenFile(path, line)}
-            configOptions={transcriptModel.configOptions}
+            configOptions={draft ? draftOptions : transcriptModel.configOptions}
+            configLoading={draft ? draftCatalog.isFetching : sessionConfig.isFetching}
+            configError={(draft ? draftCatalog.error : sessionConfig.error) ? errorMessage(draft ? draftCatalog.error : sessionConfig.error) : undefined}
+            onRefreshConfig={draft ? (draftVendor.configCatalog ? () => { void draftCatalog.refetch(); } : undefined) : activeSession ? () => { void sessionConfig.refetch(); } : undefined}
             mode={transcriptModel.mode}
             availableModes={transcriptModel.availableModes}
             onSetMode={(mode) => void handleSetMode(mode)}
-            onSetConfigOption={(optionId, value) => void handleSetConfigOption(optionId, value)}
+            onSetConfigOption={handleSetConfigOption}
             focusComposerRequest={focusComposerRequest}
             hasMore={transcriptModel.hasMore}
             loadingOlder={transcriptModel.loadingOlder}
@@ -1086,6 +1124,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
                 images: draft.images,
                 attachments: draft.attachments,
                 extraReadWritePaths: draft.extraReadWritePaths,
+                initialConfig: initialModelConfig(draftOptions),
               });
             }}
             onCancel={() => void handleCancel()}

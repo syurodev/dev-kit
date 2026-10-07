@@ -1490,6 +1490,81 @@ func TestSettingsResumeTheAgentAfterRestart(t *testing.T) {
 	}
 }
 
+type modelSettingsRuntime struct {
+	titlingRuntime
+	values map[string]string
+}
+
+func (r *modelSettingsRuntime) SetMode(context.Context, string) error { return nil }
+func (r *modelSettingsRuntime) SetConfigOption(_ context.Context, id, value string) error {
+	r.values[id] = value
+	if r.handlers.OnUpdate != nil {
+		r.announce()
+	}
+	return nil
+}
+func (r *modelSettingsRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = h; r.announce() }
+func (r *modelSettingsRuntime) announce() {
+	if r.handlers.OnUpdate == nil {
+		return
+	}
+	update, _ := json.Marshal(map[string]any{"sessionUpdate": "config_option_update", "configOptions": []map[string]any{
+		{"id": "model", "currentValue": r.values["model"]},
+		{"id": "reasoning_effort", "currentValue": r.values["reasoning_effort"]},
+	}})
+	r.handlers.OnUpdate(update, nil)
+}
+
+type modelSettingsAdapter struct {
+	titlingAdapter
+	last *modelSettingsRuntime
+}
+
+func (*modelSettingsAdapter) Type() agenthub.AgentType { return agenthub.AgentTypeCodex }
+func (a *modelSettingsAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	a.last = &modelSettingsRuntime{values: map[string]string{"model": "default", "reasoning_effort": "medium"}}
+	return a.last, nil
+}
+func (a *modelSettingsAdapter) Load(ctx context.Context, spec agenthub.OpenSpec, _ string) (agenthub.SessionRuntime, error) {
+	return a.Open(ctx, spec)
+}
+
+func TestInitialModelAndEffortArePersistedAndRestoredWithoutPrompt(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	adapter := &modelSettingsAdapter{}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, store, nil)
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeCodex, Cwd: t.TempDir(), InitialConfig: map[string]string{"model": "chosen", "reasoning_effort": "high"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adapter.last.values["model"] != "chosen" || adapter.last.values["reasoning_effort"] != "high" {
+		t.Fatal("draft settings not applied at creation")
+	}
+	if err := svc.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restarted := agenthub.NewService(reg, store, nil)
+	t.Cleanup(func() { _ = restarted.Shutdown(ctx) })
+	if err := restarted.PrepareSession(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if adapter.last.values["model"] != "chosen" || adapter.last.values["reasoning_effort"] != "high" {
+		t.Fatalf("resume lost model/effort: %v", adapter.last.values)
+	}
+	page, err := restarted.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range page.Entries {
+		if entry.Kind == agenthub.UpdateUserMessageChunk {
+			t.Fatal("prepare submitted a prompt")
+		}
+	}
+}
+
 // A runtime resumed by a settings call had no update handler until the next
 // prompt, so the config_option_update the agent answers with was neither
 // recorded nor shown: the picker kept the old model until something else ran.

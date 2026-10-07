@@ -748,6 +748,85 @@ func TestRegistryEntryIgnoresAnotherPackage(t *testing.T) {
 	}
 }
 
+func TestCodexCheckLatestCachesWithETag(t *testing.T) {
+	var requests, notModified atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Header.Get("If-None-Match") == `"codex-v1"` {
+			notModified.Add(1)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"codex-v1"`)
+		_, _ = w.Write([]byte(`{"name":"@openai/codex","version":"0.150.0"}`))
+	}))
+	defer srv.Close()
+	tm := newTestManager(t)
+	tm.CodexRegistryURL = srv.URL
+	tm.RegistryURL = "invalid://must-not-query-acp"
+	ctx := context.Background()
+	if st, _ := tm.Status(ctx, CodexCLI); st.LatestVersion != nil {
+		t.Fatal("latest before checking npm")
+	}
+	for range 2 {
+		if err := tm.CheckLatest(ctx, CodexCLI); err != nil {
+			t.Fatal(err)
+		}
+		st, err := tm.Status(ctx, CodexCLI)
+		if err != nil || st.LatestVersion == nil || *st.LatestVersion != "0.150.0" {
+			t.Fatalf("status = %+v, err = %v", st, err)
+		}
+	}
+	if requests.Load() != 2 || notModified.Load() != 1 {
+		t.Fatalf("requests=%d notModified=%d", requests.Load(), notModified.Load())
+	}
+	if st, _ := tm.Status(ctx, ClaudeACP); st.LatestVersion != nil {
+		t.Fatal("Codex cache leaked into Claude status")
+	}
+	srv.Close()
+	if err := tm.CheckLatest(ctx, CodexCLI); err != nil {
+		t.Fatal(err)
+	}
+	// A new Manager must also use the persisted cache without network access.
+	restarted := New(tm.root)
+	if st, _ := restarted.Status(ctx, CodexCLI); st.LatestVersion == nil || *st.LatestVersion != "0.150.0" {
+		t.Fatal("cached Codex latest lost offline or after restart")
+	}
+}
+
+func TestCodexCheckLatestKeepsCacheOnInvalidResponse(t *testing.T) {
+	for _, body := range []string{
+		`not json`,
+		`{"error":"unavailable"}`,
+		`{"name":"@someone/else","version":"9.0.0"}`,
+		`{"name":"@openai/codex","version":"../../escape"}`,
+		`{"name":"@openai/codex","version":"0.151.0-beta.1"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			tm := newTestManager(t)
+			tm.CodexRegistryURL = srv.URL
+			cached := []byte(`{"name":"@openai/codex","version":"0.150.0"}`)
+			if err := os.MkdirAll(tm.root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(tm.codexRegistryPath(), cached, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tm.CheckLatest(context.Background(), CodexCLI); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(tm.codexRegistryPath())
+			if err != nil || !bytes.Equal(got, cached) {
+				t.Fatalf("valid cache replaced: %s, err=%v", got, err)
+			}
+		})
+	}
+}
+
 // writeFakeCodexInstall writes the tree `npm install @openai/codex` leaves,
 // with the platform package hoisted or nested under @openai/codex (npm does
 // either). The "binary" is a script that prints what the real one does for

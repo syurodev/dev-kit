@@ -23,9 +23,13 @@ import (
 // DefaultRegistryURL is the ACP registry's latest index.
 const DefaultRegistryURL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
 
+// DefaultCodexRegistryURL resolves npm's stable latest tag for Codex.
+const DefaultCodexRegistryURL = "https://registry.npmjs.org/@openai%2Fcodex/latest"
+
 // Manager owns <dataDir>/runtimes:
 //
 //	registry.json, registry.etag   cached ACP registry
+//	codex-latest.json              cached npm latest package metadata (+ .etag)
 //	.npm-cache/                    npm's cache, so a failed install never touches ~/.npm
 //	<agent>/current.json           {"version", "previous"}
 //	<agent>/settings.json          {"claudeBinary"}
@@ -45,8 +49,9 @@ type Manager struct {
 	// install.json says verified.handshake=false.
 	Verifiers map[string]func(ctx context.Context, rt Resolved) error
 
-	RegistryURL string
-	HTTPClient  *http.Client
+	RegistryURL      string
+	CodexRegistryURL string
+	HTTPClient       *http.Client
 
 	// Seams for tests: npm and managed Node without the network, and optional
 	// machine Claude without probing the host.
@@ -66,12 +71,13 @@ type Manager struct {
 // New returns a Manager rooted at root (normally <dataDir>/runtimes).
 func New(root string) *Manager {
 	m := &Manager{
-		root:        root,
-		RegistryURL: DefaultRegistryURL,
-		runNPM:      runStreaming,
-		findClaude:  locateMachineClaude,
-		installing:  map[string]bool{},
-		inUse:       map[string]map[string]int{},
+		root:             root,
+		RegistryURL:      DefaultRegistryURL,
+		CodexRegistryURL: DefaultCodexRegistryURL,
+		runNPM:           runStreaming,
+		findClaude:       locateMachineClaude,
+		installing:       map[string]bool{},
+		inUse:            map[string]map[string]int{},
 	}
 	m.findNode = m.installNode
 	return m
@@ -156,7 +162,13 @@ func (m *Manager) Status(ctx context.Context, agentID string) (Status, error) {
 	if len(agent.BundledClaude) > 0 {
 		st.ClaudeBinary = ClaudeBinary{Source: m.claudeSource(agentID), Machine: m.findClaude(ctx)}
 	}
-	if body, err := os.ReadFile(m.registryPath()); err == nil {
+	if agentID == CodexCLI {
+		if body, err := os.ReadFile(m.codexRegistryPath()); err == nil {
+			if latest := codexRegistryVersion(body); latest != "" {
+				st.LatestVersion = &latest
+			}
+		}
+	} else if body, err := os.ReadFile(m.registryPath()); err == nil {
 		if latest, license := registryEntry(body, agent); latest != "" {
 			st.LatestVersion = &latest
 			if license != "" {
@@ -710,20 +722,25 @@ func (m *Manager) GCOnStartup() error {
 	return errors.Join(errs...)
 }
 
-// CheckLatest refreshes the cached registry. Being offline is not an error:
+// CheckLatest refreshes the vendor's cached catalog (npm for Codex, ACP for
+// Claude). Being offline is not an error:
 // Status keeps showing whatever was cached, or no latest at all.
 func (m *Manager) CheckLatest(ctx context.Context, agentID string) error {
 	if _, err := lookupAgent(agentID); err != nil {
 		return err
 	}
+	registryURL, cachePath := m.RegistryURL, m.registryPath()
+	if agentID == CodexCLI {
+		registryURL, cachePath = m.CodexRegistryURL, m.codexRegistryPath()
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.RegistryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
 	if err != nil {
 		return nil
 	}
-	if cached, err := os.ReadFile(m.registryPath()); err == nil && json.Valid(cached) {
-		if etag, err := os.ReadFile(m.registryPath() + ".etag"); err == nil {
+	if cached, err := os.ReadFile(cachePath); err == nil && json.Valid(cached) {
+		if etag, err := os.ReadFile(cachePath + ".etag"); err == nil {
 			req.Header.Set("If-None-Match", strings.TrimSpace(string(etag)))
 		}
 	}
@@ -743,22 +760,40 @@ func (m *Manager) CheckLatest(ctx context.Context, agentID string) error {
 	if err != nil || !json.Valid(body) {
 		return nil
 	}
+	// Keep a usable cache when npm returns an error object, another package,
+	// or an unsupported/preview version.
+	if agentID == CodexCLI && codexRegistryVersion(body) == "" {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := os.MkdirAll(m.root, 0o700); err != nil {
 		return nil
 	}
-	if writeFileAtomic(m.registryPath(), body) == nil {
+	if writeFileAtomic(cachePath, body) == nil {
 		if etag := resp.Header.Get("ETag"); etag != "" {
-			_ = writeFileAtomic(m.registryPath()+".etag", []byte(etag))
+			_ = writeFileAtomic(cachePath+".etag", []byte(etag))
 		} else {
-			_ = os.Remove(m.registryPath() + ".etag")
+			_ = os.Remove(cachePath + ".etag")
 		}
 	}
 	return nil
 }
 
 func (m *Manager) registryPath() string { return filepath.Join(m.root, "registry.json") }
+
+func (m *Manager) codexRegistryPath() string { return filepath.Join(m.root, "codex-latest.json") }
+
+func codexRegistryVersion(body []byte) string {
+	var pkg struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(body, &pkg) != nil || pkg.Name != agents[CodexCLI].Package || !validVersion(pkg.Version) || strings.Contains(pkg.Version, "-") {
+		return ""
+	}
+	return pkg.Version
+}
 
 // registryEntry reads an agent's latest version and license URL from a
 // registry document. The version comes from distribution.npx.package, and only

@@ -157,7 +157,8 @@ export function runtimeStatusLine(
     ? "Not installed"
     : `${name} ${current.version}${current.version === testedVersion ? " · tested" : " · not tested by DevKit"}`;
   const latest =
-    latestVersion && latestVersion !== testedVersion && latestVersion !== current?.version
+    latestVersion && compareVersions(latestVersion, testedVersion) > 0 &&
+      (!current || compareVersions(latestVersion, current.version) > 0)
       ? `${latestVersion} available (not tested by DevKit)`
       : null;
   return { headline, latest };
@@ -194,4 +195,3 @@ export function compareVersions(a: string, b: string): number {
   }
   return 0;
 }
-

@@ -28,8 +28,8 @@ import (
 const ClaudeACP = "claude-acp"
 
 // CodexCLI is OpenAI's Codex CLI, run as `codex app-server`. Not an ACP
-// adapter and not in the ACP registry, so no "latest" is offered: the pinned
-// TestedVersion is what installs.
+// adapter: updates come from npm rather than the ACP registry. The pinned
+// TestedVersion is still the default install.
 const CodexCLI = "codex"
 
 // Agent is what DevKit knows about one installable adapter.

@@ -59,7 +59,7 @@ func (s *AppService) AgentRuntimeStatus(agent string) (agentruntime.Status, erro
 	return s.agentRuntimeCall(context.Background(), "agenthub:read", "runtime_status", agent, nil)
 }
 
-// AgentRuntimeCheckLatest refreshes the ACP registry cache. Offline is not an
+// AgentRuntimeCheckLatest refreshes the vendor's update cache. Offline is not an
 // error; the status keeps the cached latest, or none.
 func (s *AppService) AgentRuntimeCheckLatest(ctx context.Context, agent string) (agentruntime.Status, error) {
 	return s.agentRuntimeCall(ctx, "agenthub:read", "runtime_check_latest", agent,

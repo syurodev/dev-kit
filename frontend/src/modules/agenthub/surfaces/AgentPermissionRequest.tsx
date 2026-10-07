@@ -15,6 +15,7 @@ import {
   type PermissionEnv,
 } from "./permissionCard";
 import { PermissionFileEdits } from "./PermissionFileEdits";
+import { GatePermissionDetails, gatePermission } from "./GatePermissionDetails";
 
 export type { PermissionEnv };
 
@@ -95,6 +96,7 @@ export function AgentPermissionRequest({
   onMinimize,
   className,
 }: AgentPermissionRequestProps) {
+  const gate = gatePermission(pending.params);
   const { secondsLeft, expired } = usePermissionDeadline(pending);
   const env = permissionEnv(pending.params, explicitEnv);
   const { once, always } = permissionChoices(parsePermissionOptions(pending.params));
@@ -167,7 +169,7 @@ export function AgentPermissionRequest({
             <span className="text-caption-11 font-normal text-text-tertiary">{` · ${agentTitle}, depth ${depth}`}</span>
           ) : null}
         </p>
-        <PermissionMarks env={env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
+        <PermissionMarks env={env} environment={gate?.env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
         {onMinimize ? (
           <ActionTooltip label="Minimize — read the conversation">
             <Button
@@ -185,12 +187,13 @@ export function AgentPermissionRequest({
         ) : null}
       </div>
 
-      {detail.message ? (
+      {gate ? <GatePermissionDetails params={pending.params} showTool={false} /> : null}
+      {!gate && detail.message ? (
         <p data-testid="permission-message" className="line-clamp-3 text-body-13 text-text-secondary">
           {detail.message}
         </p>
       ) : null}
-      {command || detail.args ? (
+      {!gate && (command || detail.args) ? (
         // The whole command, wrapped, scrolling past five lines — never cut
         // with an ellipsis: what is allowed is exactly what is shown.
         <pre
@@ -204,7 +207,7 @@ export function AgentPermissionRequest({
       {/* What the edit is, not only which tool: the file as it would be. */}
       <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
-      <PermissionLockedNote env={env} />
+      <PermissionLockedNote env={env} environment={gate?.env} />
       {actions}
     </div>
   );

@@ -117,7 +117,10 @@ type allowKey struct{ caller, tool, profile string }
 type Hub struct {
 	Timeout  time.Duration
 	Headless bool
-	prompter Prompter
+	// ConfirmAgent routes an identity-bound Agent Hub caller to the shared
+	// agent permission broker. Other callers keep the popup transport.
+	ConfirmAgent func(context.Context, ConfirmRequest) (string, error)
+	prompter     Prompter
 
 	mu          sync.Mutex
 	pending     map[string]*pendingWait // by Pending.ID; at most one per caller
@@ -276,6 +279,9 @@ func (h *Hub) SelectAccount(ctx context.Context, req SelectAccountRequest) (Acco
 }
 
 func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if h.Headless || h.prompter == nil {
 		return ErrConfirmationRequired
 	}
@@ -289,10 +295,7 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 			return nil
 		}
 	}
-	_, err := h.wait(ctx, Pending{
-		Type: TypeConfirm, Kind: req.Kind, Env: req.Env, Tool: req.Tool, Summary: req.Summary,
-		AllowAlwaysOffered: !req.EnvBlocks,
-	}, func(v string) (string, error) {
+	mapResult := func(v string) (string, error) {
 		switch v {
 		case "allow":
 			return v, nil
@@ -308,7 +311,28 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 		default:
 			return "", ErrConfirmationDenied
 		}
-	})
+	}
+	if caller, ok := identity.FromContext(ctx); ok && caller.IsAgent() && h.ConfirmAgent != nil {
+		timeout := h.Timeout
+		if timeout <= 0 {
+			timeout = DefaultTimeout
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		answer, err := h.ConfirmAgent(waitCtx, req)
+		if err != nil {
+			return err
+		}
+		if err := waitCtx.Err(); err != nil {
+			return err
+		}
+		_, err = mapResult(answer)
+		return err
+	}
+	_, err := h.wait(ctx, Pending{
+		Type: TypeConfirm, Kind: req.Kind, Env: req.Env, Tool: req.Tool, Summary: req.Summary,
+		AllowAlwaysOffered: !req.EnvBlocks,
+	}, mapResult)
 	return err
 }
 

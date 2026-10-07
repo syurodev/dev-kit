@@ -261,6 +261,7 @@ export type ConfigOption = {
   category?: string;
   type?: string;
   currentValue?: string | boolean;
+  defaultValue?: string;
   options?: ConfigSelectOption[];
 };
 
@@ -277,6 +278,8 @@ export type ConfigSelectOption = {
   name?: string;
   description?: string;
   group?: string;
+  defaultEffort?: string;
+  supportedEfforts?: ConfigSelectOption[];
 };
 
 /**
