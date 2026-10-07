@@ -6,39 +6,47 @@ import { useWorkFolderStore, effectiveFolder } from "@/stores/workFolder";
 import { pinWorkFolder } from "@/bridge/workfolder";
 import { errorMessage } from "@/bridge/errors";
 import { notify } from "@/lib/notify";
-import { useEffect, useState } from "react";
-import { ChevronDown, FolderGit2, GitBranch, GitCommitHorizontal, RotateCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, type ReactNode } from "react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ChevronDown,
+  Eye,
+  FolderGit2,
+  GitBranch,
+  GitCommitHorizontal,
+  History,
+  Link2,
+  ListMinus,
+  ListPlus,
+  Minus,
+  Plus,
+  RotateCw,
+} from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SIDEBAR_ROW_HEIGHT, SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
 import { gitStage, gitUnstage, type Commit, type Repository } from "@/bridge/git";
 import { cn } from "@/lib/utils";
 import { useModuleFolder } from "@/stores/workFolder";
-import { RepositoryRow, useGitProject, useRepositories } from "./GitRepositories";
-import { HeadingAction, StatusMark } from "./GitParts";
+import { RepositoryMenu, useGitProject, useWorkspaceRepositories } from "./GitRepositories";
+import { HeadingAction, IconAction, StatusMark } from "./GitParts";
 import { refreshGitRepo, useGitRepo, useLatestGitRepo } from "./gitRepo";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { focusGitPath, useGitFocus } from "./gitFocus";
 import { openChanges, openCommitDiff, openHistory, openFileDiff } from "./documents";
 import { branchMeta, capRows, changeGroups, markKind, splitPath, type ChangeGroup } from "./rail";
-import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./repositories";
+import { describeRepository, folderStatus, pathTail, repositoryRoot, type RepositoryGroup } from "./repositories";
 
 /** How many rows a list may put in the rail before it says how many it left out. */
 const FILE_ROWS = 40;
 
 /** What a group's heading offers to do to every file under it. Conflicts offer nothing: staging one commits the markers. */
-const GROUP_ACTION: Record<ChangeGroup["key"], { label: string; run: (paths: string[]) => Promise<void> } | null> = {
+const GROUP_ACTION: Record<
+  ChangeGroup["key"],
+  { label: string; icon: ReactNode; run: (paths: string[]) => Promise<void> } | null
+> = {
   conflicted: null,
-  staged: { label: "Unstage all", run: gitUnstage },
-  unstaged: { label: "Stage all", run: gitStage },
-  untracked: { label: "Stage all", run: gitStage },
+  staged: { label: "Unstage all", icon: <ListMinus />, run: gitUnstage },
+  unstaged: { label: "Stage all", icon: <ListPlus />, run: gitStage },
+  untracked: { label: "Stage all", icon: <ListPlus />, run: gitStage },
 };
 
 /**
@@ -55,7 +63,9 @@ export function GitSidebar() {
   const { folder, current, pinned, pin, follow } = useModuleFolder("git");
   const project = useGitProject(folder);
   const root = repositoryRoot(current, folder);
-  const { repos, reload: reloadRepos, loading: reposLoading } = useRepositories(root);
+  // Every repository Git can be pointed at — under the open project and under
+  // each folder of the current workspace — not only the project's neighbours.
+  const { groups: repoLists, repos, reload: reloadRepos, loading: reposLoading } = useWorkspaceRepositories(root);
   const revision = useGitRevision((state) => state.revision);
   const focused = useGitFocus((state) => state.path);
   // What Git last read in this folder — shared with the Changes view, so a
@@ -143,6 +153,14 @@ export function GitSidebar() {
     }
   }
 
+  async function toggleStage(path: string, group: ChangeGroup["key"]) {
+    if (group === "conflicted") return;
+    await gitUI.run(folder, group === "staged" ? "Unstaging…" : "Staging…", async () => {
+      await (group === "staged" ? gitUnstage([path]) : gitStage([path]));
+      bumpGitRevision();
+    });
+  }
+
   async function actOnGroup(group: ChangeGroup) {
     const action = GROUP_ACTION[group.key];
     if (!action) return;
@@ -165,6 +183,7 @@ export function GitSidebar() {
   // null is Go not having answered, and a folder that turns out to be one
   // repository must not flash a list of it in the meantime.
   const showRepos = repos !== null && (repos.length > 1 || (project === "" && repos.length > 0));
+  const repoGroups = showRepos ? repoLists : [];
   // What was read is kept while the next read is on its way, so choosing a
   // repository is a list that changes and not one that vanishes and comes back.
   // Until this repository's own first read lands the last one read is shown,
@@ -211,7 +230,7 @@ export function GitSidebar() {
           name={pathTail(folder, 1)}
           meta={meta}
           folder={folder}
-          repos={showRepos ? repos : null}
+          groups={showRepos ? repoLists : null}
           refreshing={reposLoading || busy}
           onOpenMenu={reloadRepos}
           onChoose={(repo) => void chooseRepository(repo)}
@@ -234,15 +253,23 @@ export function GitSidebar() {
       </SidebarInset>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
-        {showRepos ? (
-          <>
+        {repoGroups.map((group, index) => (
+          <div key={group.key}>
             <SidebarSection
-              first
-              label="Repositories"
-              count={repos.length}
-              actions={<HeadingAction onClick={refresh}>Refresh</HeadingAction>}
+              first={index === 0}
+              label={repoGroups.length > 1 ? group.label : "Repositories"}
+              count={group.repos.length}
+              actions={
+                index === 0 ? (
+                  <HeadingAction
+                    label="Refresh repositories"
+                    onClick={refresh}
+                    icon={<RotateCw className={cn(reposLoading && "animate-spin")} aria-hidden />}
+                  />
+                ) : null
+              }
             />
-            {repos.map((repo) => (
+            {group.repos.map((repo) => (
               <RepositoryItem
                 key={repo.path}
                 repo={repo}
@@ -250,8 +277,8 @@ export function GitSidebar() {
                 onChoose={() => void chooseRepository(repo)}
               />
             ))}
-          </>
-        ) : null}
+          </div>
+        ))}
 
         {project !== "" && status ? (
           <div
@@ -274,9 +301,12 @@ export function GitSidebar() {
                       count={group.files.length}
                       actions={
                         action ? (
-                          <HeadingAction disabled={busy} onClick={() => void actOnGroup(group)}>
-                            {action.label}
-                          </HeadingAction>
+                          <HeadingAction
+                            label={action.label}
+                            icon={action.icon}
+                            disabled={busy}
+                            onClick={() => void actOnGroup(group)}
+                          />
                         ) : null
                       }
                     />
@@ -284,9 +314,13 @@ export function GitSidebar() {
                       <FileItem
                         key={path}
                         path={path}
+                        group={group.key}
                         kind={markKind(group.key, status.files[path])}
                         selected={group.key === "unstaged" && focused === path}
+                        busy={busy}
                         onOpen={() => openChange(path, group.key)}
+                        onReview={() => openFileDiff(path, group.key === "staged")}
+                        onToggle={() => void toggleStage(path, group.key)}
                       />
                     ))}
                     {hidden > 0 ? (
@@ -302,7 +336,7 @@ export function GitSidebar() {
                 <SidebarSection
                   label="History"
                   count={commits.length}
-                  actions={<HeadingAction onClick={openHistory}>View all</HeadingAction>}
+                  actions={<HeadingAction label="Open full history" icon={<History />} onClick={openHistory} />}
                 />
                 {commits
                   .filter(
@@ -356,14 +390,14 @@ export function GitSidebar() {
           {folder}
         </span>
         {pinned ? (
-          <button
-            type="button"
-            className="shrink-0 text-caption-11 hover:text-text-primary"
+          <IconAction
+            size="icon-xs"
+            label="Follow open project"
+            side="top"
+            icon={<Link2 />}
             disabled={busy}
             onClick={() => void follow().catch((e: Error) => setError(e.message))}
-          >
-            Follow open project
-          </button>
+          />
         ) : null}
       </div>
     </div>
@@ -380,7 +414,7 @@ function RepositoryHeader({
   name,
   meta,
   folder,
-  repos,
+  groups,
   refreshing,
   onOpenMenu,
   onChoose,
@@ -389,7 +423,7 @@ function RepositoryHeader({
   name: string;
   meta: string;
   folder: string;
-  repos: Repository[] | null;
+  groups: RepositoryGroup[] | null;
   refreshing: boolean;
   /** The menu is about to show change counts; read them afresh. */
   onOpenMenu: () => void;
@@ -408,33 +442,27 @@ function RepositoryHeader({
   );
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised py-2 pr-2 pl-2.5">
-      {repos ? (
-        <DropdownMenu onOpenChange={(open) => open && onOpenMenu()}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Repository: ${name}. Switch repository`}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-md hover:text-text-primary"
-            >
-              {label}
-              <ChevronDown className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-112 max-w-screen-90">
-            <DropdownMenuLabel>{repos.length} repositories</DropdownMenuLabel>
-            {repos.map((repo) => (
-              <DropdownMenuItem key={repo.path} disabled={repo.path === folder} onSelect={() => onChoose(repo)}>
-                <RepositoryRow repo={repo} />
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {groups ? (
+        <RepositoryMenu groups={groups} folder={folder} loading={refreshing} onOpen={onOpenMenu} onChoose={onChoose}>
+          <button
+            type="button"
+            aria-label={`Repository: ${name}. Switch repository`}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md hover:text-text-primary"
+          >
+            {label}
+            <ChevronDown className="size-(--icon-14) shrink-0 text-text-tertiary" aria-hidden />
+          </button>
+        </RepositoryMenu>
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-2">{label}</div>
       )}
-      <Button variant="ghost" size="icon-xs" onClick={onRefresh} disabled={refreshing} aria-label="Refresh">
-        <RotateCw className={cn(refreshing && "animate-spin")} aria-hidden />
-      </Button>
+      <IconAction
+        size="icon-xs"
+        label="Refresh"
+        onClick={onRefresh}
+        disabled={refreshing}
+        icon={<RotateCw className={cn(refreshing && "animate-spin")} aria-hidden />}
+      />
     </div>
   );
 }
@@ -472,34 +500,66 @@ function RepositoryItem({ repo, active, onChoose }: { repo: Repository; active: 
   );
 }
 
-/** Figma `Git / Sidebar / File Row`: what happened to a file, its name, and the folder it is in. */
+/**
+ * Figma `Git / Sidebar / File Row`: what happened to a file, its name, and the
+ * folder it is in. The row opens the file; stage/unstage and review sit at its
+ * end and show on hover or focus, so a change can be moved without opening the
+ * Changes view first.
+ */
 function FileItem({
   path,
+  group,
   kind,
   selected,
+  busy,
   onOpen,
+  onReview,
+  onToggle,
 }: {
   path: string;
+  group: ChangeGroup["key"];
   kind: ReturnType<typeof markKind>;
   selected: boolean;
+  busy: boolean;
   onOpen: () => void;
+  onReview: () => void;
+  onToggle: () => void;
 }) {
   const { name, dir } = splitPath(path);
+  const staged = group === "staged";
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-current={selected ? "true" : undefined}
-      title={path}
+    <div
       className={cn(
-        "flex h-7 w-full items-center gap-2 rounded-md px-3 text-left transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
-        selected ? "bg-surface-raised" : "hover:bg-state-soft",
+        "group/file flex h-7 w-full items-center rounded-md pr-1 transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
+        selected ? "bg-surface-raised" : "hover:bg-state-soft focus-within:bg-state-soft",
       )}
     >
-      <StatusMark kind={kind} />
-      <span className="min-w-0 truncate text-body-13 text-text-primary">{name}</span>
-      {dir ? <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary">{dir}</span> : null}
-    </button>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-current={selected ? "true" : undefined}
+        title={path}
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-3 text-left"
+      >
+        <StatusMark kind={kind} />
+        <span className="min-w-0 truncate text-body-13 text-text-primary">{name}</span>
+        {dir ? <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary">{dir}</span> : null}
+      </button>
+      {group === "conflicted" ? null : (
+        <span className="flex shrink-0 items-center opacity-0 transition-opacity duration-(--motion-fast) group-hover/file:opacity-100 group-focus-within/file:opacity-100">
+          {group === "unstaged" ? (
+            <IconAction size="icon-xs" label="Review diff" icon={<Eye />} onClick={onReview} />
+          ) : null}
+          <IconAction
+            size="icon-xs"
+            label={staged ? "Unstage" : "Stage"}
+            icon={staged ? <Minus /> : <Plus />}
+            disabled={busy}
+            onClick={onToggle}
+          />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -511,6 +571,9 @@ function openChange(path: string, group: ChangeGroup["key"]) {
   // none to pick, so it must not leave the previous choice standing.
   focusGitPath(group === "unstaged" ? path : "");
   if (group === "staged") openFileDiff(path, true);
+  // An untracked file has no hunks to unfold in Changes, but it has content:
+  // the diff viewer shows it as a new file.
+  else if (group === "untracked") openFileDiff(path, false);
   else openChanges();
 }
 

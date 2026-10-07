@@ -1,7 +1,7 @@
 import { gitUI, useGitBusy } from "./gitUI";
 import { useModuleFolder } from "@/stores/workFolder";
 import { useEffect, useState } from "react";
-import { GitMerge, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, Check, GitMerge, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MergePanes } from "@/components/ui/merge-panes";
 import { gitConflict, gitResolve, gitResolveSide, type Conflict } from "@/bridge/git";
@@ -96,6 +96,7 @@ export function GitConflictPanel({
           disabled={disabled}
           onClick={() => run(() => gitResolveSide(path, "ours"))}
         >
+          <ArrowLeftToLine />
           Take ours
         </Button>
         <Button
@@ -104,6 +105,7 @@ export function GitConflictPanel({
           disabled={disabled}
           onClick={() => run(() => gitResolveSide(path, "theirs"))}
         >
+          <ArrowRightToLine />
           Take theirs
         </Button>
         {reading?.mergeable ? (
@@ -111,6 +113,7 @@ export function GitConflictPanel({
             {/* The label names what the button would actually do. Blocking the
                 save instead would dead-end anyone whose file legitimately
                 contains a line of angle brackets. */}
+            <Check />
             {left > 0 ? "Save with markers" : "Mark resolved"}
             <span className="text-code-11 opacity-65">{shortcut("S")}</span>
           </Button>

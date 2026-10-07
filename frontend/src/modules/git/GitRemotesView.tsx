@@ -3,7 +3,7 @@ import { useModuleFolder } from "@/stores/workFolder";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { useCallback, useEffect, useState } from "react";
-import { Cloud, Download, RefreshCw, Upload } from "lucide-react";
+import { ArrowDownToLine, Cloud, Download, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,6 +19,7 @@ import {
 } from "@/bridge/git";
 import { isLocalAccount, listAccounts, type Account } from "@/bridge/accounts";
 import { accountsForRemote } from "./remotes";
+import { IconAction } from "./GitParts";
 import { listEnvTags, type EnvTag } from "@/bridge/environments";
 
 /**
@@ -134,9 +135,7 @@ export function GitRemotesView() {
         <Cloud className="size-4 text-text-tertiary" aria-hidden />
         <h2 className="text-body-13">Remotes ({remotes.length})</h2>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" aria-label="Reload" onClick={reload}>
-          <RefreshCw className="size-4" aria-hidden />
-        </Button>
+        <IconAction label="Reload" icon={<RefreshCw aria-hidden />} onClick={reload} />
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -199,27 +198,22 @@ export function GitRemotesView() {
 
               <div className="flex-1" />
 
-              <Button
-                variant="ghost"
-                size="sm"
+              <IconAction
+                label={`Fetch ${remote.name} — goes over the network with this remote's credential and changes nothing, the way to find out whether a binding works`}
+                icon={<Download />}
                 disabled={busy}
-                title="Goes over the network with this remote's credential and changes nothing — the way to find out whether a binding works"
                 onClick={() => act(remote.name, () => gitFetch(remote.name), `Fetched ${remote.name}`)}
-              >
-                <Download className="size-4" aria-hidden />
-                Fetch
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+              />
+              <IconAction
+                label={`Pull ${remote.name} — fast-forward only`}
+                icon={<ArrowDownToLine />}
                 disabled={busy}
-                title="Fast-forward only"
                 onClick={() => act(remote.name, () => gitPull(remote.name), `Pulled ${remote.name}`)}
-              >
-                Pull
-              </Button>
-              <Button
-                size="sm"
+              />
+              <IconAction
+                variant="default"
+                label={branch ? `Push ${branch} to ${remote.name}` : "Push — there is no branch to push"}
+                icon={<Upload />}
                 disabled={busy || branch === ""}
                 onClick={() =>
                   act(
@@ -230,10 +224,7 @@ export function GitRemotesView() {
                     `Pushed ${branch} to ${remote.name}`,
                   )
                 }
-              >
-                <Upload className="size-4" aria-hidden />
-                Push {branch || "…"}
-              </Button>
+              />
             </div>
           </section>
         ))}

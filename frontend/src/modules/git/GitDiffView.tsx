@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileDiff, GitCommitHorizontal, ChevronLeft, ChevronRight, Files, Copy, Check, RefreshCw } from "lucide-react";
+import {
+  FileDiff,
+  GitCommitHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  Files,
+  Copy,
+  Check,
+  Columns2,
+  MessageSquareText,
+  Minus,
+  Plus,
+  RefreshCw,
+  Rows2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -15,19 +29,32 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { changedRuns, splitPairs } from "@/lib/diffHunks";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/bridge/errors";
-import { gitCommitInfo, gitDiff, gitFilePatch, gitIndexPatch, gitRevPatch, type Change } from "@/bridge/git";
+import {
+  gitCommitInfo,
+  gitDiff,
+  gitFilePatch,
+  gitIndexPatch,
+  gitRevPatch,
+  gitStage,
+  gitUnstage,
+  type Change,
+} from "@/bridge/git";
 import { useModuleFolder } from "@/stores/workFolder";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
-import { StatusMark } from "./GitParts";
+import { IconAction, StatusMark } from "./GitParts";
 import { changeSummary, commitBody, patchLines } from "./commitView";
 import { usePatchHighlight } from "./gitSyntax";
 import { parsePatch } from "./hunks";
 import { changeMarkKind, splitPath } from "./rail";
-import { gitUI, type DiffMode } from "./gitUI";
-import { useGitRevision } from "./gitRevision";
+import { gitUI, useGitBusy, type DiffMode } from "./gitUI";
+import { bumpGitRevision, useGitRevision } from "./gitRevision";
+import { refreshGitRepo, useGitRepo } from "./gitRepo";
 
 const FILE_ROWS = 200;
 const DIFF_LINES = 1500;
+
+/** A changed file in the list: what git diffs, or an untracked file it does not, shown whole as a new file. */
+type DiffEntry = Change & { untracked?: true };
 
 /** Diff mode is a preference, not a second set of document tabs. */
 export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
@@ -59,18 +86,54 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
     queryKey: ["git", "diff", folder, rev, staged, rev ? 0 : revision],
     queryFn: () => gitDiff(rev, staged),
   });
+  // `git diff` never lists an untracked file, and the work tree's changes are
+  // not all of them without those: they are read from what Git last read, the
+  // same list the rail shows, and open as new files.
+  const workTree = !rev && !staged;
+  const repoEntry = useGitRepo(folder);
+  useEffect(() => {
+    if (workTree) void refreshGitRepo(folder, String(revision));
+  }, [workTree, folder, revision]);
+  const untracked = workTree ? (repoEntry?.snapshot?.status.untracked ?? null) : null;
+  const busy = useGitBusy();
+  const [actionError, setActionError] = useState("");
   const commitQuery = useQuery({
     queryKey: ["git", "commit", folder, rev],
     queryFn: () => gitCommitInfo(rev),
     enabled: !!rev,
   });
-  const changes = filesQuery.data ?? [];
+  const tracked = filesQuery.data;
+  const changes = useMemo<DiffEntry[]>(
+    () => [
+      ...(tracked ?? []),
+      ...(untracked ?? []).map(
+        (path): DiffEntry => ({ path, kind: "added", added: 0, removed: 0, mode: "", untracked: true }),
+      ),
+    ],
+    [tracked, untracked],
+  );
   const path = changes.some((file) => file.path === selected) ? selected : (changes[0]?.path ?? "");
   const index = changes.findIndex((file) => file.path === path);
   const files = changes.filter((file) => file.path.toLowerCase().includes(search.trim().toLowerCase()));
   const commit = commitQuery.data;
   const body = commit ? commitBody(commit.body) : null;
   const loading = filesQuery.isPending;
+  const current = changes[index];
+  // Staging or unstaging the file on screen: the list is read again by the
+  // revision, and the file moves to the other scope, so the next one is shown.
+  const canMove = !rev && !!current;
+  function toggleStage() {
+    if (!current) return;
+    setActionError("");
+    void gitUI
+      .run(folder, staged ? "Unstaging…" : "Staging…", async () => {
+        await (staged ? gitUnstage([current.path]) : gitStage([current.path]));
+        bumpGitRevision();
+      })
+      .then((ok) => {
+        if (!ok) setActionError(gitUI.useStore.getState().operations[folder]?.error ?? "");
+      });
+  }
   const error = filesQuery.error || (rev ? commitQuery.error : null);
   const choose = (value: string) => {
     setSelected(value);
@@ -123,12 +186,18 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
           <h1 className="min-w-0 flex-1 break-words text-title-16">
             {rev ? (commit?.subject ?? "Commit changes") : staged ? "Staged changes" : "Working tree changes"}
           </h1>
-          {commit && <CopyButton value={commit.sha} label="Copy SHA" />}
+          {commit && <CopyButton value={commit.sha} label="Copy SHA" iconOnly />}
           {!rev && (
-            <Button variant="outline" disabled={filesQuery.isFetching} onClick={() => void filesQuery.refetch()}>
-              <RefreshCw className="size-3.5" />
-              Refresh
-            </Button>
+            <IconAction
+              variant="outline"
+              label="Refresh"
+              disabled={filesQuery.isFetching}
+              icon={<RefreshCw className={cn(filesQuery.isFetching && "animate-spin")} />}
+              onClick={() => {
+                void filesQuery.refetch();
+                void refreshGitRepo(folder, `diff:${Date.now()}`);
+              }}
+            />
           )}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-12 text-text-secondary">
@@ -141,13 +210,16 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
               <span>{commit.date.slice(0, 16).replace("T", " ")}</span>
             </>
           )}
-          {changes.length > 0 && <span className="tabular-nums text-text-tertiary">{changeSummary(changes)}</span>}
+          {changes.length > 0 && (
+            <span className="tabular-nums text-text-tertiary">{summarize(tracked ?? [], untracked?.length ?? 0)}</span>
+          )}
           {body?.task && <Badge variant="outline">Task: {body.task}</Badge>}
         </div>
         {body?.text && (
           <Collapsible>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm">
+                <MessageSquareText />
                 Commit message
               </Button>
             </CollapsibleTrigger>
@@ -157,6 +229,13 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
           </Collapsible>
         )}
       </header>
+      {actionError && (
+        <div className="px-4 py-2">
+          <FeedbackBanner tone="error" title="Git action failed">
+            {actionError}
+          </FeedbackBanner>
+        </div>
+      )}
       {error && (
         <div className="px-4 py-2">
           <FeedbackBanner
@@ -211,7 +290,15 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
             <span className="min-w-0 flex-1 truncate text-code-12" title={path}>
               {wide ? path : splitPath(path).name}
             </span>
-            <CopyButton key={path} value={path} label="Copy path" iconOnly={!wide} />
+            <CopyButton key={path} value={path} label="Copy path" iconOnly />
+            {canMove && (
+              <IconAction
+                label={staged ? "Unstage file" : "Stage file"}
+                icon={staged ? <Minus /> : <Plus />}
+                disabled={busy}
+                onClick={toggleStage}
+              />
+            )}
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
@@ -245,8 +332,12 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
               variant="outline"
               aria-label="Diff layout"
             >
-              <ToggleGroupItem value="split">Split</ToggleGroupItem>
-              <ToggleGroupItem value="unified">Unified</ToggleGroupItem>
+              <ToggleGroupItem value="split" aria-label="Split view" title="Split view">
+                <Columns2 />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="unified" aria-label="Unified view" title="Unified view">
+                <Rows2 />
+              </ToggleGroupItem>
             </ToggleGroup>
           </div>
           <div className="min-h-0 flex-1">
@@ -260,6 +351,7 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
                   <FileDiffContent
                     key={`${rev}:${staged}:${path}`}
                     folder={folder}
+                    isNew={current?.untracked === true}
                     rev={rev}
                     path={path}
                     staged={staged}
@@ -273,6 +365,7 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
               <FileDiffContent
                 key={`${rev}:${staged}:${path}`}
                 folder={folder}
+                isNew={current?.untracked === true}
                 rev={rev}
                 path={path}
                 staged={staged}
@@ -288,7 +381,14 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
   );
 }
 
-function FileRow({ change, selected, onSelect }: { change: Change; selected: boolean; onSelect: () => void }) {
+/** "5 files changed · +76 −7", and the untracked files git does not count. */
+function summarize(tracked: Change[], untracked: number): string {
+  const extra = untracked > 0 ? `${untracked} untracked` : "";
+  if (tracked.length === 0) return extra;
+  return [changeSummary(tracked), extra].filter(Boolean).join(" · ");
+}
+
+function FileRow({ change, selected, onSelect }: { change: DiffEntry; selected: boolean; onSelect: () => void }) {
   const { name, dir } = splitPath(change.path);
   return (
     <li>
@@ -299,12 +399,14 @@ function FileRow({ change, selected, onSelect }: { change: Change; selected: boo
         title={change.path}
         className={cn("h-auto min-h-12 w-full justify-start gap-2 px-2 text-left", selected && "bg-state-soft")}
       >
-        <StatusMark kind={changeMarkKind(change.kind)} />
+        <StatusMark kind={change.untracked ? "untracked" : changeMarkKind(change.kind)} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-code-12">{name}</span>
           {dir && <span className="truncate text-code-11 text-text-tertiary">{dir}</span>}
         </span>
-        {change.added < 0 ? (
+        {change.untracked ? (
+          <span className="text-code-11 text-text-tertiary">new</span>
+        ) : change.added < 0 ? (
           <span className="text-code-11 text-text-tertiary">binary</span>
         ) : (
           <span className="shrink-0 text-code-11 tabular-nums">
@@ -358,6 +460,7 @@ function CopyButton({ value, label, iconOnly = false }: { value: string; label: 
 /** One query per repository/revision/file; previous files never appear under a new label. */
 function FileDiffContent({
   folder,
+  isNew,
   rev,
   path,
   staged,
@@ -366,6 +469,8 @@ function FileDiffContent({
   after,
 }: {
   folder: string;
+  /** An untracked file: there is no "before", and the patch is the whole file. */
+  isNew: boolean;
   rev: string;
   path: string;
   staged: boolean;
@@ -416,7 +521,7 @@ function FileDiffContent({
             <DiffSplitPanes
               pairs={pairs}
               runs={changedRuns(pairs)}
-              leftLabel={`Before · ${rev ? before || "empty tree" : staged ? "HEAD" : "Index"}`}
+              leftLabel={`Before · ${isNew ? "nothing" : rev ? before || "empty tree" : staged ? "HEAD" : "Index"}`}
               rightLabel={`After · ${after}`}
               segmentsFor={(line, side) =>
                 side === "left" ? highlight?.before.get(line.before) : highlight?.after.get(line.after)

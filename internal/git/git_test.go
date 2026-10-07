@@ -526,6 +526,70 @@ func TestFilePatchOnABinaryFileHasNoHunks(t *testing.T) {
 	}
 }
 
+// An untracked file is not in the index, so git would not diff it; the reader
+// still needs to see what staging it would add, so it comes back as a new file.
+func TestFilePatchOfAnUntrackedFileIsANewFilePatch(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "base.txt", "base\n")
+	if err := svc.Stage(ctx, []string{"base.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, CommitInput{Message: "base"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "sub/new.txt", "one\ntwo\n")
+	write(t, dir, ".gitignore", "ignored.txt\n")
+	write(t, dir, "ignored.txt", "secret\n")
+
+	patch, err := svc.FilePatch(ctx, "sub/new.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"new file mode", "--- /dev/null", "+++ b/sub/new.txt", "+one", "+two"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("missing %q in:\n%s", want, patch)
+		}
+	}
+	// Only an untracked path is read: a clean tracked file and an ignored one
+	// diff to nothing, and naming them must not read their contents.
+	for _, path := range []string{"base.txt", "ignored.txt", "missing.txt"} {
+		got, err := svc.FilePatch(ctx, path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if got != "" {
+			t.Fatalf("%s produced a patch:\n%s", path, got)
+		}
+	}
+	// Outside the work tree git refuses the question outright.
+	if got, err := svc.FilePatch(ctx, "../outside"); err == nil && got != "" {
+		t.Fatalf("a path outside the repository produced a patch:\n%s", got)
+	}
+	// What is staged is the index patch's business, not this one's.
+	if err := svc.Stage(ctx, []string{"sub/new.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.FilePatch(ctx, "sub/new.txt"); err != nil || got != "" {
+		t.Fatalf("a staged file has no work-tree patch: %q, %v", got, err)
+	}
+}
+
+func TestFilePatchOfALargeUntrackedFileIsNotRead(t *testing.T) {
+	svc, dir := newRepo(t)
+	write(t, dir, "big.txt", strings.Repeat("x\n", maxUntrackedPatch/2+1))
+	patch, err := svc.FilePatch(context.Background(), "big.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(patch, "Binary files") || strings.Contains(patch, "@@") {
+		t.Fatalf("a large file was read:\n%.200s", patch)
+	}
+}
+
 // mergeConflict builds a real merge conflict: `main` and `other` each change
 // the same path away from a common base, then `other` is merged into `main`.
 // The two mutate funcs run on their branch with the work tree checked out, so
