@@ -82,8 +82,8 @@ func JavaToolchain(repoRoot string) Toolchain {
 
 func javaRequirement() Requirement {
 	return Requirement{
-		Program:    "java",
-		Label:      "Java Development Kit",
+		Program: "java",
+		Label:   "Java Development Kit",
 		// The floor is the jar's bytecode (analyzer/pom.xml, release 21). One of the
 		// places AGENTS.md "Preparing for Java 25" lists to change together.
 		MinVersion: "21",
