@@ -22,6 +22,7 @@ import type { ThemeFamilyPreference } from "@/bridge/preferences";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -58,13 +59,7 @@ import {
 import { TAB_WIDTH_LIMITS, useTabSettingsStore } from "@/stores/tabSettings";
 import {
   User,
-  Sun,
-  Monitor,
-  SlidersHorizontal,
   LockKeyhole,
-  Database,
-  Bot,
-  Command,
   Trash2,
   X,
   RefreshCw,
@@ -74,7 +69,9 @@ import { chordLabel } from "@/lib/shortcut";
 import { KeyboardTab } from "./KeyboardTab";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
-export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents" | "keyboard";
+import { SettingsLayout } from "./SettingsLayout";
+import type { SettingsTab } from "./settingsNavigation";
+export type { SettingsTab } from "./settingsNavigation";
 
 export interface SettingsModalProps {
   open: boolean;
@@ -83,18 +80,11 @@ export interface SettingsModalProps {
   initialTab?: SettingsTab;
 }
 
-/**
- * Figma `Settings Shell` (762:1759): 940×620. A 56px header with the title and
- * a 32px close, a hairline under it, a 220px nav with a hairline on its right,
- * and the section content 32 in from both.
- *
- * On Dialog, like every other modal: the modal glass tier, the shared scrim,
- * open and close animation, focus trapping and return, Esc and click-outside.
- * It used to draw all of that itself, on the float tier — the most translucent
- * fill in the app, under the largest surface in it.
- */
+/** Preferences keep a stable, viewport-bounded shell. Navigation is grouped
+ * and searchable; only the selected section mounts its queries and controls.
+ * Dialog owns focus trapping, Escape and the shared theme material. */
 export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance");
 
   // On every opening, not only the first: the modal stays mounted while
   // closed, so a useState initial value would be read once and never again.
@@ -114,12 +104,12 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
             event.preventDefault();
             (event.currentTarget as HTMLElement | null)?.focus();
           }}
-          className="flex w-full max-w-gutter flex-col gap-0 overflow-hidden p-0 text-text-primary select-none sm:max-w-235"
+          className="flex w-[calc(100vw-2rem)] max-w-235 flex-col gap-0 overflow-hidden p-0 text-text-primary select-none sm:max-w-235"
         >
           {/* The height lives here, not on DialogContent: the dialog's body
               is h-fit, so the nav and the scrolling content need a box of
               their own to fill. */}
-          <div className="flex h-settings flex-col">
+          <div className="flex h-settings max-h-[90svh] flex-col">
           {/* Modal Header · 56px */}
           <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle pr-3 pl-6">
             <DialogTitle className="text-text-primary">Settings</DialogTitle>
@@ -141,59 +131,12 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
             </Tooltip>
           </div>
 
-          {/* Modal Body: Nav (220px) + Content */}
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            {/* The nav has no fill of its own — a hairline separates it from
-                the content and the glass shows through both. */}
-            <div className="flex w-55 shrink-0 flex-col gap-1 border-r border-border-subtle px-3 py-4">
-              <NavItem
-                active={activeTab === "account"}
-                icon={User}
-                label="Account"
-                onClick={() => setActiveTab("account")}
-              />
-              <NavItem
-                active={activeTab === "appearance"}
-                icon={Sun}
-                label="Appearance"
-                onClick={() => setActiveTab("appearance")}
-              />
-              <NavItem
-                active={activeTab === "sync"}
-                icon={Monitor}
-                label="Sync"
-                onClick={() => setActiveTab("sync")}
-              />
-              <NavItem
-                active={activeTab === "environments"}
-                icon={SlidersHorizontal}
-                label="Environments"
-                onClick={() => setActiveTab("environments")}
-              />
-              <NavItem
-                active={activeTab === "database"}
-                icon={Database}
-                label="Database"
-                onClick={() => setActiveTab("database")}
-              />
-              <NavItem
-                active={activeTab === "agents"}
-                icon={Bot}
-                label="Agents"
-                onClick={() => setActiveTab("agents")}
-              />
-              <NavItem
-                active={activeTab === "keyboard"}
-                icon={Command}
-                label="Keyboard"
-                onClick={() => setActiveTab("keyboard")}
-              />
-            </div>
-
-            {/* Content Panel Area */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-8">
+          <SettingsLayout activeTab={activeTab} onSelect={setActiveTab}>
               {activeTab === "account" && <AccountTab />}
               {activeTab === "appearance" && <AppearanceTab />}
+              {activeTab === "security" && <SecurityTab />}
+              {activeTab === "updates" && <UpdatesTab />}
+              {activeTab === "mcp" && <McpTab />}
               {activeTab === "sync" && <SyncDevicesTab />}
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
@@ -208,8 +151,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
                   }
                 />
               )}
-            </div>
-          </div>
+          </SettingsLayout>
           </div>
         </DialogContent>
       </Dialog>
@@ -219,38 +161,6 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
 
 export function SettingsView() {
   return <SettingsModal open={true} onClose={() => {}} />;
-}
-
-/** Settings Nav Item (761:1753 Active / 761:1758 Inactive): 32 tall, 12/10
- * padding-gap, radius 8, a 16px glyph. Active is surface/raised with a
- * subtle stroke and Body/13 Medium; inactive is bare, Body/13, secondary. */
-function NavItem({
-  active,
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "flex h-8 w-full items-center gap-3 rounded-md border px-3 text-left outline-none transition-colors",
-        active
-          ? "border-border-subtle bg-surface-raised text-body-14-medium text-text-primary"
-          : "border-transparent text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary",
-      )}
-    >
-      <Icon className="size-4 shrink-0" strokeWidth={1.5} />
-      <span className="truncate">{label}</span>
-    </button>
-  );
 }
 
 /** Every section opens the same way (765:2000–2003): Heading/24 (Figma draws
@@ -300,7 +210,7 @@ function AccountTab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: auth = { authenticated: false, expiresAt: "" } } = useQuery({
+  const { data: auth = { authenticated: false, expiresAt: "" }, isPending: accountLoading, error: accountError } = useQuery({
     queryKey: ["auth", "status"],
     queryFn: () => authStatus(),
   });
@@ -350,10 +260,10 @@ function AccountTab() {
 
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-body-14-medium text-text-primary">
-            {auth.authenticated ? "Signed in" : "Not signed in"}
+            {accountLoading ? "Checking account…" : auth.authenticated ? "Signed in" : "Not signed in"}
           </span>
           <span className="text-code-12 text-text-tertiary">
-            {auth.authenticated ? sessionLine(auth.expiresAt) : "Offline · local only"}
+            {accountLoading ? "Reading saved identity…" : auth.authenticated ? sessionLine(auth.expiresAt) : "Offline · local only"}
           </span>
         </div>
 
@@ -362,35 +272,25 @@ function AccountTab() {
             type="button"
             variant="destructive"
             size="default"
-            disabled={busy}
-            onClick={handleSignOut}
+            disabled={logoutMutation.isPending}
+            onClick={() => void handleSignOut().catch(() => {})}
           >
-            {busy ? "Signing out…" : "Sign out"}
+            {logoutMutation.isPending ? "Signing out…" : "Sign out"}
           </Button>
         ) : (
           <Button
             type="button"
             variant="default"
             size="default"
-            disabled={busy}
+            disabled={busy || accountLoading}
             onClick={handleSignIn}
           >
-            {busy ? "Connecting browser…" : "Sign in with browser"}
+            {accountLoading ? "Checking…" : busy ? "Connecting browser…" : "Sign in with browser"}
           </Button>
         )}
       </div>
 
-      {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
-
-      <div className="flex flex-col gap-3">
-        <GroupLabel>SAVED CREDENTIALS</GroupLabel>
-        <RevealPasswordSetting />
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <GroupLabel>UPDATES</GroupLabel>
-        <UpdatesSetting />
-      </div>
+      {error || accountError ? <p role="alert" className="text-body-12 text-status-danger">{error || errorMessage(accountError)}</p> : null}
 
       <SecurityNotice
         type="secure"
@@ -419,11 +319,11 @@ function FontSettingRow({
   onSize: (size: number) => void;
 }) {
   return (
-    <div className="flex items-end gap-4">
+    <div className="flex flex-wrap items-end gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="text-label-12 text-text-secondary">{label}</span>
         <Select value={font} onValueChange={(value) => onFont(value as MonoFont)}>
-          <SelectTrigger className="h-9 w-full border-border bg-surface-raised text-code-12">
+          <SelectTrigger aria-label={label} className="h-9 w-full border-border bg-surface-raised text-code-12">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -503,36 +403,29 @@ function AppearanceTab() {
         <GroupLabel>Theme</GroupLabel>
         {/* segmented/theme (763:1799): a surface/well trough with 4px of
             padding; the chosen segment is raised with a subtle stroke. */}
-        <div
-          role="radiogroup"
+        <RadioGroupPrimitive.Root value={theme} onValueChange={(value) => {
+          setTheme(value as typeof theme).catch((error: unknown) => toast.error(`Could not save the theme: ${errorMessage(error)}`));
+        }}
           aria-label="Theme"
           className="flex w-fit gap-1 rounded-control border border-border-subtle bg-surface-well p-1"
         >
           {THEME_OPTIONS.map((option) => {
             const active = theme === option;
             return (
-              <button
-                key={option}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => {
-                  setTheme(option).catch((error: unknown) => {
-                    toast.error(`Could not save the theme: ${errorMessage(error)}`);
-                  });
-                }}
+              <RadioGroupPrimitive.Item asChild key={option} value={option}>
+              <button type="button"
                 className={cn(
-                  "h-8 rounded-sm border px-4.5 capitalize transition-colors",
+                  "h-8 rounded-sm border px-4.5 capitalize transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
                   active
                     ? "border-border-subtle bg-surface-raised text-body-14-medium text-text-primary"
                     : "border-transparent text-body-14 text-text-secondary hover:text-text-primary",
                 )}
               >
                 {option}
-              </button>
+              </button></RadioGroupPrimitive.Item>
             );
           })}
-        </div>
+        </RadioGroupPrimitive.Root>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -542,28 +435,16 @@ function AppearanceTab() {
             blind and then go look. Each card paints itself in the family it
             offers, in the mode currently resolved, by carrying the family's
             own attributes — the same two the applied stylesheet keys on. */}
-        <div role="radiogroup" aria-label="Palette" className="flex flex-wrap gap-2">
+        <RadioGroupPrimitive.Root value={family} onValueChange={(value) => {
+          setFamily(value as ThemeFamilyPreference).catch((error: unknown) => toast.error(`Could not save the palette: ${errorMessage(error)}`));
+        }} aria-label="Palette" className="flex flex-wrap gap-2">
           {Object.values(FAMILIES).map((definition) => {
             const active = family === definition.id;
             return (
-              <button
-                key={definition.id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                aria-label={definition.label}
-                onClick={() => {
-                  // Not `void`: setFamily applies the palette optimistically
-                  // and puts the old one back if the save rejects, so a
-                  // swallowed rejection shows up as the palette silently
-                  // snapping back — which is exactly how a missing capability
-                  // grant was reported, with nothing anywhere saying why.
-                  setFamily(definition.id).catch((error: unknown) => {
-                    toast.error(`Could not save the palette: ${errorMessage(error)}`);
-                  });
-                }}
+              <RadioGroupPrimitive.Item asChild key={definition.id} value={definition.id}>
+              <button type="button" aria-label={definition.label}
                 className={cn(
-                  "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-colors",
+                  "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
                   active
                     ? "border-border-focus bg-surface-raised"
                     : "border-border-subtle hover:bg-state-soft",
@@ -578,10 +459,10 @@ function AppearanceTab() {
                 >
                   {definition.label}
                 </span>
-              </button>
+              </button></RadioGroupPrimitive.Item>
             );
           })}
-        </div>
+        </RadioGroupPrimitive.Root>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -614,7 +495,7 @@ function AppearanceTab() {
       {/* Where the tab strip's "Configure Tabs…" lands. */}
       <div className="flex flex-col gap-3">
         <GroupLabel>Tabs</GroupLabel>
-        <div className="flex items-end gap-4">
+        <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
             <span className="text-label-12 text-text-secondary">Minimum width</span>
             <SizeStepper
@@ -655,7 +536,7 @@ function SyncDevicesTab() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: status } = useQuery({
+  const { data: status, isPending: statusLoading } = useQuery({
     queryKey: ["sync", "status"],
     queryFn: () => syncStatus(),
   });
@@ -697,7 +578,7 @@ function SyncDevicesTab() {
       </div>
 
       <div className="flex flex-col gap-2 rounded-control border border-border-subtle bg-surface-raised px-4 py-3">
-        <StatusRow label="Status" value={status?.connected ? "Connected" : "Not connected"} />
+        <StatusRow label="Status" value={statusLoading ? "Checking…" : status?.connected ? "Connected" : "Not connected"} />
         <StatusRow label="Endpoint" value={status?.endpoint || "—"} />
         <StatusRow label="This device" value={status?.deviceId || "—"} />
       </div>
@@ -736,6 +617,21 @@ function DatabaseTab() {
   );
 }
 
+function SecurityTab() {
+  return <TabColumn><SectionHeader title="Security" description="How DevKit protects saved credentials on this device." />
+    <div className="rounded-xl border border-border-subtle bg-surface-raised p-4"><GroupLabel>Saved credentials</GroupLabel><div className="mt-3"><RevealPasswordSetting /></div></div>
+    <SecurityNotice type="secure" title="Your vault stays local" description="DevKit starts locked. Unlocking keeps the decrypted key in memory for the current session." />
+  </TabColumn>;
+}
+
+function UpdatesTab() {
+  return <TabColumn><SectionHeader title="Updates" description="Installed version and release checks. Choose when DevKit checks for new releases." /><UpdatesSetting /></TabColumn>;
+}
+
+function McpTab() {
+  return <TabColumn><SectionHeader title="MCP integrations" description="Connect external agents to DevKit tools through its local MCP proxy." /><McpInstallPanel /></TabColumn>;
+}
+
 function AgentsTab() {
   return (
     <TabColumn>
@@ -767,13 +663,7 @@ function AgentsTab() {
         <GroupLabel>SANDBOX</GroupLabel>
         <AgentSandboxSetting />
       </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>DEVKIT MCP</GroupLabel>
-        <p className="text-body-12 text-text-tertiary">
-          Register the DevKit MCP proxy in an agent's own config so it can reach your vault and modules.
-        </p>
-        <McpInstallPanel />
-      </div>
+
     </TabColumn>
   );
 }

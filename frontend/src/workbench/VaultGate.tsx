@@ -13,13 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RecoveryKeyField } from "@/components/ui/recovery-key-field";
 import { Titlebar } from "@/components/ui/titlebar";
+import { VaultStage, VaultPasswordField as PasswordField, VAULT_FIELD as FIELD } from "./VaultStage";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Eye,
-  EyeOff,
   KeyRound,
   Loader2,
   LockKeyhole,
@@ -77,62 +76,13 @@ const COPY: Record<GateStep, { eyebrow: string; title: string; body: string; foo
   },
 };
 
-/** Figma `input/*` (748:1402): 48 tall on surface-well, mono, radius 8. */
-const FIELD =
-  "flex h-12 w-full items-center rounded-md border bg-surface-well pr-3 pl-4 text-code-12 text-text-primary placeholder:text-text-tertiary focus-within:border-status-info focus-within:border-2";
 const LABEL = "text-body-13-medium text-text-secondary";
-/** Every button in the slot is 48 tall and full width (748:1408, 748:1415). */
-const WIDE = "h-12 w-full text-body-14-medium [&_svg]:size-4.5";
-
-function PasswordField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  autoFocus,
-  invalid,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  autoFocus?: boolean;
-  invalid?: boolean;
-}) {
-  const [shown, setShown] = useState(false);
-  return (
-    <label className="flex w-full flex-col gap-1.5">
-      <span className={LABEL}>{label}</span>
-      <span className={cn(FIELD, invalid ? "border-(--border-danger)" : "border-border")}>
-        <input
-          type={shown ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-          required
-          // The masked value stays mono (748:1402); the placeholder is a
-          // sentence about it, and a sentence is set in the UI face.
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:font-sans placeholder:text-body-13"
-        />
-        <button
-          type="button"
-          tabIndex={-1}
-          onClick={() => setShown((s) => !s)}
-          className="text-text-tertiary hover:text-text-primary"
-          aria-label={shown ? "Hide password" : "Show password"}
-        >
-          {shown ? <EyeOff className="size-5" strokeWidth={1.5} /> : <Eye className="size-5" strokeWidth={1.5} />}
-        </button>
-      </span>
-    </label>
-  );
-}
+const WIDE = "h-11 w-full text-body-14-medium [&_svg]:size-4";
 
 /** Figma `alert` (752:1481): danger-soft, a 20px glyph, title over a note. */
 function ErrorAlert({ title, note }: { title: string; note: string }) {
   return (
-    <div role="alert" className="flex w-full items-start gap-3 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) px-4 py-3.5">
+    <div id="vault-form-error" role="alert" className="flex w-full items-start gap-3 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) px-4 py-3.5">
       <TriangleAlert className="size-5 shrink-0 text-status-danger" strokeWidth={1.5} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-body-14-medium text-text-primary">{title}</span>
@@ -144,9 +94,9 @@ function ErrorAlert({ title, note }: { title: string; note: string }) {
 
 /**
  * The vault gate is not an overlay: this returns INSTEAD of the workbench, so
- * nothing renders behind it. That is why the stage card is opaque — glass
- * would have nothing to blur — and why there is no scrim (Figma 747:1385).
- * Eyebrow, title, body, content slot, footnote; 640 wide, hugs its height.
+ * nothing renders behind it. The shared stage is opaque, bounded to 480px
+ * and scrolls safely on short windows. Only the step content fades/translates;
+ * credentials remain owned by this gate.
  */
 export function VaultGate({ children }: { children: ReactNode }) {
   const [gateStep, setGateStep] = useState<GateStep>("checking");
@@ -228,6 +178,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
   async function handleSetupPassword(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (isSubmitting) return;
     setError("");
 
     if (password.length < 8) {
@@ -261,6 +212,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
   async function handleUnlockPassword(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (isSubmitting) return;
     if (!password) {
       setError("Please enter your master password.");
       return;
@@ -281,6 +233,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
   async function handleUnlockRecovery(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (isSubmitting) return;
     const cleanKey = recoveryKeyInput.trim();
     if (!cleanKey) {
       setError("Please enter your recovery key.");
@@ -340,20 +293,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
       </Titlebar>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto shell-surface p-8">
-          <div className="flex w-full max-w-160 flex-col items-center rounded-lg border border-border-subtle bg-surface-base px-12 pt-11 pb-10 text-center shadow-gate">
-            <span className="flex size-14 items-center justify-center rounded-full border border-glass-border bg-state-soft">
-              <Vault className="size-6.5 text-(--brand-text)" strokeWidth={1.5} />
-            </span>
-            <span className={cn("mt-5 text-label-11-caps text-(--brand-text)", copy.eyebrowClass)}>
-              {copy.eyebrow}
-            </span>
-            <h1 className="mt-2 text-heading-24 text-text-primary">{copy.title}</h1>
-            <p className="mt-2 text-body-13 text-text-secondary">{copy.body}</p>
-
-            <div className="mt-7 flex w-full flex-col items-center text-left">
+        <div className="flex min-h-0 flex-1 flex-col items-center overflow-auto shell-surface px-5 py-8 sm:p-8">
+          <VaultStage step={gateStep} {...copy} setupStep={gateStep === "setup_password" ? 1 : gateStep === "setup_recovery" ? 2 : gateStep === "setup_ready" ? 3 : undefined}>
               {gateStep === "checking" && (
-                <div className="flex min-h-40 flex-col items-center justify-center gap-2">
+                <div role="status" className="flex min-h-40 flex-col items-center justify-center gap-2">
                   {error ? (
                     <>
                       <ErrorAlert title="Could not read the vault state" note={error} />
@@ -365,7 +308,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
                   ) : (
                     <>
                       <span className="flex items-center gap-3 text-body-16 text-text-secondary">
-                        <Loader2 className="size-5 animate-spin" />
+                        <Loader2 aria-hidden className="size-5 animate-spin motion-reduce:animate-none" />
                         Checking secure storage status…
                       </span>
                       <span className="text-caption-11 text-text-tertiary">
@@ -387,8 +330,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
                     label="Master password"
                     value={password}
                     onChange={setPassword}
+                    creating
                     placeholder="At least 8 characters"
                     autoFocus
+                    disabled={isSubmitting}
                     invalid={!!error}
                   />
                   <div className="mt-4">
@@ -396,6 +341,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
                       label="Confirm password"
                       value={confirmPassword}
                       onChange={setConfirmPassword}
+                      creating
+                      disabled={isSubmitting}
                       placeholder="Repeat your password"
                       invalid={!!error}
                     />
@@ -440,6 +387,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
                     type="button"
                     className={cn(WIDE, "mt-6")}
                     onClick={() => {
+                      setGeneratedRecoveryKey("");
+                      setIsRecoverySaved(false);
                       setVaultState("unlocked");
                       setGateStep("checking");
                     }}
@@ -466,6 +415,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
                     onChange={setPassword}
                     placeholder="Enter master password"
                     autoFocus
+                    disabled={isSubmitting}
                     invalid={!!error}
                   />
                   <Button type="submit" className={cn(WIDE, "mt-6")} disabled={isSubmitting || !password}>
@@ -475,9 +425,11 @@ export function VaultGate({ children }: { children: ReactNode }) {
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={isSubmitting}
                     className={cn(WIDE, "mt-2 bg-surface-raised")}
                     onClick={() => {
                       setError("");
+                      setPassword("");
                       setGateStep("unlock_recovery");
                     }}
                   >
@@ -504,6 +456,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
                         placeholder="DVK7-XXXX-XXXX-XXXX-XXXX-XXXX"
                         autoFocus
                         required
+                        disabled={isSubmitting}
+                        autoComplete="off"
+                        aria-invalid={!!error || undefined}
+                        aria-describedby={error ? "vault-form-error" : undefined}
                         spellCheck={false}
                         className="min-w-0 flex-1 bg-transparent outline-none"
                       />
@@ -519,9 +475,11 @@ export function VaultGate({ children }: { children: ReactNode }) {
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={isSubmitting}
                     className={cn(WIDE, "mt-2 bg-surface-raised")}
                     onClick={() => {
                       setError("");
+                      setRecoveryKeyInput("");
                       setGateStep("unlock_password");
                     }}
                   >
@@ -530,11 +488,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
                   </Button>
                 </form>
               )}
-            </div>
-
-            {/* Prose, so the UI face: mono is for keys, paths and commands. */}
-            <p className="mt-6 text-caption-11 text-text-tertiary">{copy.footnote}</p>
-          </div>
+          </VaultStage>
         </div>
       </div>
     </div>

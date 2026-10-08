@@ -107,6 +107,14 @@ AnimatedNumber; Reduce Motion bỏ chuyển động. Turn detail dùng chất li
 chung, metadata scroll có giới hạn, subtitle wrap và Copy timer được dọn khi đóng
 hay thay dữ liệu. Transcript virtualization và stream batching giữ nguyên.
 
+Vault dùng stage opaque tối đa 480px với padding responsive, shadow theo theme;
+đổi bước chỉ opacity/y 180 ms, không đo height. Input focus dùng ring giữ nguyên
+border width; reveal dùng button có thể Tab tới, lỗi gắn aria-describedby.
+Settings giữ khung theo viewport, navigation chia Personal / Workspace / Services
+và tìm theo tên/nội dung section mà không mount các query chưa mở. Security,
+Updates và MCP có section riêng; deep link cũ vẫn hợp lệ. Chuyển section reset
+scroll, fade/y nhỏ 180 ms, Reduce Motion hiển thị ngay.
+
 ### 4.2 Chỉ animate thứ compositor làm được
 
 `transform` và `opacity`. Không animate `width/height/top/left/margin` của cây
