@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AnimatedNumber, AnimatedNumberGroup } from "@/components/ui/animated-number";
 import { Progress } from "@/components/ui/progress";
 import type { RateLimit, SessionFailure, Usage } from "../types";
 
@@ -123,7 +124,6 @@ export function AgentContextMeter({
 
   const percent = Math.min(100, Math.round((used / size) * 100));
   const tone = level(percent);
-  const summary = `${shortCount(used)} / ${shortCount(size)} (${percent}%)`;
   // r=6 on a 16 box: the circumference the dash array divides.
   const circumference = 2 * Math.PI * 6;
 
@@ -151,18 +151,22 @@ export function AgentContextMeter({
               fill="none"
               strokeWidth="2"
               strokeLinecap="round"
-              strokeDasharray={`${(percent / 100) * circumference} ${circumference}`}
-              className={RING[tone]}
+              strokeDasharray={circumference}
+              strokeDashoffset={circumference * (1 - percent / 100)}
+              className={cn(RING[tone], "transition-[stroke,stroke-dashoffset] duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none")}
             />
           </svg>
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-64 gap-2 p-3">
+      <PopoverContent side="top" align="end" className="w-80 max-w-gutter gap-3 p-4">
         <div className="flex w-full items-baseline justify-between gap-3 text-body-13">
           <span className="text-text-secondary">Context window</span>
-          <span className="tabular-nums text-text-tertiary">{summary}</span>
+          <span className="tabular-nums text-text-secondary">{shortCount(used)} / {shortCount(size)}</span>
         </div>
-        <Progress value={percent} className={cn("h-1 bg-(--state-soft)", BAR[tone])} />
+        <div className="flex w-full items-center gap-3">
+          <Progress value={percent} className={cn("h-1.5 flex-1 bg-state-soft", BAR[tone])} />
+          <AnimatedNumber value={percent} suffix="%" className="min-w-10 text-right text-caption-11 text-text-secondary" />
+        </div>
         {/* The subscription's own ceiling. Separate from the context window
             above it, and not derivable from it: a turn can fit and still be
             refused, and the only thing that fixes that is waiting. */}
@@ -179,18 +183,19 @@ export function AgentContextMeter({
         ) : null}
         <div className="h-px w-full bg-border-subtle" />
         <div className="flex w-full items-baseline justify-between gap-3 text-body-13">
-          <span className="tabular-nums text-text-tertiary">
-            {`${turnCount} turn${turnCount === 1 ? "" : "s"} · $${(usage?.amount ?? 0).toFixed(2)}`}
-          </span>
+          <AnimatedNumberGroup><span className="text-caption-11 text-text-tertiary">
+            <AnimatedNumber value={turnCount} suffix={turnCount === 1 ? " turn" : " turns"} /> · <AnimatedNumber value={usage?.amount ?? 0} prefix="$" format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />
+          </span></AnimatedNumberGroup>
           {onCompact ? (
-            <button
+            <Button
+              variant="ghost" size="xs"
               type="button"
               onClick={onCompact}
               data-testid="composer-compact"
-              className="cursor-pointer text-status-info underline-offset-2 hover:underline"
+              className="text-status-info"
             >
               Compact session
-            </button>
+            </Button>
           ) : null}
         </div>
       </PopoverContent>

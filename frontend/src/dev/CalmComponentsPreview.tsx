@@ -1,3 +1,4 @@
+import { AgentHubCalmPreview } from "./AgentHubCalmPreview";
 import { useLayoutEffect, useState } from "react";
 import { ChevronDown, Database, Settings2, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -71,6 +72,7 @@ export default function CalmComponentsPreview() {
         <div className="grid gap-2"><span className="text-label-12 text-text-secondary">Count</span><NumberStepper value={previewCount} onChange={setPreviewCount} min={0} max={120} label="Preview count" /></div>
         <AnimatedNumberGroup><p className="pb-2 text-body-13 text-text-secondary"><AnimatedNumber value={previewCount} suffix=" items" /> · <AnimatedNumber value={previewSize} suffix=" px" /></p></AnimatedNumberGroup>
       </CardContent></Card>
+      <AgentHubCalmPreview />
       <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => useDatabaseStore.getState().openExportModal({ columns: ["id", "name"], rows: [["1", "Sample"], ["2", "Preview"]], rowCount: 2, truncated: false }, "preview-results")}>Preview export form</Button><Button variant="outline" onClick={() => useDatabaseStore.getState().setInspectedCell({ columnName: "payload", value: JSON.stringify({ items: Array.from({ length: 60 }, (_, id) => ({ id, name: `Sample item ${id}` })) }) })}>Preview cell inspector</Button></div>
       <p className="text-caption-12 text-text-tertiary">Local preview only. No connection is opened or permission granted.</p>
     </div>

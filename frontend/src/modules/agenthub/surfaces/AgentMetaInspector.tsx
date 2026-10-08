@@ -7,6 +7,8 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogDescription,
+  DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
 
@@ -73,11 +75,18 @@ export function AgentMetaInspector({
 
   const [copied, setCopied] = React.useState(false);
 
+  const copyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    setCopied(false);
+    return () => { if (copyTimer.current) clearTimeout(copyTimer.current); };
+  }, [raw, open]);
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(raw);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard is unavailable in some webviews; the block is selectable.
     }
@@ -97,21 +106,15 @@ export function AgentMetaInspector({
         data-testid="agent-meta-inspector"
         showCloseButton={false}
         className={cn(
-          "w-136 max-w-gutter gap-4 rounded-lg p-5 sm:max-w-136",
-          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-lg",
-          "shadow-inspector ring-0",
+          "w-136 max-w-gutter max-h-[85vh] overflow-y-auto overscroll-contain gap-4 sm:max-w-136",
           className,
         )}
       >
-        <DialogHeader className="w-full flex-row items-center gap-2 space-y-0 p-0">
+        <DialogHeader className="w-full items-start gap-1">
           <DialogTitle className="min-w-0 flex-1 text-body-13-medium text-text-primary">
             Turn detail
           </DialogTitle>
-          {subtitle ? (
-            <p className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">
-              {subtitle}
-            </p>
-          ) : null}
+          <DialogDescription className="w-full break-words text-caption-11">{subtitle || "Usage and original vendor metadata for this turn."}</DialogDescription>
         </DialogHeader>
 
         <div className="flex w-full flex-col gap-2">
@@ -151,7 +154,7 @@ export function AgentMetaInspector({
           language="json"
           className={cn(
             "max-h-60 w-full overflow-auto rounded-control p-3",
-            "border border-border-subtle bg-surface-base",
+            "border border-border-subtle bg-surface-well",
             "text-code-11 whitespace-pre-wrap text-text-secondary select-text",
           )}
         />
@@ -160,6 +163,7 @@ export function AgentMetaInspector({
           The adapter normalizes what it understands and keeps the rest verbatim.
           Anything a vendor adds that DevKit has no field for is still here.
         </p>
+        <DialogFooter><Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>Done</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

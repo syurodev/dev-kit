@@ -74,7 +74,7 @@ export function AgentSubagentTracker({ items, live, tracked, onOpenFile, variant
               data-testid="tracked-subagent"
               aria-expanded={open}
               onClick={() => setOpenId(open ? null : subagent.id)}
-              className="flex w-full min-w-0 cursor-pointer flex-col rounded-sm px-1 py-0.5 text-left text-body-13 hover:bg-state-soft"
+              className="flex w-full min-w-0 cursor-pointer transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 flex-col rounded-sm px-1 py-0.5 text-left text-body-13 hover:bg-state-soft"
             >
               <span className="flex w-full min-w-0 items-center gap-2">
                 <GitBranch className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
@@ -87,7 +87,7 @@ export function AgentSubagentTracker({ items, live, tracked, onOpenFile, variant
                 <ChevronRight
                   aria-hidden="true"
                   className={cn(
-                    "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast)",
+                    "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
                     open && "rotate-90",
                   )}
                 />
