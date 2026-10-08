@@ -26,6 +26,31 @@ mục [Dùng hằng ngày](#dùng-hằng-ngày-thay-postman) bên dưới. Thi�
 Luật liên module (entity ref, intent) ở [Liên module](/dev-kit/cross-module).
 </Callout>
 
+## Luồng giao diện hiện tại
+
+API Client dùng sidebar và document tabs của workbench, cùng cách mở/giữ tab
+với các module khác. Chọn request trong rail là preview; mở lại cùng request
+focus đúng document. Sidebar và phím tắt lấy request từ **group đang focus**
+khi split; đổi tên giữ identity, vị trí và trạng thái pin của tab.
+
+- **Request:** tên và collection ở hàng đầu; environment gửi nằm riêng ngay
+  trên thanh method/URL và Send. Nút chỉnh environment mở document variables
+  tương ứng. Save là thao tác phụ; Send là hành động chính.
+- **Environment:** mở một dòng để sửa variables; chỉ “Use for sending” hoặc
+  picker trên request đổi đích gửi. Double-click không âm thầm đổi target.
+  Form tách chi tiết environment, bảng variables và thứ tự ưu tiên giá trị.
+- **Accounts:** Auth có “Manage accounts” qua navigation của shell và nút
+  refresh. Khi view hiện lại, danh sách được đọc lại; không cần đóng request.
+- **Import/export:** chọn nguồn trước, tuỳ chọn theo nguồn, rồi nội dung.
+  cURL và file có draft riêng; lỗi import và hành động footer luôn thấy được
+  khi body cuộn. Secret values bị loại khỏi export theo backend hiện có.
+- **Response:** giữ kết quả cũ khi gửi lại/lỗi và ghi “Previous response”.
+  Thời gian dùng NumberFlow; status HTTP là text. Các bảng có nhãn cột và
+  focus bàn phím rõ, cùng surfaces/theme tokens ở cả light và dark.
+- **Liên module:** Code Graph/agent tiếp tục mở request bằng intent và ID;
+  `api.reveal` cho environment/collection cũng tôn trọng placement `beside`.
+  Dialog thuộc API Client ẩn khi chuyển module, giữ draft để quay lại.
+
 ```mermaid
 flowchart TD
   UI["ApiClientView - sidebar + request/response"] --> BR["frontend/src/bridge/apiclient.ts"]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Send, Terminal, Wand2 } from "lucide-react";
+import { Send, Wand2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
   BODY_MODES,
@@ -29,19 +29,17 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Tabs, TabsContent, TabsCount, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { ResponsePane } from "./ResponsePane";
-import { cn } from "@/lib/utils";
-import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { RequestToolbar } from "./RequestToolbar";
+import { tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { activeEnvironment, tagAsks, useApiClientStore, type EditorState } from "./apiclientStore";
 import { EnvTagChip } from "./ApiClientSidebar";
 import { AuthPanel } from "./AuthPanel";
 import { folderPath, foldersByPath } from "./collections";
-import { closeTabByParams, MODULE, openRequest, REQUEST_VIEW } from "./documents";
+import { activeApiClientTab, closeTabByParams, MODULE, openRequest, openVariables, renameApiDocument, REQUEST_VIEW } from "./documents";
 import { KeyValueTable } from "./KeyValueTable";
 import {
   activeRows,
   emptyRequest,
-  METHODS,
-  methodTone,
   parseUrlBar,
   prettyBody,
   referencedVars,
@@ -49,7 +47,6 @@ import {
   syncPathVars,
   urlBarText,
 } from "./requestModel";
-import { shortcut as shortcutLabel } from "@/lib/shortcut";
 
 /** In-flight sends by editor key, so Cancel reaches the bridge call. */
 const inflight = new Map<string, { cancel: () => void }>();
@@ -258,10 +255,12 @@ function RequestEditor({
   }
 
   async function save() {
+    if (sending) return;
     try {
       const saved = forEditor(await saveRequest(request));
       if (request.id) {
         store.patchEditor(key, { request: saved, baseline: saved });
+        renameApiDocument(REQUEST_VIEW, { requestId: saved.id }, saved.name);
       } else {
         // A new request becomes a saved one: its editor moves to the saved
         // request's key, response and all, and the tab follows it.
@@ -306,7 +305,7 @@ function RequestEditor({
   const shortcutRef = useRef(shortcut);
   shortcutRef.current = shortcut;
   const inFront = useWorkbenchTabsStore(
-    (s) => s.activeModuleId === MODULE && moduleTabs(s.modules, MODULE).activeTabId === tabKey(MODULE, REQUEST_VIEW, params),
+    (s) => s.activeModuleId === MODULE && activeApiClientTab(s)?.id === tabKey(MODULE, REQUEST_VIEW, params),
   );
   useEffect(() => {
     if (!inFront) return;
@@ -333,118 +332,32 @@ function RequestEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDownCapture}>
-      {/* Name, folder, environment, save. */}
-      <header className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5">
-        <input
-          value={request.name}
-          onChange={(event) => update({ name: event.target.value })}
-          aria-label="Request name"
-          spellCheck={false}
-          className="h-8 min-w-28 flex-1 truncate rounded-md bg-transparent px-2 text-body-13-medium text-text-primary outline-none transition-control hover:bg-surface-raised focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-status-info/20"
-        />
-        <span className={cn("size-1.5 shrink-0 rounded-full bg-status-warning", !dirty && "invisible")} title={editor.baseline ? "Unsaved changes" : "Not saved yet"} />
-        <NativeSelect
-          size="sm"
-          value={request.collectionId}
-          aria-label="Folder"
-          onChange={(event) => update({ collectionId: event.target.value })}
-          className="max-w-48"
-        >
-          <NativeSelectOption value="">No collection</NativeSelectOption>
-          {folders.map((folder) => (
-            <NativeSelectOption key={folder.id} value={folder.id}>
-              {folderPath(collections ?? [], folder.id)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <div className="flex shrink-0 items-center gap-1">
-          <NativeSelect
-            size="sm"
-            value={environment?.id ?? ""}
-            aria-label="Environment"
-            onChange={(event) => store.setActiveEnvironment(event.target.value)}
-            className="max-w-48"
-          >
-            {!environment ? <NativeSelectOption value="">No environment</NativeSelectOption> : null}
-            {(environments ?? []).map((candidate) => (
-              <NativeSelectOption key={candidate.id} value={candidate.id}>
-                {candidate.name} ({candidate.env})
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          {environment ? <EnvTagChip tag={environment.env} /> : null}
-        </div>
-        <Button
-          size="xs"
-          variant="ghost"
-          title="Copy as cURL — the credential stays a shell variable"
-          onClick={() => {
-            curlFor(request, environment?.id ?? "")
-              .then((text) => {
-                setCurl(text);
-                return copyText(text).then(() => toast.success("cURL copied"));
-              })
-              .catch((e) => toast.error("Could not build the cURL command", { description: errorMessage(e) }));
-          }}
-        >
-          <Terminal /> cURL
-        </Button>
-        <Button size="xs" variant={dirty ? "default" : "ghost"} disabled={!dirty} onClick={() => void save()} title={`Save (${shortcutLabel("S")})`}>
-          <Save /> Save
-        </Button>
-      </header>
-
-      {/* Method, address, send. */}
-      <div className="flex items-center gap-2 px-3 py-2">
-        <NativeSelect
-          size="sm"
-          value={request.method}
-          aria-label="Method"
-          onChange={(event) => update({ method: event.target.value })}
-          className={cn("w-28 font-mono", methodTone(request.method))}
-        >
-          {METHODS.map((method) => (
-            <NativeSelectOption key={method} value={method}>
-              {method}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <input
-          value={urlDraft ?? urlBarText(request.url, request.query)}
-          onFocus={() => setUrlDraft(urlBarText(request.url, request.query))}
-          onBlur={() => setUrlDraft(null)}
-          onChange={(event) => {
-            setUrlDraft(event.target.value);
-            setUrlText(event.target.value);
-          }}
-          onPaste={onUrlPaste}
-          placeholder="{{baseUrl}}/users/:id — or paste a curl command"
-          aria-label="URL"
-          spellCheck={false}
-          className="h-(--control-height-sm) min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-well px-2.5 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:border-border-focus focus-visible:ring-2 focus-visible:ring-status-info/20"
-        />
-        {sending ? (
-          <Button size="sm" variant="outline" className="min-w-24" onClick={cancel}>
-            <Loader2 aria-hidden className="animate-spin motion-reduce:animate-none" /> Cancel
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            className="min-w-24"
-            onClick={send}
-            disabled={!request.url.trim()}
-            title={gated ? `Send (${shortcutLabel("Enter")}) — ${environment?.env} asks before every send` : `Send (${shortcutLabel("Enter")})`}
-          >
-            <Send /> Send
-          </Button>
-        )}
-      </div>
+      <RequestToolbar
+        name={request.name} onNameChange={(name) => update({ name })} dirty={dirty}
+        folders={folders.map((f) => ({ id: f.id, label: folderPath(collections ?? [], f.id) }))}
+        folderId={request.collectionId} onFolderChange={(collectionId) => update({ collectionId })}
+        environments={(environments ?? []).map((e) => ({ id: e.id, label: e.name }))}
+        environmentId={environment?.id ?? ""} onEnvironmentChange={store.setActiveEnvironment}
+        environmentTag={environment ? <EnvTagChip tag={environment.env} /> : undefined} gated={gated}
+        onManageEnvironment={() => openVariables("environment", environment?.id ?? "new", environment?.name ?? "New environment")}
+        url={urlDraft ?? urlBarText(request.url, request.query)}
+        onUrlFocus={() => setUrlDraft(urlBarText(request.url, request.query))} onUrlBlur={() => setUrlDraft(null)}
+        onUrlChange={(value) => { setUrlDraft(value); setUrlText(value); }} onUrlPaste={onUrlPaste}
+        method={request.method} onMethodChange={(method) => update({ method })}
+        sending={sending} onSend={send} onCancel={cancel} onSave={() => void save()}
+        onCurl={() => {
+          curlFor(request, environment?.id ?? "").then((text) => {
+            setCurl(text);
+            return copyText(text).then(() => toast.success("cURL copied"));
+          }).catch((e) => toast.error("Could not build the cURL command", { description: errorMessage(e) }));
+        }}
+      />
 
       {missing.length > 0 || !environment || editor.note || request.originRef ? (
-        <div className="flex flex-col gap-0.5 px-3 pb-2 text-caption-11">
+        <div className="flex flex-col gap-1 border-b border-border-subtle bg-surface-well/50 px-4 py-2 text-caption-11">
           {!environment ? (
             <p className="text-status-warning">
-              No environment yet. Create one under Environments in the sidebar — its tag decides whether a send asks first.
+              Choose an environment before sending. Use the settings button above to create one.
             </p>
           ) : null}
           {missing.length > 0 ? (
@@ -459,8 +372,8 @@ function RequestEditor({
 
       <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
         <ResizablePanel id="request" minSize="15" defaultSize="45" className="flex min-h-0 flex-col">
-          <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-2 px-3">
-            <TabsList variant="line" className="w-fit">
+          <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-2">
+            <TabsList variant="line" className="max-w-full w-fit overflow-x-auto">
               <TabsTrigger value="params">
                 Params {queryCount ? <TabsCount>{queryCount}</TabsCount> : null}
               </TabsTrigger>
@@ -476,6 +389,7 @@ function RequestEditor({
             </TabsList>
             <div className="min-h-0 flex-1 overflow-auto overscroll-contain pb-3">
               <TabsContent value="params" className="flex flex-col gap-3">
+                <p className="text-caption-11 text-text-tertiary">Query parameters are appended to the URL. Uncheck a row to keep it out of this request.</p>
                 <KeyValueTable rows={request.query ?? []} onChange={(rows) => update({ query: rows })} keyPlaceholder="Parameter" />
                 {(request.pathVars ?? []).length > 0 ? (
                   <section className="flex flex-col gap-1">

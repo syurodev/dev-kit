@@ -70,6 +70,9 @@ export function KeyValueTable({
     .join(" ");
   return (
     <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-base text-code-12" role="group">
+      <div className="grid items-center border-b border-border-subtle bg-surface-well/60 py-2 text-caption-11-medium text-text-tertiary" style={{ gridTemplateColumns }} aria-hidden="true">
+        {toggleable ? <span /> : null}<span className="px-2">{keyPlaceholder}</span><span className="px-2">{valuePlaceholder}</span>{onToggleSecret ? <span /> : null}{fixedKeys ? null : <span />}
+      </div>
       {shown.map((row, index) => {
         const blank = !fixedKeys && index === rows.length;
         const secret = secrets?.[index] ?? false;

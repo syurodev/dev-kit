@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Copy, X } from "lucide-react";
+import { Copy, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import type { ApiResponse, KV } from "@/bridge/apiclient";
 import { copyText } from "@/bridge/clipboard";
@@ -7,6 +7,7 @@ import { errorMessage } from "@/bridge/errors";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { detectLanguage, languageForContentType } from "@/components/code/languages";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Tabs, TabsContent, TabsCount, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,7 +41,7 @@ export function ResponsePane({
   const shown = useMemo(() => (response && tab === "body" ? (raw ? response.body : prettyBody(response.body, language)) : ""), [response, raw, language, tab]);
   const headerRows: KV[] = response?.headerList ?? Object.entries(response?.headers ?? {}).map(([key, value]) => ({ key, value }));
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
+    <div className="flex min-h-0 flex-1 flex-col px-4 pt-3">
       {curl ? (
         <div className="relative mb-2">
           <Textarea readOnly value={curl} rows={5} aria-label="cURL command" className="font-mono text-code-11" />
@@ -83,7 +84,7 @@ export function ResponsePane({
       ) : null}
 
       <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-2">
-        <TabsList variant="line" className="w-fit">
+        <TabsList variant="line" className="max-w-full w-fit overflow-x-auto">
           <TabsTrigger value="body">Body</TabsTrigger>
           <TabsTrigger value="headers">
             Headers {headerRows.length ? <TabsCount>{headerRows.length}</TabsCount> : null}
@@ -107,9 +108,7 @@ export function ResponsePane({
                 </div>
               </>
             ) : (
-              <p className="pt-4 text-center text-caption-11 text-text-tertiary">
-                {sending ? "Waiting for the answer…" : "Send the request to see the response here."}
-              </p>
+              <EmptyState size="rail" icon={Send} busy={sending} title={sending ? "Waiting for response" : "Ready when you are"} body={sending ? "The response will appear here. You can cancel from the request bar." : "Choose an environment and send your request to inspect its body, headers and timing."} />
             )}
           </TabsContent>
           <TabsContent value="headers">
