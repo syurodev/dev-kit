@@ -1,4 +1,4 @@
-import type { SettingsTab } from "@/modules/settings/SettingsView";
+import type { SettingsTab } from "@/modules/settings/settingsNavigation";
 
 /**
  * A way for a module to open Settings on a section without owning the modal —
