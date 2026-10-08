@@ -115,6 +115,14 @@ và tìm theo tên/nội dung section mà không mount các query chưa mở. Se
 Updates và MCP có section riêng; deep link cũ vẫn hợp lệ. Chuyển section reset
 scroll, fade/y nhỏ 180 ms, Reduce Motion hiển thị ngay.
 
+API Client giữ status/timing/size của response cũ khi gửi lại và gắn nhãn
+Previous response; duration dùng AnimatedNumber, mã HTTP vẫn là text. Bảng
+params/headers có focus ring trong ô, action hiện khi cả row có focus. Request,
+variables và history dùng loading skeleton thay khung trống. Auth lookup chờ
+host ổn định 150 ms, bỏ response lỗi thời và chỉ hiển thị gợi ý đúng host/env.
+Response chỉ detect/pretty-print body khi tab Body ở chế độ Pretty; Raw giữ nội
+dung gốc, Headers/History không cần parse JSON body.
+
 ### 4.2 Chỉ animate thứ compositor làm được
 
 `transform` và `opacity`. Không animate `width/height/top/left/margin` của cây

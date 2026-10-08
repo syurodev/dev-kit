@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
-import { Copy, Loader2, Save, Send, Terminal, Wand2, X } from "lucide-react";
+import { Loader2, Save, Send, Terminal, Wand2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
   BODY_MODES,
@@ -14,23 +14,21 @@ import {
   saveRequest,
   sendDraft,
   variablesFor,
-  type ApiResponse,
   type BodyMode,
-  type KV,
   type RequestInput,
   type ResolvedVar,
 } from "@/bridge/apiclient";
 import { copyText } from "@/bridge/clipboard";
 import { errorMessage, isCancelError } from "@/bridge/errors";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
-import { detectLanguage, languageForContentType } from "@/components/code/languages";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsCount, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { ListSkeleton } from "@/components/ui/skeleton";
+import { ResponsePane } from "./ResponsePane";
 import { cn } from "@/lib/utils";
 import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { activeEnvironment, tagAsks, useApiClientStore, type EditorState } from "./apiclientStore";
@@ -39,18 +37,15 @@ import { AuthPanel } from "./AuthPanel";
 import { folderPath, foldersByPath } from "./collections";
 import { closeTabByParams, MODULE, openRequest, REQUEST_VIEW } from "./documents";
 import { KeyValueTable } from "./KeyValueTable";
-import { RequestHistory } from "./RequestHistory";
 import {
   activeRows,
   emptyRequest,
-  formatBytes,
   METHODS,
   methodTone,
   parseUrlBar,
   prettyBody,
   referencedVars,
   sameRequest,
-  statusTone,
   syncPathVars,
   urlBarText,
 } from "./requestModel";
@@ -138,7 +133,7 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
   if (loadError) {
     return <EmptyState icon={Send} title="This request could not be opened" body={loadError} />;
   }
-  if (!editor) return null;
+  if (!editor) return <ListSkeleton rows={5} />;
   return <RequestEditor editorKeyValue={key} editor={editor} params={params} />;
 }
 
@@ -339,17 +334,15 @@ function RequestEditor({
   return (
     <div className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDownCapture}>
       {/* Name, folder, environment, save. */}
-      <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5">
+      <header className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5">
         <input
           value={request.name}
           onChange={(event) => update({ name: event.target.value })}
           aria-label="Request name"
           spellCheck={false}
-          className="min-w-0 flex-1 truncate rounded-md bg-transparent px-1 text-body-13-medium text-text-primary outline-none hover:bg-surface-raised focus:bg-surface-well"
+          className="h-8 min-w-28 flex-1 truncate rounded-md bg-transparent px-2 text-body-13-medium text-text-primary outline-none transition-control hover:bg-surface-raised focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-status-info/20"
         />
-        {dirty ? (
-          <span className="size-1.5 shrink-0 rounded-full bg-status-warning" title={editor.baseline ? "Unsaved changes" : "Not saved yet"} />
-        ) : null}
+        <span className={cn("size-1.5 shrink-0 rounded-full bg-status-warning", !dirty && "invisible")} title={editor.baseline ? "Unsaved changes" : "Not saved yet"} />
         <NativeSelect
           size="sm"
           value={request.collectionId}
@@ -428,15 +421,16 @@ function RequestEditor({
           placeholder="{{baseUrl}}/users/:id — or paste a curl command"
           aria-label="URL"
           spellCheck={false}
-          className="h-(--control-height-sm) min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-well px-2.5 font-mono text-code-12 text-text-primary outline-none placeholder:text-text-tertiary focus:border-border-focus"
+          className="h-(--control-height-sm) min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-well px-2.5 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:border-border-focus focus-visible:ring-2 focus-visible:ring-status-info/20"
         />
         {sending ? (
-          <Button size="sm" variant="outline" onClick={cancel}>
-            <Loader2 className="animate-spin" /> Cancel
+          <Button size="sm" variant="outline" className="min-w-24" onClick={cancel}>
+            <Loader2 aria-hidden className="animate-spin motion-reduce:animate-none" /> Cancel
           </Button>
         ) : (
           <Button
             size="sm"
+            className="min-w-24"
             onClick={send}
             disabled={!request.url.trim()}
             title={gated ? `Send (${shortcutLabel("Enter")}) — ${environment?.env} asks before every send` : `Send (${shortcutLabel("Enter")})`}
@@ -480,7 +474,7 @@ function RequestEditor({
                 Auth {request.auth.kind && request.auth.accountId ? <TabsCount>✓</TabsCount> : null}
               </TabsTrigger>
             </TabsList>
-            <div className="min-h-0 flex-1 overflow-auto pb-3">
+            <div className="min-h-0 flex-1 overflow-auto overscroll-contain pb-3">
               <TabsContent value="params" className="flex flex-col gap-3">
                 <KeyValueTable rows={request.query ?? []} onChange={(rows) => update({ query: rows })} keyPlaceholder="Parameter" />
                 {(request.pathVars ?? []).length > 0 ? (
@@ -579,130 +573,5 @@ function BodyEditor({ request, update }: { request: RequestInput; update: (patch
         </div>
       )}
     </>
-  );
-}
-
-function ResponsePane({
-  response,
-  sending,
-  error,
-  curl,
-  onCloseCurl,
-  requestId,
-  sends,
-}: {
-  response: ApiResponse | null;
-  sending: boolean;
-  error: string;
-  curl: string;
-  onCloseCurl: () => void;
-  requestId: string;
-  sends: number;
-}) {
-  const [tab, setTab] = useState("body");
-  const [raw, setRaw] = useState(false);
-  const contentType = Object.entries(response?.headers ?? {}).find(([name]) => name.toLowerCase() === "content-type")?.[1];
-  const language = response ? (languageForContentType(contentType) ?? detectLanguage(response.body)) : undefined;
-  const extension = useLanguageExtension(raw ? undefined : language);
-  const shown = useMemo(() => (response ? (raw ? response.body : prettyBody(response.body, language)) : ""), [response, raw, language]);
-  const headerRows: KV[] = response?.headerList ?? Object.entries(response?.headers ?? {}).map(([key, value]) => ({ key, value }));
-  return (
-    <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
-      {curl ? (
-        <div className="relative mb-2">
-          <Textarea readOnly value={curl} rows={5} aria-label="cURL command" className="font-mono text-code-11" />
-          <button
-            type="button"
-            onClick={onCloseCurl}
-            aria-label="Close the cURL command"
-            className="absolute top-1.5 right-1.5 rounded p-0.5 text-text-tertiary hover:text-text-primary"
-          >
-            <X className="size-(--icon-12)" />
-          </button>
-        </div>
-      ) : null}
-      <div className="flex items-center gap-3 pb-1 text-caption-11">
-        <span className="text-label-11-caps text-text-tertiary">Response</span>
-        {sending ? <span className="text-text-secondary">Sending…</span> : null}
-        {response && !sending ? (
-          <>
-            <span className={cn("font-mono text-code-12-medium", statusTone(response.status))}>
-              {response.statusText || response.status}
-            </span>
-            <span className="text-text-secondary">{response.durationMs} ms</span>
-            <span className="text-text-secondary">{formatBytes(response.bytes)}</span>
-            {response.truncated ? <span className="text-status-warning">truncated</span> : null}
-          </>
-        ) : null}
-        <div className="flex-1" />
-        {response ? (
-          <Button size="xs" variant="ghost" onClick={() => void copyText(response.body).then(() => toast.success("Body copied"))}>
-            <Copy /> Copy body
-          </Button>
-        ) : null}
-      </div>
-      {error && !sending ? <p className="pb-2 text-caption-11 text-status-danger">{error}</p> : null}
-      {response?.redirectBlocked ? (
-        <p className="pb-2 text-caption-11 text-status-warning">
-          Redirect to {response.redirectBlocked} was not followed: it leaves the origin, and the credential would have gone with it.
-        </p>
-      ) : null}
-
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-2">
-        <TabsList variant="line" className="w-fit">
-          <TabsTrigger value="body">Body</TabsTrigger>
-          <TabsTrigger value="headers">
-            Headers {headerRows.length ? <TabsCount>{headerRows.length}</TabsCount> : null}
-          </TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-        </TabsList>
-        <div className="min-h-0 flex-1 overflow-auto pb-3">
-          <TabsContent value="body" className="flex h-full min-h-0 flex-col gap-1">
-            {response ? (
-              <>
-                <div className="flex items-center gap-1">
-                  <Button size="xs" variant={raw ? "ghost" : "secondary"} onClick={() => setRaw(false)}>
-                    Pretty
-                  </Button>
-                  <Button size="xs" variant={raw ? "secondary" : "ghost"} onClick={() => setRaw(true)}>
-                    Raw
-                  </Button>
-                </div>
-                <div className="relative min-h-40 flex-1 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
-                  <CodeEditor value={shown} onChange={() => undefined} readOnly extensions={extension} wrap="auto" />
-                </div>
-              </>
-            ) : (
-              <p className="pt-4 text-center text-caption-11 text-text-tertiary">
-                {sending ? "Waiting for the answer…" : "Send the request to see the response here."}
-              </p>
-            )}
-          </TabsContent>
-          <TabsContent value="headers">
-            {headerRows.length ? (
-              <dl className="grid grid-cols-5 gap-x-3 text-code-12">
-                {headerRows.map((row, index) => (
-                  <div key={`${row.key}-${index}`} className="col-span-5 grid grid-cols-subgrid border-b border-border-subtle py-1 last:border-b-0">
-                    <dt className="col-span-2 font-mono break-all text-text-secondary">{row.key}</dt>
-                    <dd className="col-span-3 font-mono break-all text-text-primary">{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <p className="pt-4 text-center text-caption-11 text-text-tertiary">No response yet.</p>
-            )}
-          </TabsContent>
-          <TabsContent value="history">
-            {requestId ? (
-              <RequestHistory key={`${requestId}-${sends}`} requestID={requestId} />
-            ) : (
-              <p className="pt-4 text-center text-caption-11 text-text-tertiary">
-                Save the request to keep a history of what this machine sent.
-              </p>
-            )}
-          </TabsContent>
-        </div>
-      </Tabs>
-    </div>
   );
 }

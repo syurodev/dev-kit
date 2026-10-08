@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
+import { ListSkeleton } from "@/components/ui/skeleton";
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
 import {
   clearRequestHistory,
@@ -21,21 +24,28 @@ export function RequestHistory({ requestID }: { requestID: string }) {
   const [entries, setEntries] = useState<ApiHistoryEntry[] | null>(null);
   const [error, setError] = useState("");
 
+  const [clearing, setClearing] = useState(false);
+  const generation = useRef(0);
   const load = useCallback(() => {
     if (!requestID) return;
+    const ticket = ++generation.current;
+    setError("");
     requestHistory(requestID)
-      .then(setEntries)
-      .catch((e: Error) => setError(e.message));
+      .then((rows) => { if (generation.current === ticket) setEntries(rows); })
+      .catch((cause) => { if (generation.current === ticket) setError(errorMessage(cause)); });
   }, [requestID]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    setEntries(null);
+    setClearing(false);
+    load();
+    return () => { generation.current += 1; };
+  }, [load]);
 
   if (error) {
-    return <p className="text-caption-11 text-status-danger">{error}</p>;
+    return <div className="flex items-center gap-2 py-3"><p role="alert" className="text-caption-11 text-status-danger">{error}</p><Button variant="outline" size="xs" onClick={load}>Retry</Button></div>;
   }
-  if (!entries) {
-    return null;
-  }
+  if (!entries) return <ListSkeleton rows={4} />;
   if (entries.length === 0) {
     return <p className="pt-4 text-center text-caption-11 text-text-tertiary">Nothing sent from this machine yet.</p>;
   }
@@ -45,15 +55,26 @@ export function RequestHistory({ requestID }: { requestID: string }) {
       <header className="flex items-center gap-2 pb-1">
         <History className="size-(--icon-12) text-text-tertiary" aria-hidden />
         <h3 className="flex-1 text-caption-11-medium text-text-tertiary">
-          Sent from this machine ({entries.length})
+          Sent from this machine (<AnimatedNumber value={entries.length} />)
         </h3>
         <Button
           variant="ghost"
           size="xs"
+          disabled={clearing}
           onClick={() => {
+            const ticket = ++generation.current;
+            setClearing(true);
             clearRequestHistory(requestID)
-              .then(load)
-              .catch((e: Error) => setError(e.message));
+              .then(() => {
+                if (generation.current !== ticket) return;
+                setClearing(false);
+                load();
+              })
+              .catch((cause) => {
+                if (generation.current !== ticket) return;
+                setClearing(false);
+                setError(errorMessage(cause));
+              });
           }}
         >
           Clear
@@ -63,7 +84,7 @@ export function RequestHistory({ requestID }: { requestID: string }) {
         {entries.map((entry) => (
           <li
             key={entry.id}
-            className="flex items-baseline gap-2 border-b border-border-subtle py-1 text-caption-11 last:border-b-0"
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border-subtle py-2 text-caption-11 tabular-nums last:border-b-0"
           >
             <span className={statusTone(entry)}>{entry.status || "—"}</span>
             <span className="w-12 shrink-0 font-mono text-text-tertiary">{entry.method}</span>

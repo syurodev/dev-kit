@@ -15,6 +15,7 @@ import {
 } from "@/bridge/apiclient";
 import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useApiClientStore } from "./apiclientStore";
@@ -97,7 +98,7 @@ export function VariablesView({ params }: { params?: Record<string, unknown> } =
   if (collections && environments && !isNew && scope !== "globals" && !environment && !collection) {
     return <EmptyState icon={Variable} title="This no longer exists" body="It was deleted, here or on another device." />;
   }
-  if (rows === null) return null;
+  if (rows === null) return <ListSkeleton rows={5} />;
 
   async function save() {
     if (!rows) return;

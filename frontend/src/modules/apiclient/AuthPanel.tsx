@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { accountsForHost, hostOf, listAccounts, type Account, type HostMatch } from "@/bridge/accounts";
+import { errorMessage } from "@/bridge/errors";
 import type { Auth } from "@/bridge/apiclient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,24 +48,31 @@ export function AuthPanel({
   env: string;
 }) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [match, setMatch] = useState<HostMatch | null>(null);
+  const [answer, setAnswer] = useState<{ host: string; env: string; value: HostMatch } | null>(null);
+  const [readError, setReadError] = useState("");
   const host = hostOf(resolvedUrl);
 
   useEffect(() => {
-    listAccounts()
-      .then(setAccounts)
-      .catch(() => setAccounts([]));
+    let active = true;
+    listAccounts().then((items) => { if (active) setAccounts(items); })
+      .catch((cause) => { if (active) setReadError(errorMessage(cause)); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!host) {
-      setMatch(null);
-      return;
-    }
-    accountsForHost(host, env)
-      .then(setMatch)
-      .catch(() => setMatch(null));
+    if (!host) return;
+    let active = true;
+    // URL typing can change the host repeatedly; only ask for the settled one.
+    const timer = setTimeout(() => {
+      accountsForHost(host, env)
+        .then((value) => { if (active) setAnswer({ host, env, value }); })
+        .catch(() => { if (active) setAnswer(null); });
+    }, 150);
+    return () => { active = false; clearTimeout(timer); };
   }, [host, env]);
+
+  // A new host must never display the old host's account, even before the effect runs.
+  const match = answer?.host === host && answer.env === env ? answer.value : null;
 
   const matching = new Set((match?.options ?? []).map((account) => account.id));
   const usable = accounts ?? [];
@@ -74,8 +82,8 @@ export function AuthPanel({
   const suggestion = match?.decided && match.account.id !== auth.accountId ? match.account : null;
 
   return (
-    <div className="flex max-w-xl flex-col gap-3 text-body-13">
-      <label className="flex items-center gap-3">
+    <div className="flex max-w-xl flex-col gap-4 rounded-lg border border-border-subtle bg-surface-base p-4 text-body-13">
+      <label className="flex flex-wrap items-center gap-3">
         <span className="w-24 shrink-0 text-text-secondary">Type</span>
         <NativeSelect
           size="sm"
@@ -96,18 +104,19 @@ export function AuthPanel({
 
       {auth.kind !== "" ? (
         <>
-          <label className="flex items-center gap-3">
+          <label className="flex flex-wrap items-center gap-3">
             <span className="w-24 shrink-0 text-text-secondary">Account</span>
             <NativeSelect
               size="sm"
               value={auth.accountId}
               aria-label="Account"
+              disabled={!accounts}
               onChange={(event) => {
                 const account = usable.find((candidate) => candidate.id === event.target.value);
                 onChange({ ...auth, accountId: event.target.value, kind: account ? kindFor(account, auth.kind) : auth.kind });
               }}
             >
-              <NativeSelectOption value="">Choose an account…</NativeSelectOption>
+              <NativeSelectOption value="">{accounts ? "Choose an account…" : readError ? "Accounts unavailable" : "Loading accounts…"}</NativeSelectOption>
               {forHost.length ? (
                 <NativeSelectOptGroup label={`Covers ${host}`}>
                   {forHost.map((account) => (
@@ -129,7 +138,7 @@ export function AuthPanel({
             </NativeSelect>
           </label>
           {auth.kind === "header" ? (
-            <label className="flex items-center gap-3">
+            <label className="flex flex-wrap items-center gap-3">
               <span className="w-24 shrink-0 text-text-secondary">Header</span>
               <Input
                 inputSize="sm"
@@ -143,6 +152,7 @@ export function AuthPanel({
         </>
       ) : null}
 
+      {readError ? <p role="alert" className="text-caption-11 text-status-danger">{readError}</p> : null}
       {suggestion ? (
         <div className="flex flex-wrap items-center gap-2 text-caption-11 text-text-secondary">
           <KeyRound className="size-(--icon-12)" aria-hidden />
