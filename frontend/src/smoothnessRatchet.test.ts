@@ -167,7 +167,8 @@ const BASELINE = {
   // permission toast wore a hand-rolled backdrop-blur and now wears glass-float.
   // 35 → 33: Database New Connection/Delete use shared dialog overlays.
   // 33 → 23: shared database dialogs and opaque control/status surfaces.
-  blurSurfaces: 23,
+  // 23 → 22: Agent metadata inspector uses the shared dialog material.
+  blurSurfaces: 22,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
   unstableStoreSelectors: 0,
