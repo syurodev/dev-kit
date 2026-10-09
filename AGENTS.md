@@ -150,6 +150,17 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   the recent set, never counted against it. Order is `AgentSession.updatedAt` (bridge: the row time, not
   touched by transcript chunks) then id. "Waiting" reads `pendingQueue`/`elicitationQueue` as well as
   `status`. `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
+- **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
+  `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
+  Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`
+  keeps the end in view when its viewport changes height only while following. Panel area
+  (`ComposerPanelArea`) → context bar (`ComposerContextBar`, built by `useAgentTray`) → field → tools,
+  one border. `chooseTrayPanel` / `repoSummary` (`composer/trayModel.ts`) are the pure rules: a
+  permission beats a question beats a list the person opened; a repo chip says the total and, as a
+  separate badge, how many need attention. Heights are capped with `cqh` classes in `index.css` against
+  `.agent-conversation`. Browser checks (focus, scroll, short and narrow panes) live in the dev
+  gallery's "composer cluster" section (`?gallery#agenthub-composer-layout`, bridge-free through
+  `TrayStatusOverride`); the bun tests only read markup and pure rules.
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.

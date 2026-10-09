@@ -57,7 +57,7 @@ export type AgentQuestionCardProps = {
  * margins cancel the card's p-3 so the bar spans it edge to edge, on the
  * tray's own surface.
  */
-const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 flex items-center gap-1 bg-surface-base px-3 pt-1 pb-3";
+const ACTIONS_BAR = "sticky bottom-0 z-10 -mx-3 -mb-3 flex items-center gap-1 bg-surface-raised px-3 pt-1 pb-3";
 
 /** A choice as a compact row — the tray has little height to give, and a boxed row per choice spent most of it on borders. */
 const CHOICE = "min-h-8 border-transparent bg-transparent px-2 py-1.5 data-checked:border-transparent";

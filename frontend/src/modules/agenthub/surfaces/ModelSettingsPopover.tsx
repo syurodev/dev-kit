@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, Loader2, RotateCcw, SlidersHorizontal, Zap } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, Loader2, RotateCcw, Zap } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { EASE_OUT, MOTION_BASE, noMotion } from "@/lib/motion";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -40,6 +40,8 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
   useEffect(() => setPosition(index), [index, model?.currentValue]);
   useEffect(() => { if (!open) setModelsOpen(false); }, [open]);
   const activeEffort = efforts[position];
+  // Short, for the button: the model's name, or what is happening to it.
+  const triggerLabel = selected?.name ?? selected?.value ?? (loading ? "Loading models…" : error ? "Models unavailable" : "Select model");
   async function reset() {
     setResetting(true);
     try {
@@ -52,9 +54,20 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <ActionTooltip label="Agent settings" side="top">
-          <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
-            <SlidersHorizontal aria-hidden />
+        {/* The model on the button's face, with a chevron: which model answers
+            is the one setting worth reading without opening anything. Effort and
+            the rest are in the popover. The name says what the button opens. */}
+        <ActionTooltip label={`Model and effort: ${triggerLabel}`} side="top">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid="composer-config"
+            aria-label={`Model and effort: ${triggerLabel}`}
+            className="min-w-0 shrink gap-1 px-2 text-text-secondary"
+          >
+            <span className="max-w-28 truncate text-body-13 @max-xs:max-w-16">{triggerLabel}</span>
+            <ChevronDown aria-hidden className="size-3 shrink-0 text-text-tertiary" />
           </Button>
         </ActionTooltip>
       </PopoverTrigger>

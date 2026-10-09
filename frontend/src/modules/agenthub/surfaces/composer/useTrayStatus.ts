@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 import { gitRepositories, type Repository } from "@/bridge/git";
 import { listBoards, listTasks, onTasksChanged, type Board, type Task } from "@/bridge/tasks";
@@ -83,6 +83,13 @@ async function findRepos(projectPath: string, folders: string[]): Promise<TraySt
   return out;
 }
 
+/**
+ * Stands in for what the bridge would say. The component gallery and tests have
+ * no backend, and a context bar with no repositories, workspace or boards is
+ * the one state they cannot otherwise show. Nothing in the app provides it.
+ */
+export const TrayStatusOverride = createContext<TrayStatus | null>(null);
+
 /** The branch line for one repository. */
 export function repoBranch(repo: Pick<Repository, "branch" | "detached">): string | null {
   return repo.detached ? "detached" : repo.branch || null;
@@ -154,6 +161,7 @@ async function findTasks(workspaceId: string, sessionId: string): Promise<FoundT
  * switched it. Tasks follow tasks:changed.
  */
 export function useTrayStatus(projectPath: string, sessionId: string, refreshKey: unknown): TrayStatus {
+  const override = useContext(TrayStatusOverride);
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
   const [workspace, setWorkspace] = useState<TrayWorkspace | null>(null);
@@ -214,6 +222,7 @@ export function useTrayStatus(projectPath: string, sessionId: string, refreshKey
     };
   }, [workspaceId, sessionId, tasksVersion]);
 
+  if (override) return override;
   if (!projectPath) return EMPTY;
   const own = repos.find((repo) => repo.own) ?? (repos.length === 1 ? repos[0] : undefined);
   return { workspace, branch: own ? repoBranch(own) : null, repos, ...tasks };

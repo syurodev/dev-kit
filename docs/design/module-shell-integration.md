@@ -153,6 +153,18 @@ sidebar gửi yêu cầu qua `useAgentDraftRequests`. Đóng tab **không** đó
   session đã pin; phần còn lại nằm trong stack "N older sessions", mở/đóng được và nhớ theo nhóm
   (`agentPins.olderOpen`). Card là `div`: nút mở session, avatar subagent và menu là anh em,
   không lồng button. Dialog rename/xóa vẫn thuộc `AgentHubSidebar` và gate theo module visible.
+- Composer là một cụm trong vùng riêng, không phải lớp nổi trên transcript: conversation là
+  flex column, transcript `flex-1 min-h-0` cuộn trong viewport của nó, composer region
+  (`agent-composer-region`) ở dưới trong normal flow, cùng cột `max-w-180 px-6`. Không còn
+  `--composer-inset` hay ResizeObserver đo composer; `TranscriptStream` tự giữ vị trí khi viewport
+  đổi chiều cao (`scrollTopAfterViewportResize`: đang follow cuối → ở lại cuối, đang đọc lịch sử →
+  không động). Cụm (`AgentComposer`) xếp từ trên xuống: panel (permission / question / danh sách /
+  @ và /) → context bar → ô nhập (+ attachment, queue) → hàng công cụ, chung một nền, border, bo
+  góc. Chiều cao bị chặn từ bên trong bằng `cqh` của `.agent-conversation` (`composer-region-cap`,
+  `composer-panel-cap`, `composer-editor-cap`), nên pane thấp thì panel và queue cuộn trong cụm,
+  Send và nút trả lời permission vẫn nằm trong pane. Context bar chỉ nêu workspace/folder, repo
+  (tổng và số cần chú ý là hai số tách nhau), yêu cầu đang chờ và việc đang chạy; Tasks, Subagents,
+  Commands, Follow ở menu "…". `AgentRail` dùng cùng cụm và cùng region.
 - Agent panel bên phải (`AgentCompanionSlot`) **không hiện khi Agent Hub là module
   đang active** — nhường cột cho panel của module (diff, file đổi, kết quả query).
   `chatOpen` giữ nguyên lựa chọn, nên panel quay lại khi rời Agent Hub; nút toggle

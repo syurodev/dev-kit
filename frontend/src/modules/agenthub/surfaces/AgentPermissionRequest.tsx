@@ -208,7 +208,12 @@ export function AgentPermissionRequest({
       <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
       <PermissionLockedNote env={env} environment={gate?.env} />
-      {actions}
+      {/* Sticky to the foot of whatever scrolls this card (the composer's panel
+          area on a short pane): a long command or a stack of file edits scrolls
+          past, and Deny / Allow stay where they can be pressed. */}
+      <div data-testid="permission-actions" className="sticky bottom-0 -mx-3 -mb-3 bg-surface-raised px-3 pt-1 pb-3">
+        {actions}
+      </div>
     </div>
   );
 }

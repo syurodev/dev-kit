@@ -346,26 +346,6 @@ export function AgentHubContent({
         : "Conversation";
   const isError = effectiveState === "Error";
 
-  // The floating composer's height, measured, so the transcript can pad its
-  // foot by exactly that much. A fixed guess is wrong the moment a file is
-  // attached and the composer grows a row of chips.
-  //
-  // Written straight onto the element as a CSS variable, not kept in state:
-  // the composer tray animates its height, and a setState per frame of that
-  // re-rendered this whole view — transcript included — sixty times a second,
-  // which is what made the tray stutter.
-  const composerRef = React.useRef<HTMLDivElement>(null);
-  const conversationRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    const el = composerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
-      conversationRef.current?.style.setProperty("--composer-inset", `${height}px`);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [effectiveState]);
   // Offered only when the agent says it has the command: a button that sends a
   // prompt the agent does not understand is a button that makes it reply "?".
   const canCompact = commands.some((command) => command.name.replace(/^\//, "") === "compact");
@@ -382,10 +362,9 @@ export function AgentHubContent({
       data-testid="agent-hub-content"
       data-state={effectiveState}
       className={cn(
-        // Relative, so the composer can float over the transcript's foot.
-        // No side or bottom padding either: the transcript scrolls, and padding
-        // out here put its scrollbar 16px in from the card's edge. Each body
-        // pads its own content (the stream's px-6, the composer's px-6 pb-3).
+        // No side or bottom padding: the transcript scrolls, and padding out
+        // here put its scrollbar 16px in from the card's edge. Each body pads
+        // its own content (the stream's px-6, the composer region's px-6 pb-3).
         "relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden",
         className,
       )}
@@ -411,13 +390,14 @@ export function AgentHubContent({
         // call is the evidence for the error.
         <div
           data-testid={isError ? "agent-hub-content-error" : "agent-hub-content-conversation"}
-          ref={conversationRef}
-          className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
-          // How much of the transcript's foot the composer covers (set by the
-          // observer above); the stream pads by it so the last line of an
-          // answer scrolls clear.
+          // A column of two regions. The transcript takes what is left and
+          // scrolls in it; the composer region takes its own height below it,
+          // in the normal flow — nothing is laid over the transcript's foot,
+          // so no text scrolls behind the field. `agent-conversation` makes
+          // `cqh` in the caps below mean this box's height.
+          className="agent-conversation relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
         >
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div data-testid="agent-hub-transcript-region" className="min-h-0 flex-1 overflow-hidden">
             {draft ? (
               // Nothing to show yet but where the agent will work and what it
               // may reach: the folder is the sandbox, and this is the last
@@ -425,7 +405,6 @@ export function AgentHubContent({
               <div
                 data-testid="agent-hub-draft"
                 className="flex size-full flex-col items-center justify-center px-6"
-                style={{ paddingBottom: "var(--composer-inset, 0px)" }}
               >
                 <div className="flex w-full max-w-120 flex-col gap-3">
                   <p className="text-title-14 text-text-primary">
@@ -468,126 +447,121 @@ export function AgentHubContent({
             )}
           </div>
 
-          {/* Floats over the transcript's foot, in its reading column, so what
-              you write lines up with what you are answering. Only the composer
-              takes the pointer; the strip either side of it lets clicks through
-              to the text scrolling underneath. */}
+          {/* The composer region: the same reading column as the transcript
+              (max-w-180, px-6), a small inset at the foot, and its own height.
+              `shrink` + the cap: on a short pane it gives way before the
+              transcript does, and what does not fit scrolls inside it rather
+              than pushing Send out of the pane. */}
           <div
-            ref={composerRef}
-            // No gap: the cards above the composer carry their own spacing
-            // inside the box that animates, so a card closing takes its gap
-            // with it instead of leaving 12px to snap shut at the end.
-            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full flex-col px-6 pb-3"
+            data-testid="agent-composer-region"
+            className="composer-region-cap flex min-h-0 w-full shrink-0 flex-col px-6 pb-3"
           >
-          {/* A failed session keeps its composer. The card used to replace it,
-              which left Retry as the only way forward: the same prompt again,
-              or nothing. A turn that failed is often one you want to answer
-              with different words, and the rail — the same session by another
-              route — never took the field away. So the card sits where the
-              permission card does, above the field, and the transcript pads
-              for both. */}
-          {/* Above the error card: a vendor failure explains why a turn
-              stopped, and the card below it only says that one did. */}
-          {failure && onFailureAction ? (
-            <div className="pointer-events-auto mx-auto mb-3 w-full max-w-180">
-              <AgentSessionFailure
-                failure={failure}
-                onAction={onFailureAction}
-                onDismiss={onDismissFailure}
-                className="max-w-none"
+            <div className="mx-auto flex min-h-0 w-full max-w-180 flex-col gap-2">
+              {/* A failed session keeps its composer. The card used to replace it,
+                  which left Retry as the only way forward: the same prompt again,
+                  or nothing. A turn that failed is often one you want to answer
+                  with different words, and the rail — the same session by another
+                  route — never took the field away. So the feedback sits in the
+                  region, in the flow, above the cluster; it scrolls in its own
+                  box if both cards are showing on a short pane. */}
+              {failure || isError ? (
+                <div data-testid="agent-composer-feedback" className="flex max-h-40 min-h-0 shrink flex-col gap-2 overflow-y-auto">
+                  {/* Above the error card: a vendor failure explains why a turn
+                      stopped, and the card below it only says that one did. */}
+                  {failure && onFailureAction ? (
+                    <AgentSessionFailure
+                      failure={failure}
+                      onAction={onFailureAction}
+                      onDismiss={onDismissFailure}
+                      className="max-w-none shrink-0"
+                    />
+                  ) : null}
+                  {isError ? (
+                    <AgentSessionError
+                      cause={errorCause}
+                      agentName={displayTitle || "Agent"}
+                      reason={errorMessage}
+                      onRetry={onRetrySession}
+                      onOpenSettings={onOpenSettings}
+                      // No Close here. The thing to do with a failed turn is retry
+                      // it, and a button that parks the session sat right beside the
+                      // one that retries it — which is how a session people meant to
+                      // retry got closed instead. Close stays in the ⋯ menu, where it
+                      // is chosen rather than reached for.
+                      className="w-full max-w-none shrink-0"
+                    >
+                      {errorDetail}
+                    </AgentSessionError>
+                  ) : null}
+                </div>
+              ) : null}
+              <AgentComposer
+                size="wide"
+                trayStrip={tray.strip}
+                trayPanel={tray.panel}
+                value={promptValue}
+                onChange={onPromptChange}
+                onSend={onSend}
+                onCancel={onCancel}
+                streaming={draft ? false : streaming}
+                usage={usage}
+                goal={draft ? null : goal}
+                onSetGoal={draft ? undefined : onSetGoal}
+                turnCount={
+                  // A turn is a thing the human said. Counting them here beats
+                  // threading InvokeResult.turnCount through the view: this
+                  // survives a reload, because the transcript does.
+                  items.filter(
+                    (item) =>
+                      item.kind === "user_message_chunk" ||
+                      item.kind === UpdateKind.UpdateUserMessageChunk,
+                  ).length
+                }
+                vendor={vendor}
+                // A draft is not named yet; its placeholder addresses the agent
+                // that will answer — "Ask Claude…", not "Ask New session…".
+                agentName={draft ? vendorInfo(agent).name : displayTitle}
+                // A closed session says what sending will do, since it does one
+                // thing more than usual: it wakes the agent's process back up.
+                placeholder={composerPlaceholder(session?.status)}
+                commands={commands}
+                contextFiles={contextFiles}
+                onSelectCommand={onSelectCommand}
+                onSelectContext={onSelectContext}
+                onSearchContext={onSearchContext}
+                configOptions={configOptions}
+                mode={mode}
+                availableModes={availableModes}
+                onSetMode={onSetMode}
+                onSetConfigOption={onSetConfigOption}
+                configLoading={configLoading}
+                configError={configError}
+                onRefreshConfig={onRefreshConfig}
+                focusRequest={focusComposerRequest}
+                onCompact={canCompact ? onCompact : undefined}
+                agents={draft ? agents : undefined}
+                agent={draft ? agent : undefined}
+                onAgentChange={draft ? onAgentChange : undefined}
+                disabled={sendDisabled}
+                attachedFiles={attachments}
+                onBrowseContext={onBrowseContext}
+                onRemoveAttachment={onRemoveAttachment}
+                imageAttachments={imageAttachments}
+                onRemoveImage={onRemoveImage}
+                refs={refs}
+                onRemoveRef={onRemoveRef}
+                onPasteImage={onPasteImage}
+                onDropImage={onDropImage}
+                imageError={imageError}
+                queuedPrompts={queuedPrompts}
+                queuePaused={queuePaused}
+                queuePausedReason={queuePausedReason}
+                onResumeQueued={onResumeQueued}
+                onCancelQueued={onCancelQueued}
+                onEditQueued={onEditQueued}
+                className="min-h-0 w-full"
               />
             </div>
-          ) : null}
-          {isError ? (
-            // An opaque base under the card: its danger wash is translucent,
-            // which is right on a surface and wrong floating over a transcript,
-            // where the rows read straight through it.
-            <div className="pointer-events-auto mx-auto mb-3 w-full max-w-180 rounded-control bg-surface-base">
-              <AgentSessionError
-                cause={errorCause}
-                agentName={displayTitle || "Agent"}
-                reason={errorMessage}
-                onRetry={onRetrySession}
-                onOpenSettings={onOpenSettings}
-                // No Close here. The thing to do with a failed turn is retry
-                // it, and a button that parks the session sat right beside the
-                // one that retries it — which is how a session people meant to
-                // retry got closed instead. Close stays in the ⋯ menu, where it
-                // is chosen rather than reached for.
-                className="w-full max-w-none"
-              >
-                {errorDetail}
-              </AgentSessionError>
-            </div>
-          ) : null}
-          <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
-            <AgentComposer
-              size="wide"
-              trayStrip={tray.strip}
-              trayPanel={tray.panel}
-              value={promptValue}
-              onChange={onPromptChange}
-              onSend={onSend}
-              onCancel={onCancel}
-              streaming={draft ? false : streaming}
-              usage={usage}
-              goal={draft ? null : goal}
-              onSetGoal={draft ? undefined : onSetGoal}
-              turnCount={
-                // A turn is a thing the human said. Counting them here beats
-                // threading InvokeResult.turnCount through the view: this
-                // survives a reload, because the transcript does.
-                items.filter(
-                  (item) =>
-                    item.kind === "user_message_chunk" ||
-                    item.kind === UpdateKind.UpdateUserMessageChunk,
-                ).length
-              }
-              vendor={vendor}
-              // A draft is not named yet; its placeholder addresses the agent
-              // that will answer — "Ask Claude…", not "Ask New session…".
-              agentName={draft ? vendorInfo(agent).name : displayTitle}
-              // A closed session says what sending will do, since it does one
-              // thing more than usual: it wakes the agent's process back up.
-              placeholder={composerPlaceholder(session?.status)}
-              commands={commands}
-              contextFiles={contextFiles}
-              onSelectCommand={onSelectCommand}
-              onSelectContext={onSelectContext}
-              onSearchContext={onSearchContext}
-              configOptions={configOptions}
-              mode={mode}
-              availableModes={availableModes}
-              onSetMode={onSetMode}
-              onSetConfigOption={onSetConfigOption}
-              configLoading={configLoading}
-              configError={configError}
-              onRefreshConfig={onRefreshConfig}
-              focusRequest={focusComposerRequest}
-              onCompact={canCompact ? onCompact : undefined}
-              agents={draft ? agents : undefined}
-              agent={draft ? agent : undefined}
-              onAgentChange={draft ? onAgentChange : undefined}
-              disabled={sendDisabled}
-              attachedFiles={attachments}
-              onBrowseContext={onBrowseContext}
-              onRemoveAttachment={onRemoveAttachment}
-              imageAttachments={imageAttachments}
-              onRemoveImage={onRemoveImage}
-              refs={refs}
-              onRemoveRef={onRemoveRef}
-              onPasteImage={onPasteImage}
-              onDropImage={onDropImage}
-              imageError={imageError}
-              queuedPrompts={queuedPrompts}
-              queuePaused={queuePaused}
-              queuePausedReason={queuePausedReason}
-              onResumeQueued={onResumeQueued}
-              onCancelQueued={onCancelQueued}
-              onEditQueued={onEditQueued}
-              className="min-w-0 flex-1"
-            />
-          </div>
           </div>
         </div>
       )}

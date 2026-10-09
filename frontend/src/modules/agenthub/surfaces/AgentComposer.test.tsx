@@ -70,12 +70,24 @@ describe("a paused queue", () => {
 });
 
 describe("composer controls", () => {
-  it("names the icon-only settings button", () => {
+  it("names the model button and shows the current model on its face", () => {
     const html = renderToString(
       <AgentComposer {...base} configOptions={[{ id: "model", options: [{ value: "sonnet" }] }]} onSetConfigOption={() => {}} />,
     );
     const tag = html.match(/<button[^>]*data-testid="composer-config"[^>]*>/)?.[0] ?? "";
-    expect(tag).toContain('aria-label="Agent settings"');
+    // No model chosen yet: the button says so rather than naming nothing.
+    expect(tag).toContain('aria-label="Model and effort: Select model"');
+    const chosen = renderToString(
+      <AgentComposer
+        {...base}
+        configOptions={[
+          { id: "model", name: "Model", currentValue: "sonnet", options: [{ value: "opus", name: "Opus" }, { value: "sonnet", name: "Sonnet 4" }] },
+        ]}
+        onSetConfigOption={() => {}}
+      />,
+    );
+    expect(chosen.match(/<button[^>]*data-testid="composer-config"[^>]*>.*?<\/button>/)?.[0]).toContain("Sonnet 4");
+    expect(chosen).toContain('aria-label="Model and effort: Sonnet 4"');
   });
 
   it("removes an attached file with a named 28px button, not by clicking the 24px chip", () => {
