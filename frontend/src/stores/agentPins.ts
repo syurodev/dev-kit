@@ -20,6 +20,13 @@ type AgentPinsState = {
   collapsed: string[];
   toggleCollapsed: (key: string) => void;
   /**
+   * Groups whose stack of older sessions is open, by the same keys as
+   * `collapsed`. Open rather than closed, the opposite of `collapsed`: a stack
+   * starts folded, and a group nobody has touched must not unfold everything.
+   */
+  olderOpen: string[];
+  toggleOlderOpen: (key: string) => void;
+  /**
    * Closed sessions left out of the tree. Off by default: a session you just
    * closed vanishing from under the pointer is a worse surprise than a long
    * list, and the list is what the toggle is for.
@@ -77,6 +84,13 @@ export const useAgentPinsStore = create<AgentPinsState>()(
             ? state.collapsed.filter((k) => k !== key)
             : [...state.collapsed, key],
         })),
+      olderOpen: [],
+      toggleOlderOpen: (key) =>
+        set((state) => ({
+          olderOpen: state.olderOpen.includes(key)
+            ? state.olderOpen.filter((k) => k !== key)
+            : [...state.olderOpen, key],
+        })),
       hideClosed: false,
       toggleHideClosed: () => set((state) => ({ hideClosed: !state.hideClosed })),
       following: [],
@@ -98,6 +112,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
       partialize: (state) => ({
         pinned: state.pinned,
         collapsed: state.collapsed,
+        olderOpen: state.olderOpen,
         hideClosed: state.hideClosed,
         recentProjects: state.recentProjects,
         following: state.following,

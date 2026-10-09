@@ -142,6 +142,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 `docs/superpowers/HANDOFF-codex.md`. Gemini is **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
 
+- **The rail is flat cards in collapsible groups, not a tree** (`frontend/src/modules/agenthub/sidebar/`;
+  `AgentHubSidebar` is the container, `AgentSessionSidebar` the presentation). Groups keep the old
+  membership (`sidebar/grouping.ts`: scratch → workspace id → folder; a child stays in its parent's
+  group, drawn as its own card). A group draws its 5 most recent sessions plus exceptions — the one on
+  screen, any waiting on the person, pinned — and folds the rest into a stack; exceptions are added to
+  the recent set, never counted against it. Order is `AgentSession.updatedAt` (bridge: the row time, not
+  touched by transcript chunks) then id. "Waiting" reads `pendingQueue`/`elicitationQueue` as well as
+  `status`. `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.

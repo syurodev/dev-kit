@@ -21,12 +21,13 @@ import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
 
-/**
- * A workspace as the rail groups by it: its services' folders, primary first.
- * A session opened in any of them belongs to the workspace, not to the one
- * folder its process happens to start in.
- */
-export type SidebarWorkspace = { id: string; name: string; paths: string[] };
+import { countDescendants, projectLabel, sessionGroup, type SidebarWorkspace } from "../sidebar/grouping";
+import { nextWaiting } from "../sidebar/model";
+
+// Grouping lives in sidebar/grouping so the card list and this tree file a
+// session in the same place; these stay exported from here for their callers.
+export { countDescendants, nextWaiting };
+export type { SidebarWorkspace };
 
 export type AgentSidebarTreeProps = {
   sessions: AgentSession[];
@@ -93,6 +94,11 @@ export type AgentSidebarTreeProps = {
 };
 
 /**
+ * Not Agent Hub's rail any more: that is `sidebar/AgentSessionSidebar` (flat
+ * two-line cards in collapsible groups). This tree stays for the component
+ * gallery and its own tests; grouping rules shared with the rail live in
+ * `sidebar/grouping.ts`.
+ *
  * Agent Hub / Sidebar Content — Figma `917:101`, 264x836.
  *
  * Figma's note: "The swarm as a tree: indentation is the parent→child chain,
@@ -163,53 +169,6 @@ function toSubagentStatus(state: string | undefined): AgentStatus {
 }
 
 /**
- * The last segment of a path — the folder a developer calls the project — or
- * the last `segments` of them, to tell two folders of one name apart.
- */
-function projectLabel(path: string, segments = 1): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length ? parts.slice(-segments).join("/") : path;
-}
-
-/**
- * How many sessions go with each one if it is deleted, itself excluded.
- *
- * Exported for its test: this number is the label on a destructive action, and
- * a wrong one means the user agreed to lose something they were not told about.
- */
-export function countDescendants(sessions: AgentSession[]): Record<string, number> {
-  const children = new Map<string, string[]>();
-  for (const session of sessions) {
-    if (!session.parentSessionId) continue;
-    const list = children.get(session.parentSessionId) ?? [];
-    list.push(session.id);
-    children.set(session.parentSessionId, list);
-  }
-  const counts: Record<string, number> = {};
-  const count = (id: string): number => {
-    if (counts[id] !== undefined) return counts[id];
-    counts[id] = 0; // guards a cycle, which the depth limit should prevent anyway
-    let total = 0;
-    for (const child of children.get(id) ?? []) total += 1 + count(child);
-    counts[id] = total;
-    return total;
-  };
-  for (const session of sessions) count(session.id);
-  return counts;
-}
-
-/**
- * The next session waiting on the user, after the one selected — so the
- * footer's "N agents waiting on you" is a place to go, not just a count, and
- * pressing it again walks on to the next one.
- */
-export function nextWaiting(waitingIds: string[], activeSessionId?: string): string | undefined {
-  if (waitingIds.length === 0) return undefined;
-  const at = activeSessionId ? waitingIds.indexOf(activeSessionId) : -1;
-  return waitingIds[(at + 1) % waitingIds.length];
-}
-
-/**
  * Which sessions the tree draws when closed ones are hidden. A closed row
  * stays if it is selected, or if anything alive descends from it.
  */
@@ -267,12 +226,8 @@ export function groupByProject(
   // Every scratch folder is the same "no project". A session belongs only
   // to its chosen workspace, even when its folder is shared by several.
   const groupOf = (session: AgentSession) => {
-    const path = session.projectPath;
-    if (scratchRoot && path.startsWith(`${scratchRoot}/`)) return scratchRoot;
-    const workspace = workspaces.find((w) => w.id === session.workspaceId);
-    if (!workspace) return path;
-    const key = `workspace:${workspace.id}`;
-    workspaceByKey.set(key, workspace);
+    const { key, workspace } = sessionGroup(session, scratchRoot, workspaces);
+    if (workspace) workspaceByKey.set(key, workspace);
     return key;
   };
   const byId = new Set(sessions.map((session) => session.id));
