@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS edges (
 	kind TEXT NOT NULL,
 	guard TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path, line);
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
 CREATE TABLE IF NOT EXISTS config_keys (
@@ -1217,6 +1218,32 @@ func (s *sqliteStore) FindNodeAtLine(ctx context.Context, filePath string, line 
 		return Node{}, false, fmt.Errorf("codegraph: unmarshal params for node %q: %w", n.ID, err)
 	}
 	return n, true, nil
+}
+
+// ListNodesInFile returns every node declared in filePath, outermost first at
+// each start line, so a class precedes the members it contains.
+func (s *sqliteStore) ListNodesInFile(ctx context.Context, filePath string) ([]Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes
+		 WHERE file_path = ? AND line > 0
+		 ORDER BY line ASC, end_line DESC, id ASC`, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListNodesInFile: %w", err)
+	}
+	defer rows.Close()
+	var nodes []Node
+	for rows.Next() {
+		var n Node
+		var paramsJSON string
+		if err := rows.Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine, &n.Summary, &paramsJSON); err != nil {
+			return nil, fmt.Errorf("codegraph: scan node: %w", err)
+		}
+		if err := json.Unmarshal([]byte(paramsJSON), &n.Params); err != nil {
+			return nil, fmt.Errorf("codegraph: unmarshal params for node %q: %w", n.ID, err)
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
 }
 
 // FindNodesByName is a candidate filter, not the authority on the match: a

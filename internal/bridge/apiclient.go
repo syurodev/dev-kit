@@ -470,12 +470,21 @@ func (s *AppService) ApiClearHistory(requestID string) error {
 // ApiDraftFromEndpoint builds a request from a Code Graph endpoint without
 // saving it. FR-7 is explicit that a draft becomes a request only when the
 // person saves it, so this returns one and stores nothing.
-func (s *AppService) ApiDraftFromEndpoint(endpointID string) (apiclient.EndpointDraft, error) {
+//
+// servicePath names the folder whose index holds the endpoint ("" is the focused
+// project, as before): entry points are listed per workspace folder now, and an
+// id means something only in the index it came from.
+func (s *AppService) ApiDraftFromEndpoint(endpointID, servicePath string) (apiclient.EndpointDraft, error) {
 	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
-		"action":      "draft_from_endpoint",
-		"endpoint_id": recordID(endpointID),
+		"action":       "draft_from_endpoint",
+		"endpoint_id":  recordID(endpointID),
+		"service_path": servicePath,
 	}, func(ctx context.Context) (any, error) {
-		return app.DraftFromEndpoint(ctx, s.container.CodeGraph, endpointID)
+		graph, err := s.codeGraphService(ctx, servicePath)
+		if err != nil {
+			return nil, err
+		}
+		return app.DraftFromEndpoint(ctx, graph, endpointID)
 	})
 	if err != nil {
 		return apiclient.EndpointDraft{}, err

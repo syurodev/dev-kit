@@ -9,7 +9,7 @@ import { parseEntryPointMatches, parseSymbolMatches } from "./searchResult";
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
   title: "Code Graph",
-  // The explorer shows the open project, or the picker when there is none. Its home costs nothing to open, so it opens
+  // The explorer shows the workspace's folders. Its home costs nothing to open, so it opens
   // rather than showing "has nothing open" (ModuleManifest.opensHome).
   opensHome: true,
   version: "1.0.0",
@@ -26,18 +26,36 @@ export const codegraphModule: ModuleManifest = {
   // not.
   commands: [
     {
-      id: "codegraph.open_project",
-      title: "Open project…",
-      run: () => void import("./codegraphActions").then((actions) => actions.pickAndOpenProject()),
+      id: "codegraph.find_in_workspace",
+      title: "Find in workspace…",
+      run: () => void import("./codegraphActions").then((a) => a.openWorkspaceSearch()),
     },
     {
       // Named for the palette, which lists every module's commands together:
       // beside Database's "Re-index schema", a bare "Re-index" says nothing.
-      id: "codegraph.reindex_project",
-      title: "Re-index Code Graph project",
-      run: () => void import("./codegraphActions").then((actions) => actions.reindexActiveProject()),
+      id: "codegraph.reindex_scope",
+      title: "Re-index Code Graph folders in scope",
+      run: () => void import("./codegraphActions").then((a) => a.reindexScope()),
+    },
+    {
+      id: "codegraph.reindex_workspace",
+      title: "Re-index Code Graph workspace",
+      run: () => void import("./codegraphActions").then((a) => a.reindexWorkspace()),
+    },
+    {
+      id: "codegraph.go_back",
+      title: "Code Graph: Go back",
+      run: () => void import("./codegraphActions").then((a) => a.goBack()),
+    },
+    {
+      id: "codegraph.go_forward",
+      title: "Code Graph: Go forward",
+      run: () => void import("./codegraphActions").then((a) => a.goForward()),
     },
   ],
+  // The strip's +: a new tab here has no blank form to fill, so it starts the
+  // thing you do first in a workspace — look for something.
+  newTab: () => void import("./codegraphActions").then((a) => a.openWorkspaceSearch()),
   // The rail belongs to the module, not to whichever document is open: a
   // file tab and no flow still needs its entry points.
   sidebar: lazy(() => import("./CodeGraphSidebar").then(({ CodeGraphSidebar }) => ({ default: CodeGraphSidebar }))),
@@ -86,17 +104,19 @@ registerIntent("codegraph.reveal", async (ref, { placement }) => {
       await actions.openFileInProject(ref.project ?? "", ref.id, ref.line, placement);
       return;
     case "endpoint": {
-      const { useCodeGraphStore } = await import("./codegraphStore");
       // "endpoint" is the ref kind agents and saved transcripts use for any
-      // entry point, HTTP or not.
-      const ep = useCodeGraphStore.getState().entryPoints.find((e) => e.id === ref.id);
-      if (ep) actions.viewFlow(ep, { preview: false, beside });
+      // entry point, HTTP or not. It is looked for in the folder the ref names,
+      // else in whichever folder of the workspace has it.
+      const found = await actions.findEntryPoint(ref.id, ref.project);
+      if (found) actions.viewFlow(found.owner, found.entry, { preview: false, beside });
       return;
     }
     case "node": {
+      const owner = await actions.ownerOfNode(ref.project);
+      if (!owner) return;
       const { openNodeFlow } = await import("./documents");
-      openNodeFlow(ref.id, ref.label, { preview: false, beside });
-      void actions.loadFlow(ref.id);
+      openNodeFlow(owner, ref.id, ref.label ?? ref.id, { preview: false, beside });
+      void actions.loadFlow(owner.folderId, ref.id);
       return;
     }
   }

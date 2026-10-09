@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { GitFork, RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { FlowCanvas } from "./graph/FlowCanvas";
@@ -9,47 +10,57 @@ import { PlanHeader, PlanMeta } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
 import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { PLAN_STATUS } from "./plan/planStatus";
-import { useCodeGraphStore } from "./codegraphStore";
-import {
-  approvePlan,
-  loadPlan,
-  loadPlanTasks,
-  relinkPlanNode,
-  setPlanCommentCount,
-} from "./codegraphActions";
-import { useProjectReady } from "./useDocument";
+import { emptyPlanState, useCodeGraphStore } from "./codegraphStore";
+import { approvePlan, loadPlan, loadPlanTasks, relinkPlanNode, setPlanCommentCount } from "./planActions";
+import { describeParams, PLAN_VIEW } from "./documents";
+import { set } from "./storeAccess";
+import { useDocumentOwnership } from "./useDocument";
 
-const set = useCodeGraphStore.getState().set;
 const onSelectPlanNode = (id: string) => set({ selectedPlanNodeId: id, commentsPlanNodeId: id });
 const closeComments = () => set({ commentsPlanNodeId: null });
-const retryPlan = () => void loadPlan();
 
-/** The plan as a tab: the agent's proposed flow, each node's status against the index. */
-export function PlanDocument() {
-  const ready = useProjectReady();
-  const plan = useCodeGraphStore((s) => s.plan);
-  const planEdges = useCodeGraphStore((s) => s.planEdges);
-  const planBusy = useCodeGraphStore((s) => s.planBusy);
-  const planError = useCodeGraphStore((s) => s.planError);
+/**
+ * The plan of one folder as a tab: the agent's proposed flow, each node's status
+ * against that folder's index. A plan is stored in a folder's index, so the tab
+ * names the folder and says so; plans of different folders are separate
+ * documents, never one merged list.
+ */
+export function PlanDocument({ params }: { params?: Record<string, unknown> }) {
+  const doc = describeParams(PLAN_VIEW, params);
+  const ownership = useDocumentOwnership(doc);
+  const workspaceId = ownership.owner?.workspaceId ?? "";
+  const folderId = ownership.owner?.folderId ?? "";
+  const ready = ownership.relation === "current";
+  const state = useCodeGraphStore((s) => (folderId ? s.plans[folderId] : undefined)) ?? emptyPlanState();
+  const { plan, edges: planEdges, busy: planBusy, error: planError, commentCounts, tasks: planTasks } = state;
   const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
   const commentsPlanNodeId = useCodeGraphStore((s) => s.commentsPlanNodeId);
-  const commentCounts = useCodeGraphStore((s) => s.commentCounts);
-  const planTasks = useCodeGraphStore((s) => s.planTasks);
+  const several = useCodeGraphStore((s) => s.folders.length > 1);
+  const retryPlan = useCallback(() => void loadPlan(folderId), [folderId]);
 
   // Restored after a relaunch, or opened before the sidebar's Plan section
   // ever loaded it.
   useEffect(() => {
-    if (ready && !useCodeGraphStore.getState().plan) void loadPlan();
-  }, [ready]);
+    if (ready && !useCodeGraphStore.getState().plans[folderId]?.plan) void loadPlan(folderId);
+  }, [ready, folderId]);
 
   // The chips come from Tasks, which changes without Code Graph hearing about
   // it — a task created on the board, or moved by the reconcile after a
   // re-index. Refreshing them when this tab opens costs one bounded query and
-  // keeps the canvas honest; a task created while it is already on screen
-  // still waits for the next open.
+  // keeps the canvas honest.
   useEffect(() => {
-    if (ready) void loadPlanTasks();
-  }, [ready]);
+    if (ready) void loadPlanTasks(folderId);
+  }, [ready, folderId]);
+
+  if (!ready) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title={ownership.relation === "other-workspace" ? "This plan is from another workspace" : "This plan's folder is not in the workspace"}
+        body="Switch to its workspace in the title bar to read it."
+      />
+    );
+  }
 
   // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
   // shape as real ones with an empty filePath — a shape the view already
@@ -130,7 +141,7 @@ export function PlanDocument() {
           <PlanNodeDetail
             node={selectedPlanNode}
             busy={planBusy}
-            onRelink={(fqn) => void relinkPlanNode(selectedPlanNode.planNodeId, fqn)}
+            onRelink={(fqn) => void relinkPlanNode(folderId, selectedPlanNode.planNodeId, fqn)}
           />
         )}
         {/* An approve or relink that failed leaves the plan on screen; the
@@ -148,13 +159,18 @@ export function PlanDocument() {
             edges={planFlowEdges}
             nodeType="planNode"
             planLegend
-            header={<PlanHeader plan={plan} />}
+            header={
+              <>
+                <PlanHeader plan={plan} />
+                {several ? <Chip className="max-w-40 truncate" >{ownership.label}</Chip> : null}
+              </>
+            }
             meta={
               <PlanMeta
                 plan={plan}
                 edgeCount={planEdges.length}
                 busy={planBusy}
-                onApprove={() => void approvePlan()}
+                onApprove={() => void approvePlan(folderId)}
                 onRefresh={retryPlan}
               />
             }
@@ -170,11 +186,13 @@ export function PlanDocument() {
             inspector={
               commentsPlanNodeId ? (
                 <PlanCommentsPopover
+                  workspaceId={workspaceId}
+                  folderId={folderId}
                   planNodeId={commentsPlanNodeId}
                   label={planById.get(commentsPlanNodeId)?.fqn ?? commentsPlanNodeId}
                   description={planById.get(commentsPlanNodeId)?.description ?? ""}
                   onClose={closeComments}
-                  onCountChange={setPlanCommentCount}
+                  onCountChange={(nodeId, n) => setPlanCommentCount(folderId, nodeId, n)}
                 />
               ) : null
             }
@@ -198,7 +216,7 @@ export function PlanDocument() {
       ) : (
         <EmptyState
           icon={GitFork}
-          title="No plan for this project yet"
+          title={`No plan for ${several ? ownership.label : "this folder"} yet`}
           body="An agent creates one with codegraph.proposeFlow; you approve it here, and every node shows how far the code has caught up."
         />
       )}

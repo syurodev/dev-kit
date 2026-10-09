@@ -1,8 +1,9 @@
 import { SidebarInset } from "@/components/ui/sidebar-shell";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   Bot,
   Boxes,
+  FolderGit2,
   Braces,
   Cable,
   Clock,
@@ -33,6 +34,9 @@ import { dispatchIntent, hasIntent } from "@/workbench/intents";
 import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 import { verbChipClass } from "../graph/tokens";
 import { filterEntryPoints, groupEntryPoints, verbsIn, type KindGroup, type OwnerGroup } from "./sidebarModel";
+import { DOT } from "./WorkspaceHeader";
+import type { FolderHealth } from "../workspace/indexHealth";
+import { entryKey } from "../workspace/identity";
 
 /** Figma `CodeGraph / Sidebar / Method Chip` (1189:41359): Geist Mono 10, radius 6. */
 export const VERB_CHIP = "inline-flex h-5.25 shrink-0 items-center justify-center rounded-sm px-1.5 text-code-11 font-semibold uppercase";
@@ -52,35 +56,50 @@ const KIND_ICON: Record<string, LucideIcon> = {
 };
 const kindIcon = (kind: string) => KIND_ICON[kind] ?? Workflow;
 
+/** One folder's entry points and how well they can be trusted. */
+export type FolderEntries = {
+  folderId: string;
+  /** The folder's registered path: names its index to the other modules that read it. */
+  path: string;
+  label: string;
+  entries: CodeGraphEntryPoint[];
+  health: FolderHealth;
+  /** Why the list is empty or old, when it is. */
+  note: string;
+};
+
 type Props = {
-  entryPoints: CodeGraphEntryPoint[];
+  folders: FolderEntries[];
   query: string;
-  busy: boolean;
-  selectedEntryPointId: string | null;
+  selected: { folderId: string; entryPointId: string } | null;
   verbFilter: string[];
   collapsed: string[];
   onVerbFilter: (verbs: string[]) => void;
   onToggleGroup: (key: string) => void;
   /** Single click: the flow in the preview tab. */
-  onSelect: (ep: CodeGraphEntryPoint) => void;
+  onSelect: (folderId: string, ep: CodeGraphEntryPoint) => void;
   /** Double click: the flow in a tab that stays. */
-  onKeep: (ep: CodeGraphEntryPoint) => void;
+  onKeep: (folderId: string, ep: CodeGraphEntryPoint) => void;
   /** The flow in a group beside the one in front. */
-  onOpenBeside: (ep: CodeGraphEntryPoint) => void;
-  onAskAgent: (ep: CodeGraphEntryPoint) => void;
+  onOpenBeside: (folderId: string, ep: CodeGraphEntryPoint) => void;
+  onAskAgent: (folderId: string, ep: CodeGraphEntryPoint) => void;
+  onReindexFolder: (folderId: string) => void;
 };
 
 /**
- * The project's entry points — HTTP routes, Kong plugin phases, message
- * handlers, scheduled jobs — grouped by kind, then service, then what declares
- * them (Figma `CodeGraph / Sidebar — 1 Endpoints grouped`, 1189:65405). A level
- * with a single group is skipped: one heading over everything says nothing.
+ * The entry points of the folders in view — HTTP routes, Kong plugin phases,
+ * message handlers, scheduled jobs — grouped by folder, then kind, service and
+ * what declares them (Figma `CodeGraph / Sidebar — 1 Endpoints grouped`,
+ * extended with the folder level). A level with a single group is skipped: one
+ * heading over everything says nothing. An entry point is its folder's: the same
+ * `GET /health` in two folders is two rows under two headings, and a folder whose
+ * index is old, still building, failed or unsupported says so on its own heading
+ * instead of silently contributing nothing.
  */
 export function EntryPointsTab({
-  entryPoints,
+  folders,
   query,
-  busy,
-  selectedEntryPointId,
+  selected,
   verbFilter,
   collapsed,
   onVerbFilter,
@@ -89,19 +108,24 @@ export function EntryPointsTab({
   onKeep,
   onOpenBeside,
   onAskAgent,
+  onReindexFolder,
 }: Props) {
-  const verbs = useMemo(() => verbsIn(entryPoints), [entryPoints]);
+  const all = useMemo(() => folders.flatMap((f) => f.entries), [folders]);
+  const verbs = useMemo(() => verbsIn(all), [all]);
   const active = useMemo(() => new Set(verbFilter), [verbFilter]);
-  const shown = useMemo(() => filterEntryPoints(entryPoints, query, active), [entryPoints, query, active]);
-  const groups = useMemo(() => groupEntryPoints(shown), [shown]);
+  const shown = useMemo(
+    () => folders.map((f) => ({ ...f, groups: groupEntryPoints(filterEntryPoints(f.entries, query, active)), count: filterEntryPoints(f.entries, query, active).length })),
+    [folders, query, active],
+  );
   // A search opens everything: a match inside a folded group is not a match.
   const searching = query.trim().length > 0 || active.size > 0;
 
   const menuActions = useMemo(() => ({ onKeep, onOpenBeside, onAskAgent }), [onKeep, onOpenBeside, onAskAgent]);
+  const pathOf = useCallback((folderId: string) => folders.find((f) => f.folderId === folderId)?.path ?? "", [folders]);
   const nodes = useMemo(() => {
     const closed = new Set(searching ? [] : collapsed);
-    const entryNode = (ep: CodeGraphEntryPoint, owner: string): TreeNodeData => ({
-      id: ep.id,
+    const entryNode = (folderId: string, ep: CodeGraphEntryPoint, owner: string): TreeNodeData => ({
+      id: entryKey(folderId, ep.id),
       label: (
         <>
           {/* min-w, not w: a Kong phase (BODY_FILTER, HEADER_FILTER) is
@@ -116,14 +140,14 @@ export function EntryPointsTab({
         </>
       ),
       title: `${ep.verb} ${ep.target}`,
-      selected: selectedEntryPointId === ep.id,
-      onSelect: () => onSelect(ep),
-      onActivate: () => onKeep(ep),
+      selected: selected?.folderId === folderId && selected.entryPointId === ep.id,
+      onSelect: () => onSelect(folderId, ep),
+      onActivate: () => onKeep(folderId, ep),
       actions: (
         <>
           <Tooltip>
             <TooltipTrigger asChild>
-              <TreeRowAction aria-label={`Ask agent about ${ep.verb} ${ep.target}`} onClick={() => onAskAgent(ep)}>
+              <TreeRowAction aria-label={`Ask agent about ${ep.verb} ${ep.target}`} onClick={() => onAskAgent(folderId, ep)}>
                 <Bot />
               </TreeRowAction>
             </TooltipTrigger>
@@ -136,16 +160,16 @@ export function EntryPointsTab({
               </TreeRowAction>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
-              <EntryPointMenuItems entry={ep} owner={owner} actions={menuActions} Item={DropdownMenuItem} />
+              <EntryPointMenuItems folderId={folderId} projectPath={pathOf(folderId)} entry={ep} owner={owner} actions={menuActions} Item={DropdownMenuItem} />
             </DropdownMenuContent>
           </DropdownMenu>
         </>
       ),
       wrap: (row) => (
-        <ContextMenu key={`ep:${ep.id}`}>
+        <ContextMenu key={`ep:${folderId}:${ep.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
           <ContextMenuContent className="w-60">
-            <EntryPointMenuItems entry={ep} owner={owner} actions={menuActions} Item={ContextMenuItem} />
+            <EntryPointMenuItems folderId={folderId} projectPath={pathOf(folderId)} entry={ep} owner={owner} actions={menuActions} Item={ContextMenuItem} />
           </ContextMenuContent>
         </ContextMenu>
       ),
@@ -162,17 +186,39 @@ export function EntryPointsTab({
       onToggle: () => onToggleGroup(key),
       children,
     });
-    const ownerNode = (o: OwnerGroup, kind: string, sticky: number) =>
-      group(o.key, o.label, o.owner, kind === "plugin" ? Puzzle : CodeXml, o.entries.length, sticky, o.entries.map((ep) => entryNode(ep, o.owner)));
-    const serviceNodes = (k: KindGroup, sticky: number): TreeNodeData[] =>
-      k.services.length === 1
-        ? k.services[0].owners.map((o) => ownerNode(o, k.kind, sticky))
-        : k.services.map((svc) =>
-            group(svc.key, svc.label || "default", undefined, Boxes, svc.count, sticky, svc.owners.map((o) => ownerNode(o, k.kind, sticky + 1))),
-          );
-    if (groups.length === 1) return serviceNodes(groups[0], 0);
-    return groups.map((k) => group(k.key, k.label, undefined, kindIcon(k.kind), k.count, 0, serviceNodes(k, 1)));
-  }, [groups, searching, collapsed, selectedEntryPointId, onSelect, onKeep, onAskAgent, onToggleGroup, menuActions]);
+    const build = (f: (typeof shown)[number], base: number): TreeNodeData[] => {
+      const ownerNode = (o: OwnerGroup, kind: string, sticky: number) =>
+        group(`${f.folderId}:${o.key}`, o.label, o.owner, kind === "plugin" ? Puzzle : CodeXml, o.entries.length, sticky, o.entries.map((ep) => entryNode(f.folderId, ep, o.owner)));
+      const serviceNodes = (k: KindGroup, sticky: number): TreeNodeData[] =>
+        k.services.length === 1
+          ? k.services[0].owners.map((o) => ownerNode(o, k.kind, sticky))
+          : k.services.map((svc) =>
+              group(`${f.folderId}:${svc.key}`, svc.label || "default", undefined, Boxes, svc.count, sticky, svc.owners.map((o) => ownerNode(o, k.kind, sticky + 1))),
+            );
+      if (f.groups.length === 1) return serviceNodes(f.groups[0], base);
+      return f.groups.map((k) => group(`${f.folderId}:${k.key}`, k.label, undefined, kindIcon(k.kind), k.count, base, serviceNodes(k, base + 1)));
+    };
+
+    // One folder in view with entries: its groups directly. Otherwise a heading
+    // per folder, so a row is never without its owner.
+    if (shown.length === 1 && shown[0].count > 0) return build(shown[0], 0);
+    return shown
+      .filter((f) => !searching || f.count > 0)
+      .map((f): TreeNodeData => ({
+        id: `folder:${f.folderId}`,
+        label: f.label,
+        icon: <FolderGit2 />,
+        count: f.count,
+        sticky: 0,
+        meta: f.health.health === "ready" ? undefined : <span title={f.health.detail}>{f.health.label}</span>,
+        trailing: <span className={cn("size-1.5 shrink-0 rounded-full", DOT[f.health.tone])} title={`${f.health.label}. ${f.health.detail}`} aria-label={f.health.label} />,
+        expandable: true,
+        expanded: !closed.has(`folder:${f.folderId}`),
+        onToggle: () => onToggleGroup(`folder:${f.folderId}`),
+        emptyLabel: f.count === 0 ? <FolderNote note={f.note || (f.entries.length === 0 ? "No entry points" : "No entry points match")} health={f.health} onReindex={() => onReindexFolder(f.folderId)} /> : undefined,
+        children: build(f, 1),
+      }));
+  }, [shown, searching, collapsed, selected, onSelect, onKeep, onAskAgent, onToggleGroup, onReindexFolder, menuActions, pathOf]);
 
   const toggleVerb = (v: string) => onVerbFilter(active.has(v) ? verbFilter.filter((x) => x !== v) : [...verbFilter, v]);
 
@@ -215,16 +261,34 @@ export function EntryPointsTab({
 
       {nodes.length > 0 ? (
         <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />
-      ) : !busy ? (
+      ) : (
         <p className="px-2 py-3 text-center text-body-12 text-text-tertiary">
-          {entryPoints.length === 0 ? "No entry points found in this project." : "No entry points match."}
+          {folders.length === 0 ? "No folders in view." : all.length === 0 ? "No entry points found in these folders." : "No entry points match."}
         </p>
-      ) : null}
+      )}
     </div>
   );
 }
 
 type MenuActions = Pick<Props, "onKeep" | "onOpenBeside" | "onAskAgent">;
+
+/** Why a folder has no rows, and what can be done about it. */
+function FolderNote({ note, health, onReindex }: { note: string; health: FolderHealth; onReindex: () => void }) {
+  const canRetry = health.health === "failed" || health.health === "not-indexed" || health.health === "needs-analyzer";
+  return (
+    <span className="whitespace-normal" title={health.detail}>
+      {note}
+      {canRetry ? (
+        <>
+          {" · "}
+          <button type="button" className="underline underline-offset-2 hover:text-text-primary" onClick={onReindex}>
+            {health.health === "failed" ? "Retry" : "Index now"}
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
+}
 
 /**
  * What can be done with an entry point without picking it first — on hover,
@@ -232,11 +296,15 @@ type MenuActions = Pick<Props, "onKeep" | "onOpenBeside" | "onAskAgent">;
  * Client can send.
  */
 function EntryPointMenuItems({
+  folderId,
+  projectPath,
   entry,
   owner,
   actions,
   Item,
 }: {
+  folderId: string;
+  projectPath: string;
   entry: CodeGraphEntryPoint;
   owner: string;
   actions: MenuActions;
@@ -245,13 +313,13 @@ function EntryPointMenuItems({
   const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
   return (
     <>
-      <Item icon={<SquarePlus />} onSelect={() => actions.onKeep(entry)}>
+      <Item icon={<SquarePlus />} onSelect={() => actions.onKeep(folderId, entry)}>
         Open in new tab
       </Item>
-      <Item icon={<Columns2 />} onSelect={() => actions.onOpenBeside(entry)}>
+      <Item icon={<Columns2 />} onSelect={() => actions.onOpenBeside(folderId, entry)}>
         Open beside
       </Item>
-      <Item icon={<Bot />} onSelect={() => actions.onAskAgent(entry)}>
+      <Item icon={<Bot />} onSelect={() => actions.onAskAgent(folderId, entry)}>
         Ask agent about this entry point
       </Item>
       {/* Hidden rather than disabled when the API Client is not loaded: an
@@ -265,6 +333,8 @@ function EntryPointMenuItems({
               kind: "endpoint",
               id: entry.id,
               label: `${entry.verb} ${entry.target}`,
+              // The endpoint id is its folder's: name the index it came from.
+              project: projectPath,
             })
           }
         >

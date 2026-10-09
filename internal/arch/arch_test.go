@@ -172,6 +172,15 @@ func TestLayering(t *testing.T) {
 		}
 	}
 
+	// wssearch and docwatch are leaves behind the workspace's file features:
+	// they are handed directories and know nothing of workspaces, the vault or
+	// the bridge, so a search or a watcher can be tested against a temp dir.
+	for _, leaf := range []string{"wssearch", "docwatch"} {
+		for _, imp := range graph[pkg(leaf)] {
+			t.Errorf("layering violation: %s must not import %s", leaf, short(imp))
+		}
+	}
+
 	// codexapp is a leaf transport for `codex app-server`, like acp: the
 	// adapter in agenthub owns the sandbox and the translation to ACP.
 	for _, imp := range graph[pkg("codexapp")] {

@@ -49,7 +49,7 @@ export function PlanTab({
     }
     return (
       <p className="px-2 py-3 text-center text-body-12 text-text-tertiary">
-        {busy ? "Loading plan…" : "No plan for this project yet. An agent drafts one with codegraph.proposeFlow."}
+        {busy ? "Loading plan…" : "No plan for this folder yet. An agent drafts one with codegraph.proposeFlow."}
       </p>
     );
   }

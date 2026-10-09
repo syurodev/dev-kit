@@ -194,6 +194,27 @@ export interface EntryPoint {
 }
 
 /**
+ * EntryPointsView is one folder's entry points and how current they are.
+ */
+export interface EntryPointsView {
+    "path": string;
+    "state": string;
+    "entries": EntryPoint[] | null;
+    "indexedAt"?: number;
+
+    /**
+     * Stale: served from the stored index while a refresh runs.
+     */
+    "stale"?: boolean;
+    "error"?: string;
+
+    /**
+     * MissingToolchain: the failure is a missing analyzer, not the code.
+     */
+    "missingToolchain"?: boolean;
+}
+
+/**
  * Field is one field of a body type, e.g. {Name: "amount", Type: "BigDecimal"}.
  * One level deep only: a nested DTO is a field with a type and no fields of its
  * own, because a skeleton that guessed two levels would be guessing about
@@ -223,6 +244,25 @@ export interface FieldRef {
 }
 
 /**
+ * FileContent is a text file as the editor opens it.
+ */
+export interface FileContent {
+    "content": string;
+
+    /**
+     * Revision identifies exactly these bytes (see RevisionOf).
+     */
+    "revision": string;
+    "size": number;
+
+    /**
+     * ModifiedAt is the file's mtime, Unix milliseconds. Informational: the
+     * revision, not the clock, decides whether a file changed.
+     */
+    "modifiedAt": number;
+}
+
+/**
  * FileEntry is one file or directory in the active project, relative to its
  * root. Deliberately flat (not a nested tree) — simpler to produce here and
  * just as easy for a frontend to build a tree UI from a sorted flat list.
@@ -233,6 +273,39 @@ export interface FileEntry {
      */
     "path": string;
     "isDir": boolean;
+}
+
+/**
+ * FileOutline is a file's declarations as the index last saw it. It describes
+ * the SAVED file as of IndexedAt, never an unsaved buffer.
+ */
+export interface FileOutline {
+    "path": string;
+    "state": string;
+    "symbols": OutlineSymbol[] | null;
+    "indexedAt"?: number;
+}
+
+/**
+ * FileStatus is what is on disk at a path, without its text.
+ */
+export interface FileStatus {
+    "exists": boolean;
+
+    /**
+     * Revision is the revision of the bytes on disk; "" when the file does
+     * not exist or was too large to hash.
+     */
+    "revision": string;
+    "size": number;
+    "modifiedAt": number;
+
+    /**
+     * Unreadable says why the editor cannot open it as text, when it cannot:
+     * "binary", "too_large" or "not_regular". The revision of a binary file
+     * is still the hash of its bytes.
+     */
+    "unreadable"?: string;
 }
 
 /**
@@ -420,6 +493,23 @@ export interface Node {
      * full parameter signature, empty for class nodes
      */
     "params": Param[] | null;
+}
+
+/**
+ * OutlineSymbol is one declaration in a file, with those it contains.
+ */
+export interface OutlineSymbol {
+    "id": string;
+    "label": string;
+    "kind": string;
+    "line": number;
+    "endLine": number;
+
+    /**
+     * Children are the declarations inside this one, in source order. Siblings
+     * start at increasing lines, so a position is found by binary search.
+     */
+    "children"?: OutlineSymbol[] | null;
 }
 
 /**

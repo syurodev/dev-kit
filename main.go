@@ -802,6 +802,16 @@ func main() {
 		})
 	})
 	go app.QueueUnindexedServices(container)
+	// The editor tells Go which documents it has open and hears about changes
+	// to them on disk (docs/design/codegraph-workspace.md § 6). Watching only
+	// the directories of open documents keeps this bounded however large the
+	// workspace is.
+	if err := container.WorkspaceCode.StartWatcher(func(keys []string, resync bool) {
+		emitAppEvent("workspace:fileChanged", map[string]any{"keys": keys, "resync": resync})
+	}); err != nil {
+		log.Printf("workspace: document watcher unavailable: %v", err)
+	}
+	defer container.WorkspaceCode.Close()
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()

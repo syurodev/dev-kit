@@ -11,7 +11,7 @@ import {
   type NoteVersion,
 } from "../../bridge/notes";
 import { errorMessage } from "../../bridge/errors";
-import { lineDiff } from "./noteDiff";
+import { lineDiff } from "@/lib/lineDiff";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 /** "2h ago" — the panel answers how stale a version is, not when it was made. */

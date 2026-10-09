@@ -52,6 +52,14 @@ type indexQueue struct {
 	running bool
 	ctx     context.Context
 	cancel  context.CancelFunc
+	// forced are queued folders that must be analysed again even when a
+	// Service already has them open (Registry.Reindex), as opposed to the
+	// index-on-add run, which leaves an open folder to its own watcher.
+	forced map[string]bool
+	// current is the folder being indexed now and the function that cancels
+	// just that run (Registry.CancelIndex).
+	current       string
+	cancelCurrent context.CancelFunc
 }
 
 // Enqueue queues folders to be indexed once in the background and returns
@@ -59,16 +67,64 @@ type indexQueue struct {
 // open as the focused or a resident service is skipped — it keeps its own
 // index. Everything else runs, including a folder already indexed: the run
 // refreshes it (and costs only the reopen when nothing changed).
-func (r *Registry) Enqueue(paths ...string) {
+func (r *Registry) Enqueue(paths ...string) { r.enqueue(false, paths) }
+
+// Reindex queues folders to be analysed again, whether or not a Service has
+// them open: an open folder is re-indexed in place (Service.Refresh), any other
+// is indexed on a throwaway Service. It is what "Reindex" in the workspace
+// means — the answer to "this index looks wrong", not to "this folder is new".
+// Same queue, same single worker, same bound on concurrent analyses; folders
+// run in the order given, and a failing one does not stop the rest.
+func (r *Registry) Reindex(paths ...string) { r.enqueue(true, paths) }
+
+// CancelIndex withdraws folders from the queue and stops the run in flight if
+// it is one of them. A folder withdrawn goes back to whatever is on disk: it
+// reports indexed with its previous index, or nothing. Folders not queued are
+// ignored. Cancelling does not touch a Service's own watcher re-index.
+func (r *Registry) CancelIndex(paths ...string) {
+	q := r.queue()
+	var reverted []string
+	q.mu.Lock()
+	drop := map[string]bool{}
+	for _, p := range paths {
+		drop[ProjectKey(p)] = true
+	}
+	kept := q.pending[:0]
+	for _, key := range q.pending {
+		if drop[key] {
+			delete(q.states, key)
+			delete(q.forced, key)
+			reverted = append(reverted, key)
+			continue
+		}
+		kept = append(kept, key)
+	}
+	q.pending = kept
+	if q.current != "" && drop[q.current] && q.cancelCurrent != nil {
+		q.cancelCurrent()
+	}
+	q.mu.Unlock()
+	for _, key := range reverted {
+		r.reportIndexStatus(r.IndexStatus(key))
+	}
+}
+
+func (r *Registry) enqueue(force bool, paths []string) {
 	q := r.queue()
 	var queued []ServiceIndexStatus
 	q.mu.Lock()
 	for _, path := range paths {
 		key := ProjectKey(path)
 		if st := q.states[key].State; st == IndexPending || st == IndexIndexing {
+			if force && st == IndexPending {
+				q.forced[key] = true
+			}
 			continue
 		}
 		q.pending = append(q.pending, key)
+		if force {
+			q.forced[key] = true
+		}
 		q.states[key] = ServiceIndexStatus{Path: key, State: IndexPending}
 		queued = append(queued, q.states[key])
 	}
@@ -114,7 +170,7 @@ func (r *Registry) queue() *indexQueue {
 	defer r.mu.Unlock()
 	if r.indexQ == nil {
 		ctx, cancel := context.WithCancel(context.Background())
-		r.indexQ = &indexQueue{states: map[string]ServiceIndexStatus{}, ctx: ctx, cancel: cancel}
+		r.indexQ = &indexQueue{states: map[string]ServiceIndexStatus{}, forced: map[string]bool{}, ctx: ctx, cancel: cancel}
 	}
 	return r.indexQ
 }
@@ -130,11 +186,20 @@ func (r *Registry) drainQueue(ctx context.Context) {
 		}
 		key := q.pending[0]
 		q.pending = q.pending[1:]
+		force := q.forced[key]
+		delete(q.forced, key)
 		q.states[key] = ServiceIndexStatus{Path: key, State: IndexIndexing}
+		runCtx, cancelRun := context.WithCancel(ctx)
+		q.current, q.cancelCurrent = key, cancelRun
 		q.mu.Unlock()
 		r.reportIndexStatus(ServiceIndexStatus{Path: key, State: IndexIndexing})
 
-		st := r.indexOnce(ctx, key)
+		st := r.indexOnce(runCtx, key, force)
+		cancelled := runCtx.Err() != nil
+		cancelRun()
+		q.mu.Lock()
+		q.current, q.cancelCurrent = "", nil
+		q.mu.Unlock()
 		if ctx.Err() != nil {
 			// Stopped, not failed: the app is quitting. Nothing is reported,
 			// so no "failed" is persisted for a run that never finished.
@@ -143,6 +208,15 @@ func (r *Registry) drainQueue(ctx context.Context) {
 			q.running = false
 			q.mu.Unlock()
 			return
+		}
+		if cancelled {
+			// Withdrawn by CancelIndex: neither a failure nor a success. The
+			// folder is what it was before the run.
+			q.mu.Lock()
+			delete(q.states, key)
+			q.mu.Unlock()
+			r.reportIndexStatus(r.IndexStatus(key))
+			continue
 		}
 
 		q.mu.Lock()
@@ -156,8 +230,15 @@ func (r *Registry) drainQueue(ctx context.Context) {
 // index (a stored one is refreshed, not just served), shut down. Not through
 // Open — 89 services queued would spin the LRU and evict exactly what the
 // user has open. A folder already open is left to its own Service.
-func (r *Registry) indexOnce(ctx context.Context, key string) ServiceIndexStatus {
+func (r *Registry) indexOnce(ctx context.Context, key string, force bool) ServiceIndexStatus {
 	if open, ok := r.Service(key); ok {
+		if force {
+			// Re-index the open folder in place. Its own watcher keeps
+			// working; this is the same run it would start on a change.
+			if err := open.Refresh(ctx); err != nil && !errors.Is(err, ErrNoActiveProject) {
+				return indexFailure(key, err)
+			}
+		}
 		// Its own Service keeps its index; report what that index is.
 		if _, err := open.WaitForIndexReady(ctx); err != nil {
 			return indexFailure(key, err)

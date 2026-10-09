@@ -197,3 +197,52 @@ func TestUpdateWorkspace_AddsRemovesAndReordersFolders(t *testing.T) {
 		t.Fatalf("unknown id: err = %v", err)
 	}
 }
+
+// Changing the primary writes only the root: folders keep their IDs and rows
+// (so documents and scopes that name them stay valid), and nothing is queued
+// for indexing.
+func TestSetPrimary_ChangesOnlyTheRoot(t *testing.T) {
+	root := t.TempDir()
+	mkGitDir(t, filepath.Join(root, "a"))
+	mkGitDir(t, filepath.Join(root, "b"))
+
+	svc := workspace.NewService(workspace.NewMemoryRepository())
+	added := 0
+	svc.OnServicesAdded = func(s []workspace.WorkspaceService) { added += len(s) }
+	ws, before, err := svc.AddWorkspace("w", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	added = 0
+
+	second := before[1]
+	got, err := svc.SetPrimary(ws.ID, second.ID)
+	if err != nil {
+		t.Fatalf("SetPrimary: %v", err)
+	}
+	if got.Root != second.Path {
+		t.Fatalf("root = %s, want %s", got.Root, second.Path)
+	}
+	after, _ := svc.ListServices(ws.ID)
+	if after[0].ID != second.ID {
+		t.Fatalf("primary-first order not applied: %+v", after)
+	}
+	ids := map[string]bool{}
+	for _, s := range after {
+		ids[s.ID] = true
+	}
+	for _, s := range before {
+		if !ids[s.ID] {
+			t.Fatalf("folder %s lost its ID", s.Name)
+		}
+	}
+	if added != 0 {
+		t.Fatalf("changing the primary queued %d services for indexing", added)
+	}
+	if _, err := svc.SetPrimary(ws.ID, "ffffffffffffffffffffffff"); !errors.Is(err, workspace.ErrServiceNotFound) {
+		t.Fatalf("unknown folder err = %v", err)
+	}
+	if _, err := svc.SetPrimary("000000000000000000000000", second.ID); !errors.Is(err, workspace.ErrWorkspaceNotFound) {
+		t.Fatalf("unknown workspace err = %v", err)
+	}
+}

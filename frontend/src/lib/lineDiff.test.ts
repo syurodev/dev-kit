@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { lineDiff } from "./noteDiff";
+import { lineDiff } from "./lineDiff";
 
 const kinds = (before: string, after: string) => lineDiff(before, after).map((l) => l.kind);
 

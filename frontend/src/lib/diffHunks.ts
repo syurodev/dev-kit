@@ -1,4 +1,4 @@
-import type { DiffLine } from "@/modules/notes/noteDiff";
+import type { DiffLine } from "@/lib/lineDiff";
 
 /** A run of unchanged lines folded out of a diff, and how many it hides. */
 export type DiffGap = { kind: "gap"; count: number };

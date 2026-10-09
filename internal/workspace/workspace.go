@@ -18,6 +18,9 @@ import (
 // ErrWorkspaceNotFound is returned when no workspace matches the given ID.
 var ErrWorkspaceNotFound = errors.New("workspace not found")
 
+// ErrServiceNotFound is a folder id that is not one of the workspace's.
+var ErrServiceNotFound = errors.New("workspace folder not found")
+
 // ErrNameRequired is CreateWorkspace or UpdateWorkspace given a blank name.
 var ErrNameRequired = errors.New("workspace name is required")
 
@@ -332,6 +335,37 @@ func (s *Service) updateWorkspace(id, name string, paths []string, instructions 
 	}
 	s.servicesAdded(added)
 	return ws, ordered, nil
+}
+
+// SetPrimary makes one of the workspace's folders its primary — the folder an
+// agent session is spawned in by default. It writes only workspaces.root:
+// nothing is re-discovered, re-indexed or removed, the folder keeps its ID, and
+// every document, scope and search that names the folder by ID is unaffected.
+// That is the point of a separate call: reordering through UpdateWorkspace
+// rewrites the whole folder list.
+func (s *Service) SetPrimary(workspaceID, serviceID string) (Workspace, error) {
+	ws, err := s.workspace(workspaceID)
+	if err != nil {
+		return Workspace{}, err
+	}
+	services, err := s.repo.ListServices(workspaceID)
+	if err != nil {
+		return Workspace{}, err
+	}
+	for _, svc := range services {
+		if svc.ID != serviceID {
+			continue
+		}
+		if ws.Root == svc.Path {
+			return ws, nil
+		}
+		ws.Root = svc.Path
+		if err := s.repo.UpdateWorkspace(ws, nil, nil); err != nil {
+			return Workspace{}, err
+		}
+		return ws, nil
+	}
+	return Workspace{}, ErrServiceNotFound
 }
 
 func (s *Service) workspace(id string) (Workspace, error) {

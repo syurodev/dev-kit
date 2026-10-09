@@ -67,7 +67,11 @@ const HOME_KEY = "new:home";
 function editorKey(params?: Record<string, unknown>): string {
   if (typeof params?.requestId === "string" && params.requestId) return `request:${params.requestId}`;
   if (typeof params?.newId === "string" && params.newId) return `new:${params.newId}`;
-  if (typeof params?.endpointId === "string" && params.endpointId) return `endpoint:${params.endpointId}`;
+  // An endpoint id means something only in the index it was listed in: the same
+  // id in two workspace folders is two endpoints.
+  if (typeof params?.endpointId === "string" && params.endpointId) {
+    return `endpoint:${typeof params.project === "string" ? params.project : ""}:${params.endpointId}`;
+  }
   return HOME_KEY;
 }
 
@@ -119,13 +123,13 @@ export function ApiRequestView({ params }: { params?: Record<string, unknown> } 
     } else if (typeof params?.endpointId === "string" && params.endpointId) {
       // An endpoint id rather than a draft: a tab reopened after a restart
       // asks for a draft of the CURRENT index.
-      draftFromEndpoint(params.endpointId)
+      draftFromEndpoint(params.endpointId, typeof params.project === "string" ? params.project : "")
         .then((draft) => setEditor(key, freshEditor(forEditor({ ...draft, id: "" }), null, draft.bodyInferred ? "" : draft.note)))
         .catch((e) => setLoadError(errorMessage(e)));
     } else {
       setEditor(key, freshEditor(emptyRequest(), null));
     }
-  }, [key, params?.requestId, params?.newId, params?.endpointId]);
+  }, [key, params?.requestId, params?.newId, params?.endpointId, params?.project]);
 
   if (loadError) {
     return <EmptyState icon={Send} title="This request could not be opened" body={loadError} />;

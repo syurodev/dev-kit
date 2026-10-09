@@ -4,7 +4,7 @@ import type { CodeGraphDefinition, CodeGraphReference } from "@/bridge/codegraph
 let response: CodeGraphDefinition[] = [];
 let implementations: CodeGraphDefinition[] = [];
 let references: CodeGraphReference[] = [];
-const calls: Array<{ filePath: string; line: number; identifier: string }> = [];
+const calls: Array<{ filePath: string; line: number; identifier: string; servicePath?: string }> = [];
 
 // Spread the real module, override the three this file is about.
 //
@@ -17,21 +17,23 @@ const bridge = await import("@/bridge/codegraph");
 
 mock.module("@/bridge/codegraph", () => ({
   ...bridge,
-  findCodeGraphDefinitions: async (filePath: string, line: number, identifier: string) => {
-    calls.push({ filePath, line, identifier });
+  findCodeGraphDefinitions: async (filePath: string, line: number, identifier: string, servicePath?: string) => {
+    calls.push({ filePath, line, identifier, servicePath });
     return response;
   },
-  findCodeGraphImplementations: async (filePath: string, line: number, identifier: string) => {
-    calls.push({ filePath, line, identifier });
+  findCodeGraphImplementations: async (filePath: string, line: number, identifier: string, servicePath?: string) => {
+    calls.push({ filePath, line, identifier, servicePath });
     return implementations;
   },
-  findCodeGraphReferences: async (filePath: string, line: number, identifier: string) => {
-    calls.push({ filePath, line, identifier });
+  findCodeGraphReferences: async (filePath: string, line: number, identifier: string, servicePath?: string) => {
+    calls.push({ filePath, line, identifier, servicePath });
     return references;
   },
 }));
 
 const { createCodeGraphIntelProvider } = await import("./codegraphIntelProvider");
+
+const FOLDER = { id: "folder-1", path: "/ws/orders" };
 
 beforeEach(() => {
   response = [];
@@ -46,25 +48,25 @@ function neverAborted(): AbortSignal {
 
 describe("createCodeGraphIntelProvider", () => {
   it("sends the request's baseline line and identifier straight to the bridge", async () => {
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     await provider.definition!(
       { path: "OrderService.java", line: 10, displayLine: 14, identifier: "validate" },
       neverAborted(),
     );
-    expect(calls).toEqual([{ filePath: "OrderService.java", line: 10, identifier: "validate" }]);
+    expect(calls).toEqual([{ filePath: "OrderService.java", line: 10, identifier: "validate", servicePath: "/ws/orders" }]);
   });
 
   it("maps a definition to a CodeLocation with a shortened label", async () => {
     response = [
       { nodeId: "com.acme.OrderService.validate", label: "com.acme.OrderService.validate", kind: "method", filePath: "OrderService.java", line: 40 },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.definition!(
       { path: "OrderService.java", line: 15, displayLine: 15, identifier: "validate" },
       neverAborted(),
     );
     expect(locations).toEqual([
-      { path: "OrderService.java", line: 40, label: "OrderService.validate", kind: "method" },
+      { path: "OrderService.java", line: 40, owner: "folder-1", label: "OrderService.validate", kind: "method" },
     ]);
   });
 
@@ -73,7 +75,7 @@ describe("createCodeGraphIntelProvider", () => {
       { nodeId: "com.acme.OrderService.helper(int)", label: "com.acme.OrderService.helper", kind: "method", filePath: "OrderService.java", line: 25 },
       { nodeId: "com.acme.OrderService.helper(String)", label: "com.acme.OrderService.helper", kind: "method", filePath: "OrderService.java", line: 27 },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.definition!(
       { path: "OrderService.java", line: 15, displayLine: 15, identifier: "helper" },
       neverAborted(),
@@ -93,7 +95,7 @@ describe("createCodeGraphIntelProvider", () => {
         line: 1,
       },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.definition!(
       { path: "Caller.java", line: 5, displayLine: 5, identifier: "Application" },
       neverAborted(),
@@ -103,7 +105,7 @@ describe("createCodeGraphIntelProvider", () => {
 
   it("returns an empty result rather than nothing found for an empty index answer", async () => {
     response = [];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.definition!(
       { path: "OrderService.java", line: 15, displayLine: 15, identifier: "NoSuchSymbol" },
       neverAborted(),
@@ -117,7 +119,7 @@ describe("createCodeGraphIntelProvider", () => {
     ];
     const controller = new AbortController();
     controller.abort();
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.definition!(
       { path: "OrderService.java", line: 15, displayLine: 15, identifier: "validate" },
       controller.signal,
@@ -133,14 +135,14 @@ describe("createCodeGraphIntelProvider", () => {
     implementations = [
       { nodeId: "com.acme.OrderServiceImpl.create(Request)", label: "com.acme.OrderServiceImpl.create", kind: "method", filePath: "OrderServiceImpl.java", line: 31 },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.implementation!(
       { path: "OrderService.java", line: 12, displayLine: 15, identifier: "create" },
       neverAborted(),
     );
-    expect(calls).toEqual([{ filePath: "OrderService.java", line: 12, identifier: "create" }]);
+    expect(calls).toEqual([{ filePath: "OrderService.java", line: 12, identifier: "create", servicePath: "/ws/orders" }]);
     expect(locations).toEqual([
-      { path: "OrderServiceImpl.java", line: 31, label: "OrderServiceImpl.create", kind: "method" },
+      { path: "OrderServiceImpl.java", line: 31, owner: "folder-1", label: "OrderServiceImpl.create", kind: "method" },
     ]);
   });
 
@@ -148,13 +150,13 @@ describe("createCodeGraphIntelProvider", () => {
     references = [
       { nodeId: "com.acme.OrderController.post(Request)", label: "com.acme.OrderController.post", kind: "call", filePath: "OrderController.java", line: 44, code: "return service.create(request);" },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.references!(
       { path: "OrderService.java", line: 12, displayLine: 12, identifier: "create" },
       neverAborted(),
     );
     expect(locations).toEqual([
-      { path: "OrderController.java", line: 44, label: "OrderController.post", kind: "call", preview: "return service.create(request);" },
+      { path: "OrderController.java", line: 44, owner: "folder-1", label: "OrderController.post", kind: "call", preview: "return service.create(request);" },
     ]);
   });
 
@@ -162,11 +164,11 @@ describe("createCodeGraphIntelProvider", () => {
     references = [
       { nodeId: "com.acme.OrderController", label: "com.acme.OrderController", kind: "inject", filePath: "OrderController.java", line: 18, code: "" },
     ];
-    const provider = createCodeGraphIntelProvider();
+    const provider = createCodeGraphIntelProvider(FOLDER);
     const locations = await provider.references!(
       { path: "OrderService.java", line: 9, displayLine: 9, identifier: "OrderService" },
       neverAborted(),
     );
-    expect(locations).toEqual([{ path: "OrderController.java", line: 18, label: "OrderController", kind: "inject" }]);
+    expect(locations).toEqual([{ path: "OrderController.java", line: 18, owner: "folder-1", label: "OrderController", kind: "inject" }]);
   });
 });

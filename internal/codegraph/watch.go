@@ -484,6 +484,27 @@ func (s *Service) prepareReindex(ctx context.Context) func() {
 
 func (s *Service) runReindex(ctx context.Context) { s.prepareReindex(ctx)() }
 
+// Refresh analyses the open project again, now, and returns when the run is
+// over (cancelled, failed or published — Service.IndexInfo and
+// WaitForIndexReady say which). It is the explicit form of what the file
+// watcher does after a change: the same reservation, so an older run can never
+// publish over it and queries keep the previous index (or the stale one)
+// meanwhile.
+func (s *Service) Refresh(ctx context.Context) error {
+	s.mu.RLock()
+	usable := s.active && !s.index.unsupported
+	unsupported := s.index.unsupported
+	s.mu.RUnlock()
+	if unsupported {
+		return ErrUnsupportedProject
+	}
+	if !usable {
+		return ErrNoActiveProject
+	}
+	s.runReindex(ctx)
+	return nil
+}
+
 // WaitForIndexReady blocks through cold analysis, cached startup refresh,
 // and queued/running re-indexes, then returns the persistent project revision.
 // Callers that just wrote a file (or otherwise expect a re-index) should call

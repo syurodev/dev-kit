@@ -6,6 +6,7 @@ import {
   StateEffect,
   StateField,
   type ChangeDesc,
+  type EditorState,
   type Extension,
   type Text,
 } from "@codemirror/state";
@@ -32,6 +33,15 @@ import { detectPlatform, type Platform } from "@/lib/platform";
 export type CodeLocation = {
   path: string;
   line: number;
+  /**
+   * Whose file it is, when the editor can hold files of more than one owner —
+   * an opaque key the provider and `onNavigate` agree on (a workspace folder's
+   * id). A location is "this file" only when path AND owner match: two folders
+   * of a workspace both have a `src/config.ts`.
+   */
+  owner?: string;
+  /** How the owner reads where the location is shown (a folder's name). */
+  ownerLabel?: string;
   label?: string;
   kind?: string;
   /** The source line at that location, for lists that show the use itself. */
@@ -71,10 +81,27 @@ const CAPABILITY_LABEL: Record<CodeIntelCapability, string> = {
   references: "references",
 };
 
+/** What a lookup asked to show in a panel rather than navigate to or list in a tooltip. */
+export type CodeIntelPanelRequest = {
+  mode: "peek" | "references";
+  identifier: string;
+  /** Line in the SAVED document the lookup was made at. */
+  line: number;
+  locations: CodeLocation[];
+};
+
 export type CodeIntelConfig = {
   path: string;
+  /** Whose file this editor holds; see CodeLocation.owner. */
+  owner?: string;
   provider: CodeIntelProvider;
   onNavigate: (location: CodeLocation, options: { beside: boolean }) => void;
+  /**
+   * Shows lookup results in a panel the host owns: Peek Definition (read-only
+   * preview beside the code, without leaving it) and References kept in a list
+   * that stays open while results are read. Without it neither action exists.
+   */
+  onPanel?: (request: CodeIntelPanelRequest) => void;
 };
 
 /**
@@ -148,9 +175,12 @@ export function splitPreviewSegments(preview: string, identifier: string): Previ
 export function formatLocationPath(
   location: CodeLocation,
   editorPath: string,
+  editorOwner?: string,
 ): { text: string; isCurrentFile: boolean } {
-  const isCurrentFile = location.path === editorPath;
-  return { text: `${isCurrentFile ? "this file" : location.path}:${location.line}`, isCurrentFile };
+  const isCurrentFile = location.path === editorPath && location.owner === editorOwner;
+  // A file of another owner names it: the same path in another folder is not "this file".
+  const where = location.ownerLabel && !isCurrentFile ? `${location.ownerLabel} › ${location.path}` : location.path;
+  return { text: `${isCurrentFile ? "this file" : where}:${location.line}`, isCurrentFile };
 }
 
 /** Singular/plural noun and preposition for a picker's header row, per capability. */
@@ -256,6 +286,16 @@ const baselineField = StateField.define<CodeIntelBaseline>({
   },
 });
 
+/**
+ * The line of the SAVED document that `pos` (in the current one) falls on — what
+ * an index of the file calls it. Falls back to the current line for an editor
+ * with no code intelligence attached.
+ */
+export function savedLineAt(state: EditorState, pos: number): number {
+  const baseline = state.field(baselineField, false);
+  return baseline ? baselineLineAt(baseline, pos) : state.doc.lineAt(pos).number;
+}
+
 /** Call after the buffer is saved: the index will now describe this text. */
 export function markCodeIntelBaseline(view: EditorView): void {
   view.dispatch({ effects: resetCodeIntelBaseline.of(null) });
@@ -289,7 +329,15 @@ const hoverField = StateField.define<IdentifierRange | null>({
 });
 
 /** One row of the right-click menu, or a visual divider between groups of rows. */
-export type CodeIntelMenuAction = "definition" | "definitionBeside" | "implementation" | "references" | "cut" | "copy";
+export type CodeIntelMenuAction =
+  | "definition"
+  | "definitionBeside"
+  | "peek"
+  | "implementation"
+  | "references"
+  | "referencesPanel"
+  | "cut"
+  | "copy";
 
 export type CodeIntelMenuDescriptor =
   | { kind: "separator" }
@@ -325,7 +373,7 @@ export function hasCodeIntelMenu(capabilities: {
  * one.
  */
 export function buildCodeIntelMenu(
-  capabilities: { definition: boolean; implementation: boolean; references: boolean },
+  capabilities: { definition: boolean; implementation: boolean; references: boolean; panel?: boolean },
   readOnly: boolean,
   platform: Platform,
 ): CodeIntelMenuDescriptor[] {
@@ -338,6 +386,9 @@ export function buildCodeIntelMenu(
       label: "Open Definition Beside",
       shortcut: shortcutHint("Mod-Alt-F12", platform),
     });
+  }
+  if (capabilities.definition && capabilities.panel) {
+    lookups.push({ kind: "item", action: "peek", label: "Peek Definition", shortcut: shortcutHint("Alt-F12", platform) });
   }
   if (capabilities.implementation) {
     lookups.push({
@@ -354,6 +405,14 @@ export function buildCodeIntelMenu(
       label: "Find References",
       shortcut: shortcutHint("Shift-F12", platform),
     });
+    if (capabilities.panel) {
+      lookups.push({
+        kind: "item",
+        action: "referencesPanel",
+        label: "Show References in Panel",
+        shortcut: shortcutHint("Shift-Alt-F12", platform),
+      });
+    }
   }
 
   const clipboard: CodeIntelMenuDescriptor[] = [];
@@ -428,6 +487,7 @@ type CodeIntelTooltipState =
       capability: CodeIntelCapability;
       identifier: string;
       editorPath: string;
+      editorOwner?: string;
       onNavigate: CodeIntelConfig["onNavigate"];
     }
   | { kind: "menu"; pos: number; rows: CodeIntelMenuRow[]; selected: number };
@@ -533,7 +593,7 @@ function createCodeIntelTooltipView(view: EditorView): TooltipView {
       option.setAttribute("aria-selected", index === state.selected ? "true" : "false");
       if (index === state.selected) option.classList.add("cm-code-intel-option-selected");
 
-      const { text: pathText, isCurrentFile } = formatLocationPath(location, state.editorPath);
+      const { text: pathText, isCurrentFile } = formatLocationPath(location, state.editorPath, state.editorOwner);
       if (isCurrentFile) option.classList.add("cm-code-intel-option-current-file");
 
       if (location.preview) {
@@ -869,7 +929,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
        * already is the line on disk for a file this editor isn't editing.
        */
       resolveLocation(location: CodeLocation): CodeLocation {
-        if (location.path !== config.path) return location;
+        if (location.path !== config.path || location.owner !== config.owner) return location;
         const baseline = this.view.state.field(baselineField);
         const line = currentLineAt(baseline, location.line, this.view.state.doc);
         return line === location.line ? location : { ...location, line };
@@ -882,7 +942,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
        * baseline request, resolve every result back onto the screen, then
        * decide navigate vs. picker vs. message per `capability`.
        */
-      async lookup(capability: CodeIntelCapability, pos: number, beside: boolean) {
+      async lookup(capability: CodeIntelCapability, pos: number, beside: boolean, panel: "peek" | "references" | null = null) {
         const method = config.provider[capability];
         if (!method) return;
         const { view } = this;
@@ -924,6 +984,14 @@ export function codeIntel(config: CodeIntelConfig): Extension {
         // another.
         const resolved = locations.map((location) => this.resolveLocation(location));
 
+        // A panel was asked for (Peek Definition / References in panel): the
+        // host shows the results, whatever their number — a peek of one hit
+        // is the point of a peek.
+        if (panel && resolved.length > 0 && config.onPanel) {
+          config.onPanel({ mode: panel, identifier: id.text, line: request.displayLine, locations: resolved });
+          return;
+        }
+
         // References always opens the picker, even for a single hit: someone
         // asking "where is this used" wants the list, not to be teleported to
         // the first hit it happens to find.
@@ -951,6 +1019,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
             capability,
             identifier: id.text,
             editorPath: config.path,
+            editorOwner: config.owner,
             onNavigate: config.onNavigate,
           }),
         });
@@ -991,10 +1060,16 @@ export function codeIntel(config: CodeIntelConfig): Extension {
     },
   );
 
-  function lookup(view: EditorView, capability: CodeIntelCapability, pos: number, beside: boolean): boolean {
+  function lookup(
+    view: EditorView,
+    capability: CodeIntelCapability,
+    pos: number,
+    beside: boolean,
+    panel: "peek" | "references" | null = null,
+  ): boolean {
     const current = view.plugin(session);
     if (!current || !config.provider[capability]) return false;
-    void current.lookup(capability, pos, beside);
+    void current.lookup(capability, pos, beside, panel);
     return true;
   }
 
@@ -1035,6 +1110,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
           definition: Boolean(config.provider.definition),
           implementation: Boolean(config.provider.implementation),
           references: Boolean(config.provider.references),
+          panel: Boolean(config.onPanel),
         };
         if (!hasCodeIntelMenu(capabilities)) return false;
 
@@ -1068,6 +1144,12 @@ export function codeIntel(config: CodeIntelConfig): Extension {
                 return;
               case "definitionBeside":
                 lookup(v, "definition", identifierRange.from, true);
+                return;
+              case "peek":
+                lookup(v, "definition", identifierRange.from, false, "peek");
+                return;
+              case "referencesPanel":
+                lookup(v, "references", identifierRange.from, false, "references");
                 return;
               case "implementation":
                 lookup(v, "implementation", identifierRange.from, false);
@@ -1106,6 +1188,12 @@ export function codeIntel(config: CodeIntelConfig): Extension {
       { key: "Mod-F12", run: (view) => lookup(view, "implementation", view.state.selection.main.head, false) },
       { key: "Shift-F12", run: (view) => lookup(view, "references", view.state.selection.main.head, false) },
       { key: "Mod-Alt-F12", run: (view) => lookup(view, "definition", view.state.selection.main.head, true) },
+      ...(config.onPanel
+        ? [
+            { key: "Alt-F12", run: (view: EditorView) => lookup(view, "definition", view.state.selection.main.head, false, "peek") },
+            { key: "Shift-Alt-F12", run: (view: EditorView) => lookup(view, "references", view.state.selection.main.head, false, "references") },
+          ]
+        : []),
       // These only ever claim the key while a picker or menu is open (each
       // returns false otherwise), so Enter still inserts a newline and the
       // arrow keys still move the caret the rest of the time.

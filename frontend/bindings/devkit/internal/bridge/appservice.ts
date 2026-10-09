@@ -70,6 +70,9 @@ import * as workspace$0 from "../workspace/models.js";
 import * as workspacememory$0 from "../workspacememory/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as wssearch$0 from "../wssearch/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -791,9 +794,13 @@ export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
  * ApiDraftFromEndpoint builds a request from a Code Graph endpoint without
  * saving it. FR-7 is explicit that a draft becomes a request only when the
  * person saves it, so this returns one and stores nothing.
+ * 
+ * servicePath names the folder whose index holds the endpoint ("" is the focused
+ * project, as before): entry points are listed per workspace folder now, and an
+ * id means something only in the index it came from.
  */
-export function ApiDraftFromEndpoint(endpointID: string): $CancellablePromise<apiclient$0.EndpointDraft> {
-    return $Call.ByID(303944444, endpointID);
+export function ApiDraftFromEndpoint(endpointID: string, servicePath: string): $CancellablePromise<apiclient$0.EndpointDraft> {
+    return $Call.ByID(303944444, endpointID, servicePath);
 }
 
 export function ApiDuplicateEnvironment(id: string, name: string): $CancellablePromise<apiclient$0.Environment> {
@@ -2441,6 +2448,73 @@ export function WorkspaceDelete(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * WorkspaceEntryPoints lists a folder's entry points from its index — the open
+ * Service's when it has one, else the index on disk — with the state that
+ * explains an empty list. It never opens a project.
+ */
+export function WorkspaceEntryPoints(workspaceID: string, folderID: string): $CancellablePromise<codegraph$0.EntryPointsView> {
+    return $Call.ByID(2427248382, workspaceID, folderID);
+}
+
+/**
+ * WorkspaceFileList lists a folder's files and directories, path-sorted.
+ */
+export function WorkspaceFileList(workspaceID: string, folderID: string): $CancellablePromise<app$0.FileList> {
+    return $Call.ByID(3901940329, workspaceID, folderID);
+}
+
+/**
+ * WorkspaceFileOutline is the declarations of one file as the index last saw
+ * them: the saved file as of the index time, not an unsaved buffer.
+ */
+export function WorkspaceFileOutline(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<codegraph$0.FileOutline> {
+    return $Call.ByID(171964181, workspaceID, folderID, relativePath);
+}
+
+/**
+ * WorkspaceFileRead reads a text file of a folder with the revision of the
+ * bytes read — the base a later save is checked against.
+ */
+export function WorkspaceFileRead(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<codegraph$0.FileContent> {
+    return $Call.ByID(1276384589, workspaceID, folderID, relativePath);
+}
+
+/**
+ * WorkspaceFileStat says what is on disk at a path — exists, revision, why it
+ * cannot be opened as text — without its content. The editor reconciles an open
+ * buffer with this after a change notification, a focus return or a save.
+ */
+export function WorkspaceFileStat(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<codegraph$0.FileStatus> {
+    return $Call.ByID(2875866815, workspaceID, folderID, relativePath);
+}
+
+/**
+ * WorkspaceFileWrite saves a buffer into its owner folder. expectedRevision is
+ * the revision the buffer was based on ("absent" for a new file, "*" to
+ * overwrite what is there on purpose). A file that has another revision on disk
+ * is refused as file_conflict with nothing written. The response carries the
+ * revision of the bytes written.
+ */
+export function WorkspaceFileWrite(workspaceID: string, folderID: string, relativePath: string, content: string, expectedRevision: string): $CancellablePromise<codegraph$0.FileContent> {
+    return $Call.ByID(3563922660, workspaceID, folderID, relativePath, content, expectedRevision);
+}
+
+/**
+ * WorkspaceFolderStates reports, for every folder of the workspace, whether it
+ * is there and what git says: branch and number of changed files.
+ */
+export function WorkspaceFolderStates(workspaceID: string): $CancellablePromise<app$0.FolderState[] | null> {
+    return $Call.ByID(657881713, workspaceID);
+}
+
+/**
+ * WorkspaceGitStatus maps a folder's changed files to M/A/D/R.
+ */
+export function WorkspaceGitStatus(workspaceID: string, folderID: string): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(2450406339, workspaceID, folderID);
+}
+
+/**
  * WorkspaceIndexStatus reports where each service of a workspace stands
  * with its index: pending, indexing, indexed (with when), failed (and
  * whether a missing toolchain is why) or unsupported — the states
@@ -2498,12 +2572,108 @@ export function WorkspaceMemoryUpdate(workspaceID: string, id: string, expectedR
 }
 
 /**
+ * WorkspacePlanApprove approves the folder's plan. Human-only, like
+ * CodeGraphApprovePlan.
+ */
+export function WorkspacePlanApprove(workspaceID: string, folderID: string): $CancellablePromise<void> {
+    return $Call.ByID(1064745693, workspaceID, folderID);
+}
+
+/**
+ * WorkspacePlanComment adds a human comment. The body is not audited.
+ */
+export function WorkspacePlanComment(workspaceID: string, folderID: string, planNodeID: string, body: string): $CancellablePromise<void> {
+    return $Call.ByID(439109993, workspaceID, folderID, planNodeID, body);
+}
+
+export function WorkspacePlanCommentCounts(workspaceID: string, folderID: string): $CancellablePromise<{ [_ in string]?: number } | null> {
+    return $Call.ByID(181388473, workspaceID, folderID);
+}
+
+export function WorkspacePlanComments(workspaceID: string, folderID: string, planNodeID: string): $CancellablePromise<codegraph$0.PlanComment[] | null> {
+    return $Call.ByID(1303843822, workspaceID, folderID, planNodeID);
+}
+
+/**
+ * WorkspacePlanFlow is the folder's planned flow (its edges).
+ */
+export function WorkspacePlanFlow(workspaceID: string, folderID: string): $CancellablePromise<codegraph$0.Plan> {
+    return $Call.ByID(2544794724, workspaceID, folderID);
+}
+
+/**
+ * WorkspacePlanProgress is the folder's plan with each node's status against
+ * its index.
+ */
+export function WorkspacePlanProgress(workspaceID: string, folderID: string): $CancellablePromise<codegraph$0.PlanProgress> {
+    return $Call.ByID(1366884615, workspaceID, folderID);
+}
+
+export function WorkspacePlanRelink(workspaceID: string, folderID: string, planNodeID: string, fqn: string): $CancellablePromise<void> {
+    return $Call.ByID(1446356657, workspaceID, folderID, planNodeID, fqn);
+}
+
+/**
+ * WorkspaceReindex queues folders of the workspace (all when folderIDs is
+ * empty) to be analysed again; cancel withdraws them from the queue instead.
+ * Returns at once: progress arrives as codegraph:indexStatus events.
+ */
+export function WorkspaceReindex(workspaceID: string, folderIDs: string[] | null, cancel: boolean): $CancellablePromise<void> {
+    return $Call.ByID(819086422, workspaceID, folderIDs, cancel);
+}
+
+/**
  * WorkspaceReindexService queues one service for indexing again — Retry on a
  * failed one, or a refresh. Returns at once; the outcome arrives as
  * codegraph:indexStatus events.
  */
 export function WorkspaceReindexService(path: string): $CancellablePromise<void> {
     return $Call.ByID(3255175149, path);
+}
+
+/**
+ * WorkspaceSaveDraftCopy writes text the editor could not save — a buffer whose
+ * folder left the workspace — to a file the person chooses in the native save
+ * dialog. "" means the dialog was cancelled. Desktop only: there is no dialog in
+ * server mode, where the call fails.
+ */
+export function WorkspaceSaveDraftCopy(suggestedName: string, content: string): $CancellablePromise<string> {
+    return $Call.ByID(2128457276, suggestedName, content);
+}
+
+/**
+ * WorkspaceSearch finds text in the files of the workspace's folders (all of
+ * them, or the folders named). ctx is the call's own: cancelling the frontend's
+ * promise cancels the search, and WorkspaceSearchCancel does the same by
+ * request ID for a caller that no longer holds the promise. A newer search with
+ * the same request ID supersedes the older one.
+ */
+export function WorkspaceSearch(req: app$0.SearchRequest): $CancellablePromise<wssearch$0.Result> {
+    return $Call.ByID(822735659, req);
+}
+
+/**
+ * WorkspaceSearchCancel stops the search with this request ID.
+ */
+export function WorkspaceSearchCancel(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(597135917, requestID);
+}
+
+/**
+ * WorkspaceSearchSymbols looks for classes and methods in the indexes of the
+ * workspace's folders (the ones named, or all) without opening any project.
+ */
+export function WorkspaceSearchSymbols(workspaceID: string, folderIDs: string[] | null, query: string): $CancellablePromise<app$0.FolderSymbols[] | null> {
+    return $Call.ByID(3717186392, workspaceID, folderIDs, query);
+}
+
+/**
+ * WorkspaceSetPrimary makes a folder the workspace's primary: where an agent
+ * session is spawned by default. Only the workspace's root changes; folders
+ * keep their IDs and nothing is re-indexed.
+ */
+export function WorkspaceSetPrimary(workspaceID: string, folderID: string): $CancellablePromise<workspace$0.Workspace> {
+    return $Call.ByID(3797036309, workspaceID, folderID);
 }
 
 /**
@@ -2514,4 +2684,14 @@ export function WorkspaceReindexService(path: string): $CancellablePromise<void>
  */
 export function WorkspaceUpdate(id: string, name: string, paths: string[] | null, instructions: string): $CancellablePromise<$models.WorkspaceAddResult> {
     return $Call.ByID(26410098, id, name, paths, instructions);
+}
+
+/**
+ * WorkspaceWatchDocuments sets the documents the editor has open, so a change to
+ * one on disk arrives as a workspace:fileChanged event. It replaces the previous
+ * set. The returned keys are documents that could not be watched; the editor
+ * looks at those when the window regains focus.
+ */
+export function WorkspaceWatchDocuments(docs: app$0.WatchedDocument[] | null): $CancellablePromise<string[] | null> {
+    return $Call.ByID(880996564, docs);
 }
