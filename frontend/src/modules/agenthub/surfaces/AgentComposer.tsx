@@ -367,12 +367,12 @@ export type AgentComposerProps = {
 /**
  * The "/" and "@" lists, drawn as the composer tray's panel (ComposerTray):
  * the tray is the surface, so the list drops Command's own glass, border and
- * width. Rows are the menus' 28px, not the palette's 40px, and there is no
+ * width. Rows have a comfortable 36px hit target, and there is no
  * trailing check: the highlight is already the row's background.
  */
 const COMPOSER_LIST = "w-full max-w-none rounded-none border-0 bg-transparent";
-const COMPOSER_LIST_BODY = "max-h-64 gap-0 p-1";
-const COMPOSER_LIST_ROW = "h-7 gap-2 rounded-sm px-2 [&_svg:not([class*='size-'])]:size-3.5";
+const COMPOSER_LIST_BODY = "max-h-64 gap-1 p-2";
+const COMPOSER_LIST_ROW = "h-9 gap-3 rounded-md px-2 [&_svg:not([class*='size-'])]:size-3.5";
 
 /** The folder a listed file sits in, as the list shows it beside the name. */
 function contextFileFolder(file: ContextFileItem): string {
@@ -821,7 +821,7 @@ export function AgentComposer({
   return (
     // The caller's className (AgentHubContent passes "min-w-0 flex-1") sizes
     // the whole of it — tray and composer — within the caller's flex row.
-    <div data-testid="agent-composer-stack" className={cn("flex min-w-0 flex-col", className)}>
+    <div data-testid="agent-composer-stack" className={cn("flex min-w-0 flex-col gap-2", className)}>
       {trayStrip !== undefined || shownPanel ? (
         <ComposerTray
           strip={trayStrip}
@@ -887,7 +887,8 @@ export function AgentComposer({
             </div>
           ) : null}
           {queuedPrompts.length > 0 ? (
-            <div data-testid="composer-queued-prompts" className="flex w-full flex-wrap items-center gap-1 px-1">
+            <div data-testid="composer-queued-prompts" className="flex max-h-40 w-full flex-col gap-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface-well/50 p-2">
+              <p className="px-1 pb-1 text-caption-11-medium text-text-tertiary">Queued messages · {queuedPrompts.length}</p>
               {queuePaused ? (
                 // A turn failed or was cancelled with these still waiting. They do
                 // not go on their own — not even after a later turn succeeds.
@@ -905,9 +906,9 @@ export function AgentComposer({
                 </div>
               ) : null}
               {queuedPrompts.map((queued) => (
-                <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
-                  <span className="shrink-0">Queued</span>
-                  <span className="min-w-0 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
+                <div key={queued.id} className="flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-1 text-caption-11 text-text-secondary">
+                  <span className="size-1.5 shrink-0 rounded-full bg-text-tertiary" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
                   {onEditQueued ? (
                     <Button type="button" variant="ghost" size="icon-sm" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>
                       <Pencil aria-hidden="true" />

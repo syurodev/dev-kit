@@ -869,6 +869,15 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
   ngay trong lúc soạn (tái dùng `CodeBlockKit` của Notes). Nội dung gửi đi vẫn
   là plain string y hệt gõ tay (`serializeComposerValue`, không qua
   `editor.api.markdown.serialize` — serializer đó chèn `\` cho soft break).
+- **Context phía trên composer:** tray có bề mặt và viền riêng, tách nhẹ khỏi
+  ô nhập. Các panel Tasks/Repositories/Running commands/Subagents có header
+  và nút đóng rõ; nội dung cuộn trong vùng giới hạn. Task dùng dòng hai tầng:
+  tiêu đề trước, mã và board bên dưới. To do/In progress/Done là icon trạng thái
+  kèm tooltip và nhãn truy cập; workflow custom giữ nguyên tên trong nhãn.
+  Tiến độ chỉ tính task của session; task khác trong workspace thu gọn mặc
+  định. Mở task/repository vẫn qua intent `beside`, không đổi session đang chat.
+  Count dùng NumberFlow, progress dùng transform theo motion token và tôn trọng
+  Reduce Motion. Queue là danh sách riêng, có Edit/Cancel tại từng tin nhắn.
 - **Sandbox vendor phải tắt khi spawn qua DevKit.** Trên macOS sandbox không
   lồng được (`sandbox_apply: Operation not permitted`, đo 2026-09-05); Claude
   Code `/sandbox` / Codex sandbox bật bên trong jail DevKit làm mọi lệnh bash

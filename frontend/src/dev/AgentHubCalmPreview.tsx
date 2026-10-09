@@ -1,3 +1,4 @@
+import { AgentComposerDesignPreview } from "./AgentComposerDesignPreview";
 import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ export function AgentHubCalmPreview() {
   const [used, setUsed] = useState(24503);
   return <Card><CardHeader><CardTitle>Agent Hub</CardTitle><CardDescription>Model navigation, effort and context usage. All values are local samples.</CardDescription></CardHeader>
     <CardContent className="flex flex-wrap items-center gap-3">
+      <AgentComposerDesignPreview />
       <ModelSettingsPopover options={options} open={settings} onOpenChange={setSettings} onSelect={(id, value) => setOptions((current) => current.map((option) => option.id === id ? { ...option, currentValue: value } : option))} />
       <AgentContextMeter usage={{ used, size: 100000, amount: used / 100000 }} turnCount={3} open={meter} onOpenChange={setMeter} />
       <Button variant="outline" size="sm" onClick={() => setUsed((value) => value > 80000 ? 24503 : 85000)}>Change sample usage</Button>
