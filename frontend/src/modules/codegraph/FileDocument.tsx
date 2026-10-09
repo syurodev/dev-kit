@@ -191,7 +191,17 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     );
   }
 
-  const label = ownership.label || (relation === "other-workspace" ? "another workspace" : "removed folder");
+  // A file of another workspace, or of a folder that left this one, still says whose it is.
+  const origin = buffer.origin;
+  const label =
+    ownership.label ||
+    (relation === "other-workspace"
+      ? origin
+        ? `${origin.workspace} › ${origin.folder}`
+        : "another workspace"
+      : origin
+        ? `${origin.folder} (removed)`
+        : "removed folder");
   const orphaned = buffer.orphan !== null;
   const conflicted = buffer.external !== null && !orphaned;
 

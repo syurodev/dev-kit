@@ -102,3 +102,35 @@ describe("navigation history", () => {
     expect(canBack(emptyHistory())).toBe(false);
   });
 });
+
+describe("flows as places", () => {
+  const flow = (folderId: string, root: string): NavPlace => ({
+    workspaceId: "w",
+    folderId,
+    path: "",
+    line: 1,
+    column: 1,
+    flow: { root, title: root },
+  });
+
+  it("a flow opened from a file can be left with Back and returned to with Forward", () => {
+    let h = emptyHistory();
+    h = push(h, at("a", "src/a.ts", 3));
+    h = jump(h, at("a", "src/a.ts", 12, { scrollTop: 40 }), flow("b", "GET /orders"));
+    const left = back(capture(h, flow("b", "GET /orders")));
+    // Back lands on the exact cursor and scroll of the file that was left.
+    expect(left?.target).toMatchObject({ folderId: "a", path: "src/a.ts", line: 12, scrollTop: 40 });
+    expect(forward(left!.history)?.target.flow?.root).toBe("GET /orders");
+  });
+
+  it("two flows with the same root in different folders are different places", () => {
+    expect(current(push(push(emptyHistory(), flow("a", "r")), flow("b", "r")))?.folderId).toBe("b");
+    const h = push(push(emptyHistory(), flow("a", "r")), flow("b", "r"));
+    expect(h.places).toHaveLength(2);
+  });
+
+  it("a file and a flow of the same folder are not the same place", () => {
+    const h = push(push(emptyHistory(), at("a", "", 1)), flow("a", "r"));
+    expect(h.places).toHaveLength(2);
+  });
+});

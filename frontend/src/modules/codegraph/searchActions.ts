@@ -17,7 +17,7 @@ import { SEARCH_DEBOUNCE_MS, requestSignature, searchable, splitPatterns, type S
  */
 
 let timer: ReturnType<typeof setTimeout> | undefined;
-let inFlight: { id: string; cancel: () => void } | null = null;
+let inFlight: { id: string } | null = null;
 let seq = 0;
 
 const patchSession = (patch: Partial<SearchSession>) => set({ search: { ...snapshot().search, ...patch } });
@@ -45,6 +45,13 @@ export function openSearch(scope: Scope, query?: string): void {
 
 export function setSearchOptions(patch: Partial<SearchOptions>): void {
   patchSession({ options: { ...snapshot().search.options, ...patch } });
+  // The search running now answers a question that was just changed: stop it at
+  // once instead of letting it read files through the debounce for nothing. Its
+  // answer is dropped either way (its request is no longer the one in flight).
+  if (inFlight) {
+    stopOnTheGoSide(inFlight.id);
+    inFlight = null;
+  }
   runSoon(SEARCH_DEBOUNCE_MS);
 }
 
@@ -62,13 +69,23 @@ export function collapseSearchGroups(keys: string[]): void {
   patchSession({ collapsed: keys });
 }
 
+/**
+ * Stops a superseded search where it runs. The call is deliberately not
+ * cancelled on this side as well: Wails would then report the "operation
+ * cancelled" answer Go sends back as an unhandled rejection of a cancelled
+ * promise. Left alone, the call rejects normally and the catch below drops it
+ * because its request is no longer the one in flight.
+ */
+function stopOnTheGoSide(requestId: string) {
+  void cancelWorkspaceSearch(requestId).catch(() => undefined);
+}
+
 function cancelInFlight() {
   clearTimeout(timer);
   if (inFlight) {
-    const { id, cancel } = inFlight;
+    const { id } = inFlight;
     inFlight = null;
-    cancel();
-    void cancelWorkspaceSearch(id).catch(() => undefined);
+    stopOnTheGoSide(id);
   }
 }
 
@@ -93,9 +110,7 @@ export async function runSearch(): Promise<void> {
 
   // One request at a time: the previous one is stopped before the next begins.
   if (inFlight) {
-    const { id, cancel } = inFlight;
-    cancel();
-    void cancelWorkspaceSearch(id).catch(() => undefined);
+    stopOnTheGoSide(inFlight.id);
   }
   const requestId = `${search.id}:${++seq}`;
   const call = searchWorkspace({
@@ -109,7 +124,7 @@ export async function runSearch(): Promise<void> {
     include: splitPatterns(o.include),
     exclude: splitPatterns(o.exclude),
   });
-  inFlight = { id: requestId, cancel: () => call.cancel() };
+  inFlight = { id: requestId };
   patchSession({ status: "searching", error: "" });
   const still = () => inFlight?.id === requestId && snapshot().workspaceId === workspaceId && snapshot().search.id === search.id;
   try {

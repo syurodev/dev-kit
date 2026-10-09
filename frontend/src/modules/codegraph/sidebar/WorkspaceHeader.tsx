@@ -104,7 +104,7 @@ function ScopePicker({ workspaceName, summary }: { workspaceName: string; summar
           <Boxes className="size-4 shrink-0 text-text-secondary" aria-hidden />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-title-13 text-text-primary">{workspaceName || "Workspace"}</span>
-            <span className="truncate text-code-11 text-text-tertiary" title={summary}>{summary}</span>
+            <span className="truncate text-caption-11 text-text-tertiary" title={summary}>{summary}</span>
           </span>
           <ChevronDown className="size-3.5 shrink-0 text-text-tertiary" aria-hidden />
         </button>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { SearchResult } from "@/bridge/workspaceCode";
-import { buildRows, fileGroupKey, folderGroupKey, previewParts, requestSignature, resultSummary, splitPatterns, DEFAULT_SEARCH_OPTIONS } from "./searchModel";
+import { buildRows, fileGroupKey, leadingContext, folderGroupKey, previewParts, requestSignature, resultSummary, splitPatterns, DEFAULT_SEARCH_OPTIONS } from "./searchModel";
 
 const m = (line: number, column = 1, preview = "const x = needle;", previewStart = 0, length = 6) => ({ line, column, length, preview, previewStart });
 const result = (over: Partial<SearchResult> = {}): SearchResult => ({
@@ -83,5 +83,27 @@ describe("requests", () => {
     expect(resultSummary(result())).toContain("4 matches in 3 files");
     expect(resultSummary(result({ truncated: "matches" }))).toContain("first matches only");
     expect(resultSummary(result({ filesSkipped: 3 }))).toContain("3 skipped");
+  });
+});
+
+describe("leadingContext", () => {
+  it("keeps a short lead as it is", () => {
+    expect(leadingContext("  const x = ")).toBe("const x = ");
+  });
+  it("cuts a long lead from the left so the hit is visible in a narrow row", () => {
+    const lead = leadingContext("a".repeat(200_000));
+    expect(lead.length).toBe(15);
+    expect(lead.startsWith("…")).toBe(true);
+  });
+  it("does not split an emoji", () => {
+    const lead = leadingContext("x".repeat(20) + "😀".repeat(7), 14);
+    expect(lead.slice(1)).not.toMatch(/^[\udc00-\udfff]/);
+  });
+});
+
+describe("resultSummary", () => {
+  it("says when a file was cut, since its count is not its total", () => {
+    const r = result({ files: [{ folderId: "a", path: "big.txt", matches: [m(1)], truncated: true }], matches: 1 });
+    expect(resultSummary(r)).toContain("1 file cut at 500 matches");
   });
 });

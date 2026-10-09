@@ -13,7 +13,7 @@ import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { codeGraphRequests, emptyFolderData, newSearchSession, type FolderData } from "./codegraphStore";
 import { begin, folderById, folderByPath, patchFolder, set, snapshot } from "./storeAccess";
 import { WHOLE_WORKSPACE, normalizeScope, scopeFolderIds, type Scope } from "./workspace/scope";
-import { folderLabels } from "./workspace/identity";
+import { displayOrder, folderLabels } from "./workspace/identity";
 import { setFolderLabelSource, syncFileTabTitles } from "./documents";
 
 /**
@@ -48,9 +48,19 @@ export async function runPool<T>(items: readonly T[], limit: number, fn: (item: 
   await Promise.all(workers);
 }
 
-/** Labels for the current folders, unique where names repeat. */
+/**
+ * Labels for the current folders, unique where names repeat — and, for the
+ * folders of a document that outlived its workspace or folder, the names it was
+ * opened under, so two such tabs still read as two.
+ */
 export function currentFolderLabels(): Record<string, string> {
-  return folderLabels(snapshot().folders.map((f) => ({ id: f.id, name: f.name, path: f.path })));
+  const s = snapshot();
+  const labels = folderLabels(s.folders.map((f) => ({ id: f.id, name: f.name, path: f.path })));
+  for (const b of Object.values(s.buffers)) {
+    if (labels[b.folderId] || !b.origin) continue;
+    labels[b.folderId] = b.origin.workspace === s.workspace?.name ? `${b.origin.folder} (removed)` : `${b.origin.folder} · ${b.origin.workspace}`;
+  }
+  return labels;
 }
 
 setFolderLabelSource(currentFolderLabels);
@@ -112,7 +122,8 @@ async function loadFolders(generation: number, keep: boolean): Promise<void> {
   const workspaceId = snapshot().workspaceId;
   const current = () => snapshot().generation === generation && snapshot().workspaceId === workspaceId;
   try {
-    const [workspaces, services] = await Promise.all([listWorkspaces(), listWorkspaceServices(workspaceId)]);
+    const [workspaces, listed] = await Promise.all([listWorkspaces(), listWorkspaceServices(workspaceId)]);
+    const services = displayOrder(listed);
     if (!current()) return;
     const workspace = workspaces.find((w) => w.id === workspaceId) ?? null;
     if (!workspace) {

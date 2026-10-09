@@ -12,6 +12,7 @@ import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
 import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors } from "./flowActions";
 import { openFile } from "./fileActions";
+import { NavButtons } from "./file/NavButtons";
 import { describeParams, FLOW_VIEW, MODULE } from "./documents";
 import { useDocumentOwnership, useIsFrontDocument } from "./useDocument";
 import { flowKey } from "./workspace/identity";
@@ -75,6 +76,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
           onSelect={onSelect}
           header={
             <>
+              <NavButtons />
               {entry ? (
                 <>
                   <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>

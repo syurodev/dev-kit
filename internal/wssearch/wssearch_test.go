@@ -398,3 +398,42 @@ func TestGlobMatching(t *testing.T) {
 		}
 	}
 }
+
+// Include and exclude patterns are read against the path inside the folder a
+// file is attributed to, so one pattern means the same thing in every root — and
+// a nested folder's files are never matched through the outer one.
+func TestNestedRootsReadPatternsRelativeToTheirOwnFolder(t *testing.T) {
+	outer := t.TempDir()
+	mid := filepath.Join(outer, "libs", "mid")
+	deep := filepath.Join(mid, "vendor", "deep")
+	put(t, outer, "src/a.txt", "needle\n")
+	put(t, outer, "libs/mid/src/b.txt", "needle\n")
+	put(t, outer, "libs/mid/vendor/deep/src/c.txt", "needle\n")
+	roots := []Root{{"outer", outer}, {"mid", mid}, {"deep", deep}}
+
+	all := flat(run(t, roots, Options{Query: "needle"}))
+	want := []string{"outer:src/a.txt:1:1", "mid:src/b.txt:1:1", "deep:src/c.txt:1:1"}
+	if !reflect.DeepEqual(all, want) {
+		t.Fatalf("all = %v, want %v", all, want)
+	}
+
+	// "src/**" is each folder's own src, wherever the folder sits.
+	if got := flat(run(t, roots, Options{Query: "needle", Include: []string{"src/**"}})); !reflect.DeepEqual(got, want) {
+		t.Fatalf("include src/** = %v, want %v", got, want)
+	}
+	// "libs/**" reaches nothing through the outer folder: those files are the inner folders'.
+	if got := flat(run(t, roots, Options{Query: "needle", Include: []string{"libs/**"}})); len(got) != 0 {
+		t.Fatalf("include libs/** matched %v, but libs/ files belong to the nested folders", got)
+	}
+	// Exclude wins, per folder.
+	got := flat(run(t, roots, Options{Query: "needle", Exclude: []string{"b.txt"}}))
+	if !reflect.DeepEqual(got, []string{"outer:src/a.txt:1:1", "deep:src/c.txt:1:1"}) {
+		t.Fatalf("exclude b.txt = %v", got)
+	}
+
+	// Take the middle folder out of the scope: the outer one owns its files again, the deep one still its own.
+	got = flat(run(t, []Root{roots[0], roots[2]}, Options{Query: "needle"}))
+	if !reflect.DeepEqual(got, []string{"outer:libs/mid/src/b.txt:1:1", "outer:src/a.txt:1:1", "deep:src/c.txt:1:1"}) {
+		t.Fatalf("without mid = %v", got)
+	}
+}

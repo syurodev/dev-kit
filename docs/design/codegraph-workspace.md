@@ -84,6 +84,26 @@ trạng thái "không rõ folder" thay vì đoán bằng primary.
 | Save | owner của document | — |
 | Spawn agent | primary tại thời điểm spawn (module Agent Hub), không phải việc của CodeGraph | — |
 
+### 3.1 Folder chồng nhau (nested roots)
+
+Một workspace có thể chứa cả `orders-service` lẫn `orders-service/libs/common`. Chính sách:
+
+- **Mỗi file vật lý có một chủ trong *một* kết quả**: folder sâu nhất, trong scope đang xét, chứa nó.
+  Search (`wssearch.nestedSubtrees`) và cây Files (`withoutNested`, kể cả thư mục chỉ chứa folder lồng) đều
+  bỏ phần cây của folder lồng khỏi folder ngoài. Nếu folder lồng **không** nằm trong scope thì folder ngoài
+  lại sở hữu các file đó. Không dedupe theo relative path, không thay folder ID bằng canonical path.
+- Include/exclude đọc theo **đường dẫn trong folder chủ** (`src/**` là `src` của từng folder, ở đâu cũng vậy).
+  `libs/**` không khớp gì qua folder ngoài vì các file đó thuộc folder lồng.
+- Cùng một file vật lý **vẫn mở được** qua hai identity (vd. đường dẫn `libs/common/x.ts` của folder ngoài, hay
+  từ breadcrumb). Đó là hai buffer: lưu qua cái này thì cái kia, nếu sạch, theo đĩa; nếu có sửa dở thì thành
+  *conflict* chứ không bị ghi đè (so revision, test `one physical file under two folder identities`). Các lần
+  lưu cùng đường dẫn tuyệt đối được tuần tự hoá bằng một khoá (`writeLockFor`), nên hai identity không đua nhau.
+  Watcher báo **cả hai key** khi file đổi.
+- Hai tên folder trùng đường dẫn thật (symlink tới cùng thư mục) → folder sau là `duplicate`, không quét lại.
+- Symlink trong root trỏ ra ngoài mọi root không bao giờ được theo (cả list, đọc lẫn ghi: `ErrPathOutsideProject`).
+- Giới hạn: index của folder ngoài (vd. analyzer Java quét mọi `src/main/java` bên dưới) có thể **cũng** đọc phần
+  folder lồng, nên một entry point có thể xuất hiện ở cả hai folder. Chưa lọc ở tầng index.
+
 Primary không quyết định bất kỳ dòng nào ở trên. Đổi primary (`WorkspaceSetPrimary`) chỉ ghi
 `workspaces.root`; không reindex, không đóng tab, không đổi scope. Đổi discovery scope chỉ lọc sidebar:
 không đóng tab, không xoá buffer/history, không đổi primary.
@@ -112,7 +132,11 @@ không đóng tab, không xoá buffer/history, không đổi primary.
 - **Đổi workspace**: tăng `generation`, huỷ request guard, reset state theo-folder của workspace cũ
   (entry points, files…). Buffer dirty và tab của workspace cũ **giữ nguyên** (owner = DocKey); Save vẫn
   hoạt động vì Go tra membership theo `workspaceId` trong DocKey chứ không theo workspace hiện tại.
-- **Đổi primary**: `WorkspaceSetPrimary` → `servicesChanged()`; chỉ badge primary đổi.
+- **Đổi primary**: `WorkspaceSetPrimary` → `servicesChanged()`; chỉ badge primary đổi. Thứ tự folder trong
+  sidebar **không** phụ thuộc primary (`displayOrder`: theo tên, rồi đường dẫn) — dịch vụ liệt kê primary
+  trước cho agent, và trước đây điều đó làm cả Explorer xáo lại mỗi lần đổi primary.
+- **Back/Forward** đi qua cả *file* lẫn *flow* của cùng một editor group: mở một flow từ một file là một bước
+  (`NavPlace.flow`), Back về đúng vị trí con trỏ/scroll của file, Forward về flow (mở lại tab cũ nếu còn).
 - **Đổi scope**: set `scope`; selector lọc.
 - **Focus document**: không đổi gì ngoài selection trong rail và Outline.
 - **Thêm/gỡ folder**: ở Edit workspace (module Workspace); CodeGraph chỉ phản ứng qua
@@ -158,29 +182,136 @@ cô lập tuyệt đối.
 
 ## 8. Đo thực tế
 
-Môi trường: Linux 6.18 (VM), 4 vCPU Xeon 2.8 GHz, 16 GiB, Go 1.27.1, bun 1.4.2. Workspace tổng hợp
-(`internal/wssearch/bench_test.go`): 5 root, 10.002 file (3 root trùng hệt relative path), mỗi file 40
-dòng, một dòng dài 2 MB, một file 20k dòng đều khớp.
+Môi trường mọi số dưới đây: Linux 6.18 (VM), 4 vCPU Xeon 2.8 GHz, 16 GiB, Go 1.27.1, bun 1.4.2, Chromium
+headless (Playwright 1.56) nói chuyện với server mode (`-tags server`) trên loopback. **Không phải GUI desktop
+(WebKitGTK/WKWebView)**: số của trình duyệt cho biết app làm gì, không phải app tự cảm thấy nhanh cỡ nào trên máy
+người dùng.
 
-| Phép đo | Kết quả |
+### 8.1 Backend: tìm kiếm (`go test ./internal/wssearch/ -bench WorkspaceSearch -benchtime 6x`)
+
+Fixture: `internal/wssearch/bench_test.go` — 6 root, **10.002 file** (orders và billing **trùng hệt relative path**,
+một folder **lồng** 500 file trong `platform`, một dòng 2 MB, một file 20k dòng đều khớp), mỗi file 40 dòng, không
+phải repo git (đi đường walk). Tên metric đúng như `go test` in ra:
+
+| Ca | ns/op | B/op (cấp phát cả đời) | allocs/op | peakHeapMiB (HeapAlloc lấy mẫu mỗi 0,5 ms) | liveHeapMiB-after (sau GC) | gcs/op | gc-pause-ms/op |
+|---|---|---|---|---|---|---|---|
+| literal hiếm, quét hết | 930,6 ms | 94,3 MB | 195.724 | 7,4 | 0,34 | 51 | 22,4 |
+| literal phổ biến, chạm trần 2.000 match | 155,2 ms | 10,3 MB | 45.598 | 7,1 | 0,74 | 3,7 | 1,3 |
+| regex | 170,6 ms | 11,4 MB | 47.797 | 9,1 | 0,75 | 3,8 | 1,1 |
+| whole-word | 143,2 ms | 9,8 MB | 44.564 | 10,4 | 0,65 | 2,8 | 1,1 |
+| file dày match + dòng 2 MB (trần 100k) | 814,4 ms | 95,0 MB | 198.562 | 10,6 | 0,57 | 53,7 | 22,7 |
+| folder lồng, quét hết | 936,7 ms | 94,5 MB | 195.721 | 8,8 | 0,42 | 52 | 23,5 |
+| chỉ một folder (2.001 file) | 306,0 ms | 22,3 MB | 38.936 | 7,5 | 0,38 | 8,7 | 4,9 |
+
+- `files-searched` = 10.002 ở ca folder lồng: file của folder lồng được quét **một lần**, không hai.
+- Cấp phát cả đời là ~94 MB/lượt nhưng **gần hết là rác ngắn hạn** (mỗi file đọc rồi bỏ): heap sống lúc cao nhất
+  khoảng 7–11 MiB. Hai con số này khác nhau về bản chất; con số "15 MiB heap" ở báo cáo trước là `HeapSys` cộng dồn
+  qua các ca (bộ nhớ lấy từ OS), **không phải** heap sống của một lần tìm — đã bỏ.
+- RSS đỉnh của tiến trình test (đọc `VmHWM` mỗi 50 ms, nên là cận dưới): 18 MiB khi chạy ca quét hết, so với 13 MiB
+  chỉ dựng fixture → một lần tìm thêm chừng 5 MiB RSS.
+
+**Huỷ (backend)** — `TestCancellationStopsAMidFlightSearch`: chỉ tính lần huỷ rơi vào lúc `Run` còn đang chạy (trả
+`context.Canceled`). Từ lúc `cancel()` tới lúc `Run` trả về: nhỏ nhất ~20 µs; lớn nhất 43 / 60 / 101 ms trong ba
+lần chạy. Con số cũ "~8 µs" là một lần đo hỏng (huỷ đúng lúc worker đang rảnh) và không được dùng. Nguyên nhân
+phần đuôi, lấy từ goroutine dump: worker đang ở `utf8.Valid` của file 2 MB; **công việc trên một file không ngắt
+được**, nên độ trễ huỷ ≤ thời gian quét file lớn nhất đang chạy (trần `MaxFileBytes`) cộng tranh chấp CPU.
+`TestQueryChurn`: 12 lần tìm cách nhau 8 ms, chỉ lần cuối chạy xong, goroutine 2 → 2 (không rò).
+
+### 8.2 Trình duyệt thật (workspace "Bench": cùng hình dạng, 6 folder qua UI)
+
+| Việc | Kết quả | Ghi chú |
+|---|---|---|
+| Đổi workspace → Explorer đủ 6 root, có số file | 538 / 729 ms | từ lúc bấm menu; gồm list file + git state của 6 folder |
+| Gõ query hiếm → thấy "3 matches in 3 files" | 861–962 ms | **gồm 250 ms debounce**; quét ~650 ms |
+| Query phổ biến → "2000 matches" | 413–507 ms | gồm debounce |
+| `needle` (file dày + dòng 2 MB) | 810–862 ms | gồm debounce |
+| Gõ query B khi A đang chạy → B hiện trên màn hình | 0,95–1,1 s sau lúc gõ | = debounce + quét B; A **bị dừng ngay lúc gõ** (xem dưới) |
+| Gõ query mới → bắt đầu yêu cầu huỷ job cũ | ~25 ms | trước khi sửa là sau debounce (~275 ms); `setSearchOptions` giờ dừng job đang chạy ngay |
+| `WorkspaceSearchCancel` → cuộc gọi cũ được trả lời | ~8 ms | đo trực tiếp qua RPC loopback (150 → 160 ms), trả `operation_cancelled` |
+| Gõ trong editor (khung hình thứ 2 sau keydown) | p50 28 ms, p95 36 ms (Files, 10k file); p50 32 ms, p95 51 ms (kết quả tìm 500+ dòng đang mở); p50 28 ms, p95 44 ms (tab Entries) | 40 phím mỗi ca; bị chặn bởi nhịp khung hình (~16,7 ms × 2) |
+| DOM sidebar thay đổi qua 40 phím | 3 (Files) / 0 (Search) / 14 (Entries) | phần lớn là chấm "chưa lưu" lúc phím đầu; sửa một file **không dựng lại** cây hay danh sách kết quả |
+| Đổi tab giữa các file của nhiều folder | click → 2 khung hình ≈ 16 ms (p50, đo trong trang) | chỉ là lần vẽ đầu, không phải "CodeMirror đã dựng xong mọi thứ" |
+
+Giữ nguyên theo vòng đời hiện có (đã kiểm): scroll, dòng hiện tại và lịch sử undo của một buffer còn sau khi
+chuyển tab đi rồi về.
+
+Số **không** phải hiệu năng tương tác: `FolderView` 20 ms / FilesTab SSR 93 ms ở bản trước là thời gian dựng
+model/chuỗi HTML trong bun, không phải thời gian vẽ trong trình duyệt; giữ lại như đo model, không dùng làm số UI.
+
+### 8.3 Reindex với analyzer thật (Java qua JDK 21 + jar; TypeScript qua `tsgo`)
+
+Fixture `scripts/codegraph-index-fixture.mjs`: `java-a` và `java-b` (mỗi cái 400 file Java, controller → service →
+repository), `ts-svc` (601 file TS). Tạo workspace tự xếp hàng cả ba; đo bằng `WorkspaceReindex` + lấy mẫu `ps` mỗi 50 ms.
+
+| | Kết quả |
 |---|---|
-| Tìm literal hiếm, quét hết 10k file | ~0,6 s, 94 MB cấp phát/lần, heap sys ~15 MiB |
-| Tìm literal/regex/whole-word phổ biến (dừng ở trần 2.000 match) | ~0,13 s |
-| Tìm 100k match tối đa (file dày match + dòng 2 MB) | ~0,55 s, giữ 1.000 match (trần theo cấu hình) |
-| Huỷ search giữa chừng → `Run` trả về | ~8 µs sau `cancel()` |
-| Explorer một folder 10k file: `ListFilesAt` | ~12,6 ms |
-| Branch + changed (`GitInfoAt`) / `GitStatusAt` 10k file, 100 sửa | ~34 ms / ~28 ms (chạy song song theo folder) |
-| Frontend `folderView` 10k file (có / không query) | ~20 ms / ~2 ms |
-| Frontend FilesTab 5 root × 2k file, mọi nhánh mở (SSR) | ~93 ms (cây ảo hoá nên DOM thật nhỏ hơn) |
+| Lô 3 folder, một lời gọi | 10,1 s: java-a 4,1 s → java-b 4,1 s → ts-svc 1,9 s, **tuần tự** |
+| Đồng thời | tối đa **1** tiến trình analyzer Java và 1 `tsgo` tại một thời điểm |
+| RSS đỉnh | server 100 MiB (nghỉ 95); server + tiến trình con **423 MiB** |
+| Huỷ lúc 3 s (Java đang chạy) | tiến trình analyzer biến mất sau ~20 ms kể từ khi lời gọi huỷ trả về; index cũ giữ nguyên (`indexed`) |
+| Mất jar (không có toolchain) | java-a, java-b `failed` sau ~110 ms, **ts-svc vẫn index xong** (2,1 s cả lô): lỗi một folder không huỷ lô |
 
-Reindex: hàng đợi một worker, Host giữ semaphore 2 job; bộ nhớ/CPU phụ thuộc analyzer thật (JVM ~1 GB peak
-trên project 1.500 file — số của `AGENTS.md`), nên không đo giả bằng analyzer mô phỏng. Test
-`TestReindexOfSeveralFoldersKeepsGoingPastAFailure` và `TestCancelIndexWithdrawsQueuedFoldersAndStopsTheRunningOne` kiểm cô lập lỗi và huỷ.
+Chưa đo: project thật lớn (≥ 1.500 file Java đã có số trong `AGENTS.md`), Lua, và nhiều workspace cùng lúc.
 
-## 9. Việc còn lại / giới hạn đã biết
+## 9. Nghiệm thu bằng UI thật
 
-- Terminal vẫn chạy ở thư mục của primary/folder hiện mở; chưa gắn với folder của document đang focus.
+Chạy bằng server mode + Chromium (Playwright), fixture `scripts/codegraph-fixture.mjs` (gateway TS + service Java
++ folder lồng + shared-lib + platform-config không analyzer + folder tên dài, `src/config.ts` có ở **bốn** folder,
+CRLF, Unicode ngoài BMP, dòng 200 KB, symlink thoát khỏi root, thay đổi git ở nhiều repo). Kịch bản tìm toàn
+workspace → mở hai file trùng tên → sửa một file → đổi primary → mở flow folder khác → Back → đổi file bên ngoài →
+Compare → Save: **đạt 19/19 bước** (script chạy lại được; mỗi bước kiểm DOM/đĩa thật).
+
+Lỗi tìm ra khi nghiệm thu (đều đã sửa, có test):
+
+1. **Module Code Graph bị vô hiệu hoá** ("Module metadata is unavailable or out of sync"): danh sách lệnh phía Go
+   (`internal/app/app.go`) còn tên cũ sau khi manifest đổi lệnh; test parity chỉ so *views*. Giờ so cả *commands*.
+2. **Reindex bị `permission_denied`** ở UI: scope `service:reindex` chưa có grant. Test mới gọi mọi method
+   `Workspace*` bằng grant thật (`TestEveryWorkspaceBridgeMethodIsGrantedToTheUI`).
+3. **Watcher mù sau khi thư mục bị xoá rồi tạo lại** (đổi branch, build sạch): `docwatch` giữ watch cũ. Giờ gắn lại
+   (thử lại theo chu kỳ và ở lần `Set` kế tiếp); hai test mới.
+4. **Explorer xáo thứ tự khi đổi primary** (primary đứng đầu): giờ theo tên.
+5. **Back không có ở flow** và mở flow không là một bước lịch sử: thêm `NavPlace.flow` + nút Back/Forward.
+6. Hit tìm kiếm muộn trong dòng dài bị cắt mất (hàng hẹp cắt bên phải): cắt phần đầu thay vì phần cuối.
+7. Hai `Unhandled rejection in cancelled promise` mỗi lần đổi query: không huỷ phía Wails nữa, chỉ huỷ theo request ID.
+8. Tóm tắt kết quả không nói file bị cắt ở 500 match; header cắt "6 fo…"; Outline đổi chiều cao làm nhảy cây;
+   tab của folder đã gỡ / của workspace khác không có nhãn để phân biệt.
+
+Đã kiểm trực tiếp (xem 8): đổi primary không đổi Save target/tab/draft; xung đột khi file đổi dưới draft (Compare,
+Keep mine không mở khoá Save, Overwrite chỉ khi chủ ý; banner hiện sau ~0,2 s); gỡ folder có draft → draft còn
+trong editor, Copy / Save a copy, Save bị từ chối; thêm lại cùng đường dẫn → folder ID khác, draft cũ **không** gắn
+vào; đổi workspace giữa chừng không rò kết quả; Peek Definition (Alt-F12), References (Shift-Alt-F12, panel còn
+khi chọn kết quả), Esc trên Peek trả focus về editor; filter che hết một root có giải thích + Reset; giao diện sáng
+(đặt `data-theme=light`, không đi qua màn Settings) và viewport 900 px. **Chưa kiểm**: điều hướng bàn phím trong cây,
+Esc/focus của picker và dialog, kéo đổi cỡ panel, split editor bằng chuột, sidebar rất hẹp.
+
+## 10. Phục hồi draft: phạm vi thật
+
+Buffer chỉ nằm **trong bộ nhớ của tiến trình**; không có draft nào được ghi xuống đĩa hay `ui_state`.
+
+| Tình huống | Draft còn không |
+|---|---|
+| Đóng tab (buffer có sửa) | Còn (buffer giữ, mở lại file ra đúng bản sửa; dấu ● ở cây). Không có danh sách "các draft đang treo" — phải biết mở file nào |
+| Đổi workspace trong phiên | Còn; tab của workspace cũ giữ owner, vẫn sửa/lưu được (Go tra membership theo `workspaceId` trong key) |
+| Gỡ folder khỏi workspace trong phiên | Còn, ở trạng thái *orphaned*: xem, Copy, Save a copy (hộp thoại lưu của OS), Discard; Save bị từ chối |
+| Khởi động lại app / app crash / tắt máy | **Mất.** Tab được khôi phục (params lưu trong `workbench.tabs`) nhưng buffer đọc lại từ đĩa |
+
+"Recoverable" ở các tài liệu trước nghĩa là *trong phiên*, không phải phục hồi sau crash. Chưa có cảnh báo khi đóng app
+với draft chưa lưu. Persist draft cần một thiết kế riêng (mã hoá bằng vault, vòng đời, dọn rác); không làm trong đợt này.
+
+## 11. Giới hạn còn lại
+
+- **Chưa kiểm ở GUI desktop** (WebKitGTK/WKWebView): mọi kiểm UI ở trên là Chromium + server mode. Agent Hub không
+  chạy ở server mode: "Open agent here" kiểm tới bước draft (cwd, workspace, không đổi primary, không gửi prompt),
+  chưa kiểm một session thật chạy và không bị đổi cwd/quyền — mã chỉ đặt draft, không gọi API session.
+- "Open agent here" **có** (menu chuột phải của folder/file trong Files) → `openNewAgentSession({cwd, workspaceId,
+  defaultFolder:false})`. Chưa đính kèm file/selection vào draft (draft request chưa có chỗ cho nó; ngoài phạm vi).
+  Agent Hub vẫn dùng `codeGraphProjectRoot()` làm folder dự phòng khi không có `workFolder`/recent — dấu vết cuối
+  cùng của "project đang mở" ngoài CodeGraph, chưa gỡ.
+- Terminal vẫn chạy ở thư mục của primary/folder hiện mở; chưa theo folder của document đang focus.
 - Search không bao gồm buffer chưa lưu (UI ghi rõ). Outline theo index nên không phản ánh edit chưa lưu.
-- Không có references/definition giữa hai folder; không có đồ thị call xuyên service ngoài `crossservice`.
+- Không có definition/references giữa hai folder; không có đồ thị call xuyên service ngoài `crossservice`.
+- Index của folder ngoài có thể đọc cả folder lồng (xem 3.1).
+- Hủy search: độ trễ đuôi bằng thời gian quét file lớn nhất đang chạy (xem 8.1).
 - AppImage/MSIX vẫn không đóng gói analyzer (xem `AGENTS.md`); watcher dựa vào focus-return trên mount mạng.
-- "Open agent here" (menu chuột phải của folder/file trong Files) mở một draft session với cwd = folder đó qua `openNewAgentSession`; không gửi prompt, không đổi primary hay quyền của session đang chạy. Chưa đính kèm file/selection có cấu trúc vào draft vì draft request chưa có chỗ cho nó.
+- Test timing `debouncedWriter` và một test Agent Hub timeout có sẵn từ trước, không liên quan; thỉnh thoảng đỏ khi
+  chạy cả bộ song song.

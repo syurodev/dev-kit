@@ -30,6 +30,7 @@ export function OutlineSection({
   open,
   onToggle,
 }: {
+  /** Empty when no file is in front: the section is still there, so opening one does not move the tree. */
   docKey: string;
   workspaceId: string;
   folderId: string;
@@ -37,7 +38,7 @@ export function OutlineSection({
   open: boolean;
   onToggle: () => void;
 }) {
-  const outline = useCodeGraphStore((s) => s.outlines[key]);
+  const outline = useCodeGraphStore((s) => (key ? s.outlines[key] : undefined));
   const dirty = useCodeGraphStore((s) => s.buffers[key]?.dirty ?? false);
   const savedAt = useCodeGraphStore((s) => s.buffers[key]?.reloadedAt ?? 0);
   const line = useCursor(key);
@@ -47,7 +48,8 @@ export function OutlineSection({
   const rows = useMemo(() => (outline ? outlineRows(outline.symbols, filter, (s) => shortLabel(s.label, s.kind)) : []), [outline, filter]);
 
   let note = "";
-  if (outline) {
+  if (!key) note = "Open a file to see what it declares.";
+  else if (outline) {
     if (outline.state === "unsupported") note = "No analyzer reads this folder, so there is no outline. The file can still be read and edited.";
     else if (outline.state === "not-indexed") note = "This folder has no index yet — reindex it to get an outline.";
     else if (outline.state === "indexing") note = "Waiting for the index…";
@@ -59,7 +61,9 @@ export function OutlineSection({
     <>
       <SidebarSection label="Outline" count={outline && outline.state === "indexed" ? total : undefined} open={open} onToggle={onToggle} />
       {open ? (
-        <div className="flex max-h-72 min-h-0 flex-col gap-1 pb-2">
+        // A fixed height: a taller outline must not squeeze the file tree above it, which would move
+        // the row that was just clicked out from under a double click.
+        <div className="flex h-44 shrink-0 flex-col gap-1 pb-2">
           {outline?.state === "indexed" && outline.indexedAt ? (
             <p className="px-3 text-caption-11 text-text-tertiary">
               {dirty ? "Unsaved edits are not reflected — " : ""}from the index of {ago(outline.indexedAt, Date.now())}.
@@ -76,7 +80,7 @@ export function OutlineSection({
               {outline?.loading && !outline.symbols.length ? "Reading the outline…" : note}
             </p>
           ) : null}
-          {!outline ? <p className="px-3 text-caption-11 text-text-tertiary">Reading the outline…</p> : null}
+          {key && !outline ? <p className="px-3 text-caption-11 text-text-tertiary">Reading the outline…</p> : null}
           {outline?.error ? <p role="alert" className="px-3 text-caption-11 text-status-danger">{outline.error}</p> : null}
           <div className="min-h-0 flex-1 overflow-y-auto" role="tree" aria-label="Outline">
             {rows.map(({ symbol, depth }) => (

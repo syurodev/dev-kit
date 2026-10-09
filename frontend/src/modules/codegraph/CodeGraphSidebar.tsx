@@ -344,16 +344,14 @@ export function CodeGraphSidebar() {
             collapsedRoots={collapsedRoots}
             actions={filesActions}
           />
-          {selectedFile && doc.path ? (
-            <OutlineSection
-              docKey={docKey(workspaceId, selectedFile.folderId, doc.path)}
-              workspaceId={workspaceId}
-              folderId={selectedFile.folderId}
-              path={doc.path}
-              open={outlineOpen}
-              onToggle={() => setOutlineOpen((v) => !v)}
-            />
-          ) : null}
+          <OutlineSection
+            docKey={selectedFile && doc.path ? docKey(workspaceId, selectedFile.folderId, doc.path) : ""}
+            workspaceId={workspaceId}
+            folderId={selectedFile?.folderId ?? ""}
+            path={doc.path ?? ""}
+            open={outlineOpen}
+            onToggle={() => setOutlineOpen((v) => !v)}
+          />
         </>
       ) : tab === "search" ? (
         <SearchTab workspaceId={workspaceId} />

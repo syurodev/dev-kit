@@ -70,6 +70,12 @@ export type FileBuffer = DocIdentity & {
   eol: Eol;
   /** The file mixed endings; it was normalized to `eol` when opened. */
   mixedEol: boolean;
+  /**
+   * What the workspace and folder were called when the file was opened, so a
+   * document that outlives its workspace or its folder can still say whose it is
+   * (the workspace's own list only knows the workspace that is open).
+   */
+  origin?: { workspace: string; folder: string };
 };
 
 export const ABSENT = "absent";

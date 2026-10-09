@@ -319,6 +319,21 @@ CodeGraph works on the **workspace**; a folder is neither a service nor "the" pr
 - **Reindex** goes through `Registry`'s bounded single-worker queue; `WorkspaceReindex(folderIds,
   cancel)` scopes it. One folder failing never stops the batch; results of a previous workspace are
   dropped by generation.
+- **Nested folders have one owner per file** (the deepest in scope): search and the Files tree leave a nested
+  folder's subtree out of the outer one (`wssearch.nestedSubtrees`, `withoutNested`). The same physical file can
+  still be opened through two identities; they are two buffers that conflict rather than overwrite. Policy in
+  `docs/design/codegraph-workspace.md` § 3.1.
+- **Folder order in the UI never depends on the primary** (`displayOrder`), and Back/Forward cross files *and*
+  flows within one editor group.
+- **Drafts live in memory only.** They survive closing a tab, switching workspace and removing a folder
+  (orphaned: Copy / Save a copy / Discard); they do **not** survive a restart or crash. Do not describe them as
+  crash recovery (design doc § 10).
+- **Every `Workspace*` bridge method must be granted to the UI**: `TestEveryWorkspaceBridgeMethodIsGrantedToTheUI`
+  calls them all against the real default grants, and `moduleViewsParity.test.ts` compares the manifest's *commands* and
+  views with `internal/app/app.go` (a drift disables the whole module with "Module metadata is unavailable").
+- **Verifying in a browser**: `task run:server`, then drive it with Playwright; fixtures are
+  `scripts/codegraph-fixture.mjs` (representative workspace), `scripts/codegraph-bench-fixture.mjs` (10k files) and
+  `scripts/codegraph-index-fixture.mjs` (real Java/TypeScript analyzer timing). Server mode has no Agent Hub.
 - **Cross-folder intelligence is deliberately thin.** Definitions/references/outline come from the
   index of the folder that owns the file; nothing matches names across folders and text search is never
   presented as references. HTTP/Kafka/Redis links stay in `internal/crossservice`.

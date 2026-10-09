@@ -75,8 +75,9 @@ describe("workspace search", () => {
     await Promise.resolve();
 
     expect(pending).toHaveLength(2);
-    expect(pending[0].cancelled).toBe(true);
+    // Stopped by request id on the Go side; the call itself is left to reject on its own.
     expect(cancelled).toContain(pending[0].req.requestId);
+    expect(pending[0].cancelled).toBe(false);
 
     pending[1].resolve(result("second"));
     await second;
@@ -85,6 +86,20 @@ describe("workspace search", () => {
     await first;
     expect(state().search.result?.files[0].path).toBe("second");
     expect(state().search.status).toBe("done");
+  });
+
+  it("stops the running search as soon as the query changes, not when the debounce ends", async () => {
+    actions.openSearch(WHOLE_WORKSPACE, "one");
+    const first = actions.runSearch();
+    await Promise.resolve();
+    expect(cancelled).toHaveLength(0);
+    actions.setSearchOptions({ query: "two" });
+    // Nothing new has started (that waits for the debounce), yet the old job is already stopped.
+    expect(pending).toHaveLength(1);
+    expect(cancelled).toContain(pending[0].req.requestId);
+    pending[0].resolve(result("late"));
+    await first;
+    expect(state().search.result).toBeNull();
   });
 
   it("shows an invalid pattern as invalid, not as a failure, and keeps earlier hits", async () => {
