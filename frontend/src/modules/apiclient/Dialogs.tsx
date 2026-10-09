@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Copy, Download, FileUp } from "lucide-react";
+import { Copy, Download, ShieldCheck } from "lucide-react";
 import {
   exportFile,
   exportToFile,
@@ -28,8 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { ImportDialogView } from "./ImportDialogView";
 import { openNewRequest } from "./documents";
 
 /**
@@ -39,6 +38,7 @@ import { openNewRequest } from "./documents";
  */
 export function NameDialog({
   open,
+  visible = true,
   title,
   initial = "",
   placeholder,
@@ -47,6 +47,7 @@ export function NameDialog({
   onClose,
 }: {
   open: boolean;
+  visible?: boolean;
   title: ReactNode;
   initial?: string;
   placeholder?: string;
@@ -66,8 +67,8 @@ export function NameDialog({
   }, [open, initial]);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open && visible} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
+      <DialogContent className="sm:max-w-md" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -83,14 +84,14 @@ export function NameDialog({
               .finally(() => setBusy(false));
           }}
         >
-          <Input autoFocus value={name} placeholder={placeholder} onChange={(event) => setName(event.target.value)} />
+          <label className="flex flex-col gap-2 text-caption-11-medium text-text-secondary">Name<Input autoFocus value={name} disabled={busy} placeholder={placeholder} onChange={(event) => setName(event.target.value)} /></label>
           {error ? (
             <p role="alert" className="text-caption-11 text-status-danger">
               {error}
             </p>
           ) : null}
           <DialogFooter className="mt-4">
-            <Button type="button" variant="ghost" onClick={onClose}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!name.trim() || busy}>
@@ -106,6 +107,7 @@ export function NameDialog({
 /** "Are you sure", for the deletes a vault item cannot undo. */
 export function ConfirmDialog({
   open,
+  visible = true,
   title,
   description,
   confirmLabel = "Delete",
@@ -113,6 +115,7 @@ export function ConfirmDialog({
   onClose,
 }: {
   open: boolean;
+  visible?: boolean;
   title: ReactNode;
   description: ReactNode;
   confirmLabel?: string;
@@ -120,7 +123,7 @@ export function ConfirmDialog({
   onClose: () => void;
 }) {
   return (
-    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
+    <AlertDialog open={open && visible} onOpenChange={(next) => (next ? undefined : onClose())}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -138,29 +141,6 @@ export function ConfirmDialog({
 }
 
 export type ImportKind = "curl" | "file";
-
-/** Reads a chosen file as text into the paste box. */
-function FilePicker({ onText }: { onText: (text: string, name: string) => void }) {
-  const input = useRef<HTMLInputElement | null>(null);
-  return (
-    <>
-      <input
-        ref={input}
-        type="file"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          void file.text().then((text) => onText(text, file.name));
-          event.target.value = "";
-        }}
-      />
-      <Button type="button" variant="outline" size="sm" onClick={() => input.current?.click()}>
-        <FileUp /> Choose file…
-      </Button>
-    </>
-  );
-}
 
 function summary(result: ImportResult): string {
   const parts: string[] = [];
@@ -195,18 +175,22 @@ function useFormats(open: boolean): FormatInfo[] | null {
  */
 export function ImportDialog({
   open,
+  visible = true,
   initialKind = "curl",
   onClose,
   onImported,
 }: {
   open: boolean;
+  visible?: boolean;
   initialKind?: ImportKind;
   onClose: () => void;
   onImported: (result: ImportResult | null) => void;
 }) {
   const formats = useFormats(open);
   const [kind, setKind] = useState<ImportKind>(initialKind);
-  const [text, setText] = useState("");
+  const [texts, setTexts] = useState<Record<ImportKind, string>>({ curl: "", file: "" });
+  const text = texts[kind];
+  const setText = (value: string) => setTexts((current) => ({ ...current, [kind]: value }));
   const [fileName, setFileName] = useState("");
   const [format, setFormat] = useState("");
   // null until the list answers, so the picker never offers "no tags" first.
@@ -218,7 +202,7 @@ export function ImportDialog({
   useEffect(() => {
     if (!open) return;
     setKind(initialKind);
-    setText("");
+    setTexts({ curl: "", file: "" });
     setFileName("");
     setFormat("");
     setTag("");
@@ -245,92 +229,19 @@ export function ImportDialog({
     onImported(result);
   }
 
-  return (
-    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Import</DialogTitle>
-          <DialogDescription>Nothing is sent while importing, and no script in a file is run or kept.</DialogDescription>
-        </DialogHeader>
-        <Tabs value={kind} onValueChange={(value) => setKind(value as ImportKind)} className="flex flex-col gap-3">
-          <TabsList className="w-fit">
-            <TabsTrigger value="curl">cURL</TabsTrigger>
-            <TabsTrigger value="file">File</TabsTrigger>
-          </TabsList>
-          <TabsContent value="curl" className="text-caption-11 text-text-tertiary">
-            Paste a curl command — a browser’s “Copy as cURL” works. It opens as a new request you can edit before saving.
-          </TabsContent>
-          <TabsContent value="file" className="flex flex-col gap-2 text-caption-11 text-text-tertiary">
-            <div className="flex items-center gap-2">
-              <FilePicker
-                onText={(value, name) => {
-                  setText(value);
-                  setFileName(name);
-                }}
-              />
-              <span className="truncate">{fileName || "Or paste the file below."}</span>
-            </div>
-            <label className="flex items-center gap-2">
-              <span className="w-28 shrink-0">Format</span>
-              <NativeSelect size="sm" value={format} onChange={(event) => setFormat(event.target.value)} aria-label="Format">
-                <NativeSelectOption value="">Detect automatically</NativeSelectOption>
-                {importable.map((f) => (
-                  <NativeSelectOption key={f.id} value={f.id}>
-                    {f.label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="w-28 shrink-0">Environments go to</span>
-              <NativeSelect size="sm" value={tag} onChange={(event) => setTag(event.target.value)} aria-label="Environment tag">
-                <NativeSelectOption value="">The tag in the file</NativeSelectOption>
-                {(tags ?? []).map((t) => (
-                  <NativeSelectOption key={t.id} value={t.name}>
-                    {t.name}
-                    {t.requiresConfirmation ? " — asks before every send" : ""}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-          </TabsContent>
-        </Tabs>
-        <Textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          rows={8}
-          spellCheck={false}
-          placeholder={kind === "curl" ? "curl 'https://api.example.com/v1/users' -H 'Accept: application/json'" : "{ … }"}
-          className="font-mono text-code-11"
-          aria-label="Import text"
-        />
-        {error ? (
-          <p role="alert" className="text-caption-11 text-status-danger">
-            {error}
-          </p>
-        ) : null}
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!text.trim() || busy}
-            onClick={() => {
-              setBusy(true);
-              setError("");
-              run()
-                .then(onClose)
-                .catch((e) => setError(errorMessage(e)))
-                .finally(() => setBusy(false));
-            }}
-          >
-            {kind === "curl" ? "Open" : "Import"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+  return <ImportDialogView
+    open={open && visible} kind={kind} onKindChange={setKind} text={text} onTextChange={setText}
+    fileName={fileName} onFile={(value, name) => { setText(value); setFileName(name); }}
+    format={format} onFormatChange={setFormat} formats={importable}
+    tag={tag} onTagChange={setTag} tags={tags ?? []}
+    error={error} onError={setError} busy={busy} onClose={onClose}
+    onSubmit={() => {
+      if (busy || !text.trim()) return;
+      setBusy(true);
+      setError("");
+      run().then(onClose).catch((e) => setError(errorMessage(e))).finally(() => setBusy(false));
+    }}
+  />;
 }
 
 /**
@@ -341,11 +252,13 @@ export function ImportDialog({
  */
 export function ExportDialog({
   scope,
+  visible = true,
   title,
   onClose,
 }: {
   /** null is closed. */
   scope: ExportScope | null;
+  visible?: boolean;
   title: string;
   onClose: () => void;
 }) {
@@ -390,6 +303,7 @@ export function ExportDialog({
   }
 
   function attempt(work: () => Promise<void>) {
+    if (busy) return;
     setBusy(true);
     setError("");
     work()
@@ -398,15 +312,15 @@ export function ExportDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open && visible} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
+      <DialogContent className="gap-5 sm:max-w-md" showCloseButton={!busy}>
         <DialogHeader>
-          <DialogTitle>Export {title}</DialogTitle>
+          <DialogTitle>Export collection or variables</DialogTitle>
           <DialogDescription>
-            Secret values are never written — their names are, empty. A request that authenticates as an account names a
-            variable in the credential’s place.
+            Choose a format to save a file or copy its contents.
           </DialogDescription>
         </DialogHeader>
+        <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-well p-3"><Download className="size-5 shrink-0 text-text-tertiary" /><div className="min-w-0"><p className="truncate text-body-13-medium">{title}</p><p className="mt-0.5 text-caption-11 text-text-tertiary">{scope?.kind === "globals" ? "Global variables" : scope?.kind === "environment" ? "Environment variables" : "Collection and requests"}</p></div></div>
         {warnings ? (
           <ul className="flex list-disc flex-col gap-1 pl-4 text-caption-11 text-text-secondary">
             {warnings.map((warning) => (
@@ -414,9 +328,9 @@ export function ExportDialog({
             ))}
           </ul>
         ) : (
-          <label className="flex items-center gap-2 text-caption-11 text-text-tertiary">
+          <label className="flex flex-col gap-2 text-caption-11-medium text-text-secondary">
             <span className="shrink-0">Format</span>
-            <NativeSelect size="sm" value={format} onChange={(event) => setFormat(event.target.value)} aria-label="Format">
+            <NativeSelect className="w-full" disabled={busy} value={format} onChange={(event) => setFormat(event.target.value)} aria-label="Format">
               {usable.map((f) => (
                 <NativeSelectOption key={f.id} value={f.id}>
                   {f.label} (.{f.extension})
@@ -425,6 +339,7 @@ export function ExportDialog({
             </NativeSelect>
           </label>
         )}
+        <p className="flex items-start gap-2 text-caption-11 text-text-tertiary"><ShieldCheck className="size-3.5 shrink-0" /><span>Secret values are excluded. Account credentials are replaced with variable references.</span></p>
         {error ? (
           <p role="alert" className="text-caption-11 text-status-danger">
             {error}
@@ -437,14 +352,14 @@ export function ExportDialog({
             </Button>
           ) : (
             <>
-              <Button type="button" variant="ghost" onClick={onClose}>
+              <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
                 Cancel
               </Button>
               <Button type="button" variant="outline" disabled={!format || busy} onClick={() => attempt(copy)}>
                 <Copy /> Copy
               </Button>
               <Button type="button" disabled={!format || busy} onClick={() => attempt(save)}>
-                <Download /> Save to file…
+                <Download /> {busy ? "Exporting…" : "Save file…"}
               </Button>
             </>
           )}

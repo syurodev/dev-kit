@@ -1,3 +1,4 @@
+import { ApiClientCalmPreview } from "./ApiClientCalmPreview";
 import { VaultSettingsPreview } from "./VaultSettingsPreview";
 import { AgentHubCalmPreview } from "./AgentHubCalmPreview";
 import { useLayoutEffect, useState } from "react";
@@ -73,6 +74,7 @@ export default function CalmComponentsPreview() {
         <div className="grid gap-2"><span className="text-label-12 text-text-secondary">Count</span><NumberStepper value={previewCount} onChange={setPreviewCount} min={0} max={120} label="Preview count" /></div>
         <AnimatedNumberGroup><p className="pb-2 text-body-13 text-text-secondary"><AnimatedNumber value={previewCount} suffix=" items" /> · <AnimatedNumber value={previewSize} suffix=" px" /></p></AnimatedNumberGroup>
       </CardContent></Card>
+      <ApiClientCalmPreview />
       <VaultSettingsPreview />
       <AgentHubCalmPreview />
       <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => useDatabaseStore.getState().openExportModal({ columns: ["id", "name"], rows: [["1", "Sample"], ["2", "Preview"]], rowCount: 2, truncated: false }, "preview-results")}>Preview export form</Button><Button variant="outline" onClick={() => useDatabaseStore.getState().setInspectedCell({ columnName: "payload", value: JSON.stringify({ items: Array.from({ length: 60 }, (_, id) => ({ id, name: `Sample item ${id}` })) }) })}>Preview cell inspector</Button></div>

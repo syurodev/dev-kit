@@ -37,14 +37,17 @@ import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarHeader, SidebarSearch, SidebarSection } from "@/components/ui/sidebar-shell";
 import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "@/components/row-actions";
 import { TreeRowAction, TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
-import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { tagAsks, useApiClientStore } from "./apiclientStore";
 import { ConfirmDialog, ExportDialog, ImportDialog, NameDialog } from "./Dialogs";
 import {
+  activeApiClientTab,
+  renameApiDocument,
   closeTabByParams,
   MODULE,
   openNewRequest,
@@ -120,8 +123,7 @@ export function ApiClientSidebar() {
   const importKind = useApiClientStore((s) => s.importKind);
   const activeTab = useWorkbenchTabsStore(
     useShallow((s) => {
-      const tabs = moduleTabs(s.modules, MODULE);
-      const tab = tabs.openTabs.find((t) => t.id === tabs.activeTabId);
+      const tab = activeApiClientTab(s);
       return {
         viewId: tab?.viewId ?? "",
         requestId: typeof tab?.params?.requestId === "string" ? tab.params.requestId : "",
@@ -131,6 +133,7 @@ export function ApiClientSidebar() {
     }),
   );
 
+  const visible = useWorkbenchTabsStore((s) => s.activeModuleId === MODULE);
   const [filter, setFilter] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [envOpen, setEnvOpen] = useState(true);
@@ -155,9 +158,7 @@ export function ApiClientSidebar() {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    if (error) toast.error("Could not load the API client", { description: error });
-  }, [error]);
+
 
   // The request in front is shown inside its open folders, so the highlight
   // is never hidden in a collapsed one.
@@ -333,8 +334,9 @@ export function ApiClientSidebar() {
           </ActionTooltip>
         }
       />
+      {error ? <div className="px-3 py-2"><p role="alert" className="text-caption-11 text-status-danger">{error}</p><Button variant="outline" size="xs" className="mt-2" onClick={() => void refresh()}>Retry</Button></div> : null}
       {!loaded ? (
-        <div className="min-h-0 flex-1" />
+        <div className="min-h-0 flex-1 px-3 pt-2">{!error ? <ListSkeleton rows={5} /> : null}</div>
       ) : empty ? (
         <div className="min-h-0 flex-1">
           <EmptyState
@@ -370,9 +372,11 @@ export function ApiClientSidebar() {
         onDelete={(environment) => setDialog({ kind: "deleteEnvironment", environment })}
         onExport={(scope, title) => setExporting({ scope, title })}
       />
-      <ExportDialog scope={exporting?.scope ?? null} title={exporting?.title ?? ""} onClose={() => setExporting(null)} />
+      <div className="shrink-0 border-t border-border-subtle px-3 py-2"><Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setImportKind("file")}><Download />Import requests…</Button></div>
+      <ExportDialog visible={visible} scope={exporting?.scope ?? null} title={exporting?.title ?? ""} onClose={() => setExporting(null)} />
 
       <NameDialog
+        visible={visible}
         open={dialog?.kind === "newFolder"}
         title={dialog?.kind === "newFolder" && dialog.parentId ? "New folder" : "New collection"}
         placeholder="Name"
@@ -387,6 +391,7 @@ export function ApiClientSidebar() {
         }}
       />
       <NameDialog
+        visible={visible}
         open={dialog?.kind === "renameFolder"}
         title="Rename"
         initial={dialog?.kind === "renameFolder" ? dialog.collection.name : ""}
@@ -394,10 +399,12 @@ export function ApiClientSidebar() {
         onSubmit={async (name) => {
           if (dialog?.kind !== "renameFolder") return;
           await saveCollection({ ...dialog.collection, name });
+          renameApiDocument(VARIABLES_VIEW, { scope: "collection", id: dialog.collection.id }, `${name} · variables`);
           await refresh();
         }}
       />
       <NameDialog
+        visible={visible}
         open={dialog?.kind === "renameRequest"}
         title="Rename request"
         initial={dialog?.kind === "renameRequest" ? dialog.request.name : ""}
@@ -406,13 +413,18 @@ export function ApiClientSidebar() {
           if (dialog?.kind !== "renameRequest") return;
           const full = await getRequest(dialog.request.id);
           await saveRequest({ ...full, name });
-          // An open editor holds the old name; it re-reads on its next load,
-          // and its own baseline would otherwise call the rename "unsaved".
-          useApiClientStore.getState().dropEditor(`request:${full.id}`);
+          renameApiDocument(REQUEST_VIEW, { requestId: full.id }, name);
+          const editorKey = `request:${full.id}`;
+          const editor = useApiClientStore.getState().editors[editorKey];
+          if (editor) useApiClientStore.getState().patchEditor(editorKey, {
+            request: { ...editor.request, name },
+            baseline: editor.baseline ? { ...editor.baseline, name } : null,
+          });
           await refresh();
         }}
       />
       <ConfirmDialog
+        visible={visible}
         open={dialog?.kind === "deleteFolder"}
         title={dialog?.kind === "deleteFolder" ? `Delete “${dialog.collection.name}”?` : ""}
         description={
@@ -435,6 +447,7 @@ export function ApiClientSidebar() {
         }}
       />
       <ConfirmDialog
+        visible={visible}
         open={dialog?.kind === "deleteRequest"}
         title={dialog?.kind === "deleteRequest" ? `Delete “${dialog.request.name}”?` : ""}
         description="It is removed on every device this vault syncs to, with what this machine remembers sending. This cannot be undone."
@@ -452,6 +465,7 @@ export function ApiClientSidebar() {
         }}
       />
       <ConfirmDialog
+        visible={visible}
         open={dialog?.kind === "deleteEnvironment"}
         title={dialog?.kind === "deleteEnvironment" ? `Delete “${dialog.environment.name}”?` : ""}
         description="Its variables, secret ones included, are removed on every device this vault syncs to. Requests are not touched."
@@ -468,6 +482,7 @@ export function ApiClientSidebar() {
         }}
       />
       <ImportDialog
+        visible={visible}
         open={importKind !== null}
         initialKind={importKind ?? "curl"}
         onClose={() => setImportKind(null)}
@@ -548,10 +563,10 @@ function EnvironmentsSection({
           label: environment.name,
           icon: active ? <Check className="text-status-success" /> : <Variable />,
           trailing: <EnvTagChip tag={environment.env} />,
-          title: active ? `${environment.name} — sends go here` : `${environment.name} — double-click to send here`,
+          title: active ? `${environment.name} — active send target` : `${environment.name} — open variables`,
           selected: selected === `environment:${environment.id}`,
           onSelect: () => openVariables("environment", environment.id, environment.name),
-          onActivate: () => onActivate(environment.id),
+          onActivate: () => openVariables("environment", environment.id, environment.name),
         },
         environment.name,
         actions,

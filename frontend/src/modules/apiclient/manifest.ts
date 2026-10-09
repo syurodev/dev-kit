@@ -106,7 +106,7 @@ registerIntent(
   async (ref, { placement }) => {
     if (ref.kind === "environment" || ref.kind === "collection") {
       const { openVariables } = await import("./documents");
-      openVariables(ref.kind, ref.id, ref.label || ref.id);
+      openVariables(ref.kind, ref.id, ref.label || ref.id, { beside: placement === "beside" });
       return;
     }
     if (ref.kind !== "request") return;

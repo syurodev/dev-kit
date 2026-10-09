@@ -69,14 +69,17 @@ export function KeyValueTable({
     .filter(Boolean)
     .join(" ");
   return (
-    <div className="overflow-hidden rounded-md border border-border-subtle text-code-12" role="group">
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-base text-code-12" role="group">
+      <div className="grid items-center border-b border-border-subtle bg-surface-well/60 py-2 text-caption-11-medium text-text-tertiary" style={{ gridTemplateColumns }} aria-hidden="true">
+        {toggleable ? <span /> : null}<span className="px-2">{keyPlaceholder}</span><span className="px-2">{valuePlaceholder}</span>{onToggleSecret ? <span /> : null}{fixedKeys ? null : <span />}
+      </div>
       {shown.map((row, index) => {
         const blank = !fixedKeys && index === rows.length;
         const secret = secrets?.[index] ?? false;
         return (
           <div
             key={index}
-            className={cn("group grid items-center border-b border-border-subtle last:border-b-0", row.disabled && "opacity-50")}
+            className={cn("group grid items-center border-b border-border-subtle transition-control last:border-b-0 hover:bg-state-soft focus-within:bg-surface-well", row.disabled && "opacity-50")}
             style={{ gridTemplateColumns }}
           >
             {toggleable ? (
@@ -98,7 +101,7 @@ export function KeyValueTable({
               aria-label={`${keyPlaceholder} ${index + 1}`}
               onChange={(event) => update(index, { key: event.target.value })}
               className={cn(
-                "h-(--control-height-sm) w-full min-w-0 border-r border-border-subtle bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none placeholder:text-text-tertiary focus:bg-surface-well",
+                "h-(--control-height-sm) w-full min-w-0 border-r border-border-subtle bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/40",
                 fixedKeys && "text-text-secondary",
               )}
             />
@@ -110,7 +113,7 @@ export function KeyValueTable({
               autoComplete="off"
               aria-label={`${valuePlaceholder} for ${row.key || `row ${index + 1}`}`}
               onChange={(event) => update(index, { value: event.target.value })}
-              className="h-(--control-height-sm) w-full min-w-0 bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none placeholder:text-text-tertiary focus:bg-surface-well"
+              className="h-(--control-height-sm) w-full min-w-0 bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/40"
             />
             {onToggleSecret ? (
               <div className="flex justify-center">
@@ -118,8 +121,10 @@ export function KeyValueTable({
                   <button
                     type="button"
                     onClick={() => onToggleSecret(index)}
+                    aria-label={`${secret ? "Make plain" : "Make secret"}: ${row.key || `row ${index + 1}`}`}
+                    aria-pressed={secret}
                     title={secret ? "Secret — sealed, never shown again. Click to make it plain." : "Plain — click to make it secret"}
-                    className={cn("rounded p-1 hover:bg-surface-raised", secret ? "text-status-warning" : "text-text-tertiary")}
+                    className={cn("rounded p-1 transition-control hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/40", secret ? "text-status-warning" : "text-text-tertiary")}
                   >
                     {secret ? <Lock className="size-(--icon-12)" /> : <LockOpen className="size-(--icon-12)" />}
                   </button>
@@ -133,7 +138,7 @@ export function KeyValueTable({
                     type="button"
                     onClick={() => remove(index)}
                     aria-label={`Remove ${row.key || `row ${index + 1}`}`}
-                    className="rounded p-1 text-text-tertiary opacity-0 group-hover:opacity-100 hover:bg-surface-raised hover:text-text-primary focus:opacity-100"
+                    className="rounded p-1 text-text-tertiary opacity-0 transition-control group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-raised hover:text-text-primary focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/40"
                   >
                     <X className="size-(--icon-12)" />
                   </button>
