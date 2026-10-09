@@ -326,3 +326,96 @@ func (s *AppService) WorkspaceSaveDraftCopy(suggestedName, content string) (stri
 	}
 	return result.(string), nil
 }
+
+// The plan belongs to one folder's index (plan_nodes live beside its nodes), so
+// these name the folder. They are the by-folder form of the CodeGraph*Plan*
+// methods, which answer for whichever project happens to be focused.
+
+func (s *AppService) workspacePlan(ctx context.Context, workspaceID, folderID, action string, extra map[string]any, fn func(*codegraph.Service) (any, error)) (any, error) {
+	meta := map[string]any{
+		"workspace_id": recordID(workspaceID),
+		"folder_id":    recordID(folderID),
+		"action":       action,
+	}
+	for k, v := range extra {
+		meta[k] = v
+	}
+	return s.call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta, func(ctx context.Context) (any, error) {
+		code, err := s.workspaceCode()
+		if err != nil {
+			return nil, err
+		}
+		svc, err := code.Service(ctx, workspaceID, folderID)
+		if err != nil {
+			return nil, err
+		}
+		return fn(svc)
+	})
+}
+
+// WorkspacePlanProgress is the folder's plan with each node's status against
+// its index.
+func (s *AppService) WorkspacePlanProgress(ctx context.Context, workspaceID, folderID string) (codegraph.PlanProgress, error) {
+	result, err := s.workspacePlan(ctx, workspaceID, folderID, "get_plan_progress", nil, func(svc *codegraph.Service) (any, error) {
+		return svc.GetPlanProgress(ctx)
+	})
+	if err != nil {
+		return codegraph.PlanProgress{}, err
+	}
+	return result.(codegraph.PlanProgress), nil
+}
+
+// WorkspacePlanFlow is the folder's planned flow (its edges).
+func (s *AppService) WorkspacePlanFlow(ctx context.Context, workspaceID, folderID string) (codegraph.Plan, error) {
+	result, err := s.workspacePlan(ctx, workspaceID, folderID, "get_planned_flow", nil, func(svc *codegraph.Service) (any, error) {
+		return svc.GetPlannedFlow(ctx)
+	})
+	if err != nil {
+		return codegraph.Plan{}, err
+	}
+	return result.(codegraph.Plan), nil
+}
+
+// WorkspacePlanApprove approves the folder's plan. Human-only, like
+// CodeGraphApprovePlan.
+func (s *AppService) WorkspacePlanApprove(ctx context.Context, workspaceID, folderID string) error {
+	_, err := s.workspacePlan(ctx, workspaceID, folderID, "approve_plan", nil, func(svc *codegraph.Service) (any, error) {
+		return nil, svc.ApprovePlan(ctx)
+	})
+	return err
+}
+
+func (s *AppService) WorkspacePlanRelink(ctx context.Context, workspaceID, folderID, planNodeID, fqn string) error {
+	_, err := s.workspacePlan(ctx, workspaceID, folderID, "relink_plan_node", map[string]any{"plan_node_id": planNodeID, "fqn": fqn}, func(svc *codegraph.Service) (any, error) {
+		return nil, svc.RelinkPlanNode(ctx, planNodeID, fqn)
+	})
+	return err
+}
+
+// WorkspacePlanComment adds a human comment. The body is not audited.
+func (s *AppService) WorkspacePlanComment(ctx context.Context, workspaceID, folderID, planNodeID, body string) error {
+	_, err := s.workspacePlan(ctx, workspaceID, folderID, "comment_plan_node", map[string]any{"plan_node_id": planNodeID}, func(svc *codegraph.Service) (any, error) {
+		return nil, svc.CommentPlanNode(ctx, planNodeID, body)
+	})
+	return err
+}
+
+func (s *AppService) WorkspacePlanComments(ctx context.Context, workspaceID, folderID, planNodeID string) ([]codegraph.PlanComment, error) {
+	result, err := s.workspacePlan(ctx, workspaceID, folderID, "list_plan_node_comments", map[string]any{"plan_node_id": planNodeID}, func(svc *codegraph.Service) (any, error) {
+		return svc.ListPlanNodeComments(ctx, planNodeID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.PlanComment), nil
+}
+
+func (s *AppService) WorkspacePlanCommentCounts(ctx context.Context, workspaceID, folderID string) (map[string]int, error) {
+	result, err := s.workspacePlan(ctx, workspaceID, folderID, "count_plan_node_comments", nil, func(svc *codegraph.Service) (any, error) {
+		return svc.CountPlanNodeComments(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string]int), nil
+}

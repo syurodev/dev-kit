@@ -335,6 +335,22 @@ func (w *WorkspaceCode) CancelSearch(requestID string) {
 	}
 }
 
+// Service is the Code Graph Service of a folder, opened if need be: the folder's
+// own plan, comments and graph queries live in its index. Unlike the file and
+// view methods above, this one may start an analysis, so it is for the things a
+// person explicitly asked of that folder (its plan, a flow).
+func (w *WorkspaceCode) Service(ctx context.Context, workspaceID, folderID string) (*codegraph.Service, error) {
+	svc, err := w.Folder(workspaceID, folderID)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := w.registry()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Open(ctx, svc.Path)
+}
+
 // SetPrimary changes the workspace's primary folder: see workspace.SetPrimary.
 func (w *WorkspaceCode) SetPrimary(workspaceID, folderID string) (workspace.Workspace, error) {
 	return w.c.Workspace.SetPrimary(workspaceID, folderID)
