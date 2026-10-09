@@ -1222,3 +1222,10 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 - File watcher vẫn cần nhận sự kiện filesystem: gọi wait ngay sau external write
   trước khi OS giao event không đảm bảo đã thấy thay đổi. Gọi `openProject` trước
   `waitForIndexReady` khi cần chủ động bảo đảm refresh được đăng ký.
+
+## Workspace nhiều folder
+
+CodeGraph làm việc theo workspace, không theo một "project đang mở": mỗi document có chủ là
+`workspaceId + folderId + relativePath`, primary chỉ quyết định nơi spawn agent, và phạm vi khám phá
+(toàn workspace / một nhóm folder) lọc sidebar mà không đóng tab hay bỏ draft. Mô hình identity, scope,
+lifecycle index, API và giới hạn nằm ở `docs/design/codegraph-workspace.md`.

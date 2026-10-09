@@ -134,6 +134,8 @@ Tất cả resolve `(workspaceId, folderId)` → path trong Go; capability dùng
 | `WorkspaceEntryPoints(workspaceId, folderId)` | entry points từ index trên đĩa/Service đang mở + `indexedAt`, `stale` |
 | `WorkspaceFileOutline(workspaceId, folderId, path)` | cây symbol theo range từ index |
 | `WorkspaceSearch(request)` / `WorkspaceSearchCancel(id)` | tìm nội dung; cancel theo request ID |
+| `WorkspaceSearchSymbols(workspaceId, folderIds, query)` | tìm symbol trong index trên đĩa của từng folder (palette, `@`) |
+| `WorkspacePlan*(workspaceId, folderId, …)` | Plan theo folder; không gộp giữa folder |
 | `WorkspaceSetPrimary(workspaceId, folderId)` | đổi `workspaces.root` |
 | `WorkspaceReindex(workspaceId, folderIds, cancel)` | reindex theo scope / huỷ |
 | `WorkspaceWatchDocuments(docs)` | đăng ký tập tài liệu mở; sự kiện `workspace:fileChanged` |
@@ -153,3 +155,32 @@ cô lập tuyệt đối.
   cạnh call tĩnh giữa hai folder, không suy luận từ tên giống nhau.
 - Plan là dữ liệu **của từng project** (`plan_nodes` trong index riêng). UI Plan chọn một folder và nói rõ
   nguồn; không gộp mảng giữa folder.
+
+## 8. Đo thực tế
+
+Môi trường: Linux 6.18 (VM), 4 vCPU Xeon 2.8 GHz, 16 GiB, Go 1.27.1, bun 1.4.2. Workspace tổng hợp
+(`internal/wssearch/bench_test.go`): 5 root, 10.002 file (3 root trùng hệt relative path), mỗi file 40
+dòng, một dòng dài 2 MB, một file 20k dòng đều khớp.
+
+| Phép đo | Kết quả |
+|---|---|
+| Tìm literal hiếm, quét hết 10k file | ~0,6 s, 94 MB cấp phát/lần, heap sys ~15 MiB |
+| Tìm literal/regex/whole-word phổ biến (dừng ở trần 2.000 match) | ~0,13 s |
+| Tìm 100k match tối đa (file dày match + dòng 2 MB) | ~0,55 s, giữ 1.000 match (trần theo cấu hình) |
+| Huỷ search giữa chừng → `Run` trả về | ~8 µs sau `cancel()` |
+| Explorer một folder 10k file: `ListFilesAt` | ~12,6 ms |
+| Branch + changed (`GitInfoAt`) / `GitStatusAt` 10k file, 100 sửa | ~34 ms / ~28 ms (chạy song song theo folder) |
+| Frontend `folderView` 10k file (có / không query) | ~20 ms / ~2 ms |
+| Frontend FilesTab 5 root × 2k file, mọi nhánh mở (SSR) | ~93 ms (cây ảo hoá nên DOM thật nhỏ hơn) |
+
+Reindex: hàng đợi một worker, Host giữ semaphore 2 job; bộ nhớ/CPU phụ thuộc analyzer thật (JVM ~1 GB peak
+trên project 1.500 file — số của `AGENTS.md`), nên không đo giả bằng analyzer mô phỏng. Test
+`TestReindexOfSeveralFoldersKeepsGoingPastAFailure` và `TestCancelIndexWithdrawsQueuedFoldersAndStopsTheRunningOne` kiểm cô lập lỗi và huỷ.
+
+## 9. Việc còn lại / giới hạn đã biết
+
+- Terminal vẫn chạy ở thư mục của primary/folder hiện mở; chưa gắn với folder của document đang focus.
+- Search không bao gồm buffer chưa lưu (UI ghi rõ). Outline theo index nên không phản ánh edit chưa lưu.
+- Không có references/definition giữa hai folder; không có đồ thị call xuyên service ngoài `crossservice`.
+- AppImage/MSIX vẫn không đóng gói analyzer (xem `AGENTS.md`); watcher dựa vào focus-return trên mount mạng.
+- Hành động "mở agent tại folder này" chưa làm: Agent Hub chưa có primitive nhận folder làm cwd từ UI CodeGraph.

@@ -281,6 +281,45 @@ platform module).
   `dbus-x11` on PATH (single-instance uses `dbus-launch`). A bare Xvfb has no window
   manager, so maximise/minimise do nothing there — close and the layout are testable.
 
+### CodeGraph: workspace of folders (not one project)
+CodeGraph works on the **workspace**; a folder is neither a service nor "the" project. Design:
+`docs/design/codegraph-workspace.md` (identity, scope, lifecycle, API, limits).
+
+- **Identity** is `workspaceId + folderId + normalizedRelPath` (`workspace/identity.ts`:
+  `docKey`, `flowKey`, `treeFileId`). `folderId` is `workspace_services.id`; re-adding a path gives a
+  new id, so a draft never adopts a folder that merely has the same path. Paths are never case-folded.
+  The same relative path in two folders is two buffers, two tabs, two cache entries.
+- **Primary is read from `workspaces.root`**, never copied (`primaryId` is derived in `loadFolders`).
+  `WorkspaceSetPrimary` only moves where agents are spawned: no reindex, no tab/draft/history reset.
+  Nothing in CodeGraph keys off it. There is no `switchProject`: change workspace
+  (title bar), change primary, change discovery scope (header picker), focus a document and
+  add/remove folders (workspace management) are five different actions.
+- **Go resolves folder→path from the workspace's membership**; the frontend never sends a path to
+  read or write a file. `internal/app/workspacecode.go` is the seam; `internal/codegraph/rootfiles.go`
+  does root-scoped I/O (`ReadFileAt`/`WriteFileAt`/`StatFileAt`/`ListFilesAt`/`GitInfoAt`) with no
+  "active project". Reads of entry points / outline / symbols come from the on-disk index
+  (`Registry.EntryPointsOf`/`OutlineOf`/`SymbolsOf`) and never open a Service.
+- **Save is a revision check + atomic rename.** Revision = SHA-256 prefix of the bytes; a save sends
+  the revision the buffer is based on and gets `file_conflict` if the disk moved. Saves of one path are
+  serialised in-process; a foreign process writing inside the check→rename window can still be
+  overwritten (detection, not isolation). `bufferModel.ts` is the pure state machine (base / disk
+  revision / external / ack / orphan); "Keep mine" quiets the banner, Save stays guarded.
+- **Find in workspace** is `internal/wssearch` (RE2, `git ls-files` or walk, bounded ordered worker
+  pool, UTF-16 columns, cancel by request id). Unsaved buffers are not searched, and the UI says so.
+- **Open documents are watched** by `internal/docwatch` (parent directories of open tabs and dirty
+  buffers only, debounced). Missed events are covered by a reconcile on window focus.
+- **Reindex** goes through `Registry`'s bounded single-worker queue; `WorkspaceReindex(folderIds,
+  cancel)` scopes it. One folder failing never stops the batch; results of a previous workspace are
+  dropped by generation.
+- **Cross-folder intelligence is deliberately thin.** Definitions/references/outline come from the
+  index of the folder that owns the file; nothing matches names across folders and text search is never
+  presented as references. HTTP/Kafka/Redis links stay in `internal/crossservice`.
+- Tests: `go test ./internal/wssearch/ ./internal/docwatch/ ./internal/codegraph/ ./internal/app/
+  ./internal/bridge/ ./internal/arch/ -count=1`; frontend `bun test src/modules/codegraph`
+  (`fileActions.test.ts`, `workspaceSync.test.ts`, `searchActions.test.ts` use a fake bridge).
+  Benchmarks: `go test ./internal/wssearch/ -run xxx -bench WorkspaceSearch` and
+  `go test ./internal/codegraph/ -run xxx -bench ExplorerFolder`.
+
 ### CodeGraph analyzer toolchain
 Three languages, three shapes, and `Toolchain` is the thing they differ in.
 
@@ -314,10 +353,10 @@ Three languages, three shapes, and `Toolchain` is the thing they differ in.
   in the package); `NewSubprocessAnalyzer()`'s placeholder does not count as one, which is
   what keeps the tests that pass it from pinning the service to nothing. `main.go` wires
   no analyzer at all now, only the registry.
-- The UI's setup panel is gated per language (`frontend/src/modules/codegraph/analyzerGate.ts`):
-  the open project's language decides, and with nothing open it only takes over when NO
-  analyzer is ready. Before Lua it took the whole canvas whenever anything was unbuilt,
-  which would now block Lua work on a missing JDK.
+- The UI reports a missing analyzer **per folder**, not for the whole module
+  (`frontend/src/modules/codegraph/workspace/indexHealth.ts`, the Files root's dot and the
+  header's index summary): a folder whose language has no ready analyzer says so with the build
+  action, and every other folder keeps working. The old whole-canvas gate (`analyzerGate.ts`) is gone.
 - **Discovery is not `PATH`** (`internal/codegraph/locate.go`). Plenty of Java developers
   have IntelliJ and nothing else: the IDE ships its own JetBrains Runtime, bundles a full
   Maven under `plugins/maven/lib/maven3`, and downloads project JDKs into `~/.jdks` —
