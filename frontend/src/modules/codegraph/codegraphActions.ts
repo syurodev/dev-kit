@@ -4,7 +4,7 @@ import {
   getCodeGraphBlastRadius,
 } from "@/bridge/codegraph";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
-import { showAgentSession } from "@/modules/agenthub/documents";
+import { openNewAgentSession, showAgentSession } from "@/modules/agenthub/documents";
 import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 import type { Placement } from "@/workbench/intents";
 import { set, snapshot, folderById } from "./storeAccess";
@@ -180,6 +180,19 @@ export function askAgent(text: string) {
     return;
   }
   agents.setChatOpen(true);
+}
+
+/**
+ * Opens a new-session draft whose working folder is `folderId`'s. It sends
+ * nothing and changes neither the primary nor any running session's folder or
+ * grants: the person reads the draft and starts it (Agent Hub decides what the
+ * session may write).
+ */
+export function openAgentAtFolder(folderId: string): void {
+  const { workspaceId } = snapshot();
+  const folder = folderById(folderId);
+  if (!workspaceId || !folder) return;
+  openNewAgentSession({ cwd: folder.path, defaultFolder: false, workspaceId });
 }
 
 /** File impact for one file of a folder, read from that folder's index. */

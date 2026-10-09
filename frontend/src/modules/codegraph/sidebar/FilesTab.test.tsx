@@ -27,6 +27,7 @@ const actions: FilesTabActions = {
   onShowOnly: noop,
   onReindexFolder: noop,
   onMakePrimary: noop,
+  onOpenAgent: noop,
   onCopyPath: noop,
   onResetFilters: noop,
 };

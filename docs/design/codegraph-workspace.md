@@ -183,4 +183,4 @@ trên project 1.500 file — số của `AGENTS.md`), nên không đo giả bằ
 - Search không bao gồm buffer chưa lưu (UI ghi rõ). Outline theo index nên không phản ánh edit chưa lưu.
 - Không có references/definition giữa hai folder; không có đồ thị call xuyên service ngoài `crossservice`.
 - AppImage/MSIX vẫn không đóng gói analyzer (xem `AGENTS.md`); watcher dựa vào focus-return trên mount mạng.
-- Hành động "mở agent tại folder này" chưa làm: Agent Hub chưa có primitive nhận folder làm cwd từ UI CodeGraph.
+- "Open agent here" (menu chuột phải của folder/file trong Files) mở một draft session với cwd = folder đó qua `openNewAgentSession`; không gửi prompt, không đổi primary hay quyền của session đang chạy. Chưa đính kèm file/selection có cấu trúc vào draft vì draft request chưa có chỗ cho nó.

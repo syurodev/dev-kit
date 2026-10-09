@@ -37,6 +37,8 @@ export type FilesTabActions = {
   onShowOnly: (folderId: string) => void;
   onReindexFolder: (folderId: string) => void;
   onMakePrimary: (folderId: string) => void;
+  /** A draft agent session whose working folder is this one. */
+  onOpenAgent: (folderId: string) => void;
   onCopyPath: (text: string) => void;
   onResetFilters: () => void;
 };
@@ -154,6 +156,7 @@ export function FilesTab({
                   <ContextMenuSeparator />
                   <ContextMenuItem onSelect={() => actions.onCopyPath(b.path)}>Copy relative path</ContextMenuItem>
                   <ContextMenuItem onSelect={() => actions.onFindInFolder(f.id)}>Find in {labels[f.id]}…</ContextMenuItem>
+                  <ContextMenuItem onSelect={() => actions.onOpenAgent(f.id)}>Open agent in {labels[f.id]}</ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
             ),
@@ -220,6 +223,7 @@ export function FilesTab({
               <ContextMenuItem onSelect={() => actions.onFindInFolder(f.id)}>Find in this folder…</ContextMenuItem>
               {folders.length > 1 ? <ContextMenuItem onSelect={() => actions.onShowOnly(f.id)}>Show only this folder</ContextMenuItem> : null}
               <ContextMenuItem onSelect={() => actions.onReindexFolder(f.id)}>Reindex this folder</ContextMenuItem>
+              <ContextMenuItem onSelect={() => actions.onOpenAgent(f.id)}>Open agent here</ContextMenuItem>
               {f.id !== primaryId ? <ContextMenuItem onSelect={() => actions.onMakePrimary(f.id)}>Make primary</ContextMenuItem> : null}
               <ContextMenuSeparator />
               <ContextMenuItem onSelect={() => actions.onCopyPath(f.path)}>Copy path</ContextMenuItem>

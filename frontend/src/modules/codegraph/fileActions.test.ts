@@ -8,6 +8,21 @@ import { AppError } from "@/bridge/errors";
  * The real module is spread so that only the calls under test are replaced
  * (bun's mock.module applies to the whole run).
  */
+// The tab store persists through the bridge on a timer; with no desktop runtime that
+// is an unhandled rejection that lands in an unrelated test file.
+mock.module("@/bridge/uistate", () => {
+  const mem = new Map<string, unknown>();
+  return {
+    getUIState: async (key: string) => String(mem.get(key) ?? ""),
+    setUIState: async (key: string, value: string) => void mem.set(key, value),
+    uiStateStorage: {
+      getItem: (key: string) => mem.get(key) ?? null,
+      setItem: (key: string, value: unknown) => void mem.set(key, value),
+      removeItem: (key: string) => void mem.delete(key),
+    },
+  };
+});
+
 const real = await import("@/bridge/workspaceCode");
 
 type Disk = Map<string, string>;

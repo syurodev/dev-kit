@@ -13,6 +13,7 @@ import {
   choosePlanFolder,
   loadPlan,
   makePrimary,
+  openAgentAtFolder,
   openFile,
   openSearch,
   reindexFolders,
@@ -114,6 +115,7 @@ const filesActions: FilesTabActions = {
   onShowOnly: (folderId) => setScope({ kind: "folders", ids: [folderId] }),
   onReindexFolder: (folderId) => void reindexFolders([folderId]),
   onMakePrimary: (folderId) => void makePrimary(folderId),
+  onOpenAgent: (folderId) => openAgentAtFolder(folderId),
   onCopyPath: (text) => void navigator.clipboard?.writeText(text).catch(() => undefined),
   onResetFilters: () => set({ fileFilter: { codeOnly: true, changed: false, inFlow: false }, query: "" }),
 };
