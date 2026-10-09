@@ -75,10 +75,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
   });
 
   describe("AgentComposer (Figma 963:2634)", () => {
-    it("is one glass surface with its numbers behind a context ring", () => {
-      // It floats over the transcript, so it is glass; the meta band above the
-      // field ("4 turns · $0.21", the vendor) and the spelled-out counter went
-      // into the ring's popover, which renders nothing until opened.
+    it("is one plain surface with its numbers behind a context ring", () => {
+      // It sits in the layout under the transcript rather than floating over
+      // it, so it is one bordered surface and not glass; the meta band above
+      // the field ("4 turns · $0.21", the vendor) and the spelled-out counter
+      // went into the ring's popover, which renders nothing until opened.
       const html = renderToString(
         <AgentComposer
           size="wide"
@@ -96,12 +97,13 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-testid="agent-composer"');
       expect(html).toContain('data-size="wide"');
       expect(html).toContain('data-state="idle"');
-      expect(html).toContain("glass-float");
+      expect(html).not.toContain("glass-float");
       expect(html).toContain('aria-label="Context: 24.5k of 1M used (2%)"');
       expect(html).not.toContain("4 turns · $0.21");
       expect(html).not.toContain("24,503 / 1,000,000 context");
-      expect(html).toContain("Add context");
-      expect(html).toContain("Commands");
+      // The two left-hand controls are named by what they open.
+      expect(html).toContain('aria-label="Attach, commands and more"');
+      expect(html).toContain('aria-label="Mention a file"');
       expect(html).toContain("Test prompt");
     });
 
@@ -119,10 +121,13 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         return html.slice(start, html.indexOf(">", start));
       };
       expect(field("wide")).toContain("min-h-10");
-      expect(field("wide")).toContain("max-h-60");
+      // The ceilings are `cqh`-aware classes (index.css): fifteen rem wide, ten
+      // in the rail, and never more than a third of a short conversation.
+      expect(field("wide")).toContain("composer-editor-cap");
+      expect(field("wide")).not.toContain("composer-editor-cap-rail");
       expect(field("wide")).toContain("overflow-y-auto");
       expect(field("wide")).not.toContain(" h-10");
-      expect(field("rail")).toContain("max-h-40");
+      expect(field("rail")).toContain("composer-editor-cap-rail");
     });
 
     it("keeps one send button and only swaps its glyph while streaming", () => {

@@ -34,6 +34,9 @@ import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
 import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
+import { ComposerContextBar, type ContextBarMenuEntry } from "./ComposerContextBar";
+import { chooseTrayPanel, repoSummary, type TrayOpened } from "./trayModel";
+import { useRisingEdge } from "../../sidebar/hooks";
 import {
   SLOW_COMMAND_MS,
   commandText,
@@ -73,8 +76,6 @@ export type AgentTrayInput = {
   } | null;
 };
 
-type Opened = "subagents" | "tasks" | "repos" | "commands" | null;
-
 function folderName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
   return (
@@ -85,21 +86,27 @@ function folderName(path: string): string {
 }
 
 /**
- * Everything the composer tray shows for one conversation (see ComposerTray):
- * the chips of its strip and the panel above them, with the rule for which
- * panel wins.
+ * Everything the composer cluster shows for one conversation (see
+ * ComposerPanelArea and ComposerContextBar): the bar's content and the panel
+ * above it, with the rule for which panel wins (chooseTrayPanel).
  *
  * One panel at a time, first of:
  * 1. a permission the agent is waiting on,
  * 2. a question it is waiting on,
- * 3. whatever the person opened from a chip (subagents, tasks).
+ * 3. whatever the person opened from the bar (subagents, tasks, repositories).
  * (An "@" or "/" list being typed goes above all of these — the composer
  * decides that, since it is the one that knows.)
  *
- * A permission or question can be folded into the strip to read the transcript
+ * A permission or question can be folded into the bar to read the transcript
  * that explains it: folding is remembered per request, so a new request opens
- * on its own, and the folded one stays in the strip as a pulsing chip that
- * opens it again — the agent is still waiting on it.
+ * on its own, and the folded one stays in the bar as a chip — named, counted,
+ * with a dot that beats a few times on arrival and then rests — that opens it
+ * again: the agent is still waiting. More than one waiting says how many, and
+ * answering one brings the next.
+ *
+ * Direct on the bar: where this is, what blocks the agent, repositories, work
+ * running right now. Everything else — Tasks, Subagents, Commands, Follow — is
+ * in the bar's "…" menu, so a quiet session shows a quiet bar.
  */
 export function useAgentTray(input: AgentTrayInput): {
   strip: React.ReactNode;
@@ -131,6 +138,22 @@ export function useAgentTray(input: AgentTrayInput): {
     () => sessionRunningSubagents(items, tracked, live).length,
     [items, tracked, live],
   );
+  // How many of each this session has open, off the queues: the view hands over
+  // the first, and "1 of 3" is what tells the person there is more behind it.
+  // Numbers, so a queue changing under another session re-renders nothing here.
+  const sessionId = session?.id ?? "";
+  const permissionsWaiting = useAgentSessionsStore((s) =>
+    sessionId ? s.pendingQueue.filter((p) => p.sessionId === sessionId).length : 0,
+  );
+  const questionsWaiting = useAgentSessionsStore((s) =>
+    sessionId ? s.elicitationQueue.filter((q) => q.sessionId === sessionId).length : 0,
+  );
+  const permissionCount = permission ? Math.max(1, permissionsWaiting) : 0;
+  const questionCount = question ? Math.max(1, questionsWaiting) : 0;
+  // A request ARRIVING beats the chip's dot a few times; a rerender, a switch
+  // of selection or folding one away does not (useRisingEdge only counts a rise
+  // seen while mounted).
+  const arrived = useRisingEdge(permissionCount + questionCount);
   // Shell commands still running, oldest first — the one the clock reads.
   const commands = React.useMemo(
     () => (live ? items.filter(isRunningCommand) : []),
@@ -138,7 +161,7 @@ export function useAgentTray(input: AgentTrayInput): {
   );
   const commandsFor = useElapsed(commands[0]?.createdAt, commands.length > 0);
   const slowCommands = commands.length > 0 && commandsFor >= SLOW_COMMAND_MS;
-  const [opened, setOpened] = React.useState<Opened>(null);
+  const [opened, setOpened] = React.useState<TrayOpened>(null);
   const [following, toggleFollowing] = useFollowing(session?.id);
   const [folded, setFolded] = React.useState<ReadonlySet<string>>(
     () => new Set(),
@@ -151,70 +174,82 @@ export function useAgentTray(input: AgentTrayInput): {
       next.delete(id);
       return next;
     });
-  const toggle = (panel: Exclude<Opened, null>) =>
+  const toggle = (panel: Exclude<TrayOpened, null>) =>
     setOpened((current) => (current === panel ? null : panel));
 
-  const permissionOpen =
-    permission && !folded.has(permission.pending.id) ? permission : null;
-  const questionOpen =
-    question && !folded.has(question.pending.id) ? question : null;
-  // A panel opened from a chip whose subject has gone (the last subagent
-  // finished) closes with it rather than showing an empty list.
-  const openedNow: Opened =
-    opened === "subagents" && running === 0
-      ? null
-      : opened === "tasks" && !status.hasBoards
-        ? null
-        : opened === "repos" && status.repos.length === 0
-          ? null
-          : opened === "commands" && !slowCommands
-            ? null
-            : opened;
+  const showing = chooseTrayPanel({
+    permission: Boolean(permission),
+    permissionFolded: Boolean(permission && folded.has(permission.pending.id)),
+    question: Boolean(question),
+    questionFolded: Boolean(question && folded.has(question.pending.id)),
+    opened,
+    runningSubagents: running,
+    hasBoards: status.hasBoards,
+    repoCount: status.repos.length,
+    slowCommands,
+  });
+  const closeOpened = () => setOpened(null);
+
+  /** "2 more waiting after this one" under a request, when there are. */
+  const more = (n: number) =>
+    n > 1 ? (
+      <p
+        data-testid="tray-more-waiting"
+        className="border-t border-border-subtle px-3 py-1.5 text-caption-11 text-text-tertiary"
+      >
+        {`${n - 1} more waiting after this one`}
+      </p>
+    ) : null;
 
   let panel: TrayPanel | null = null;
-  if (permissionOpen) {
+  if (showing === "permission" && permission) {
     panel = {
-      key: `permission:${permissionOpen.pending.id}`,
+      key: `permission:${permission.pending.id}`,
+      onDismiss: () => fold(permission.pending.id),
       content: (
-        <div className="max-h-screen-60 overflow-y-auto">
+        <div className="composer-panel-cap overflow-y-auto overscroll-contain">
           <AgentPermissionRequest
-            pending={permissionOpen.pending}
+            pending={permission.pending}
             session={session}
-            onResolve={permissionOpen.onResolve}
-            busy={permissionOpen.busy}
+            onResolve={permission.onResolve}
+            busy={permission.busy}
             size={size}
-            onMinimize={() => fold(permissionOpen.pending.id)}
+            onMinimize={() => fold(permission.pending.id)}
           />
+          {more(permissionCount)}
         </div>
       ),
     };
-  } else if (questionOpen) {
+  } else if (showing === "question" && question) {
     panel = {
-      key: `question:${questionOpen.pending.id}`,
+      key: `question:${question.pending.id}`,
+      onDismiss: () => fold(question.pending.id),
       content: (
-        <div className="max-h-screen-60 overflow-y-auto">
+        <div className="composer-panel-cap overflow-y-auto overscroll-contain">
           <AgentQuestionCard
-            pending={questionOpen.pending}
+            pending={question.pending}
             session={session}
-            onRespond={questionOpen.onRespond}
-            busy={questionOpen.busy}
-            error={questionOpen.error}
+            onRespond={question.onRespond}
+            busy={question.busy}
+            error={question.error}
             size={size}
-            onMinimize={() => fold(questionOpen.pending.id)}
+            onMinimize={() => fold(question.pending.id)}
           />
+          {more(questionCount)}
         </div>
       ),
     };
-  } else if (openedNow === "subagents") {
+  } else if (showing === "subagents") {
     panel = {
       key: "subagents",
+      onDismiss: closeOpened,
       content: (
         <>
           <TrayPanelHeading
             title="Subagents"
             count={running}
             detail="Work running alongside this conversation"
-            onClose={() => setOpened(null)}
+            onClose={closeOpened}
           />
           <AgentSubagentTracker
             items={items}
@@ -226,90 +261,115 @@ export function useAgentTray(input: AgentTrayInput): {
         </>
       ),
     };
-  } else if (openedNow === "commands") {
+  } else if (showing === "commands") {
     panel = {
       key: "commands",
-      content: (
-        <TrayCommandList commands={commands} onClose={() => setOpened(null)} />
-      ),
+      onDismiss: closeOpened,
+      content: <TrayCommandList commands={commands} onClose={closeOpened} />,
     };
-  } else if (openedNow === "repos") {
+  } else if (showing === "repos") {
     panel = {
       key: "repos",
-      content: (
-        <TrayRepoList repos={status.repos} onClose={() => setOpened(null)} />
-      ),
+      onDismiss: closeOpened,
+      content: <TrayRepoList repos={status.repos} onClose={closeOpened} />,
     };
-  } else if (openedNow === "tasks") {
+  } else if (showing === "tasks") {
     panel = {
       key: "tasks",
+      onDismiss: closeOpened,
       content: (
         <TrayTaskList
           tasks={status.tasks}
           others={status.others}
           session={Boolean(session)}
-          onClose={() => setOpened(null)}
+          onClose={closeOpened}
         />
       ),
     };
   }
 
-  const strip = (
-    <TrayChips>
-      {leading ? (
-        <span key="where" className="flex min-w-0 shrink">
-          {leading}
-        </span>
-      ) : (
+  const repos = repoSummary(status.repos, status.branch);
+  const workspaceName = status.workspace?.name;
+  const where = leading ? (
+    <span key="where" className="flex min-w-0 shrink">
+      {leading}
+    </span>
+  ) : (
+    <TrayChip
+      key="where"
+      testId="tray-workspace"
+      icon={status.workspace ? <Boxes /> : <Folder />}
+      label={workspaceName ?? (projectPath ? folderName(projectPath) : "No project")}
+      keepLabel
+      // The workspace's folders are in the tooltip, not the label: "name (3)"
+      // read like a count of something else.
+      title={
+        status.workspace
+          ? `${status.workspace.name} · ${status.workspace.folders} folder${status.workspace.folders === 1 ? "" : "s"}${projectPath ? `\n${projectPath}` : ""}`
+          : projectPath || undefined
+      }
+    />
+  );
+
+  // What is waiting and not on screen — folded away, or behind something else.
+  const waitingChips = (
+    <>
+      {permission && showing !== "permission" ? (
         <TrayChip
-          key="where"
-          testId="tray-workspace"
-          icon={status.workspace ? <Boxes /> : <Folder />}
-          label={
-            status.workspace
-              ? `${status.workspace.name} (${status.workspace.folders})`
-              : projectPath
-                ? folderName(projectPath)
-                : "No project"
-          }
-          title={projectPath || undefined}
+          key="permission"
+          testId="tray-permission"
+          icon={<ShieldAlert />}
+          label="Permission"
+          count={permissionCount > 1 ? permissionCount : undefined}
+          title={`The agent is waiting for ${permissionCount > 1 ? `${permissionCount} permissions` : "a permission"} — open ${permissionCount > 1 ? "them" : "it"}`}
+          tone="attention"
+          pulse={arrived}
+          priority
+          onClick={() => {
+            unfold(permission.pending.id);
+            setOpened(null);
+          }}
         />
-      )}
+      ) : null}
+      {question && showing !== "question" ? (
+        <TrayChip
+          key="question"
+          testId="tray-question"
+          icon={<MessageCircleQuestion />}
+          label="Question"
+          count={questionCount > 1 ? questionCount : undefined}
+          title={`The agent is waiting on ${questionCount > 1 ? `${questionCount} questions` : "a question"} — open ${questionCount > 1 ? "them" : "it"}`}
+          tone="attention"
+          pulse={arrived}
+          priority
+          onClick={() => {
+            unfold(question.pending.id);
+            setOpened(null);
+            // Behind a permission, the question only comes forward once that
+            // is folded: the permission is the one blocking the agent.
+            if (permission) fold(permission.pending.id);
+          }}
+        />
+      ) : null}
+    </>
+  );
+
+  const chips = (
+    <TrayChips>
+      {waitingChips}
       {status.repos.length > 0 ? (
         <TrayChip
           key="branch"
           testId="tray-branch"
           icon={<GitBranch />}
           // One repository: its branch, as it always was. Several (a workspace
-          // of services): how many, with what needs attention — the single
-          // branch said nothing about any of them.
-          label={
-            status.repos.length === 1
-              ? (status.branch ?? status.repos[0].name)
-              : `${status.repos.length} repos`
-          }
-          count={repoAttention(status.repos) || undefined}
-          title={repoTitle(status.repos, status.branch)}
+          // of services): how many — and, as a badge of its own, how many of
+          // them need a look. The two numbers used to share one pill.
+          label={repos.label}
+          badge={repos.badge ?? undefined}
+          title={repos.title}
           active={panel?.key === "repos"}
           onClick={() => toggle("repos")}
-        />
-      ) : null}
-      {status.hasBoards ? (
-        <TrayChip
-          key="tasks"
-          testId="tray-tasks"
-          icon={<ListTodo />}
-          label="Tasks"
-          // This session's tasks, not the workspace's: every session of a
-          // workspace used to show the same number.
-          count={session ? status.tasks.length : status.others.length}
-          title={
-            session
-              ? `${status.tasks.length} task${status.tasks.length === 1 ? "" : "s"} from this session · ${status.others.length} other open in the workspace`
-              : `${status.others.length} open task${status.others.length === 1 ? "" : "s"} in this workspace`
-          }
-          active={panel?.key === "tasks"}
-          onClick={() => toggle("tasks")}
         />
       ) : null}
       {slowCommands ? (
@@ -338,57 +398,75 @@ export function useAgentTray(input: AgentTrayInput): {
           onClick={() => toggle("subagents")}
         />
       ) : null}
-      {/* Follow: what this agent changes in DevKit shows as it happens — the
-          activity panel in Agent Hub, a toast anywhere else (follow.tsx). A
-          session that does not exist yet (a draft) has nothing to follow. */}
-      {session ? (
-        <TrayChip
-          key="follow"
-          testId="tray-follow"
-          icon={<Eye />}
-          label={following ? "Following" : "Follow"}
-          title={
-            following
-              ? "Stop following this agent"
-              : "Follow what this agent changes in DevKit as it happens"
-          }
-          active={following}
-          onClick={toggleFollowing}
-        />
-      ) : null}
-      {/* Waiting and not on screen — folded away, or behind something else. */}
-      {permission && panel?.key !== `permission:${permission.pending.id}` ? (
-        <TrayChip
-          key="permission"
-          testId="tray-permission"
-          icon={<ShieldAlert />}
-          label="Permission"
-          title="The agent is waiting for a permission — open it"
-          tone="attention"
-          onClick={() => {
-            unfold(permission.pending.id);
-            setOpened(null);
-          }}
-        />
-      ) : null}
-      {question && panel?.key !== `question:${question.pending.id}` ? (
-        <TrayChip
-          key="question"
-          testId="tray-question"
-          icon={<MessageCircleQuestion />}
-          label="Question"
-          title="The agent is waiting on a question — open it"
-          tone="attention"
-          onClick={() => {
-            unfold(question.pending.id);
-            setOpened(null);
-            // Behind a permission, the question only comes forward once that
-            // is folded: the permission is the one blocking the agent.
-            if (permission) fold(permission.pending.id);
-          }}
-        />
-      ) : null}
     </TrayChips>
+  );
+
+  // The rest, behind "…". Tasks stays even at 0: no task yet is not no tasks
+  // feature, and the empty list says how to get one. Subagents has nothing to
+  // open while none runs, so it is there and quiet.
+  const menu: ContextBarMenuEntry[] = [];
+  if (status.hasBoards) {
+    const count = session ? status.tasks.length : status.others.length;
+    menu.push({
+      kind: "item",
+      key: "tasks",
+      testId: "tray-menu-tasks",
+      icon: <ListTodo />,
+      label: "Tasks",
+      // This session's tasks, not the workspace's: every session of a
+      // workspace used to show the same number.
+      detail: String(count),
+      active: panel?.key === "tasks",
+      onSelect: () => toggle("tasks"),
+    });
+  }
+  if (session) {
+    menu.push({
+      kind: "item",
+      key: "subagents",
+      testId: "tray-menu-subagents",
+      icon: <Bot />,
+      label: "Subagents",
+      detail: running > 0 ? String(running) : "none running",
+      disabled: running === 0,
+      active: panel?.key === "subagents",
+      onSelect: () => toggle("subagents"),
+    });
+    if (commands.length > 0) {
+      menu.push({
+        kind: "item",
+        key: "commands",
+        testId: "tray-menu-commands",
+        icon: <Terminal />,
+        label: "Running commands",
+        detail: String(commands.length),
+        disabled: !slowCommands,
+        active: panel?.key === "commands",
+        onSelect: () => toggle("commands"),
+      });
+    }
+    // Follow: what this agent changes in DevKit shows as it happens — the
+    // activity panel in Agent Hub, a toast anywhere else (follow.tsx). A session
+    // that does not exist yet (a draft) has nothing to follow.
+    menu.push({
+      kind: "toggle",
+      key: "follow",
+      testId: "tray-follow",
+      icon: <Eye />,
+      label: "Follow changes",
+      checked: following,
+      onToggle: toggleFollowing,
+    });
+  }
+
+  const strip = (
+    <ComposerContextBar
+      compact={size === "rail"}
+      where={where}
+      chips={chips}
+      menu={menu}
+      following={following}
+    />
   );
 
   return { strip, panel };
@@ -569,17 +647,6 @@ function TrayTaskRows({
 }
 
 type TrayRepo = TrayStatus["repos"][number];
-
-/** Repositories with something to look at: changes or conflicts. */
-function repoAttention(repos: TrayRepo[]): number {
-  return repos.filter((repo) => repo.changed > 0 || repo.conflicted > 0).length;
-}
-
-function repoTitle(repos: TrayRepo[], branch: string | null): string {
-  if (repos.length === 1) return branch ? `Branch ${branch}` : repos[0].name;
-  const dirty = repoAttention(repos);
-  return `${repos.length} repositories${dirty ? ` · ${dirty} with changes` : ""}`;
-}
 
 /**
  * Every repository this work spans, one row each: branch, how far it is from

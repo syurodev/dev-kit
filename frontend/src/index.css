@@ -1825,6 +1825,35 @@
     to { stroke-dasharray: 1; stroke-dashoffset: 0; }
 }
 
+/* Agent Hub conversation: the box the composer region is sized against. Size
+   containment, so `cqh` below means "the conversation's height" — not the window's
+   — and a pane made short by a terminal or a split still leaves the transcript a
+   strip to read in. The element is a flex item with a definite size, so nothing
+   is lost by containing it. */
+.agent-conversation {
+    container-type: size;
+    container-name: agent-conversation;
+}
+/* The whole composer region (feedback cards + the cluster), and the panel inside
+   it: both scroll internally past these rather than push Send or an answer off
+   the pane. Falls back to viewport units outside an .agent-conversation. */
+.composer-region-cap {
+    max-height: 78cqh;
+}
+/* The field's ceiling: about eleven lines in the wide column, seven in the rail,
+   and no more than a third of a short conversation. Past it the field scrolls. */
+.composer-editor-cap {
+    max-height: clamp(2.5rem, 30cqh, 15rem);
+}
+.composer-editor-cap-rail {
+    max-height: clamp(2.5rem, 30cqh, 10rem);
+}
+.composer-panel-cap {
+    /* What is left of the region's cap once the always-present rows (context
+       bar, one line of field, tools) are paid for — never less than a few rows. */
+    max-height: max(3.5rem, calc(78cqh - 8.5rem));
+}
+
 /* Agent Hub rail: a session (or a group's badge) has just started waiting on the
    person. Played once by the component that sees the rising edge — never on
    mount, selection or rerender — and it ends: the left bar and the icon are the

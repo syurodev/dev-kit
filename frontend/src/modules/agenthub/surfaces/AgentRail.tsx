@@ -259,7 +259,9 @@ export function AgentRail({
       ) : (
         <div
           data-testid="agent-rail-conversation"
-          className="flex flex-1 flex-col min-h-0 min-w-0"
+          // `agent-conversation`: the box `cqh` in the composer's caps is
+          // measured against — the rail's height, not the window's.
+          className="agent-conversation flex flex-1 flex-col min-h-0 min-w-0"
         >
           {/* Transcript Area */}
           <div className="flex-1 min-h-0 overflow-hidden">
@@ -320,8 +322,9 @@ export function AgentRail({
             <p className="px-6 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>
           ) : null}
 
-          {/* Rail Composer at bottom */}
-          <div className="shrink-0 px-4 pt-1">
+          {/* Rail Composer at bottom: the same region as the Hub's, in the flow
+              below the transcript, capped so a short rail scrolls inside it. */}
+          <div data-testid="agent-composer-region" className="composer-region-cap flex min-h-0 shrink-0 flex-col px-4 pt-1">
             <AgentComposer
               size="rail"
               trayStrip={tray.strip}
@@ -361,6 +364,7 @@ export function AgentRail({
               onSetMode={onSetMode}
               onSetConfigOption={onSetConfigOption}
               disabled={sendDisabled}
+              className="min-h-0 w-full"
             />
           </div>
         </div>

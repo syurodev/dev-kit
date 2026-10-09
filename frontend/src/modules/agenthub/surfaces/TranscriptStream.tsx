@@ -115,6 +115,26 @@ export function transcriptBottomScrollTop(scrollHeight: number, clientHeight: nu
   return Math.max(0, scrollHeight - clientHeight);
 }
 
+/**
+ * Where the transcript scrolls when its viewport changes height — the composer
+ * under it grew a panel or a line, or shrank. The composer is a sibling in the
+ * layout now, not an overlay, so what it takes the transcript loses.
+ *
+ * Following the end: stay on the end, or the newest line slides under the
+ * composer. Reading history: nothing (null) — a browser keeps `scrollTop` when
+ * the viewport shrinks, so the line being read stays where it is, and a panel
+ * opening must never drag the reader to the bottom.
+ */
+export function scrollTopAfterViewportResize(
+  following: boolean,
+  previousClientHeight: number,
+  clientHeight: number,
+  scrollHeight: number,
+): number | null {
+  if (!following || clientHeight === previousClientHeight) return null;
+  return transcriptBottomScrollTop(scrollHeight, clientHeight);
+}
+
 /** How close to the top the older page is asked for. */
 const PRELOAD_MARGIN_PX = 120;
 
@@ -463,6 +483,26 @@ export function TranscriptStream({
     };
   }, [items, ticks.length]);
 
+  // The viewport itself changes height when the composer around it does (a
+  // panel opening, a line typed, an attachment). No setState, no per-frame
+  // measuring: the observer fires on a real size change and writes scrollTop
+  // once. Whether to move is scrollTopAfterViewportResize's call.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let previous = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const height = el.clientHeight;
+      const top = scrollTopAfterViewportResize(isAtBottomRef.current, previous, height, el.scrollHeight);
+      previous = height;
+      if (top === null) return;
+      el.scrollTop = top;
+      lastScrollTopRef.current = el.scrollTop;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => () => {
     scrollFrameRef.current?.();
     autoScrollFrameRef.current?.();
@@ -542,12 +582,12 @@ export function TranscriptStream({
         // sideways too; as a table it widens to fit a long code line and drags
         // the column past the pane. Block keeps it to the viewport's width.
         className="size-full px-6 [&>div]:block!"
-        // Clear of the glass header above and the floating composer below: both
-        // sit over this scroller, and AgentHubContent measures each into a
-        // variable so the first and last lines can scroll out from under them.
+        // Clear of the glass header above (it floats over this scroller, and
+        // sets --header-inset). The composer is not an overlay: it sits below
+        // this whole stream in the layout, so the foot needs only its own air.
         style={{
           paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
-          paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
+          paddingBottom: "var(--space-section)",
         }}
       >
         <div
@@ -608,15 +648,16 @@ export function TranscriptStream({
           {virtualized ? virtualItems.map(renderVirtualTurn) : turns.map(renderTurn)}
         </div>
       </ScrollAreaPrimitive.Viewport>
-      {/* Clear of the header and composer, which float over both ends. Top and
-          bottom rather than margins: Radix positions the bar absolutely and
-          the class gives it full height, so a margin only slid it down. */}
+      {/* Clear of the header, which floats over the top. Top rather than a
+          margin: Radix positions the bar absolutely and the class gives it
+          full height, so a margin only slid it down. The foot is the
+          viewport's own edge. */}
       <ScrollBar
         // Radix captures the pointer on the bar while its thumb is dragged.
         onPointerMove={(event) => {
           if (event.buttons) markUserScroll();
         }}
-        style={{ top: "var(--header-inset, 0px)", bottom: "var(--composer-inset, 0px)", height: "auto" }}
+        style={{ top: "var(--header-inset, 0px)", height: "auto" }}
       />
       </ScrollAreaPrimitive.Root>
 
@@ -640,10 +681,11 @@ export function TranscriptStream({
         meta={inspecting?.raw}
       />
 
-      {/* Floating Jump to Latest Button */}
+      {/* Floating Jump to Latest Button: over the foot of THIS viewport, so it
+          rides above the composer's edge without knowing how tall it is. */}
       <div
         className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
-        style={{ bottom: "calc(var(--composer-inset, 0px) + var(--space-control))" }}
+        style={{ bottom: "var(--space-control)" }}
       >
         <div className="pointer-events-auto">
           <AgentJumpToLatest visible={showJump} onClick={scrollToBottom} />

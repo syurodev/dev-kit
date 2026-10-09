@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
 import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
 import { AgentSessionSidebarSection } from "./AgentSessionSidebarSection";
+import { AgentComposerLayoutSection } from "./AgentComposerLayoutSection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
 import { ApprovalBrokerSection } from "./ApprovalBrokerSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
@@ -1063,6 +1064,7 @@ export default function ComponentGallery() {
 
       <AgentHubTranscriptSection />
       <AgentSessionSidebarSection />
+      <AgentComposerLayoutSection />
       <MCPInteractionSection />
       <ApprovalBrokerSection />
 
