@@ -4,6 +4,7 @@ import { ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Button } from "@/components/ui/button";
 import { CONTENT_FADE_DELAY, EASE_OUT_STRONG, MOTION_BASE, MOTION_FAST, MOTION_SLOW, noMotion } from "@/lib/motion";
 
@@ -52,9 +53,8 @@ export function useTrayCompact(): boolean {
 }
 
 /**
- * The composer's tray — Figma has none; the shape follows Codex's "Cloud ·
- * repo · branch" bar. One surface grown out of the top of the composer that
- * is always there, at two heights:
+ * The composer’s context tray: a separate, quiet surface above the input,
+ * at two heights:
  *
  * - The strip, one row: where this work is (workspace, branch), what it is
  *   for (tasks), and what is running under it (subagents). Always shown —
@@ -136,10 +136,8 @@ export function ComposerTray({
         data-compact={compact || undefined}
         data-panel={panel?.key}
         className={cn(
-          // Inset by at least the composer's corner radius so its bottom edge
-          // meets the composer's straight top edge, and flush with it: the
-          // tray reads as part of the input it belongs to.
-          "mx-3 flex min-w-0 flex-col overflow-hidden rounded-t-xl border border-b-0 border-glass-border bg-surface-base",
+          // A context surface above the input; its own border remains complete.
+          "flex min-w-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-base",
           className,
         )}
       >
@@ -168,8 +166,8 @@ export function ComposerTray({
           </div>
         </motion.div>
         {strip === undefined ? null : (
-        <div data-testid="composer-tray-strip" className="flex h-8 min-w-0 items-center gap-0.5 px-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">{strip}</div>
+        <div data-testid="composer-tray-strip" className="flex h-9 min-w-0 items-center gap-1 px-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{strip}</div>
           <ActionTooltip label={compact ? "Show labels" : "Icons only"}>
             <Button
               type="button"
@@ -255,7 +253,7 @@ export function TrayChip({
           <span className="min-w-0 truncate pl-1.5">{label}</span>
         </span>
       ) : null}
-      {count !== undefined ? <span className="ml-1.5 shrink-0 tabular-nums">{count}</span> : null}
+      {count !== undefined ? <AnimatedNumber value={count} className="ml-1.5 min-w-3 shrink-0 text-center tabular-nums" /> : null}
       {tone === "attention" ? (
         <span aria-hidden="true" className="ml-1.5 size-1.5 shrink-0 rounded-full bg-status-warning motion-safe:animate-pulse" />
       ) : null}
@@ -263,9 +261,9 @@ export function TrayChip({
   );
   const chipClass = cn(
     // No gap: the label animates its own margin, so a folded label leaves none.
-    "flex h-6 min-w-0 shrink items-center rounded-sm px-1.5 text-caption-11 whitespace-nowrap",
+    "flex h-6 min-w-0 shrink items-center rounded-md px-2 text-caption-11 whitespace-nowrap",
     tone === "attention" ? "text-text-primary" : "text-text-secondary",
-    onClick && "cursor-pointer hover:bg-state-soft hover:text-text-primary",
+    onClick && "cursor-pointer transition-control hover:bg-state-soft hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30",
     active && "bg-state-soft text-text-primary",
   );
   const chip = onClick ? (

@@ -50,7 +50,7 @@ describe("a session's tasks", () => {
     expect(html).toContain("Open in the workspace");
     expect(html.match(/data-testid="tray-task"/g)?.length).toBe(1);
     expect(html.match(/data-testid="tray-task-other"/g)?.length).toBe(1);
-    expect(html).toContain("held");
+    expect(html).toContain("Held by this session");
   });
 
   it("say so when the session has none yet", () => {
@@ -85,5 +85,20 @@ describe("the tray's repositories", () => {
     expect(html).toContain("1 conflicted");
     expect(html).toContain("unreadable");
     expect(html).toContain("clean");
+  });
+});
+
+describe("compact task statuses", () => {
+  it("keeps custom workflow names available on the status icon", () => {
+    const html = renderToString(<TrayTaskList tasks={[row(task("1"), { statusName: "Needs review", active: true })]} others={[]} session />);
+    expect(html).toContain('aria-label="Status: Needs review"');
+    expect(html).toContain('title="Needs review"');
+  });
+
+  it("reports progress for this session without counting workspace tasks", () => {
+    const html = renderToString(<TrayTaskList tasks={[row(task("1"), { done: true }), row(task("2"))]} others={[row(task("9"))]} session />);
+    expect(html).toContain('aria-label="Completed session tasks"');
+    expect(html).toContain('aria-valuenow="1"');
+    expect(html).toContain('aria-valuemax="2"');
   });
 });
