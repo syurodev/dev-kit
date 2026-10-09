@@ -1,66 +1,129 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
-import { keymap, type EditorView } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
-import { codeIntel, markCodeIntelBaseline, type CodeLocation } from "@/components/code-editor/codeIntel";
+import { codeIntel, markCodeIntelBaseline, savedLineAt, type CodeIntelPanelRequest, type CodeLocation } from "@/components/code-editor/codeIntel";
 import { languageForPath } from "@/components/code/languages";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
+import { detectPlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { tabKey } from "@/stores/workbenchTabs";
+import { useSplitPanel } from "@/components/ui/split-panel";
+import { tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { createCodeGraphIntelProvider } from "./codegraphIntelProvider";
 import { useCodeGraphStore } from "./codegraphStore";
-import { discardFile, editFile, openFile, reloadFile, saveFile } from "./codegraphActions";
-import { FILE_VIEW, MODULE } from "./documents";
-import { useProjectReady } from "./useDocument";
+import { discardFile, editFile, ensureBuffer, goBack, goForward, keepMine, loadOutline, openFile, reloadFile, reloadFromDisk, saveFile } from "./fileActions";
+import { describeParams, FILE_VIEW, MODULE } from "./documents";
+import { registerEditor } from "./navigation";
+import { setCursorLine } from "./cursor";
+import { set } from "./storeAccess";
+import { useDocumentOwnership, useIsFrontDocument } from "./useDocument";
+import { docKey } from "./workspace/identity";
+import { ExternalChangeBanner, MixedEolNote, OrphanBanner } from "./file/FileBanners";
+import { CompareDialog } from "./file/CompareDialog";
+import { FileToolbar, SavingMark } from "./file/FileToolbar";
+import { NavigationPanel, closePanel } from "./file/NavigationPanel";
 
-const onOpenFile = (path: string) => openFile(path);
-
-// Module-level so every file's codeIntel() closes over the same identities:
-// the extension list below is memoized per path, and the provider holds no
-// per-editor state, so one answers for every file.
-const intelProvider = createCodeGraphIntelProvider();
-const onNavigate = (location: CodeLocation, { beside }: { beside: boolean }) =>
-  openFile(location.path, location.line, { beside });
+const platform = detectPlatform();
 
 /**
- * One file as a tab, open for editing, with file impact available in its toolbar.
+ * One file as a tab, open for editing.
  *
- * Each file is its own buffer, so opening another never asks to throw edits
- * away — the old single-editor pane had to, with a Discard dialog. Closing
- * the tab keeps unsaved edits too; opening the file again finds them.
+ * The file is `(workspace, folder, path)` — read from, saved into and watched in
+ * that folder whatever the primary is and whichever workspace the title bar now
+ * shows. Each file is its own buffer, so opening another never asks to throw
+ * edits away, and closing the tab keeps unsaved ones. The disk is watched: a
+ * clean buffer follows it, a dirty one raises a conflict that only the person
+ * resolves (file/FileBanners.tsx).
  */
 export function FileDocument({ params }: { params?: Record<string, unknown> }) {
-  const path = typeof params?.path === "string" ? params.path : "";
+  const doc = describeParams(FILE_VIEW, params);
+  const path = doc.path ?? "";
   const tabId = tabKey(MODULE, FILE_VIEW, params);
-  const ready = useProjectReady();
-  const projectPath = useCodeGraphStore((s) => s.projectPath);
-  const buffer = useCodeGraphStore((s) => s.buffers[path]);
+  const ownership = useDocumentOwnership(doc);
+  const { owner, folder, relation } = ownership;
+  const key = owner && path ? docKey(owner.workspaceId, owner.folderId, path) : "";
+  const buffer = useCodeGraphStore((s) => (key ? s.buffers[key] : undefined));
+  const front = useIsFrontDocument(tabId);
+  const [compareOpen, setCompareOpen] = useState(false);
 
-  // Restored after a relaunch: read once the project can answer.
+  // A tab restored after a relaunch has no buffer yet: read it once its owner is known.
   useEffect(() => {
-    if (ready && path && !buffer) openFile(path);
-  }, [ready, path, buffer]);
+    if (owner && path && !buffer && relation !== "removed") ensureBuffer({ ...owner, path });
+  }, [owner, path, buffer, relation]);
 
-  // Per path: the keymap reads the store when pressed, never a stale buffer.
+  // The outline of the file in front, for the breadcrumb and the sidebar's Outline.
+  useEffect(() => {
+    if (front && key && buffer && !buffer.loading && !buffer.orphan) void loadOutline(key);
+  }, [front, key, buffer?.loading, buffer?.orphan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const frontRef = useRef(front);
+  frontRef.current = front;
+  const keyRef = useRef(key);
+  keyRef.current = key;
+
+  const folderId = owner?.folderId ?? "";
+  const workspaceId = owner?.workspaceId ?? "";
+  const provider = useMemo(() => (folder ? createCodeGraphIntelProvider({ id: folder.id, path: folder.path }) : null), [folder?.id, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onNavigate = useCallback(
+    (location: CodeLocation, { beside }: { beside: boolean }) =>
+      void openFile({ workspaceId, folderId: location.owner ?? folderId, path: location.path }, location.line, { beside, preview: false }),
+    [workspaceId, folderId],
+  );
+  const onPanel = useCallback(
+    (request: CodeIntelPanelRequest) =>
+      set({
+        panel: {
+          mode: request.mode,
+          source: { workspaceId, folderId, path, line: request.line },
+          identifier: request.identifier,
+          locations: request.locations.map((l) => ({
+            folderId: l.owner ?? folderId,
+            path: l.path,
+            line: l.line,
+            label: l.label,
+            kind: l.kind,
+            preview: l.preview,
+          })),
+          selected: 0,
+        },
+      }),
+    [workspaceId, folderId, path],
+  );
+
+  // Per file: the keymap reads the store when pressed, never a stale buffer.
   // Its own memo, apart from the language: the grammar arrives a frame later,
   // and rebuilding codeIntel then would throw away its save baseline.
-  const fileExtensions = useMemo(
-    () => [
-      keymap.of([{ key: "Mod-s", run: () => (void saveFile(path), true) }]),
-      codeIntel({ path, provider: intelProvider, onNavigate }),
-    ],
-    [path],
-  );
+  const fileExtensions = useMemo(() => {
+    if (!key || !provider) return [];
+    const back = platform === "mac" ? [] : [{ key: "Alt-ArrowLeft", run: () => (void goBack(), true) }, { key: "Alt-ArrowRight", run: () => (void goForward(), true) }];
+    return [
+      Prec.highest(
+        keymap.of([
+          { key: "Mod-s", run: () => (void saveFile(keyRef.current), true) },
+          { key: "Mod-Alt-ArrowLeft", run: () => (void goBack(), true) },
+          { key: "Mod-Alt-ArrowRight", run: () => (void goForward(), true) },
+          ...back,
+        ]),
+      ),
+      codeIntel({ path, owner: folderId, provider, onNavigate, onPanel }),
+      EditorView.updateListener.of((update) => {
+        if ((update.selectionSet || update.docChanged) && frontRef.current) {
+          setCursorLine(keyRef.current, savedLineAt(update.state, update.state.selection.main.head));
+        }
+      }),
+    ];
+  }, [key, path, folderId, provider, onNavigate, onPanel]);
   const language = useLanguageExtension(languageForPath(path));
   const extensions = useMemo(() => [...language, ...fileExtensions], [language, fileExtensions]);
 
   // Once a save lands, the index will describe the text on screen, so that is
   // what go-to-definition should count lines from (see codeIntel.ts's
   // baseline). Watching dirty go false rather than hooking the save itself:
-  // Mod-S and the Save button both end here, and saveFile only clears dirty
-  // when what it wrote is still what the buffer holds.
+  // Mod-S and the Save button both end here.
   const viewRef = useRef<EditorView | null>(null);
   const dirty = buffer?.dirty ?? false;
   const wasDirty = useRef(dirty);
@@ -69,20 +132,58 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     wasDirty.current = dirty;
   }, [dirty]);
 
-  const line = buffer?.line ?? null;
-  const revealToken = buffer?.revealToken ?? 0;
+  const unregister = useRef<(() => void) | null>(null);
+  const onView = useCallback((view: EditorView | null) => {
+    viewRef.current = view;
+    unregister.current?.();
+    unregister.current = null;
+    if (!view || !keyRef.current) return;
+    unregister.current = registerEditor(keyRef.current, {
+      probe: () => {
+        const head = view.state.selection.main;
+        const line = view.state.doc.lineAt(head.head);
+        return { line: line.number, column: head.head - line.from + 1, anchor: head.anchor, head: head.head, scrollTop: view.scrollDOM.scrollTop };
+      },
+      focus: () => view.focus(),
+    });
+  }, []);
+  useEffect(() => () => unregister.current?.(), []);
+
+  useNavigationPane(front);
+
+  const restore = buffer?.restore ?? null;
   const revealTarget = useMemo<RevealTarget>(
-    () => (line === null ? null : { line, token: revealToken }),
-    [line, revealToken],
+    () => (restore ? { line: restore.line, token: restore.token, column: restore.column, anchor: restore.anchor, head: restore.head, scrollTop: restore.scrollTop } : null),
+    [restore],
   );
 
+  const closeTab = () => useWorkbenchTabsStore.getState().closeTab(tabId);
+
+  if (!owner) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title="Which folder is this file in?"
+        body="This tab was saved before documents named their folder, and it cannot be told from the workspace now. Open the file again from Files."
+      >
+        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+      </EmptyState>
+    );
+  }
+  if (!buffer && relation === "removed") {
+    return (
+      <EmptyState icon={TriangleAlert} title="This file's folder left the workspace" body={path}>
+        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+      </EmptyState>
+    );
+  }
   if (!buffer || (buffer.loading && !buffer.content)) {
     return <EmptyState busy title={`Opening ${path.slice(path.lastIndexOf("/") + 1)}`} body={path} />;
   }
   if (buffer.error && !buffer.content && !buffer.dirty) {
     return (
       <EmptyState icon={TriangleAlert} tone="danger" title="Could not open this file" body={buffer.error}>
-        <Button variant="outline" className="bg-surface-raised" onClick={() => reloadFile(path)}>
+        <Button variant="outline" className="bg-surface-raised" onClick={() => reloadFile(key)}>
           Try again
           <RotateCcw className="size-4" />
         </Button>
@@ -90,52 +191,70 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     );
   }
 
-  // A buffer left over from a project switch (kept only because it had
-  // unsaved edits — see switchProject). Saving it is refused here and by Go.
-  const orphaned = Boolean(buffer.root) && buffer.root !== projectPath;
+  const label = ownership.label || (relation === "other-workspace" ? "another workspace" : "removed folder");
+  const orphaned = buffer.orphan !== null;
+  const conflicted = buffer.external !== null && !orphaned;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4">
-        <span className="min-w-0 truncate text-code-11 text-text-secondary" title={path}>
-          {path}
-        </span>
-        <div className="flex shrink-0 items-center gap-2">
-          {buffer.dirty ? (
-            <span className="flex shrink-0 items-center gap-2">
-              <span className="text-code-11 text-status-warning">unsaved</span>
-              {!orphaned ? (
-                <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => void saveFile(path)}>
-                  Save
-                </Button>
-              ) : null}
-            </span>
-          ) : null}
-          {!orphaned ? <BlastRadiusPanel key={path} filePath={path} onOpenFile={onOpenFile} /> : null}
-        </div>
-      </div>
+      <FileToolbar
+        workspaceId={workspaceId}
+        folderId={folderId}
+        folderLabel={label}
+        path={path}
+        buffer={buffer}
+        right={
+          <>
+            {buffer.saving ? <SavingMark /> : null}
+            {buffer.reloadedAt > 0 ? <ReloadedMark at={buffer.reloadedAt} /> : null}
+            {buffer.dirty ? (
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="text-code-11 text-status-warning">unsaved</span>
+                {!orphaned && !conflicted ? (
+                  <Button size="xs" variant="outline" className="bg-surface-raised" disabled={buffer.saving} onClick={() => void saveFile(key)}>
+                    Save
+                  </Button>
+                ) : null}
+              </span>
+            ) : null}
+            {!orphaned && folder ? <BlastRadiusPanel key={key} folderId={folderId} filePath={path} onOpenFile={(p) => void openFile({ workspaceId, folderId, path: p }, null, { preview: false })} /> : null}
+          </>
+        }
+      />
       {orphaned ? (
-        <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2">
-          <p className="min-w-0 flex-1 text-body-12 text-status-warning">
-            This file is from {buffer.root}, not the project now open, and cannot be saved here. Copy your edits before closing it.
-          </p>
-          <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => void navigator.clipboard?.writeText(buffer.content)}>
-            Copy
-          </Button>
-          <Button size="xs" variant="ghost" onClick={() => discardFile(path)}>
-            Discard
-          </Button>
-        </div>
+        <OrphanBanner buffer={buffer} folderLabel={label} onDiscard={() => discardFile(key)} />
+      ) : conflicted ? (
+        <>
+          <ExternalChangeBanner
+            buffer={buffer}
+            onCompare={() => setCompareOpen(true)}
+            onReload={() => void reloadFromDisk(key)}
+            onKeepMine={() => keepMine(key)}
+            onOverwrite={() => void saveFile(key, "overwrite")}
+            onRecreate={() => void saveFile(key, "recreate")}
+            onClose={() => (buffer.dirty ? discardFile(key) : closeTab())}
+          />
+          <CompareDialog
+            open={compareOpen}
+            onOpenChange={setCompareOpen}
+            bufferKey={key}
+            buffer={buffer}
+            onReload={() => void reloadFromDisk(key)}
+            onOverwrite={() => void saveFile(key, "overwrite")}
+          />
+        </>
       ) : null}
+      {buffer.mixedEol ? <MixedEolNote eol={buffer.eol} /> : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
+          // Line endings are fixed when the editor is created.
+          key={buffer.eol}
           value={buffer.content}
           revealLine={revealTarget}
-          onChange={(content) => editFile(path, content, tabId)}
+          onChange={(content) => editFile(key, content, tabId)}
           extensions={extensions}
-          onView={(view) => {
-            viewRef.current = view;
-          }}
+          onView={onView}
+          lineSeparator={buffer.eol}
           wrap="auto"
         />
       </div>
@@ -146,4 +265,39 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
       ) : null}
     </div>
   );
+}
+
+/** "Reloaded from disk" for a few seconds after a clean buffer followed a change. */
+function ReloadedMark({ at }: { at: number }) {
+  const [fresh, setFresh] = useState(() => Date.now() - at < 4000);
+  useEffect(() => {
+    const left = 4000 - (Date.now() - at);
+    if (left <= 0) {
+      setFresh(false);
+      return;
+    }
+    setFresh(true);
+    const t = window.setTimeout(() => setFresh(false), left);
+    return () => window.clearTimeout(t);
+  }, [at]);
+  return fresh ? (
+    <span role="status" className="text-code-11 text-text-tertiary">
+      reloaded from disk
+    </span>
+  ) : null;
+}
+
+/**
+ * The references / peek panel, in this module's context pane while a file is in
+ * front. The panel's state is the store's, not this document's: choosing a
+ * result opens another file, whose document shows the same panel.
+ */
+function useNavigationPane(front: boolean) {
+  const panel = useCodeGraphStore((s) => s.panel);
+  const { openPanel, closePanel: closePane } = useSplitPanel();
+  useEffect(() => {
+    if (!front || !panel) return;
+    openPanel(<NavigationPanel panel={panel} />, { width: 480, onClose: closePanel });
+    return () => closePane();
+  }, [front, panel, openPanel, closePane]);
 }

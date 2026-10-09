@@ -42,7 +42,7 @@ export type GettingStartedStep = {
  */
 export function useGettingStartedProgress() {
   const servicesVersion = useWorkspaceSwitcherStore((s) => s.servicesVersion);
-  const projectPath = useCodeGraphStore((s) => s.projectPath);
+  const hasFolders = useCodeGraphStore((s) => s.folders.length > 0);
   const profileCount = useDatabaseStore((s) => s.profiles.length);
   const sessionCount = useAgentSessionsStore((s) => s.sessionIds.length);
 
@@ -76,7 +76,7 @@ export function useGettingStartedProgress() {
   return {
     loaded: workspaces !== null,
     workspace: (workspaces ?? 0) > 0,
-    codegraph: projectPath !== "" || restoredProject !== "",
+    codegraph: hasFolders || restoredProject !== "",
     database: profileCount > 0 || savedProfiles > 0,
     agent: sessionCount > 0,
   };

@@ -195,3 +195,24 @@ func TestStoredViewsReadTheIndexOnDiskWithoutOpeningAService(t *testing.T) {
 		t.Fatal("an outline path may not leave the folder")
 	}
 }
+
+func TestSymbolsOfReadsTheStoredIndexOfEachFolderWithoutOpeningAny(t *testing.T) {
+	an := newPerFolderAnalyzer()
+	r, _ := newTestRegistry(t, 2, an)
+	log := newStatusLog(r)
+	a, b := t.TempDir(), t.TempDir()
+	r.Enqueue(a)
+	log.wait(t, a)
+
+	got, err := r.SymbolsOf(context.Background(), a, "process")
+	if err != nil || got.State != ViewIndexed || len(got.Matches) != 1 || got.Matches[0].NodeID != "n2" {
+		t.Fatalf("indexed folder = %+v, %v", got, err)
+	}
+	none, err := r.SymbolsOf(context.Background(), b, "process")
+	if err != nil || none.State != ViewNotIndexed || len(none.Matches) != 0 {
+		t.Fatalf("unindexed folder = %+v, %v", none, err)
+	}
+	if n := len(r.Resident()); n != 0 {
+		t.Fatalf("a symbol search opened %d services", n)
+	}
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { foldContext } from "./diffHunks";
-import { lineDiff } from "@/modules/notes/noteDiff";
+import { lineDiff } from "@/lib/lineDiff";
 
 describe("foldContext", () => {
   it("keeps three lines around a change and folds the rest", () => {

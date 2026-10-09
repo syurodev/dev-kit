@@ -31,6 +31,15 @@ export interface FolderState {
 }
 
 /**
+ * FolderSymbols is the symbols matching a query in one folder.
+ */
+export interface FolderSymbols {
+    "folderId": string;
+    "state": string;
+    "matches": codegraph$0.SymbolMatch[] | null;
+}
+
+/**
  * MigrationReport says what a pass did, so the UI can report it rather than
  * claiming success silently.
  */

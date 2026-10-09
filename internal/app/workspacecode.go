@@ -250,6 +250,49 @@ func (w *WorkspaceCode) Outline(ctx context.Context, workspaceID, folderID, rel 
 	return reg.OutlineOf(ctx, svc.Path, rel)
 }
 
+// FolderSymbols is the symbols matching a query in one folder.
+type FolderSymbols struct {
+	FolderID string                  `json:"folderId"`
+	State    string                  `json:"state"`
+	Matches  []codegraph.SymbolMatch `json:"matches"`
+}
+
+// SearchSymbols looks for classes and methods in the indexes of the chosen
+// folders (all when folderIDs is empty), without opening any project: each
+// folder's index file is read, or its open Service asked. Folders are listed in
+// the workspace's order; one that cannot answer says why instead of failing the
+// rest.
+func (w *WorkspaceCode) SearchSymbols(ctx context.Context, workspaceID string, folderIDs []string, query string) ([]FolderSymbols, error) {
+	reg, err := w.registry()
+	if err != nil {
+		return nil, err
+	}
+	services, err := w.c.Workspace.ListServices(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	wanted := map[string]bool{}
+	for _, id := range folderIDs {
+		wanted[id] = true
+	}
+	var out []FolderSymbols
+	for _, svc := range services {
+		if len(wanted) > 0 && !wanted[svc.ID] {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		view, err := reg.SymbolsOf(ctx, svc.Path, query)
+		if err != nil {
+			out = append(out, FolderSymbols{FolderID: svc.ID, State: codegraph.ViewFailed, Matches: []codegraph.SymbolMatch{}})
+			continue
+		}
+		out = append(out, FolderSymbols{FolderID: svc.ID, State: view.State, Matches: view.Matches})
+	}
+	return out, nil
+}
+
 // SearchRequest is a find-in-workspace request. FolderIDs empty means every
 // folder of the workspace. RequestID names the search so it can be cancelled.
 type SearchRequest struct {

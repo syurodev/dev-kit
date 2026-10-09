@@ -4,6 +4,7 @@
 export type {
     FileList,
     FolderState,
+    FolderSymbols,
     MigrationReport,
     SearchRequest,
     TurnCommit,

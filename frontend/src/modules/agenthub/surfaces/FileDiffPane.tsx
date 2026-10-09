@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { changedRuns, diffStats, foldContext, sourceLines, splitPairs, wholeFileDiff } from "@/lib/diffHunks";
-import { lineDiff } from "@/modules/notes/noteDiff";
+import { lineDiff } from "@/lib/lineDiff";
 import { HIGHLIGHT_LIMIT, loadParser, tokenizeLines, type SyntaxSegment } from "@/components/code/highlight";
 import { languageForPath } from "@/components/code/languages";
 

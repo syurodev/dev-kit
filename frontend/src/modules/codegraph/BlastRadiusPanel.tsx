@@ -3,21 +3,27 @@ import { GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getCodeGraphBlastRadius } from "@/bridge/codegraph";
 import { errorMessage } from "@/bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
+import { blastRadiusOf } from "./codegraphActions";
 import { isUnsupportedProjectError } from "./codegraphErrors";
 import { NOT_SUPPORTED } from "./sidebar/sidebarModel";
 
-type Props = { filePath: string; onOpenFile: (path: string) => void };
+type Props = { folderId: string; filePath: string; onOpenFile: (path: string) => void };
 
-/** On-demand file impact; the portal leaves all of the editor's height available. */
-export function BlastRadiusPanel({ filePath, onOpenFile }: Props) {
+/**
+ * On-demand file impact, from the index of the folder the file is in: the files
+ * of THAT folder that depend on it. Dependencies across folders are not known to
+ * the index and are not shown; the panel says whose index it read.
+ */
+export function BlastRadiusPanel({ folderId, filePath, onOpenFile }: Props) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
-  const projectPath = useCodeGraphStore((s) => s.projectPath);
-  const indexedAt = useCodeGraphStore((s) => s.indexInfo?.indexedAt);
-  const indexing = useCodeGraphStore((s) => s.busy || Boolean(s.indexInfo?.indexing));
+  const indexedAt = useCodeGraphStore((s) => s.data[folderId]?.entries?.indexedAt);
+  const indexing = useCodeGraphStore((s) => {
+    const d = s.data[folderId];
+    return d?.indexStatus?.state === "indexing" || d?.indexStatus?.state === "pending" || d?.entries?.state === "indexing";
+  });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -35,9 +41,9 @@ export function BlastRadiusPanel({ filePath, onOpenFile }: Props) {
         <h2 id={titleId} className="text-body-13-medium">File impact</h2>
         {open && (
           <ImpactResult
-            key={JSON.stringify([projectPath, filePath, indexedAt, indexing])}
+            key={JSON.stringify([folderId, filePath, indexedAt, indexing])}
+            folderId={folderId}
             filePath={filePath}
-            projectPath={projectPath}
             indexedAt={indexedAt}
             indexing={indexing}
             onOpenFile={(path) => {
@@ -53,8 +59,7 @@ export function BlastRadiusPanel({ filePath, onOpenFile }: Props) {
 
 // Keyed to the index as well as the file: a re-index cannot leave an old
 // dependency list visible, and a delayed bridge response cannot overwrite it.
-function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }: Props & {
-  projectPath: string;
+function ImpactResult({ folderId, filePath, indexedAt, indexing, onOpenFile }: Props & {
   indexedAt: number | undefined;
   indexing: boolean;
 }) {
@@ -64,14 +69,10 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
   const [attempt, setAttempt] = useState(0);
   const [visibleCount, setVisibleCount] = useState(100);
   useEffect(() => {
-    if (indexing || !projectPath) return;
+    if (indexing) return;
     let active = true;
-    const current = () => {
-      const state = useCodeGraphStore.getState();
-      return active && state.projectPath === projectPath && state.indexInfo?.indexedAt === indexedAt
-        && !state.busy && !state.indexInfo?.indexing;
-    };
-    void getCodeGraphBlastRadius(filePath).then(
+    const current = () => active && useCodeGraphStore.getState().data[folderId]?.entries?.indexedAt === indexedAt;
+    void blastRadiusOf(folderId, filePath).then(
       (result) => { if (current()) setFiles(result); },
       (reason) => {
         if (!current()) return;
@@ -80,12 +81,12 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
       },
     );
     return () => { active = false; };
-  }, [filePath, projectPath, indexedAt, indexing, attempt]);
+  }, [folderId, filePath, indexedAt, indexing, attempt]);
 
-  // A fact about the project, not a failure: no retry to offer.
+  // A fact about the folder, not a failure: no retry to offer.
   if (unsupported) return (
     <p role="status" className="text-body-12 text-text-tertiary">
-      {NOT_SUPPORTED} — no analyzer reads this project, so what depends on this file is unknown.
+      {NOT_SUPPORTED} — no analyzer reads this folder, so what depends on this file is unknown.
     </p>
   );
   if (error) return (
@@ -102,12 +103,12 @@ function ImpactResult({ filePath, projectPath, indexedAt, indexing, onOpenFile }
     </p>
   );
   if (!files.length) return (
-    <p role="status" className="text-body-12 text-text-tertiary">Nothing else depends on this file.</p>
+    <p role="status" className="text-body-12 text-text-tertiary">Nothing else in this folder depends on this file.</p>
   );
   return (
     <>
       <p role="status" className="text-body-12 text-text-secondary tabular-nums">
-        {files.length} dependent file{files.length === 1 ? "" : "s"}
+        {files.length} dependent file{files.length === 1 ? "" : "s"} in this folder
       </p>
       <ul className="max-h-64 overflow-y-auto scrollbar-gutter-stable">
         {files.slice(0, visibleCount).map((path) => (

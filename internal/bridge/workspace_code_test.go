@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"devkit/internal/apperrors"
 	"devkit/internal/app"
+	"devkit/internal/apperrors"
 )
 
 func publicCode(err error) string {

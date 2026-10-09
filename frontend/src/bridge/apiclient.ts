@@ -331,8 +331,12 @@ export function resolveUrl(template: string, vars: Record<string, string>): stri
  */
 export type ApiDraft = ApiRequest & { bodyInferred: boolean; note: string };
 
-export function draftFromEndpoint(endpointId: string): Promise<ApiDraft> {
-  return callBridge(async () => (await AppService.ApiDraftFromEndpoint(endpointId)) as ApiDraft);
+/**
+ * A draft request from an endpoint of the index of `servicePath` — the folder it
+ * was listed in ("" is the focused project, kept for callers with no folder).
+ */
+export function draftFromEndpoint(endpointId: string, servicePath = ""): Promise<ApiDraft> {
+  return callBridge(async () => (await AppService.ApiDraftFromEndpoint(endpointId, servicePath)) as ApiDraft);
 }
 
 // ---- collections ------------------------------------------------------

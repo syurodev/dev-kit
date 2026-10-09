@@ -5,6 +5,7 @@ import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { shouldWrap, visibleColumns } from "./autoWrap";
 import { externalValue } from "./codeIntel";
+import { minimalChange } from "./minimalChange";
 import { devkitHighlight } from "./devkitHighlight";
 import { wrapBreaks } from "./wrapBreaks";
 import { wrapIndent } from "./wrapIndent";
@@ -34,7 +35,21 @@ const wrapExtensions: Extension[] = [EditorView.lineWrapping, wrapIndent, wrapBr
  * so the caller must hand it a fresh one (bumping `token`) every time it
  * wants the editor to react, even when `line` repeats.
  */
-export type RevealTarget = { line: number; token: number } | null;
+export type RevealTarget = {
+  line: number;
+  token: number;
+  /**
+   * Restoring a place (Back/Forward) rather than revealing a line: where the
+   * caret and the selection were, in document offsets, and how far the editor
+   * was scrolled. Offsets past the end of the text are clamped — the file may
+   * have changed since — and without them the caret goes to the line's first
+   * non-blank character as before.
+   */
+  column?: number;
+  anchor?: number;
+  head?: number;
+  scrollTop?: number;
+} | null;
 
 /**
  * The 0-based column of the first non-whitespace character in `text`, or 0
@@ -74,6 +89,12 @@ export type CodeEditorProps = {
    * use it to reset codeIntel's save baseline.
    */
   onView?: (view: EditorView | null) => void;
+  /**
+   * The separator the document is split and joined with. A CRLF file needs
+   * "\r\n" or the editor hands back different text than it was given (eol.ts).
+   * Applied when the editor is created: remount (change `key`) to change it.
+   */
+  lineSeparator?: "\n" | "\r\n";
 };
 
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
@@ -82,7 +103,7 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine, onView }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine, onView, lineSeparator }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
@@ -137,6 +158,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
             },
           ]),
           basicSetup,
+          ...(lineSeparator ? [EditorState.lineSeparator.of(lineSeparator)] : []),
           fontTheme,
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
@@ -189,8 +211,11 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
     // its line numbers now describe what an index would see next, exactly
     // like a save does. CodeEditor doesn't know or care what reads that
     // annotation — only that this ONE dispatch is not a keystroke.
+    // Only the span that differs is replaced: a whole-document replacement
+    // sends the caret to an edge and loses the scroll position, and a reload
+    // after an external change should leave the person where they were.
     view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: value },
+      changes: minimalChange(view.state.doc.toString(), value),
       annotations: externalValue.of(true),
     });
   }, [value]);
@@ -203,12 +228,28 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !revealLine || revealLine.line < 1) return;
-    const line = view.state.doc.line(Math.min(revealLine.line, view.state.doc.lines));
-    const anchor = line.from + firstNonWhitespaceColumn(line.text);
+    const doc = view.state.doc;
+    const line = doc.line(Math.min(revealLine.line, doc.lines));
+    const clamp = (pos: number) => Math.max(0, Math.min(pos, doc.length));
+    const restoring = revealLine.anchor !== undefined;
+    const anchor = restoring
+      ? clamp(revealLine.anchor!)
+      : revealLine.column && revealLine.column > 1
+        ? Math.min(line.from + revealLine.column - 1, line.to)
+        : line.from + firstNonWhitespaceColumn(line.text);
+    const head = restoring && revealLine.head !== undefined ? clamp(revealLine.head) : anchor;
     view.dispatch({
-      selection: { anchor, head: anchor },
-      effects: EditorView.scrollIntoView(anchor, { y: "start" }),
+      selection: { anchor, head },
+      effects: restoring && revealLine.scrollTop === undefined ? EditorView.scrollIntoView(head, { y: "center" }) : EditorView.scrollIntoView(anchor, { y: "start" }),
     });
+    if (revealLine.scrollTop !== undefined) {
+      // After the layout the dispatch above caused: scrollTop set before it
+      // would be overwritten by the scrollIntoView.
+      const top = revealLine.scrollTop;
+      requestAnimationFrame(() => {
+        if (viewRef.current === view) view.scrollDOM.scrollTop = top;
+      });
+    }
     // A navigation should land focus in the editor, the same way it would if
     // the user had clicked the target line themselves — otherwise the caret
     // moves invisibly for a click that came from outside the editor (the

@@ -1,101 +1,33 @@
-import { Dialogs } from "@wailsio/runtime";
 import {
   codeGraphAnalyzerStatus,
   codeGraphProjectRoot,
-  waitForCodeGraphIndexReady,
-  openCodeGraphProject,
-  listCodeGraphEntryPoints,
-  getCodeGraphNeighbors,
-  getCodeGraphCodeSnippet,
-  listCodeGraphFiles,
-  codeGraphIndexInfo,
-  codeGraphGitStatus,
-  readCodeGraphFile,
-  writeCodeGraphFile,
-  onCodeGraphIndexUpdated,
-  onCodeGraphProjectChanged,
-  type CodeGraphEntryPoint,
-  type CodeGraphSubgraph,
-  type CodeGraphSymbolMatch,
+  getCodeGraphBlastRadius,
 } from "@/bridge/codegraph";
-import {
-  approveCodeGraphPlan,
-  countCodeGraphPlanNodeComments,
-  relinkCodeGraphPlanNode,
-  getCodeGraphPlanEdges,
-  getCodeGraphPlanProgress,
-} from "@/bridge/codegraphPlan";
-import { errorMessage, toAppError } from "@/bridge/errors";
-import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } from "./codegraphStore";
-import { isNoPlanError, isProjectChangedError, isUnsupportedProjectError } from "./codegraphErrors";
-import { mergeSubgraph } from "./subgraph";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { showAgentSession } from "@/modules/agenthub/documents";
-import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 import type { Placement } from "@/workbench/intents";
-import {
-  MODULE,
-  closeProjectDocuments,
-  describeDocument,
-  keepTab,
-  openEntryPointFlow,
-  openFileDoc,
-  openPlanDoc,
-  openNodeFlow,
-} from "./documents";
-import { symbolDisplay } from "./sidebar/sidebarModel";
+import { set, snapshot, folderById } from "./storeAccess";
+import { openSearch } from "./searchActions";
+import { WHOLE_WORKSPACE } from "./workspace/scope";
+import { MODULE, type ActiveDoc } from "./documents";
+import { wireFileEvents, openFile } from "./fileActions";
+import { wireWorkspaceEvents } from "./workspaceSync";
+import { docKey } from "./workspace/identity";
+import { Within } from "./workspace/paths";
 
 /**
- * Everything CodeGraph asks the bridge, as module-level functions over the
- * module store (codegraphStore.ts says why the view cannot own this state).
- *
- * Every action that awaits takes a token from codeGraphRequests first and
- * checks it after each await: a response to a request the user has since
- * superseded — a second entry point clicked, the project switched — is dropped
- * rather than painted over the newer answer.
+ * The entry point of Code Graph's actions: what starts the module, and the
+ * few things that cross its parts. The parts themselves live beside it —
+ * workspaceSync (folders, scope, index), fileActions (buffers, navigation),
+ * flowActions, planActions, searchActions — each over the one store
+ * (codegraphStore.ts), none of them with a "current project".
  */
-const set = useCodeGraphStore.getState().set;
-const snapshot = () => useCodeGraphStore.getState();
-const begin = codeGraphRequests.begin;
-
-const NEIGHBOR_DEPTH = 3;
-
-/**
- * What the sidebar says after an index.
- *
- * A monorepo indexes as one graph, so without a module count four services
- * look exactly like one project that happens to have a lot of entry points. Said
- * only when there is more than one — "1 module" is noise on the common case.
- */
-export function indexedStatus(moduleCount: number, entryCount: number): string {
-  const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";
-  return `Indexed. ${modules}${entryCount} entry point(s) found.`;
-}
-
-/**
- * The sidebar's line under the project name and the Files tab's git marks.
- * Neither may break anything: a failed read leaves the last answer in place.
- */
-export async function loadSidebarMeta() {
-  const current = begin("meta");
-  const [info, git] = await Promise.allSettled([codeGraphIndexInfo(), codeGraphGitStatus()]);
-  if (!current()) return;
-  set({
-    ...(info.status === "fulfilled" ? { indexInfo: info.value } : {}),
-    ...(git.status === "fulfilled" ? { gitStatus: git.value } : {}),
-  });
-}
-
-async function loadFiles() {
-  const current = begin("files");
-  try {
-    const files = await listCodeGraphFiles();
-    if (current()) set({ files });
-  } catch (e) {
-    // The tree keeps what it had: an empty rail would read as an empty project.
-    if (current()) console.warn("codegraph: could not list files", errorMessage(e));
-  }
-}
+export * from "./fileActions";
+export * from "./flowActions";
+export * from "./planActions";
+export * from "./searchActions";
+export * from "./workspaceSync";
 
 /**
  * Refreshes which analyzers are built.
@@ -113,630 +45,122 @@ export async function loadAnalyzerStatus() {
   }
 }
 
-const EMPTY_FLOW: FlowDoc = { subgraph: null, pages: 0, loading: false, loadingMore: false, error: "" };
-
-function patchFlow(root: string, patch: Partial<FlowDoc>) {
-  const flows = snapshot().flows;
-  set({ flows: { ...flows, [root]: { ...(flows[root] ?? EMPTY_FLOW), ...patch } } });
-}
-
-function patchBuffer(path: string, patch: Partial<FileBuffer>) {
-  const buffers = snapshot().buffers;
-  const base: FileBuffer = buffers[path] ?? { content: "", root: snapshot().projectPath, dirty: false, loading: false, error: "", line: null, revealToken: 0 };
-  set({ buffers: { ...buffers, [path]: { ...base, ...patch } } });
-}
-
-/** The documents open in Code Graph's tabs, by kind. */
-function openDocuments() {
-  const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, MODULE).openTabs.map(describeDocument);
-  return {
-    flows: new Set(tabs.flatMap((d) => (d.kind === "flow" && d.root ? [d.root] : []))),
-    files: new Set(tabs.flatMap((d) => (d.kind === "file" && d.path ? [d.path] : []))),
-    plan: tabs.some((d) => d.kind === "plan"),
-  };
-}
-
 /**
- * Drops the state of documents whose tab is gone: a flow nobody is looking
- * at, a clean buffer. A buffer with unsaved edits is kept — closing a tab is
- * not "throw my edits away", and opening the file again finds them.
+ * The folder a tab saved before documents named their owner meant: the one
+ * that was the open project when it was saved — which Go still remembers. It
+ * is used only to read such a tab; nothing new is ever opened without an owner.
  */
-function pruneClosedDocuments() {
-  const open = openDocuments();
-  const { flows, buffers, inspector } = snapshot();
-  const keptFlows = Object.fromEntries(Object.entries(flows).filter(([root]) => open.flows.has(root)));
-  const keptBuffers = Object.fromEntries(
-    Object.entries(buffers).filter(([path, b]) => open.files.has(path) || b.dirty),
-  );
-  const patch: Record<string, unknown> = {};
-  if (Object.keys(keptFlows).length !== Object.keys(flows).length) patch.flows = keptFlows;
-  if (Object.keys(keptBuffers).length !== Object.keys(buffers).length) patch.buffers = keptBuffers;
-  if (inspector && !open.flows.has(inspector.flow)) Object.assign(patch, { inspector: null, snippet: null });
-  if (Object.keys(patch).length > 0) set(patch);
+let legacyRoot = "";
+
+/** Who a document belongs to. Documents opened now name it; an old tab is resolved once. */
+export function resolveOwner(doc: Pick<ActiveDoc, "workspaceId" | "folderId">): { workspaceId: string; folderId: string } | null {
+  if (doc.workspaceId && doc.folderId) return { workspaceId: doc.workspaceId, folderId: doc.folderId };
+  const s = snapshot();
+  if (!s.workspaceId || s.folders.length === 0) return null;
+  const legacy = s.folders.find((f) => legacyRoot !== "" && f.path === legacyRoot) ?? (s.folders.length === 1 ? s.folders[0] : undefined);
+  return legacy ? { workspaceId: s.workspaceId, folderId: legacy.id } : null;
 }
 
-/**
- * Drops everything that belongs to the previous project and supersedes every
- * request still in flight for it — and closes its documents: a flow of the
- * old project drawn under the new one's name would be a lie.
- *
- * An unsaved buffer is the one exception: throwing away someone's edits
- * because an agent switched projects over MCP would be data loss. Its tab
- * stays with its old root, which the view shows as "from another project"
- * and which saving refuses (and Go refuses too), so it can be copied out but
- * never written into the new project at the same relative path.
- */
-function switchProject(root: string) {
-  codeGraphRequests.invalidateAll();
-  const dirty = Object.fromEntries(Object.entries(snapshot().buffers).filter(([, b]) => b.dirty));
-  closeProjectDocuments((path) => path in dirty);
-  set({
-    projectPath: root,
-    entryPoints: [],
-    files: [],
-    flows: {},
-    buffers: dirty,
-    busy: false,
-    status: "",
-    error: "",
-    errorCode: "",
-    inspector: null,
-    snippet: null,
-    snippetLoading: false,
-    snippetError: "",
-    plan: null,
-    planEdges: [],
-    planBusy: false,
-    planError: "",
-    selectedPlanNodeId: null,
-    commentsPlanNodeId: null,
-    commentCounts: {},
-    indexInfo: null,
-    gitStatus: {},
-    collapsedGroups: [],
-    fileExpanded: [],
-  });
-}
-
-/**
- * A project no analyzer reads has no entry points, and that tab is where the
- * sidebar starts: its files are the project, so that is where it lands.
- * A tab the person chose themselves (the plan) is left alone.
- */
-function filesTabIfOnEntries(): { activeTab?: "files" } {
-  return snapshot().activeTab === "entries" ? { activeTab: "files" } : {};
-}
-
-export async function reindex(path: string) {
-  const sameProject = path === snapshot().projectPath;
-  if (!sameProject) switchProject(path);
-  const current = begin("reindex");
-  set({
-    busy: true,
-    status: "Indexing…",
-    error: "",
-    errorCode: "",
-    // unsupported cleared: the open about to run decides it afresh (a build
-    // file may have been added since), and until then the line is "Indexing…".
-    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true, unsupported: false },
-  });
-  try {
-    const detected = await openCodeGraphProject(path);
-    if (!current()) return;
-    if (detected.unsupported) {
-      // Open for its files, with no graph to ask for: the tree is the whole
-      // of it, and nothing here is an error.
-      set({ entryPoints: [], status: "", ...filesTabIfOnEntries() });
-      await loadFiles();
-      return;
-    }
-    const list = await listCodeGraphEntryPoints();
-    if (!current()) return;
-    set({ entryPoints: list });
-    await loadFiles();
-    if (!current()) return;
-    set({ status: indexedStatus(detected.modules.length, list.length) });
-    // The flows still open were drawn from the index just replaced.
-    if (sameProject) void refreshOpenFlows();
-  } catch (e) {
-    if (!current()) return;
-    const failure = toAppError(e);
-    set({
-      entryPoints: [],
-      files: [],
-      status: "",
-      error: failure.message,
-      errorCode: failure.code,
-      // The optimistic set above turned indexInfo.indexing on before the
-      // open even started; nothing else turns it back off on a failed open
-      // (loadSidebarMeta's own refresh fails the same way — there is still
-      // no active project to ask). Left alone, the sidebar's status line
-      // reads indexing as true forever and never stops saying "Indexing…",
-      // regardless of what busy/error say.
-      indexInfo: {
-        ...(snapshot().indexInfo ?? { indexedAt: 0, modules: [], language: "", branch: "" }),
-        indexing: false,
-        error: failure.message,
-      },
-    });
-  } finally {
-    // A superseded reindex leaves busy to whoever superseded it: a project
-    // switch resets it, and a newer reindex set it itself.
-    if (current()) {
-      set({ busy: false });
-      void loadSidebarMeta();
-    }
-  }
-}
-
-export async function pickAndOpenProject() {
-  set({ error: "" });
-  let chosen: string;
-  try {
-    chosen = (await Dialogs.OpenFile({
-      CanChooseDirectories: true,
-      CanChooseFiles: false,
-      Title: "Open project",
-    })) as string;
-  } catch (e) {
-    set({ error: errorMessage(e) });
-    return;
-  }
-  if (!chosen) {
-    return; // user cancelled the picker
-  }
-  await reindex(chosen);
-}
-
-/**
- * Re-indexes the active project from anywhere — the command palette lists
- * every module's commands, so this can run before any Code Graph surface has
- * mounted and the store has learned which project that is. Go is the
- * authority on it, so Go is asked.
- *
- * With no project at all it opens the picker rather than doing nothing: a
- * command that silently does nothing reads as broken.
- */
-export async function reindexActiveProject() {
-  ensureStarted();
-  if (snapshot().busy) return;
-  let root = snapshot().projectPath;
-  if (!root) {
-    try {
-      root = await codeGraphProjectRoot();
-    } catch {
-      root = "";
-    }
-  }
-  if (!root) {
-    await pickAndOpenProject();
-    return;
-  }
-  await reindex(root);
-}
-
-/**
- * The active project changed underneath the view — codegraph:projectChanged,
- * which also fires for this window's own picker. Our own switch has already
- * moved projectPath, so only a root we are not showing needs anything done.
- */
-export async function handleProjectChanged(root: string) {
-  if (!root || root === snapshot().projectPath) return;
-  switchProject(root);
-  set({ status: "Indexing…" });
-  await refreshAfterReindex();
-  if (snapshot().projectPath === root && snapshot().status === "Indexing…") set({ status: "" });
-}
-
-/** Adopt the project Go restored, if the store has none yet. */
-async function restoreProject() {
-  const root = await codeGraphProjectRoot();
-  if (!root || snapshot().projectPath) return;
-  set({ projectPath: root, status: "Indexing…" });
-  await refreshAfterReindex();
-  if (snapshot().projectPath === root) {
-    set({ status: "" });
-  }
-}
+export const getLegacyRoot = () => legacyRoot;
 
 let started = false;
-let restored = false;
-
-/**
- * Whether servicePath names the project this view shows. Compared as Go's
- * ProjectKey would (filepath.Clean): a trailing separator is the same folder.
- */
-export function isFocusedService(servicePath: string): boolean {
-  if (servicePath === "") return true;
-  const focused = useCodeGraphStore.getState().projectPath;
-  const clean = (p: string) => (p.length > 1 ? p.replace(/[\\/]+$/, "") : p);
-  return focused !== "" && clean(focused) === clean(servicePath);
-}
 
 /**
  * Wires the module up once, from whichever of its surfaces mounts first — the
  * rail, the home view, a restored flow or file tab. None of them owns the
- * project, so none of them can be the one place this lives.
+ * workspace, so none of them can be the one place this lives.
  *
  * The subscriptions are for the app's lifetime, like the store they write to.
  */
 export function ensureStarted() {
-  if (!started) {
-    started = true;
-    // Every re-index names its folder now that workspace services are kept
-    // open beside the focused project; only the one this view shows is
-    // refetched. An event with no folder is from a build that predates that,
-    // and it can only have meant the focused project.
-    onCodeGraphIndexUpdated((_version, servicePath) => {
-      if (isFocusedService(servicePath)) void refreshAfterReindex();
-    });
-    // The project can change without this module doing it — an agent
-    // switching it over MCP. Everything project-scoped is reset when it does.
-    onCodeGraphProjectChanged((root) => void handleProjectChanged(root));
-    useWorkbenchTabsStore.subscribe((state, prev) => {
-      if (state.modules[MODULE] !== prev.modules[MODULE]) pruneClosedDocuments();
-    });
-    // Probe once. Cheap enough, and the answer cannot change without someone
-    // installing a JDK, which is not something to poll for.
-    void loadAnalyzerStatus();
-  }
-  if (!restored) {
-    restored = true;
-    // A locked vault fails this; the next surface to mount tries again.
-    restoreProject().catch(() => {
-      restored = false;
-    });
-  }
-}
-
-/** Fetches one flow's graph, unless it is already on screen. */
-export async function loadFlow(root: string, force = false) {
-  const flow = snapshot().flows[root];
-  if (!force && flow && (flow.subgraph || flow.loading)) return;
-  const current = begin(`flow:${root}`);
-  patchFlow(root, { loading: true, error: "", loadingMore: false });
-  try {
-    const sub = await getCodeGraphNeighbors(root, NEIGHBOR_DEPTH);
-    if (current()) patchFlow(root, { subgraph: sub, pages: 1, loading: false });
-  } catch (e) {
-    if (current()) patchFlow(root, { subgraph: null, loading: false, error: errorMessage(e) });
-  }
-}
-
-export type OpenDocOptions = { preview?: boolean; beside?: boolean };
-
-/** An entry point's call flow, in the preview tab unless told otherwise. */
-export function viewFlow(entry: CodeGraphEntryPoint, options?: OpenDocOptions) {
-  openEntryPointFlow(entry, options);
-  void loadFlow(entry.entryNode);
+  if (started) return;
+  started = true;
+  wireWorkspaceEvents();
+  wireFileEvents();
+  // Probe once. Cheap enough, and the answer cannot change without someone
+  // installing a JDK, which is not something to poll for.
+  void loadAnalyzerStatus();
+  codeGraphProjectRoot()
+    .then((root) => {
+      legacyRoot = root;
+      // Tabs restored from before documents named their owner can resolve now.
+      set({ foldersStatus: snapshot().foldersStatus });
+    })
+    .catch(() => {});
 }
 
 /**
- * A symbol from the sidebar's @ search, drawn as the root of its own graph —
- * a class or method reached without an entry point in front of it.
+ * Opens a file an agent (or another module) pointed at, by absolute path, in
+ * the workspace folder that contains it. `root` is the project the pointer was
+ * made in; the folder is whichever one of the workspace holds the file — the
+ * deepest, when folders nest. A path in no folder of the workspace opens nothing
+ * rather than guessing.
  */
-export function viewSymbol(match: CodeGraphSymbolMatch, options?: OpenDocOptions) {
-  openNodeFlow(match.nodeId, symbolDisplay(match).name, options);
-  void loadFlow(match.nodeId);
-}
-
-/**
- * Fetches the next page of a truncated subgraph and merges it in. Without
- * this, a graph over the backend's ceiling silently rendered a partial
- * picture — GetNeighbors returned `truncated` and a continuation token that
- * nothing read.
- *
- * The page is merged only if the subgraph it continues is still the one in
- * that flow — checked by identity, so a refresh that replaced it wins.
- */
-export async function loadMoreNeighbors(root: string) {
-  const flow = snapshot().flows[root];
-  if (!flow?.subgraph?.continuation || flow.loadingMore) return;
-  const subgraph = flow.subgraph;
-  const current = begin(`more:${root}`);
-  patchFlow(root, { loadingMore: true });
-  try {
-    const next = await getCodeGraphNeighbors(root, NEIGHBOR_DEPTH, { continuation: subgraph.continuation });
-    const now = snapshot().flows[root];
-    if (!current() || now?.subgraph !== subgraph) return;
-    patchFlow(root, { subgraph: mergeSubgraph(subgraph, next), pages: now.pages + 1 });
-  } catch (e) {
-    if (current() && snapshot().flows[root]?.subgraph === subgraph) patchFlow(root, { error: errorMessage(e) });
-  } finally {
-    if (current()) patchFlow(root, { loadingMore: false });
+export async function openFileInProject(root: string, path: string, line?: number, placement: Placement = "replace"): Promise<boolean> {
+  const folders = snapshot().folders;
+  const normalized = path.split("\\").join("/");
+  const absolute = normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized);
+  const candidate = absolute ? normalized : `${root.replace(/[\\/]+$/, "").split("\\").join("/")}/${normalized}`;
+  let best: { folder: (typeof folders)[number]; rel: string } | null = null;
+  for (const folder of folders) {
+    const base = folder.path.replace(/[\\/]+$/, "").split("\\").join("/");
+    if (!Within(candidate, base)) continue;
+    const rel = candidate.slice(base.length + 1);
+    if (!rel) continue;
+    if (!best || base.length > best.folder.path.length) best = { folder, rel };
   }
-}
-
-/** Click a node → open its inspector, a context pane of the flow it is in. */
-export async function inspectNode(flow: string, nodeId: string) {
-  const node = snapshot().flows[flow]?.subgraph?.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  const current = begin("inspect");
-  set({ inspector: { flow, nodeId }, snippet: null, snippetError: "" });
-  // A node with no source yet (a plan node still not_implemented) has an empty
-  // filePath — let the Detail tab show its own empty state rather than asking
-  // Go for a file that does not exist.
-  if (!node.filePath) {
-    set({ snippetLoading: false });
-    return;
-  }
-  set({ snippetLoading: true });
-  try {
-    const snippet = await getCodeGraphCodeSnippet(node.filePath, node.line, node.endLine);
-    if (current()) set({ snippet, snippetLoading: false });
-  } catch (e) {
-    if (current()) set({ snippetError: errorMessage(e), snippetLoading: false });
-  }
-}
-
-export function closeInspector() {
-  begin("inspect"); // a snippet still on its way belongs to nothing now
-  set({ inspector: null, snippet: null, snippetError: "", snippetLoading: false });
-}
-
-/**
- * Loads the plan and its edges together.
- *
- * Status is recomputed by Go on every read, so this is also how the canvas
- * picks up an agent's progress — no diffing here, and nothing cached.
- */
-export async function loadPlan() {
-  const current = begin("plan");
-  set({ planBusy: true, planError: "" });
-  try {
-    const [plan, planEdges, commentCounts] = await Promise.all([
-      getCodeGraphPlanProgress(),
-      getCodeGraphPlanEdges(),
-      countCodeGraphPlanNodeComments(),
-    ]);
-    if (current()) set({ plan, planEdges, commentCounts });
-    // Separate and after: the plan must draw whether or not a board exists,
-    // and asking Tasks first would make a module most projects do not use a
-    // prerequisite for seeing the canvas at all.
-    void loadPlanTasks();
-  } catch (e) {
-    if (!current()) return;
-    // Having no plan is the normal state for most projects, not a failure —
-    // the empty state says what creates one. Anything else is a real error
-    // and is shown as one, with a retry.
-    set({ plan: null, planEdges: [], planError: isNoPlanError(e) ? "" : errorMessage(e) });
-  } finally {
-    if (current()) set({ planBusy: false });
-  }
-}
-
-/** The plan's canvas as a tab, with `nodeId` picked on it. */
-export function showPlan(nodeId?: string, options?: OpenDocOptions) {
-  if (nodeId) set({ selectedPlanNodeId: nodeId });
-  openPlanDoc(options);
-  if (!snapshot().plan && !snapshot().planBusy) void loadPlan();
-}
-
-export async function approvePlan() {
-  const current = begin("plan");
-  set({ planBusy: true, planError: "" });
-  try {
-    await approveCodeGraphPlan();
-  } catch (e) {
-    if (current()) set({ planError: errorMessage(e), planBusy: false });
-    return;
-  }
-  if (current()) await loadPlan();
-}
-
-export async function relinkPlanNode(planNodeID: string, fqn: string) {
-  const current = begin("plan");
-  set({ planBusy: true, planError: "" });
-  try {
-    await relinkCodeGraphPlanNode(planNodeID, fqn);
-  } catch (e) {
-    if (current()) set({ planError: errorMessage(e), planBusy: false });
-    return;
-  }
-  // Status is derived from the FQN, so the whole plan is re-read rather than
-  // patched — the relinked node may now resolve, and its edges with it.
-  if (current()) await loadPlan();
-}
-
-export function setPlanCommentCount(planNodeId: string, count: number) {
-  set({ commentCounts: { ...snapshot().commentCounts, [planNodeId]: count } });
-}
-
-/** Re-fetches `pages` pages of a subgraph, the way the user had loaded them. */
-async function fetchPages(rootId: string, pages: number, current: () => boolean) {
-  let sub: CodeGraphSubgraph = await getCodeGraphNeighbors(rootId, NEIGHBOR_DEPTH);
-  let loaded = 1;
-  while (loaded < pages && sub.continuation && current()) {
-    const next = await getCodeGraphNeighbors(rootId, NEIGHBOR_DEPTH, { continuation: sub.continuation });
-    sub = mergeSubgraph(sub, next);
-    loaded += 1;
-  }
-  return { sub, loaded };
-}
-
-/** Re-draws every open flow from the current index, as many pages as it had. */
-async function refreshOpenFlows() {
-  const open = openDocuments().flows;
-  await Promise.all(
-    [...open].map(async (root) => {
-      const pages = Math.max(1, snapshot().flows[root]?.pages ?? 1);
-      const current = begin(`flow:${root}`);
-      try {
-        const { sub, loaded } = await fetchPages(root, pages, current);
-        if (current()) patchFlow(root, { subgraph: sub, pages: loaded, loading: false, error: "" });
-      } catch (e) {
-        // A node the re-index removed: the tab says so rather than keeping
-        // a graph of code that is gone.
-        if (current()) patchFlow(root, { loading: false, error: errorMessage(e) });
-      }
-    }),
-  );
-}
-
-/**
- * Re-reads whatever is open after a background re-index.
- *
- * Everything here is derived from the index, so it goes stale silently — plan
- * status especially, since Go recomputes the diff on every read and the UI
- * would otherwise keep showing the answer from before the agent's last commit.
- *
- * Open files are deliberately NOT re-read: a buffer may hold unsaved edits,
- * and refreshing it would throw them away to fix a staleness the user can see
- * and control.
- */
-export async function refreshAfterReindex() {
-  const current = begin("refresh");
-  try {
-    let unsupported = false;
-    try {
-      await waitForCodeGraphIndexReady();
-    } catch (e) {
-      if (!isUnsupportedProjectError(e)) throw e;
-      unsupported = true;
-    }
-    if (!current()) return;
-    if (unsupported) {
-      // A restored or agent-opened project no analyzer reads: its files, and
-      // no graph. The same answer reindex gives, by the other route in.
-      set({ entryPoints: [], error: "", errorCode: "", ...filesTabIfOnEntries() });
-      await loadFiles();
-    } else {
-      const entryPoints = await listCodeGraphEntryPoints();
-      if (!current()) return;
-      set({ entryPoints, error: "", errorCode: "" });
-      await loadFiles();
-      if (!current()) return;
-      await refreshOpenFlows();
-    }
-  } catch (e) {
-    if (current()) {
-      const message = errorMessage(e);
-      set({
-        error: message,
-        // loadSidebarMeta below asks Go for a fresh indexInfo, but there is
-        // still no active project to ask, so it will not overwrite this: left
-        // as null (or a stale indexing:true from before this project), the
-        // sidebar's status line reads busy forever, e.g. after a failed
-        // restore-on-startup or an agent's MCP open. Same fix as reindex's
-        // own catch, for the other way a project becomes active.
-        indexInfo: {
-          ...(snapshot().indexInfo ?? { indexedAt: 0, modules: [], language: "", branch: "" }),
-          indexing: false,
-          error: message,
-        },
-      });
-    }
-  }
-  if (!current()) return;
-  void loadSidebarMeta();
-  if (openDocuments().plan || snapshot().activeTab === "plan") await loadPlan();
-}
-
-/** Reads a file into its buffer — unless the buffer holds edits, which win. */
-async function loadBuffer(path: string, line: number | null, navigating: boolean) {
-  const existing = snapshot().buffers[path];
-  // Only a navigation asks the caret to move. reloadFile passes the line the
-  // buffer already holds, and re-reading a file is not a request to go there
-  // again.
-  const reveal = navigating && line !== null ? { line, revealToken: (existing?.revealToken ?? 0) + 1 } : { line };
-  if (existing?.dirty) {
-    if (line !== null) patchBuffer(path, reveal);
-    return;
-  }
-  const current = begin(`file:${path}`);
-  patchBuffer(path, { loading: !existing, error: "", ...reveal });
-  try {
-    const content = await readCodeGraphFile(path);
-    // Typed into while the read was in flight: the typing wins.
-    if (!current() || snapshot().buffers[path]?.dirty) return;
-    patchBuffer(path, { content, root: snapshot().projectPath, dirty: false, loading: false });
-  } catch (e) {
-    if (current()) patchBuffer(path, { loading: false, error: errorMessage(e) });
-  }
-}
-
-/**
- * Opens a file as a tab. Every way in — the tree, blast radius, the
- * inspector's Edit, go-to-definition, an agent — goes through here. A file with unsaved edits
- * opens on its edits: nothing is ever discarded to open something.
- */
-export function openFile(path: string, line: number | null = null, options?: OpenDocOptions) {
-  openFileDoc(path, options);
-  void loadBuffer(path, line, true);
-}
-
-/** A buffer read again from disk: after a save elsewhere, or to drop a failed read. */
-export function reloadFile(path: string) {
-  if (snapshot().buffers[path]?.dirty) return;
-  void loadBuffer(path, snapshot().buffers[path]?.line ?? null, false);
-}
-
-/**
- * Opens a file an agent pointed at, in the agent's project: switches to that
- * project the same way the picker does (so its state resets and an unsaved
- * buffer is kept as the old project's), then goes through openFile.
- * `path` may be absolute or project-relative.
- */
-export async function openFileInProject(root: string, path: string, line?: number, placement: Placement = "replace") {
-  const trimmedRoot = root.replace(/[\\/]+$/, "");
-  const normalizedRoot = trimmedRoot.split("\\").join("/");
-  const normalizedPath = path.split("\\").join("/");
-  const relative = normalizedPath.startsWith(`${normalizedRoot}/`)
-    ? normalizedPath.slice(normalizedRoot.length + 1)
-    : normalizedPath;
+  // A relative path with no usable root: the one folder that is open, if only one.
+  if (!best && !absolute && root === "" && folders.length === 1) best = { folder: folders[0], rel: normalized };
+  if (!best) return false;
   set({ activeTab: "files" });
-  if (trimmedRoot && trimmedRoot !== snapshot().projectPath) {
-    await reindex(trimmedRoot);
-    // A failed open is already on screen as the home view's error; a
-    // superseded one belongs to whoever superseded it.
-    if (snapshot().projectPath !== trimmedRoot || snapshot().error) return;
-  }
-  openFile(relative, line ?? null, { preview: false, beside: placement === "beside" });
+  return openFile({ workspaceId: snapshot().workspaceId, folderId: best.folder.id, path: best.rel }, line ?? null, {
+    preview: false,
+    beside: placement === "beside",
+  });
 }
 
-/** Throws a buffer's edits away and closes its tab. */
-export function discardFile(path: string) {
-  begin(`file:${path}`);
-  const { [path]: _gone, ...rest } = snapshot().buffers;
-  set({ buffers: rest });
-  const tab = moduleTabs(useWorkbenchTabsStore.getState().modules, MODULE).openTabs.find(
-    (t) => describeDocument(t).path === path,
-  );
-  if (tab) useWorkbenchTabsStore.getState().closeTab(tab.id);
+/** Brings up "Find in workspace" over the sidebar's scope. */
+export function openWorkspaceSearch(): void {
+  ensureStarted();
+  openSearch(snapshot().scope ?? WHOLE_WORKSPACE);
 }
 
-export function editFile(path: string, content: string, tabId: string) {
-  patchBuffer(path, { content, dirty: true });
-  // An edited preview is not a preview any more: the next click must not
-  // replace it.
-  keepTab(tabId);
+/**
+ * The folder a pointer from outside names: the one whose path is `project`,
+ * else the only folder there is. With several and no match, nothing is guessed.
+ */
+export async function ownerOfNode(project?: string): Promise<{ workspaceId: string; folderId: string } | null> {
+  ensureStarted();
+  const { workspaceId, folders } = snapshot();
+  if (!workspaceId) return null;
+  const norm = (p: string) => p.replace(/[\\/]+$/, "").split("\\").join("/");
+  const byPath = project ? folders.find((f) => norm(f.path) === norm(project)) : undefined;
+  const folder = byPath ?? (folders.length === 1 ? folders[0] : undefined);
+  return folder ? { workspaceId, folderId: folder.id } : null;
 }
 
-// Reads the live values off the store rather than through refs mirrored during
-// render, so the CodeMirror keymap can call it without re-binding.
-export async function saveFile(path: string) {
-  const buffer = snapshot().buffers[path];
-  const { projectPath } = snapshot();
-  if (!buffer) return;
-  if (buffer.root && buffer.root !== projectPath) {
-    patchBuffer(path, {
-      error: `This buffer belongs to ${buffer.root}, not the open project — copy your edits out; it cannot be saved here.`,
-    });
-    return;
+/** An entry point by id, from its folder's list: the named folder first, then any. */
+export async function findEntryPoint(
+  id: string,
+  project?: string,
+): Promise<{ owner: { workspaceId: string; folderId: string }; entry: CodeGraphEntryPoint } | null> {
+  ensureStarted();
+  const { workspaceId, folders, data } = snapshot();
+  if (!workspaceId) return null;
+  const preferred = project ? await ownerOfNode(project) : null;
+  const order = preferred ? [preferred.folderId, ...folders.map((f) => f.id).filter((f) => f !== preferred.folderId)] : folders.map((f) => f.id);
+  for (const folderId of order) {
+    const entry = data[folderId]?.entries?.entries.find((e) => e.id === id);
+    if (entry) return { owner: { workspaceId, folderId }, entry };
   }
-  const { content } = buffer;
-  try {
-    await writeCodeGraphFile(path, content, buffer.root || projectPath);
-    // Edits typed while the write was in flight are still unsaved.
-    if (snapshot().buffers[path]?.content === content) patchBuffer(path, { dirty: false, error: "" });
-    void loadSidebarMeta();
-  } catch (e) {
-    patchBuffer(path, {
-      error: isProjectChangedError(e)
-        ? "Not saved: the active project changed since this file was opened. Your edits are still here — copy them before closing the file."
-        : errorMessage(e),
-    });
-  }
+  return null;
+}
+
+/** Opens a file of a folder in the current workspace by folder id. */
+export function openFolderFile(folderId: string, path: string, line?: number, options: { beside?: boolean; preview?: boolean } = {}) {
+  const { workspaceId } = snapshot();
+  if (!workspaceId || !folderById(folderId)) return Promise.resolve(false);
+  return openFile({ workspaceId, folderId, path }, line ?? null, { preview: options.preview ?? false, beside: options.beside });
 }
 
 /**
@@ -758,31 +182,11 @@ export function askAgent(text: string) {
   agents.setChatOpen(true);
 }
 
-/**
- * Loads the task chips for the open project's plan.
- *
- * Deliberately quiet. A project with no board is the common case and produces
- * no chips and no error; a Tasks module that fails is not allowed to take the
- * plan down with it, since the canvas is about code and the chips are a
- * convenience on top.
- */
-export async function loadPlanTasks() {
-  const root = useCodeGraphStore.getState().projectPath;
-  if (!root) {
-    set({ planTasks: {} });
-    return;
-  }
-  try {
-    const { listBoards, tasksByPlanNode } = await import("@/bridge/tasks");
-    const { boardForProject, chipsByPlanNode } = await import("./planTasks");
-    const board = boardForProject(await listBoards(), root);
-    if (!board) {
-      set({ planTasks: {} });
-      return;
-    }
-    set({ planTasks: chipsByPlanNode(await tasksByPlanNode(board.id)) });
-  } catch {
-    // No chips rather than a broken plan.
-    set({ planTasks: {} });
-  }
+/** File impact for one file of a folder, read from that folder's index. */
+export function blastRadiusOf(folderId: string, path: string) {
+  const folder = folderById(folderId);
+  if (!folder) return Promise.reject(new Error("This file's folder is not part of the workspace."));
+  return getCodeGraphBlastRadius(path, folder.path);
 }
+
+export { MODULE, docKey };

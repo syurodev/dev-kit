@@ -194,6 +194,26 @@ func (s *AppService) WorkspaceFileOutline(ctx context.Context, workspaceID, fold
 	return result.(codegraph.FileOutline), nil
 }
 
+// WorkspaceSearchSymbols looks for classes and methods in the indexes of the
+// workspace's folders (the ones named, or all) without opening any project.
+func (s *AppService) WorkspaceSearchSymbols(ctx context.Context, workspaceID string, folderIDs []string, query string) ([]app.FolderSymbols, error) {
+	result, err := s.call(ctx, "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"workspace_id": recordID(workspaceID),
+		"folders":      len(folderIDs),
+		"action":       "search_symbols",
+	}, func(ctx context.Context) (any, error) {
+		code, err := s.workspaceCode()
+		if err != nil {
+			return nil, err
+		}
+		return code.SearchSymbols(ctx, workspaceID, folderIDs, query)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]app.FolderSymbols), nil
+}
+
 // WorkspaceSearch finds text in the files of the workspace's folders (all of
 // them, or the folders named). ctx is the call's own: cancelling the frontend's
 // promise cancels the search, and WorkspaceSearchCancel does the same by

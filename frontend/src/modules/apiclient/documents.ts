@@ -22,7 +22,7 @@ function preload(viewId: string) {
 export function openEndpointDraft(
   endpointId: string,
   title: string,
-  options: { beside?: boolean } = {},
+  options: { beside?: boolean; /** The folder whose index lists the endpoint. */ project?: string } = {},
 ): string {
   preload(REQUEST_VIEW);
   return useWorkbenchTabsStore.getState().openTab({
@@ -30,7 +30,7 @@ export function openEndpointDraft(
     viewId: REQUEST_VIEW,
     title,
     icon: viewIcon(MODULE, REQUEST_VIEW),
-    params: { endpointId },
+    params: options.project ? { endpointId, project: options.project } : { endpointId },
     preview: false,
     beside: options.beside,
   });

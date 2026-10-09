@@ -10,33 +10,57 @@ import { verbChipClass } from "./graph/tokens";
 import { shortLabel } from "./graph/labels";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
-import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors, openFile } from "./codegraphActions";
-import { entryPointParam, FLOW_VIEW, MODULE } from "./documents";
-import { useIsFrontDocument, useProjectReady } from "./useDocument";
+import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors } from "./flowActions";
+import { openFile } from "./fileActions";
+import { describeParams, FLOW_VIEW, MODULE } from "./documents";
+import { useDocumentOwnership, useIsFrontDocument } from "./useDocument";
+import { flowKey } from "./workspace/identity";
+import { Chip } from "@/components/ui/chip";
 
 /**
  * One flow as a tab: the call graph behind an entry point, or behind a class or
  * method picked with @. Its inspector is a context pane of this tab — it
  * shows while this is the document in front and comes back when it is again.
+ *
+ * A flow belongs to one folder (its params name it) and is drawn from that
+ * folder's index only: it never mixes in another folder's nodes, and it says
+ * whose it is when the workspace has more than one.
  */
 export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
-  const root = typeof params?.root === "string" ? params.root : "";
-  const entryPointId = entryPointParam(params);
+  const doc = describeParams(FLOW_VIEW, params);
+  const root = doc.root ?? "";
+  const entryPointId = doc.entryPoint;
   const tabId = tabKey(MODULE, FLOW_VIEW, params);
 
-  const ready = useProjectReady();
-  const flow = useCodeGraphStore((s) => s.flows[root]);
-  const entry = useCodeGraphStore((s) => (entryPointId ? s.entryPoints.find((ep) => ep.id === entryPointId) : undefined));
+  const ownership = useDocumentOwnership(doc);
+  const folderId = ownership.owner?.folderId ?? "";
+  const key = folderId && root ? flowKey(folderId, root) : "";
+  const flow = useCodeGraphStore((s) => (key ? s.flows[key] : undefined));
+  const entry = useCodeGraphStore((s) =>
+    entryPointId && folderId ? s.data[folderId]?.entries?.entries.find((ep) => ep.id === entryPointId) : undefined,
+  );
+  const several = useCodeGraphStore((s) => s.folders.length > 1);
   const front = useIsFrontDocument(tabId);
+  const ready = ownership.relation === "current";
 
   // A tab restored after a relaunch, or one whose flow a re-index dropped,
-  // has nothing in the store yet: it asks once the project can answer.
+  // has nothing in the store yet: it asks once its folder is known.
   useEffect(() => {
-    if (ready && root && !flow) void loadFlow(root);
-  }, [ready, root, flow]);
+    if (ready && root && !flow) void loadFlow(folderId, root);
+  }, [ready, root, flow, folderId]);
 
-  const onSelect = useCallback((nodeId: string) => void inspectNode(root, nodeId), [root]);
-  useInspectorPane(root, front);
+  const onSelect = useCallback((nodeId: string) => void inspectNode(folderId, root, nodeId), [folderId, root]);
+  useInspectorPane(folderId, root, key, front, ownership.owner?.workspaceId ?? "");
+
+  if (ownership.relation === "removed" || ownership.relation === "other-workspace" || !ownership.owner) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title={ownership.relation === "other-workspace" ? "This flow is from another workspace" : "This flow's folder is not in the workspace"}
+        body="Switch to its workspace in the title bar to draw it, or open the entry point again from Entry points."
+      />
+    );
+  }
 
   const subgraph = flow?.subgraph;
   if (subgraph) {
@@ -50,18 +74,21 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
           edges={subgraph.edges}
           onSelect={onSelect}
           header={
-            entry ? (
-              <>
-                <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
-                  {entry.verb}
+            <>
+              {entry ? (
+                <>
+                  <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
+                    {entry.verb}
+                  </span>
+                  <span className="truncate text-title-16 text-text-primary">{entry.target}</span>
+                </>
+              ) : (
+                <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
+                  {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
                 </span>
-                <span className="truncate text-title-16 text-text-primary">{entry.target}</span>
-              </>
-            ) : (
-              <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
-                {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
-              </span>
-            )
+              )}
+              {several ? <Chip className="max-w-40 truncate" >{ownership.label}</Chip> : null}
+            </>
           }
           meta={(counts: CanvasCounts) => (
             <>
@@ -76,7 +103,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
                     size="xs"
                     className="bg-surface-raised"
                     disabled={flow.loadingMore || !subgraph.continuation}
-                    onClick={() => void loadMoreNeighbors(root)}
+                    onClick={() => void loadMoreNeighbors(folderId, root)}
                   >
                     {flow.loadingMore ? "Loading…" : "Load more"}
                   </Button>
@@ -97,7 +124,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   if (flow?.error) {
     return (
       <EmptyState icon={TriangleAlert} tone="danger" title="Could not draw this flow" body={flow.error}>
-        <Button variant="outline" className="bg-surface-raised" onClick={() => void loadFlow(root, true)}>
+        <Button variant="outline" className="bg-surface-raised" onClick={() => void loadFlow(folderId, root, true)}>
           Try again
           <RotateCcw className="size-4" />
         </Button>
@@ -119,14 +146,14 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
  * picked; closes it when either stops being true. Opening the node's code
  * puts the file beside the flow, so the graph stays on screen.
  */
-function useInspectorPane(root: string, front: boolean) {
+function useInspectorPane(folderId: string, root: string, key: string, front: boolean, workspaceId: string) {
   const inspector = useCodeGraphStore((s) => s.inspector);
-  const subgraph = useCodeGraphStore((s) => s.flows[root]?.subgraph);
+  const subgraph = useCodeGraphStore((s) => (key ? s.flows[key]?.subgraph : undefined));
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
   const node = useMemo(
-    () => (front && inspector?.flow === root ? (subgraph?.nodes.find((n) => n.id === inspector.nodeId) ?? null) : null),
+    () => (front && key && inspector?.flow === key ? (subgraph?.nodes.find((n) => n.id === inspector.nodeId) ?? null) : null),
     [front, inspector, root, subgraph],
   );
   const { openPanel, closePanel } = useSplitPanel();
@@ -139,13 +166,15 @@ function useInspectorPane(root: string, front: boolean) {
         snippet={snippet}
         snippetLoading={snippetLoading}
         snippetError={snippetError}
-        onEdit={snippet ? () => openFile(snippet.filePath, snippet.line, { preview: false, beside: true }) : undefined}
-        onJump={(id) => void inspectNode(root, id)}
+        // The node's file is in the flow's own folder, whichever folder is
+        // the primary or in scope.
+        onEdit={snippet ? () => void openFile({ workspaceId, folderId, path: snippet.filePath }, snippet.line, { preview: false, beside: true }) : undefined}
+        onJump={(id) => void inspectNode(folderId, root, id)}
         canJump={(id) => Boolean(subgraph?.nodes.some((n) => n.id === id))}
-        onOpenFile={(path, line) => openFile(path, line, { preview: false, beside: true })}
+        onOpenFile={(path, line) => void openFile({ workspaceId, folderId, path }, line, { preview: false, beside: true })}
       />,
       { width: 520, onClose: closeInspector },
     );
     return () => closePanel();
-  }, [node, root, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
+  }, [node, root, folderId, workspaceId, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 }

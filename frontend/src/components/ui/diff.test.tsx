@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 
 import { DiffSplitPanes, DIFF_ROW_HEIGHT } from "./diff";
 import { changedRuns, splitPairs, sourceLines } from "@/lib/diffHunks";
-import { lineDiff } from "@/modules/notes/noteDiff";
+import { lineDiff } from "@/lib/lineDiff";
 
 const build = (before: string, after: string) => {
   const sourced = sourceLines(lineDiff(before, after));

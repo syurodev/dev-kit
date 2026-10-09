@@ -1,25 +1,28 @@
 import { create } from "zustand";
 import { createRequestGuard } from "./requestGuard";
-import type {
-  CodeGraphPlanEdge,
-  CodeGraphPlanProgress,
-} from "@/bridge/codegraphPlan";
+import type { CodeGraphPlanEdge, CodeGraphPlanProgress } from "@/bridge/codegraphPlan";
 import type {
   CodeGraphCodeSnippet,
-  CodeGraphEntryPoint,
   CodeGraphFileEntry,
-  CodeGraphGitState,
-  CodeGraphIndexInfo,
   CodeGraphSubgraph,
   CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
+import type { ServiceIndexStatus, Workspace, WorkspaceService } from "@/bridge/workspace";
+import type { CodeGraphGitMark, FileOutline, FolderEntryPoints, FolderState } from "@/bridge/workspaceCode";
+import type { FileBuffer } from "./workspace/bufferModel";
+import { WHOLE_WORKSPACE, type Scope } from "./workspace/scope";
+import { DEFAULT_SEARCH_OPTIONS, type SearchSession } from "./workspace/searchModel";
+
+export type { FileBuffer };
 
 /**
- * One flow document: the graph drawn from a root node, as a tab of its own
- * (documents.ts). Keyed by root node id, so two tabs of entry points handled by
- * the same method share one fetch.
+ * One flow document: the graph drawn from a root node of one folder, as a tab
+ * of its own (documents.ts). Keyed by `flowKey(folderId, rootNodeId)` — two
+ * folders can have a node with the same id, and each draws its own graph.
  */
 export type FlowDoc = {
+  /** The folder whose index this was drawn from. */
+  folderId: string;
   subgraph: CodeGraphSubgraph | null;
   /**
    * How many pages are on screen. A background re-index re-fetches this many,
@@ -32,142 +35,189 @@ export type FlowDoc = {
   error: string;
 };
 
-/**
- * One file document's buffer, keyed by project-relative path.
- *
- * It outlives its tab on purpose: closing the tab of a file with unsaved
- * edits keeps the edits, and opening the file again finds them. Only saving,
- * discarding or a clean project switch drops a buffer.
- */
-export type FileBuffer = {
-  content: string;
-  /**
-   * The project root it was read from. Saving sends it to Go, which refuses
-   * the write if the active project has moved since; the view compares it
-   * with projectPath to mark a buffer left over from a switch.
-   */
-  root: string;
-  dirty: boolean;
-  loading: boolean;
-  error: string;
-  /** The line to reveal, if it was opened at one. */
-  line: number | null;
-  /**
-   * Bumped each time `line` is set by a navigation, even to the line it
-   * already held. Going to the same definition twice is two requests, and the
-   * editor's reveal is keyed on (line, token) so it sees both (RevealTarget in
-   * CodeEditor.tsx).
-   */
-  revealToken: number;
-};
-
 /** One task on a plan node, narrowed to what a chip draws. */
 export type PlanTaskChip = { id: string; key: string; title: string; status: string };
 
-type CodeGraphState = {
-  projectPath: string;
-  entryPoints: CodeGraphEntryPoint[];
-  status: string;
-  /** Why the project could not be analyzed, or "". */
-  error: string;
-  /**
-   * The bridge error code behind `error`, or "". "unsupported_project" is the
-   * one the view branches on: picking the wrong folder needs a different offer
-   * from an analysis that broke, and a retry button on a folder that will never
-   * analyze is a button that cannot work.
-   */
-  errorCode: string;
+/**
+ * What the sidebar and documents know about one workspace folder. Everything a
+ * folder owns is under its own entry: refreshing one folder replaces one entry
+ * and leaves the others' arrays — and the components reading them — alone.
+ */
+export type FolderData = {
+  /** What the machine says: reachable, branch, changed count. */
+  state: FolderState | null;
+  files: CodeGraphFileEntry[];
+  filesTruncated: boolean;
+  filesStatus: "idle" | "loading" | "ready" | "error";
+  filesError: string;
+  git: Record<string, CodeGraphGitMark>;
+  entries: FolderEntryPoints | null;
+  entriesStatus: "idle" | "loading" | "ready" | "error";
+  entriesError: string;
+  /** The queue's account of the folder (pending / indexing / failed…). */
+  indexStatus: ServiceIndexStatus | null;
+};
+
+export const emptyFolderData = (): FolderData => ({
+  state: null,
+  files: [],
+  filesTruncated: false,
+  filesStatus: "idle",
+  filesError: "",
+  git: {},
+  entries: null,
+  entriesStatus: "idle",
+  entriesError: "",
+  indexStatus: null,
+});
+
+/** One folder's plan, with its comment counts and the tasks implementing it. */
+export type PlanState = {
+  plan: CodeGraphPlanProgress | null;
+  edges: CodeGraphPlanEdge[];
   busy: boolean;
+  error: string;
+  commentCounts: Record<string, number>;
+  tasks: Record<string, PlanTaskChip[]>;
+};
 
-  /** Open flow documents, by root node id. */
-  flows: Record<string, FlowDoc>;
-  /** Open (or edited) file documents, by project-relative path. */
-  buffers: Record<string, FileBuffer>;
+export const emptyPlanState = (): PlanState => ({ plan: null, edges: [], busy: false, error: "", commentCounts: {}, tasks: {} });
 
+/** An outline read for a file, valid for the index time it carries. */
+export type OutlineEntry = FileOutline & { loading: boolean; error: string };
+
+/** What the references / peek panel shows. */
+export type NavigationPanelState = {
+  mode: "peek" | "references";
+  /** Where the lookup was made from. */
+  source: { workspaceId: string; folderId: string; path: string; line: number };
+  identifier: string;
+  locations: PanelLocation[];
+  selected: number;
+};
+
+export type PanelLocation = {
+  folderId: string;
+  path: string;
+  line: number;
+  label?: string;
+  kind?: string;
+  preview?: string;
+};
+
+export type SidebarTab = "entries" | "files" | "search" | "plan";
+
+type CodeGraphState = {
+  /** The workspace the discovery data belongs to; "" until the title-bar switcher picks one. */
+  workspaceId: string;
+  workspace: Workspace | null;
   /**
-   * The node whose inspector is open, and the flow it was picked in. The
-   * inspector is a context pane of that flow: it shows while that flow is the
-   * document in front, and goes when another document comes forward.
+   * Bumped every time the workspace changes. Anything that finishes after the
+   * bump belongs to the previous workspace and is dropped.
    */
+  generation: number;
+  /** Folders of the workspace in its own order (primary first). */
+  folders: WorkspaceService[];
+  /** Id of the primary folder. Derived from the workspace's root; never stored apart from it. */
+  primaryId: string;
+  foldersStatus: "idle" | "loading" | "ready" | "error";
+  foldersError: string;
+  /** What the sidebar's lists show. */
+  scope: Scope;
+  data: Record<string, FolderData>;
+
+  /** Open flow documents, by flowKey. */
+  flows: Record<string, FlowDoc>;
+  /** Open (or edited) file documents, by docKey. Survives the tab closing. */
+  buffers: Record<string, FileBuffer>;
+  outlines: Record<string, OutlineEntry>;
+  panel: NavigationPanelState | null;
+
+  /** The node whose inspector is open, and the flow it was picked in. */
   inspector: { flow: string; nodeId: string } | null;
   snippet: CodeGraphCodeSnippet | null;
   snippetLoading: boolean;
   snippetError: string;
 
-  /** The sidebar's section. Documents are tabs now; this only picks the rail's list. */
-  activeTab: "entries" | "files" | "plan";
-
-  /** Per-node status plus the aggregate, recomputed by Go on every read. */
-  plan: CodeGraphPlanProgress | null;
-  planEdges: CodeGraphPlanEdge[];
-  planBusy: boolean;
-  /** Which plan node the canvas should highlight, chosen from the sidebar. */
-  selectedPlanNodeId: string | null;
-  /** Which plan node has its comment thread open, or null. */
-  commentsPlanNodeId: string | null;
-  /** Thread length per plan node, for the node badge. */
-  commentCounts: Record<string, number>;
-  /**
-   * The tasks implementing each plan node, for the chips on the canvas.
-   *
-   * Code Graph does not own this and does not store it: the link lives on the
-   * task, and this is the answer to one bounded query, refreshed with the
-   * plan. An empty record is the normal state — most projects have no board.
-   */
-  planTasks: Record<string, PlanTaskChip[]>;
-  planError: string;
-  files: CodeGraphFileEntry[];
-
+  activeTab: SidebarTab;
   /** Filters the sidebar's visible list; applies to whichever tab is active. */
   query: string;
-
-  /**
-   * Per-language analyzer readiness, or null until the first probe answers.
-   * Null and "all ready" both render the normal module — the setup panel only
-   * takes over once we know an analyzer is genuinely missing, so a slow probe
-   * never flashes it at someone whose analyzer is fine.
-   */
-  analyzerStatuses: CodeGraphToolchainStatus[] | null;
-
-  /** When the index was built, whether a run is going, why the last failed. */
-  indexInfo: CodeGraphIndexInfo | null;
-  /** Changed files of the project, for the Files tab's marks and filter. */
-  gitStatus: Record<string, CodeGraphGitState>;
   /** Verb chips on in the Entry points tab; empty means all. */
   verbFilter: string[];
   /** Kind, service and owner groups folded shut, by key. */
   collapsedGroups: string[];
-  /** Folders open in the Files tab. */
+  /** Directories open in the Files tab, by treeDirId. */
   fileExpanded: string[];
-  /** The Files tab's toggles. */
+  /** Folder roots folded shut in the Files tab, by folderId. */
+  collapsedRoots: string[];
   fileFilter: { codeOnly: boolean; changed: boolean; inFlow: boolean };
+
+  search: SearchSession;
+
+  /** The folder whose plan the sidebar's Plan tab shows. */
+  planFolderId: string;
+  plans: Record<string, PlanState>;
+  selectedPlanNodeId: string | null;
+  commentsPlanNodeId: string | null;
+
+  /**
+   * Per-language analyzer readiness, or null until the first probe answers.
+   * Null and "all ready" both render the normal module — the setup panel only
+   * takes over once we know an analyzer is genuinely missing.
+   */
+  analyzerStatuses: CodeGraphToolchainStatus[] | null;
+
+  /** Documents the watcher could not watch: looked at again when the window regains focus. */
+  unwatched: string[];
 
   set: (patch: Partial<CodeGraphState>) => void;
 };
+
+export const newSearchSession = (workspaceId: string, scope: Scope = WHOLE_WORKSPACE): SearchSession => ({
+  id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+  workspaceId,
+  scope,
+  options: DEFAULT_SEARCH_OPTIONS,
+  status: "idle",
+  error: "",
+  result: null,
+  resultFor: "",
+  collapsed: [],
+});
 
 /**
  * CodeGraph's view state lives outside the components on purpose.
  *
  * Its documents are tabs (documents.ts), and a tab can be closed, replaced as
  * the preview, or unmounted when the module is left — so useState in a view
- * would come back empty although Go still has the project indexed and
- * watched. And the sidebar, the documents and the inspector all read the same
- * project, which only a store outside all three can hold.
+ * would come back empty although Go still has the files and the indexes. And
+ * the sidebar, the documents and the inspector all read the same workspace,
+ * which only a store outside all of them can hold.
  *
- * The Go service restores the last selected project on startup. The view
- * reads that selection on mount and waits for its index before loading data;
- * graph results themselves are never restored from frontend storage.
+ * What it holds is partitioned by owner (docs/design/codegraph-workspace.md
+ * § 2): per-folder data under `data[folderId]`, buffers under their docKey,
+ * flows under their flowKey. There is no "current project" in here. The
+ * primary folder is read from the workspace, not copied, and the discovery
+ * scope is a lens over the folders — changing either closes nothing.
+ *
+ * Graph results, file text and search results are never restored from frontend
+ * storage; Go is the authority and the next mount asks again.
  */
 export const useCodeGraphStore = create<CodeGraphState>((set) => ({
-  projectPath: "",
-  entryPoints: [],
-  status: "",
-  error: "",
-  errorCode: "",
-  busy: false,
+  workspaceId: "",
+  workspace: null,
+  generation: 0,
+  folders: [],
+  primaryId: "",
+  foldersStatus: "idle",
+  foldersError: "",
+  scope: WHOLE_WORKSPACE,
+  data: {},
 
   flows: {},
   buffers: {},
+  outlines: {},
+  panel: null,
 
   inspector: null,
   snippet: null,
@@ -175,23 +225,22 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   snippetError: "",
 
   activeTab: "entries",
-  plan: null,
-  planEdges: [],
-  planBusy: false,
-  selectedPlanNodeId: null,
-  commentsPlanNodeId: null,
-  commentCounts: {},
-  planTasks: {},
-  planError: "",
-  files: [],
   query: "",
-  analyzerStatuses: null,
-  indexInfo: null,
-  gitStatus: {},
   verbFilter: [],
   collapsedGroups: [],
   fileExpanded: [],
+  collapsedRoots: [],
   fileFilter: { codeOnly: true, changed: false, inFlow: false },
+
+  search: newSearchSession(""),
+
+  planFolderId: "",
+  plans: {},
+  selectedPlanNodeId: null,
+  commentsPlanNodeId: null,
+
+  analyzerStatuses: null,
+  unwatched: [],
 
   set: (patch) => set(patch),
 }));
@@ -199,6 +248,6 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
 /**
  * One guard for every CodeGraph request, module-level like the store itself:
  * the actions outlive the view (see above), and so do their responses.
- * Keys are per action; a project switch invalidates all of them.
+ * Keys are per action and per owner; a workspace switch invalidates all of them.
  */
 export const codeGraphRequests = createRequestGuard();

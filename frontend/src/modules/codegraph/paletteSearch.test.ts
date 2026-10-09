@@ -1,37 +1,50 @@
 import { describe, expect, it } from "bun:test";
-import { buildGroups } from "./paletteSearch";
-import type { CodeGraphEntryPoint, CodeGraphFileEntry, CodeGraphSymbolMatch } from "@/bridge/codegraph";
+import { buildGroups, type PaletteEntry, type PaletteFile, type PaletteSymbol } from "./paletteSearch";
+import type { CodeGraphEntryPoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 
-const ENDPOINTS: CodeGraphEntryPoint[] = [
-  { id: "e1", verb: "GET", target: "/orders/{id}", entryNode: "com.acme.OrdersController.get", kind: "http", service: "", owner: "com.acme.OrdersController", group: "OrdersController", order: 0 },
-  { id: "e2", verb: "POST", target: "/orders", entryNode: "com.acme.OrdersController.create", kind: "http", service: "", owner: "com.acme.OrdersController", group: "OrdersController", order: 0 },
+const ep = (id: string, verb: string, target: string): CodeGraphEntryPoint => ({
+  id,
+  verb,
+  target,
+  entryNode: `com.acme.OrdersController.${id}`,
+  kind: "http",
+  service: "",
+  owner: "com.acme.OrdersController",
+  group: "OrdersController",
+  order: 0,
+});
+
+const A = { folderId: "fa", folderLabel: "orders" };
+const B = { folderId: "fb", folderLabel: "billing" };
+
+const ENDPOINTS: PaletteEntry[] = [
+  { ...A, ep: ep("e1", "GET", "/orders/{id}") },
+  { ...A, ep: ep("e2", "POST", "/orders") },
 ];
 
-const FILES: CodeGraphFileEntry[] = [
-  { path: "src/main/java/com/acme/OrdersController.java", isDir: false },
-  { path: "src/main/java/com/acme", isDir: true },
-  { path: "src/main/java/com/acme/OrdersService.java", isDir: false },
+const FILES: PaletteFile[] = [
+  { ...A, path: "src/main/java/com/acme/OrdersController.java" },
+  { ...A, path: "src/main/java/com/acme/OrdersService.java" },
 ];
 
-const SYMBOLS: CodeGraphSymbolMatch[] = [
-  {
-    nodeId: "com.acme.OrdersService.create(Request)",
-    label: "com.acme.OrdersService.create",
-    kind: "method",
-    layer: "service",
-    filePath: "src/main/java/com/acme/OrdersService.java",
-    line: 10,
-  },
-];
+const MATCH: CodeGraphSymbolMatch = {
+  nodeId: "com.acme.OrdersService.create(Request)",
+  label: "com.acme.OrdersService.create",
+  kind: "method",
+  layer: "service",
+  filePath: "src/main/java/com/acme/OrdersService.java",
+  line: 10,
+};
+const SYMBOLS: PaletteSymbol[] = [{ ...A, match: MATCH }];
 
 function actions() {
   const opened: string[] = [];
   return {
     opened,
     actions: {
-      openEntryPoint: (ep: CodeGraphEntryPoint) => opened.push(`entry:${ep.id}`),
-      openFile: (path: string) => opened.push(`file:${path}`),
-      openSymbol: (match: CodeGraphSymbolMatch) => opened.push(`symbol:${match.nodeId}`),
+      openEntryPoint: (folderId: string, e: CodeGraphEntryPoint) => opened.push(`entry:${folderId}:${e.id}`),
+      openFile: (folderId: string, path: string) => opened.push(`file:${folderId}:${path}`),
+      openSymbol: (folderId: string, match: CodeGraphSymbolMatch) => opened.push(`symbol:${folderId}:${match.nodeId}`),
     },
   };
 }
@@ -42,15 +55,16 @@ describe("codegraph buildGroups", () => {
     expect(buildGroups("", { entryPoints: ENDPOINTS, files: FILES, symbols: SYMBOLS }, acts)).toEqual([]);
   });
 
-  it("matches an endpoint by its path", () => {
+  it("matches an entry point by its path", () => {
     const { actions: acts } = actions();
     const groups = buildGroups("orders/{id}", { entryPoints: ENDPOINTS, files: [], symbols: [] }, acts);
     expect(groups.map((g) => g.heading)).toEqual(["ENTRY POINTS"]);
     expect(groups[0].items).toHaveLength(1);
     expect(groups[0].items[0].title).toBe("GET /orders/{id}");
+    expect(groups[0].items[0].id).toBe("entry:fa:e1");
   });
 
-  it("lists a file by its name, with the directory as the subtitle, and skips directories", () => {
+  it("lists a file by its name, with the directory as the subtitle", () => {
     const { actions: acts } = actions();
     const groups = buildGroups("Controller", { entryPoints: [], files: FILES, symbols: [] }, acts);
     const files = groups.find((g) => g.heading === "FILES");
@@ -59,7 +73,24 @@ describe("codegraph buildGroups", () => {
     expect(files?.items[0].subtitle).toBe("src/main/java/com/acme");
   });
 
-  it("shows a symbol by its short name, detailed by the caller-supplied match set", () => {
+  it("names the folder of each result only when several folders are searched", () => {
+    const { actions: acts } = actions();
+    const files: PaletteFile[] = [
+      { ...A, path: "src/config.ts" },
+      { ...B, path: "src/config.ts" },
+    ];
+    const single = buildGroups("config", { entryPoints: [], files: [files[0]], symbols: [] }, acts);
+    expect(single[0].items[0].subtitle).toBe("src");
+
+    const multi = buildGroups("config", { entryPoints: [], files, symbols: [], multi: true }, acts);
+    const items = multi[0].items;
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.subtitle).sort()).toEqual(["billing › src", "orders › src"]);
+    // The same relative path in two folders is two results, with two ids.
+    expect(new Set(items.map((i) => i.id)).size).toBe(2);
+  });
+
+  it("shows a symbol by its short name", () => {
     const { actions: acts } = actions();
     const groups = buildGroups("create", { entryPoints: [], files: [], symbols: SYMBOLS }, acts);
     const symbols = groups.find((g) => g.heading === "SYMBOLS");
@@ -73,12 +104,15 @@ describe("codegraph buildGroups", () => {
     expect(groups).toEqual([]);
   });
 
-  it("runs the caller's action for the picked row", () => {
+  it("runs the caller's action with the folder of the picked row", () => {
     const { actions: acts, opened } = actions();
-    const endpointGroups = buildGroups("GET /orders", { entryPoints: ENDPOINTS, files: [], symbols: [] }, acts);
-    endpointGroups[0].items[0].run();
-    const fileGroups = buildGroups("Controller", { entryPoints: [], files: FILES, symbols: [] }, acts);
-    fileGroups[0].items[0].run();
-    expect(opened).toEqual(["entry:e1", "file:src/main/java/com/acme/OrdersController.java"]);
+    buildGroups("GET /orders", { entryPoints: ENDPOINTS, files: [], symbols: [] }, acts)[0].items[0].run();
+    buildGroups("Controller", { entryPoints: [], files: FILES, symbols: [] }, acts)[0].items[0].run();
+    buildGroups("create", { entryPoints: [], files: [], symbols: SYMBOLS }, acts)[0].items[0].run();
+    expect(opened).toEqual([
+      "entry:fa:e1",
+      "file:fa:src/main/java/com/acme/OrdersController.java",
+      "symbol:fa:com.acme.OrdersService.create(Request)",
+    ]);
   });
 });

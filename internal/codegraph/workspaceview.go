@@ -235,3 +235,53 @@ func (r *Registry) OutlineOf(ctx context.Context, servicePath, relPath string) (
 	defer store.Close()
 	return outlineFrom(ctx, store, rel)
 }
+
+// SymbolsView is one folder's answer to a symbol search.
+type SymbolsView struct {
+	Path    string        `json:"path"`
+	State   string        `json:"state"`
+	Matches []SymbolMatch `json:"matches"`
+}
+
+// SymbolsOf searches the classes and methods of the folder at servicePath: its
+// Service when open, else the index on disk. Like EntryPointsOf it never opens
+// a Service, so a workspace-wide symbol search reads N index files and starts
+// no watcher, no analyzer and no resident slot.
+func (r *Registry) SymbolsOf(ctx context.Context, servicePath, query string) (SymbolsView, error) {
+	view := SymbolsView{Path: servicePath, State: ViewNotIndexed, Matches: []SymbolMatch{}}
+	if svc, ok := r.Service(servicePath); ok && svc != nil && servicePath != "" {
+		matches, err := svc.SearchSymbol(ctx, query)
+		switch {
+		case err == nil:
+			view.State, view.Matches = ViewIndexed, nonNilMatches(matches)
+			return view, nil
+		case errors.Is(err, ErrUnsupportedProject):
+			view.State = ViewUnsupported
+			return view, nil
+		case errors.Is(err, ErrIndexNotReady):
+			view.State = ViewIndexing
+			return view, nil
+		case errors.Is(err, ErrNoActiveProject):
+		default:
+			return SymbolsView{}, err
+		}
+	}
+	store, ok := openStoredIndex(ctx, r.configDir(), servicePath)
+	if !ok {
+		return view, nil
+	}
+	defer store.Close()
+	matches, err := store.SearchSymbol(ctx, query)
+	if err != nil {
+		return SymbolsView{}, err
+	}
+	view.State, view.Matches = ViewIndexed, nonNilMatches(matches)
+	return view, nil
+}
+
+func nonNilMatches(m []SymbolMatch) []SymbolMatch {
+	if m == nil {
+		return []SymbolMatch{}
+	}
+	return m
+}

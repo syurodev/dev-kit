@@ -21,9 +21,6 @@ import { dirname, join, normalize } from "node:path";
 // "from -> to": the number of files in `from` that import from `to`. Keep
 // this at what measure() actually reports, never above it.
 const BASELINE: Record<string, number> = {
-  // The subagent transcript pane renders a file diff; NoteEditor is the one
-  // rich-text renderer, not something agenthub should fork a copy of.
-  "agenthub -> notes": 1,
   // The agent setup and runtime panels reuse Settings' own form controls —
   // both surfaces about the same underlying agent runtime, in the module
   // that owns the UI shell for it.

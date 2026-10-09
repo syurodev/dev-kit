@@ -75,7 +75,7 @@ registerIntent(
   async (ref, { placement }) => {
     if (ref.kind !== "endpoint") return;
     const { openEndpointDraft } = await import("./documents");
-    openEndpointDraft(ref.id, ref.label, { beside: placement === "beside" });
+    openEndpointDraft(ref.id, ref.label, { beside: placement === "beside", project: ref.project });
   },
   "beside",
 );

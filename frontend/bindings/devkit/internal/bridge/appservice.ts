@@ -794,9 +794,13 @@ export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
  * ApiDraftFromEndpoint builds a request from a Code Graph endpoint without
  * saving it. FR-7 is explicit that a draft becomes a request only when the
  * person saves it, so this returns one and stores nothing.
+ * 
+ * servicePath names the folder whose index holds the endpoint ("" is the focused
+ * project, as before): entry points are listed per workspace folder now, and an
+ * id means something only in the index it came from.
  */
-export function ApiDraftFromEndpoint(endpointID: string): $CancellablePromise<apiclient$0.EndpointDraft> {
-    return $Call.ByID(303944444, endpointID);
+export function ApiDraftFromEndpoint(endpointID: string, servicePath: string): $CancellablePromise<apiclient$0.EndpointDraft> {
+    return $Call.ByID(303944444, endpointID, servicePath);
 }
 
 export function ApiDuplicateEnvironment(id: string, name: string): $CancellablePromise<apiclient$0.Environment> {
@@ -2653,6 +2657,14 @@ export function WorkspaceSearch(req: app$0.SearchRequest): $CancellablePromise<w
  */
 export function WorkspaceSearchCancel(requestID: string): $CancellablePromise<void> {
     return $Call.ByID(597135917, requestID);
+}
+
+/**
+ * WorkspaceSearchSymbols looks for classes and methods in the indexes of the
+ * workspace's folders (the ones named, or all) without opening any project.
+ */
+export function WorkspaceSearchSymbols(workspaceID: string, folderIDs: string[] | null, query: string): $CancellablePromise<app$0.FolderSymbols[] | null> {
+    return $Call.ByID(3717186392, workspaceID, folderIDs, query);
 }
 
 /**

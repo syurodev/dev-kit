@@ -5,11 +5,8 @@ import { CodeBlock } from "@/components/code/CodeBlock";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import {
-  commentCodeGraphPlanNode,
-  listCodeGraphPlanNodeComments,
-  type CodeGraphPlanComment,
-} from "@/bridge/codegraphPlan";
+import type { CodeGraphPlanComment } from "@/bridge/codegraphPlan";
+import { commentFolderPlanNode, listFolderPlanComments } from "@/bridge/workspacePlan";
 import { errorMessage } from "@/bridge/errors";
 import { Inline } from "@/modules/agenthub/transcript/AgentMessageRich";
 import { DOCK_TOP_RESERVE, placeInspector } from "../inspector/placeInspector";
@@ -92,12 +89,17 @@ function ago(unixSeconds: number): string {
  * had it (the node card) when it closes; Escape closes it.
  */
 export function PlanCommentsPopover({
+  workspaceId,
+  folderId,
   planNodeId,
   label,
   description,
   onClose,
   onCountChange,
 }: {
+  /** The plan belongs to one folder; its comments are that folder's. */
+  workspaceId: string;
+  folderId: string;
   planNodeId: string;
   label: string;
   /**
@@ -149,7 +151,7 @@ export function PlanCommentsPopover({
     setThread(null);
     setDraft("");
     setError("");
-    listCodeGraphPlanNodeComments(planNodeId)
+    listFolderPlanComments(workspaceId, folderId, planNodeId)
       .then((next) => {
         if (!current()) return;
         setThread(next);
@@ -160,7 +162,7 @@ export function PlanCommentsPopover({
       codeGraphRequests.begin("comments"); // supersede on unmount/change
     };
     // onCountChange is called, never read as state.
-  }, [planNodeId]);
+  }, [planNodeId, workspaceId, folderId]);
 
   const ready = !!node && !!canvasWidth && !!canvasHeight;
   // Focus moves in once the card exists — it renders nothing until the node
@@ -189,10 +191,10 @@ export function PlanCommentsPopover({
     setSending(true);
     setError("");
     try {
-      await commentCodeGraphPlanNode(target, body);
+      await commentFolderPlanNode(workspaceId, folderId, target, body);
       if (!current()) return;
       setDraft("");
-      const next = await listCodeGraphPlanNodeComments(target);
+      const next = await listFolderPlanComments(workspaceId, folderId, target);
       if (!current()) return;
       setThread(next);
       onCountChange?.(target, next.length);
