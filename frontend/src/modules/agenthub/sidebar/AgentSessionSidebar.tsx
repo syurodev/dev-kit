@@ -17,7 +17,7 @@ import {
   attentionKind,
   groupSessions,
   nextWaiting,
-  withoutClosed,
+  drawnWhenHidingClosed,
   type Attention,
   type SidebarGroup,
 } from "./model";
@@ -143,12 +143,13 @@ export function AgentSessionSidebar({
     [held, has.newChild, has.pin, has.rename, has.transcript, has.copy, has.cancel, has.close, has.del],
   );
 
-  const sessions = React.useMemo(
-    () => withoutClosed(allSessions, hideClosed, activeSessionId),
-    [allSessions, hideClosed, activeSessionId],
+  // Membership is decided on every session, then closed ones are left out of
+  // what is drawn (see groupSessions' `keep`).
+  const groups = React.useMemo(
+    () => groupSessions(allSessions, scratchRoot, workspaces, drawnWhenHidingClosed(hideClosed, activeSessionId)),
+    [allSessions, scratchRoot, workspaces, hideClosed, activeSessionId],
   );
-  const hiddenCount = allSessions.length - sessions.length;
-  const groups = React.useMemo(() => groupSessions(sessions, scratchRoot, workspaces), [sessions, scratchRoot, workspaces]);
+  const hiddenCount = allSessions.length - groups.reduce((n, g) => n + g.sessions.length, 0);
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   const olderOpen = React.useMemo(() => new Set(olderOpenKeys), [olderOpenKeys]);
 
