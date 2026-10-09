@@ -145,6 +145,14 @@ sidebar gửi yêu cầu qua `useAgentDraftRequests`. Đóng tab **không** đó
 
 - Sidebar là `ModuleManifest.sidebar` (`AgentHubSidebar`), không đăng ký từ từng tab;
   dòng được chọn là session của focused group (`activeAgentHubSessionId`).
+- Rail là danh sách phẳng trong nhóm thu gọn được, không dùng `TreeView`
+  (`modules/agenthub/sidebar/`: `AgentSessionSidebar` → `AgentSessionGroup` → `AgentSessionCard`,
+  `AgentSubagentAvatars`; luật thuần ở `model.ts`). Mỗi nhóm hiện 5 session gần nhất
+  (`updatedAt` của backend — không đổi theo chunk — rồi id làm tie-break) cộng các ngoại lệ:
+  session đang xem, session chờ phản hồi (status **hoặc** hàng đợi permission/elicitation) và
+  session đã pin; phần còn lại nằm trong stack "N older sessions", mở/đóng được và nhớ theo nhóm
+  (`agentPins.olderOpen`). Card là `div`: nút mở session, avatar subagent và menu là anh em,
+  không lồng button. Dialog rename/xóa vẫn thuộc `AgentHubSidebar` và gate theo module visible.
 - Agent panel bên phải (`AgentCompanionSlot`) **không hiện khi Agent Hub là module
   đang active** — nhường cột cho panel của module (diff, file đổi, kết quả query).
   `chatOpen` giữ nguyên lựa chọn, nên panel quay lại khi rời Agent Hub; nút toggle

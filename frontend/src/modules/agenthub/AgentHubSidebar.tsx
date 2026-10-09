@@ -24,9 +24,10 @@ import {
 import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { AgentSidebarTree } from "./surfaces";
+import { AgentSessionSidebar } from "./sidebar/AgentSessionSidebar";
+import { attentionBySession } from "./sidebar/model";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
-import { useSubagentPanel } from "./subagents";
+import { showSubagent } from "./sidebar/openSubagent";
 import { useSidebarWorkspaces } from "./sidebarWorkspaces";
 import { forgetAgentTranscript, loadWholeTranscript } from "./transcript";
 import { transcriptToMarkdown } from "./exportMarkdown";
@@ -62,11 +63,16 @@ export function sessionSubtree(sessions: AgentSession[], root: string): Set<stri
 }
 
 /**
- * Agent Hub's rail: the swarm tree, as the module's rather than a document's
- * (ModuleManifest.sidebar). Each session is a tab now, and a rail registered by
- * every open tab would belong to whichever registered last; this one is there
- * with no tab open as well. A row opens its session's tab, and the highlighted
- * row is the tab Agent Hub's focused group shows.
+ * Agent Hub's rail: sessions in collapsible groups, as the module's rather than
+ * a document's (ModuleManifest.sidebar). Each session is a tab, and a rail
+ * registered by every open tab would belong to whichever registered last; this
+ * one is there with no tab open as well. A card opens its session's tab, and the
+ * highlighted card is the tab Agent Hub's focused group shows. Closing a tab
+ * never closes the session: that is the card's menu.
+ *
+ * This is the container: it reads the stores, runs the actions and owns the
+ * rename / delete dialogs, which show only while Agent Hub is the module on
+ * screen. The presentation is AgentSessionSidebar.
  */
 export function AgentHubSidebar() {
   const sessions = useAgentSessionList();
@@ -83,6 +89,8 @@ export function AgentHubSidebar() {
   const unpin = useAgentPinsStore((state) => state.unpin);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
   const toggleCollapsed = useAgentPinsStore((state) => state.toggleCollapsed);
+  const olderOpen = useAgentPinsStore((state) => state.olderOpen);
+  const toggleOlderOpen = useAgentPinsStore((state) => state.toggleOlderOpen);
   const hideClosed = useAgentPinsStore((state) => state.hideClosed);
   const toggleHideClosed = useAgentPinsStore((state) => state.toggleHideClosed);
   const workspaces = useSidebarWorkspaces();
@@ -102,12 +110,9 @@ export function AgentHubSidebar() {
   const [pendingDelete, setPendingDelete] = useState<{ session: AgentSession; descendants: number } | null>(null);
 
   // What each session is waiting on the user for: permissions and questions
-  // alike, since either one stops the agent until someone answers.
-  const pendingCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const p of [...pendingQueue, ...elicitationQueue]) map[p.sessionId] = (map[p.sessionId] ?? 0) + 1;
-    return map;
-  }, [pendingQueue, elicitationQueue]);
+  // alike, since either one stops the agent until someone answers. Kept apart
+  // so a card can say which.
+  const attention = useMemo(() => attentionBySession(pendingQueue, elicitationQueue), [pendingQueue, elicitationQueue]);
 
   async function cancelTurn(session: AgentSession) {
     try {
@@ -174,17 +179,19 @@ export function AgentHubSidebar() {
 
   return (
     <>
-      <AgentSidebarTree
+      <AgentSessionSidebar
         sessions={sessions}
         workspaces={workspaces}
         scratchRoot={scratchRoot}
         activeSessionId={activeSessionId}
-        pendingCounts={pendingCounts}
+        attention={attention}
         subagents={subagents}
         pinnedIds={pinned}
         onTogglePin={togglePin}
         collapsedKeys={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        olderOpenKeys={olderOpen}
+        onToggleOlder={toggleOlderOpen}
         hideClosed={hideClosed}
         onToggleHideClosed={toggleHideClosed}
         onSelectSession={(id) => {
@@ -193,10 +200,7 @@ export function AgentHubSidebar() {
         }}
         // A subagent's work, beside its session: the session's tab, and the
         // module's right-hand pane on that subagent (subagents.tsx).
-        onSelectSubagent={(session, subagent) => {
-          useSubagentPanel.getState().show(session.id, subagent.id);
-          openAgentSession(session);
-        }}
+        onSelectSubagent={showSubagent}
         onNewSession={() => openNewAgentSession()}
         // The "No project" group's + starts another scratch session, not one
         // in the scratch root itself. A workspace's + is the whole workspace:

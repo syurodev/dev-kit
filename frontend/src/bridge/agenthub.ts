@@ -55,6 +55,13 @@ export type AgentSession = {
   depth: number;
   title: string | null;
   acpSessionId: string;
+  /**
+   * When the backend last wrote the session row, in epoch milliseconds: a
+   * status change (a turn starting or ending, a permission wait), a rename or
+   * the vendor id. Not touched by transcript chunks, so ordering by it does
+   * not move while an agent streams. Absent on a row built locally.
+   */
+  updatedAt?: number;
 };
 
 export type InvokeResult = {
@@ -223,7 +230,16 @@ function toSession(raw: RawSession): AgentSession {
     depth: raw.Depth ?? 0,
     title: raw.Title ?? null,
     acpSessionId: raw.ACPSessionID ?? "",
+    updatedAt: toEpoch(raw.UpdatedAt),
   };
+}
+
+/** A Go time.Time over the bridge; the zero time and anything unparsable are "unknown". */
+function toEpoch(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const at = Date.parse(value);
+  // Go's zero time is year 1, which parses to a large negative number.
+  return Number.isFinite(at) && at > 0 ? at : undefined;
 }
 
 function toInvokeResult(raw: RawInvokeResult): InvokeResult {

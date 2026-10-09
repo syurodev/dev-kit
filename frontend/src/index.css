@@ -1825,6 +1825,31 @@
     to { stroke-dasharray: 1; stroke-dashoffset: 0; }
 }
 
+/* Agent Hub rail: a session (or a group's badge) has just started waiting on the
+   person. Played once by the component that sees the rising edge — never on
+   mount, selection or rerender — and it ends: the left bar and the icon are the
+   standing signal. No fill-mode, so the card's own background returns. */
+.agent-attention-flash {
+    animation: agent-attention-flash 1400ms var(--ease-out-strong) 1;
+}
+@keyframes agent-attention-flash {
+    from { background-color: color-mix(in srgb, var(--status-warning) 22%, transparent); }
+    to { background-color: transparent; }
+}
+.agent-attention-pulse {
+    animation: agent-attention-pulse 640ms var(--ease-out-strong) 3;
+}
+/* A card that joins a group already on screen: a short rise, not a layout animation. */
+.agent-card-enter {
+    animation: agent-card-enter var(--motion-base) var(--ease-out-strong) 1;
+}
+@keyframes agent-card-enter {
+    from { opacity: 0; translate: 0 -4px; }
+}
+@keyframes agent-attention-pulse {
+    40% { transform: scale(1.4); }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .checkbox-mark { transition: none; }
     .checkbox-mark path { animation: none !important; }
@@ -1857,6 +1882,11 @@
         transition: none;
     }
     .value-blink {
+        animation: none;
+    }
+    .agent-attention-flash,
+    .agent-attention-pulse,
+    .agent-card-enter {
         animation: none;
     }
 }
