@@ -31,6 +31,7 @@ import (
 	"devkit/internal/tasks"
 	"devkit/internal/vault"
 	"devkit/internal/workspace"
+	"devkit/internal/wssearch"
 )
 
 const (
@@ -55,6 +56,16 @@ const (
 	// thinks is open. Its own code because the UI's answer is to re-read which
 	// project is open (and keep the unsaved buffer), never to retry the call.
 	codeProjectChanged = "project_changed"
+	// codeFileConflict: a save was refused because the file on disk is not the
+	// revision the buffer was read from. The edits are untouched; the UI's
+	// answer is to compare, reload or overwrite on purpose — never to retry.
+	codeFileConflict = "file_conflict"
+	// codeFolderNotInWorkspace: the folder a call names is not (or is no longer)
+	// one of the workspace's. Its own code so a save into a removed folder keeps
+	// the buffer as a draft to copy out instead of reporting a failure to retry.
+	codeFolderNotInWorkspace = "folder_not_in_workspace"
+	// codeInvalidQuery: a search the engine cannot compile (a bad regex).
+	codeInvalidQuery = "invalid_query"
 	// A statement the engine refused. Not connection_failed: the connection is
 	// fine, and the frontend tells the two apart to decide whether to offer a
 	// reconnect or just show what the engine said.
@@ -167,6 +178,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
 		return apperrors.New(codeValidationFailed, "That project no longer exists.", true)
+	}
+	if errors.Is(err, workspace.ErrServiceNotFound) {
+		return apperrors.New(codeFolderNotInWorkspace, "That folder is no longer part of this workspace.", true)
 	}
 	// A board declared a verify command but this machine cannot resolve where
 	// it runs: no workspace binding, or a binding whose service does not
@@ -402,6 +416,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "This file is not text and cannot be opened in the editor.", true, codegraph.ErrBinaryFile)
 		case errors.Is(err, codegraph.ErrFileTooLarge):
 			return apperrors.Wrap(codeValidationFailed, "This file is too large to open in the editor.", true, codegraph.ErrFileTooLarge)
+		case errors.Is(err, codegraph.ErrFileConflict):
+			return apperrors.Wrap(codeFileConflict, "The file changed on disk after it was opened. Nothing was saved; your edits are still in the editor.", true, codegraph.ErrFileConflict)
+		case errors.Is(err, wssearch.ErrEmptyQuery):
+			return apperrors.Wrap(codeInvalidQuery, "Type something to search for.", true, wssearch.ErrEmptyQuery)
+		case invalidQuery(err) != nil:
+			return apperrors.Wrap(codeInvalidQuery, "Invalid search: "+invalidQuery(err).Reason+".", true, err)
 		case errors.Is(err, codegraph.ErrProjectChanged):
 			return apperrors.Wrap(codeProjectChanged, "The open CodeGraph project changed. Nothing was written; reopen the file from the current project.", true, codegraph.ErrProjectChanged)
 		}
@@ -527,6 +547,16 @@ func publicError(subject string, err error) *apperrors.AppError {
 // its Path is the missing file and its Op is what was being done to it
 // (fork/exec for a program that is not there, chdir for a missing working
 // directory). The path is the user's own, on their own machine.
+// invalidQuery is the search error that carries the person's own pattern's
+// problem, or nil.
+func invalidQuery(err error) *wssearch.InvalidQueryError {
+	var q *wssearch.InvalidQueryError
+	if errors.As(err, &q) {
+		return q
+	}
+	return nil
+}
+
 func codeGraphNotFoundMessage(err error) string {
 	var pathErr *fs.PathError
 	if errors.As(err, &pathErr) && pathErr.Path != "" {

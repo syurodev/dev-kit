@@ -3,11 +3,8 @@ package codegraph
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"strings"
-
-	"devkit/internal/gitparse"
 )
 
 // IndexInfo is what the sidebar says about the index under the project name:
@@ -115,17 +112,5 @@ func (s *Service) GitStatus(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	prefixOut, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-prefix").Output()
-	if err != nil {
-		return map[string]string{}, nil
-	}
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return map[string]string{}, nil
-		}
-		return nil, err
-	}
-	return gitparse.Porcelain(out, strings.TrimSpace(string(prefixOut))), nil
+	return GitStatusAt(ctx, root)
 }

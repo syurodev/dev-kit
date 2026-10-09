@@ -496,6 +496,10 @@ type Store interface {
 	// SearchSymbols is SearchSymbol with filters and paging (see SymbolQuery).
 	SearchSymbols(ctx context.Context, q SymbolQuery) (SymbolPage, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
+	// ListNodesInFile returns every node declared in filePath (a path
+	// relative to the project root, as the index stores it), ordered by
+	// position: the raw material of a file's outline.
+	ListNodesInFile(ctx context.Context, filePath string) ([]Node, error)
 	// FindNodesByName returns every node whose label names identifier (see
 	// matchesIdentifier) — FindDefinitions' fallback-by-name tier, e.g.
 	// resolving a type reference like "DeviceListResponse" to its class.

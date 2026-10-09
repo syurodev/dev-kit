@@ -133,6 +133,10 @@ type Container struct {
 	// WorkspaceMemory is local shared knowledge with revision history. main wires
 	// its SQL repository; ephemeral containers have no memory store.
 	WorkspaceMemory *workspacememory.Service
+	// WorkspaceCode is Code Graph's view of the workspace's folders: files,
+	// search, outline and entry points by (workspace, folder) identity, without
+	// a "focused project" (docs/design/codegraph-workspace.md).
+	WorkspaceCode *WorkspaceCode
 	// CodexSessions stores what an external Codex CLI session reported through
 	// its lifecycle hooks — a session DevKit did not spawn and does not run.
 	// Nil in ephemeral containers, which leaves it read-only-empty: the MCP
@@ -474,5 +478,6 @@ func NewContainerWithStores(
 		Workspace:   workspace.NewService(workspace.NewMemoryRepository()),
 	}
 	c.CodeGraphRegistry = codegraph.NewRegistry(c.CodeGraph, -1)
+	c.WorkspaceCode = NewWorkspaceCode(c)
 	return c
 }

@@ -36,6 +36,9 @@ func (nilStore) GetAdjacentEdges(context.Context, []string) ([]Edge, error) {
 func (nilStore) ListClassMethods(context.Context, string) ([]Node, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) ListNodesInFile(context.Context, string) ([]Node, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) GetOutEdges(context.Context, string) ([]Edge, error) { return nil, ErrNoActiveProject }
 func (nilStore) GetInEdges(context.Context, string) ([]Edge, error)  { return nil, ErrNoActiveProject }
 func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {

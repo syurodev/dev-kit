@@ -5,10 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -36,36 +34,8 @@ func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	var entries []FileEntry
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if path == root {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if d.IsDir() && ignoredDir(d.Name()) {
-			return filepath.SkipDir
-		}
-		if len(entries) >= maxListFiles {
-			return filepath.SkipAll
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		entries = append(entries, FileEntry{Path: filepath.ToSlash(rel), IsDir: d.IsDir()})
-		return nil
-	})
-	if walkErr != nil {
-		return nil, fmt.Errorf("codegraph: list files: %w", walkErr)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	return entries, nil
+	entries, _, err := ListFilesAt(ctx, root)
+	return entries, err
 }
 
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {
