@@ -158,6 +158,32 @@ describe("five recent and the stack", () => {
     expect(html).toContain("2 older sessions");
   });
 
+  it("while the stack is open the session on screen keeps its place, so selecting it does not move (remount) its card", () => {
+    const closed = render({ sessions: aged(8), activeSessionId: "s7" });
+    expect(cardIds(closed)).toEqual(["s0", "s1", "s2", "s3", "s4", "s7"]);
+    const open = render({ sessions: aged(8), activeSessionId: "s7", olderOpenKeys: ["project:/work/api"] });
+    // Same order as with nothing selected: s7 is still the last of the stack.
+    expect(cardIds(open)).toEqual(cardIds(render({ sessions: aged(8), olderOpenKeys: ["project:/work/api"] })));
+    expect(cardHtml(open, "s7")).toContain('aria-current="true"');
+  });
+
+  it("hiding closed sessions keeps a child in its parent's group", () => {
+    const html = render({
+      sessions: [
+        session("parent", { status: "closed", projectPath: "/a", workspaceId: "wa" }),
+        session("child", { parentSessionId: "parent", depth: 1, projectPath: "/b", workspaceId: "wb" }),
+      ],
+      workspaces: [
+        { id: "wa", name: "Alpha", paths: ["/a"] },
+        { id: "wb", name: "Beta", paths: ["/b"] },
+      ],
+      hideClosed: true,
+    });
+    expect(html).toContain('data-group-key="workspace:wa"');
+    expect(html).not.toContain('data-group-key="workspace:wb"');
+    expect(cardIds(html)).toEqual(["child"]);
+  });
+
   it("a waiting session is drawn though old: by queue as well as by status", () => {
     const byStatus = render({ sessions: [...aged(7), session("w", { status: "awaiting_permission", updatedAt: 1 })] });
     expect(cardIds(byStatus)).toContain("w");

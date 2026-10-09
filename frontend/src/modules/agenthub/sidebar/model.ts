@@ -100,6 +100,13 @@ export function groupSessions(
   sessions: readonly AgentSession[],
   scratchRoot = "",
   workspaces: SidebarWorkspace[] = [],
+  /**
+   * Which sessions are drawn. Applied AFTER membership is decided on all of
+   * them: filtering first would drop a parent and turn its child into a root of
+   * whatever group its own folder says, so hiding closed sessions would move
+   * live children between groups. A group left with nothing to draw is omitted.
+   */
+  keep?: (session: AgentSession) => boolean,
 ): SidebarGroup[] {
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const rootOf = (session: AgentSession): AgentSession => {
@@ -132,6 +139,8 @@ export function groupSessions(
 
   const out: SidebarGroup[] = [];
   for (const [key, group] of groups) {
+    const drawn = keep ? group.sessions.filter(keep) : group.sessions;
+    if (drawn.length === 0) continue;
     const scratch = !group.workspace && Boolean(scratchRoot) && key === scratchRoot;
     const name = projectLabel(key);
     const folderLabel = (folderNames.get(name) ?? 0) > 1 ? projectLabel(key, 2) : name;
@@ -142,7 +151,7 @@ export function groupSessions(
       path: group.workspace ? (group.workspace.paths[0] ?? "") : key,
       label: group.workspace ? group.workspace.name : scratch ? "No project" : folderLabel || "No project",
       ...(group.workspace ? { workspace: group.workspace } : {}),
-      sessions: group.sessions,
+      sessions: drawn,
     });
   }
   // No project last: the named ones are what the rail is organised by.
@@ -152,11 +161,12 @@ export function groupSessions(
 }
 
 /**
- * Closed sessions out of the rail. The one on screen stays: a row that
- * vanishes from under the person who is reading it is a surprise.
+ * Whether a card is drawn when closed sessions are hidden. The one on screen
+ * stays: a row that vanishes from under the person who is reading it is a
+ * surprise. Use it as `groupSessions`' `keep`, never to pre-filter the list.
  */
-export function withoutClosed(sessions: readonly AgentSession[], hideClosed: boolean, activeId?: string): AgentSession[] {
-  return hideClosed ? sessions.filter((s) => s.status !== "closed" || s.id === activeId) : [...sessions];
+export function drawnWhenHidingClosed(hideClosed: boolean, activeId?: string): ((session: AgentSession) => boolean) | undefined {
+  return hideClosed ? (s) => s.status !== "closed" || s.id === activeId : undefined;
 }
 
 // ---------------------------------------------------------------------------

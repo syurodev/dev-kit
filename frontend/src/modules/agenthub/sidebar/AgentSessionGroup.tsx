@@ -129,15 +129,40 @@ function AgentSessionGroupView({
   const bodyId = React.useId();
   const stackId = React.useId();
 
+  // While the stack is open every card is on screen, so the session being
+  // viewed needs no exception: pulling it out of the stack on selection would
+  // move its card between the two lists, and React would remount it — losing
+  // the keyboard focus the person just used to choose it. It is drawn as an
+  // exception again the moment the stack folds.
   const { shown, stacked } = React.useMemo(
     () =>
       partitionGroup(group.sessions, {
-        activeId,
+        activeId: olderOpen ? undefined : activeId,
         pinnedIds,
         waiting: (s) => attentionKind(s, attention[s.id]) !== null,
       }),
-    [group.sessions, activeId, pinnedIds, attention],
+    [group.sessions, activeId, olderOpen, pinnedIds, attention],
   );
+
+  // A card that still has to move lists (a pin, a session that starts waiting)
+  // is remounted by React. If it held focus, give it back.
+  const sectionRef = React.useRef<HTMLElement>(null);
+  const focusedCard = React.useRef<string | null>(null);
+  const placed = React.useRef(new Map<string, "shown" | "stacked">());
+  React.useLayoutEffect(() => {
+    const next = new Map<string, "shown" | "stacked">();
+    for (const s of shown) next.set(s.id, "shown");
+    for (const s of stacked) next.set(s.id, "stacked");
+    const id = focusedCard.current;
+    const lost = typeof document !== "undefined" && (!document.activeElement || document.activeElement === document.body);
+    if (id && lost && placed.current.has(id) && placed.current.get(id) !== next.get(id)) {
+      const button = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>("[data-session-id]") ?? [])
+        .find((el) => el.dataset.sessionId === id)
+        ?.querySelector<HTMLElement>('[data-testid="agent-card-open"]');
+      button?.focus();
+    }
+    placed.current = next;
+  });
   const waiting = React.useMemo(() => waitingCount(group.sessions, attention), [group.sessions, attention]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
 
@@ -174,6 +199,10 @@ function AgentSessionGroupView({
 
   return (
     <section
+      ref={sectionRef}
+      onFocus={(event) => {
+        focusedCard.current = (event.target as HTMLElement).closest<HTMLElement>("[data-session-id]")?.dataset.sessionId ?? null;
+      }}
       data-testid="agent-session-group"
       data-group-key={group.key}
       data-collapsed={collapsed || undefined}

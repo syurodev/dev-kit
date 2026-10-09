@@ -16,7 +16,7 @@ import {
   shortAge,
   subagentsLabel,
   waitingCount,
-  withoutClosed,
+  drawnWhenHidingClosed,
 } from "./model";
 
 const session = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
@@ -121,8 +121,31 @@ describe("grouping", () => {
 
   it("hides closed sessions except the one on screen", () => {
     const list = [session("a", { status: "closed" }), session("b", { status: "closed" }), session("c")];
-    expect(ids(withoutClosed(list, true, "b"))).toEqual(["b", "c"]);
-    expect(ids(withoutClosed(list, false))).toEqual(["a", "b", "c"]);
+    const drawn = (hide: boolean, active?: string) =>
+      groupSessions(list, "", [], drawnWhenHidingClosed(hide, active)).flatMap((g) => ids(g.sessions));
+    expect(drawn(true, "b")).toEqual(["b", "c"]);
+    expect(drawn(false)).toEqual(["a", "b", "c"]);
+  });
+
+  it("hiding closed sessions never moves a live child to another group", () => {
+    // The parent is closed and belongs to workspace A; its child was opened in
+    // workspace B. Membership follows the lineage root, so the child is in A —
+    // and stays there when the closed parent is left out of what is drawn.
+    const a: SidebarWorkspace = { id: "wa", name: "A", paths: ["/a"] };
+    const b: SidebarWorkspace = { id: "wb", name: "B", paths: ["/b"] };
+    const list = [
+      session("parent", { status: "closed", projectPath: "/a", workspaceId: "wa" }),
+      session("child", { parentSessionId: "parent", depth: 1, projectPath: "/b", workspaceId: "wb" }),
+    ];
+    const groupOfChild = (keep?: (s: AgentSession) => boolean) =>
+      groupSessions(list, "", [a, b], keep).find((g) => g.sessions.some((s) => s.id === "child"))?.label;
+    expect(groupOfChild()).toBe("A");
+    expect(groupOfChild(drawnWhenHidingClosed(true))).toBe("A");
+  });
+
+  it("omits a group with nothing left to draw", () => {
+    const list = [session("a", { status: "closed", projectPath: "/work/x" }), session("b", { projectPath: "/work/y" })];
+    expect(groupSessions(list, "", [], drawnWhenHidingClosed(true)).map((g) => g.label)).toEqual(["y"]);
   });
 });
 
