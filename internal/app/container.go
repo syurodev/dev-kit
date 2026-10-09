@@ -263,6 +263,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:new"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "folder:choose"},
+		// Reindex asks for the folders it names (WorkspaceReindex, WorkspaceReindexService):
+		// UI only, like the other registry mutations.
+		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "service:reindex"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:read", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},

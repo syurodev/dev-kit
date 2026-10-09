@@ -120,6 +120,21 @@ export function buildRows(result: SearchResult, collapsed: readonly string[], op
   return rows;
 }
 
+/**
+ * The text before a hit, cut so the hit starts near the left edge of a narrow
+ * row. A row truncates on the right, so without this a hit late in a line is
+ * the part that is not visible.
+ */
+export function leadingContext(before: string, keep = 14): string {
+  const text = before.trimStart();
+  if (text.length <= keep) return text;
+  // Never split a surrogate pair.
+  let from = text.length - keep;
+  const c = text.charCodeAt(from);
+  if (c >= 0xdc00 && c <= 0xdfff) from++;
+  return `…${text.slice(from)}`;
+}
+
 /** A preview split around the hit, for highlighting. Offsets are UTF-16 units, as the preview is. */
 export function previewParts(match: SearchMatch): { before: string; hit: string; after: string } {
   const start = Math.max(0, Math.min(match.preview.length, match.column - 1 - match.previewStart));
@@ -139,8 +154,14 @@ export function resultSummary(result: SearchResult): string {
       : result.truncated === "files"
         ? " — too many files; some were not searched"
         : "";
-  return `${hits} · ${searched}${skipped}${cut}`;
+  // A file stops at 500 hits so one lockfile cannot fill the list; say so, because its count is not the file's total.
+  const capped = result.files.filter((f) => f.truncated).length;
+  const cappedNote = capped > 0 ? ` — ${capped} file${capped === 1 ? "" : "s"} cut at ${PER_FILE_CAP} matches` : "";
+  return `${hits} · ${searched}${skipped}${cut}${cappedNote}`;
 }
+
+/** Mirrors maxMatchesPerFile in internal/wssearch. */
+export const PER_FILE_CAP = 500;
 
 /** Folders that took no part in the search, with why, for a notice. */
 export function troubledFolders(result: SearchResult): Array<{ folderId: string; state: string; error: string }> {

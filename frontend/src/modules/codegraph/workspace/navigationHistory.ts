@@ -28,6 +28,12 @@ export type NavPlace = {
   anchor?: number;
   head?: number;
   scrollTop?: number;
+  /**
+   * Set when the place is a flow document rather than a file: `path` is then
+   * empty and the flow is named by its root node. Back and Forward cross both
+   * kinds, so a flow opened from a file is a step you can come back from.
+   */
+  flow?: { root: string; entryPoint?: string; title: string };
 };
 
 export type NavHistory = { places: NavPlace[]; index: number };
@@ -37,7 +43,7 @@ export const MAX_HISTORY = 200;
 export const emptyHistory = (): NavHistory => ({ places: [], index: -1 });
 
 const sameDoc = (a: NavPlace, b: NavPlace) =>
-  a.folderId === b.folderId && a.workspaceId === b.workspaceId && a.path === b.path;
+  a.folderId === b.folderId && a.workspaceId === b.workspaceId && a.path === b.path && a.flow?.root === b.flow?.root;
 
 /** The same place for history purposes: the same document and the same line. */
 export const samePlace = (a: NavPlace, b: NavPlace) => sameDoc(a, b) && a.line === b.line;

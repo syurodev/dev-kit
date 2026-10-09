@@ -12,6 +12,7 @@ import { folderView, hiddenNotice, filtersActive, type FileFilter, type FlowFile
 import { DOT, PrimaryBadge } from "./WorkspaceHeader";
 import { folderHealth, type Tone } from "../workspace/indexHealth";
 import { docKey, treeDirId, treeFileId } from "../workspace/identity";
+import { nestedRoots, withoutNested } from "../workspace/paths";
 
 const TOGGLE = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 text-code-11";
 
@@ -93,13 +94,16 @@ export function FilesTab({
       if (!d) continue;
       const unsupported = d.entries?.state === "unsupported";
       const flowHere = flow && flow.folderId === f.id ? flow.files : null;
-      const inputs = [d.files, d.git, query, filter.codeOnly, filter.changed, filter.inFlow, unsupported, flowHere];
+      // A nested folder owns its own files: they are listed under it, not twice.
+      const nested = nestedRoots(f, folders);
+      const nestedKey = nested.join("\u0000");
+      const inputs = [d.files, d.git, query, filter.codeOnly, filter.changed, filter.inFlow, unsupported, flowHere, nestedKey];
       const hit = cache.current.get(f.id);
       if (hit && hit.inputs.every((v, i) => Object.is(v, inputs[i]))) {
         out.set(f.id, hit.view);
         continue;
       }
-      const view = folderView(f.id, d.files, query, filter, { unsupported, git: d.git, flow });
+      const view = folderView(f.id, withoutNested(d.files, nested), query, filter, { unsupported, git: d.git, flow });
       cache.current.set(f.id, { inputs, view });
       out.set(f.id, view);
     }

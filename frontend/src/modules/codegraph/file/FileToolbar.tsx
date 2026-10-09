@@ -1,6 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, ChevronRight, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronRight, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,12 +7,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { shortLabel } from "../graph/labels";
 import { useCodeGraphStore } from "../codegraphStore";
-import { goBack, goForward, openFile } from "../fileActions";
-import { useCanNavigate } from "../navigation";
+import { openFile } from "../fileActions";
+import { NavButtons } from "./NavButtons";
 import { useCursor } from "../cursor";
 import { symbolPathAt, outlineRows } from "../workspace/outline";
 import { baseName, dirName } from "../workspace/identity";
@@ -64,7 +62,6 @@ export const FileToolbar = memo(function FileToolbar({
   buffer: FileBuffer;
   right?: React.ReactNode;
 }) {
-  const can = useCanNavigate();
   const key = docKey(workspaceId, folderId, path);
   const segments = useMemo(() => pathSegments(folderLabel, path), [folderLabel, path]);
   const hidden = segments.some((s) => s.label === "…");
@@ -72,22 +69,7 @@ export const FileToolbar = memo(function FileToolbar({
   return (
     <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-2">
       <div className="flex min-w-0 flex-1 items-center gap-0.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="Go back" disabled={!can.back} onClick={() => void goBack()}>
-              <ArrowLeft className="size-3.5" aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Go back</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="Go forward" disabled={!can.forward} onClick={() => void goForward()}>
-              <ArrowRight className="size-3.5" aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Go forward</TooltipContent>
-        </Tooltip>
+        <NavButtons />
         <nav aria-label="File path" className="flex min-w-0 flex-1 items-center overflow-hidden pl-1 text-code-11 text-text-secondary" title={`${folderLabel} › ${path}`}>
           {segments.map((seg, i) => (
             <span key={`${i}:${seg.label}`} className={cn("flex items-center", seg.kind === "file" ? "min-w-0 shrink" : "min-w-0 shrink-[2]")}>

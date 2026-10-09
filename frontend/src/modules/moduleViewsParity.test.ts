@@ -36,6 +36,17 @@ function goViews(): Map<string, string[]> {
   return out;
 }
 
+function goCommands(): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const chunk of SOURCE.split(/\n\t\t\{\n/)) {
+    const id = chunk.match(/^\s*ID:\s*"([^"]+)"/m)?.[1];
+    // Only a literal []string{...} list: a module whose commands come from a function is compared elsewhere.
+    const commands = chunk.match(/Commands:\s*\[\]string\{([^}]*)\}/)?.[1];
+    if (id && commands !== undefined) out.set(id, [...commands.matchAll(/"([^"]+)"/g)].map((v) => v[1]));
+  }
+  return out;
+}
+
 const MANIFESTS = [
   toolsModule,
   notesModule,
@@ -65,6 +76,20 @@ describe("module views", () => {
       // A module Go registers some other way is not this test's business.
       if (!declared) return;
       expect(manifest.views.map((v) => v.id).sort()).toEqual(declared.slice().sort());
+    });
+  }
+
+  const goCmds = goCommands();
+  it("reads the Go command lists at all", () => {
+    expect(goCmds.get("codegraph")?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  // The shell disables a module whose manifest and Go lists differ, so a renamed command is a dead module.
+  for (const manifest of MANIFESTS) {
+    it(`${manifest.id}: Go and the manifest name the same commands`, () => {
+      const declared = goCmds.get(manifest.id);
+      if (!declared) return;
+      expect(manifest.commands.map((c) => c.id).sort()).toEqual(declared.slice().sort());
     });
   }
 });

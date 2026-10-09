@@ -17,6 +17,7 @@ import { scopeFolderIds, scopeSummary, toggleScopeFolder, WHOLE_WORKSPACE } from
 import {
   buildRows,
   fileGroupKey,
+  leadingContext,
   previewParts,
   resultSummary,
   troubledFolders,
@@ -336,7 +337,7 @@ function ResultRowView({ row, active, labels, identifier, onActivate }: { row: R
         {row.match.line}:{row.match.column}
       </span>
       <span className="min-w-0 flex-1 truncate font-mono text-code-11 text-text-secondary">
-        {before.trimStart()}
+        {leadingContext(before)}
         <mark className="rounded-sm bg-state-soft px-0.5 text-text-primary">{hit}</mark>
         {after}
       </span>

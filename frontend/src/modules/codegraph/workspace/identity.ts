@@ -133,3 +133,14 @@ export function folderLabels(folders: readonly FolderRef[]): Record<string, stri
   for (const f of folders) labels[f.id] = label(f);
   return labels;
 }
+
+/**
+ * The order folders are listed in. It is by name and then path — never by
+ * which one is primary, because the primary can change while someone is
+ * working and the Explorer must not rearrange under them when it does. (The
+ * workspace service lists the primary first; that order is for agents.)
+ */
+export function displayOrder<T extends { name: string; path: string }>(folders: readonly T[]): T[] {
+  const key = (f: T) => (f.name || folderBaseName(f.path)).toLocaleLowerCase();
+  return [...folders].sort((a, b) => key(a).localeCompare(key(b)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}

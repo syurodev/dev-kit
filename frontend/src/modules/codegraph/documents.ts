@@ -61,6 +61,24 @@ export function entryPointParam(params: Record<string, unknown> | undefined): st
 }
 
 /**
+ * Shows a flow the way Back/Forward found it: the tab it is already in, else a
+ * new one opened with the same params. Returns whether a tab is now showing it.
+ */
+export function showFlow(owner: DocOwner, flow: { root: string; entryPoint?: string; title: string }): boolean {
+  const existing = documentsOf().find(
+    ({ doc }) => doc.kind === "flow" && doc.folderId === owner.folderId && doc.workspaceId === owner.workspaceId && doc.root === flow.root,
+  );
+  if (existing) {
+    useWorkbenchTabsStore.getState().setActiveTab(existing.tab.id);
+    return true;
+  }
+  const params: Record<string, unknown> = { ...owner, root: flow.root };
+  if (flow.entryPoint) params.entryPoint = flow.entryPoint;
+  open(FLOW_VIEW, flow.title, params, { preview: false });
+  return true;
+}
+
+/**
  * A flow from a node alone: a class or method from the @ search, or a node
  * another module points at — drawn without an entry point in front of it.
  */
@@ -173,7 +191,8 @@ export function syncFileTabTitles(): void {
       const d = describeDocument(t);
       const name = baseName(d.path ?? "");
       const ambiguous = (byName.get(name)?.size ?? 0) > 1;
-      const label = ambiguous && d.folderId ? labels[d.folderId] : undefined;
+      // A folder that left the workspace (or belongs to another one) has no label here; the title still tells it from the open workspace's.
+      const label = ambiguous && d.folderId ? (labels[d.folderId] ?? "not in this workspace") : undefined;
       const title = label ? `${name} · ${label}` : name;
       if (t.title === title) return t;
       changed = true;

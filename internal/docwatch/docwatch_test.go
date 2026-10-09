@@ -180,3 +180,82 @@ func TestCloseIsIdempotentAndStopsDelivery(t *testing.T) {
 		t.Fatalf("a closed watcher watches nothing: %v", un)
 	}
 }
+
+// A directory that is deleted and created again (a branch switch, a clean
+// rebuild) takes its kernel watch with it. The documents in it must be heard
+// again once it is back — without anyone having to reopen them.
+func TestADirectoryRemovedAndCreatedAgainIsWatchedAgain(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "src")
+	_ = os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "f.txt")
+	_ = os.WriteFile(p, []byte("one"), 0o644)
+	s := newSink()
+	w, _ := New(s.emit, Options{Debounce: 20 * time.Millisecond, MaxWait: 200 * time.Millisecond, Rewatch: 30 * time.Millisecond})
+	defer w.Close()
+	w.Set([]Doc{{"F", p}})
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	s.wait(t) // the removal itself
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(p, []byte("two"), 0o644)
+	// The file is back with other content: that is reported when the directory is watched again.
+	if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"F"}) {
+		t.Fatalf("after the directory came back: %+v", ev)
+	}
+	// And later writes are heard as before.
+	time.Sleep(100 * time.Millisecond)
+	for len(s.ch) > 0 {
+		<-s.ch
+	}
+	_ = os.WriteFile(p, []byte("three"), 0o644)
+	if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"F"}) {
+		t.Fatalf("a write after the directory was watched again: %+v", ev)
+	}
+}
+
+// Set called again with the same documents must not trust a watch the kernel
+// dropped: the frontend calls it whenever tabs change.
+func TestSetRepairsAWatchLostWhenTheDirectoryWasReplaced(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "src")
+	_ = os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "f.txt")
+	_ = os.WriteFile(p, []byte("one"), 0o644)
+	s := newSink()
+	// No automatic retry: only Set may repair it.
+	w, _ := New(s.emit, Options{Debounce: 20 * time.Millisecond, MaxWait: 200 * time.Millisecond, Rewatch: -1})
+	defer w.Close()
+	w.Set([]Doc{{"F", p}})
+	_ = os.RemoveAll(dir)
+	s.wait(t)
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(p, []byte("two"), 0o644)
+	s.quiet(t, 150*time.Millisecond)
+
+	if un := w.Set([]Doc{{"F", p}}); len(un) != 0 {
+		t.Fatalf("unwatched = %v", un)
+	}
+	_ = os.WriteFile(p, []byte("three"), 0o644)
+	if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"F"}) {
+		t.Fatalf("event = %+v", ev)
+	}
+}
+
+// One physical file can be open under two folder identities (an outer folder and
+// a folder nested in it). A change names both documents; neither is dropped.
+func TestOnePathOpenUnderTwoKeysReportsBoth(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f.txt")
+	_ = os.WriteFile(p, []byte("a"), 0o644)
+	s := newSink()
+	w, _ := New(s.emit, fast())
+	defer w.Close()
+	w.Set([]Doc{{"outer:libs/f.txt", p}, {"inner:f.txt", p}})
+	_ = os.WriteFile(p, []byte("b"), 0o644)
+	if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"inner:f.txt", "outer:libs/f.txt"}) {
+		t.Fatalf("event = %+v", ev)
+	}
+}

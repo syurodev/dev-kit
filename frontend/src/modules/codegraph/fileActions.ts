@@ -26,10 +26,10 @@ import {
   type FileBuffer,
   type SaveMode,
 } from "./workspace/bufferModel";
-import { docKey, normalizeRelPath, parseDocKey, type DocIdentity } from "./workspace/identity";
+import { docKey, folderLabels, normalizeRelPath, parseDocKey, type DocIdentity } from "./workspace/identity";
 import type { NavPlace } from "./workspace/navigationHistory";
 import { commitStep, captureDeparture, focusedGroupId, planStep, recordArrival } from "./navigation";
-import { MODULE, closeFolderDocuments, documentsOf, focusedDocument, keepTab, openFileDoc, syncFileTabTitles, type OpenOptions } from "./documents";
+import { MODULE, closeFolderDocuments, documentsOf, focusedDocument, keepTab, openFileDoc, showFlow, syncFileTabTitles, type OpenOptions } from "./documents";
 import { begin, folderById, set, snapshot } from "./storeAccess";
 import type { OutlineEntry } from "./codegraphStore";
 import { loadFolder } from "./workspaceSync";
@@ -100,6 +100,15 @@ export async function openFile(ref: DocRef, line: number | null = null, options:
   return ok;
 }
 
+/** Names the buffer's workspace and folder while they are the ones in front. */
+function originOf(ref: DocRef): FileBuffer["origin"] {
+  const s = snapshot();
+  if (s.workspaceId !== ref.workspaceId) return undefined;
+  const folder = folderById(ref.folderId);
+  if (!folder) return undefined;
+  return { workspace: s.workspace?.name ?? "", folder: folderLabels(s.folders.map((f) => ({ id: f.id, name: f.name, path: f.path })))[folder.id] ?? folder.name };
+}
+
 let restoreToken = 0;
 
 async function loadBuffer(ref: DocRef, key: string, line: number | null, options: OpenFileOptions): Promise<boolean> {
@@ -117,7 +126,7 @@ async function loadBuffer(ref: DocRef, key: string, line: number | null, options
     return true;
   }
   const guard = begin(`file:${key}`);
-  const fresh = existing ?? emptyBuffer(ref);
+  const fresh = existing ?? { ...emptyBuffer(ref), origin: originOf(ref) };
   putBuffer(key, { ...fresh, ...reveal, loading: !existing?.content, error: "" });
   try {
     const read = await readFolderFile(ref.workspaceId, ref.folderId, ref.path);
@@ -492,6 +501,13 @@ async function navigate(dir: "back" | "forward"): Promise<boolean> {
     const plan = planStep(dir, (p) => placeUsable(p) && !skipped.has(`${p.folderId}\u0000${p.path}`));
     if (!plan) return false;
     const target = plan.step.target;
+    if (target.flow) {
+      const owner = { workspaceId: target.workspaceId, folderId: target.folderId };
+      showFlow(owner, target.flow);
+      void import("./flowActions").then((a) => a.loadFlow(target.folderId, target.flow!.root));
+      commitStep(plan.groupId, plan.step);
+      return true;
+    }
     let gone = false;
     try {
       const st = await statFolderFile(target.workspaceId, target.folderId, target.path);

@@ -12,6 +12,7 @@ import { begin, folderById, set, snapshot } from "./storeAccess";
 import { documentsOf, openEntryPointFlow, openNodeFlow, type DocOwner, type OpenOptions } from "./documents";
 import { symbolDisplay } from "./sidebar/sidebarModel";
 import { flowKey } from "./workspace/identity";
+import { captureDeparture, focusedGroupId, recordArrival } from "./navigation";
 
 /**
  * Flows: the call graph of one folder's index, drawn from a root node.
@@ -57,8 +58,16 @@ export async function loadFlow(folderId: string, root: string, force = false): P
 
 /** An entry point's call flow, in the preview tab unless told otherwise. */
 export function viewFlow(owner: DocOwner, entry: CodeGraphEntryPoint, options?: OpenOptions) {
+  captureDeparture();
   openEntryPointFlow(owner, entry, options);
+  recordFlowArrival(owner, { root: entry.entryNode, entryPoint: entry.id, title: `${entry.verb} ${entry.target}` });
   void loadFlow(owner.folderId, entry.entryNode);
+}
+
+/** The flow just opened is a place in the focused group's history, so Back can leave it and Forward return. */
+function recordFlowArrival(owner: DocOwner, flow: { root: string; entryPoint?: string; title: string }) {
+  const groupId = focusedGroupId();
+  if (groupId) recordArrival(groupId, { ...owner, path: "", line: 1, column: 1, flow });
 }
 
 /**
@@ -66,7 +75,9 @@ export function viewFlow(owner: DocOwner, entry: CodeGraphEntryPoint, options?: 
  * class or method reached without an entry point in front of it.
  */
 export function viewSymbol(owner: DocOwner, match: CodeGraphSymbolMatch, options?: OpenOptions) {
+  captureDeparture();
   openNodeFlow(owner, match.nodeId, symbolDisplay(match).name, options);
+  recordFlowArrival(owner, { root: match.nodeId, title: symbolDisplay(match).name });
   void loadFlow(owner.folderId, match.nodeId);
 }
 

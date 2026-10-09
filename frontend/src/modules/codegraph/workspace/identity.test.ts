@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { docKey, entryKey, flowKey, folderLabels, normalizeRelPath, parseDocKey, treeFileId } from "./identity";
+import { displayOrder, docKey, entryKey, flowKey, folderLabels, normalizeRelPath, parseDocKey, treeFileId } from "./identity";
 
 describe("document identity", () => {
   it("is workspace + folder + normalized path, never the path alone", () => {
@@ -52,5 +52,25 @@ describe("folderLabels", () => {
     expect(labels["1"]).toContain("v1");
     expect(labels["2"]).toContain("v2");
     expect(labels["3"]).toBe("web");
+  });
+});
+
+describe("displayOrder", () => {
+  it("does not depend on which folder is primary, so changing it never rearranges the Explorer", () => {
+    const folders = [
+      { name: "shared-lib", path: "/w/shared-lib" },
+      { name: "Gateway", path: "/w/gateway" },
+      { name: "orders", path: "/w/orders" },
+    ];
+    const names = (list: typeof folders) => displayOrder(list).map((f) => f.name);
+    // The workspace service lists the primary first; whichever it is, the order is the same.
+    expect(names(folders)).toEqual(["Gateway", "orders", "shared-lib"]);
+    expect(names([folders[2], folders[0], folders[1]])).toEqual(["Gateway", "orders", "shared-lib"]);
+  });
+
+  it("breaks name ties by path, deterministically", () => {
+    const a = { name: "svc", path: "/a/svc" };
+    const b = { name: "svc", path: "/b/svc" };
+    expect(displayOrder([b, a])).toEqual([a, b]);
   });
 });

@@ -67,6 +67,12 @@ export function focusEditor(key: string): void {
 export function hereNow(): { groupId: string; place: NavPlace } | null {
   const front = focusedDocument();
   const d = front?.doc;
+  if (front && d?.kind === "flow" && d.workspaceId && d.folderId && d.root) {
+    return {
+      groupId: front.groupId,
+      place: { workspaceId: d.workspaceId, folderId: d.folderId, path: "", line: 1, column: 1, flow: { root: d.root, entryPoint: d.entryPoint, title: front.tab.title } },
+    };
+  }
   if (!front || !d || d.kind !== "file" || !d.workspaceId || !d.folderId || !d.path) return null;
   const key = docKey(d.workspaceId, d.folderId, d.path);
   const probed = editors.get(key)?.probe();

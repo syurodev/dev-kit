@@ -23,6 +23,12 @@ mock.module("@/bridge/uistate", () => {
   };
 });
 
+const realGraph = await import("@/bridge/codegraph");
+mock.module("@/bridge/codegraph", () => ({
+  ...realGraph,
+  getCodeGraphNeighbors: async () => ({ nodes: [], edges: [], truncated: false, continuation: "" }),
+}));
+
 const real = await import("@/bridge/workspaceCode");
 
 type Disk = Map<string, string>;
@@ -31,7 +37,8 @@ const writes: Array<{ workspaceId: string; folderId: string; path: string; conte
 let removedFolders = new Set<string>();
 
 const rev = (s: string) => `r:${s.length}:${s}`;
-const diskKey = (folderId: string, path: string) => `${folderId}:${path}`;
+// "fo" is an outer folder and "fi" one nested in it at libs/: the same physical file has two identities.
+const diskKey = (folderId: string, path: string) => (folderId === "fo" && path.startsWith("libs/") ? `fi:${path.slice(5)}` : `${folderId}:${path}`);
 
 function appError(code: string, message = code) {
   return new AppError({ code, message, recoverable: false, details: undefined } as never);
@@ -72,7 +79,8 @@ mock.module("@/bridge/workspaceCode", () => ({
 const { useCodeGraphStore } = await import("./codegraphStore");
 const actions = await import("./fileActions");
 const { docKey } = await import("./workspace/identity");
-const { focusedDocument } = await import("./documents");
+const { focusedDocument, documentsOf } = await import("./documents");
+const { viewFlow } = await import("./flowActions");
 const { useNavigationStore } = await import("./navigation");
 
 
@@ -245,6 +253,42 @@ describe("file actions over a workspace", () => {
     expect(disk.get("fa:a.ts")).toBe("mine\n");
   });
 
+  describe("one physical file under two folder identities", () => {
+    const open = (folderId: string, path: string) => actions.openFile({ workspaceId: WS, folderId, path }, null, { preview: false });
+
+    it("a save through one identity is followed by the other when that one is clean", async () => {
+      reset(["fo", "fi"]);
+      disk.set("fi:x.ts", "one\n");
+      await open("fo", "libs/x.ts");
+      await open("fi", "x.ts");
+      actions.editFile(key("fo", "libs/x.ts"), "two\n");
+      await actions.saveFile(key("fo", "libs/x.ts"));
+      await actions.reconcileFile(key("fi", "x.ts"));
+      expect(buffer(key("fi", "x.ts")).content).toBe("two\n");
+      expect(buffer(key("fi", "x.ts")).dirty).toBe(false);
+    });
+
+    it("a save through one identity never overwrites the other's unsaved edits", async () => {
+      reset(["fo", "fi"]);
+      disk.set("fi:x.ts", "one\n");
+      await open("fo", "libs/x.ts");
+      await open("fi", "x.ts");
+      actions.editFile(key("fi", "x.ts"), "mine in the inner folder\n");
+      actions.editFile(key("fo", "libs/x.ts"), "mine in the outer folder\n");
+
+      await actions.saveFile(key("fo", "libs/x.ts"));
+      expect(disk.get("fi:x.ts")).toBe("mine in the outer folder\n");
+
+      await actions.reconcileFile(key("fi", "x.ts"));
+      const inner = buffer(key("fi", "x.ts"));
+      expect(inner.content).toBe("mine in the inner folder\n");
+      expect(inner.external).toBe("changed");
+      // Saving the inner one is refused, not silently last-writer-wins.
+      await actions.saveFile(key("fi", "x.ts"));
+      expect(disk.get("fi:x.ts")).toBe("mine in the outer folder\n");
+    });
+  });
+
   describe("Back / Forward across folders", () => {
     const frontPlace = () => {
       const doc = focusedDocument()?.doc;
@@ -272,6 +316,25 @@ describe("file actions over a workspace", () => {
       expect(await actions.goForward()).toBe(false);
       expect(await actions.goBack()).toBe(true);
       expect(frontPlace()).toBe("fb:a.ts");
+    });
+
+    it("Back from a flow of another folder returns to the exact file place; Forward returns to the flow", async () => {
+      disk.set("fa:a.ts", "one\ntwo\nthree\n");
+      await actions.openFile({ workspaceId: WS, folderId: "fa", path: "a.ts" }, 2, { preview: false });
+      const entry = { id: "e1", verb: "GET", target: "/orders", entryNode: "com.acme.Orders.get", kind: "http", service: "", owner: "", group: "", order: 0 };
+      viewFlow({ workspaceId: WS, folderId: "fb" }, entry as never, { preview: false });
+      const doc = focusedDocument()?.doc;
+      expect(doc?.kind).toBe("flow");
+      expect(doc?.folderId).toBe("fb");
+
+      expect(await actions.goBack()).toBe(true);
+      expect(frontPlace()).toBe("fa:a.ts");
+      expect(buffer(key("fa", "a.ts")).restore?.line).toBe(2);
+
+      expect(await actions.goForward()).toBe(true);
+      expect(focusedDocument()?.doc).toMatchObject({ kind: "flow", folderId: "fb", root: "com.acme.Orders.get" });
+      // The flow came back in its own tab, not as a second one.
+      expect(documentsOf().filter((d) => d.doc.kind === "flow")).toHaveLength(1);
     });
 
     it("skips a place whose file was deleted instead of showing an error", async () => {
