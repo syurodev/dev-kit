@@ -229,7 +229,7 @@ export function ImportDialogView({
                     as cURL”. You can review and edit it before sending.
                   </p>
                 )}
-                <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-well focus-within:ring-2 focus-within:ring-status-info/20">
+                <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-well focus-within:border-status-info/50 focus-within:ring-2 focus-within:ring-inset focus-within:ring-status-info/20">
                   <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2.5">
                     <label
                       htmlFor={textId}
