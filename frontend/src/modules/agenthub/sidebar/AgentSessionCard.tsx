@@ -71,7 +71,7 @@ const AVATARS_NARROW = 2;
 
 /** One glyph per state worth a glance; idle and closed have none. */
 function IndicatorIcon({ indicator, pulse }: { indicator: Exclude<CardIndicator, null>; pulse: boolean }) {
-  const common = "size-3.5";
+  const common = "size-3";
   switch (indicator) {
     case "permission":
       return <ShieldAlert aria-hidden="true" className={cn(common, "text-status-warning", pulse && "agent-attention-pulse")} />;
@@ -223,10 +223,10 @@ function AgentSessionCardView({ session, selected, attention, pinned, subagents,
 
       <div
         data-testid="agent-card-meta"
-        className="flex min-h-5 min-w-0 items-center gap-1.5 overflow-hidden px-0.5 text-caption-11 text-text-tertiary"
+        className="flex min-h-4 min-w-0 items-center gap-1.5 overflow-hidden text-caption-11 text-text-tertiary"
       >
         <MetaIcon label={vendor.name}>
-          <VendorIcon vendor={session.agentType} working={session.status === "running"} className="size-3.5" />
+          <VendorIcon vendor={session.agentType} working={session.status === "running"} className="size-3" />
         </MetaIcon>
 
         {indicator ? (
@@ -237,7 +237,7 @@ function AgentSessionCardView({ session, selected, attention, pinned, subagents,
 
         {parentTitle ? (
           <MetaIcon label={`Child of ${parentTitle}`}>
-            <CornerDownRight aria-hidden="true" className="size-3.5" />
+            <CornerDownRight aria-hidden="true" className="size-3" />
           </MetaIcon>
         ) : null}
 

@@ -380,11 +380,11 @@ describe("subagent avatars", () => {
     expect(html).not.toContain("agent-subagent-more");
   });
 
-  it("the group is named in full, with every state, and sits at 20px", () => {
+  it("the group is named in full, with every state, and sits at 16px", () => {
     const html = avatars(3);
     expect(html).toContain('role="group"');
     expect(html).toContain("5 subagents: Agent 1, running; Agent 2, running; Agent 4, running; Agent 3, failed; Agent 5, done");
-    expect(html).toContain("size-5");
+    expect(html).toContain("size-4");
   });
 
   it("running ones come first, so the avatars that fit are the ones worth a glance", () => {

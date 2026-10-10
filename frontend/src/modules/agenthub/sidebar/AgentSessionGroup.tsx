@@ -4,6 +4,7 @@ import { ChevronRight, Copy, Folder, FolderOpen, FolderX, GalleryVerticalEnd, La
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
+import { SidebarInset } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -211,7 +212,7 @@ function AgentSessionGroupView({
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="group/header flex items-center gap-1 px-2 pt-2">
+          <div className="group/header flex items-center gap-1 px-1.5 pt-2">
             <button
               type="button"
               data-sidebar-nav=""
@@ -283,7 +284,7 @@ function AgentSessionGroupView({
       </ContextMenu>
 
       <AnimatedCollapse open={!collapsed}>
-        <div id={bodyId} className="px-2 pt-0.5 pb-1">
+        <SidebarInset id={bodyId} className="pt-0.5 pb-1">
           <div role="list" aria-label={`${group.label} sessions`} className="flex flex-col gap-0.5">
             {shown.map((session) => renderCard(session, entering.has(session.id)))}
           </div>
@@ -302,7 +303,7 @@ function AgentSessionGroupView({
               </AnimatedCollapse>
             </>
           ) : null}
-        </div>
+        </SidebarInset>
       </AnimatedCollapse>
     </section>
   );

@@ -19,11 +19,11 @@ const AVATAR_TONE: Record<SubagentState, string> = {
   done: "bg-surface-raised text-text-tertiary",
 };
 
-/** 20px, a little under the metadata line; the shadcn Avatar's own border outlines each one. */
-const AVATAR_SIZE = "size-5";
+/** 16px, a little under the metadata line; the shadcn Avatar's own border outlines each one. */
+const AVATAR_SIZE = "size-4";
 
 function SubagentAvatar({ agent }: { agent: Subagent }) {
-  // One letter: two do not fit a 20px circle that overlaps its neighbour, and the name is in the tooltip.
+  // One letter: two do not fit a 16px circle that overlaps its neighbour, and the name is in the tooltip.
   const letters = initials(agent.name, 1);
   return (
     <Avatar className={AVATAR_SIZE}>
@@ -102,7 +102,7 @@ export function AgentSubagentAvatars({
                   data-testid="agent-subagent-more"
                   aria-label={`${ordered.length} subagents, show all`}
                   className={cn(
-                    "relative flex h-5 min-w-5 cursor-pointer items-center justify-center bg-surface-raised px-1 text-caption-11-medium text-text-secondary",
+                    "relative flex h-4 min-w-4 cursor-pointer items-center justify-center bg-surface-raised px-1 text-caption-11-medium text-text-secondary",
                     "after:absolute after:inset-0 after:rounded-full after:border after:border-border",
                     CONTROL_RING,
                   )}
