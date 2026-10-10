@@ -1,6 +1,10 @@
 import * as React from "react";
 import {
   ArrowUpRight,
+  AlertTriangle,
+  CircleAlert,
+  FileDiff,
+  Pin,
   Bot,
   Boxes,
   CheckCircle2,
@@ -477,7 +481,7 @@ export function TrayTaskList({
   const completed = tasks.filter((row) => row.done).length;
   const count = session ? tasks.length : others.length;
   return (
-    <section data-testid="tray-task-list" className="flex min-w-0 flex-col">
+    <section data-testid="tray-task-list" className="@container flex min-w-0 flex-col">
       <TrayPanelHeading
         title={session ? "Session tasks" : "Workspace tasks"}
         count={count}
@@ -489,8 +493,8 @@ export function TrayTaskList({
         onClose={onClose}
       />
       {session && tasks.length > 0 ? (
-        <div className="border-b border-border-subtle px-3 py-2.5">
-          <div className="mb-2 flex justify-between text-caption-11 text-text-tertiary">
+        <div className="border-b border-border-subtle px-3 py-1.5">
+          <div className="mb-1 flex justify-between text-caption-11 text-text-tertiary">
             <span>This session</span>
             <span>
               <AnimatedNumber value={completed} /> of {tasks.length} completed
@@ -511,7 +515,7 @@ export function TrayTaskList({
           </div>
         </div>
       ) : null}
-      <div className="max-h-64 overflow-y-auto overscroll-contain p-2 scrollbar-gutter-stable">
+      <div className="max-h-56 overflow-y-auto overscroll-contain p-1 scrollbar-gutter-stable">
         {tasks.length === 0 && others.length === 0 ? (
           <EmptyState
             size="rail"
@@ -562,7 +566,7 @@ function TrayTaskRows({
   testId: string;
 }) {
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-0.5">
       {tasks.map(({ task, board, statusName, active, done, held }) => {
         const Icon = done ? CheckCircle2 : active ? CircleDot : Circle;
         return (
@@ -583,13 +587,13 @@ function TrayTaskRows({
                   { placement: "beside" },
                 )
               }
-              className="group/task flex h-16 w-full min-w-0 items-center gap-3 rounded-lg px-2.5 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="group/task flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
             >
               <span
                 role="img"
                 aria-label={`Status: ${statusName}`}
                 title={statusName}
-                className="flex size-6 shrink-0 items-center justify-center rounded-full bg-state-soft"
+                className="flex size-4 shrink-0 items-center justify-center"
               >
                 <Icon
                   aria-hidden
@@ -603,19 +607,20 @@ function TrayTaskRows({
                   )}
                 />
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="grid min-w-0 flex-1 items-center gap-x-3 @min-lg:grid-cols-2">
                 <span className="block truncate text-body-13-medium text-text-primary">
                   {task.title}
                 </span>
-                <span className="mt-1 flex min-w-0 items-center gap-2 text-caption-11 text-text-tertiary">
+                <span className="flex min-w-0 items-center gap-1.5 text-caption-11 text-text-tertiary">
                   <span className="shrink-0 font-mono">{task.key}</span>
                   <span className="truncate">{board.name}</span>
                   {held ? (
                     <span
                       className="shrink-0 text-status-info"
                       title="Held by this session"
+                      role="img" aria-label="Held by this session"
                     >
-                      Held
+                      <Pin aria-hidden className="size-3" />
                     </span>
                   ) : null}
                 </span>
@@ -647,7 +652,7 @@ export function TrayRepoList({
   onClose?: () => void;
 }) {
   return (
-    <section>
+    <section className="@container">
       <TrayPanelHeading
         title="Repositories"
         count={repos.length}
@@ -656,14 +661,15 @@ export function TrayRepoList({
       />
       <ul
         data-testid="tray-repo-list"
-        className="max-h-72 space-y-1 overflow-y-auto overscroll-contain p-2 scrollbar-gutter-stable"
+        className="max-h-56 overflow-y-auto overscroll-contain p-1 scrollbar-gutter-stable"
       >
         {repos.map((repo) => (
           <li key={repo.path}>
             <button
               type="button"
               data-testid="tray-repo"
-              title={repo.error || repo.path}
+              title={`Open Git Changes · ${repo.error || repo.path}`}
+              aria-label={`Open ${repo.name} in Git beside this conversation`}
               onClick={() =>
                 void dispatchIntent(
                   "git.reveal",
@@ -676,22 +682,20 @@ export function TrayRepoList({
                   { placement: "beside" },
                 )
               }
-              className="flex h-16 w-full min-w-0 items-center gap-3 rounded-lg px-2.5 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
             >
               <Folder
                 className="size-4 shrink-0 text-text-tertiary"
                 aria-hidden
               />
-              <span className="min-w-0 flex-1">
+              <span className="grid min-w-0 flex-1 items-center gap-x-3 @min-lg:grid-cols-2">
                 <span className="flex min-w-0 items-center gap-2 text-body-13-medium text-text-primary">
                   <span className="truncate">{repo.name}</span>
                   {repo.own ? (
-                    <span className="shrink-0 text-caption-11 text-text-tertiary">
-                      this session
-                    </span>
+                    <CircleDot role="img" aria-label="This session’s repository" className="size-3 shrink-0 text-status-info" />
                   ) : null}
                 </span>
-                <span className="mt-1 flex min-w-0 items-center gap-2 text-caption-11 text-text-tertiary">
+                <span className="flex min-w-0 items-center gap-1.5 text-caption-11 text-text-tertiary">
                   <GitBranch className="size-3 shrink-0" aria-hidden />
                   <span className="truncate font-mono">
                     {repoBranch(repo) ?? "—"}
@@ -704,24 +708,14 @@ export function TrayRepoList({
                   ) : null}
                 </span>
               </span>
-              <span
-                className={cn(
-                  "shrink-0 rounded-md px-2 py-1 text-caption-11 tabular-nums",
-                  repo.error || repo.conflicted
-                    ? "bg-status-danger/10 text-status-danger"
-                    : repo.changed
-                      ? "bg-status-warning/10 text-status-warning"
-                      : "bg-state-soft text-text-tertiary",
-                )}
+              <span role="img" aria-label={repo.error ? "Repository unreadable" : repo.conflicted ? `${repo.conflicted} conflicted file${repo.conflicted === 1 ? "" : "s"}` : repo.changed ? `${repo.changed} changed files` : "No uncommitted changes"}
+                title={repo.error || (repo.conflicted ? `${repo.conflicted} conflicted file${repo.conflicted === 1 ? "" : "s"}` : repo.changed ? `${repo.changed} changed files` : "No uncommitted changes")}
+                className={cn("flex shrink-0 items-center gap-1 text-caption-11 tabular-nums", repo.error || repo.conflicted ? "text-status-danger" : repo.changed ? "text-status-warning" : "text-text-tertiary")}
               >
-                {repo.error
-                  ? "unreadable"
-                  : repo.conflicted
-                    ? `${repo.conflicted} conflicted`
-                    : repo.changed
-                      ? `${repo.changed} changed`
-                      : "clean"}
+                {repo.error ? <CircleAlert aria-hidden className="size-3.5" /> : repo.conflicted ? <AlertTriangle aria-hidden className="size-3.5" /> : repo.changed ? <FileDiff aria-hidden className="size-3.5" /> : <CheckCircle2 aria-hidden className="size-3.5" />}
+                {!repo.error ? repo.conflicted || repo.changed || null : null}
               </span>
+              <ArrowUpRight aria-hidden className="size-3 shrink-0 text-text-tertiary" />
             </button>
           </li>
         ))}

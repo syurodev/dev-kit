@@ -77,14 +77,14 @@ describe("the tray's repositories", () => {
       />,
     );
     expect(html.match(/data-testid="tray-repo"/g)?.length).toBe(4);
-    expect(html).toContain("this session");
+    expect(html).toContain("This session’s repository");
     expect(html).toContain("↑2");
     expect(html).toContain("3 changed");
     expect(html).toContain("feature/x");
     expect(html).toContain("↓1");
     expect(html).toContain("1 conflicted");
     expect(html).toContain("unreadable");
-    expect(html).toContain("clean");
+    expect(html).toContain("No uncommitted changes");
   });
 });
 
