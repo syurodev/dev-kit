@@ -399,8 +399,8 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  * One cluster, one surface: a single border, background and radius around
  * everything the person writes with, top to bottom —
  *
- *   1. a quiet context header framing the inset input surface;
- *   2. the panel area: permissions, questions and lists;
+ *   1. the panel area, growing above the context header;
+ *   2. a quiet context header framing the inset input surface;
  *   3. the field, then attach/mention, model/mode and Send.
  *      Attachments and queued messages precede the field.
  *
@@ -850,6 +850,9 @@ export function AgentComposer({
         className,
       )}
     >
+      <div className="overflow-hidden rounded-control bg-surface-base">
+        <ComposerPanelArea panel={sessionPanel} className="border-b-0" />
+      </div>
       {(trayStrip || usage) ? (
         <div data-testid="composer-session-tools" className="flex min-h-(--control-height-sm) min-w-0 shrink-0 flex-wrap items-center gap-1 px-(--space-inline)">
           {trayStrip}
@@ -859,7 +862,6 @@ export function AgentComposer({
         </div>
       ) : null}
       <FramedCardPreview flush data-testid="composer-surface" className="min-h-0 shrink-0 py-0 ring-1 ring-inset ring-border-subtle transition-colors duration-(--motion-fast) focus-within:ring-status-info/30">
-      <ComposerPanelArea panel={sessionPanel} />
       <div
         role="region"
         aria-label="Agent prompt composer"

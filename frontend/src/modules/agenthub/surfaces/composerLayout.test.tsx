@@ -129,14 +129,14 @@ describe("the composer is in the layout, below the transcript", () => {
 });
 
 describe("one cluster", () => {
-  it("places context above one surface containing the panel, field and send", () => {
+  it("opens panels above the context header and inset input", () => {
     const html = hub({ pendingPermission: permission, onResolvePermission: noop });
     const stack = html.indexOf('data-testid="agent-composer-stack"');
     const order = [
-      'data-testid="composer-tray-strip"',
-      'data-testid="composer-surface"',
       'data-testid="composer-panel-area"',
       'data-testid="agent-permission-request"',
+      'data-testid="composer-tray-strip"',
+      'data-testid="composer-surface"',
       'data-testid="agent-composer"',
       'data-testid="agent-composer-textarea"',
       'data-testid="composer-toolbar"',
