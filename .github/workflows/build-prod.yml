@@ -25,7 +25,7 @@ env:
   # Must match github.com/wailsapp/wails/v3 in go.mod. The CLI generates the
   # frontend bindings that the runtime of the same version consumes; a skew
   # between them fails at bundle time, or worse, silently at runtime.
-  WAILS3_VERSION: v3.0.0-beta.25
+  WAILS3_VERSION: v3.0.0-beta.28
 
 jobs:
   build:
