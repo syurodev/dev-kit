@@ -202,7 +202,7 @@ describe("composer mode list", () => {
     );
     expect(html).toContain('data-testid="composer-mode"');
     // The trigger names the mode, not its id.
-    expect(html).toContain(">Default</span>");
+    expect(html).toContain('aria-label="Permission mode: Default"');
   });
 
   it("still asks before switching to an advertised mode that skips permissions", () => {

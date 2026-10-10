@@ -129,16 +129,17 @@ describe("the composer is in the layout, below the transcript", () => {
 });
 
 describe("one cluster", () => {
-  it("holds the panel, the context bar, the field and the tools, in that order, under one border", () => {
+  it("holds the panel, field, send and context tools under one border", () => {
     const html = hub({ pendingPermission: permission, onResolvePermission: noop });
     const stack = html.indexOf('data-testid="agent-composer-stack"');
     const order = [
       'data-testid="composer-panel-area"',
       'data-testid="agent-permission-request"',
-      'data-testid="composer-tray-strip"',
       'data-testid="agent-composer"',
       'data-testid="agent-composer-textarea"',
+      'data-testid="composer-send-button"',
       'data-testid="composer-toolbar"',
+      'data-testid="composer-tray-strip"',
     ].map((marker) => html.indexOf(marker, stack));
     expect(order.every((at) => at > stack)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -190,7 +191,7 @@ describe("one cluster", () => {
     expect(html).toContain("composer-editor-cap");
     expect(html).toContain("composer-panel-cap");
     expect(html).toMatch(/data-testid="composer-extras"[^>]*overflow-y-auto/);
-    // Send is in the toolbar, which nothing above it can push out: it never shrinks.
+    // Send sits beside the field and never shrinks; the toolbar wraps below it.
     expect(html).toMatch(/data-testid="composer-toolbar"/);
   });
 });
@@ -198,8 +199,8 @@ describe("one cluster", () => {
 describe("the context bar", () => {
   it("says the repository total and the number needing attention apart, with a sentence for both", () => {
     const html = hub();
-    const chip = html.match(/<button[^>]*data-testid="tray-branch"[^>]*>.*?<\/button>/)?.[0] ?? "";
-    expect(chip).toContain("4 repos");
+    const chip = html.match(/<button[^>]*data-testid="tray-branch"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+    expect(chip).toContain("4 repositories");
     // 2 of the 4 (one changed, one conflicted): its own badge, danger because of the conflict.
     expect(chip).toMatch(/data-testid="tray-branch-badge"[^>]*data-tone="danger"/);
     expect(chip).toContain("2 of 4 repositories need attention (1 with conflicts, 1 with changes)");
@@ -215,11 +216,12 @@ describe("the context bar", () => {
     expect(chip).toContain("billing · 3 folders");
   });
 
-  it("keeps Tasks, Subagents, Commands and Follow behind a named menu, and not as a row of chips", () => {
+  it("keeps Tasks and Subagents visible and secondary actions in the menu", () => {
     const html = hub();
     expect(html).toContain('data-testid="composer-tray-menu"');
     expect(html).toContain('aria-label="More about this session"');
-    expect(html).not.toContain('data-testid="tray-tasks"');
+    expect(html).toContain('data-testid="tray-tasks"');
+    expect(html).toContain('data-testid="tray-subagents"');
     expect(html).not.toContain('data-testid="tray-follow"');
     // No icons-only toggle any more: narrowing is the bar's own container query.
     expect(html).not.toContain('data-testid="composer-tray-compact"');
@@ -265,19 +267,19 @@ describe("the tools row", () => {
     onSetMode: noop,
   };
 
-  it("says the model and the mode on their faces, each with a chevron, and never as two identical glyphs", () => {
+  it("names the model and keeps permission mode as an accessible icon", () => {
     const html = render(<AgentComposer {...props} />);
     const model = html.match(/<button[^>]*data-testid="composer-config"[^>]*>.*?<\/button>/)?.[0] ?? "";
     const mode = html.match(/<button[^>]*data-testid="composer-mode"[^>]*>.*?<\/button>/)?.[0] ?? "";
     expect(model).toContain("Sonnet 4.5");
     expect(model).toContain("lucide-chevron-down");
     expect(mode).toContain('aria-label="Permission mode: Auto"');
-    expect(mode).toContain(">Auto</span>");
-    expect(mode).toContain("lucide-chevron-down");
+    expect(mode).not.toContain(">Auto</span>");
+    expect(mode).not.toContain("lucide-chevron-down");
     expect(mode).toContain("lucide-shield-check");
     expect(model).not.toContain("lucide-sliders-horizontal");
-    // The mode's word goes first when the row is narrow; its glyph and name stay.
-    expect(mode).toContain("@max-sm:hidden");
+    // The mode glyph keeps its accessible name without a visible label.
+    expect(mode).toContain('title="Permission mode: Auto"');
   });
 
   it("keeps slash commands, the goal and attaching behind the + menu, and the goal on the row once set", () => {

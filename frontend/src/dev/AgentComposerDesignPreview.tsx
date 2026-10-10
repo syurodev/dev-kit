@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Boxes, GitBranch, ListTodo } from "lucide-react";
+import { Bot, Boxes, GitBranch, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentComposer } from "@/modules/agenthub/surfaces/AgentComposer";
 import { ComposerContextBar } from "@/modules/agenthub/surfaces/composer/ComposerContextBar";
@@ -177,12 +177,12 @@ export function AgentComposerDesignPreview() {
           }}
           trayStrip={
             <ComposerContextBar
-              compact={rail}
-              where={<TrayChip icon={<Boxes />} label="Platform" keepLabel />}
+              compact={true}
+              where={<TrayChip icon={<Boxes />} label="Platform" title="Platform" />}
               chips={
                 <TrayChip
                   icon={<GitBranch />}
-                  label={repositorySummary.label}
+                  count={repos.length}
                   badge={repositorySummary.badge ?? undefined}
                   title="Show repositories"
                   active={panel === "repos"}
@@ -190,6 +190,7 @@ export function AgentComposerDesignPreview() {
                 />
               }
               menu={[
+                { kind: "item", key: "subagents", icon: <Bot />, label: "Subagents", detail: 0, onSelect: () => {} },
                 {
                   kind: "item",
                   key: "tasks",

@@ -120,7 +120,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         const start = html.indexOf('<div role="textbox"');
         return html.slice(start, html.indexOf(">", start));
       };
-      expect(field("wide")).toContain("min-h-10");
+      expect(field("wide")).toContain("min-h-8");
       // The ceilings are `cqh`-aware classes (index.css): fifteen rem wide, ten
       // in the rail, and never more than a third of a short conversation.
       expect(field("wide")).toContain("composer-editor-cap");
@@ -601,11 +601,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         <AgentHubContent {...props} draft={{ projectPath: "/Users/dev/billing-service" }} />,
       );
       expect(inProject).toContain('data-testid="draft-project-picker"');
-      expect(inProject).toContain(">billing-service<");
+      expect(inProject).toContain('aria-label="billing-service"');
 
       const none = renderToString(<AgentHubContent {...props} draft={{ projectPath: "" }} />);
       expect(none).toContain("Start a session without a project");
-      expect(none).toContain(">No project<");
+      expect(none).toContain('aria-label="No project"');
     });
 
     it("names the whole workspace on the picker's trigger once it is selected", () => {
@@ -631,7 +631,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       const oneFolder = renderToString(
         <AgentHubContent {...props} draft={{ projectPath: "/Users/dev/billing-service" }} />,
       );
-      expect(oneFolder).toContain(">billing-service<");
+      expect(oneFolder).toContain('aria-label="billing-service"');
 
       // A workspace's services do not necessarily share a root, so naming
       // just "billing-service" once every one of them is granted would
@@ -642,7 +642,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           draft={{ projectPath: "/Users/dev/billing-service", workspaceSelected: true }}
         />,
       );
-      expect(wholeWorkspace).toContain(">CHIRO (2)<");
+      expect(wholeWorkspace).toContain('aria-label="CHIRO (2)"');
       expect(wholeWorkspace).not.toContain(">billing-service<");
     });
 

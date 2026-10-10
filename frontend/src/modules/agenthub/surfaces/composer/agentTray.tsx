@@ -105,8 +105,8 @@ function folderName(path: string): string {
  * answering one brings the next.
  *
  * Direct on the bar: where this is, what blocks the agent, repositories, work
- * running right now. Everything else — Tasks, Subagents, Commands, Follow — is
- * in the bar's "…" menu, so a quiet session shows a quiet bar.
+ * running right now. Tasks and Subagents remain visible even at zero; secondary
+ * actions are in the overflow menu.
  */
 export function useAgentTray(input: AgentTrayInput): {
   strip: React.ReactNode;
@@ -251,6 +251,7 @@ export function useAgentTray(input: AgentTrayInput): {
             detail="Work running alongside this conversation"
             onClose={closeOpened}
           />
+          {running === 0 ? <p className="px-3 py-2 text-caption-11 text-text-tertiary">No subagents running.</p> : null}
           <AgentSubagentTracker
             items={items}
             live={live}
@@ -300,7 +301,6 @@ export function useAgentTray(input: AgentTrayInput): {
       testId="tray-workspace"
       icon={status.workspace ? <Boxes /> : <Folder />}
       label={workspaceName ?? (projectPath ? folderName(projectPath) : "No project")}
-      keepLabel
       // The workspace's folders are in the tooltip, not the label: "name (3)"
       // read like a count of something else.
       title={
@@ -365,7 +365,7 @@ export function useAgentTray(input: AgentTrayInput): {
           // One repository: its branch, as it always was. Several (a workspace
           // of services): how many — and, as a badge of its own, how many of
           // them need a look. The two numbers used to share one pill.
-          label={repos.label}
+          count={status.repos.length}
           badge={repos.badge ?? undefined}
           title={repos.title}
           active={panel?.key === "repos"}
@@ -386,24 +386,11 @@ export function useAgentTray(input: AgentTrayInput): {
           onClick={() => toggle("commands")}
         />
       ) : null}
-      {running > 0 ? (
-        <TrayChip
-          key="subagents"
-          testId="tray-subagents"
-          icon={<Bot />}
-          label={running === 1 ? "subagent" : "subagents"}
-          count={running}
-          title={`${running} subagent${running === 1 ? "" : "s"} running`}
-          active={panel?.key === "subagents"}
-          onClick={() => toggle("subagents")}
-        />
-      ) : null}
+
     </TrayChips>
   );
 
-  // The rest, behind "…". Tasks stays even at 0: no task yet is not no tasks
-  // feature, and the empty list says how to get one. Subagents has nothing to
-  // open while none runs, so it is there and quiet.
+  // The bar promotes Tasks and Subagents to persistent icon/count controls.
   const menu: ContextBarMenuEntry[] = [];
   if (status.hasBoards) {
     const count = session ? status.tasks.length : status.others.length;
@@ -427,8 +414,7 @@ export function useAgentTray(input: AgentTrayInput): {
       testId: "tray-menu-subagents",
       icon: <Bot />,
       label: "Subagents",
-      detail: running > 0 ? String(running) : "none running",
-      disabled: running === 0,
+      detail: String(running),
       active: panel?.key === "subagents",
       onSelect: () => toggle("subagents"),
     });
@@ -461,7 +447,7 @@ export function useAgentTray(input: AgentTrayInput): {
 
   const strip = (
     <ComposerContextBar
-      compact={size === "rail"}
+      compact={true}
       where={where}
       chips={chips}
       menu={menu}

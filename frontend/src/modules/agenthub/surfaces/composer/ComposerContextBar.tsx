@@ -1,18 +1,17 @@
 import * as React from "react";
-import { Ellipsis } from "lucide-react";
+import { Check, Ellipsis } from "lucide-react";
 
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { TrayCompactProvider } from "./ComposerTray";
+import { TrayChip, TrayCompactProvider } from "./ComposerTray";
 
 /**
  * A row of the bar's "…" menu: what the bar keeps out of sight until asked.
@@ -44,21 +43,9 @@ export type ContextBarMenuEntry =
       onToggle: () => void;
     };
 
-/**
- * The composer cluster's context bar — the session's working context, one row:
- * where it is, what needs the person, and a "…" for the rest. Not a bar that
- * holds every feature: Tasks, Subagents, Commands and Follow are rarely the
- * thing you reached for, so they live in the menu and come out as a chip only
- * when something under them wants attention (a permission, a running
- * subagent).
- *
- * `where` and `chips` are the content; they sit in a group that clips rather
- * than wraps or scrolls, so a narrow bar loses the least important label
- * (chips drop their text under a container query, the workspace name
- * truncates) and never a control: the menu is outside the clipping group and
- * never shrinks. The query asks the BAR's width (`@container`), so the same
- * bar is right in the 720px column and in the 320px rail.
- */
+/** Compact context controls share the toolbar. Tasks and Subagents stay visible,
+ * including zero counts; only secondary actions live in the overflow menu.
+ * Groups wrap in narrow panes rather than clipping controls. */
 export function ComposerContextBar({
   compact,
   where,
@@ -77,18 +64,25 @@ export function ComposerContextBar({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
+  const direct = menu.filter((entry) => entry.kind === "item" && (entry.key === "tasks" || entry.key === "subagents"));
+  const overflow = menu.filter((entry) => !direct.includes(entry));
   const label = following ? "More about this session — following" : "More about this session";
   return (
     <TrayCompactProvider compact={compact}>
       <div
         data-testid="composer-tray-strip"
-        className={cn("@container flex h-8 min-w-0 shrink-0 items-center gap-1 px-3", className)}
+        className={cn("flex min-w-0 max-w-full flex-wrap items-center gap-0.5", className)}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+        <div className="flex min-w-0 flex-wrap items-center gap-0.5">
           {where}
           {chips}
+          {direct.map((entry) => entry.kind === "item" ? (
+            <TrayChip key={entry.key} testId={`tray-${entry.key}`} icon={entry.icon}
+              count={Number(entry.detail ?? 0)} title={`${entry.label}: ${entry.detail ?? 0}`} active={entry.active}
+              priority onClick={entry.onSelect} />
+          ) : null)}
         </div>
-        {menu.length > 0 ? (
+        {overflow.length > 0 ? (
           <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger asChild>
               <ActionTooltip label={label} side="top">
@@ -113,23 +107,19 @@ export function ComposerContextBar({
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="end" className="w-60" data-testid="composer-tray-menu-content">
               <DropdownMenuLabel>This session</DropdownMenuLabel>
-              {menu.map((entry) =>
+              {overflow.map((entry) =>
                 entry.kind === "toggle" ? (
-                  <DropdownMenuCheckboxItem
+                  <DropdownMenuItem
                     key={entry.key}
                     data-testid={entry.testId}
-                    checked={entry.checked}
-                    onCheckedChange={entry.onToggle}
-                    // Stay open: it is a switch, and the row says the new state.
-                    onSelect={(event) => event.preventDefault()}
+                    role="menuitemcheckbox"
+                    aria-checked={entry.checked}
+                    icon={entry.icon}
+                    detail={entry.checked ? <Check aria-hidden="true" className="size-3.5" /> : undefined}
+                    onSelect={(event) => { event.preventDefault(); entry.onToggle(); }}
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span aria-hidden="true" className="flex shrink-0 items-center [&_svg]:size-3.5">
-                        {entry.icon}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{entry.checked ? "Following" : entry.label}</span>
-                    </span>
-                  </DropdownMenuCheckboxItem>
+                    {entry.label}
+                  </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem
                     key={entry.key}
