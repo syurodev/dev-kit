@@ -82,7 +82,7 @@ export function ComposerContextBar({
     <TrayCompactProvider compact={compact}>
       <div
         data-testid="composer-tray-strip"
-        className={cn("@container flex h-9 min-w-0 shrink-0 items-center gap-1 border-b border-border-subtle px-2", className)}
+        className={cn("@container flex h-8 min-w-0 shrink-0 items-center gap-1 px-3", className)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           {where}

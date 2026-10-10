@@ -192,7 +192,8 @@ export function composerDefaultPlaceholder(
   isStreaming: boolean,
   agentName: string | undefined,
 ): string {
-  return placeholder ?? (isStreaming ? `${agentName ?? "Agent"} is working…` : `Ask ${agentName ?? "agent"}…`);
+  const name = /^Session [a-f0-9]{8}$/i.test(agentName ?? "") ? undefined : agentName;
+  return placeholder ?? (isStreaming ? `${name ?? "Agent"} is working…` : `Ask ${name ?? "agent"}…`);
 }
 
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
@@ -846,8 +847,8 @@ export function AgentComposer({
       className={cn(
         // overflow-y: only ever scrolls on a pane too short for even the field and
         // its tools — the last resort, so Send is reachable rather than clipped.
-        "flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-xl border border-border-subtle bg-surface-raised shadow-xs",
-        "transition-colors duration-(--motion-fast) focus-within:border-border",
+        "flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-2xl border border-border-subtle bg-surface-base shadow-xs",
+        "transition-colors duration-(--motion-fast) focus-within:border-status-info/30",
         className,
       )}
     >
@@ -859,7 +860,7 @@ export function AgentComposer({
         data-testid="agent-composer"
         data-size={size}
         data-state={effectiveState}
-        className="flex min-h-0 w-full flex-col gap-1 p-2"
+        className="flex min-h-0 w-full flex-col gap-1 p-3"
       >
         {hasAttachments || queuedPrompts.length > 0 || imageError ? (
           // Their own scroll box: a long queue or a dozen attachments must not
@@ -1174,7 +1175,7 @@ export function AgentComposer({
                 }
                 return onSetConfigOption(id, value);
               }} {...menu("config")} onCloseAutoFocus={openHeldBypass}
-                loading={configLoading} error={configError} onRefresh={onRefreshConfig} />
+                compact loading={configLoading} error={configError} onRefresh={onRefreshConfig} />
             ) : onSetConfigOption && selectableOptions.length > 0 ? (
               <DropdownMenu {...menu("config")}>
                 <DropdownMenuTrigger asChild>
@@ -1220,14 +1221,14 @@ export function AgentComposer({
                     data-testid="composer-mode"
                     aria-label={`Permission mode: ${currentModeLabel ?? "unknown"}`}
                     title={`Permission mode: ${currentModeLabel ?? "unknown"}`}
-                    className="min-w-0 shrink gap-1 px-2 text-text-secondary"
+                    className="h-7 min-w-0 shrink-0 gap-1 rounded-full px-2 text-text-secondary"
                   >
                     {/* A shield, not the sliders the model's fallback uses: two
                         identical settings glyphs side by side said nothing about
                         which was which. */}
                     <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="max-w-24 truncate text-body-13 @max-sm:hidden">{currentModeLabel}</span>
-                    <ChevronDown className="size-3 shrink-0 text-text-tertiary" aria-hidden="true" />
+                    <span className="max-w-24 truncate text-caption-11-medium @max-sm:hidden">{currentModeLabel}</span>
+                    <ChevronDown className="size-3 shrink-0 text-text-tertiary @max-sm:hidden" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
@@ -1262,6 +1263,7 @@ export function AgentComposer({
             {/* The objective the agent keeps working towards between turns. Drawn
                 only once one is set, so the cluster shows what the session is
                 working towards; setting or clearing one is in the "+" menu. */}
+            {/* Narrow panes keep Change goal in the + menu so the model and mode fit. */}
             {onSetGoal && goal ? (
               <ActionTooltip label="Change what this session is working towards" side="top">
                 <Button
@@ -1271,7 +1273,7 @@ export function AgentComposer({
                   data-testid="composer-goal"
                   data-set="true"
                   onClick={openGoalDialog}
-                  className="min-w-0 shrink gap-1 px-2 text-text-primary"
+                  className="min-w-0 shrink gap-1 px-2 text-text-primary @max-sm:hidden"
                 >
                   <Target className="size-3.5 shrink-0" aria-hidden="true" />
                   <span className="max-w-32 truncate text-body-13 @max-sm:hidden">{goal.objective}</span>
@@ -1292,7 +1294,7 @@ export function AgentComposer({
                 </span>
               </ActionTooltip>
             ) : null}
-            <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
+            <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
             <Button
               type="button"
               size="icon-sm"
@@ -1300,7 +1302,7 @@ export function AgentComposer({
               aria-label={isStreaming ? "Stop generating" : "Send message"}
               data-testid="composer-send-button"
               onClick={isStreaming ? onCancel : onSend}
-              className="shrink-0 rounded-full"
+              className="size-8 shrink-0 rounded-full"
             >
               <MorphIcon
                 icon={isStreaming ? Square : ArrowUp}

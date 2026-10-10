@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ConfigOption, SessionMode } from "../types";
 import {
   AgentComposer,
+  composerDefaultPlaceholder,
   composerModeChoices,
   handleComposerKeyDown,
   heldChoice,
@@ -16,6 +17,13 @@ import {
 
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
+
+it("uses a human prompt for unnamed sessions while preserving explicit instructions", () => {
+  expect(composerDefaultPlaceholder(undefined, false, "Session da4c04e2")).toBe("Ask agent…");
+  expect(composerDefaultPlaceholder(undefined, true, "Session da4c04e2")).toBe("Agent is working…");
+  expect(composerDefaultPlaceholder("Send to reopen this session", false, "Session da4c04e2")).toBe("Send to reopen this session");
+  expect(composerDefaultPlaceholder(undefined, false, "Refund worker")).toBe("Ask Refund worker…");
+});
 
 describe("confirming a bypass picked in a menu", () => {
   it("opens the confirmation only once the menu has closed, and only once", () => {

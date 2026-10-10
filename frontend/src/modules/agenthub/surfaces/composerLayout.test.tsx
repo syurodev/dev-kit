@@ -145,7 +145,8 @@ describe("one cluster", () => {
     // One surface: the cluster carries the border and fill; the parts do not.
     const clusterTag = html.slice(stack - 200, html.indexOf(">", stack));
     expect(clusterTag).toContain("border border-border-subtle");
-    expect(clusterTag).toContain("rounded-xl");
+    expect(clusterTag).toContain("rounded-2xl");
+    expect(clusterTag).toContain("bg-surface-base");
     expect(html.match(/data-testid="agent-composer-stack"/g)).toHaveLength(1);
     const bar = html.slice(html.indexOf('data-testid="composer-tray-strip"'), html.indexOf('data-testid="composer-tray-strip"') + 300);
     expect(bar).not.toContain("rounded-xl");
