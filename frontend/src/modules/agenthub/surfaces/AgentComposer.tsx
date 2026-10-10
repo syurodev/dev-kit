@@ -1027,6 +1027,17 @@ export function AgentComposer({
               />
             </Plate>
           </div>
+          {isStreaming ? (
+            <ActionTooltip label="Agent is working" side="top">
+              <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-3.5 animate-spin motion-reduce:animate-none"
+                  style={{ animationDuration: "1.6s" }}
+                />
+              </span>
+            </ActionTooltip>
+          ) : null}
           <Button
             type="button"
             size="icon-sm"
@@ -1049,7 +1060,8 @@ export function AgentComposer({
         {/* The tools. `@container`: what a label may cost is decided by the
             row's own width, so the 720px column shows names and the 320px rail
             shows icons — the same markup, no measuring. */}
-        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <div data-testid="composer-writing-tools" className="flex min-w-0 max-w-full flex-wrap items-center gap-2 @max-md:w-full">
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Everything that adds something to the turn, or is not needed often:
                 attach, the agent's slash commands, the goal. Typing "/" still
@@ -1296,20 +1308,13 @@ export function AgentComposer({
             ) : null}
           </div>
 
+          </div>
+
+          <div data-testid="composer-session-tools" className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 @max-md:w-full">
           {trayStrip}
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {isStreaming ? (
-              <ActionTooltip label="Agent is working" side="top">
-                <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
-                  <LoaderCircle
-                    aria-hidden="true"
-                    className="size-3.5 animate-spin motion-reduce:animate-none"
-                    style={{ animationDuration: "1.6s" }}
-                  />
-                </span>
-              </ActionTooltip>
-            ) : null}
+          <div className="flex shrink-0 items-center gap-1">
             <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
+          </div>
           </div>
         </div>
       </div>

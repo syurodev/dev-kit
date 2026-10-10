@@ -66,7 +66,7 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
             size="sm"
             data-testid="composer-config"
             aria-label={`Model and effort: ${triggerLabel}`}
-            className={cn("min-w-0 shrink gap-1 px-2 text-text-secondary", compact && "h-7 rounded-full bg-surface-well px-2.5 hover:bg-state-hover")}
+            className={cn("min-w-0 shrink gap-1 px-2 text-text-secondary", compact && "h-7 rounded-md px-2 hover:bg-state-soft")}
           >
             <span className={cn("max-w-28 truncate @max-xs:max-w-16", compact ? "text-caption-11-medium" : "text-body-13")}>{triggerLabel}</span>
             <ChevronDown aria-hidden className={cn("size-3 shrink-0 text-text-tertiary", compact && "@max-xs:hidden")} />

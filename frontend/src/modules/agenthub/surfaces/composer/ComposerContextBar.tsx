@@ -71,9 +71,9 @@ export function ComposerContextBar({
     <TrayCompactProvider compact={compact}>
       <div
         data-testid="composer-tray-strip"
-        className={cn("flex min-w-0 max-w-full flex-wrap items-center gap-0.5", className)}
+        className={cn("flex min-w-0 max-w-full flex-wrap items-center gap-1", className)}
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           {where}
           {chips}
           {direct.map((entry) => entry.kind === "item" ? (
