@@ -43,7 +43,7 @@ export type ContextBarMenuEntry =
       onToggle: () => void;
     };
 
-/** Compact context controls share the toolbar. Tasks and Subagents stay visible,
+/** Compact context controls sit above the input surface. Tasks and Subagents stay visible,
  * including zero counts; only secondary actions live in the overflow menu.
  * Groups wrap in narrow panes rather than clipping controls. */
 export function ComposerContextBar({

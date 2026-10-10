@@ -329,7 +329,7 @@ export type AgentComposerProps = {
    */
   onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   /**
-   * Persistent context controls (useAgentTray), placed in the tools row.
+   * Persistent context controls (useAgentTray), above the input surface.
    * Panels and typed "@" or "/" lists occupy the separate panel area.
    */
   trayStrip?: React.ReactNode;
@@ -398,10 +398,10 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  * One cluster, one surface: a single border, background and radius around
  * everything the person writes with, top to bottom —
  *
- *   1. the panel area: a permission or question to answer, a list to pick from;
- *   2. the prompt field with its Send control;
- *   3. the tools: attach and mention, model, permission mode, context controls
- *      and the context gauge. Attachments and queued messages precede the field.
+ *   1. a quiet context strip outside the input surface;
+ *   2. the panel area: permissions, questions and lists;
+ *   3. the field, then attach/mention, model/mode and Send.
+ *      Attachments and queued messages precede the field.
  *
  * The panel has a divider; the field and tools share one surface because there
  * are no cards. It is an ordinary block in the layout (the caller gives it a
@@ -838,18 +838,26 @@ export function AgentComposer({
 
   return (
     // The caller's className (AgentHubContent passes "min-w-0") sizes the whole
-    // cluster within the caller's region. One border, one fill, one radius.
+    // cluster within the caller's region. Only the input surface draws a border.
     <div
       data-testid="agent-composer-stack"
       data-size={size}
       className={cn(
         // overflow-y: only ever scrolls on a pane too short for even the field and
         // its tools — the last resort, so Send is reachable rather than clipped.
-        "flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-2xl border border-border-subtle bg-surface-base shadow-xs",
-        "transition-colors duration-(--motion-fast) focus-within:border-status-info/30",
+        "flex min-h-0 min-w-0 flex-col gap-1 overflow-x-hidden overflow-y-auto",
         className,
       )}
     >
+      {(trayStrip || usage) ? (
+        <div data-testid="composer-session-tools" className="flex min-w-0 shrink-0 flex-wrap items-center gap-1 px-1">
+          {trayStrip}
+          <div className="ml-auto flex shrink-0 items-center">
+            <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
+          </div>
+        </div>
+      ) : null}
+      <div data-testid="composer-surface" className="flex min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface-base shadow-xs transition-colors duration-(--motion-fast) focus-within:border-status-info/30">
       <ComposerPanelArea panel={sessionPanel} />
       <div
         role="region"
@@ -1027,41 +1035,14 @@ export function AgentComposer({
               />
             </Plate>
           </div>
-          {isStreaming ? (
-            <ActionTooltip label="Agent is working" side="top">
-              <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
-                <LoaderCircle
-                  aria-hidden="true"
-                  className="size-3.5 animate-spin motion-reduce:animate-none"
-                  style={{ animationDuration: "1.6s" }}
-                />
-              </span>
-            </ActionTooltip>
-          ) : null}
-          <Button
-            type="button"
-            size="icon-sm"
-            disabled={disabled}
-            aria-label={isStreaming ? "Stop generating" : "Send message"}
-            data-testid="composer-send-button"
-            onClick={isStreaming ? onCancel : onSend}
-            className="size-8 shrink-0 rounded-full"
-          >
-            <MorphIcon
-              icon={isStreaming ? Square : ArrowUp}
-              size={14}
-              strokeWidth={2}
-              spring="snappy"
-              reducedMotion="user"
-            />
-          </Button>
+
         </div>
 
         {/* The tools. `@container`: what a label may cost is decided by the
             row's own width, so the 720px column shows names and the 320px rail
             shows icons — the same markup, no measuring. */}
-        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <div data-testid="composer-writing-tools" className="flex min-w-0 max-w-full flex-wrap items-center gap-2 @max-md:w-full">
+        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 items-center gap-1">
+          <div data-testid="composer-writing-tools" className="flex min-w-0 flex-1 items-center gap-1">
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Everything that adds something to the turn, or is not needed often:
                 attach, the agent's slash commands, the goal. Typing "/" still
@@ -1157,7 +1138,7 @@ export function AgentComposer({
           </div>
 
           {/* Pickers and context controls wrap as groups on narrow panes. */}
-          <div className="flex min-w-0 items-center gap-0.5 p-0.5">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden p-0.5">
             {onAgentChange ? (
               <DropdownMenu {...menu("agent")}>
                 <DropdownMenuTrigger asChild>
@@ -1310,13 +1291,38 @@ export function AgentComposer({
 
           </div>
 
-          <div data-testid="composer-session-tools" className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 @max-md:w-full @max-md:justify-start">
-          {trayStrip}
-          <div className="flex shrink-0 items-center gap-1 @max-md:ml-auto">
-            <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
-          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+          {isStreaming ? (
+            <ActionTooltip label="Agent is working" side="top">
+              <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-3.5 animate-spin motion-reduce:animate-none"
+                  style={{ animationDuration: "1.6s" }}
+                />
+              </span>
+            </ActionTooltip>
+          ) : null}
+          <Button
+            type="button"
+            size="icon-sm"
+            disabled={disabled}
+            aria-label={isStreaming ? "Stop generating" : "Send message"}
+            data-testid="composer-send-button"
+            onClick={isStreaming ? onCancel : onSend}
+            className="size-8 shrink-0 rounded-full"
+          >
+            <MorphIcon
+              icon={isStreaming ? Square : ArrowUp}
+              size={14}
+              strokeWidth={2}
+              spring="snappy"
+              reducedMotion="user"
+            />
+          </Button>
           </div>
         </div>
+      </div>
       </div>
           {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
               straight after picking the item does not confirm it. */}

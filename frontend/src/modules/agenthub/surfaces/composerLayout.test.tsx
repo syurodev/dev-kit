@@ -129,22 +129,24 @@ describe("the composer is in the layout, below the transcript", () => {
 });
 
 describe("one cluster", () => {
-  it("holds the panel, field, send and context tools under one border", () => {
+  it("places context above one surface containing the panel, field and send", () => {
     const html = hub({ pendingPermission: permission, onResolvePermission: noop });
     const stack = html.indexOf('data-testid="agent-composer-stack"');
     const order = [
+      'data-testid="composer-tray-strip"',
+      'data-testid="composer-surface"',
       'data-testid="composer-panel-area"',
       'data-testid="agent-permission-request"',
       'data-testid="agent-composer"',
       'data-testid="agent-composer-textarea"',
-      'data-testid="composer-send-button"',
       'data-testid="composer-toolbar"',
-      'data-testid="composer-tray-strip"',
+      'data-testid="composer-send-button"',
     ].map((marker) => html.indexOf(marker, stack));
     expect(order.every((at) => at > stack)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // One surface: the cluster carries the border and fill; the parts do not.
-    const clusterTag = html.slice(stack - 200, html.indexOf(">", stack));
+    // One input surface carries the border and fill; context controls sit above it.
+    const surface = html.indexOf('data-testid="composer-surface"');
+    const clusterTag = html.slice(surface - 5, html.indexOf(">", surface));
     expect(clusterTag).toContain("border border-border-subtle");
     expect(clusterTag).toContain("rounded-2xl");
     expect(clusterTag).toContain("bg-surface-base");
@@ -191,7 +193,7 @@ describe("one cluster", () => {
     expect(html).toContain("composer-editor-cap");
     expect(html).toContain("composer-panel-cap");
     expect(html).toMatch(/data-testid="composer-extras"[^>]*overflow-y-auto/);
-    // Send sits beside the field and never shrinks; the toolbar wraps below it.
+    // Send never shrinks in the tools row below the field.
     expect(html).toMatch(/data-testid="composer-toolbar"/);
   });
 });
