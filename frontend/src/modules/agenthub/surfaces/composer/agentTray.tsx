@@ -34,7 +34,10 @@ import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
 import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
-import { ComposerContextBar, type ContextBarMenuEntry } from "./ComposerContextBar";
+import {
+  ComposerContextBar,
+  type ContextBarMenuEntry,
+} from "./ComposerContextBar";
 import { chooseTrayPanel, repoSummary, type TrayOpened } from "./trayModel";
 import { useRisingEdge } from "../../sidebar/hooks";
 import {
@@ -143,10 +146,14 @@ export function useAgentTray(input: AgentTrayInput): {
   // Numbers, so a queue changing under another session re-renders nothing here.
   const sessionId = session?.id ?? "";
   const permissionsWaiting = useAgentSessionsStore((s) =>
-    sessionId ? s.pendingQueue.filter((p) => p.sessionId === sessionId).length : 0,
+    sessionId
+      ? s.pendingQueue.filter((p) => p.sessionId === sessionId).length
+      : 0,
   );
   const questionsWaiting = useAgentSessionsStore((s) =>
-    sessionId ? s.elicitationQueue.filter((q) => q.sessionId === sessionId).length : 0,
+    sessionId
+      ? s.elicitationQueue.filter((q) => q.sessionId === sessionId).length
+      : 0,
   );
   const permissionCount = permission ? Math.max(1, permissionsWaiting) : 0;
   const questionCount = question ? Math.max(1, questionsWaiting) : 0;
@@ -299,7 +306,9 @@ export function useAgentTray(input: AgentTrayInput): {
       key="where"
       testId="tray-workspace"
       icon={status.workspace ? <Boxes /> : <Folder />}
-      label={workspaceName ?? (projectPath ? folderName(projectPath) : "No project")}
+      label={
+        workspaceName ?? (projectPath ? folderName(projectPath) : "No project")
+      }
       keepLabel
       // The workspace's folders are in the tooltip, not the label: "name (3)"
       // read like a count of something else.
@@ -367,7 +376,7 @@ export function useAgentTray(input: AgentTrayInput): {
           // them need a look. The two numbers used to share one pill.
           label={repos.label}
           badge={repos.badge ?? undefined}
-          title={repos.title}
+          title={`Show repositories · ${repos.title}`}
           active={panel?.key === "repos"}
           onClick={() => toggle("repos")}
         />
@@ -665,7 +674,7 @@ export function TrayRepoList({
       <TrayPanelHeading
         title="Repositories"
         count={repos.length}
-        detail="Open changes beside this conversation"
+        detail="Select a repository to open Git Changes beside this conversation"
         onClose={onClose}
       />
       <ul
@@ -677,7 +686,8 @@ export function TrayRepoList({
             <button
               type="button"
               data-testid="tray-repo"
-              title={repo.error || repo.path}
+              aria-label={`Open ${repo.name} in Git beside this conversation`}
+              title={`Open Git Changes · ${repo.error || repo.path}`}
               onClick={() =>
                 void dispatchIntent(
                   "git.reveal",
@@ -718,24 +728,39 @@ export function TrayRepoList({
                   ) : null}
                 </span>
               </span>
-              <span
-                className={cn(
-                  "shrink-0 rounded-md px-2 py-1 text-caption-11 tabular-nums",
-                  repo.error || repo.conflicted
-                    ? "bg-status-danger/10 text-status-danger"
-                    : repo.changed
-                      ? "bg-status-warning/10 text-status-warning"
-                      : "bg-state-soft text-text-tertiary",
-                )}
-              >
-                {repo.error
-                  ? "unreadable"
-                  : repo.conflicted
-                    ? `${repo.conflicted} conflicted`
-                    : repo.changed
-                      ? `${repo.changed} changed`
-                      : "clean"}
-              </span>
+              {repo.error || repo.conflicted || repo.changed ? (
+                <span
+                  className={cn(
+                    "shrink-0 rounded-md px-2 py-1 text-caption-11 tabular-nums",
+                    repo.error || repo.conflicted
+                      ? "bg-status-danger/10 text-status-danger"
+                      : repo.changed
+                        ? "bg-status-warning/10 text-status-warning"
+                        : "bg-state-soft text-text-tertiary",
+                  )}
+                >
+                  {repo.error
+                    ? "unreadable"
+                    : repo.conflicted
+                      ? `${repo.conflicted} conflicted`
+                      : repo.changed
+                        ? `${repo.changed} changed`
+                        : null}
+                </span>
+              ) : (
+                <span
+                  role="img"
+                  aria-label="No uncommitted changes"
+                  title="No uncommitted changes"
+                  className="flex size-6 shrink-0 items-center justify-center text-text-tertiary"
+                >
+                  <CheckCircle2 className="size-4" aria-hidden />
+                </span>
+              )}
+              <ArrowUpRight
+                className="size-3.5 shrink-0 text-text-tertiary"
+                aria-hidden
+              />
             </button>
           </li>
         ))}
