@@ -688,16 +688,16 @@ export function TrayRepoList({
                 className="size-4 shrink-0 text-text-tertiary"
                 aria-hidden
               />
-              <span className="grid min-w-0 flex-1 items-center gap-x-3 @min-lg:grid-cols-2">
-                <span className="flex min-w-0 items-center gap-2 text-body-13-medium text-text-primary">
+              <span className="flex min-w-0 flex-1 flex-col items-start @min-lg:flex-row @min-lg:items-center @min-lg:gap-3">
+                <span className="flex min-w-0 max-w-full items-center gap-2 text-body-13-medium text-text-primary @min-lg:max-w-[45%] @min-lg:shrink-0">
                   <span className="truncate">{repo.name}</span>
                   {repo.own ? (
                     <CircleDot role="img" aria-label="This session’s repository" className="size-3 shrink-0 text-status-info" />
                   ) : null}
                 </span>
-                <span className="flex min-w-0 items-center gap-1.5 text-caption-11 text-text-tertiary">
+                <span className="flex min-w-0 max-w-full items-center gap-1.5 text-caption-11 text-text-tertiary">
                   <GitBranch className="size-3 shrink-0" aria-hidden />
-                  <span className="truncate font-mono">
+                  <span title={repoBranch(repo) ?? undefined} className="truncate font-mono">
                     {repoBranch(repo) ?? "—"}
                   </span>
                   {repo.ahead ? (
