@@ -11,6 +11,7 @@ import { Plate, usePlateEditor } from "platejs/react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { FramedCard, FramedCardPreview } from "@/components/ui/framed-card";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Editor } from "@/components/ui/editor";
 import { Input } from "@/components/ui/input";
@@ -398,7 +399,7 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  * One cluster, one surface: a single border, background and radius around
  * everything the person writes with, top to bottom —
  *
- *   1. a quiet context strip outside the input surface;
+ *   1. a quiet context header framing the inset input surface;
  *   2. the panel area: permissions, questions and lists;
  *   3. the field, then attach/mention, model/mode and Send.
  *      Attachments and queued messages precede the field.
@@ -839,25 +840,25 @@ export function AgentComposer({
   return (
     // The caller's className (AgentHubContent passes "min-w-0") sizes the whole
     // cluster within the caller's region. Only the input surface draws a border.
-    <div
+    <FramedCard
       data-testid="agent-composer-stack"
       data-size={size}
       className={cn(
         // overflow-y: only ever scrolls on a pane too short for even the field and
         // its tools — the last resort, so Send is reachable rather than clipped.
-        "flex min-h-0 min-w-0 flex-col gap-1 overflow-x-hidden overflow-y-auto",
+        "min-h-0 overflow-x-hidden overflow-y-auto",
         className,
       )}
     >
       {(trayStrip || usage) ? (
-        <div data-testid="composer-session-tools" className="flex min-w-0 shrink-0 flex-wrap items-center gap-1 px-1">
+        <div data-testid="composer-session-tools" className="flex min-h-(--control-height-sm) min-w-0 shrink-0 flex-wrap items-center gap-1 px-(--space-inline)">
           {trayStrip}
           <div className="ml-auto flex shrink-0 items-center">
             <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
           </div>
         </div>
       ) : null}
-      <div data-testid="composer-surface" className="flex min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface-base shadow-xs transition-colors duration-(--motion-fast) focus-within:border-status-info/30">
+      <FramedCardPreview flush data-testid="composer-surface" className="min-h-0 shrink-0 py-0 ring-1 ring-inset ring-border-subtle transition-colors duration-(--motion-fast) focus-within:ring-status-info/30">
       <ComposerPanelArea panel={sessionPanel} />
       <div
         role="region"
@@ -865,7 +866,7 @@ export function AgentComposer({
         data-testid="agent-composer"
         data-size={size}
         data-state={effectiveState}
-        className="flex min-h-0 w-full flex-col gap-1 p-2.5"
+        className="flex min-h-0 w-full flex-col gap-1 p-(--space-inline)"
       >
         {hasAttachments || queuedPrompts.length > 0 || imageError ? (
           // Their own scroll box: a long queue or a dozen attachments must not
@@ -1323,7 +1324,7 @@ export function AgentComposer({
           </div>
         </div>
       </div>
-      </div>
+      </FramedCardPreview>
           {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
               straight after picking the item does not confirm it. */}
           <AlertDialog open={pendingBypass !== null} onOpenChange={(open) => !open && setPendingBypass(null)}>
@@ -1407,6 +1408,6 @@ export function AgentComposer({
               </form>
             </DialogContent>
           </Dialog>
-    </div>
+    </FramedCard>
   );
 }

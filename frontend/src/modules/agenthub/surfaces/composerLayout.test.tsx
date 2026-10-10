@@ -146,9 +146,12 @@ describe("one cluster", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // One input surface carries the border and fill; context controls sit above it.
     const surface = html.indexOf('data-testid="composer-surface"');
-    const clusterTag = html.slice(surface - 5, html.indexOf(">", surface));
-    expect(clusterTag).toContain("border border-border-subtle");
-    expect(clusterTag).toContain("rounded-2xl");
+    const clusterTag = html.slice(html.lastIndexOf("<div", surface), html.indexOf(">", surface));
+    expect(clusterTag).toContain("ring-inset");
+    expect(clusterTag).toContain("rounded-control");
+    const frameTag = html.slice(html.lastIndexOf("<div", stack), html.indexOf(">", stack));
+    expect(frameTag).toContain("rounded-float");
+    expect(frameTag).toContain("bg-surface-raised");
     expect(clusterTag).toContain("bg-surface-base");
     expect(html.match(/data-testid="agent-composer-stack"/g)).toHaveLength(1);
     const bar = html.slice(html.indexOf('data-testid="composer-tray-strip"'), html.indexOf('data-testid="composer-tray-strip"') + 300);
@@ -183,7 +186,8 @@ describe("one cluster", () => {
     expect(html.indexOf('data-testid="agent-session-error"')).toBeGreaterThan(html.indexOf('data-testid="agent-session-failure"'));
     expect(html.indexOf('data-testid="agent-composer-stack"')).toBeGreaterThan(html.indexOf('data-testid="agent-session-error"'));
     // Not floating cards: no absolute positioning, no opaque patch under them.
-    expect(html).not.toContain("rounded-control bg-surface-base");
+    const feedbackTag = html.slice(html.lastIndexOf("<div", feedback), html.indexOf(">", feedback));
+    expect(feedbackTag).not.toContain("rounded-control bg-surface-base");
     // The field is still there: a failed session keeps its composer.
     expect(html).toContain('data-testid="agent-composer-textarea"');
   });
