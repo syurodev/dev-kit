@@ -1060,7 +1060,7 @@ export function AgentComposer({
         {/* The tools. `@container`: what a label may cost is decided by the
             row's own width, so the 720px column shows names and the 320px rail
             shows icons — the same markup, no measuring. */}
-        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
           <div data-testid="composer-writing-tools" className="flex min-w-0 max-w-full flex-wrap items-center gap-2 @max-md:w-full">
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Everything that adds something to the turn, or is not needed often:
@@ -1310,9 +1310,9 @@ export function AgentComposer({
 
           </div>
 
-          <div data-testid="composer-session-tools" className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 @max-md:w-full">
+          <div data-testid="composer-session-tools" className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 @max-md:w-full @max-md:justify-start">
           {trayStrip}
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1 @max-md:ml-auto">
             <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
           </div>
           </div>
