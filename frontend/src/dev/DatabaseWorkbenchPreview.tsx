@@ -97,7 +97,7 @@ export default function DatabaseWorkbenchPreview() {
       copyFormat: "json",
     });
     setReady(true);
-    return () => useDatabaseStore.setState(restore);
+    return () => { useDatabaseStore.setState(restore); };
   }, []);
   if (!ready) return null;
   return (
