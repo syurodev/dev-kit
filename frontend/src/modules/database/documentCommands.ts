@@ -12,7 +12,7 @@ import { browseKeyOfTab } from "./useConsoleLifetime";
  * its key and the menu runs whichever belongs to the active tab. A document
  * that has no such action — Explain on a table — simply does not register one.
  */
-export type DocumentCommand = "explain" | "explainAnalyze" | "export" | "reload" | "showDDL" | "openInConsole";
+export type DocumentCommand = "run" | "explain" | "explainAnalyze" | "export" | "reload" | "showDDL" | "openInConsole";
 type Handlers = Partial<Record<DocumentCommand, () => void>>;
 
 const byDocument = new Map<string, { current: Handlers }>();

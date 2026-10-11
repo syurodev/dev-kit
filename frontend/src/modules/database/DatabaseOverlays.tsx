@@ -1,6 +1,5 @@
 import { ExportModal } from "./components/ExportModal";
 import { SaveQueryModal } from "./components/SaveQueryModal";
-import { CellInspector } from "./components/CellInspector";
 
 /**
  * The overlays that belong to a DOCUMENT — its rows, its SQL, one of its cells.
@@ -18,7 +17,6 @@ export function DatabaseOverlays() {
     <>
       <ExportModal />
       <SaveQueryModal />
-      <CellInspector />
     </>
   );
 }

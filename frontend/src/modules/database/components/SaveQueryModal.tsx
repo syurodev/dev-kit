@@ -24,19 +24,20 @@ export function SaveQueryModal() {
   const modalConsoleId = useDatabaseStore((s) => s.modalConsoleId);
   const slice = useDatabaseStore((s) => s.consoles[modalConsoleId] ?? EMPTY_CONSOLE);
   const {
-    selectedProfileId,
+    explorerProfileId,
     showSaveQueryModal,
     setShowSaveQueryModal,
   } = useDatabaseStore(
     useShallow((s) => ({
-      selectedProfileId: s.selectedProfileId,
+      explorerProfileId: s.selectedProfileId,
       showSaveQueryModal: s.showSaveQueryModal,
       setShowSaveQueryModal: s.setShowSaveQueryModal,
     }))
   );
+  const selectedProfileId = slice.targetProfileId ?? explorerProfileId;
   const sql = slice.sql;
   const engine = useDatabaseStore(
-    (s) => s.profiles.find((p) => p.id === s.selectedProfileId)?.engine,
+    (s) => s.profiles.find((p) => p.id === selectedProfileId)?.engine,
   );
 
   const [name, setName] = useState("");

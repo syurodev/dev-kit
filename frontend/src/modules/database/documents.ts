@@ -121,8 +121,8 @@ export function openActivityTab(): void {
   open("database.activity", "Live activity", undefined, false);
 }
 
-export function openHistoryTab(): void {
-  open("database.history", "Query history", undefined, false);
+export function openHistoryTab(profileId?: string): void {
+  open("database.history", "Query history", profileId ? {profileId} : undefined, false);
 }
 
 export function openSavedTab(): void {

@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import {
   Braces,
   ChevronsUpDown,
   Columns3,
-  Copy,
+  Copy, Download,
   Eraser,
   Filter,
   FilterX,
@@ -65,7 +65,8 @@ import {
 // A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
 // over the ROW and names an empty column col_${i}; an inlined
 // Object.fromEntries over `columns` is a different function with its own bugs.
-import { columnValues, rowAsJSON, serializeSelection, type CopyFormat } from "./rowText";
+import { columnValues, rowAsJSON, serializeSelection, selectedResult, type CopyFormat } from "./rowText";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useDatabaseStore } from "../databaseStore";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { typeGlyph } from "./columnTypes";
@@ -126,6 +127,7 @@ type Target = { row: number | null; column: number } | null;
  */
 export function ResultGrid({
   onCopySelection = copyText,
+  status, onExport,
   result,
   widths,
   columnOrder,
@@ -149,6 +151,8 @@ export function ResultGrid({
   editRefusal = "",
 }: {
   onCopySelection?: (text: string) => Promise<void>;
+  status?: ReactNode;
+  onExport?: (result: QueryResult) => void;
   result: QueryResult;
   widths: readonly number[];
   columnOrder: readonly number[];
@@ -559,7 +563,8 @@ export function ResultGrid({
         onReorder?.(reorderColumn(order, from, to));
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b border-border py-1 text-body-12 text-text-secondary" aria-label="Copy options">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5 text-body-12 text-text-secondary" aria-label="Copy options">
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2">{status}</div>
         <label className="flex items-center gap-2">
           Copy as
           <NativeSelect size="sm" aria-label="Copy format" value={copyFormat} onChange={(event) => setCopyFormat(event.target.value as CopyFormat)}>
@@ -571,6 +576,9 @@ export function ResultGrid({
         <Button size="xs" variant="ghost" disabled={!range || range.top < 0 || !result.rows.length} onClick={copySelection} title={chordLabel({ mod: true, key: "c" })}>
           <Copy className="size-3.5" /> Copy selection
         </Button>
+        {onExport && <DropdownMenu><DropdownMenuTrigger asChild><Button size="xs" variant="ghost"><Download className="size-3.5"/> Export</Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => onExport(result)}>Export loaded result…</DropdownMenuItem><DropdownMenuItem disabled={!range || range.top < 0} onSelect={() => {if(range && range.top >= 0) onExport(selectedResult(result,order,range));}}>Export selection…</DropdownMenuItem></DropdownMenuContent>
+        </DropdownMenu>}
       </div>
       {onStageCells ? (
         <div
@@ -579,7 +587,7 @@ export function ResultGrid({
         >
           <span className="mr-auto tabular-nums">
             {range && range.top >= 0
-              ? `${range.bottom - range.top + 1} rows · ${rangeSize(range)} cells selected`
+              ? `${range.bottom - range.top + 1} ${range.bottom === range.top ? "row" : "rows"} · ${rangeSize(range)} ${rangeSize(range) === 1 ? "cell" : "cells"} selected`
               : "Select cells or row numbers; Shift extends selection."}
           </span>
           <Button
@@ -620,7 +628,7 @@ export function ResultGrid({
         <ContextMenuTrigger asChild>
           <div
             ref={rows.scrollRef}
-            className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
+            className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable bg-surface-base"
             onContextMenu={(event) => {
               const el = (event.target as HTMLElement).closest(
                 "[data-cell],[data-column],[data-row]",
@@ -1073,6 +1081,9 @@ export function ResultGrid({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border-subtle px-3 text-code-11 text-text-tertiary" aria-label="Grid selection status">
+        {range && range.top >= 0 ? `${range.bottom - range.top + 1} ${range.bottom === range.top ? "row" : "rows"} · ${rangeSize(range)} ${rangeSize(range) === 1 ? "cell" : "cells"} selected` : `${result.rows.length} loaded rows · ${result.columns.length} columns`}
+      </div>
       {bulkRows && onStageCells ? (
         <Suspense fallback={null}>
           <BulkEditDialog

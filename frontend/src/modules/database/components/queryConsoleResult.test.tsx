@@ -40,7 +40,7 @@ describe("the result slot", () => {
   const source = readFileSync(join(import.meta.dir, "QueryConsole.tsx"), "utf8");
 
   it("draws the panel and its handle only behind the result", () => {
-    const guard = source.indexOf("{queryResult ? (");
+    const guard = source.indexOf("{showResults ?");
     expect(guard).toBeGreaterThan(-1);
     expect(source.indexOf("<ResizableHandle"), "the handle is inside the guard").toBeGreaterThan(
       guard,
@@ -53,11 +53,10 @@ describe("the result slot", () => {
    * twice makes the reader check whether the two agree — which is how "0.0s"
    * sitting next to "32 ms" about the same run was found.
    */
-  it("says nothing the pill already says", () => {
+  it("keeps execution status beside the grid", () => {
     const panel = source.slice(source.indexOf('id="results"'));
-    expect(panel).not.toContain("queryResult.rowCount");
-    expect(panel).not.toContain("queryDurationMs");
-    expect(panel).not.toContain("columns.length");
+    expect(panel).toContain("ConsoleRunStatus");
+    expect(panel).toContain("onExport={openExportModal}");
   });
 
   // Nothing else says it: a result cut at the row ceiling looks exactly like

@@ -40,11 +40,7 @@ export const databaseModule: ModuleManifest = {
       shortcut: "⌘↵",
       // The console owns the keystroke; from the menu it means "run the one in
       // front of you", which is the tab the workbench says is active.
-      run: () => {
-        const state = useDatabaseStore.getState();
-        const consoleId = activeConsoleId();
-        if (consoleId) void state.executeQuery(consoleId);
-      },
+      run: () => runDocumentCommand("run"),
     },
     {
       id: "database.query.cancel",

@@ -1,125 +1,107 @@
-import { useEffect, useRef, useState } from "react";
-import { copyText } from "../../../bridge/clipboard";
-import { Copy, Check } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useEffect, useState } from "react";
+import { Copy, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useShallow } from "zustand/react/shallow";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
+import { copyText } from "@/bridge/clipboard";
+import { errorMessage } from "@/bridge/errors";
 import { useDatabaseStore } from "../databaseStore";
 
+/** A non-modal inspector keeps the selected data beside the value being read. */
 export function CellInspector() {
-  const { inspectedCell, setInspectedCell } = useDatabaseStore(
-    useShallow((s) => ({
-      inspectedCell: s.inspectedCell,
-      setInspectedCell: s.setInspectedCell,
-    }))
-  );
+  const cell = useDatabaseStore((s) => s.inspectedCell);
+  const close = useDatabaseStore((s) => s.setInspectedCell);
   const [copied, setCopied] = useState(false);
-  const [format, setFormat] = useState<"auto" | "raw" | "json">("auto");
-
-  // Keep the last value for Radix's short exit animation after closing.
-  const previousCell = useRef(inspectedCell);
-  useEffect(() => { if (inspectedCell) previousCell.current = inspectedCell; }, [inspectedCell]);
-  const cell = inspectedCell ?? previousCell.current;
+  const [error, setError] = useState("");
+  const [format, setFormat] = useState("formatted");
+  useEffect(() => {
+    setCopied(false);
+    setError("");
+  }, [cell]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
   if (!cell) return null;
-
-  // SQL NULL has no text to show, copy or parse (#47).
-  const isNull = cell.value === null;
-  const rawValue = cell.value ?? "";
-  let formattedJson: string | null = null;
-  let isJson = false;
-
+  const raw = cell.value ?? "";
+  let pretty: string | null = null;
   try {
-    const parsed = JSON.parse(rawValue);
-    formattedJson = JSON.stringify(parsed, null, 2);
-    isJson = true;
+    pretty = JSON.stringify(JSON.parse(raw), null, 2);
   } catch {
-    isJson = false;
+    /* Plain text. */
   }
-
-  const displayText =
-    format === "json" && isJson
-      ? formattedJson!
-      : format === "raw"
-      ? rawValue
-      : isJson
-      ? formattedJson!
-      : rawValue;
-
-  function handleCopy() {
-    void copyText(displayText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
+  const text = format === "formatted" && pretty !== null ? pretty : raw;
   return (
-    <Dialog open={Boolean(inspectedCell)} onOpenChange={(open) => { if (!open) setInspectedCell(null); }}>
-      <DialogContent className="sm:max-w-2xl max-h-screen-85 flex flex-col gap-4 overflow-hidden [&>[data-slot=dialog-body]]:shrink [&>[data-slot=dialog-body]]:overflow-hidden">
-        {/* Header */}
-        <DialogHeader>
-          <DialogTitle>Cell Inspector</DialogTitle>
-          <DialogDescription className="flex flex-wrap items-center gap-2">
-            <span className="text-code-12 text-text-primary bg-state-soft px-1.5 py-0.5 rounded border border-border-subtle">
-              {cell.columnName}
-            </span>
-            <span className="text-caption-11 text-text-tertiary">
-              ({isNull ? "NULL" : `${rawValue.length} chars`} {isJson ? "· JSON" : ""})
-            </span>
-          </DialogDescription>
-        </DialogHeader>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {isJson && (
-              <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 mr-2 text-caption-11">
-                <button
-                  type="button"
-                  className={`px-2 py-0.5 rounded transition-control ${
-                    format !== "raw" ? "bg-surface-raised text-text-primary font-medium" : "text-text-tertiary hover:text-text-primary"
-                  }`}
-                  onClick={() => setFormat("json")}
-                >
-                  Formatted
-                </button>
-                <button
-                  type="button"
-                  className={`px-2 py-0.5 rounded transition-control ${
-                    format === "raw" ? "bg-surface-raised text-text-primary font-medium" : "text-text-tertiary hover:text-text-primary"
-                  }`}
-                  onClick={() => setFormat("raw")}
-                >
-                  Raw
-                </button>
-              </div>
-            )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-label-12 gap-1"
-              onClick={handleCopy}
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-status-success" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? "Copied" : "Copy"}</span>
-            </Button>
-
-          </div>
-
-        {/* Content */}
-        <div className="min-h-0 overflow-auto flex-1 rounded-md bg-surface-well p-3 text-code-12 text-text-primary select-text whitespace-pre-wrap break-all">
-          {displayText}
-        </div>
-
-        {/* Footer */}
-        <DialogFooter className="items-center sm:justify-between text-caption-11 text-text-tertiary">
-          <span>Click outside or press Escape to close</span>
-          <Button
-            variant="secondary"
+    <section
+      aria-label="Cell inspector"
+      className="flex max-h-[45%] min-h-0 w-full shrink-0 flex-col border-t border-border-subtle bg-surface-base @2xl/db-document:max-h-none @2xl/db-document:w-80 @2xl/db-document:border-t-0 @2xl/db-document:border-l"
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2">
+        <span
+          className="flex-1 truncate text-body-13 font-medium"
+          title={cell.columnName}
+        >
+          {cell.columnName}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Close cell inspector"
+          onClick={() => close(null)}
+        >
+          <X />
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <span className="mr-auto text-code-11 text-text-tertiary">
+          {cell.value === null ? "SQL NULL" : `${raw.length} chars`}
+        </span>
+        {pretty !== null && (
+          <NativeSelect
             size="sm"
-            className="h-7 text-label-12"
-            onClick={() => setInspectedCell(null)}
+            aria-label="Inspector format"
+            value={format}
+            onChange={(e) => setFormat(e.target.value)}
           >
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <NativeSelectOption value="formatted">
+              Formatted JSON
+            </NativeSelectOption>
+            <NativeSelectOption value="raw">Raw</NativeSelectOption>
+          </NativeSelect>
+        )}
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={cell.value === null}
+          onClick={async () => {
+            try {
+              await copyText(text);
+              setCopied(true);
+              setError("");
+            } catch (e) {
+              setError(errorMessage(e));
+            }
+          }}
+        >
+          {copied ? (
+            <Check className="size-3.5" />
+          ) : (
+            <Copy className="size-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="px-3 text-body-12 text-status-danger">
+          {error}
+        </p>
+      )}
+      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-3 text-code-12 text-text-primary select-text">
+        {cell.value === null ? "NULL" : text}
+      </pre>
+    </section>
   );
 }

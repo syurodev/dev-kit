@@ -27,16 +27,17 @@ import { consoleIdFor, openConsoleTab } from "../documents";
 import { useIsActiveDocument } from "../useIsActiveDocument";
 import { useDatabaseChrome } from "../useDatabaseChrome";
 
-export function QueryHistoryView() {
+export function QueryHistoryView({params}: {params?: Record<string,unknown>}) {
   useDatabaseChrome();
   const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
-  const { selectedProfileId, setSql } = useDatabaseStore(
+  const { explorerProfileId, setSql } = useDatabaseStore(
     useShallow((s) => ({
-      selectedProfileId: s.selectedProfileId,
+      explorerProfileId: s.selectedProfileId,
       setSql: s.setSql,
     }))
   );
-  const isActive = useIsActiveDocument("database.history");
+  const selectedProfileId = typeof params?.profileId === "string" ? params.profileId : explorerProfileId;
+  const isActive = useIsActiveDocument("database.history", params);
 
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export function QueryHistoryView() {
     // Namespaced by view: a history entry and a saved query can otherwise
     // share an id and collide on the same console.
     const consoleId = consoleIdFor(`history-${entry.id}`);
+    useDatabaseStore.getState().bindConsole(consoleId, selectedProfileId);
     setSql(consoleId, entry.sql);
     openConsoleTab(consoleId);
   }

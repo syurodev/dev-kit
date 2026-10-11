@@ -15,6 +15,7 @@ type Deferred = {
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
   cancelled: boolean;
+  profileId?: string;
 };
 
 function deferred(): Deferred {
@@ -66,8 +67,9 @@ mock.module("../../bridge/uistate", () => {
 const databaseBridge = await import("../../bridge/database");
 mock.module("../../bridge/database", () => ({
   ...databaseBridge,
-  runQuery: () => {
+  runQuery: (profileId: string) => {
     const d = deferred();
+    d.profileId = profileId;
     pending.push(d);
     return d.promise;
   },
@@ -140,7 +142,7 @@ describe("executeQuery, while it is running", () => {
 
   // #41. What supersedes a run now is the connection changing under it: the
   // call is cancelled, and nothing it says lands under the new connection.
-  it("a connection switch cancels the run and drops what it would have said", async () => {
+  it("Explorer selection preserves a bound console run and its result", async () => {
     useDatabaseStore.setState((s) => ({
       selectedProfileId: "p1",
       consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1" } },
@@ -152,17 +154,34 @@ describe("executeQuery, while it is running", () => {
     await run;
 
     const state = useDatabaseStore.getState().consoleState(C);
-    expect(pending[0].cancelled).toBe(true);
+    expect(pending[0].cancelled).toBe(false);
     expect(state.runningQuery).toBe(false);
+    expect(state.targetProfileId).toBe("p1");
+    expect(pending[0].profileId).toBe("p1");
     expect(state.queryError).toBe("");
-    expect(state.results).toEqual([]);
+    expect(visibleResult(state)?.rowCount).toBe(1);
 
     // And the console is free to run against the new connection at once.
     const next = useDatabaseStore.getState().executeQuery(C);
     expect(pending).toHaveLength(2);
+    expect(pending[1].profileId).toBe("p1");
     pending[1].resolve(RESULT(5));
     await next;
     expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(5);
+  });
+
+  it("rebinding the console cancels its old run and ignores the stale response", async () => {
+    useDatabaseStore.setState({selectedProfileId: "p1", consoles: {}});
+    useDatabaseStore.getState().setSql(C, "select 1");
+    const run = useDatabaseStore.getState().executeQuery(C);
+    useDatabaseStore.getState().bindConsole(C, "p2");
+    await run;
+    const state = useDatabaseStore.getState().consoleState(C);
+    expect(pending[0].cancelled).toBe(true);
+    expect(state.targetProfileId).toBe("p2");
+    expect(state.runningQuery).toBe(false);
+    expect(state.results).toEqual([]);
+    expect(state.sql).toBe("select 1");
   });
 
   it("cancel stops the call and leaves the previous result alone", async () => {
