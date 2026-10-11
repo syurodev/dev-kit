@@ -1,4 +1,4 @@
-export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents" | "keyboard" | "security" | "updates" | "mcp";
+export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents" | "keyboard" | "security" | "updates" | "mcp" | "remote";
 
 export const SETTINGS_GROUPS = [
   { label: "Personal", items: [
@@ -15,6 +15,7 @@ export const SETTINGS_GROUPS = [
     { id: "account", label: "Account", keywords: "sign in identity logout" },
     { id: "sync", label: "Sync", keywords: "devices endpoint encrypted" },
     { id: "agents", label: "Agents", keywords: "claude codex runtime sandbox checkpoints notifications" },
+    { id: "remote", label: "Remote control", keywords: "telegram bot pairing phone approvals" },
     { id: "mcp", label: "MCP integrations", keywords: "tools proxy install agent config" },
   ] },
 ] as const satisfies readonly { label: string; items: readonly { id: SettingsTab; label: string; keywords: string }[] }[];

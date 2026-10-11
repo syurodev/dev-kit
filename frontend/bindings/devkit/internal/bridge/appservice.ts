@@ -1321,6 +1321,10 @@ export function DBListConsoles(): $CancellablePromise<database$0.Console[] | nul
     return $Call.ByID(402383590);
 }
 
+export function DBListDatabases(id: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(32775186, id);
+}
+
 export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[] | null> {
     return $Call.ByID(1782684436, id, schema);
 }
@@ -1360,6 +1364,10 @@ export function DBListSchemas(id: string): $CancellablePromise<string[] | null> 
 
 export function DBListTables(id: string, schema: string): $CancellablePromise<database$0.TableInfo[] | null> {
     return $Call.ByID(764026445, id, schema);
+}
+
+export function DBOpenDatabase(id: string, name: string): $CancellablePromise<database$0.ProfileSummary> {
+    return $Call.ByID(1445434741, id, name);
 }
 
 /**

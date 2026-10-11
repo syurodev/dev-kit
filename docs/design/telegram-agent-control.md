@@ -4,9 +4,9 @@ Ngày nghiên cứu: 11/10/2026. Trạng thái: đã triển khai bản đầu t
 
 ## Tình trạng triển khai bản đầu
 
-Mã hiện có ở `internal/telegramcontrol`, cấu hình trong Settings → Agents → Telegram. Hướng dẫn thao tác: [Sử dụng Telegram](../telegram-agent-control.md).
+Mã hiện có ở `internal/telegramcontrol`, cấu hình trong Settings → Remote control → Telegram. Hướng dẫn thao tác: [Sử dụng Telegram](../telegram-agent-control.md).
 
-Đã có ghép tài khoản cần xác nhận desktop, token Accounts mã hóa cục bộ, đọc transcript qua `/read`/`/more`/`/older`, gửi prompt, tạo/chọn/dừng session, chuyển model qua `/models` hoặc `/model <ID>` khi session rảnh, thẻ quyền vendor và gate DevKit, câu hỏi nhiều trường có xem lại trước khi gửi. Xác nhận từ agent giới hạn theo workspace; xác nhận từ UI/terminal cần bật riêng cho toàn máy vì các gate ngoài Git chưa có đầy đủ metadata workspace. Không tự suy ra phạm vi cho chúng.
+Đã có ghép tài khoản cần xác nhận desktop, token Accounts mã hóa cục bộ, đọc transcript qua `/read`/`/more`/`/older`, gửi prompt, tạo/chọn/dừng session, chuyển model qua `/models` hoặc `/model <ID>`, chọn effort qua `/effort`, tạo session qua `/new` với nút chọn workspace/agent và cấu hình model/effort trước prompt đầu tiên, thẻ quyền vendor và gate DevKit, câu hỏi nhiều trường có xem lại trước khi gửi. Xác nhận từ agent giới hạn theo workspace; xác nhận từ UI/terminal cần bật riêng cho toàn máy vì các gate ngoài Git chưa có đầy đủ metadata workspace. Không tự suy ra phạm vi cho chúng.
 
 Các khác biệt so với đề xuất chi tiết bên dưới:
 

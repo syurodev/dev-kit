@@ -1,3 +1,6 @@
+import { SchemaVisibilityPicker } from "./SchemaVisibilityPicker";
+import { visibleNamespace } from "../schemaVisibility";
+import { errorMessage } from "@/bridge/errors";
 import { SchemaFeedback } from "./SchemaFeedback";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -110,7 +113,7 @@ const PANES: { value: SidebarPane; label: string; Icon: typeof Database }[] = [
   { value: "saved", label: "Saved queries", Icon: Bookmark },
 ];
 
-export function DatabaseSidebar() {
+export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; params?: Record<string,unknown> } = {}) {
   // #42: said once, where the switch happened. The toolbar on screen now
   // describes the connection you arrived at, and nothing else would mention
   // the transaction still holding its locks on the one you left.
@@ -143,6 +146,8 @@ export function DatabaseSidebar() {
     expandedProfiles,
     toggleProfileExpand,
     schemaSnapshot,
+    serverDatabases, loadingDatabases, databaseErrors, discoverDatabases, openServerDatabase, visibleDatabases,
+    visibleSchemas,
     indexingSchema,
     refreshSchema,
     expandedSchemas,
@@ -179,6 +184,8 @@ export function DatabaseSidebar() {
       expandedProfiles: s.expandedProfiles,
       toggleProfileExpand: s.toggleProfileExpand,
       schemaSnapshot: s.schemaSnapshot,
+      serverDatabases:s.serverDatabases,loadingDatabases:s.loadingDatabases,databaseErrors:s.databaseErrors,discoverDatabases:s.discoverDatabases,openServerDatabase:s.openServerDatabase,visibleDatabases:s.visibleDatabases,
+      visibleSchemas: s.visibleSchemas,
       indexingSchema: s.indexingSchema,
       refreshSchema: s.refreshSchema,
       expandedSchemas: s.expandedSchemas,
@@ -197,6 +204,11 @@ export function DatabaseSidebar() {
     }))
   );
 
+  const activeProfile=profiles.find(p=>p.id===selectedProfileId);
+  const activeServerId=activeProfile?.parentProfileId || selectedProfileId;
+  const activeServer=profiles.find(p=>p.id===activeServerId);
+  useEffect(()=>{if(loadData && activeServer && (!activeServer.engine || activeServer.engine==="postgres"))void discoverDatabases(activeServer.id);},[activeServerId,activeServer?.engine,discoverDatabases,loadData]);
+
   // The rail loads what the rail shows.
   //
   // This used to live in DatabaseView's mount effect, which worked only
@@ -210,6 +222,7 @@ export function DatabaseSidebar() {
   // module — SidebarSurface keeps it mounted even while collapsed — so moving
   // the call here removes a fetch rather than adding one.
   useEffect(() => {
+    if(!loadData)return;
     void fetchProfiles();
     // And the console files, for the same reason and in the same place: the
     // rail mounts once for the module, so this is one read rather than one
@@ -220,7 +233,7 @@ export function DatabaseSidebar() {
     // one, and showing "Auto" beside it would be a lie about what the next
     // statement does.
     void refreshTxState();
-  }, [fetchProfiles, hydrateConsoles, refreshTxState]);
+  }, [fetchProfiles, hydrateConsoles, refreshTxState, loadData]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
@@ -239,10 +252,10 @@ export function DatabaseSidebar() {
   // levels down that stays folded is the same as no hit at all. Tables are the
   // exception: opening those would dump every column of every match.
   const filtering = needle.length > 0;
-  const namespace = filterNamespace(schemaSnapshot?.namespace ?? {}, needle);
+  const namespace = filterNamespace(visibleNamespace(schemaSnapshot?.namespace ?? {}, visibleSchemas[selectedProfileId]), needle);
   const matchCount = countTables(namespace);
   const keep = (p: ConnectionProfile) =>
-    keepsProfile(p, needle, p.id === selectedProfileId && matchCount > 0);
+    keepsProfile(p, needle, p.id === activeServerId && Object.keys(namespace).length > 0) || (serverDatabases[p.id] ?? []).some(name=>name.toLowerCase().includes(needle.toLowerCase()));
 
   function columnNodes(schemaName: string, tableName: string): TreeNodeData[] {
     const key = `${schemaName}.${tableName}`;
@@ -430,7 +443,7 @@ export function DatabaseSidebar() {
         kind: "item",
         icon: <RefreshCw />,
         label: isSelected ? "Re-index schema" : "Open this connection first",
-        onSelect: () => void refreshSchema(profile.id),
+        onSelect: () => {if(!profile.engine || profile.engine==="postgres")void discoverDatabases(profile.id);void refreshSchema(isSelected ? selectedProfileId : profile.id);},
         disabled: indexingSchema || !isSelected,
       },
       {
@@ -504,8 +517,24 @@ export function DatabaseSidebar() {
     ];
   }
 
+
+  function databaseNodes(profile:ConnectionProfile):TreeNodeData[]{
+    const names=serverDatabases[profile.id] ?? [];
+    const visible=visibleDatabases[profile.id];
+    return names.filter(name=>(visible==null || visible.includes(name)) && (!needle || name.toLowerCase().includes(needle.toLowerCase()) || profile.name.toLowerCase().includes(needle.toLowerCase()) || (activeProfile?.database || "postgres")===name && Object.keys(namespace).length>0)).map(name=>{
+      const active=activeServerId===profile.id && (activeProfile?.database || "postgres")===name;
+      return {id:`database:${profile.id}:${name}`,label:name,icon:<Database className="size-4"/>,expandable:true,expanded:active,
+        selected:active,loading:active && indexingSchema,
+        onSelect:()=>{void openServerDatabase(profile.id,name).catch(e=>toast.error(errorMessage(e)));},
+        onToggle:()=>{if(!active)void openServerDatabase(profile.id,name).catch(e=>toast.error(errorMessage(e)));},
+        children:active?schemaNodes():undefined,
+        emptyLabel:active?"No schemas indexed in this database":"Open this database to load its schemas",
+        title:`${profile.name} / ${name}`};
+    });
+  }
   function profileNode(profile: ConnectionProfile, folderId: string): TreeNodeData {
-    const isSelected = profile.id === selectedProfileId;
+    const isSelected = profile.id === activeServerId;
+    const postgres=!profile.engine || profile.engine==="postgres";
     const env = (profile.env || "").toLowerCase();
     const isProd = env === "prod" || env === "production";
     const indexed = schemaSnapshot?.indexedAt ? relativeTime(schemaSnapshot.indexedAt) : "";
@@ -521,7 +550,7 @@ export function DatabaseSidebar() {
       // the others is not offered as a lie.
       expandable: true,
       expanded: isSelected && (filtering || !!expandedProfiles[profile.id]),
-      onToggle: () => toggleProfileExpand(profile.id),
+      onToggle: () => {if(isSelected && selectedProfileId!==profile.id)useDatabaseStore.setState(state=>({expandedProfiles:{...state.expandedProfiles,[profile.id]:!state.expandedProfiles[profile.id]}}));else toggleProfileExpand(profile.id);},
       selected: isSelected,
       // Guarded: setSelectedProfileId clears the result grid, and collapsing
       // the connection you are working in must not throw away its rows.
@@ -529,15 +558,15 @@ export function DatabaseSidebar() {
       title: `${profile.username}@${profile.host}:${profile.port}${profile.database ? `/${profile.database}` : ""}${
         isSelected && indexed ? ` · indexed ${indexed}` : ""
       }`,
-      children: isSelected ? schemaNodes() : undefined,
-      loading: isSelected && indexingSchema,
+      children: isSelected ? postgres ? databaseNodes(profile) : schemaNodes() : undefined,
+      loading: isSelected && (indexingSchema || loadingDatabases[profile.id]),
       // A label that names a gesture is a label for a control that should have
       // been drawn (writing.md › "give them a button or link to do so if
       // possible"). This is the same complaint as "opening data was
       // double-click only", one level up the tree.
-      emptyLabel: filtering ? (
+      emptyLabel: postgres && visibleDatabases[profile.id]?.length===0 ? "No databases selected · use the filter above" : postgres && databaseErrors[profile.id] ? databaseErrors[profile.id] : postgres && !serverDatabases[profile.id]?.length ? "No accessible databases · refresh the connection" : filtering ? (
         "No tables match"
-      ) : (
+      ) : visibleSchemas[profile.id]?.length === 0 ? "No schemas selected · use the filter above" : (
         <button
           type="button"
           className="inline-flex items-center gap-1 rounded-sm text-text-secondary underline-offset-2 hover:text-text-primary hover:underline"
@@ -597,7 +626,7 @@ export function DatabaseSidebar() {
   // is what "ungrouped" looks like in a tree, so it needs no heading of its own.
   const assigned = new Set<string>();
   const folderNodes: TreeNodeData[] = folders.map((folder) => {
-    const inFolder = profiles.filter((p) => folder.profileIds.includes(p.id));
+    const inFolder = profiles.filter((p) => !p.parentProfileId && folder.profileIds.includes(p.id));
     inFolder.forEach((p) => assigned.add(p.id));
     const visible = inFolder.filter(keep);
     return {
@@ -634,7 +663,7 @@ export function DatabaseSidebar() {
   });
 
   const rootProfiles = profiles
-    .filter((p) => !assigned.has(p.id) && keep(p))
+    .filter((p) => !p.parentProfileId && !assigned.has(p.id) && keep(p))
     .map((p) => profileNode(p, ""));
 
   const tree = [
@@ -699,13 +728,14 @@ export function DatabaseSidebar() {
           value={filterQuery}
           onChange={setFilterQuery}
           onClear={() => setFilterQuery("")}
-          placeholder="Search connections & tables…"
+          placeholder="Search connections, databases & tables…"
         />
         {/* No "refresh connections" here. Refreshing is something you do to a
             CONNECTION — re-index its schema — and that lives on the row it
             belongs to. The list itself is read when the rail mounts and again
             after anything that changes it, so a button for it was a control
             for a state that cannot go stale on its own. */}
+        <SchemaVisibilityPicker />
         <ActionTooltip label="New folder">
           <Button variant="ghost" size="icon-xs" onClick={newFolder}>
             <FolderPlus className="size-3" />

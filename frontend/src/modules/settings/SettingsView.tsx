@@ -142,6 +142,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
               {activeTab === "agents" && <AgentsTab />}
+              {activeTab === "remote" && <RemoteControlTab />}
               {activeTab === "keyboard" && (
                 <KeyboardTab
                   intro={
@@ -633,6 +634,10 @@ function McpTab() {
   return <TabColumn><SectionHeader title="MCP integrations" description="Connect external agents to DevKit tools through its local MCP proxy." /><McpInstallPanel /></TabColumn>;
 }
 
+function RemoteControlTab() {
+  return <TabColumn><SectionHeader title="Remote control" description="Connect your phone to this DevKit and choose what it can access." /><TelegramSetting /></TabColumn>;
+}
+
 function AgentsTab() {
   return (
     <TabColumn>
@@ -651,10 +656,6 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>FILE CHECKPOINTS</GroupLabel>
         <AgentCheckpointSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>TELEGRAM</GroupLabel>
-        <TelegramSetting />
       </div>
       <div className="flex flex-col gap-3">
         <GroupLabel>NOTIFICATIONS</GroupLabel>

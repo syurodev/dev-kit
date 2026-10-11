@@ -5,7 +5,7 @@ import { CONTROL_SURFACE, CONTROL_FOCUS } from "./control-styles"
 import { ChevronDownIcon } from "lucide-react"
 
 type NativeSelectProps = Omit<React.ComponentProps<"select">, "size"> & {
-  size?: "sm" | "default"
+  size?: "sm" | "default" | "lg"
 }
 
 function NativeSelect({
@@ -26,7 +26,7 @@ function NativeSelect({
         data-slot="native-select"
         data-size={size}
         className={cn(
-          "h-(--control-height-md) w-full min-w-0 appearance-none rounded-control py-1 pr-8 pl-2.5 text-body-13 outline-none select-none disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-(--control-height-sm) data-[size=sm]:rounded-md data-[size=sm]:py-0.5",
+          "h-(--control-height-md) w-full min-w-0 appearance-none rounded-control py-1 pr-8 pl-2.5 text-body-13 outline-none select-none disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-(--control-height-sm) data-[size=sm]:rounded-md data-[size=sm]:py-0.5 data-[size=lg]:h-(--control-height-xl) data-[size=lg]:rounded-md data-[size=lg]:pl-3 data-[size=lg]:text-body-14",
           CONTROL_SURFACE,
           CONTROL_FOCUS,
         )}

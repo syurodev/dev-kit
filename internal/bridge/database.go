@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"devkit/internal/database"
+	"devkit/internal/identity"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -658,4 +659,24 @@ func (s *AppService) DBChooseConsoleDirectory() (string, error) {
 		return "", err
 	}
 	return result.(string), nil
+}
+
+func (s *AppService) DBListDatabases(ctx context.Context, id string) ([]string, error) {
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+recordID(id), map[string]any{"action": "list_databases", "profile_id": recordID(id)}, func(ctx context.Context) (any, error) { return s.container.Database.ListDatabases(ctx, id) })
+	if err != nil {
+		return nil, err
+	}
+	return result.([]string), nil
+}
+func (s *AppService) DBOpenDatabase(ctx context.Context, id, name string) (database.ProfileSummary, error) {
+	ctx = callerContext(ctx)
+	caller, _ := identity.FromContext(ctx)
+	if caller.Kind != identity.KindUI {
+		return database.ProfileSummary{}, errors.New("database explorer contexts are desktop-only")
+	}
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+recordID(id), map[string]any{"action": "open_database", "profile_id": recordID(id)}, func(ctx context.Context) (any, error) { return s.container.Database.OpenDatabase(ctx, id, name) })
+	if err != nil {
+		return database.ProfileSummary{}, err
+	}
+	return result.(database.ProfileSummary), nil
 }

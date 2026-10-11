@@ -53,6 +53,7 @@ export function filterNamespace(
   const n = needle.toLowerCase();
   const out: SchemaNamespace = {};
   for (const [schema, tables] of Object.entries(namespace)) {
+    if (schema.toLowerCase().includes(n)) { out[schema] = tables; continue; }
     const kept = Object.entries(tables || {}).filter(([table]) =>
       table.toLowerCase().includes(n),
     );

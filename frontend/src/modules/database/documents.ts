@@ -40,7 +40,10 @@ function open(viewId: string, title: string, params?: Record<string, unknown>, p
 }
 
 export function openTableTab(schema: string, table: string, preview = false): void {
-  open("database.table", table, { schema, table }, preview);
+  const state=useDatabaseStore.getState();
+  const profile=state.profiles.find(p=>p.id===state.selectedProfileId);
+  const params={schema,table,...(profile?.parentProfileId || profile?.engine==="postgres" || !profile?.engine ? state.selectedProfileId ? {profileId:state.selectedProfileId} : {} : {})};
+  open("database.table", profile?.parentProfileId ? `${table} · ${profile.database}` : table, params, preview);
 }
 
 /**

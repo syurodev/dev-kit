@@ -114,11 +114,12 @@ function TabsList({
 }
 
 function TabsTrigger({
+  contentClassName,
   className,
   value,
   children,
   ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+}: React.ComponentProps<typeof TabsPrimitive.Trigger> & { contentClassName?: string }) {
   const ctx = React.useContext(TabsValueContext)
   const { register } = ctx
   React.useLayoutEffect(() => register(value), [register, value])
@@ -156,7 +157,7 @@ function TabsTrigger({
           )}
         />
       ) : null}
-      <span className="relative inline-flex items-center gap-1.5">{children}</span>
+      <span className={cn("relative inline-flex min-w-0 items-center gap-1.5", contentClassName)}>{children}</span>
     </TabsPrimitive.Trigger>
   )
 }

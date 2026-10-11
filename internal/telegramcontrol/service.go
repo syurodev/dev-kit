@@ -26,6 +26,7 @@ type Agents interface {
 	TranscriptPage(context.Context, string, int64, int) (agenthub.TranscriptPage, error)
 	Invoke(context.Context, agenthub.InvokeInput) (agenthub.InvokeResult, error)
 	Cancel(context.Context, string) error
+	ListVendorTypes() []agenthub.AgentType
 	CreateSession(context.Context, agenthub.CreateInput) (agenthub.AgentSession, error)
 	PrepareSession(context.Context, string) error
 	SetConfigOption(context.Context, string, string, string) error
@@ -312,6 +313,10 @@ func (s *Service) poll(ctx context.Context, c *Client, g uint64) {
 		s.mu.Unlock()
 	}
 
+	// Keep Telegram's slash-command picker discoverable. This is metadata only;
+	// every actual command still passes paired-user and workspace checks.
+	_ = c.Do(ctx, "setMyCommands", map[string]any{"commands": telegramCommands}, nil)
+
 	for ctx.Err() == nil {
 		s.mu.Lock()
 		if !s.live(g) {
@@ -456,13 +461,13 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 	ctx = identity.WithCaller(ctx, identity.Caller{Kind: identity.KindRemoteHuman})
 	cmd, arg, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
 	cmd = strings.Split(cmd, "@")[0]
-	if cmd != "/models" && cmd != "/read" && cmd != "/older" && cmd != "/more" && cmd != "/sessions" && cmd != "/status" && cmd != "/pending" && cmd != "/help" && time.Since(time.Unix(m.Date, 0)) > 2*time.Minute {
+	if cmd != "/efforts" && cmd != "/models" && cmd != "/read" && cmd != "/older" && cmd != "/more" && cmd != "/sessions" && cmd != "/status" && cmd != "/pending" && cmd != "/help" && time.Since(time.Unix(m.Date, 0)) > 2*time.Minute {
 		s.send(ctx, c, "Lệnh đã quá cũ; hãy gửi lại.", nil)
 		return
 	}
 	switch cmd {
 	case "/start", "/help":
-		s.send(ctx, c, "/sessions — chọn session\n/read — đọc nội dung\n/more — đọc tiếp trang hiện tại\n/older — đọc trang trước\n/use <session ID> — chọn session\n/status — trạng thái\n/models — xem và chọn model\n/model <model ID> — chuyển model\n/stop — dừng lượt chạy\n/new <claude|codex> <workspace ID>\n/pending — các yêu cầu chờ\nGửi tin nhắn để ra lệnh cho session đã chọn. Reply vào tin hỏi để trả lời.", nil)
+		s.send(ctx, c, "/sessions — chọn session\n/read — đọc nội dung\n/more — đọc tiếp trang hiện tại\n/older — đọc trang trước\n/use <session ID> — chọn session\n/status — trạng thái\n/models — xem và chọn model\n/model <model ID> — chuyển model\n/stop — dừng lượt chạy\n/effort — xem và chọn effort\n/effort <ID> — đổi effort\n/new — tạo session bằng nút\n/new <agent> <workspace ID> [model ID] [effort]\n/pending — các yêu cầu chờ\nGửi tin nhắn để ra lệnh cho session đã chọn. Reply vào tin hỏi để trả lời.", nil)
 	case "/sessions":
 		for token, a := range s.actions {
 			if a.source == "select" {
@@ -533,6 +538,10 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 		s.showModels(ctx, c, arg)
 	case "/model":
 		s.modelCommand(ctx, c, arg)
+	case "/effort":
+		s.settingCommand(ctx, c, arg, "effort")
+	case "/efforts":
+		s.showSetting(ctx, c, arg, "effort", false)
 	case "/pending":
 		s.send(ctx, c, "Đang đối soát yêu cầu chờ; yêu cầu còn hiệu lực được hiển thị bên dưới.", nil)
 	case "/stop":
@@ -545,24 +554,8 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 		} else {
 			s.send(ctx, c, "Hãy chọn session bằng /sessions", nil)
 		}
-	case "/new":
-		parts := strings.Fields(arg)
-		if len(parts) != 2 || (parts[0] != "claude" && parts[0] != "codex") || !s.allowed(parts[1]) {
-			s.send(ctx, c, "Dùng /new <claude|codex> <workspace ID> trong workspace được phép.", nil)
-			return
-		}
-		folders, err := s.deps.Workspaces.ListServices(parts[1])
-		if err != nil || len(folders) == 0 {
-			return
-		}
-		sess, err := s.deps.Agents.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType(parts[0]), WorkspaceID: parts[1], Cwd: folders[0].Path})
-		if err != nil {
-			s.send(ctx, c, "Không tạo được session; kiểm tra DevKit desktop.", nil)
-			return
-		}
-		s.selected = sess.ID
-		s.send(ctx, c, "Đã tạo và chọn session "+sess.ID, nil)
-		s.record("create", sess.ID, true)
+	case "/new", "/session":
+		s.newSessionCommand(ctx, c, arg)
 	default:
 		if strings.HasPrefix(cmd, "/") {
 			s.send(ctx, c, "Lệnh chưa hỗ trợ. Dùng /help.", nil)
@@ -606,7 +599,7 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 }
 func (s *Service) read(ctx context.Context, c *Client) {
 	if !s.state.Config.ReadTranscript {
-		s.send(ctx, c, "Đọc nội dung chưa được bật trong Settings → Agents → Telegram.", nil)
+		s.send(ctx, c, "Đọc nội dung chưa được bật trong Settings → Remote control → Telegram.", nil)
 		return
 	}
 	if _, err := s.session(ctx, s.selected); err != nil {
@@ -665,4 +658,18 @@ func (s *Service) more(ctx context.Context, c *Client) {
 	if s.send(ctx, c, text, nil) != 0 {
 		s.readBuffer = string(runes[n:])
 	}
+}
+
+var telegramCommands = []map[string]string{
+	{"command": "sessions", "description": "Select a session"},
+	{"command": "new", "description": "Create a session and choose model and effort"},
+	{"command": "models", "description": "Choose the session model"},
+	{"command": "effort", "description": "Choose reasoning effort"},
+	{"command": "read", "description": "Read session messages"},
+	{"command": "more", "description": "Continue reading the current page"},
+	{"command": "older", "description": "Read earlier messages"},
+	{"command": "status", "description": "Check session status"},
+	{"command": "stop", "description": "Stop the selected session"},
+	{"command": "pending", "description": "Review pending requests"},
+	{"command": "help", "description": "Show all commands"},
 }

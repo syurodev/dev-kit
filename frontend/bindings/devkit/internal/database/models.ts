@@ -113,6 +113,7 @@ export interface PlanNode {
  * ProfileSummary is a connection profile without the (encrypted) password.
  */
 export interface ProfileSummary {
+    "parent_profile_id"?: string;
     "id": string;
     "name": string;
     "host": string;

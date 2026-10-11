@@ -49,7 +49,7 @@ export function TableDataView({
   // A22: through the shared rule, not spelled again here — useBrowseLifetime
   // computes the same key from a TAB, and two copies would drift into exactly
   // the leak that comment warns about.
-  const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
+  const key = browseKeyOfTab("database.table", params ?? { schema, table }) ?? "";
 
   // The catalogue read below already returns every column's type — it is read
   // for the key. Kept rather than discarded: it is what the header glyphs are
@@ -62,7 +62,12 @@ export function TableDataView({
 
   useDatabaseChrome();
   useBrowseLifetime(key);
-  const isActive = useIsActiveDocument("database.table", { schema, table });
+  const isActive = useIsActiveDocument("database.table", params ?? { schema, table });
+  const boundProfileId=typeof params?.profileId==="string" ? params.profileId : "";
+  const activeProfileId=useDatabaseStore(s=>s.selectedProfileId);
+  const activateProfile=useDatabaseStore(s=>s.setSelectedProfileId);
+  useEffect(()=>{if(isActive && boundProfileId)activateProfile(boundProfileId);},[isActive,boundProfileId,activateProfile]);
+  const targetReady=!boundProfileId || boundProfileId===activeProfileId;
 
   const {
     selectedProfileId,
@@ -96,7 +101,7 @@ export function TableDataView({
     applyStagedEdits,
   } = useDatabaseStore(
     useShallow((s) => ({
-      selectedProfileId: s.selectedProfileId,
+      selectedProfileId: boundProfileId || s.selectedProfileId,
       profiles: s.profiles,
       browse: s.browse[key] ?? s.browseState(key),
       tableWritePending: Boolean(s.writingTables[key]),
@@ -135,7 +140,7 @@ export function TableDataView({
   // The key decides whether this table can be walked or has to be counted
   // through, so it is read before the first page.
   useEffect(() => {
-    if (!selectedProfileId || !isActive) {
+    if (!selectedProfileId || !isActive || !targetReady) {
       // Nothing to ask yet, and nothing loads either: the page effect below is
       // gated on the same profile, so the key stays unresolved only while the
       // table could not have been read anyway, and selecting one re-runs this.
@@ -185,7 +190,7 @@ export function TableDataView({
     return () => {
       cancelled = true;
     };
-  }, [selectedProfileId, schema, table, key, setPageKey, isActive]);
+  }, [selectedProfileId, schema, table, key, setPageKey, isActive, targetReady]);
 
   const hasRows = browse.rows !== null;
   useEffect(() => {
@@ -193,11 +198,12 @@ export function TableDataView({
     // above had, one effect further on — a table document missing an
     // identifier would sit blank rather than load and fail. The load is
     // allowed to run and to report what is wrong with it.
-    if (isActive && !hasRows && keyResolved && selectedProfileId) {
+    if (isActive && targetReady && !hasRows && keyResolved && selectedProfileId) {
       void loadBrowsePage(key, { schema, table });
     }
   }, [
     isActive,
+    targetReady,
     hasRows,
     keyResolved,
     selectedProfileId,
@@ -213,10 +219,10 @@ export function TableDataView({
   // all; if it is too slow on a huge table, move it behind the Last button.
   const where = browse.where;
   useEffect(() => {
-    if (isActive && selectedProfileId && schema && table) {
+    if (isActive && targetReady && selectedProfileId && schema && table) {
       void countBrowseRows(key, { schema, table });
     }
-  }, [selectedProfileId, schema, table, key, where, countBrowseRows, isActive]);
+  }, [selectedProfileId, schema, table, key, where, countBrowseRows, isActive, targetReady]);
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   const engine = profile?.engine;
@@ -238,7 +244,7 @@ export function TableDataView({
   // #52: another page, filter or sort puts different rows under the staged
   // cells, which are positions on this page. Apply or revert first.
   const busy = browse.loading || browse.editing || tableWritePending;
-  const blockedByPending = (): boolean => busy || stagedCount > 0;
+  const blockedByPending = (): boolean => !targetReady || busy || stagedCount > 0;
   const stagedStatements = (): string[] =>
     pageKey && browse.rows
       ? buildStagedUpdates({
@@ -286,6 +292,8 @@ export function TableDataView({
     showDDL: () => openDDL(schema, table),
     openInConsole,
   });
+
+  if(!targetReady) return <div className="flex h-full flex-col items-center justify-center gap-3"><p className="text-body-13 text-text-secondary">This table belongs to another database.</p><Button onClick={()=>activateProfile(boundProfileId)}>Activate this database</Button></div>;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">

@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/context-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
+import { chordLabel } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { copyText } from "@/bridge/clipboard";
@@ -64,7 +65,9 @@ import {
 // A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
 // over the ROW and names an empty column col_${i}; an inlined
 // Object.fromEntries over `columns` is a different function with its own bugs.
-import { columnValues, rowAsJSON } from "./rowText";
+import { columnValues, rowAsJSON, serializeSelection, type CopyFormat } from "./rowText";
+import { useDatabaseStore } from "../databaseStore";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { typeGlyph } from "./columnTypes";
 import { numericColumns } from "./numericColumns";
 import {
@@ -122,6 +125,7 @@ type Target = { row: number | null; column: number } | null;
  * virtualised rows come and go, which they did.
  */
 export function ResultGrid({
+  onCopySelection = copyText,
   result,
   widths,
   columnOrder,
@@ -144,6 +148,7 @@ export function ResultGrid({
   changedCells,
   editRefusal = "",
 }: {
+  onCopySelection?: (text: string) => Promise<void>;
   result: QueryResult;
   widths: readonly number[];
   columnOrder: readonly number[];
@@ -438,6 +443,15 @@ export function ResultGrid({
     if (selected.length) setBulkRows(selected);
   }
 
+  const copyFormat = useDatabaseStore((state) => state.copyFormat);
+  const setCopyFormat = useDatabaseStore((state) => state.setCopyFormat);
+  const selectionText = (selected: NonNullable<typeof range>) => serializeSelection(result, order, selected, copyFormat);
+  const copySelection = () => {
+    if (range && range.top >= 0 && result.rows.length) {
+      void onCopySelection(selectionText(range)).catch(() => toast.error("Could not copy selection"));
+    }
+  };
+
   function onGridKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
     const here = selection ?? {
       anchor: { row: 0, position: 0 },
@@ -448,6 +462,21 @@ export function ResultGrid({
       // While typing, the grid's own keys belong to the input — except the two
       // that end the edit, which the input cannot handle alone because the
       // commit spans cells it does not know about.
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c" && selection && selection.focus.row !== HEADER_ROW && result.rows.length > 0) {
+      event.preventDefault(); event.stopPropagation();
+      void onCopySelection(selectionText(selectedRange(selection))).catch(() => toast.error("Could not copy selection"));
+      return;
+    }
+    if (event.shiftKey && event.key === " " && here.focus.row !== HEADER_ROW) {
+      event.preventDefault();
+      setSelection({ anchor: { row: Math.max(0, here.anchor.row), position: 0 }, focus: { row: here.focus.row, position: order.length - 1 } });
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault(); event.stopPropagation();
+      if (result.rows.length && order.length) setSelection({ anchor: { row: 0, position: 0 }, focus: { row: result.rows.length - 1, position: order.length - 1 } });
       return;
     }
     if (event.key === "Escape") {
@@ -530,6 +559,19 @@ export function ResultGrid({
         onReorder?.(reorderColumn(order, from, to));
       }}
     >
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b border-border py-1 text-body-12 text-text-secondary" aria-label="Copy options">
+        <label className="flex items-center gap-2">
+          Copy as
+          <NativeSelect size="sm" aria-label="Copy format" value={copyFormat} onChange={(event) => setCopyFormat(event.target.value as CopyFormat)}>
+            <NativeSelectOption value="tsv">TSV</NativeSelectOption>
+            <NativeSelectOption value="csv">CSV</NativeSelectOption>
+            <NativeSelectOption value="json">JSON</NativeSelectOption>
+          </NativeSelect>
+        </label>
+        <Button size="xs" variant="ghost" disabled={!range || range.top < 0 || !result.rows.length} onClick={copySelection} title={chordLabel({ mod: true, key: "c" })}>
+          <Copy className="size-3.5" /> Copy selection
+        </Button>
+      </div>
       {onStageCells ? (
         <div
           className="flex shrink-0 flex-wrap items-center gap-2 py-1 text-body-12 text-text-secondary"
@@ -618,6 +660,15 @@ export function ResultGrid({
               tabIndex={0}
               aria-activedescendant={focus ? "grid-focus" : undefined}
               onKeyDown={onGridKeyDown}
+              onCopy={(event) => {
+                // WebKit may dispatch the native Edit → Copy action without a
+                // keydown. Editors keep their own text selection/clipboard.
+                if (editing || !selection || selection.focus.row < 0 || !result.rows.length) return;
+                event.preventDefault(); event.stopPropagation();
+                const text = selectionText(selectedRange(selection));
+                event.clipboardData.setData("text/plain", text);
+                void onCopySelection(text).catch(() => toast.error("Could not copy selection"));
+              }}
               onFocus={() =>
                 setSelection(
                   (current) =>
@@ -647,7 +698,7 @@ export function ResultGrid({
                     aria-label="Row"
                     style={{ position: "sticky", left: 0, zIndex: 3 }}
                     className="h-7 border-r border-b border-border-subtle bg-surface-raised p-0"
-                  />
+                  ><button type="button" aria-label="Select all rows on this page" title="Select all rows on this page" disabled={!result.rows.length || !order.length} onClick={(event) => { setSelection({ anchor: { row: 0, position: 0 }, focus: { row: result.rows.length - 1, position: order.length - 1 } }); event.currentTarget.closest("table")?.focus(); }} className="flex h-full w-full items-center justify-center text-text-tertiary hover:bg-state-soft hover:text-text-primary"><Rows3 className="size-3" /></button></th>
                   <SortableContext
                     items={order}
                     strategy={horizontalListSortingStrategy}
@@ -685,6 +736,7 @@ export function ResultGrid({
                 {rows.indices.map((rowIndex) => (
                   <tr
                     key={rowIndex}
+                    aria-selected={Boolean(range && rowIndex >= range.top && rowIndex <= range.bottom && range.left === 0 && range.right === order.length - 1)}
                     className={cn(
                       "group transition-colors hover:bg-state-soft",
                       // lists-and-tables.md › Desktop: "Consider using
@@ -711,7 +763,7 @@ export function ResultGrid({
                         setSelection((current) => ({
                           anchor: {
                             row:
-                              event.shiftKey && current
+                              event.shiftKey && current && current.anchor.row >= 0
                                 ? current.anchor.row
                                 : rowIndex,
                             position: 0,
@@ -721,6 +773,7 @@ export function ResultGrid({
                         event.currentTarget.closest("table")?.focus();
                       }}
                       data-row={rowIndex}
+                      title={`Click to select this row · Shift-click to select a range · ${chordLabel({ mod: true, key: "c" })} to copy`}
                       style={{
                         position: "sticky",
                         left: 0,
@@ -883,6 +936,7 @@ export function ResultGrid({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {range && range.top >= 0 && result.rows.length > 0 && <ContextMenuItem icon={<Copy />} shortcut={chordLabel({ mod: true, key: "c" })} onSelect={() => void onCopySelection(selectionText(range)).catch(() => toast.error("Could not copy selection"))}>Copy selection</ContextMenuItem>}
           {cell ? (
             <>
               <ContextMenuItem

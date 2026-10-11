@@ -59,13 +59,14 @@ type EnvLookup interface {
 
 // ProfileSummary is a connection profile without the (encrypted) password.
 type ProfileSummary struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Database string `json:"database"`
-	Username string `json:"username"`
-	SSLMode  string `json:"ssl_mode"`
+	ParentProfileID string `json:"parent_profile_id,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Database        string `json:"database"`
+	Username        string `json:"username"`
+	SSLMode         string `json:"ssl_mode"`
 	// TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
 	// network that is already encrypted end to end (Tailscale, WireGuard, a
 	// VPN). The app cannot tell such a network from the open internet, so it
@@ -153,12 +154,13 @@ type Store interface {
 
 // metadata is the plaintext, non-sensitive connection metadata for a profile.
 type metadata struct {
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Database string `json:"database"`
-	Username string `json:"username"`
-	SSLMode  string `json:"ssl_mode"`
+	ParentProfileID string `json:"parent_profile_id,omitempty"`
+	Name            string `json:"name"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Database        string `json:"database"`
+	Username        string `json:"username"`
+	SSLMode         string `json:"ssl_mode"`
 	// TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
 	// network that is already encrypted end to end (Tailscale, WireGuard, a
 	// VPN). The app cannot tell such a network from the open internet, so it
@@ -278,7 +280,7 @@ func (s *Service) TestNewConnection(ctx context.Context, input CreateProfileInpu
 	}
 	cfg := ConnConfig{
 		Engine: input.Engine, Host: input.Host, Port: input.Port,
-		Database: input.Database, Username: input.Username,
+		Database: defaultDatabase(input.Engine, input.Database), Username: input.Username,
 		Password: input.Password, SSLMode: input.SSLMode,
 		RootCAPEM: input.CACert,
 	}
@@ -359,8 +361,12 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 	}
 	summaries := make([]ProfileSummary, 0, len(records))
 	for _, record := range records {
-		summary, err := summaryFromRecord(record)
+		summary, err := s.profileSummary(record)
 		if err != nil {
+			meta, decodeErr := decodeMetadata(record)
+			if decodeErr == nil && meta.ParentProfileID != "" && errors.Is(err, vaultitem.ErrNotFound) {
+				continue
+			}
 			return nil, err
 		}
 		summaries = append(summaries, summary)
@@ -398,6 +404,9 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		meta.SSHProfileID != opts.SSHProfileID ||
 		meta.CACert != strings.TrimSpace(opts.CACert)
 
+	if meta.ParentProfileID != "" {
+		return ProfileSummary{}, errors.New("change the parent connection options")
+	}
 	// The mode is not editable here, so the bundle is checked against the one
 	// the profile already carries.
 	caCert := strings.TrimSpace(opts.CACert)
@@ -426,12 +435,30 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		// it would leave a Tx holding a session on a Conn nobody can reach.
 		s.rollbackTx(id)
 		s.closeConnection(id)
+		children, err := s.databaseChildren(id)
+		if err != nil {
+			return ProfileSummary{}, err
+		}
+		for _, child := range children {
+			s.rollbackTx(child)
+			s.closeConnection(child)
+		}
 	}
 
 	return summaryFromRecord(updatedRecord)
 }
 
 func (s *Service) DeleteProfile(id string) error {
+	children, err := s.databaseChildren(id)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := s.DeleteProfile(child); err != nil {
+			return err
+		}
+	}
+
 	if err := s.store.Delete(id); err != nil {
 		return err
 	}
@@ -706,6 +733,28 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	if err != nil {
 		return connectionTarget{}, err
 	}
+	if meta.ParentProfileID != "" {
+		parent, err := s.store.Get(meta.ParentProfileID)
+		if err != nil {
+			return connectionTarget{}, err
+		}
+		if parent.Type != itemType {
+			return connectionTarget{}, errors.New("invalid parent profile")
+		}
+		parentMeta, err := decodeMetadata(parent)
+		if err != nil {
+			return connectionTarget{}, err
+		}
+		if parentMeta.ParentProfileID != "" {
+			return connectionTarget{}, errors.New("nested database context is invalid")
+		}
+		target, err := s.target(meta.ParentProfileID)
+		if err != nil {
+			return connectionTarget{}, err
+		}
+		target.cfg.Database = meta.Database
+		return target, nil
+	}
 	password, err := s.secretFor(record)
 	if err != nil {
 		return connectionTarget{}, err
@@ -722,7 +771,7 @@ func (s *Service) target(id string) (connectionTarget, error) {
 			Engine:    meta.Engine,
 			Host:      meta.Host,
 			Port:      meta.Port,
-			Database:  meta.Database,
+			Database:  defaultDatabase(meta.Engine, meta.Database),
 			Username:  meta.Username,
 			Password:  string(password),
 			SSLMode:   sslmode,
@@ -833,4 +882,11 @@ func zeroBytes(value []byte) {
 	for i := range value {
 		value[i] = 0
 	}
+}
+
+func defaultDatabase(engine, name string) string {
+	if name == "" && (engine == "" || engine == EnginePostgres) {
+		return "postgres"
+	}
+	return name
 }

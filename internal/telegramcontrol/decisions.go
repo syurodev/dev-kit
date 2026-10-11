@@ -165,7 +165,10 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 }
 func (s *Service) complete(ctx context.Context, c *Client, a action) error {
 	stale := errors.New("yêu cầu đã xử lý hoặc hết hiệu lực")
-	if a.source == "model" {
+	if strings.HasPrefix(a.source, "new:") {
+		return s.completeNewSession(ctx, c, a)
+	}
+	if a.source == "model" || a.source == "effort" {
 		return s.changeModel(ctx, c, a)
 	}
 	if a.source == "select" {

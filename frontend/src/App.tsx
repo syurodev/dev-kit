@@ -15,6 +15,8 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // is unreachable outside the desktop app.
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
 const CalmComponentsPreview = lazy(() => import("./dev/CalmComponentsPreview"));
+const DataToolsPreview = lazy(() => import("./dev/DataToolsPreview"));
+const RemoteControlPreview = lazy(() => import("./dev/RemoteControlPreview"));
 const ShellHarness = lazy(() => import("./dev/ShellHarness"));
 
 // Lazy for the same reason: sonner is 36 KiB of the shell's initial JS for a
@@ -33,6 +35,12 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("data-tools-preview")) {
+    return <Suspense fallback={null}><DataToolsPreview /></Suspense>;
+  }
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("remote-preview")) {
+    return <Suspense fallback={null}><RemoteControlPreview /></Suspense>;
+  }
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("calm-preview")) {
     return <Suspense fallback={null}><CalmComponentsPreview /></Suspense>;
   }

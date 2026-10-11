@@ -30,7 +30,7 @@ import { errorMessage } from "@/bridge/errors";
 
 export function ConnectionOptionsDialog() {
   const profile = useDatabaseStore((s) =>
-    s.profiles.find((p) => p.id === s.selectedProfileId),
+    s.profiles.find((p) => p.id === (s.profiles.find(p=>p.id===s.selectedProfileId)?.parentProfileId || s.selectedProfileId)),
   );
   if (!profile) return null;
   return <ConnectionOptionsForm key={profile.id} profile={profile} />;
