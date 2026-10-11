@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { Boxes, GitBranch, ListTodo } from "lucide-react";
+import { Bot, Boxes, GitBranch, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentComposer } from "@/modules/agenthub/surfaces/AgentComposer";
+import { ComposerContextBar } from "@/modules/agenthub/surfaces/composer/ComposerContextBar";
+import { repoSummary } from "@/modules/agenthub/surfaces/composer/trayModel";
+import type { ConfigOption } from "@/modules/agenthub/types";
 import { TrayChip } from "@/modules/agenthub/surfaces/composer/ComposerTray";
 import {
   TrayTaskList,
@@ -79,7 +82,33 @@ const repos = [
 
 /** The real composer and tray surfaces, with local data and no agent process. */
 export function AgentComposerDesignPreview() {
-  const [panel, setPanel] = useState<"tasks" | "repos" | null>("tasks");
+  const [panel, setPanel] = useState<"tasks" | "repos" | null>(null);
+  const [mode, setMode] = useState("ask");
+  const [options, setOptions] = useState<ConfigOption[]>([
+    {
+      id: "model",
+      name: "Model",
+      type: "select",
+      category: "model",
+      currentValue: "preview",
+      options: [
+        { value: "preview", name: "GPT-6.1 Sol" },
+        { value: "alternate", name: "Alternate model" },
+      ],
+    },
+    {
+      id: "reasoning_effort",
+      name: "Effort",
+      type: "select",
+      category: "thought_level",
+      currentValue: "medium",
+      options: ["low", "medium", "high"].map((value) => ({
+        value,
+        name: value,
+      })),
+    },
+  ]);
+  const repositorySummary = repoSummary(repos, null);
   const [rail, setRail] = useState(false);
   const [value, setValue] = useState("");
   const [queued, setQueued] = useState<QueuedAgentPrompt[]>([]);
@@ -116,12 +145,28 @@ export function AgentComposerDesignPreview() {
       <div className={rail ? "mx-auto w-full max-w-80" : "w-full"}>
         <AgentComposer
           key={rail ? "rail" : "wide"}
-        size={rail ? "rail" : "wide"}
+          size={rail ? "rail" : "wide"}
           value={value}
           onChange={setValue}
           onSend={() => setValue("")}
           onCancel={() => {}}
           vendor="codex"
+          agentName="Session da4c04e2"
+          configOptions={options}
+          onSetConfigOption={(id, value) =>
+            setOptions((current) =>
+              current.map((option) =>
+                option.id === id ? { ...option, currentValue: value } : option,
+              ),
+            )
+          }
+          mode={mode}
+          availableModes={[
+            { id: "ask", name: "Ask" },
+            { id: "plan", name: "Plan" },
+          ]}
+          onSetMode={setMode}
+          usage={{ used: 24503, size: 100000, amount: 0.21 }}
           queuedPrompts={queued}
           onCancelQueued={(id) =>
             setQueued((current) => current.filter((p) => p.id !== id))
@@ -131,23 +176,31 @@ export function AgentComposerDesignPreview() {
             setQueued([]);
           }}
           trayStrip={
-            <>
-              <TrayChip icon={<Boxes />} label="Platform" />
-              <TrayChip
-                icon={<GitBranch />}
-                label="Repositories"
-                count={2}
-                active={panel === "repos"}
-                onClick={() => toggle("repos")}
-              />
-              <TrayChip
-                icon={<ListTodo />}
-                label="Tasks"
-                count={3}
-                active={panel === "tasks"}
-                onClick={() => toggle("tasks")}
-              />
-            </>
+            <ComposerContextBar
+              compact={true}
+              where={<TrayChip icon={<Boxes />} label="Platform" title="Platform" />}
+              chips={
+                <TrayChip
+                  icon={<GitBranch />}
+                  count={repos.length}
+                  badge={repositorySummary.badge ?? undefined}
+                  title="Show repositories"
+                  active={panel === "repos"}
+                  onClick={() => toggle("repos")}
+                />
+              }
+              menu={[
+                { kind: "item", key: "subagents", icon: <Bot />, label: "Subagents", detail: 0, onSelect: () => {} },
+                {
+                  kind: "item",
+                  key: "tasks",
+                  icon: <ListTodo />,
+                  label: "Tasks",
+                  detail: 3,
+                  onSelect: () => toggle("tasks"),
+                },
+              ]}
+            />
           }
           trayPanel={
             panel

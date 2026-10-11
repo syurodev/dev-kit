@@ -14,6 +14,8 @@ export type AgentContextMeterProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   className?: string;
+  /** Percentages read as usage rather than a loading indicator in the composer. */
+  appearance?: "ring" | "percentage";
 };
 
 /** "24.5k", "1M" — the precision a glance needs. */
@@ -117,6 +119,7 @@ export function AgentContextMeter({
   open,
   onOpenChange,
   className,
+  appearance = "ring",
 }: AgentContextMeterProps) {
   const used = usage?.used ?? 0;
   const size = usage?.size ?? 0;
@@ -133,13 +136,14 @@ export function AgentContextMeter({
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size={appearance === "percentage" ? "sm" : "icon-sm"}
+          title={`Context window ${percent}% used`}
           aria-label={`Context: ${shortCount(used)} of ${shortCount(size)} used (${percent}%)`}
           data-testid="composer-context"
           data-level={tone}
-          className={cn("shrink-0 rounded-full", className)}
+          className={cn("shrink-0 rounded-full", appearance === "percentage" && "h-7 w-11 px-2 text-caption-11 text-text-tertiary", appearance === "percentage" && tone === "warning" && "text-status-warning", appearance === "percentage" && tone === "danger" && "text-status-danger", className)}
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4 -rotate-90">
+          {appearance === "percentage" ? <AnimatedNumber value={percent} suffix="%" /> : <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4 -rotate-90">
             {/* The token directly: --border-default has no colour utility, and
                 `stroke-border-default` compiled to nothing — the track was
                 missing, so at 3% the ring was a lone dot. */}
@@ -155,7 +159,7 @@ export function AgentContextMeter({
               strokeDashoffset={circumference * (1 - percent / 100)}
               className={cn(RING[tone], "transition-[stroke,stroke-dashoffset] duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none")}
             />
-          </svg>
+          </svg>}
         </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="end" className="w-80 max-w-gutter gap-3 p-4">

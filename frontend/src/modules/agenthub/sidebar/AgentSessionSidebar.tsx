@@ -258,7 +258,7 @@ export function AgentSessionSidebar({
           ref={viewportRef}
           data-testid="agent-session-viewport"
           onKeyDown={onKeyDown}
-          className="min-h-0 flex-1 overflow-y-auto pb-2 scrollbar-gutter-stable"
+          className="min-h-0 flex-1 overflow-y-auto pb-2"
         >
           {groups.length === 0 ? (
             <EmptyState

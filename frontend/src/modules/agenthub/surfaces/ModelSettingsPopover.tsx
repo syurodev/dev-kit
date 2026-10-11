@@ -17,12 +17,14 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   loading?: boolean;
+  /** A quiet, compact picker within the composer's tools row. */
+  compact?: boolean;
   error?: string;
   onRefresh?: () => void;
    onCloseAutoFocus?: () => void;
 };
 
-export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, loading, error, onRefresh, onCloseAutoFocus }: Props) {
+export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, loading, compact = false, error, onRefresh, onCloseAutoFocus }: Props) {
   const reduced = useReducedMotion();
   const [modelsOpen, setModelsOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -64,10 +66,10 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
             size="sm"
             data-testid="composer-config"
             aria-label={`Model and effort: ${triggerLabel}`}
-            className="min-w-0 shrink gap-1 px-2 text-text-secondary"
+            className={cn("min-w-0 shrink gap-1 px-2 text-text-secondary", compact && "h-7 rounded-md px-2 hover:bg-state-soft")}
           >
-            <span className="max-w-28 truncate text-body-13 @max-xs:max-w-16">{triggerLabel}</span>
-            <ChevronDown aria-hidden className="size-3 shrink-0 text-text-tertiary" />
+            <span className={cn("max-w-28 truncate @max-xs:max-w-16", compact ? "text-caption-11-medium" : "text-body-13")}>{triggerLabel}</span>
+            <ChevronDown aria-hidden className={cn("size-3 shrink-0 text-text-tertiary", compact && "@max-xs:hidden")} />
           </Button>
         </ActionTooltip>
       </PopoverTrigger>

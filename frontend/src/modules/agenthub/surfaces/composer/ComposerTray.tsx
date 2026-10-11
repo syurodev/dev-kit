@@ -275,6 +275,7 @@ export function TrayChip({
   const chipClass = cn(
     // No gap: the label animates its own margin, so a folded label leaves none.
     "flex h-6 min-w-0 items-center rounded-md px-2 text-caption-11 whitespace-nowrap",
+    compact && "px-1.5",
     priority ? "shrink-0" : "shrink",
     tone === "attention" ? "text-text-primary" : "text-text-secondary",
     onClick && "cursor-pointer transition-control hover:bg-state-soft hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info",

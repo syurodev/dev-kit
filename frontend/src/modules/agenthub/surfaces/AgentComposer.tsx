@@ -11,6 +11,7 @@ import { Plate, usePlateEditor } from "platejs/react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { FramedCard, FramedCardPreview } from "@/components/ui/framed-card";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Editor } from "@/components/ui/editor";
 import { Input } from "@/components/ui/input";
@@ -192,7 +193,8 @@ export function composerDefaultPlaceholder(
   isStreaming: boolean,
   agentName: string | undefined,
 ): string {
-  return placeholder ?? (isStreaming ? `${agentName ?? "Agent"} is working…` : `Ask ${agentName ?? "agent"}…`);
+  const name = /^Session [a-f0-9]{8}$/i.test(agentName ?? "") ? undefined : agentName;
+  return placeholder ?? (isStreaming ? `${name ?? "Agent"} is working…` : `Ask ${name ?? "agent"}…`);
 }
 
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
@@ -328,9 +330,8 @@ export type AgentComposerProps = {
    */
   onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   /**
-   * The composer tray's strip (useAgentTray): where this work is and what is
-   * running under it. Given, the tray is always drawn; omitted, it is drawn
-   * only while an "@" or "/" list is open.
+   * Persistent context controls (useAgentTray), above the input surface.
+   * Panels and typed "@" or "/" lists occupy the separate panel area.
    */
   trayStrip?: React.ReactNode;
   /** The caller's panel for the tray — a permission, a question, a list opened from a chip. A list being typed goes over it. */
@@ -398,13 +399,12 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  * One cluster, one surface: a single border, background and radius around
  * everything the person writes with, top to bottom —
  *
- *   1. the panel area: a permission or question to answer, a list to pick from;
- *   2. the context bar: where this work is and what needs the person (`trayStrip`);
- *   3. the field, with its attachments and queued messages;
- *   4. the tools: attach and mention, model, permission mode, the context
- *      gauge, send.
+ *   1. the panel area, growing above the context header;
+ *   2. a quiet context header framing the inset input surface;
+ *   3. the field, then attach/mention, model/mode and Send.
+ *      Attachments and queued messages precede the field.
  *
- * Thin dividers separate the rows; there is no gap between cards because there
+ * The panel has a divider; the field and tools share one surface because there
  * are no cards. It is an ordinary block in the layout (the caller gives it a
  * region of its own below the transcript), not a layer floating over the foot
  * of one — so nothing scrolls behind it and it needs no glass.
@@ -839,27 +839,36 @@ export function AgentComposer({
 
   return (
     // The caller's className (AgentHubContent passes "min-w-0") sizes the whole
-    // cluster within the caller's region. One border, one fill, one radius.
-    <div
+    // cluster within the caller's region. Only the input surface draws a border.
+    <FramedCard
       data-testid="agent-composer-stack"
       data-size={size}
       className={cn(
         // overflow-y: only ever scrolls on a pane too short for even the field and
         // its tools — the last resort, so Send is reachable rather than clipped.
-        "flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-xl border border-border-subtle bg-surface-raised shadow-xs",
-        "transition-colors duration-(--motion-fast) focus-within:border-border",
+        "min-h-0 overflow-x-hidden overflow-y-auto",
         className,
       )}
     >
-      <ComposerPanelArea panel={sessionPanel} />
-      {trayStrip}
+      <div className="overflow-hidden rounded-control bg-surface-base">
+        <ComposerPanelArea panel={sessionPanel} className="border-b-0" />
+      </div>
+      {(trayStrip || usage) ? (
+        <div data-testid="composer-session-tools" className="flex min-h-(--control-height-sm) min-w-0 shrink-0 flex-wrap items-center gap-1 px-(--space-inline)">
+          {trayStrip}
+          <div className="ml-auto flex shrink-0 items-center">
+            <AgentContextMeter appearance="percentage" usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
+          </div>
+        </div>
+      ) : null}
+      <FramedCardPreview flush data-testid="composer-surface" className="min-h-0 shrink-0 py-0 ring-1 ring-inset ring-border-subtle transition-colors duration-(--motion-fast) focus-within:ring-status-info/30">
       <div
         role="region"
         aria-label="Agent prompt composer"
         data-testid="agent-composer"
         data-size={size}
         data-state={effectiveState}
-        className="flex min-h-0 w-full flex-col gap-1 p-2"
+        className="flex min-h-0 w-full flex-col gap-1 p-(--space-inline)"
       >
         {hasAttachments || queuedPrompts.length > 0 || imageError ? (
           // Their own scroll box: a long queue or a dozen attachments must not
@@ -945,92 +954,98 @@ export function AgentComposer({
             (composerEditorKit.ts). `variant="none"` drops Editor's own
             document padding/type size so this still reads as a plain field,
             the way the bare textarea it replaces did. */}
-        <Plate editor={editor} onChange={handleEditorChange}>
-          <Editor
-            variant="none"
-            disabled={disabled}
-            placeholder={inputPlaceholder}
-            aria-label="Agent prompt input"
-            data-testid="agent-composer-textarea"
-            onPaste={(e) => {
-              const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
-              if (image && onPasteImage) {
-                e.preventDefault();
-                onPasteImage(image);
-              }
-            }}
-            onDrop={(e) => {
-              const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
-              if (image && onDropImage) {
-                e.preventDefault();
-                onDropImage(image);
-              }
-            }}
-            onDragOver={(e) => {
-              if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
-            }}
-            onKeyDown={(e) => {
-              const insideCodeBlock = editor.api.some({ match: { type: types.codeBlock } });
-              if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
-                // Plate registers no default behaviour for Shift+Enter (only
-                // plain Enter inserts a break); left alone it would fall to
-                // contentEditable's own unreliable native handling. Inside a
-                // code block Enter is already a plain newline either way.
-                e.preventDefault();
-                editor.tf.insertSoftBreak();
-                return;
-              }
-              if (e.key === "Escape" && mentionListOpen && !mentionFiles?.length && !e.nativeEvent.isComposing) {
-                // "No files" has nothing to pick, so the list's keys stay the
-                // field's — except Escape, which must still put it away.
-                e.preventDefault();
-                setMentionDismissedAt(mentionKey);
-                return;
-              }
-              handleComposerKeyDown(e, {
-                streaming: isStreaming,
-                onSend,
-                onCancel,
-                insideCodeBlock,
-                commandList: mentionListOpen
-                  ? {
-                      open: (mentionFiles?.length ?? 0) > 0,
-                      onMove: (delta) =>
-                        setMentionHighlight((current) => {
-                          const count = mentionFiles?.length ?? 0;
-                          const next = (current + delta) % count;
-                          return next < 0 ? next + count : next;
-                        }),
-                      onAccept: () => acceptMention(mentionHighlighted),
-                      onClose: () => setMentionDismissedAt(mentionKey),
-                    }
-                  : {
-                      open: commandListOpen,
-                      onMove: (delta) =>
-                        setHighlight((current) => {
-                          const next = (current + delta) % matches.length;
-                          return next < 0 ? next + matches.length : next;
-                        }),
-                      onAccept: () => acceptCommand(highlighted),
-                      onClose: () => setDismissedQuery(query),
-                    },
-              });
-            }}
-            className={cn(
-              "w-full shrink-0 overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
-              // The floor is one line; the ceiling is `composer-editor-cap[-rail]`
-              // (about eleven lines wide, seven in the rail, less on a short
-              // pane), past which the field scrolls instead of pushing the
-              // cluster up over the conversation.
-              rail ? "min-h-8 composer-editor-cap-rail" : "min-h-10 composer-editor-cap",
-            )}
-          />
-        </Plate>
+        <div className="flex min-w-0 items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <Plate editor={editor} onChange={handleEditorChange}>
+              <Editor
+                variant="none"
+                disabled={disabled}
+                placeholder={inputPlaceholder}
+                aria-label="Agent prompt input"
+                data-testid="agent-composer-textarea"
+                onPaste={(e) => {
+                  const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
+                  if (image && onPasteImage) {
+                    e.preventDefault();
+                    onPasteImage(image);
+                  }
+                }}
+                onDrop={(e) => {
+                  const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
+                  if (image && onDropImage) {
+                    e.preventDefault();
+                    onDropImage(image);
+                  }
+                }}
+                onDragOver={(e) => {
+                  if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+                }}
+                onKeyDown={(e) => {
+                  const insideCodeBlock = editor.api.some({ match: { type: types.codeBlock } });
+                  if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
+                    // Plate registers no default behaviour for Shift+Enter (only
+                    // plain Enter inserts a break); left alone it would fall to
+                    // contentEditable's own unreliable native handling. Inside a
+                    // code block Enter is already a plain newline either way.
+                    e.preventDefault();
+                    editor.tf.insertSoftBreak();
+                    return;
+                  }
+                  if (e.key === "Escape" && mentionListOpen && !mentionFiles?.length && !e.nativeEvent.isComposing) {
+                    // "No files" has nothing to pick, so the list's keys stay the
+                    // field's — except Escape, which must still put it away.
+                    e.preventDefault();
+                    setMentionDismissedAt(mentionKey);
+                    return;
+                  }
+                  handleComposerKeyDown(e, {
+                    streaming: isStreaming,
+                    onSend,
+                    onCancel,
+                    insideCodeBlock,
+                    commandList: mentionListOpen
+                      ? {
+                          open: (mentionFiles?.length ?? 0) > 0,
+                          onMove: (delta) =>
+                            setMentionHighlight((current) => {
+                              const count = mentionFiles?.length ?? 0;
+                              const next = (current + delta) % count;
+                              return next < 0 ? next + count : next;
+                            }),
+                          onAccept: () => acceptMention(mentionHighlighted),
+                          onClose: () => setMentionDismissedAt(mentionKey),
+                        }
+                      : {
+                          open: commandListOpen,
+                          onMove: (delta) =>
+                            setHighlight((current) => {
+                              const next = (current + delta) % matches.length;
+                              return next < 0 ? next + matches.length : next;
+                            }),
+                          onAccept: () => acceptCommand(highlighted),
+                          onClose: () => setDismissedQuery(query),
+                        },
+                  });
+                }}
+                className={cn(
+                  "w-full shrink-0 overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
+                  // The floor is one line; the ceiling is `composer-editor-cap[-rail]`
+                  // (about eleven lines wide, seven in the rail, less on a short
+                  // pane), past which the field scrolls instead of pushing the
+                  // cluster up over the conversation.
+                  rail ? "min-h-8 composer-editor-cap-rail" : "min-h-8 composer-editor-cap",
+                )}
+              />
+            </Plate>
+          </div>
+
+        </div>
 
         {/* The tools. `@container`: what a label may cost is decided by the
             row's own width, so the 720px column shows names and the 320px rail
             shows icons — the same markup, no measuring. */}
         <div data-testid="composer-toolbar" className="@container flex w-full min-w-0 items-center gap-1">
+          <div data-testid="composer-writing-tools" className="flex min-w-0 flex-1 items-center gap-1">
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Everything that adds something to the turn, or is not needed often:
                 attach, the agent's slash commands, the goal. Typing "/" still
@@ -1125,9 +1140,7 @@ export function AgentComposer({
             </AgentMenu>
           </div>
 
-          {/* The pickers: each says its current value, with a chevron. They clip
-              rather than wrap, so Send is never pushed off the row; a label
-              truncates before a control disappears. */}
+          {/* Pickers and context controls wrap as groups on narrow panes. */}
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden p-0.5">
             {onAgentChange ? (
               <DropdownMenu {...menu("agent")}>
@@ -1174,7 +1187,7 @@ export function AgentComposer({
                 }
                 return onSetConfigOption(id, value);
               }} {...menu("config")} onCloseAutoFocus={openHeldBypass}
-                loading={configLoading} error={configError} onRefresh={onRefreshConfig} />
+                compact loading={configLoading} error={configError} onRefresh={onRefreshConfig} />
             ) : onSetConfigOption && selectableOptions.length > 0 ? (
               <DropdownMenu {...menu("config")}>
                 <DropdownMenuTrigger asChild>
@@ -1220,14 +1233,12 @@ export function AgentComposer({
                     data-testid="composer-mode"
                     aria-label={`Permission mode: ${currentModeLabel ?? "unknown"}`}
                     title={`Permission mode: ${currentModeLabel ?? "unknown"}`}
-                    className="min-w-0 shrink gap-1 px-2 text-text-secondary"
+                    className="h-7 min-w-0 shrink-0 gap-1 rounded-full px-2 text-text-secondary"
                   >
                     {/* A shield, not the sliders the model's fallback uses: two
                         identical settings glyphs side by side said nothing about
                         which was which. */}
                     <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="max-w-24 truncate text-body-13 @max-sm:hidden">{currentModeLabel}</span>
-                    <ChevronDown className="size-3 shrink-0 text-text-tertiary" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
@@ -1262,6 +1273,7 @@ export function AgentComposer({
             {/* The objective the agent keeps working towards between turns. Drawn
                 only once one is set, so the cluster shows what the session is
                 working towards; setting or clearing one is in the "+" menu. */}
+            {/* Narrow panes keep Change goal in the + menu so the model and mode fit. */}
             {onSetGoal && goal ? (
               <ActionTooltip label="Change what this session is working towards" side="top">
                 <Button
@@ -1271,7 +1283,7 @@ export function AgentComposer({
                   data-testid="composer-goal"
                   data-set="true"
                   onClick={openGoalDialog}
-                  className="min-w-0 shrink gap-1 px-2 text-text-primary"
+                  className="min-w-0 shrink gap-1 px-2 text-text-primary @max-sm:hidden"
                 >
                   <Target className="size-3.5 shrink-0" aria-hidden="true" />
                   <span className="max-w-32 truncate text-body-13 @max-sm:hidden">{goal.objective}</span>
@@ -1280,39 +1292,41 @@ export function AgentComposer({
             ) : null}
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
-            {isStreaming ? (
-              <ActionTooltip label="Agent is working" side="top">
-                <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
-                  <LoaderCircle
-                    aria-hidden="true"
-                    className="size-3.5 animate-spin motion-reduce:animate-none"
-                    style={{ animationDuration: "1.6s" }}
-                  />
-                </span>
-              </ActionTooltip>
-            ) : null}
-            <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
-            <Button
-              type="button"
-              size="icon-sm"
-              disabled={disabled}
-              aria-label={isStreaming ? "Stop generating" : "Send message"}
-              data-testid="composer-send-button"
-              onClick={isStreaming ? onCancel : onSend}
-              className="shrink-0 rounded-full"
-            >
-              <MorphIcon
-                icon={isStreaming ? Square : ArrowUp}
-                size={14}
-                strokeWidth={2}
-                spring="snappy"
-                reducedMotion="user"
-              />
-            </Button>
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+          {isStreaming ? (
+            <ActionTooltip label="Agent is working" side="top">
+              <span role="status" aria-label="Agent is working" data-testid="composer-running" className="flex size-6 items-center justify-center text-text-tertiary">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-3.5 animate-spin motion-reduce:animate-none"
+                  style={{ animationDuration: "1.6s" }}
+                />
+              </span>
+            </ActionTooltip>
+          ) : null}
+          <Button
+            type="button"
+            size="icon-sm"
+            disabled={disabled}
+            aria-label={isStreaming ? "Stop generating" : "Send message"}
+            data-testid="composer-send-button"
+            onClick={isStreaming ? onCancel : onSend}
+            className="size-8 shrink-0 rounded-full"
+          >
+            <MorphIcon
+              icon={isStreaming ? Square : ArrowUp}
+              size={14}
+              strokeWidth={2}
+              spring="snappy"
+              reducedMotion="user"
+            />
+          </Button>
           </div>
         </div>
       </div>
+      </FramedCardPreview>
           {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
               straight after picking the item does not confirm it. */}
           <AlertDialog open={pendingBypass !== null} onOpenChange={(open) => !open && setPendingBypass(null)}>
@@ -1396,6 +1410,6 @@ export function AgentComposer({
               </form>
             </DialogContent>
           </Dialog>
-    </div>
+    </FramedCard>
   );
 }

@@ -16,7 +16,7 @@ export function TrayPanelHeading({
   onClose?: () => void;
 }) {
   return (
-    <header className="flex shrink-0 items-start gap-3 border-b border-border-subtle px-3 py-3">
+    <header title={typeof detail === "string" ? detail : undefined} className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <h3 className="text-body-13-medium text-text-primary">{title}</h3>
@@ -28,7 +28,7 @@ export function TrayPanelHeading({
           ) : null}
         </div>
         {detail ? (
-          <p className="mt-1 text-caption-11 text-text-tertiary">{detail}</p>
+          <p className="sr-only">{detail}</p>
         ) : null}
       </div>
       {onClose ? (

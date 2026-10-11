@@ -1,6 +1,10 @@
 import * as React from "react";
 import {
   ArrowUpRight,
+  AlertTriangle,
+  CircleAlert,
+  FileDiff,
+  Pin,
   Bot,
   Boxes,
   CheckCircle2,
@@ -108,8 +112,8 @@ function folderName(path: string): string {
  * answering one brings the next.
  *
  * Direct on the bar: where this is, what blocks the agent, repositories, work
- * running right now. Everything else — Tasks, Subagents, Commands, Follow — is
- * in the bar's "…" menu, so a quiet session shows a quiet bar.
+ * running right now. Tasks and Subagents remain visible even at zero; secondary
+ * actions are in the overflow menu.
  */
 export function useAgentTray(input: AgentTrayInput): {
   strip: React.ReactNode;
@@ -258,6 +262,7 @@ export function useAgentTray(input: AgentTrayInput): {
             detail="Work running alongside this conversation"
             onClose={closeOpened}
           />
+          {running === 0 ? <p className="px-3 py-2 text-caption-11 text-text-tertiary">No subagents running.</p> : null}
           <AgentSubagentTracker
             items={items}
             live={live}
@@ -306,10 +311,7 @@ export function useAgentTray(input: AgentTrayInput): {
       key="where"
       testId="tray-workspace"
       icon={status.workspace ? <Boxes /> : <Folder />}
-      label={
-        workspaceName ?? (projectPath ? folderName(projectPath) : "No project")
-      }
-      keepLabel
+      label={workspaceName ?? (projectPath ? folderName(projectPath) : "No project")}
       // The workspace's folders are in the tooltip, not the label: "name (3)"
       // read like a count of something else.
       title={
@@ -374,7 +376,7 @@ export function useAgentTray(input: AgentTrayInput): {
           // One repository: its branch, as it always was. Several (a workspace
           // of services): how many — and, as a badge of its own, how many of
           // them need a look. The two numbers used to share one pill.
-          label={repos.label}
+          count={status.repos.length}
           badge={repos.badge ?? undefined}
           title={`Show repositories · ${repos.title}`}
           active={panel?.key === "repos"}
@@ -395,24 +397,11 @@ export function useAgentTray(input: AgentTrayInput): {
           onClick={() => toggle("commands")}
         />
       ) : null}
-      {running > 0 ? (
-        <TrayChip
-          key="subagents"
-          testId="tray-subagents"
-          icon={<Bot />}
-          label={running === 1 ? "subagent" : "subagents"}
-          count={running}
-          title={`${running} subagent${running === 1 ? "" : "s"} running`}
-          active={panel?.key === "subagents"}
-          onClick={() => toggle("subagents")}
-        />
-      ) : null}
+
     </TrayChips>
   );
 
-  // The rest, behind "…". Tasks stays even at 0: no task yet is not no tasks
-  // feature, and the empty list says how to get one. Subagents has nothing to
-  // open while none runs, so it is there and quiet.
+  // The bar promotes Tasks and Subagents to persistent icon/count controls.
   const menu: ContextBarMenuEntry[] = [];
   if (status.hasBoards) {
     const count = session ? status.tasks.length : status.others.length;
@@ -436,8 +425,7 @@ export function useAgentTray(input: AgentTrayInput): {
       testId: "tray-menu-subagents",
       icon: <Bot />,
       label: "Subagents",
-      detail: running > 0 ? String(running) : "none running",
-      disabled: running === 0,
+      detail: String(running),
       active: panel?.key === "subagents",
       onSelect: () => toggle("subagents"),
     });
@@ -470,7 +458,7 @@ export function useAgentTray(input: AgentTrayInput): {
 
   const strip = (
     <ComposerContextBar
-      compact={size === "rail"}
+      compact={true}
       where={where}
       chips={chips}
       menu={menu}
@@ -500,7 +488,7 @@ export function TrayTaskList({
   const completed = tasks.filter((row) => row.done).length;
   const count = session ? tasks.length : others.length;
   return (
-    <section data-testid="tray-task-list" className="flex min-w-0 flex-col">
+    <section data-testid="tray-task-list" className="@container flex min-w-0 flex-col">
       <TrayPanelHeading
         title={session ? "Session tasks" : "Workspace tasks"}
         count={count}
@@ -512,8 +500,8 @@ export function TrayTaskList({
         onClose={onClose}
       />
       {session && tasks.length > 0 ? (
-        <div className="border-b border-border-subtle px-3 py-2.5">
-          <div className="mb-2 flex justify-between text-caption-11 text-text-tertiary">
+        <div className="border-b border-border-subtle px-3 py-1.5">
+          <div className="mb-1 flex justify-between text-caption-11 text-text-tertiary">
             <span>This session</span>
             <span>
               <AnimatedNumber value={completed} /> of {tasks.length} completed
@@ -534,7 +522,7 @@ export function TrayTaskList({
           </div>
         </div>
       ) : null}
-      <div className="max-h-64 overflow-y-auto overscroll-contain p-2 scrollbar-gutter-stable">
+      <div className="max-h-56 overflow-y-auto overscroll-contain p-1 scrollbar-gutter-stable">
         {tasks.length === 0 && others.length === 0 ? (
           <EmptyState
             size="rail"
@@ -585,7 +573,7 @@ function TrayTaskRows({
   testId: string;
 }) {
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-0.5">
       {tasks.map(({ task, board, statusName, active, done, held }) => {
         const Icon = done ? CheckCircle2 : active ? CircleDot : Circle;
         return (
@@ -606,13 +594,13 @@ function TrayTaskRows({
                   { placement: "beside" },
                 )
               }
-              className="group/task flex h-16 w-full min-w-0 items-center gap-3 rounded-lg px-2.5 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="group/task flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
             >
               <span
                 role="img"
                 aria-label={`Status: ${statusName}`}
                 title={statusName}
-                className="flex size-6 shrink-0 items-center justify-center rounded-full bg-state-soft"
+                className="flex size-4 shrink-0 items-center justify-center"
               >
                 <Icon
                   aria-hidden
@@ -626,19 +614,20 @@ function TrayTaskRows({
                   )}
                 />
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="grid min-w-0 flex-1 items-center gap-x-3 @min-lg:grid-cols-2">
                 <span className="block truncate text-body-13-medium text-text-primary">
                   {task.title}
                 </span>
-                <span className="mt-1 flex min-w-0 items-center gap-2 text-caption-11 text-text-tertiary">
+                <span className="flex min-w-0 items-center gap-1.5 text-caption-11 text-text-tertiary">
                   <span className="shrink-0 font-mono">{task.key}</span>
                   <span className="truncate">{board.name}</span>
                   {held ? (
                     <span
                       className="shrink-0 text-status-info"
                       title="Held by this session"
+                      role="img" aria-label="Held by this session"
                     >
-                      Held
+                      <Pin aria-hidden className="size-3" />
                     </span>
                   ) : null}
                 </span>
@@ -670,7 +659,7 @@ export function TrayRepoList({
   onClose?: () => void;
 }) {
   return (
-    <section>
+    <section className="@container">
       <TrayPanelHeading
         title="Repositories"
         count={repos.length}
@@ -679,15 +668,15 @@ export function TrayRepoList({
       />
       <ul
         data-testid="tray-repo-list"
-        className="max-h-72 space-y-1 overflow-y-auto overscroll-contain p-2 scrollbar-gutter-stable"
+        className="max-h-56 overflow-y-auto overscroll-contain p-1 scrollbar-gutter-stable"
       >
         {repos.map((repo) => (
           <li key={repo.path}>
             <button
               type="button"
               data-testid="tray-repo"
-              aria-label={`Open ${repo.name} in Git beside this conversation`}
               title={`Open Git Changes · ${repo.error || repo.path}`}
+              aria-label={`Open ${repo.name} in Git beside this conversation`}
               onClick={() =>
                 void dispatchIntent(
                   "git.reveal",
@@ -700,24 +689,22 @@ export function TrayRepoList({
                   { placement: "beside" },
                 )
               }
-              className="flex h-16 w-full min-w-0 items-center gap-3 rounded-lg px-2.5 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
             >
               <Folder
                 className="size-4 shrink-0 text-text-tertiary"
                 aria-hidden
               />
-              <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-2 text-body-13-medium text-text-primary">
+              <span className="flex min-w-0 flex-1 flex-col items-start @min-lg:flex-row @min-lg:items-center @min-lg:gap-3">
+                <span className="flex min-w-0 max-w-full items-center gap-2 text-body-13-medium text-text-primary @min-lg:max-w-[45%] @min-lg:shrink-0">
                   <span className="truncate">{repo.name}</span>
                   {repo.own ? (
-                    <span className="shrink-0 text-caption-11 text-text-tertiary">
-                      this session
-                    </span>
+                    <CircleDot role="img" aria-label="This session’s repository" className="size-3 shrink-0 text-status-info" />
                   ) : null}
                 </span>
-                <span className="mt-1 flex min-w-0 items-center gap-2 text-caption-11 text-text-tertiary">
+                <span className="flex min-w-0 max-w-full items-center gap-1.5 text-caption-11 text-text-tertiary">
                   <GitBranch className="size-3 shrink-0" aria-hidden />
-                  <span className="truncate font-mono">
+                  <span title={repoBranch(repo) ?? undefined} className="truncate font-mono">
                     {repoBranch(repo) ?? "—"}
                   </span>
                   {repo.ahead ? (
@@ -728,39 +715,14 @@ export function TrayRepoList({
                   ) : null}
                 </span>
               </span>
-              {repo.error || repo.conflicted || repo.changed ? (
-                <span
-                  className={cn(
-                    "shrink-0 rounded-md px-2 py-1 text-caption-11 tabular-nums",
-                    repo.error || repo.conflicted
-                      ? "bg-status-danger/10 text-status-danger"
-                      : repo.changed
-                        ? "bg-status-warning/10 text-status-warning"
-                        : "bg-state-soft text-text-tertiary",
-                  )}
-                >
-                  {repo.error
-                    ? "unreadable"
-                    : repo.conflicted
-                      ? `${repo.conflicted} conflicted`
-                      : repo.changed
-                        ? `${repo.changed} changed`
-                        : null}
-                </span>
-              ) : (
-                <span
-                  role="img"
-                  aria-label="No uncommitted changes"
-                  title="No uncommitted changes"
-                  className="flex size-6 shrink-0 items-center justify-center text-text-tertiary"
-                >
-                  <CheckCircle2 className="size-4" aria-hidden />
-                </span>
-              )}
-              <ArrowUpRight
-                className="size-3.5 shrink-0 text-text-tertiary"
-                aria-hidden
-              />
+              <span role="img" aria-label={repo.error ? "Repository unreadable" : repo.conflicted ? `${repo.conflicted} conflicted file${repo.conflicted === 1 ? "" : "s"}` : repo.changed ? `${repo.changed} changed files` : "No uncommitted changes"}
+                title={repo.error || (repo.conflicted ? `${repo.conflicted} conflicted file${repo.conflicted === 1 ? "" : "s"}` : repo.changed ? `${repo.changed} changed files` : "No uncommitted changes")}
+                className={cn("flex shrink-0 items-center gap-1 text-caption-11 tabular-nums", repo.error || repo.conflicted ? "text-status-danger" : repo.changed ? "text-status-warning" : "text-text-tertiary")}
+              >
+                {repo.error ? <CircleAlert aria-hidden className="size-3.5" /> : repo.conflicted ? <AlertTriangle aria-hidden className="size-3.5" /> : repo.changed ? <FileDiff aria-hidden className="size-3.5" /> : <CheckCircle2 aria-hidden className="size-3.5" />}
+                {!repo.error ? repo.conflicted || repo.changed || null : null}
+              </span>
+              <ArrowUpRight aria-hidden className="size-3 shrink-0 text-text-tertiary" />
             </button>
           </li>
         ))}

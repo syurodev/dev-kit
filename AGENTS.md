@@ -153,9 +153,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`
-  keeps the end in view when its viewport changes height only while following. Panel area
-  (`ComposerPanelArea`) → context bar (`ComposerContextBar`, built by `useAgentTray`) → field → tools,
-  one border. `chooseTrayPanel` / `repoSummary` (`composer/trayModel.ts`) are the pure rules: a
+  keeps the end in view when its viewport changes height only while following. A compact context header
+  (`ComposerContextBar`, built by `useAgentTray`) frames an inset input using the shared FramedCard
+  surface/radius tokens (raised frame, base inset, 4px rim). Panel area (`ComposerPanelArea`) grows
+  above that header; inside the input inset: field → tools and Send. `chooseTrayPanel` / `repoSummary` (`composer/trayModel.ts`) are the pure rules: a
   permission beats a question beats a list the person opened; a repo chip says the total and, as a
   separate badge, how many need attention. Heights are capped with `cqh` classes in `index.css` against
   `.agent-conversation`. Browser checks (focus, scroll, short and narrow panes) live in the dev

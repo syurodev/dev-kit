@@ -32,6 +32,11 @@ như một khối); danh sách chính của một view (row của tree/table đ�
 ước riêng); dialog và popover (đã có surface nổi riêng); nội dung dài cần
 cuộn cả trang (dùng panel, không nhét vào preview).
 
+Composer Agent Hub dùng chung `FramedCard`/`FramedCardPreview` cho hình học và
+surface theo thiết kế riêng: header là dải context controls, phần lõm chứa
+ô nhập và toolbar. Đây là ngoại lệ có chủ đích cho khung composer; không dùng
+`FramedCardHeader` hay quy tắc một hành động của result card cho dải công cụ này.
+
 ## Giải phẫu
 
 ```

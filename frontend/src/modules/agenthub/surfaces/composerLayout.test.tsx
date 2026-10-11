@@ -129,23 +129,30 @@ describe("the composer is in the layout, below the transcript", () => {
 });
 
 describe("one cluster", () => {
-  it("holds the panel, the context bar, the field and the tools, in that order, under one border", () => {
+  it("opens panels above the context header and inset input", () => {
     const html = hub({ pendingPermission: permission, onResolvePermission: noop });
     const stack = html.indexOf('data-testid="agent-composer-stack"');
     const order = [
       'data-testid="composer-panel-area"',
       'data-testid="agent-permission-request"',
       'data-testid="composer-tray-strip"',
+      'data-testid="composer-surface"',
       'data-testid="agent-composer"',
       'data-testid="agent-composer-textarea"',
       'data-testid="composer-toolbar"',
+      'data-testid="composer-send-button"',
     ].map((marker) => html.indexOf(marker, stack));
     expect(order.every((at) => at > stack)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // One surface: the cluster carries the border and fill; the parts do not.
-    const clusterTag = html.slice(stack - 200, html.indexOf(">", stack));
-    expect(clusterTag).toContain("border border-border-subtle");
-    expect(clusterTag).toContain("rounded-xl");
+    // One input surface carries the border and fill; context controls sit above it.
+    const surface = html.indexOf('data-testid="composer-surface"');
+    const clusterTag = html.slice(html.lastIndexOf("<div", surface), html.indexOf(">", surface));
+    expect(clusterTag).toContain("ring-inset");
+    expect(clusterTag).toContain("rounded-control");
+    const frameTag = html.slice(html.lastIndexOf("<div", stack), html.indexOf(">", stack));
+    expect(frameTag).toContain("rounded-float");
+    expect(frameTag).toContain("bg-surface-raised");
+    expect(clusterTag).toContain("bg-surface-base");
     expect(html.match(/data-testid="agent-composer-stack"/g)).toHaveLength(1);
     const bar = html.slice(html.indexOf('data-testid="composer-tray-strip"'), html.indexOf('data-testid="composer-tray-strip"') + 300);
     expect(bar).not.toContain("rounded-xl");
@@ -179,7 +186,8 @@ describe("one cluster", () => {
     expect(html.indexOf('data-testid="agent-session-error"')).toBeGreaterThan(html.indexOf('data-testid="agent-session-failure"'));
     expect(html.indexOf('data-testid="agent-composer-stack"')).toBeGreaterThan(html.indexOf('data-testid="agent-session-error"'));
     // Not floating cards: no absolute positioning, no opaque patch under them.
-    expect(html).not.toContain("rounded-control bg-surface-base");
+    const feedbackTag = html.slice(html.lastIndexOf("<div", feedback), html.indexOf(">", feedback));
+    expect(feedbackTag).not.toContain("rounded-control bg-surface-base");
     // The field is still there: a failed session keeps its composer.
     expect(html).toContain('data-testid="agent-composer-textarea"');
   });
@@ -189,7 +197,7 @@ describe("one cluster", () => {
     expect(html).toContain("composer-editor-cap");
     expect(html).toContain("composer-panel-cap");
     expect(html).toMatch(/data-testid="composer-extras"[^>]*overflow-y-auto/);
-    // Send is in the toolbar, which nothing above it can push out: it never shrinks.
+    // Send never shrinks in the tools row below the field.
     expect(html).toMatch(/data-testid="composer-toolbar"/);
   });
 });
@@ -197,8 +205,8 @@ describe("one cluster", () => {
 describe("the context bar", () => {
   it("says the repository total and the number needing attention apart, with a sentence for both", () => {
     const html = hub();
-    const chip = html.match(/<button[^>]*data-testid="tray-branch"[^>]*>.*?<\/button>/)?.[0] ?? "";
-    expect(chip).toContain("4 repos");
+    const chip = html.match(/<button[^>]*data-testid="tray-branch"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+    expect(chip).toContain("4 repositories");
     // 2 of the 4 (one changed, one conflicted): its own badge, danger because of the conflict.
     expect(chip).toMatch(/data-testid="tray-branch-badge"[^>]*data-tone="danger"/);
     expect(chip).toContain("2 of 4 repositories need attention (1 with conflicts, 1 with changes)");
@@ -214,11 +222,12 @@ describe("the context bar", () => {
     expect(chip).toContain("billing · 3 folders");
   });
 
-  it("keeps Tasks, Subagents, Commands and Follow behind a named menu, and not as a row of chips", () => {
+  it("keeps Tasks and Subagents visible and secondary actions in the menu", () => {
     const html = hub();
     expect(html).toContain('data-testid="composer-tray-menu"');
     expect(html).toContain('aria-label="More about this session"');
-    expect(html).not.toContain('data-testid="tray-tasks"');
+    expect(html).toContain('data-testid="tray-tasks"');
+    expect(html).toContain('data-testid="tray-subagents"');
     expect(html).not.toContain('data-testid="tray-follow"');
     // No icons-only toggle any more: narrowing is the bar's own container query.
     expect(html).not.toContain('data-testid="composer-tray-compact"');
@@ -264,19 +273,19 @@ describe("the tools row", () => {
     onSetMode: noop,
   };
 
-  it("says the model and the mode on their faces, each with a chevron, and never as two identical glyphs", () => {
+  it("names the model and keeps permission mode as an accessible icon", () => {
     const html = render(<AgentComposer {...props} />);
     const model = html.match(/<button[^>]*data-testid="composer-config"[^>]*>.*?<\/button>/)?.[0] ?? "";
     const mode = html.match(/<button[^>]*data-testid="composer-mode"[^>]*>.*?<\/button>/)?.[0] ?? "";
     expect(model).toContain("Sonnet 4.5");
     expect(model).toContain("lucide-chevron-down");
     expect(mode).toContain('aria-label="Permission mode: Auto"');
-    expect(mode).toContain(">Auto</span>");
-    expect(mode).toContain("lucide-chevron-down");
+    expect(mode).not.toContain(">Auto</span>");
+    expect(mode).not.toContain("lucide-chevron-down");
     expect(mode).toContain("lucide-shield-check");
     expect(model).not.toContain("lucide-sliders-horizontal");
-    // The mode's word goes first when the row is narrow; its glyph and name stay.
-    expect(mode).toContain("@max-sm:hidden");
+    // The mode glyph keeps its accessible name without a visible label.
+    expect(mode).toContain('title="Permission mode: Auto"');
   });
 
   it("keeps slash commands, the goal and attaching behind the + menu, and the goal on the row once set", () => {
