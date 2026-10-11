@@ -16,7 +16,7 @@ func (s *AppService) telegramCall(ctx context.Context, write bool, handler func(
 	ctx = callerContext(ctx)
 	caller, _ := identity.FromContext(ctx)
 	if caller.Kind != identity.KindUI {
-		return nil, errors.New("Telegram settings are desktop-only")
+		return nil, errors.New("telegram settings are desktop-only")
 	}
 	capability := "preferences:read"
 	if write {
@@ -49,12 +49,12 @@ func (s *AppService) TelegramConfigure(ctx context.Context, configJSON, token st
 	_, err := s.telegramCall(ctx, true, func(ctx context.Context) (any, error) {
 		var cfg telegramcontrol.Config
 		if len(configJSON) > 32000 || json.Unmarshal([]byte(configJSON), &cfg) != nil {
-			return nil, errors.New("Invalid Telegram configuration")
+			return nil, errors.New("invalid Telegram configuration")
 		}
 		var created string
 		if token != "" {
 			if len(token) > 256 {
-				return nil, errors.New("Invalid bot token")
+				return nil, errors.New("invalid bot token")
 			}
 			account, err := s.container.Accounts.Create(accounts.CreateInput{Provider: accounts.ProviderGeneric, Kind: accounts.KindToken, Label: "Telegram bot", Secret: token, Local: true})
 			if err != nil {

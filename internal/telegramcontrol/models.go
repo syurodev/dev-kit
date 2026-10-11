@@ -19,14 +19,14 @@ func (s *Service) modelOption(ctx context.Context, id string) (agenthub.ConfigOp
 		return agenthub.ConfigOption{}, err
 	}
 	if sess.Status != agenthub.SessionStatusIdle || s.ownTurns[id] {
-		return agenthub.ConfigOption{}, errors.New("Chờ session kết thúc lượt chạy hoặc dùng /stop trước khi chuyển model.")
+		return agenthub.ConfigOption{}, errors.New("chờ session kết thúc lượt chạy hoặc dùng /stop trước khi chuyển model")
 	}
 	if err := s.deps.Agents.PrepareSession(ctx, id); err != nil {
-		return agenthub.ConfigOption{}, errors.New("Không tải được model; kiểm tra session và đăng nhập trong DevKit.")
+		return agenthub.ConfigOption{}, errors.New("không tải được model; kiểm tra session và đăng nhập trong DevKit")
 	}
 	page, err := s.deps.Agents.TranscriptPage(ctx, id, 0, 1)
 	if err != nil {
-		return agenthub.ConfigOption{}, errors.New("Không đọc được cấu hình model của session.")
+		return agenthub.ConfigOption{}, errors.New("không đọc được cấu hình model của session")
 	}
 	for _, entry := range append(page.State, page.Entries...) {
 		if entry.Kind != agenthub.UpdateConfigOptions {
@@ -42,7 +42,7 @@ func (s *Service) modelOption(ctx context.Context, id string) (agenthub.ConfigOp
 			}
 		}
 	}
-	return agenthub.ConfigOption{}, errors.New("Agent chưa cung cấp danh sách model cho session này.")
+	return agenthub.ConfigOption{}, errors.New("agent chưa cung cấp danh sách model cho session này")
 }
 func modelFingerprint(option agenthub.ConfigOption) string {
 	raw, _ := json.Marshal(option)
@@ -92,14 +92,14 @@ func (s *Service) showModels(ctx context.Context, c *Client, arg string) {
 }
 func (s *Service) changeModel(ctx context.Context, c *Client, a action) error {
 	if a.session == "" || a.session != s.selected {
-		return errors.New("Session đã đổi; dùng /models để chọn lại.")
+		return errors.New("session đã đổi; dùng /models để chọn lại")
 	}
 	option, err := s.modelOption(ctx, a.session)
 	if err != nil {
 		return err
 	}
 	if a.fingerprint != "" && (a.id != option.ID || a.fingerprint != modelFingerprint(option)) {
-		return errors.New("Danh sách model đã thay đổi; dùng /models để tải lại.")
+		return errors.New("danh sách model đã thay đổi; dùng /models để tải lại")
 	}
 	advertised := false
 	for _, value := range option.Options {
@@ -109,7 +109,7 @@ func (s *Service) changeModel(ctx context.Context, c *Client, a action) error {
 		}
 	}
 	if !advertised {
-		return errors.New("Model không có trong danh sách của session. Dùng /models.")
+		return errors.New("model không có trong danh sách của session. Dùng /models")
 	}
 	// Recheck lifecycle after preparing/reading: these calls can resume a runtime.
 	sess, err := s.session(ctx, a.session)
@@ -117,10 +117,10 @@ func (s *Service) changeModel(ctx context.Context, c *Client, a action) error {
 		return err
 	}
 	if sess.Status != agenthub.SessionStatusIdle || s.ownTurns[a.session] {
-		return errors.New("Session đang bận; chờ lượt chạy kết thúc.")
+		return errors.New("session đang bận; chờ lượt chạy kết thúc")
 	}
 	if err := s.deps.Agents.SetConfigOption(ctx, a.session, option.ID, a.value); err != nil {
-		return errors.New("Không chuyển được model; xem chi tiết trong DevKit.")
+		return errors.New("không chuyển được model; xem chi tiết trong DevKit")
 	}
 	for token, item := range s.actions {
 		if item.source == "model" && item.session == a.session {

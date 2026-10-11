@@ -164,7 +164,7 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 	}
 }
 func (s *Service) complete(ctx context.Context, c *Client, a action) error {
-	stale := errors.New("Yêu cầu đã xử lý hoặc hết hiệu lực")
+	stale := errors.New("yêu cầu đã xử lý hoặc hết hiệu lực")
 	if a.source == "model" {
 		return s.changeModel(ctx, c, a)
 	}
@@ -289,7 +289,7 @@ func newForm(id, session string, raw json.RawMessage) (*form, error) {
 		} `json:"requestedSchema"`
 	}
 	if json.Unmarshal(raw, &req) != nil || req.Mode != "form" || req.Schema.Type != "object" || len(req.Schema.Properties) > 20 {
-		return nil, errors.New("Schema chưa hỗ trợ")
+		return nil, errors.New("schema chưa hỗ trợ")
 	}
 	var root map[string]json.RawMessage
 	var rootReq map[string]json.RawMessage
@@ -299,7 +299,7 @@ func newForm(id, session string, raw json.RawMessage) (*form, error) {
 		switch key {
 		case "type", "properties", "required", "title", "description", "additionalProperties":
 		default:
-			return nil, errors.New("Schema cần xử lý trên desktop")
+			return nil, errors.New("schema cần xử lý trên desktop")
 		}
 	}
 	f := &form{id: id, session: session, fp: fingerprint(raw), props: map[string]property{}, answers: map[string]any{}}
@@ -311,12 +311,12 @@ func newForm(id, session string, raw json.RawMessage) (*form, error) {
 			switch key {
 			case "type", "title", "description", "enum", "default", "items":
 			default:
-				return nil, errors.New("Ràng buộc cần xử lý trên desktop")
+				return nil, errors.New("ràng buộc cần xử lý trên desktop")
 			}
 		}
 		var p property
 		if json.Unmarshal(data, &p) != nil {
-			return nil, errors.New("Schema sai")
+			return nil, errors.New("schema sai")
 		}
 		switch p.Type {
 		case "string", "boolean", "number", "integer":
@@ -327,17 +327,17 @@ func newForm(id, session string, raw json.RawMessage) (*form, error) {
 			var itemKeys map[string]json.RawMessage
 			_ = json.Unmarshal(keys["items"], &itemKeys)
 			if len(itemKeys) != 1 || json.Unmarshal(keys["items"], &item) != nil || item.Type != "string" {
-				return nil, errors.New("Mảng chưa hỗ trợ")
+				return nil, errors.New("mảng chưa hỗ trợ")
 			}
 		default:
-			return nil, errors.New("Kiểu chưa hỗ trợ")
+			return nil, errors.New("kiểu chưa hỗ trợ")
 		}
 		f.props[name] = p
 		f.fields = append(f.fields, name)
 	}
 	for _, name := range req.Schema.Required {
 		if _, ok := f.props[name]; !ok {
-			return nil, errors.New("Trường bắt buộc không hợp lệ")
+			return nil, errors.New("trường bắt buộc không hợp lệ")
 		}
 	}
 	sort.Strings(f.fields)

@@ -50,17 +50,17 @@ func (c *Client) Do(ctx context.Context, method string, input, output any) error
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", c.base+"/bot"+c.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
-		return errors.New("Telegram request invalid")
+		return errors.New("telegram request invalid")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
-		return errors.New("Telegram connection failed")
+		return errors.New("telegram connection failed")
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
 	if err != nil {
-		return errors.New("Telegram response unreadable")
+		return errors.New("telegram response unreadable")
 	}
 	var envelope struct {
 		OK         bool            `json:"ok"`
@@ -70,10 +70,10 @@ func (c *Client) Do(ctx context.Context, method string, input, output any) error
 		} `json:"parameters"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil {
-		return errors.New("Telegram response invalid")
+		return errors.New("telegram response invalid")
 	}
 	if !envelope.OK {
-		return fmt.Errorf("Telegram refused request (HTTP %d; retry after %ds)", res.StatusCode, envelope.Parameters.Retry)
+		return fmt.Errorf("telegram refused request (HTTP %d; retry after %ds)", res.StatusCode, envelope.Parameters.Retry)
 	}
 	if output != nil {
 		return json.Unmarshal(envelope.Result, output)

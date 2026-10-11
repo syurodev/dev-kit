@@ -149,12 +149,12 @@ func (s *Service) Close() {
 }
 func (s *Service) Configure(ctx context.Context, cfg Config) error {
 	if len(cfg.Workspaces) > 100 {
-		return errors.New("Too many workspaces")
+		return errors.New("too many workspaces")
 	}
 	if cfg.Enabled {
 		token, err := s.deps.Token(cfg.AccountID)
 		if err != nil {
-			return errors.New("Choose an available local bot token")
+			return errors.New("choose an available local bot token")
 		}
 		client := NewClient(token)
 		var bot User
@@ -168,7 +168,7 @@ func (s *Service) Configure(ctx context.Context, cfg Config) error {
 			return err
 		}
 		if hook.URL != "" {
-			return errors.New("This bot has a webhook; use a dedicated bot without a webhook")
+			return errors.New("this bot has a webhook; use a dedicated bot without a webhook")
 		}
 		s.mu.Lock()
 		s.botName = bot.Username
@@ -195,7 +195,7 @@ func (s *Service) Pair() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.state.Config.Enabled || s.deps.Locked() || s.botName == "" {
-		return "", errors.New("Enable Telegram while the vault is unlocked first")
+		return "", errors.New("enable Telegram while the vault is unlocked first")
 	}
 	s.nonce = randomID()
 	s.nonceUntil = time.Now().Add(5 * time.Minute)
@@ -207,7 +207,7 @@ func (s *Service) AcceptPair(user int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.deps.Locked() || user == 0 || user != s.candidate.ID || !time.Now().Before(s.nonceUntil) {
-		return errors.New("Pairing candidate expired")
+		return errors.New("pairing candidate expired")
 	}
 	next := s.state
 	next.UserID = user
@@ -407,7 +407,7 @@ func (s *Service) allowed(id string) bool {
 func (s *Service) session(ctx context.Context, id string) (agenthub.AgentSession, error) {
 	sess, err := s.deps.Agents.GetStatus(ctx, id)
 	if err != nil || !s.allowed(sess.WorkspaceID) {
-		return sess, errors.New("Session outside allowed workspaces")
+		return sess, errors.New("session outside allowed workspaces")
 	}
 	return sess, nil
 }

@@ -110,7 +110,7 @@ func TestModelVendorFailureDoesNotClaimSuccess(t *testing.T) {
 	s, c, agents, messages := modelHarness(t)
 	agents.changeErr = errors.New("private vendor error")
 	s.modelCommand(context.Background(), c, "b")
-	if agents.modelChanges != 0 || len(*messages) == 0 || !strings.Contains((*messages)[0], "Không chuyển được") || strings.Contains((*messages)[0], "private") {
+	if agents.modelChanges != 0 || len(*messages) == 0 || !strings.Contains((*messages)[0], "không chuyển được") || strings.Contains((*messages)[0], "private") {
 		t.Fatal("vendor failure mishandled")
 	}
 }
