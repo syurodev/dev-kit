@@ -89,7 +89,7 @@ func (s *Service) OpenDatabase(ctx context.Context, parentID, name string) (Prof
 		defaultDB = "postgres"
 	}
 	if defaultDB == name {
-		return summaryFromRecord(parent)
+		return s.profileSummary(parent)
 	}
 	s.mu.Lock()
 	records, err := s.store.ListByType(itemType)

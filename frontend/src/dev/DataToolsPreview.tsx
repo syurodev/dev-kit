@@ -21,12 +21,21 @@ function Preview() {
   const [widths, setWidths] = useState<number[]>([]);
   const namespace = { public: { users: ["id", "name"] }, billing: { invoices: ["id"] } };
   useEffect(() => {
+    const originalDatabase = useDatabaseStore.getState();
+    const keys = ["profiles", "selectedProfileId", "serverDatabases", "databaseErrors", "schemaSnapshot", "expandedProfiles", "visibleSchemas", "visibleDatabases", "setSelectedProfileId", "discoverDatabases", "openServerDatabase"] as const;
+    const restoreDatabase = Object.fromEntries(keys.map(key => [key, originalDatabase[key]]));
+    const originalTerminal = useTerminalTabsStore.getState();
     useTerminalTabsStore.setState({ tabs: [{ key: "demo", title: "Production #1 · deploy@very-long-hostname.example.test" }, { key: "demo-2", title: "Logs" }], activeKey: "demo" });
     const root={ id:"pg-preview",name:"PostgreSQL server",host:"example.test",port:5432,database:"postgres",username:"reader",sslMode:"required",env:"dev",readOnly:true,engine:"postgres" };
     const a={...root,id:"pg-app",parentProfileId:root.id,name:"PostgreSQL server / app",database:"app"};
     const b={...root,id:"pg-analytics",parentProfileId:root.id,name:"PostgreSQL server / analytics",database:"analytics"};
     const choose=(id:string)=>useDatabaseStore.setState({selectedProfileId:id,schemaSnapshot:{namespace:id===b.id?{public:{events:["id","time"]}}:namespace,indexedAt:"",columns:{}}});
-    useDatabaseStore.setState({profiles:[root,a,b],selectedProfileId:a.id,serverDatabases:{[root.id]:["postgres","app","analytics"]},schemaSnapshot:{namespace,indexedAt:"",columns:{}},expandedProfiles:{[root.id]:true},visibleSchemas:{},visibleDatabases:{},setSelectedProfileId:choose,discoverDatabases:async()=>{},openServerDatabase:async(_id,name)=>{choose(name==="analytics"?b.id:name==="app"?a.id:root.id);} });
+    const catalogError = new URLSearchParams(window.location.search).has("catalog-error");
+    useDatabaseStore.setState({databaseErrors:catalogError?{[root.id]:"Database discovery unavailable"}:{},profiles:[root,a,b],selectedProfileId:a.id,serverDatabases:{[root.id]:catalogError?[]:["postgres","app","analytics"]},schemaSnapshot:{namespace,indexedAt:"",columns:{}},expandedProfiles:{[root.id]:true},visibleSchemas:{},visibleDatabases:{},setSelectedProfileId:choose,discoverDatabases:async()=>{},openServerDatabase:async(_id,name)=>{choose(name==="analytics"?b.id:name==="app"?a.id:root.id);} });
+    return () => {
+      useDatabaseStore.setState(restoreDatabase);
+      useTerminalTabsStore.setState({tabs: originalTerminal.tabs, activeKey: originalTerminal.activeKey});
+    };
   }, []);
   return <main className="mx-auto flex max-w-4xl flex-col gap-6 p-6 text-text-primary">
     <h1 className="text-heading-24">Database and terminal controls</h1>

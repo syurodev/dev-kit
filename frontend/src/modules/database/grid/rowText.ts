@@ -31,7 +31,11 @@ export function rowAsJSON(columns: string[], row: (string | null)[]): string {
 /** TSV in display order, suitable for pasting selected cells or complete rows. */
 export function selectionAsTSV(rows: readonly (readonly (string | null)[])[], order: readonly number[], range: { top: number; bottom: number; left: number; right: number }): string {
   const field = (value: string | null | undefined) => {
-    const text = value ?? "";
+    const raw = value ?? "";
+    // TSV is commonly pasted into spreadsheets. Keep signed numbers numeric,
+    // but force formula-like database text to be interpreted as literal text.
+    const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw.trim());
+    const text = /^\s*[=+@-]/.test(raw) && !numeric ? `'${raw}` : raw;
     return /[\t\r\n"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   return rows.slice(Math.max(0, range.top), range.bottom + 1).map((row) =>

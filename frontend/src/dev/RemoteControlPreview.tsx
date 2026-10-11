@@ -16,6 +16,9 @@ function Preview() {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const api = useMemo<TelegramSettingsAPI>(() => {
     let status: TelegramStatus = { config: { enabled: false, accountId: "", workspaces: [], sendDetails: false, readTranscript: false, approveInteractions: false }, paired: false, userId: 0, candidateId: 0, candidateName: "", botName: "", error: "" };
+    if (new URLSearchParams(window.location.search).has("paired")) {
+      status = {...status, paired:true, userId:12345678, botName:"devkit_preview_bot", config:{...status.config,enabled:true,accountId:"preview-account",workspaces:["preview-workspace"],readTranscript:true}};
+    }
     return {
       status: async () => structuredClone(status),
       configure: async (config, token) => { status = { ...status, config: { ...config, accountId: token ? "preview-account" : config.accountId }, botName: "devkit_preview_bot", candidateId: 0 }; },

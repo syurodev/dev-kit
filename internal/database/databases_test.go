@@ -38,6 +38,19 @@ func TestDatabaseContextInheritsPolicyAndHasNoCredentialPayload(t *testing.T) {
 	if sum.ParentProfileID != root.ID || sum.Env != "prod" || !sum.ReadOnly || sum.Name != "server / orders" {
 		t.Fatalf("summary=%+v", sum)
 	}
+	profiles, err := svc.ListProfiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inherited bool
+	for _, profile := range profiles {
+		if profile.ID == child.ID {
+			inherited = profile.Env == "prod" && profile.ReadOnly && profile.ParentProfileID == root.ID
+		}
+	}
+	if !inherited {
+		t.Fatal("public profile listing lost the child's parent policy")
+	}
 	payload, err := store.OpenPayload(child, passwordKeyID)
 	if err != nil || len(payload) != 0 {
 		t.Fatal("child duplicated credentials")
