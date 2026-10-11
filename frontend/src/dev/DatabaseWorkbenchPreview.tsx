@@ -35,6 +35,9 @@ const result = {
 export default function DatabaseWorkbenchPreview() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    const original = useDatabaseStore.getState();
+    const keys = ["profiles", "selectedProfileId", "schemaSnapshot", "serverDatabases", "expandedProfiles", "discoverDatabases", "setSelectedProfileId", "consoles", "executeQuery", "runScript", "copyFormat", "inspectedCell"] as const;
+    const restore = Object.fromEntries(keys.map(key => [key, original[key]]));
     const profile = {
       id: "preview-prod",
       name: "Chiro Prod",
@@ -94,7 +97,7 @@ export default function DatabaseWorkbenchPreview() {
       copyFormat: "json",
     });
     setReady(true);
-    return () => useDatabaseStore.getState().setInspectedCell(null);
+    return () => useDatabaseStore.setState(restore);
   }, []);
   if (!ready) return null;
   return (
