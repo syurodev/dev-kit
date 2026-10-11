@@ -83,7 +83,16 @@ type AccountChoice struct {
 	Remember bool
 }
 
+type Target struct {
+	Repo        string `json:"repo,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Remote      string `json:"remote,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Action      string `json:"action,omitempty"`
+}
+
 type ConfirmRequest struct {
+	Target  Target
 	Env     string
 	Tool    string
 	Summary string
@@ -96,6 +105,7 @@ type ConfirmRequest struct {
 }
 
 type Pending struct {
+	Target             Target    `json:"target"`
 	ID                 string    `json:"id"`
 	Type               Type      `json:"type"`
 	Kind               Kind      `json:"kind,omitempty"`
@@ -104,6 +114,7 @@ type Pending struct {
 	Summary            string    `json:"summary,omitempty"`
 	AllowAlwaysOffered bool      `json:"allowAlwaysOffered"`
 	Caller             string    `json:"caller,omitempty"`
+	ExpiresAt          time.Time `json:"expiresAt"`
 	CreatedAt          time.Time `json:"createdAt"`
 	// Options and Remember are set on a KindGitAccount selection only: the
 	// accounts to choose between, and what a kept answer would be kept for.
@@ -131,6 +142,7 @@ type pendingWait struct {
 	Pending
 	result   chan string
 	finished bool
+	ctx      context.Context
 }
 
 func NewHub(p Prompter) *Hub {
@@ -148,7 +160,9 @@ func (h *Hub) PendingList() []Pending {
 	defer h.mu.Unlock()
 	out := make([]Pending, 0, len(h.pending))
 	for _, w := range h.pending {
-		out = append(out, w.Pending)
+		if !w.finished && w.ctx.Err() == nil {
+			out = append(out, w.Pending)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out
@@ -183,7 +197,7 @@ func (h *Hub) Complete(id, value string) error {
 		return ErrNoPendingInteraction
 	}
 	w, ok := h.pending[id]
-	if !ok || w.finished {
+	if !ok || w.finished || w.ctx.Err() != nil || !time.Now().Before(w.ExpiresAt) {
 		return ErrInvalidInteractionID
 	}
 	select {
@@ -331,7 +345,7 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 	}
 	_, err := h.wait(ctx, Pending{
 		Type: TypeConfirm, Kind: req.Kind, Env: req.Env, Tool: req.Tool, Summary: req.Summary,
-		AllowAlwaysOffered: !req.EnvBlocks,
+		AllowAlwaysOffered: !req.EnvBlocks, Target: req.Target,
 	}, mapResult)
 	return err
 }
@@ -344,6 +358,14 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 	p.ID = id
 	p.Caller = identity.Label(ctx)
 	p.CreatedAt = time.Now().UTC()
+	timeout := h.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	p.ExpiresAt = p.CreatedAt.Add(timeout)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(p.ExpiresAt) {
+		p.ExpiresAt = deadline
+	}
 	resCh := make(chan string, 1)
 
 	h.mu.Lock()
@@ -353,7 +375,7 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 			return "", ErrCallerBusy
 		}
 	}
-	h.pending[id] = &pendingWait{Pending: p, result: resCh}
+	h.pending[id] = &pendingWait{Pending: p, result: resCh, ctx: ctx}
 	h.mu.Unlock()
 
 	defer h.invalidatePending(id)
@@ -362,11 +384,7 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 		return "", err
 	}
 
-	timeout := h.Timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
-	timer := time.NewTimer(timeout)
+	timer := time.NewTimer(time.Until(p.ExpiresAt))
 	defer timer.Stop()
 
 	select {
@@ -375,6 +393,12 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 	case <-timer.C:
 		return "", ErrInteractionTimeout
 	case v := <-resCh:
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if !time.Now().Before(p.ExpiresAt) {
+			return "", ErrInteractionTimeout
+		}
 		return mapResult(v)
 	}
 }

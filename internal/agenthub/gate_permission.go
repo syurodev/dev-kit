@@ -30,7 +30,7 @@ func (s *Service) ConfirmTool(ctx context.Context, req interaction.ConfirmReques
 	}
 	params, _ := json.Marshal(map[string]any{
 		"sessionId": caller.SessionID, "origin": "devkit_gate", "env": req.Env, "locked": req.EnvBlocks,
-		"profileId": req.ProfileID, "profileName": profileName, "kind": req.Kind, "tool": req.Tool, "summary": req.Summary,
+		"target": req.Target, "profileId": req.ProfileID, "profileName": profileName, "kind": req.Kind, "tool": req.Tool, "summary": req.Summary,
 		"toolCall": map[string]any{"title": req.Tool, "kind": "other", "rawInput": map[string]string{"command": req.Summary}},
 		"options":  options,
 	})

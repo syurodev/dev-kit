@@ -29,6 +29,7 @@ import (
 	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
 	"devkit/internal/tasks"
+	"devkit/internal/telegramcontrol"
 	"devkit/internal/vault"
 	"devkit/internal/workspace"
 	"devkit/internal/wssearch"
@@ -128,6 +129,10 @@ var safeValidationMessages = map[string]struct{}{
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
+	var telegramError *telegramcontrol.SettingsError
+	if errors.As(err, &telegramError) {
+		return apperrors.New(codeValidationFailed, telegramError.Message, true)
+	}
 	if mapped := workspaceMemoryPublicError(err); mapped != nil {
 		return mapped
 	}

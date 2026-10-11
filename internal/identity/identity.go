@@ -15,6 +15,8 @@ const (
 	KindUserTerminal Kind = "user-terminal"
 	// KindUI is the desktop frontend calling through the bridge.
 	KindUI Kind = "ui"
+	// KindRemoteHuman is a paired person using the desktop remote-control boundary.
+	KindRemoteHuman Kind = "remote-human"
 )
 
 // Unknown is the audit label for a context that carries no Caller.

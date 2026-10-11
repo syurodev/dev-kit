@@ -8,5 +8,6 @@ export {
 
 export type {
     AccountOption,
-    Pending
+    Pending,
+    Target
 } from "./models.js";

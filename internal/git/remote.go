@@ -308,7 +308,11 @@ func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {
 		if s.confirm == nil {
 			return ErrNotAllowed
 		}
-		allowed, err := s.confirm.Confirm(ctx, "Push to "+remote+"/"+branch+" ("+env+")", "This leaves the machine and cannot be undone.")
+		target, targetErr := s.remoteNamed(ctx, remote, true)
+		if targetErr != nil {
+			return targetErr
+		}
+		allowed, err := s.confirmGit(ctx, Confirmation{Title: "Push to " + remote + "/" + branch + " (" + env + ")", Detail: "This leaves the machine and cannot be undone.", Branch: branch, Remote: remote, Destination: safeDestination(target.URL), Env: env, Action: "Push"})
 		if err != nil {
 			return err
 		}

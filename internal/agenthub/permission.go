@@ -62,6 +62,7 @@ type permissionWait struct {
 	result   chan json.RawMessage
 	finished bool
 	gate     bool
+	ctx      context.Context
 }
 
 // NewPermissionWaiter creates a waiter. notify may be nil (still waits for Complete).
@@ -117,7 +118,7 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 		}
 	}
-	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate}
+	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate, ctx: ctx}
 	w.mu.Unlock()
 
 	defer w.invalidate(id)
@@ -149,7 +150,7 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 		return errors.New("agenthub: no pending permission")
 	}
 	p, ok := w.pending[id]
-	if !ok || p.finished {
+	if !ok || p.finished || p.ctx.Err() != nil || (!p.ExpiresAt.IsZero() && !time.Now().Before(p.ExpiresAt)) {
 		return errors.New("agenthub: invalid permission id")
 	}
 	select {
@@ -198,6 +199,9 @@ func (w *PermissionWaiter) PendingList() []PendingPermission {
 	defer w.mu.Unlock()
 	out := make([]PendingPermission, 0, len(w.pending))
 	for _, p := range w.pending {
+		if p.finished || p.ctx.Err() != nil {
+			continue
+		}
 		cp := p.PendingPermission
 		cp.Params = append(json.RawMessage(nil), cp.Params...)
 		out = append(out, cp)

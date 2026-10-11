@@ -96,6 +96,9 @@ func (s *AppService) LockVault() error {
 	_, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "lock",
 	}, func(context.Context) (any, error) {
+		if s.container.Telegram != nil {
+			s.container.Telegram.Suspend()
+		}
 		s.container.Vault.Lock()
 		return nil, nil
 	})
