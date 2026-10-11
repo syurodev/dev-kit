@@ -83,7 +83,7 @@ export interface ChangedFile {
 
 /**
  * ChangedSource is how much DevKit could work out about who wrote a file.
- *
+ * 
  * Honest rather than confident: the jail lets several sessions share a project
  * and a Bash script writes files no tool call names, so "the agent did it" is a
  * claim that can only be made where there is evidence for it.
@@ -116,7 +116,7 @@ export enum ChangedSource {
 
 /**
  * CheckpointAvailability is what Settings shows about file checkpoints.
- *
+ * 
  * Two separate facts, deliberately not collapsed into one: whether the machine
  * can do this, and whether the user wants it. "Off" with no reason reads as
  * broken, and "on" on a machine with no git would be a lie.
@@ -205,7 +205,7 @@ export enum CheckpointStatus {
 
 /**
  * CheckpointSummary is a checkpoint as the transcript reads it.
- *
+ * 
  * A narrower row than CheckpointRecord on purpose. The record carries the
  * vendor's own changed-file report, the skip list and a per-kind detail blob —
  * none of which the UI reads, all of which travel on every session open and
@@ -235,7 +235,7 @@ export interface CheckpointSummary {
 
 /**
  * ConfigOption is one per-session setting from a config_option_update.
- *
+ * 
  * CurrentValue stays raw because its type follows Type: a value id on a
  * "select", a bool on a "boolean". Raw is what the UI wants anyway — it reaches
  * the frontend as a JSON string or a JSON boolean, which is exactly the union
@@ -254,7 +254,7 @@ export interface ConfigOption {
 
 /**
  * ConfigSelectOption is one selectable value of a select-typed ConfigOption.
- *
+ * 
  * The wire allows either a flat list of values or a list of named groups of
  * them; both arrive here flat, with Group naming the group a value came from.
  * Claude groups its models, and a flat list with the grouping still readable is
@@ -395,7 +395,7 @@ export interface InvokeResult {
 
 /**
  * PendingElicitation is a question an agent is waiting for a person to answer.
- *
+ * 
  * No ExpiresAt, unlike PendingPermission, and that is the whole difference in
  * one field. A permission is an authorization boundary: silence has to mean no,
  * so it fails closed after a deadline. A question grants nothing. A deadline on
@@ -444,7 +444,7 @@ export interface PendingPermission {
      * arrived — the rail was closed, the user was in another module, the lazy
      * chunk was still loading — and a countdown started at mount would promise
      * time that no longer exists.
-     *
+     * 
      * omitzero, not a plain field: a zero time.Time marshals as
      * "0001-01-01T00:00:00Z", which the UI read as a deadline in the year 1
      * and drew as "expired" — with the buttons greyed out on a request that
@@ -456,7 +456,7 @@ export interface PendingPermission {
 /**
  * PermissionFileDiff is what a pending permission would do to one file: the
  * file as it is on disk now, and as it would be once the edit is allowed.
- *
+ * 
  * The request itself says less than that. ACP carries the edit as a diff
  * content item, {path, oldText, newText}, and an agent fills it with the
  * tool's own arguments: Claude's Edit sends only the snippet it replaces and
@@ -741,7 +741,7 @@ export interface SignInStatus {
 
 /**
  * TranscriptEntry is one persisted row of a session's conversation.
- *
+ * 
  * Sessions and turns are operational records — they answer "what ran, what did
  * it cost". The transcript answers "what was said", which is the only part a
  * person needs back after a reload, and it is the part the hub used to lose
@@ -778,7 +778,7 @@ export interface TranscriptEntry {
 /**
  * TranscriptPage is one bounded window of a session's transcript, oldest
  * entry first so a page can feed the same loader a full listing does.
- *
+ * 
  * HasMore says older entries exist above the window — the transcript used to
  * travel as one unbounded array, and a session with months of history paid
  * for all of it on every open.
