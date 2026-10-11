@@ -37,6 +37,7 @@ import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { CODEX_VENDOR } from "@/bridge/agenthub";
+import { TelegramSetting } from "./TelegramSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
@@ -650,6 +651,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>FILE CHECKPOINTS</GroupLabel>
         <AgentCheckpointSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>TELEGRAM</GroupLabel>
+        <TelegramSetting />
       </div>
       <div className="flex flex-col gap-3">
         <GroupLabel>NOTIFICATIONS</GroupLabel>

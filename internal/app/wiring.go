@@ -388,3 +388,15 @@ func WireAgentLiveness(c *Container, db *sql.DB, bindingsTable string) {
 		c.Tasks.SetScope(newTaskScope(c.Workspace, hub), db, bindingsTable)
 	}
 }
+
+// ConfirmGit preserves target metadata for desktop and remote confirmations.
+func (c hubConfirmer) ConfirmGit(ctx context.Context, req gitservice.Confirmation) (bool, error) {
+	if c.hub == nil {
+		return false, nil
+	}
+	err := c.hub.Confirm(ctx, interaction.ConfirmRequest{Tool: req.Title, Summary: req.Detail, Kind: interaction.KindGit, Env: req.Env, EnvBlocks: true, ProfileID: req.Repo, Target: interaction.Target{Repo: req.Repo, Branch: req.Branch, Remote: req.Remote, Destination: req.Destination, Action: req.Action}})
+	if errors.Is(err, interaction.ErrConfirmationDenied) {
+		return false, nil
+	}
+	return err == nil, err
+}

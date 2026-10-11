@@ -92,6 +92,7 @@ type elicitationWait struct {
 	PendingElicitation
 	result   chan json.RawMessage
 	finished bool
+	ctx      context.Context
 }
 
 // NewElicitationWaiter creates a waiter. Either callback may be nil.
@@ -138,7 +139,7 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 	resCh := make(chan json.RawMessage, 1)
 
 	w.mu.Lock()
-	w.pending[id] = &elicitationWait{PendingElicitation: p, result: resCh}
+	w.pending[id] = &elicitationWait{PendingElicitation: p, result: resCh, ctx: ctx}
 	w.mu.Unlock()
 
 	if w.notify != nil {
@@ -152,6 +153,9 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 		}
 		return append(json.RawMessage(nil), cancelledElicitation...), nil
 	case response := <-resCh:
+		if ctx.Err() != nil {
+			return append(json.RawMessage(nil), cancelledElicitation...), nil
+		}
 		return response, nil
 	}
 }
@@ -164,9 +168,10 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 func (w *ElicitationWaiter) Complete(id string, response json.RawMessage) error {
 	w.mu.Lock()
 	p, ok := w.pending[id]
-	if !ok || p.finished {
+	if !ok || p.finished || p.ctx.Err() != nil {
+		empty := len(w.pending) == 0
 		w.mu.Unlock()
-		if len(w.pending) == 0 {
+		if empty {
 			return errors.New("agenthub: no pending elicitation")
 		}
 		return errors.New("agenthub: invalid elicitation id")

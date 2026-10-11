@@ -78,7 +78,16 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 	if guard.Env != "" {
 		title += " (" + guard.Env + ")"
 	}
-	allowed, err := s.confirm.Confirm(ctx, title, detail)
+	req := Confirmation{Title: title, Detail: detail, Branch: branch, Env: guard.Env, Action: what}
+	if what == "Push" && strings.HasPrefix(detail, "to ") {
+		req.Remote = strings.TrimPrefix(detail, "to ")
+		target, err := s.remoteNamed(ctx, req.Remote, true)
+		if err != nil {
+			return err
+		}
+		req.Destination = safeDestination(target.URL)
+	}
+	allowed, err := s.confirmGit(ctx, req)
 	if err != nil {
 		return err
 	}

@@ -30,6 +30,7 @@ import (
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
 	"devkit/internal/tasks"
+	"devkit/internal/telegramcontrol"
 	"devkit/internal/terminal"
 	"devkit/internal/tools"
 	"devkit/internal/uistate"
@@ -72,6 +73,7 @@ type SyncConflictService interface {
 }
 
 type Container struct {
+	Telegram     *telegramcontrol.Service
 	Commands     *commands.Registry
 	Modules      *modules.Registry
 	Audit        *audit.MemorySink
@@ -358,6 +360,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:list"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:claude-code"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "telegram"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "telegram"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme"},
 		// The palette is a scope of its own rather than more room inside

@@ -2333,6 +2333,29 @@ export function TasksVerifyRuns(taskID: string, limit: number): $CancellableProm
     return $Call.ByID(1955308559, taskID, limit);
 }
 
+export function TelegramAcceptPair(userID: number): $CancellablePromise<void> {
+    return $Call.ByID(3826986645, userID);
+}
+
+export function TelegramBeginPair(): $CancellablePromise<string> {
+    return $Call.ByID(502505582);
+}
+
+/**
+ * token is input-only and kept in a local encrypted Accounts row, never preferences.
+ */
+export function TelegramConfigure(configJSON: string, token: string): $CancellablePromise<void> {
+    return $Call.ByID(3231605259, configJSON, token);
+}
+
+export function TelegramStatus(): $CancellablePromise<string> {
+    return $Call.ByID(174046127);
+}
+
+export function TelegramUnpair(): $CancellablePromise<void> {
+    return $Call.ByID(2733867994);
+}
+
 export function TerminalClose(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(4008598614, sessionID);
 }

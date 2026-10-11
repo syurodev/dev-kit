@@ -47,6 +47,7 @@ export enum Kind {
 };
 
 export interface Pending {
+    "target": Target;
     "id": string;
     "type": Type;
     "kind"?: Kind;
@@ -55,6 +56,7 @@ export interface Pending {
     "summary"?: string;
     "allowAlwaysOffered": boolean;
     "caller"?: string;
+    "expiresAt": string;
     "createdAt": string;
 
     /**
@@ -63,6 +65,14 @@ export interface Pending {
      */
     "options"?: AccountOption[] | null;
     "remember"?: string;
+}
+
+export interface Target {
+    "repo"?: string;
+    "branch"?: string;
+    "remote"?: string;
+    "destination"?: string;
+    "action"?: string;
 }
 
 export enum Type {

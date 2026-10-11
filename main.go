@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
 	"devkit/internal/app"
@@ -32,6 +33,9 @@ import (
 	"devkit/internal/notify"
 	"devkit/internal/preferences"
 	"devkit/internal/servermode"
+	"devkit/internal/telegramcontrol"
+	"errors"
+	"strings"
 
 	"devkit/internal/storage"
 	"devkit/internal/syncclient"
@@ -894,6 +898,36 @@ func main() {
 	// one that diverged moves it back. Chains the existing listener rather
 	// than replacing it, so the frontend still hears about re-indexes.
 	app.WirePlanReconcile(container)
+	// Telegram runs only in the authenticated desktop host; server-mode bridge
+	// access must never configure a remote approval channel.
+	if !application.System.IsServer() {
+		telegram, err := telegramcontrol.New(telegramcontrol.NewSQLStore(db), telegramcontrol.Deps{
+			Agents: agentSvc, Permissions: agentWaiter, Questions: agentElicitations,
+			Interaction: hub, Workspaces: container.Workspace, Locked: container.Vault.IsLocked,
+			Audit: audit.NewTee(container.Audit, auditSQL),
+			Token: func(id string) (string, error) {
+				account, err := container.Accounts.Get(id)
+				if err != nil || account.Kind != accounts.KindToken || !strings.HasPrefix(account.ScopeOwner, accounts.LocalOwnerPrefix) {
+					return "", errors.New("Local token required")
+				}
+				credential, err := container.Accounts.Resolve(accounts.ResolveInput{AccountID: id, By: "telegram"})
+				if err != nil {
+					return "", err
+				}
+				return credential.Secret, nil
+			},
+		})
+		if err != nil {
+			log.Printf("telegram: local settings unavailable")
+		} else {
+			container.Telegram = telegram
+			container.Accounts.RegisterUsage(telegram)
+			telegramCtx, stopTelegram := context.WithCancel(context.Background())
+			telegramDone := make(chan struct{})
+			go func() { defer close(telegramDone); telegram.Run(telegramCtx) }()
+			defer func() { stopTelegram(); <-telegramDone }()
+		}
+	}
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
