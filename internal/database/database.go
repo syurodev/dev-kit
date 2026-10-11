@@ -351,7 +351,7 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 			return ProfileSummary{}, err
 		}
 	}
-	return summaryFromRecord(record)
+	return s.profileSummary(record)
 }
 
 func (s *Service) ListProfiles() ([]ProfileSummary, error) {
@@ -445,7 +445,7 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		}
 	}
 
-	return summaryFromRecord(updatedRecord)
+	return s.profileSummary(updatedRecord)
 }
 
 func (s *Service) DeleteProfile(id string) error {

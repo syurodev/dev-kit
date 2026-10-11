@@ -84,6 +84,11 @@ import {
 // usually the one below the fold — four more of them on a 500px pane is worth
 // more than the airiness. Read by useVirtualRows, so it has to match the `h-7`
 // on the cells or the spacer rows drift out of step with the real ones.
+function hasSelectedCellText(table: HTMLTableElement): boolean {
+  const text = table.ownerDocument.getSelection();
+  return Boolean(text && !text.isCollapsed && text.anchorNode && table.contains(text.anchorNode));
+}
+
 const ROW_HEIGHT = 28;
 
 // Enough to decide whether a value will be clipped, which is all the tooltip
@@ -469,6 +474,7 @@ export function ResultGrid({
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c" && selection && selection.focus.row !== HEADER_ROW && result.rows.length > 0) {
+      if (hasSelectedCellText(event.currentTarget)) return;
       event.preventDefault(); event.stopPropagation();
       void onCopySelection(selectionText(selectedRange(selection))).catch(() => toast.error("Could not copy selection"));
       return;
@@ -671,7 +677,7 @@ export function ResultGrid({
               onCopy={(event) => {
                 // WebKit may dispatch the native Edit → Copy action without a
                 // keydown. Editors keep their own text selection/clipboard.
-                if (editing || !selection || selection.focus.row < 0 || !result.rows.length) return;
+                if (editing || hasSelectedCellText(event.currentTarget) || !selection || selection.focus.row < 0 || !result.rows.length) return;
                 event.preventDefault(); event.stopPropagation();
                 const text = selectionText(selectedRange(selection));
                 event.clipboardData.setData("text/plain", text);

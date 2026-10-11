@@ -558,7 +558,7 @@ export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; param
       title: `${profile.username}@${profile.host}:${profile.port}${profile.database ? `/${profile.database}` : ""}${
         isSelected && indexed ? ` · indexed ${indexed}` : ""
       }`,
-      children: isSelected ? postgres ? databaseNodes(profile) : schemaNodes() : undefined,
+      children: isSelected ? postgres && !databaseErrors[profile.id] && (serverDatabases[profile.id]?.length ?? 0) > 0 ? databaseNodes(profile) : schemaNodes() : undefined,
       loading: isSelected && (indexingSchema || loadingDatabases[profile.id]),
       // A label that names a gesture is a label for a control that should have
       // been drawn (writing.md › "give them a button or link to do so if
@@ -799,7 +799,9 @@ export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; param
           // #49: a deleted profile left selected made every later call fail
           // with "not found". Nothing selected, and fetchProfiles picks the
           // first one left.
-          if (useDatabaseStore.getState().selectedProfileId === id) {
+          const state = useDatabaseStore.getState();
+          const selected = state.profiles.find(p => p.id === state.selectedProfileId);
+          if (state.selectedProfileId === id || selected?.parentProfileId === id) {
             setSelectedProfileId("");
           }
           void fetchProfiles();
