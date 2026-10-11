@@ -38,7 +38,10 @@ import { AgentPermissionRequest } from "../AgentPermissionRequest";
 import { AgentQuestionCard } from "../AgentQuestionCard";
 import { AgentSubagentTracker } from "../AgentSubagentTracker";
 import { TrayChip, TrayChips, type TrayPanel } from "./ComposerTray";
-import { ComposerContextBar, type ContextBarMenuEntry } from "./ComposerContextBar";
+import {
+  ComposerContextBar,
+  type ContextBarMenuEntry,
+} from "./ComposerContextBar";
 import { chooseTrayPanel, repoSummary, type TrayOpened } from "./trayModel";
 import { useRisingEdge } from "../../sidebar/hooks";
 import {
@@ -147,10 +150,14 @@ export function useAgentTray(input: AgentTrayInput): {
   // Numbers, so a queue changing under another session re-renders nothing here.
   const sessionId = session?.id ?? "";
   const permissionsWaiting = useAgentSessionsStore((s) =>
-    sessionId ? s.pendingQueue.filter((p) => p.sessionId === sessionId).length : 0,
+    sessionId
+      ? s.pendingQueue.filter((p) => p.sessionId === sessionId).length
+      : 0,
   );
   const questionsWaiting = useAgentSessionsStore((s) =>
-    sessionId ? s.elicitationQueue.filter((q) => q.sessionId === sessionId).length : 0,
+    sessionId
+      ? s.elicitationQueue.filter((q) => q.sessionId === sessionId).length
+      : 0,
   );
   const permissionCount = permission ? Math.max(1, permissionsWaiting) : 0;
   const questionCount = question ? Math.max(1, questionsWaiting) : 0;
@@ -371,7 +378,7 @@ export function useAgentTray(input: AgentTrayInput): {
           // them need a look. The two numbers used to share one pill.
           count={status.repos.length}
           badge={repos.badge ?? undefined}
-          title={repos.title}
+          title={`Show repositories · ${repos.title}`}
           active={panel?.key === "repos"}
           onClick={() => toggle("repos")}
         />
@@ -656,7 +663,7 @@ export function TrayRepoList({
       <TrayPanelHeading
         title="Repositories"
         count={repos.length}
-        detail="Open changes beside this conversation"
+        detail="Select a repository to open Git Changes beside this conversation"
         onClose={onClose}
       />
       <ul

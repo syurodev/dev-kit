@@ -211,7 +211,7 @@ describe("the context bar", () => {
     expect(chip).toMatch(/data-testid="tray-branch-badge"[^>]*data-tone="danger"/);
     expect(chip).toContain("2 of 4 repositories need attention (1 with conflicts, 1 with changes)");
     expect(chip).not.toMatch(/4 repos\s*2/);
-    expect(chip).toContain('aria-label="4 repositories · 2 of 4 repositories need attention');
+    expect(chip).toContain('aria-label="Show repositories · 4 repositories · 2 of 4 repositories need attention');
   });
 
   it("names the workspace without a bare number after it", () => {

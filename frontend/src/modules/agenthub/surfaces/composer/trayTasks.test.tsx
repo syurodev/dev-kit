@@ -84,7 +84,8 @@ describe("the tray's repositories", () => {
     expect(html).toContain("↓1");
     expect(html).toContain("1 conflicted");
     expect(html).toContain("unreadable");
-    expect(html).toContain("No uncommitted changes");
+    expect(html).toContain('aria-label="No uncommitted changes"');
+    expect(html).toContain('aria-label="Open web in Git beside this conversation"');
   });
 });
 
