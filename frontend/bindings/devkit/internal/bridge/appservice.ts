@@ -2356,6 +2356,13 @@ export function TelegramConfigure(configJSON: string, token: string): $Cancellab
     return $Call.ByID(3231605259, configJSON, token);
 }
 
+/**
+ * A session cannot opt itself in through an agent or terminal caller.
+ */
+export function TelegramSetSessionEnabled(sessionID: string, enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1137131894, sessionID, enabled);
+}
+
 export function TelegramStatus(): $CancellablePromise<string> {
     return $Call.ByID(174046127);
 }

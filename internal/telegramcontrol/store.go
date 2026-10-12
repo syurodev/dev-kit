@@ -8,6 +8,7 @@ import (
 
 // State contains no token, prompt, answer or approval. app_preferences is local.
 type Config struct {
+	SessionIDs          []string `json:"sessionIds"`
 	Enabled             bool     `json:"enabled"`
 	AccountID           string   `json:"accountId"`
 	Workspaces          []string `json:"workspaces"`

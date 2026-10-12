@@ -173,3 +173,10 @@ Chạy test tập trung cho package mới và hồi quy interaction/agenthub/git
 - Xác nhận metadata có cấu trúc cho gate profile ngoài Git và cách xác định workspace cho UI/terminal. Thao tác chưa phân loại được chỉ xử lý trên desktop, có lý do rõ ràng.
 - Sau này cân nhắc quyền nhà cung cấp lâu dài hoặc deadline DevKit dài hơn. Không cần hai tính năng này để phát hành Cho phép lần này, Từ chối và trả lời câu hỏi từ xa.
 - Tài khoản Telegram hoặc dịch vụ bị chiếm quyền nằm trong ranh giới tin cậy của người duyệt từ xa. Nếu prod cần xác thực độc lập thì thiết kế thêm yếu tố riêng; nút chỉ qua Telegram không cung cấp điều đó.
+
+
+### Session opt-in
+
+Workspace grants are necessary but insufficient for session remote control. Local Telegram preferences hold an explicit `sessionIds` allowlist; legacy/absent lists enable no sessions. The desktop-only `TelegramSetSessionEnabled` bridge mutates this list independently of settings drafts. All session reads, prompts, configuration changes, pending decisions and completion notifications check both the workspace grant and this allowlist. Agent-origin desktop confirmations also require their caller session to be opted in. UI/terminal confirmations retain their separate machine-wide opt-in.
+
+Opt-out revokes local button/form capabilities immediately, clears the selected session's transcript buffer, and strips old message buttons on the next reconciliation. A later opt-in issues new decision buttons. Telegram-created sessions are opted in only after the session is created and the local preference write succeeds.

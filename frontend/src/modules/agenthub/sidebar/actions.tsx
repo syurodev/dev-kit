@@ -1,3 +1,4 @@
+import { SessionRemoteControlItem } from "./SessionRemoteControlItem";
 import * as React from "react";
 import { Ban, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
 
@@ -77,6 +78,7 @@ export function SessionMenuItems({
           {pinned ? "Unpin" : "Pin to top"}
         </Item>
       ) : null}
+      <SessionRemoteControlItem session={session} Item={Item} />
       {a.newChild ? (
         <Item icon={<Plus />} onSelect={() => a.newChild?.(session)}>
           New child session

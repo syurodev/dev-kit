@@ -3,6 +3,7 @@ package telegramcontrol
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,6 +140,9 @@ func TestNewSessionRechecksScopeAndSender(t *testing.T) {
 func TestNewSessionDirectCommandConfiguresModelAndEffort(t *testing.T) {
 	s, c, agents := creationHarness(t)
 	s.handle(context.Background(), c, command("/new codex ws b high"))
+	if !slices.Contains(s.state.Config.SessionIDs, "created-session") {
+		t.Fatal("Telegram-created session was not opted in")
+	}
 	if len(agents.creations) != 1 || agents.modelChanges != 2 || agents.changedOption != "reasoning_effort" || agents.changedModel != "high" {
 		t.Fatal("direct configuration failed")
 	}

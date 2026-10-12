@@ -15,12 +15,20 @@ Sau khi ghép, trang hiển thị trạng thái **Connected** hoặc **Paused**,
 
 Chỉ chat riêng của tài khoản đã ghép được điều khiển. Không dùng group hoặc tin nhắn chuyển tiếp. Người dùng có thể hủy ghép hoặc tắt tích hợp trong Settings.
 
+## Bật theo từng session
+
+Workspace được cấp quyền không tự bật mọi session. Trong Agent Hub, mở menu `…` hoặc chuột phải session → **Enable remote control**. Chỉ session đã bật mới xuất hiện trong `/sessions`, được điều khiển/đọc qua Telegram và gửi thông báo kết thúc, yêu cầu quyền hay câu hỏi. Session cũ mặc định tắt; session con không tự kế thừa từ session cha.
+
+**Disable remote control** dừng gửi dữ liệu của session đó, bỏ lựa chọn/buffer đọc và vô hiệu hóa nút duyệt/trả lời cũ. Lựa chọn được lưu cục bộ và vẫn cần workspace nằm trong phạm vi được cấp quyền. Session tạo bằng `/new` được bật tự động vì thao tác tạo đến từ người dùng Telegram đã ghép.
+
+Xác nhận phát sinh từ agent cũng theo lựa chọn của session. Xác nhận UI/terminal tiếp tục dùng tùy chọn riêng **Review desktop and terminal confirmations**.
+
 ## Điều khiển và đọc session
 
 | Lệnh | Chức năng |
 | --- | --- |
 | `/help` | Xem các lệnh |
-| `/sessions` | Liệt kê session trong workspace được phép và nút chọn |
+| `/sessions` | Liệt kê session đã bật điều khiển từ xa trong workspace được phép và nút chọn |
 | `/sessions 10` | Xem trang tiếp theo của danh sách |
 | `/use <session ID>` | Chọn session bằng ID |
 | `/models` hoặc `/model` | Xem model hiện tại và các nút chọn model của session |

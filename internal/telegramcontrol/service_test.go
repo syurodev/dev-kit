@@ -118,7 +118,7 @@ func harness(t *testing.T) (*Service, *Client, *fakeAgents, *[]string) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	s, err := New(&memoryStore{state: State{Config: Config{Enabled: true, Workspaces: []string{"ws"}, SendDetails: true, ReadTranscript: true, ApproveInteractions: true}, UserID: 7, ChatID: 7}}, Deps{Agents: agents, Workspaces: fakeWorkspaces{}, Locked: func() bool { return false }, Permissions: agenthub.NewPermissionWaiter(nil), Questions: agenthub.NewElicitationWaiter(nil, nil), Interaction: interaction.NewHub(interaction.NoopPrompter{}), Audit: audit.NewMemorySink()})
+	s, err := New(&memoryStore{state: State{Config: Config{SessionIDs: []string{"session"}, Enabled: true, Workspaces: []string{"ws"}, SendDetails: true, ReadTranscript: true, ApproveInteractions: true}, UserID: 7, ChatID: 7}}, Deps{Agents: agents, Workspaces: fakeWorkspaces{}, Locked: func() bool { return false }, Permissions: agenthub.NewPermissionWaiter(nil), Questions: agenthub.NewElicitationWaiter(nil, nil), Interaction: interaction.NewHub(interaction.NoopPrompter{}), Audit: audit.NewMemorySink()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,6 +385,9 @@ func TestAgentOwnedDevKitGateSharesPermissionTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.deps.Agents = agents
+	if err := s.SetSessionEnabled(context.Background(), sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	s.deps.Interaction.ConfirmAgent = agents.ConfirmTool
 	ctx := identity.WithCaller(context.Background(), identity.Agent(sess.ID))
 	done := make(chan error, 1)

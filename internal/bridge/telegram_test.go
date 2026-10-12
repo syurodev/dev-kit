@@ -24,6 +24,9 @@ func TestTelegramSettingsRejectAgentAndTerminal(t *testing.T) {
 		if err := service.TelegramConfigure(ctx, `{"enabled":false}`, ""); err == nil {
 			t.Fatal("configuration write allowed")
 		}
+		if err := service.TelegramSetSessionEnabled(ctx, "session", true); err == nil {
+			t.Fatal("session opted in by non-UI caller")
+		}
 		if _, err := service.TelegramBeginPair(ctx); err == nil {
 			t.Fatal("pairing allowed")
 		}
@@ -45,6 +48,9 @@ func TestTelegramUIHasRequiredDefaultGrants(t *testing.T) {
 	container.Telegram = control
 	service := NewAppService(container)
 	if _, err := service.TelegramStatus(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.TelegramSetSessionEnabled(context.Background(), "deleted-session", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.TelegramConfigure(context.Background(), `{"enabled":false}`, ""); err != nil {

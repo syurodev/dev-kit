@@ -65,7 +65,7 @@ export function TelegramSetting({ api = LIVE_API, loadWorkspaces = listWorkspace
   const access = <div className="space-y-5">
     <div>
       <h3 className="text-body-13 font-medium">Workspaces</h3>
-      <p className="mt-1 text-body-12 text-text-tertiary">Select where Telegram can create sessions, send prompts and stop agents.</p>
+      <p className="mt-1 text-body-12 text-text-tertiary">Select where Telegram can create sessions. Enable remote control separately in each session’s menu to send prompts, read messages and receive notifications.</p>
       <div className="mt-3 divide-y divide-border-subtle rounded-lg border border-border-subtle px-3">
         {(workspaces ?? []).map((w) => <label key={w.id} className="flex cursor-pointer items-center gap-3 py-3">
           <Checkbox checked={(cfg.workspaces ?? []).includes(w.id)} disabled={busy} onCheckedChange={(checked) => setDraft({ ...cfg, workspaces: checked === true ? [...(cfg.workspaces ?? []), w.id] : (cfg.workspaces ?? []).filter((id) => id !== w.id) })} />
