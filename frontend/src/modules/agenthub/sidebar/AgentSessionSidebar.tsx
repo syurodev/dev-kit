@@ -14,9 +14,7 @@ import { AgentSessionGroup } from "./AgentSessionGroup";
 import { countDescendants, type SidebarWorkspace } from "./grouping";
 import { useMinuteClock, useNarrowRail } from "./hooks";
 import {
-  attentionKind,
   groupSessions,
-  nextWaiting,
   drawnWhenHidingClosed,
   type Attention,
   type SidebarGroup,
@@ -158,29 +156,12 @@ export function AgentSessionSidebar({
   const narrow = useNarrowRail(viewportRef);
   const now = useMinuteClock();
 
-  // Over every session, not the drawn ones: a hidden agent can still be
-  // waiting, and the footer is how you would find out.
-  const waitingIds = React.useMemo(
-    () => allSessions.filter((s) => attentionKind(s, attention[s.id]) !== null).map((s) => s.id),
-    [allSessions, attention],
-  );
-
   const newSessionIn = React.useCallback(
     (group: SidebarGroup) => latest.current.onNewSessionIn?.(group.path, group.workspace?.id, group.workspace?.paths),
     [],
   );
   const toggleCollapsed = React.useCallback((key: string) => latest.current.onToggleCollapsed?.(key), []);
   const toggleOlder = React.useCallback((key: string) => latest.current.onToggleOlder?.(key), []);
-
-  function goToNextWaiting() {
-    const next = nextWaiting(waitingIds, activeSessionId);
-    if (!next) return;
-    // Open its group first: a session the person was just sent to must not be
-    // behind a fold.
-    const group = groups.find((g) => g.sessions.some((s) => s.id === next));
-    if (group && collapsed.has(group.key)) onToggleCollapsed?.(group.key);
-    onSelectSession(next);
-  }
 
   // Up/Down/Home/End walk the rail's own stops (group headers, cards, stack
   // rows) without tabbing through every avatar and menu in between. Only when
@@ -201,8 +182,6 @@ export function AgentSessionSidebar({
       next.focus();
     }
   }
-
-  const waiting = waitingIds.length;
 
   return (
     <SessionActionsContext.Provider value={actions}>
@@ -292,23 +271,6 @@ export function AgentSessionSidebar({
             ))
           )}
         </div>
-
-        {waiting > 0 ? (
-          // A button, not a caption: the count says something needs you, and
-          // this is the shortest way to it. Each press walks to the next one.
-          <button
-            type="button"
-            data-testid="agent-tree-attention"
-            onClick={goToNextWaiting}
-            className="flex w-full shrink-0 cursor-pointer items-center gap-2 bg-(--state-soft) px-3 py-3 text-left outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-status-info"
-          >
-            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-status-warning" />
-            <span className="min-w-0 flex-1 text-caption-11-medium text-text-primary">
-              {`${waiting} agent${waiting === 1 ? "" : "s"} waiting on you`}
-            </span>
-            <span className="shrink-0 text-caption-11 text-text-tertiary">{waiting === 1 ? "Go" : "Next"}</span>
-          </button>
-        ) : null}
       </div>
     </SessionActionsContext.Provider>
   );
