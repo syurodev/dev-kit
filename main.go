@@ -1148,7 +1148,12 @@ func main() {
 		// Linux only, and the whole reason is that GTK would otherwise stack its
 		// own decoration on top of the app's title bar. See framelessWindow in
 		// native_webview_linux.go.
-		Frameless:        framelessWindow,
+		Frameless: framelessWindow,
+		// A file dragged in from the OS reaches the webview only as paths the
+		// page cannot see (WKWebView and WebKitGTK intercept the drag natively).
+		// Elements marked data-file-drop-target — the prompt composer — are the
+		// only ones that report a drop; see file_drop.go.
+		EnableFileDrop:   true,
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		// "/" everywhere but a WebKitGTK window compositing on the CPU, which
@@ -1171,6 +1176,12 @@ func main() {
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	trackWindowFrame(mainWindow, container.UIState)
 	trackWindowShape(wailsApp, mainWindow)
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		ctx := event.Context()
+		if payload, ok := droppedFilesPayload(ctx.DroppedFiles(), ctx.DropTargetDetails()); ok {
+			emitAppEvent(filesDroppedEvent, payload)
+		}
+	})
 
 	// Permission to notify is asked for when the user is here — the window
 	// gaining focus (the first time, normally at launch) or the setting being

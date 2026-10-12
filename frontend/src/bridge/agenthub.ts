@@ -992,3 +992,33 @@ export function permissionDetail(params: unknown): { message?: string; args?: st
   }
   return out;
 }
+
+const FILES_DROPPED_EVENT = "agenthub:filesDropped";
+
+export type FilesDropped = {
+  /** Which composer the files were dropped on (its data-composer-id). */
+  composer: string;
+  /** Absolute paths of regular files. */
+  paths: string[];
+  /** Folders and unreadable items that were left out. */
+  skipped: number;
+};
+
+/** Reads a drop event's payload; anything malformed is not a drop. */
+export function parseFilesDropped(data: unknown): FilesDropped | null {
+  const record = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+  if (!record || typeof record !== "object" || typeof record.composer !== "string") return null;
+  return {
+    composer: record.composer,
+    paths: Array.isArray(record.paths) ? record.paths.filter((p): p is string => typeof p === "string") : [],
+    skipped: typeof record.skipped === "number" ? record.skipped : 0,
+  };
+}
+
+/** Files dragged from the OS onto a prompt composer (desktop only). Returns unsubscribe. */
+export function onAgentHubFilesDropped(handler: (drop: FilesDropped) => void): () => void {
+  return Events.On(FILES_DROPPED_EVENT, (ev) => {
+    const drop = parseFilesDropped(ev?.data);
+    if (drop) handler(drop);
+  });
+}
