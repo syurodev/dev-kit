@@ -3,7 +3,6 @@ package agenthub
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -12,12 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
-	"unicode/utf16"
 
 	"github.com/dslipak/pdf"
-	"github.com/extrame/ole2"
-	"github.com/extrame/xls"
 )
 
 // Office and PDF files are binary containers, so they cannot ride as the text
@@ -40,6 +35,20 @@ const maxExtractedBytes = 1 << 20
 // archive that inflates to gigabytes (a zip bomb) cannot take the process.
 const maxPartBytes = 64 << 20
 
+// legacyOffice names the old binary Word and Excel formats DevKit does not
+// read: no maintained pure-Go reader exists for them, and a hand-rolled parser
+// is the kind of thing that is wrong in ways nobody notices. Refused by name,
+// with the way out, rather than as "not text".
+func legacyOffice(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".doc", ".dot":
+		return "Word"
+	case ".xls", ".xlt":
+		return "Excel"
+	}
+	return ""
+}
+
 // documentKind names the extractor for a file extension, or "" when the file
 // is not one of the formats read here.
 func documentKind(ext string) string {
@@ -48,12 +57,8 @@ func documentKind(ext string) string {
 		return "pdf"
 	case ".docx", ".docm":
 		return "docx"
-	case ".doc":
-		return "doc"
 	case ".xlsx", ".xlsm":
 		return "xlsx"
-	case ".xls":
-		return "xls"
 	}
 	return ""
 }
@@ -72,12 +77,8 @@ func extractDocument(kind string, body []byte) (text string, err error) {
 		text, err = extractPDF(body)
 	case "docx":
 		text, err = extractDOCX(body)
-	case "doc":
-		text, err = extractDOC(body)
 	case "xlsx":
 		text, err = extractXLSX(body)
-	case "xls":
-		text, err = extractXLS(body)
 	default:
 		return "", errors.New("unsupported document type")
 	}
@@ -502,257 +503,8 @@ func columnIndex(ref string) int {
 	return n - 1
 }
 
-// ---- Legacy binary Excel (xls) ----
-
-func extractXLS(body []byte) (string, error) {
-	wb, err := xls.OpenReader(bytes.NewReader(body), "utf-8")
-	if err != nil {
-		return "", fmt.Errorf("could not read the workbook (%v)", err)
-	}
-	var out strings.Builder
-	for i := 0; i < wb.NumSheets() && out.Len() <= maxExtractedBytes*2; i++ {
-		sheet := wb.GetSheet(i)
-		if sheet == nil {
-			continue
-		}
-		var rows []string
-		for r := 0; r <= int(sheet.MaxRow); r++ {
-			if line, ok := xlsRow(sheet, r); ok {
-				rows = append(rows, line)
-			}
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		fmt.Fprintf(&out, "## Sheet: %s\n%s\n\n", sheet.Name, strings.Join(rows, "\n"))
-	}
-	return out.String(), nil
-}
-
-// xlsRow reads one row; a missing row (the reader indexes a map) or a cell it
-// cannot decode is an empty one, not a failure.
-func xlsRow(sheet *xls.WorkSheet, index int) (line string, ok bool) {
-	defer func() {
-		if recover() != nil {
-			line, ok = "", false
-		}
-	}()
-	row := sheet.Row(index)
-	if row == nil {
-		return "", false
-	}
-	cells := make([]string, 0, row.LastCol()+1)
-	for c := 0; c <= row.LastCol(); c++ {
-		cells = append(cells, strings.NewReplacer("\t", " ", "\n", " ", "\r", " ").Replace(xlsNumber(row.Col(c))))
-	}
-	line = strings.TrimRight(strings.Join(cells, "\t"), "\t")
-	return line, strings.TrimSpace(line) != ""
-}
-
-// xlsNumber undoes the xls reader's habit of showing a plain number in a cell
-// whose format it takes for a date as an ISO timestamp near 1900 (the number 3
-// arrives as "1900-01-02T00:00:00Z"). No genuine date in a spreadsheet is in
-// 1900, so such a timestamp is turned back into the number it was. Anything
-// else is returned as it came.
-func xlsNumber(cell string) string {
-	if !strings.HasPrefix(cell, "1900-") && !strings.HasPrefix(cell, "1899-") {
-		return cell
-	}
-	t, err := time.Parse(time.RFC3339, cell)
-	if err != nil {
-		return cell
-	}
-	epoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
-	days := t.Sub(epoch).Hours() / 24
-	return strconv.FormatFloat(days, 'f', -1, 64)
-}
-
-// ---- Legacy binary Word (doc) ----
-
-// extractDOC reads the main body text of a Word 97–2003 file: the OLE2
-// container's WordDocument stream, whose piece table (CLX, in the 0Table or
-// 1Table stream) says where each run of text sits and whether it is 8-bit or
-// UTF-16. Headers, footnotes and text boxes follow the body in the same stream
-// and are not read; field codes are dropped, their shown result kept.
-func extractDOC(body []byte) (string, error) {
-	ole, err := ole2.Open(bytes.NewReader(body), "utf-8")
-	if err != nil {
-		return "", fmt.Errorf("not a Word file (%v)", err)
-	}
-	files, err := ole.ListDir()
-	if err != nil || len(files) == 0 {
-		return "", errors.New("not a Word file")
-	}
-	root := files[0]
-	stream := func(name string) []byte {
-		for _, f := range files {
-			if f.Name() == name {
-				data, _ := io.ReadAll(io.LimitReader(ole.OpenFile(f, root), maxPartBytes))
-				return data
-			}
-		}
-		return nil
-	}
-	word := stream("WordDocument")
-	if len(word) < 0x1A6+4 || binary.LittleEndian.Uint16(word[0:2]) != 0xA5EC {
-		return "", errors.New("not a Word 97–2003 file")
-	}
-	flags := binary.LittleEndian.Uint16(word[0x0A:])
-	if flags&0x0100 != 0 {
-		return "", errors.New("the file is encrypted")
-	}
-	tableName := "0Table"
-	if flags&0x0200 != 0 {
-		tableName = "1Table"
-	}
-	table := stream(tableName)
-	ccpText := int(binary.LittleEndian.Uint32(word[0x4C:]))
-	fcClx := int(binary.LittleEndian.Uint32(word[0x1A2:]))
-	lcbClx := int(binary.LittleEndian.Uint32(word[0x1A6:]))
-	if fcClx < 0 || lcbClx <= 0 || fcClx+lcbClx > len(table) {
-		return "", errors.New("the file has no readable text")
-	}
-	clx := table[fcClx : fcClx+lcbClx]
-
-	// Skip the Prc entries (0x01) to the Pcdt (0x02).
-	i := 0
-	for i < len(clx) && clx[i] == 0x01 {
-		if i+3 > len(clx) {
-			return "", errors.New("the file has no readable text")
-		}
-		i += 3 + int(binary.LittleEndian.Uint16(clx[i+1:]))
-	}
-	if i+5 > len(clx) || clx[i] != 0x02 {
-		return "", errors.New("the file has no readable text")
-	}
-	plcSize := int(binary.LittleEndian.Uint32(clx[i+1:]))
-	plc := clx[i+5:]
-	if plcSize > len(plc) {
-		plcSize = len(plc)
-	}
-	plc = plc[:plcSize]
-	pieces := (plcSize - 4) / 12 // n+1 CPs of 4 bytes and n PCDs of 8 bytes
-	if pieces <= 0 {
-		return "", errors.New("the file has no readable text")
-	}
-
-	var raw []rune
-	for p := 0; p < pieces && len(raw) < ccpText; p++ {
-		cpStart := int(binary.LittleEndian.Uint32(plc[p*4:]))
-		cpEnd := int(binary.LittleEndian.Uint32(plc[(p+1)*4:]))
-		if cpEnd > ccpText {
-			cpEnd = ccpText
-		}
-		n := cpEnd - cpStart
-		if n <= 0 {
-			continue
-		}
-		fc := binary.LittleEndian.Uint32(plc[(pieces+1)*4+p*8+2:])
-		if fc&(1<<30) != 0 { // 8-bit text, Windows-1252
-			start := int((fc &^ (1 << 30)) / 2)
-			if start < 0 || start+n > len(word) {
-				continue
-			}
-			for _, b := range word[start : start+n] {
-				raw = append(raw, cp1252(b))
-			}
-		} else {
-			start := int(fc)
-			if start < 0 || start+2*n > len(word) {
-				continue
-			}
-			units := make([]uint16, n)
-			for k := range units {
-				units[k] = binary.LittleEndian.Uint16(word[start+2*k:])
-			}
-			raw = append(raw, utf16.Decode(units)...)
-		}
-	}
-	return cleanWordText(raw), nil
-}
-
-// cp1252 maps the bytes that differ from Latin-1; the rest are themselves.
-func cp1252(b byte) rune {
-	special := map[byte]rune{
-		0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡', 0x88: 'ˆ', 0x89: '‰',
-		0x8A: 'Š', 0x8B: '‹', 0x8C: 'Œ', 0x8E: 'Ž', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•',
-		0x96: '–', 0x97: '—', 0x98: '˜', 0x99: '™', 0x9A: 'š', 0x9B: '›', 0x9C: 'œ', 0x9E: 'ž', 0x9F: 'Ÿ',
-	}
-	if r, ok := special[b]; ok {
-		return r
-	}
-	return rune(b)
-}
-
-// cleanWordText turns Word's control characters into text: paragraph and cell
-// marks into line and tab breaks, and a field's code (between 0x13 and 0x14)
-// into nothing while its result (0x14 to 0x15) stays.
-func cleanWordText(raw []rune) string {
-	var out strings.Builder
-	depth := []bool{} // per open field: still inside its code part
-	hidden := func() bool {
-		for _, inCode := range depth {
-			if inCode {
-				return true
-			}
-		}
-		return false
-	}
-	lastCell := false
-	for _, r := range raw {
-		if r != 0x07 {
-			lastCell = false
-		}
-		switch r {
-		case 0x13:
-			depth = append(depth, true)
-			continue
-		case 0x14:
-			if len(depth) > 0 {
-				depth[len(depth)-1] = false
-			}
-			continue
-		case 0x15:
-			if len(depth) > 0 {
-				depth = depth[:len(depth)-1]
-			}
-			continue
-		}
-		if hidden() {
-			continue
-		}
-		switch r {
-		case '\r', 0x0B, 0x0C:
-			out.WriteByte('\n')
-		case 0x07:
-			// A cell ends with 0x07 and a row with a second one straight after
-			// it: the tab the first wrote becomes the row's line break. (An empty
-			// last cell reads the same, which is the price of not parsing
-			// table properties.)
-			if s := out.String(); strings.HasSuffix(s, "\t") && lastCell {
-				cur := out.String()
-				out.Reset()
-				out.WriteString(cur[:len(cur)-1])
-				out.WriteByte('\n')
-				lastCell = false
-				continue
-			}
-			out.WriteByte('\t')
-			lastCell = true
-			continue
-		case 0x09, '\n':
-			out.WriteRune(r)
-		default:
-			if r >= 0x20 {
-				out.WriteRune(r)
-			}
-		}
-	}
-	return out.String()
-}
-
 // supportedDocumentTypes is what the refusal message offers.
 func supportedDocumentTypes() string {
-	kinds := []string{"PDF", "Word (.docx, .doc)", "Excel (.xlsx, .xls)", "text, Markdown, HTML", "images"}
+	kinds := []string{"PDF", "Word (.docx)", "Excel (.xlsx)", "text, Markdown, HTML", "images"}
 	return strings.Join(kinds, ", ")
 }

@@ -25,10 +25,8 @@ func TestExtractDocumentFormats(t *testing.T) {
 		want       []string
 	}{
 		{"sample.docx", "docx", []string{"Thông tư 64", "Quy định về xác thực khách hàng.", "Mã\tNội dung", "A1\tGiá trị một"}},
-		{"sample.doc", "doc", []string{"Thông tư 64", "Quy định về xác thực khách hàng.", "Mã\tNội dung\nA1\tGiá trị một"}},
 		{"sample.pdf", "pdf", []string{"Quy định về xác thực khách hàng.", "Mã\tNội dung"}},
 		{"sample.xlsx", "xlsx", []string{"## Sheet: Báo cáo", "Tên\tSố lượng", "Táo\t3", "Cam\t\tghi chú", "## Sheet: Phụ", "\tô B2"}},
-		{"sample.xls", "xls", []string{"## Sheet: Báo cáo", "Tên\tSố lượng", "Táo\t3", "## Sheet: Phụ", "ô B2"}},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -47,7 +45,7 @@ func TestExtractDocumentFormats(t *testing.T) {
 
 func TestDocumentKind(t *testing.T) {
 	for ext, want := range map[string]string{
-		".PDF": "pdf", ".docx": "docx", ".doc": "doc", ".xlsx": "xlsx", ".XLS": "xls",
+		".PDF": "pdf", ".docx": "docx", ".doc": "", ".xlsx": "xlsx", ".XLS": "",
 		".md": "", ".html": "", ".txt": "", "": "",
 	} {
 		if got := documentKind(ext); got != want {
@@ -57,7 +55,7 @@ func TestDocumentKind(t *testing.T) {
 }
 
 func TestExtractDocumentRefusesGarbageWithoutPanicking(t *testing.T) {
-	for _, kind := range []string{"pdf", "docx", "doc", "xlsx", "xls"} {
+	for _, kind := range []string{"pdf", "docx", "xlsx"} {
 		if _, err := extractDocument(kind, []byte("this is not that kind of file")); err == nil {
 			t.Errorf("%s: garbage was accepted", kind)
 		}
@@ -80,7 +78,7 @@ func TestExtractDocumentCutsAndSaysSo(t *testing.T) {
 
 func TestAttachmentBlockReadsOfficeAndMarkdownFiles(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"sample.docx", "sample.doc", "sample.pdf", "sample.xlsx", "sample.xls"} {
+	for _, name := range []string{"sample.docx", "sample.pdf", "sample.xlsx"} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, fixture(t, name), 0o600); err != nil {
 			t.Fatal(err)
@@ -130,5 +128,19 @@ func TestAttachmentBlockNamesTheFileItRefuses(t *testing.T) {
 	}
 	if _, err := attachmentBlock(bin, dir, false); err == nil || !strings.Contains(err.Error(), "PDF") {
 		t.Fatalf("a refusal should say what is accepted, got %v", err)
+	}
+}
+
+func TestAttachmentBlockSaysHowToReplaceAnOldOfficeFile(t *testing.T) {
+	dir := t.TempDir()
+	for name, want := range map[string]string{"old.doc": ".docx", "old.XLS": ".xlsx"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, fixture(t, "sample.docx"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := attachmentBlock(path, dir, false)
+		if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }

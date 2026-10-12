@@ -5,8 +5,6 @@ go 1.27.1
 require (
 	github.com/creack/pty v1.1.24
 	github.com/dslipak/pdf v0.0.2
-	github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7
-	github.com/extrame/xls v0.0.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/google/uuid v1.6.0

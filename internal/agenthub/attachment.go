@@ -152,6 +152,11 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 
 	uri := "file://" + resolved
 
+	if app := legacyOffice(filepath.Ext(resolved)); app != "" {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is an old %s format DevKit cannot read; save it as %s and attach that",
+			ErrInvalidPrompt, filepath.Base(path), app, map[string]string{"Word": ".docx", "Excel": ".xlsx"}[app])
+	}
+
 	// PDF and Office files: DevKit reads the text out of them (attachment_docs.go).
 	if kind := documentKind(filepath.Ext(resolved)); kind != "" {
 		text, err := extractDocument(kind, body)
