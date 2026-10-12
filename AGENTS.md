@@ -162,6 +162,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `.agent-conversation`. Browser checks (focus, scroll, short and narrow panes) live in the dev
   gallery's "composer cluster" section (`?gallery#agenthub-composer-layout`, bridge-free through
   `TrayStatusOverride`); the bun tests only read markup and pure rules.
+- **Lists and emphasis in the composer are plain markdown text, not document nodes**
+  (`surfaces/composer/listEditing.ts`, pure functions; wiring in `AgentComposer.tsx`). The prompt must leave
+  exactly as typed (`composerSerialization.ts`), so nothing about a list can be rewritten on the way out. What
+  the composer adds is editing: Shift+Enter inside a `- ` / `1. ` line starts the next item (an empty item ends
+  the list; Enter still sends), Cmd/Ctrl+Shift+8 / +Shift+7 toggle bullet / numbered markers on the selected
+  lines, Cmd/Ctrl+B / +I wrap the selection in `**` / `*`. Not inside a code block, not while composing, and
+  not on a line that begins after an `@` chip. Files dragged in from the OS arrive as `agenthub:filesDropped`
+  (Go: `file_drop.go`, `EnableFileDrop` + `data-file-drop-target` on the composer) and become the same chips.
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.

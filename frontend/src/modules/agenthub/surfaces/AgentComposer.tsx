@@ -47,6 +47,7 @@ import { AgentContextMeter } from "./AgentContextMeter";
 import { ModelSettingsPopover } from "./ModelSettingsPopover";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
+import { continueList, formatShortcut, toggleList, toggleWrap, type TextEdit } from "./composer/listEditing";
 import { ComposerPanelArea, type TrayPanel } from "./composer/ComposerTray";
 import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composer/composerSerialization";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
@@ -660,6 +661,67 @@ export function AgentComposer({
     [composerId, editor],
   );
 
+  /**
+   * The text leaf the selection sits in, with the selection's offsets — null
+   * when it spans more than one (a chip between the ends, two paragraphs), where
+   * these line edits would be guessing. `lineStart` says whether offset 0 of the
+   * leaf is also the start of a line: after a chip it is not.
+   */
+  function selectedLeaf() {
+    const selection = editor.selection;
+    if (!selection || selection.anchor.path.join() !== selection.focus.path.join()) return null;
+    const path = selection.anchor.path;
+    const leaf = editor.api.node(path)?.[0] as { text?: unknown } | undefined;
+    if (typeof leaf?.text !== "string") return null;
+    return {
+      path,
+      text: leaf.text,
+      start: Math.min(selection.anchor.offset, selection.focus.offset),
+      end: Math.max(selection.anchor.offset, selection.focus.offset),
+      lineStart: path[path.length - 1] === 0,
+    };
+  }
+
+  function applyTextEdit(path: Path, edit: TextEdit) {
+    editor.tf.select({ anchor: { path, offset: edit.from }, focus: { path, offset: edit.to } });
+    if (edit.text) editor.tf.insertText(edit.text);
+    else editor.tf.delete();
+    editor.tf.select({ anchor: { path, offset: edit.select.start }, focus: { path, offset: edit.select.end } });
+  }
+
+  /** Cmd/Ctrl+B, +I, +Shift+8 and +Shift+7: markdown typed for you. True when it did something. */
+  function applyFormat(shortcut: NonNullable<ReturnType<typeof formatShortcut>>): boolean {
+    const at = selectedLeaf();
+    if (!at) return false;
+    if (shortcut.kind === "wrap") {
+      applyTextEdit(at.path, toggleWrap(at.text, at.start, at.end, shortcut.mark));
+      return true;
+    }
+    // A line that begins after a chip is not the start of a list item.
+    if (!at.lineStart && at.text.lastIndexOf("\n", at.start - 1) === -1) return false;
+    applyTextEdit(at.path, toggleList(at.text, at.start, at.end, shortcut.list));
+    return true;
+  }
+
+  /** Shift+Enter inside a list: the next item, or — on an empty one — the end of the list. */
+  function continueListAtCaret(): boolean {
+    const at = selectedLeaf();
+    if (!at || at.start !== at.end) return false;
+    const from = at.text.lastIndexOf("\n", at.start - 1) + 1;
+    if (from === 0 && !at.lineStart) return false;
+    const next = at.text.indexOf("\n", at.start);
+    const to = next === -1 ? at.text.length : next;
+    const step = continueList(at.text.slice(from, to), at.start - from);
+    if (!step) return false;
+    if (step.kind === "continue") {
+      editor.tf.insertText(step.insert);
+    } else {
+      editor.tf.select({ anchor: { path: at.path, offset: from + step.from }, focus: { path: at.path, offset: from + step.to } });
+      editor.tf.delete();
+    }
+    return true;
+  }
+
   function acceptMention(file: ContextFileItem | undefined) {
     if (!file || !mention) return;
     // The "@query" becomes the chip: select it, delete it, insert in its place.
@@ -1018,6 +1080,13 @@ export function AgentComposer({
                 }}
                 onKeyDown={(e) => {
                   const insideCodeBlock = editor.api.some({ match: { type: types.codeBlock } });
+                  if (!insideCodeBlock && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                    const shortcut = formatShortcut(e);
+                    if ((shortcut && applyFormat(shortcut)) || (e.key === "Enter" && e.shiftKey && continueListAtCaret())) {
+                      e.preventDefault();
+                      return;
+                    }
+                  }
                   if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
                     // Plate registers no default behaviour for Shift+Enter (only
                     // plain Enter inserts a break); left alone it would fall to
