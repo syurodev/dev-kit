@@ -1,3 +1,6 @@
+import type { CopyFormat } from "./grid/rowText";
+import { profileForBrowseKey } from "./databaseIdentity";
+import { listDatabases, openDatabase } from "@/bridge/database";
 import { create } from "zustand";
 import type { CellValue } from "./sql/updateCell";
 import { persist } from "zustand/middleware";
@@ -333,6 +336,17 @@ export type DatabaseStoreState = {
    * consoles open there is no console it could honestly belong to.
    */
   schemaError: string;
+  serverDatabases: Record<string,string[]>;
+  loadingDatabases: Record<string,boolean>;
+  databaseErrors: Record<string,string>;
+  visibleDatabases: Record<string,string[] | null>;
+  setVisibleDatabases: (id:string,names:string[]|null)=>void;
+  discoverDatabases: (id:string)=>Promise<void>;
+  openServerDatabase: (id:string,name:string)=>Promise<void>;
+  copyFormat: CopyFormat;
+  setCopyFormat: (format: CopyFormat) => void;
+  visibleSchemas: Record<string, string[] | null>;
+  setVisibleSchemas: (profileId: string, schemas: string[] | null) => void;
   selectedSchema: string;
   selectedTable: string;
   expandedSchemas: Record<string, boolean>;
@@ -652,6 +666,7 @@ const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
 const pendingCountQueries = new Map<string, ReturnType<typeof runQuery>>();
 
 // Connection/cache/index generation also guards A → B → A transitions.
+let databaseOpenRequest=0;
 let schemaRequest = 0;
 let connectionGeneration = 0;
 const pendingEdits = new Map<string, object>();
@@ -665,7 +680,8 @@ async function performBrowseWrite(
   write: (profileId: string) => Promise<void>,
   staged: boolean,
 ): Promise<void> {
-  const profileId = get().selectedProfileId;
+  const profileId = profileForBrowseKey(key,get().selectedProfileId);
+  if(profileId!==get().selectedProfileId) throw new Error("Activate this table database before editing.");
   const page = get().browseState(key);
   if (!profileId) throw new Error("Select a connection before editing.");
   if (page.loading || get().txBusy || pendingEdits.has(key))
@@ -735,6 +751,27 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   schemaSnapshot: null,
   indexingSchema: false,
   schemaError: "",
+  serverDatabases: {}, loadingDatabases: {}, databaseErrors: {}, visibleDatabases: {},
+  setVisibleDatabases: (id,names)=>set(state=>({visibleDatabases:{...state.visibleDatabases,[id]:names}})),
+  discoverDatabases: async (id)=>{
+    if(get().loadingDatabases[id])return;
+    set(state=>({loadingDatabases:{...state.loadingDatabases,[id]:true},databaseErrors:{...state.databaseErrors,[id]:""}}));
+    try{const names=await listDatabases(id);set(state=>({serverDatabases:{...state.serverDatabases,[id]:names}}));}
+    catch(error){set(state=>({databaseErrors:{...state.databaseErrors,[id]:errorMessage(error)}}));}
+    finally{set(state=>({loadingDatabases:{...state.loadingDatabases,[id]:false}}));}
+  },
+  openServerDatabase: async(id,name)=>{
+    const request=++databaseOpenRequest;
+    const profile=await openDatabase(id,name);
+    set(state=>({profiles:[...state.profiles.filter(p=>p.id!==profile.id),profile]}));
+    const current=get().profiles.find(p=>p.id===get().selectedProfileId);
+    if(request!==databaseOpenRequest || (current?.parentProfileId || current?.id)!==id)return;
+    get().setSelectedProfileId(profile.id);
+    set(state=>({expandedProfiles:{...state.expandedProfiles,[id]:true}}));
+  },
+  copyFormat: "tsv",
+  setCopyFormat: (copyFormat) => set({ copyFormat }),
+  visibleSchemas: {},
   selectedSchema: "",
   selectedTable: "",
   expandedSchemas: { "public": true },
@@ -817,6 +854,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         // old connection's until the new snapshot arrived — or for good, when
         // the new one has no schema of that name.
         schemaSnapshot: null,
+        tableColumnsMap: {}, tableColumnsError: {}, expandedTables: {},
         indexingSchema: false,
         schemaError: "",
         selectedSchema: "",
@@ -1020,6 +1058,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     }
   },
 
+  setVisibleSchemas: (profileId, schemas) => set((state) => ({ visibleSchemas: { ...state.visibleSchemas, [profileId]: schemas } })),
   setSelectedSchema: (schema: string) => set({ selectedSchema: schema }),
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
@@ -1137,8 +1176,10 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     if (statements.length === 0 || !get().selectedProfileId || get().consoleState(consoleId).runningQuery) {
       return;
     }
+    const scriptProfileId=get().selectedProfileId;
     patchConsole(set, consoleId, { statementRuns: {} });
     for (const [index, statement] of statements.entries()) {
+      if(get().selectedProfileId!==scriptProfileId)return;
       if ((await get().executeQuery(consoleId, statement, { append: index > 0 })) !== "ok") {
         return;
       }
@@ -1414,7 +1455,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   loadBrowsePage: async (key, { schema, table }) => {
     if (get().browseState(key).editing) return;
-    const { selectedProfileId, profiles } = get();
+    const { profiles } = get();
+    const selectedProfileId=profileForBrowseKey(key,get().selectedProfileId);
     if (!selectedProfileId) {
       return;
     }
@@ -1539,7 +1581,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   countBrowseRows: async (key, { schema, table }) => {
-    const { selectedProfileId, profiles } = get();
+    const { profiles } = get();
+    const selectedProfileId=profileForBrowseKey(key,get().selectedProfileId);
     const browse = get().browseState(key);
     // Once per filter. setBrowseWhere nulls it again, which is what makes this
     // re-run for a filter it has not answered for.
@@ -1663,7 +1706,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         );
         return { ...migrated, folders, expandedFolders };
       },
-      // Only the cosmetic grouping persists. Profiles, schema and results all
+      // Only cosmetic grouping and explorer visibility persist. Profiles, schema and results all
       // come from the bridge; caching them here would let a stale copy outlive
       // the thing it describes.
       partialize: (state) => ({
@@ -1671,6 +1714,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         expandedFolders: state.expandedFolders,
         browsePageSize: state.browsePageSize,
         sidebarPane: state.sidebarPane,
+        copyFormat: state.copyFormat,
+        visibleSchemas: state.visibleSchemas,
+        visibleDatabases: state.visibleDatabases,
       }),
     },
   ),

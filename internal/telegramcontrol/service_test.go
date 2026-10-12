@@ -35,6 +35,7 @@ func (m *memoryStore) Save(state State) error {
 }
 
 type fakeAgents struct {
+	creations []agenthub.CreateInput
 	Agents
 	sessionID, workspaceID      string
 	text                        string
@@ -79,6 +80,16 @@ func (f *fakeAgents) SetConfigOption(_ context.Context, session, id, value strin
 		}
 	}
 	return nil
+}
+
+func (f *fakeAgents) ListVendorTypes() []agenthub.AgentType {
+	return []agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeCodex}
+}
+func (f *fakeAgents) CreateSession(_ context.Context, in agenthub.CreateInput) (agenthub.AgentSession, error) {
+	f.creations = append(f.creations, in)
+	f.sessionID = "created-session"
+	f.workspaceID = in.WorkspaceID
+	return agenthub.AgentSession{ID: f.sessionID, WorkspaceID: in.WorkspaceID, AgentType: in.AgentType, Status: agenthub.SessionStatusIdle}, nil
 }
 
 type fakeWorkspaces struct{}

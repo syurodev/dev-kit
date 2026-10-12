@@ -1,3 +1,4 @@
+import { browseIdentity } from "./databaseIdentity";
 import { useEffect } from "react";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
@@ -30,7 +31,7 @@ export function browseKeyOfTab(
   if (viewId !== "database.table") {
     return null;
   }
-  return `${String(params?.schema ?? "")}.${String(params?.table ?? "")}`;
+  return browseIdentity(typeof params?.profileId==="string" ? params.profileId : undefined,String(params?.schema ?? ""),String(params?.table ?? ""));
 }
 
 /**

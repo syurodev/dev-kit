@@ -324,7 +324,7 @@ export function NewConnectionDialog() {
                 onChange={(e) => update("database", e.target.value)}
                 placeholder={
                   form.engine === "postgres"
-                    ? "Defaults to username"
+                    ? "Maintenance database (defaults to postgres)"
                     : "All schemas"
                 }
               />

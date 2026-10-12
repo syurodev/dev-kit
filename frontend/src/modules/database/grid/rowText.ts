@@ -1,3 +1,6 @@
+import type { QueryResult } from "@/bridge/database";
+import { serializeCSV, serializeJSON } from "../export";
+
 /**
  * The text behind "copy a row" and "copy a column".
  *
@@ -23,4 +26,40 @@ export function rowAsJSON(columns: string[], row: (string | null)[]): string {
     null,
     2,
   );
+}
+
+/** TSV in display order, suitable for pasting selected cells or complete rows. */
+export function selectionAsTSV(rows: readonly (readonly (string | null)[])[], order: readonly number[], range: { top: number; bottom: number; left: number; right: number }): string {
+  const field = (value: string | null | undefined) => {
+    const raw = value ?? "";
+    // TSV is commonly pasted into spreadsheets. Keep signed numbers numeric,
+    // but force formula-like database text to be interpreted as literal text.
+    const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw.trim());
+    const text = /^\s*[=+@-]/.test(raw) && !numeric ? `'${raw}` : raw;
+    return /[\t\r\n"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return rows.slice(Math.max(0, range.top), range.bottom + 1).map((row) =>
+    order.slice(range.left, range.right + 1).map((column) => field(row[column])).join("\t"),
+  ).join("\n");
+}
+
+export type CopyFormat = "tsv" | "csv" | "json";
+
+/** Extract only the selected cells, keeping the grid's displayed column order. */
+export function serializeSelection(
+  result: QueryResult,
+  order: readonly number[],
+  range: { top: number; bottom: number; left: number; right: number },
+  format: CopyFormat,
+): string {
+  if (format === "tsv") return selectionAsTSV(result.rows, order, range);
+  const columns = order.slice(range.left, range.right + 1);
+  const selected: QueryResult = {
+    columns: columns.map((column) => result.columns[column]),
+    rows: result.rows.slice(Math.max(0, range.top), range.bottom + 1)
+      .map((row) => columns.map((column) => row[column] ?? null)),
+    rowCount: Math.max(0, Math.min(result.rows.length - 1, range.bottom) - Math.max(0, range.top) + 1),
+    truncated: false,
+  };
+  return format === "json" ? serializeJSON(selected) : serializeCSV(selected);
 }

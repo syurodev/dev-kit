@@ -3,6 +3,7 @@ import { AppService } from "../../bindings/devkit/internal/bridge";
 import type * as DatabaseModels from "../../bindings/devkit/internal/database/models";
 
 export type ConnectionProfile = {
+  parentProfileId?: string;
   id: string;
   name: string;
   host: string;
@@ -209,6 +210,7 @@ export type QueryPlan = {
 };
 
 function toProfile(p: {
+  parent_profile_id?: string;
   id: string;
   name: string;
   host: string;
@@ -226,6 +228,7 @@ function toProfile(p: {
 }): ConnectionProfile {
   return {
     id: p.id,
+    parentProfileId: p.parent_profile_id,
     name: p.name,
     host: p.host,
     port: p.port,
@@ -692,4 +695,11 @@ export function setConsoleDirectory(path: string): Promise<ConsoleDirectory> {
 /** The native folder picker. "" when the user cancelled, which is not an error. */
 export function chooseConsoleDirectory(): Promise<string> {
   return callBridge(() => AppService.DBChooseConsoleDirectory() as Promise<string>);
+}
+
+export function listDatabases(id: string): Promise<string[]> {
+  return callBridge(async () => (await AppService.DBListDatabases(id)) ?? []);
+}
+export function openDatabase(id: string, database: string): Promise<ConnectionProfile> {
+  return callBridge(async () => toProfile(await AppService.DBOpenDatabase(id, database)));
 }

@@ -45,10 +45,11 @@ export function TerminalTabs({ showModule }: { showModule: boolean }) {
         onValueChange={setActive}
         className={cn("min-w-0 gap-0", (tabs.length > 0 || showModule) && "flex-1")}
       >
-        <TabsList className="h-6 max-w-full justify-start gap-2 bg-transparent p-0 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+        <TabsList className="h-7 w-full max-w-full justify-start gap-1 bg-transparent p-0 overflow-x-auto overflow-y-hidden group-data-horizontal/tabs:h-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {showModule && (
             <TabsTrigger
               value={MODULE_KEY}
+              contentClassName="w-full min-w-0"
               className="w-47.5 h-6 flex-none rounded-sm px-2 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
             >
               Panel
@@ -57,10 +58,13 @@ export function TerminalTabs({ showModule }: { showModule: boolean }) {
           {tabs.map((t) => (
             <TabsTrigger
               key={t.key}
+              aria-label={t.title}
+              title={t.title}
               value={t.key}
+              contentClassName="w-full min-w-0"
               className="w-47.5 h-6 flex-none gap-1 rounded-sm px-2 pr-1.5 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-state-soft data-[state=inactive]:text-text-secondary"
             >
-              <span className="truncate flex-1 text-left">{t.title}</span>
+              <span title={t.title} className="min-w-0 flex-1 truncate text-left select-none">{t.title}</span>
               <span
                 role="button"
                 tabIndex={-1}

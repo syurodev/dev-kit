@@ -30,7 +30,7 @@ import { errorMessage } from "@/bridge/errors";
 
 export function ConnectionOptionsDialog() {
   const profile = useDatabaseStore((s) =>
-    s.profiles.find((p) => p.id === s.selectedProfileId),
+    s.profiles.find((p) => p.id === (s.profiles.find(p=>p.id===s.selectedProfileId)?.parentProfileId || s.selectedProfileId)),
   );
   if (!profile) return null;
   return <ConnectionOptionsForm key={profile.id} profile={profile} />;
@@ -107,8 +107,9 @@ function ConnectionOptionsForm({ profile }: { profile: ConnectionProfile }) {
       useDatabaseStore.setState((s) => ({
         profiles: s.profiles.map((p) => (p.id === updated.id ? updated : p)),
       }));
-      if (useDatabaseStore.getState().selectedProfileId === profile.id)
-        close(false);
+      const state = useDatabaseStore.getState();
+      const selected = state.profiles.find(p => p.id === state.selectedProfileId);
+      if ((selected?.parentProfileId || state.selectedProfileId) === profile.id) close(false);
       void fetchProfiles();
     } catch (e) {
       setError(errorMessage(e));

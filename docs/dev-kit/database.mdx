@@ -1266,3 +1266,30 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
   <Card title="Technical contracts" href="/dev-kit/technical-contracts" description="Bridge Database family" />
   <Card title="Architecture decisions" href="/dev-kit/architecture-decisions" description="ADR-007: verify-full TLS" />
 </Cards>
+
+
+### Chọn dữ liệu và phạm vi explorer
+
+- Click số thứ tự hàng để chọn cả hàng; Shift-click chọn một dải hàng. Chọn **Copy as** (TSV, CSV hoặc JSON), rồi dùng ⌘C/Ctrl+C, nút hoặc menu **Copy selection**. Định dạng được ghi nhớ cho các grid. Copy chỉ lấy vùng đang chọn theo thứ tự cột hiển thị. JSON dùng cùng serializer với Export: mảng object có tên cột, SQL NULL giữ là `null`, các giá trị khác giữ dạng string từ driver. CSV có header và escape giống Export; TSV dùng ô trống cho NULL và escape tab, xuống dòng, dấu nháy để dán vào spreadsheet. Chuỗi bắt đầu như công thức trong TSV được thêm dấu nháy đơn để spreadsheet đọc thành text; số có dấu giữ nguyên. Copy đoạn text được bôi chọn trong ô vẫn dùng clipboard native.
+- Shift+Space chọn cả hàng đang focus; nút ở góc trên trái chọn tất cả hàng của trang đang tải. Không tự tải hay copy toàn bộ bảng ngoài trang kết quả hiện có.
+- Nút **Choose visible databases/schemas** trong header explorer mở danh sách checkbox có tìm kiếm, **Show all**, **Hide all** và **Default only**. Lựa chọn được nhớ riêng theo connection và chỉ đổi nội dung explorer; không đóng tab hoặc thay query context.
+- Danh sách lấy từ catalog hiện được connection lập chỉ mục. MySQL/MariaDB biểu diễn database ở cấp schema; PostgreSQL chọn schema trong database của connection. System schema vẫn được loại khỏi catalog mặc định. PostgreSQL hiện có tầng database riêng để chọn database khác trên cùng server.
+
+
+### PostgreSQL: một server, nhiều database
+
+Khi không nhập database lúc tạo connection, DevKit dùng `postgres` làm maintenance database để đăng nhập và đọc catalog. Nếu tài khoản không được CONNECT vào `postgres`, nhập tên một database có quyền truy cập làm điểm đăng nhập ban đầu.
+
+Explorer hiển thị **connection → database → schema → table**. Danh sách database lấy từ `pg_database`, loại template database và database không cho phép kết nối hoặc không có quyền CONNECT. Chọn một database sẽ kiểm tra kết nối rồi tải catalog schema của database đó.
+
+Mỗi database khác điểm đăng nhập ban đầu có một liên kết metadata trong vault, với ID riêng cho pool, cache và transaction. Liên kết không giữ bản sao password; nó kế thừa credentials, TLS, SSH tunnel, environment và read-only từ connection gốc. Cấu hình connection phải chỉnh ở connection gốc; xóa connection gốc cũng xóa các liên kết database con. Metadata liên kết có thể sync như profile, nhưng credentials cục bộ vẫn thuộc connection gốc. Bản app cũ chưa hiểu loại liên kết này sẽ không kết nối được các profile con.
+
+Tab bảng mới có profile/database context trong identity; hai database có `public.users` là hai tab và hai trạng thái riêng. Chuyển sang tab của database khác kích hoạt đúng ngữ cảnh; thao tác ghi bị chặn khi ngữ cảnh không khớp. Console tiếp tục dùng ngữ cảnh connection đang chọn và hiển thị đích thực thi trong toolbar; không ngầm tạo connection xuyên database trong một transaction.
+
+Kiểm tra thực tế trên PostgreSQL tạm:
+
+```sh
+DEVKIT_PG_CATALOG_TEST=1 DEVKIT_PG_CATALOG_PORT=<port> DEVKIT_PG_CATALOG_PASSWORD=<password> go test -race ./internal/database -run 'TestDatabaseContext|TestPostgresDatabaseCatalogLive' -count=1 -v
+```
+
+Test nhận mật khẩu qua `DEVKIT_PG_CATALOG_PASSWORD` trên server PostgreSQL disposable, tạo/xóa database test riêng. Không bật test này trên production.

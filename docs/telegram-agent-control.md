@@ -4,13 +4,14 @@ Tính năng ở bản mã hiện tại; cần kiểm chứng với bot và agent
 
 ## Thiết lập
 
-1. Tạo một bot riêng trong Telegram bằng BotFather. Mỗi bot chỉ dùng cho một máy DevKit; bot không được có webhook của tích hợp khác.
-2. Mở DevKit desktop, mở khóa vault, vào **Settings → Agents → Telegram**.
-3. Nhập token bot, bật tích hợp và chọn workspace được phép. Token được lưu trong Accounts dưới dạng mã hóa, chỉ trên máy này.
-4. Bật **Gửi nội dung yêu cầu quyền và câu hỏi** để nhận thẻ duyệt và trả lời câu hỏi. Bật **Cho phép đọc nội dung session** nếu muốn đọc transcript. Các nội dung này đi qua dịch vụ Telegram.
-5. Nếu cần duyệt thao tác phát sinh từ giao diện DevKit hoặc terminal, bật **Cho phép duyệt xác nhận từ UI/terminal trên toàn máy**. Quyền này độc lập với các workspace của agent đã chọn.
-6. Lưu cấu hình, bấm **Tạo liên kết ghép tài khoản**, mở liên kết trong Telegram và bấm Start.
-7. Quay lại DevKit, kiểm tra user ID rồi **Xác nhận ghép tài khoản này**. Liên kết ghép hết hạn sau năm phút.
+1. Mở DevKit desktop, mở khóa vault, vào **Settings → Remote control → Telegram**.
+2. Ở **Connect bot**, mở BotFather, gửi `/newbot`, làm theo hướng dẫn đặt tên rồi dán token vào **Bot token**. Bấm **Connect bot** để kiểm tra và lưu token mã hóa cục bộ.
+3. Ở **Choose access**, chọn workspace và bật các quyền cần dùng: **Review requests and answer questions**, **Read conversations**, hoặc **Review desktop and terminal confirmations**. Quyền xác nhận desktop/terminal áp dụng trên toàn máy và cần bật gửi nội dung yêu cầu trước. Bấm **Continue to pairing**.
+4. Ở **Pair account**, bấm **Create pairing link**, sau đó **Open Telegram** (hoặc **Copy link** để mở trên thiết bị khác).
+5. Bấm **Start** trong cuộc trò chuyện với bot. Liên kết ghép hết hạn sau năm phút; có thể tạo lại bằng **Create new link**.
+6. Quay lại DevKit, kiểm tra tài khoản và user ID rồi bấm **Confirm my account**.
+
+Sau khi ghép, trang hiển thị trạng thái **Connected** hoặc **Paused**, các quyền có thể chỉnh sửa và **Save changes**. Dùng công tắc **Remote control** để tạm dừng, **Unpair account** để hủy ghép, hoặc **Change bot** để thay token. Phần **Telegram commands** có thể mở khi cần tra lệnh.
 
 Chỉ chat riêng của tài khoản đã ghép được điều khiển. Không dùng group hoặc tin nhắn chuyển tiếp. Người dùng có thể hủy ghép hoặc tắt tích hợp trong Settings.
 
@@ -29,7 +30,10 @@ Chỉ chat riêng của tài khoản đã ghép được điều khiển. Không
 | `/read` | Đọc trang transcript mới nhất |
 | `/more` | Đọc tiếp nội dung dài trong cùng trang |
 | `/older` | Đọc trang lịch sử trước đó; đọc hết trang hiện tại bằng `/more` trước |
-| `/new <claude hoặc codex> <workspace ID>` | Tạo và chọn session ở thư mục đầu tiên của workspace |
+| `/effort` hoặc `/efforts` | Xem effort hiện tại và chọn bằng nút |
+| `/effort <ID>` | Đổi effort được model hiện tại hỗ trợ |
+| `/new` hoặc `/session` | Chọn workspace và agent bằng nút, rồi cấu hình model/effort cho session mới |
+| `/new <agent> <workspace ID> [model ID] [effort]` | Tạo và cấu hình session bằng lệnh trực tiếp |
 | `/stop` | Dừng lượt đang chạy của session đã chọn |
 | `/pending` | Đối soát yêu cầu quyền và câu hỏi còn chờ |
 
@@ -44,6 +48,20 @@ Bot thông báo khi phát hiện agent kết thúc lượt chạy. Mất mạng 
 Chọn session bằng `/sessions` hoặc `/use`, rồi gửi `/models` để xem model hiện tại và danh sách của chính session đó. Bấm nút hoặc gửi `/model <model ID>` để chuyển. Tính năng dùng API cấu hình chung của Agent Hub cho cả Claude và Codex, không gửi một prompt yêu cầu agent tự đổi model.
 
 Chỉ chuyển khi session đang rảnh; chờ lượt chạy kết thúc hoặc dùng `/stop` trước. Nút cũ bị từ chối nếu session đã chọn hoặc cấu hình model đã thay đổi. Model chưa được session cung cấp không được chấp nhận. Đây là đổi model trong cùng nhà cung cấp, không chuyển session Claude sang Codex hay ngược lại.
+
+## Chọn effort và tạo session
+
+Dùng `/effort` để xem và chọn mức effort từ cấu hình của model hiện tại, hoặc `/effort high` để chọn trực tiếp nếu model hỗ trợ. Không cố định một danh sách chung cho mọi model. Claude dùng option `effort`, Codex dùng `reasoning_effort`; kênh Telegram gửi đúng option session cung cấp. Chỉ đổi khi session rảnh. Nút effort cũ không dùng được sau khi model hoặc phạm vi workspace thay đổi.
+
+Gửi `/new` để tạo session mà không cần nhớ ID:
+
+1. Chọn workspace trong danh sách được cấp quyền.
+2. Chọn agent đã đăng ký trong DevKit.
+3. DevKit tạo session ở thư mục primary của workspace, chưa chạy prompt; chọn model hoặc giữ model hiện tại.
+4. Chọn effort được model hỗ trợ hoặc giữ mức hiện tại. Nếu agent không cung cấp lựa chọn, session dùng mặc định.
+5. Gửi tin nhắn để bắt đầu lượt chạy đầu tiên.
+
+Có thể dùng lệnh trực tiếp, ví dụ `/new codex <workspace ID> <model ID> high`. Nếu model/effort không hợp lệ, session đã tạo vẫn còn và bot báo rõ để chọn lại bằng `/models` hoặc `/effort`. Lệnh không nhận đường dẫn tùy ý và không mở rộng quyền thư mục. Bấm lại nút tạo đã xử lý không tạo thêm session.
 
 ## Duyệt quyền và xác nhận DevKit
 

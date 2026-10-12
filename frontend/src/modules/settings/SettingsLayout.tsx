@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search } from "lucide-react";
+import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search, Smartphone } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EASE_OUT, MOTION_BASE, noMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { filterSettingsNavigation, type SettingsTab } from "./settingsNavigation";
 
-const ICONS = { account: User, appearance: Sun, sync: Monitor, environments: SlidersHorizontal, database: Database, agents: Bot, keyboard: Command, security: LockKeyhole, updates: RefreshCw, mcp: Plug };
+const ICONS = { account: User, appearance: Sun, sync: Monitor, environments: SlidersHorizontal, database: Database, agents: Bot, keyboard: Command, security: LockKeyhole, updates: RefreshCw, mcp: Plug, remote: Smartphone };
 
 /** Internal preferences navigation, independent of workbench document tabs. */
 export function SettingsLayout({ activeTab, onSelect, children }: { activeTab: SettingsTab; onSelect: (tab: SettingsTab) => void; children: ReactNode }) {

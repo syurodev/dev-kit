@@ -142,6 +142,7 @@ export function ConnectionDialog({
             </Field>
             <Field label="Environment" error={fieldErrors.env} errorId="ssh-env-error">
               <NativeSelect
+                size="lg"
                 className="w-full"
                 name="env"
                 aria-invalid={Boolean(fieldErrors.env)}
@@ -193,6 +194,7 @@ export function ConnectionDialog({
             </Field>
             <Field label="Authentication">
               <NativeSelect
+                size="lg"
                 className="w-full"
                 disabled={Boolean(profile)}
 

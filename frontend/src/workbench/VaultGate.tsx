@@ -15,6 +15,7 @@ import { RecoveryKeyField } from "@/components/ui/recovery-key-field";
 import { Titlebar } from "@/components/ui/titlebar";
 import { VaultStage, VaultPasswordField as PasswordField, VAULT_FIELD as FIELD } from "./VaultStage";
 import { cn } from "@/lib/utils";
+import { shellSquircleRef } from "@/lib/shellSquircle";
 import {
   ArrowLeft,
   ArrowRight,
@@ -273,7 +274,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   const copy = COPY[gateStep];
 
   return (
-    <div className="relative flex h-svh w-full flex-col overflow-hidden bg-bg-app text-text-primary select-none">
+    <div className="app-shell relative flex h-svh w-full flex-col overflow-hidden text-text-primary select-none">
       {/* Same 40px bar as the workbench, deliberately: the native traffic
           lights do not move when the gate hands over, so a 30px bar here and a
           40px bar there could not both keep them aligned. No app actions on
@@ -292,8 +293,9 @@ export function VaultGate({ children }: { children: ReactNode }) {
         </div>
       </Titlebar>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 flex-1 flex-col items-center overflow-auto shell-surface px-5 py-8 sm:p-8">
+      <div className="mx-1 mb-1 flex min-h-0 flex-1">
+        <div ref={shellSquircleRef} className="shell-surface flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-auto px-5 py-8 sm:p-8">
           <VaultStage step={gateStep} {...copy} setupStep={gateStep === "setup_password" ? 1 : gateStep === "setup_recovery" ? 2 : gateStep === "setup_ready" ? 3 : undefined}>
               {gateStep === "checking" && (
                 <div role="status" className="flex min-h-40 flex-col items-center justify-center gap-2">
@@ -489,6 +491,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
                 </form>
               )}
           </VaultStage>
+          </div>
         </div>
       </div>
     </div>
