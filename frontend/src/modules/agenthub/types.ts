@@ -188,12 +188,15 @@ export type SessionUpdate = {
   raw?: unknown;
 };
 
-/** One file, image or ref a prompt carried, by name. Mirrors update.go: PromptAttachment. */
+/** One file, image, PDF document or ref a prompt carried, by name. Mirrors update.go: PromptAttachment. */
 export type PromptAttachment = {
   name: string;
-  kind: "file" | "image" | "ref" | string;
+  kind: "file" | "image" | "document" | "ref" | string;
   /** The devkit:// EntityRef URI, set only when kind is "ref". */
   uri?: string;
+  /** Set when kind is "document": the handle the agent reads it with (doc1) and its page count. */
+  documentId?: string;
+  pages?: number;
 };
 
 /**

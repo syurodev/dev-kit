@@ -1,4 +1,4 @@
-import { FileCode, ImageIcon } from "lucide-react";
+import { FileCode, FileText, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type AgentFileChipProps = {
@@ -8,8 +8,10 @@ export type AgentFileChipProps = {
    */
   path: string;
   line?: number;
-  /** An image a prompt carried draws an image glyph; everything else is a file. */
-  kind?: "file" | "image";
+  /** An image a prompt carried draws an image glyph, a PDF document a page glyph; everything else is a file. */
+  kind?: "file" | "image" | "document";
+  /** A short fact after the name ("6 pages"). */
+  detail?: string;
   onClick?: () => void;
   className?: string;
 };
@@ -18,10 +20,11 @@ export function AgentFileChip({
   path,
   line,
   kind = "file",
+  detail,
   onClick,
   className,
 }: AgentFileChipProps) {
-  const Glyph = kind === "image" ? ImageIcon : FileCode;
+  const Glyph = kind === "image" ? ImageIcon : kind === "document" ? FileText : FileCode;
   if (!onClick) {
     return (
       <span
@@ -31,6 +34,7 @@ export function AgentFileChip({
         <Glyph className="size-(--icon-12) shrink-0 text-text-tertiary" />
         <span className="truncate text-code-12 text-text-secondary">{path}</span>
         {typeof line === "number" ? <span className="shrink-0 text-code-12 text-text-tertiary">{`:${line}`}</span> : null}
+        {detail ? <span className="shrink-0 text-code-12 text-text-tertiary">{detail}</span> : null}
       </span>
     );
   }
