@@ -460,6 +460,10 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 			s.answerField(ctx, c, f, m.Text)
 			return
 		}
+		// A revoked/expired question reply must never become a prompt for
+		// whichever other session happens to be selected now.
+		s.send(ctx, c, "Câu hỏi không còn hiệu lực. Chọn session và gửi tin nhắn mới.", nil)
+		return
 	}
 	ctx = identity.WithCaller(ctx, identity.Caller{Kind: identity.KindRemoteHuman})
 	cmd, arg, _ := strings.Cut(strings.TrimSpace(m.Text), " ")

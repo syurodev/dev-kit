@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"devkit/internal/agenthub"
@@ -149,5 +150,28 @@ func TestOptOutDuringRemoteTurnSuppressesItsResult(t *testing.T) {
 	s.turns.Wait()
 	if len(*messages) != 0 {
 		t.Fatal("opted-out turn sent its result to Telegram")
+	}
+}
+
+type countingTurnAgent struct {
+	*fakeAgents
+	calls atomic.Int32
+}
+
+func (a *countingTurnAgent) Invoke(context.Context, agenthub.InvokeInput) (agenthub.InvokeResult, error) {
+	a.calls.Add(1)
+	return agenthub.InvokeResult{Status: "idle"}, nil
+}
+func TestExpiredQuestionReplyCannotPromptAnotherSelectedSession(t *testing.T) {
+	s, c, agents, _ := harness(t)
+	counted := &countingTurnAgent{fakeAgents: agents}
+	s.deps.Agents = counted
+	s.selected = "session"
+	update := command("answer to a question from an opted-out session")
+	update.Message.Reply = &Message{ID: 999}
+	s.handle(context.Background(), c, update)
+	s.turns.Wait()
+	if counted.calls.Load() != 0 {
+		t.Fatal("expired reply was rerouted as a prompt")
 	}
 }
