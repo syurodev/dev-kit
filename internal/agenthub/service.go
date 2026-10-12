@@ -225,6 +225,9 @@ type MCPEndpoint struct {
 	Server         acp.McpServerStdio
 	Close          func()
 	GateOwnedTools []string
+	// PreApprovedTools are read-only tools scoped to the session that the vendor
+	// may run without a prompt (see OpenSpec.PreApprovedMCP).
+	PreApprovedTools []string
 }
 
 // MCPEndpoints opens one MCPEndpoint per session. nil means sessions get no
@@ -301,6 +304,9 @@ type Service struct {
 	// DetectDocker finds the Docker daemon and CLI; nil means DetectDocker on
 	// the host's $HOME and environment. A seam for tests.
 	DetectDocker func() DockerGrant
+	// Documents keeps the PDFs attached to sessions (documents.go). nil leaves PDF
+	// attachments refused with that reason.
+	Documents *DocumentLibrary
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
 	// OnTurnFinished fires after the turn's final transcript flush, including
@@ -525,6 +531,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
+		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
@@ -1200,6 +1207,11 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	if err := s.store.DeleteSessions(ctx, ids); err != nil {
 		return err
 	}
+	// The rows are gone; so are the stored PDFs. A file that will not go is
+	// collected by the next start-up sweep, never a reason to keep the session.
+	if err := s.Documents.Remove(ids); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(id, err)
+	}
 	// Close keeps a tail that would not write; with its rows gone there is
 	// nothing left for a retry to land in.
 	for _, target := range ids {
@@ -1295,7 +1307,14 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// the frontend, which puts a refused prompt back in the queue, showed it
 	// twice once it was sent again.
 	invoker, _ := identity.FromContext(ctx)
-	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, in.Refs, sess.ProjectPath, callerIsAgent(invoker))
+	// PDFs are not read into the prompt: they are kept in the session's document
+	// store and the agent reads them with DevKit's PDF tools. The prompt carries
+	// what each is and how to read it.
+	docs, files, err := s.importDocuments(ctx, sess, in.Attachments, callerIsAgent(invoker))
+	if err != nil {
+		return InvokeResult{Status: "error"}, err
+	}
+	prompt, err := buildPromptBlocks(in.Prompt, files, in.Images, in.Refs, documentsPromptBlock(docs, namingFor(sess.AgentType)), sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1455,7 +1474,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// Every prompt, including one of only images or files. The echo is what
 	// starts a turn in the transcript; a prompt without one folded into the turn
 	// before it and had no name to rewind to.
-	attachments := promptAttachments(in)
+	attachments := promptAttachmentsFor(in, files, docs)
 	if strings.TrimSpace(in.Prompt) != "" || len(attachments) > 0 {
 		userEcho := SessionUpdate{
 			Kind:        UpdateUserMessageChunk,
@@ -1604,7 +1623,9 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 			s.OnUnknownUpdate(sessionID, parsed.WireKind, parsed.Raw)
 		}
 	}
-	if err := s.recorder.Record(ctx, sessionID, parsed); err != nil && s.OnRecordError != nil {
+	// The live event above carries any page picture; the stored row does not.
+	stored, _ := slimPageImages(parsed)
+	if err := s.recorder.Record(ctx, sessionID, stored); err != nil && s.OnRecordError != nil {
 		s.OnRecordError(sessionID, err)
 	}
 	return parsed
@@ -1863,6 +1884,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
+		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)

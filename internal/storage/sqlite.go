@@ -28,6 +28,7 @@ const (
 	TableSyncConflicts      = "sync_conflicts"
 	TableEnvTags            = "env_tags"
 	TableAgentSessions      = "agent_sessions"
+	TableAgentDocuments     = "agent_documents"
 	TableAgentTurns         = "agent_turns"
 	// TableAgentTranscript holds what was said in a session. Like sessions and
 	// turns it is device-local and outside vault_items: sync has no path here,
@@ -1297,7 +1298,45 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39})
+	m40 := Migration{
+		Version: 40,
+		Name:    "agent session documents",
+		Up: func(ctx context.Context) error {
+			// A PDF attached to a session: described here, kept as a file in the
+			// data directory. (session_id, id) is the key — a handle like "doc1"
+			// means something only inside its session — and (session_id, sha256)
+			// is unique so the same file attached twice is one document.
+			// No ON DELETE CASCADE, like the other agent tables: the store deletes
+			// children first, in one transaction.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					session_id TEXT NOT NULL,
+					id TEXT NOT NULL,
+					ordinal INTEGER NOT NULL,
+					kind TEXT NOT NULL,
+					name TEXT NOT NULL,
+					mime TEXT NOT NULL,
+					size INTEGER NOT NULL,
+					sha256 TEXT NOT NULL,
+					pages INTEGER NOT NULL,
+					text_layer TEXT NOT NULL,
+					chrome TEXT NOT NULL DEFAULT '',
+					created_at TEXT NOT NULL,
+					PRIMARY KEY (session_id, id),
+					UNIQUE (session_id, sha256),
+					FOREIGN KEY(session_id) REFERENCES %s(id)
+				)`, TableAgentDocuments, TableAgentSessions,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_agent_documents_session ON %s (session_id, ordinal)`, TableAgentDocuments,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40})
 	if err != nil {
 		return err
 	}

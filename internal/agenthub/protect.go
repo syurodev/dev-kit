@@ -12,10 +12,12 @@ import (
 // there, and the database's WAL files come and go.
 var dataDirSecrets = []string{
 	"devkit.db", "devkit.db-wal", "devkit.db-shm", // the vault, sealed but offline-attackable
-	"mcp.sock",    // the shared MCP socket, which carries no session identity
-	"agents",      // every session's own MCP socket
-	"checkpoints", // shadow copies of every project checkpointed
-	"consoles",    // saved query consoles
+	"mcp.sock",        // the shared MCP socket, which carries no session identity
+	"agents",          // every session's own MCP socket
+	"checkpoints",     // shadow copies of every project checkpointed
+	"consoles",        // saved query consoles
+	"agent-documents", // PDFs attached to sessions: read through the pdf.* tools, scoped per session
+	"pdf-engine",      // the PDF engine's compiled-module cache
 }
 
 // ProtectDataDir is what to hide of DevKit's data directory from an agent

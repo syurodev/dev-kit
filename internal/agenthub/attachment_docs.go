@@ -8,11 +8,8 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/dslipak/pdf"
 )
 
 // Office and PDF files are binary containers, so they cannot ride as the text
@@ -53,8 +50,6 @@ func legacyOffice(ext string) string {
 // is not one of the formats read here.
 func documentKind(ext string) string {
 	switch strings.ToLower(ext) {
-	case ".pdf":
-		return "pdf"
 	case ".docx", ".docm":
 		return "docx"
 	case ".xlsx", ".xlsm":
@@ -73,8 +68,6 @@ func extractDocument(kind string, body []byte) (text string, err error) {
 		}
 	}()
 	switch kind {
-	case "pdf":
-		text, err = extractPDF(body)
 	case "docx":
 		text, err = extractDOCX(body)
 	case "xlsx":
@@ -102,88 +95,6 @@ func capText(text string) string {
 		cut--
 	}
 	return text[:cut] + fmt.Sprintf("\n\n[… DevKit cut this attachment here: %d more bytes of text were not sent]", len(text)-cut)
-}
-
-// ---- PDF ----
-
-func extractPDF(body []byte) (string, error) {
-	reader, err := pdf.NewReader(bytes.NewReader(body), int64(len(body)))
-	if err != nil {
-		return "", fmt.Errorf("could not read the PDF (%v)", err)
-	}
-	var out strings.Builder
-	pages := reader.NumPage()
-	for i := 1; i <= pages && out.Len() <= maxExtractedBytes; i++ {
-		page := reader.Page(i)
-		if page.V.IsNull() {
-			continue
-		}
-		// A page that will not decode costs that page, not the document.
-		text := pageText(page)
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		if pages > 1 {
-			fmt.Fprintf(&out, "--- page %d ---\n", i)
-		}
-		out.WriteString(strings.TrimSpace(text))
-		out.WriteString("\n\n")
-	}
-	return out.String(), nil
-}
-
-// pageText lays a page's text runs out by position: lines top to bottom, runs
-// left to right. The library's own plain-text reader follows the order the
-// runs sit in the file, and a producer that writes a fallback font's glyphs
-// (the dotted vowels of Vietnamese, say) after everything else puts them at
-// the end of the page instead of in their words.
-func pageText(page pdf.Page) (text string) {
-	defer func() {
-		if recover() != nil {
-			text = ""
-		}
-	}()
-	runs := page.Content().Text
-	sort.SliceStable(runs, func(a, b int) bool {
-		if d := runs[a].Y - runs[b].Y; d > lineTolerance(runs[a], runs[b]) || d < -lineTolerance(runs[a], runs[b]) {
-			return runs[a].Y > runs[b].Y
-		}
-		return runs[a].X < runs[b].X
-	})
-	var out strings.Builder
-	var prev *pdf.Text
-	for i := range runs {
-		run := &runs[i]
-		if prev != nil {
-			if d := run.Y - prev.Y; d > lineTolerance(*prev, *run) || d < -lineTolerance(*prev, *run) {
-				out.WriteByte('\n')
-			} else if gap := run.X - (prev.X + prev.W); gap > 0.2*run.FontSize && !strings.HasSuffix(out.String(), " ") && !strings.HasPrefix(run.S, " ") {
-				if gap > 4*run.FontSize {
-					out.WriteByte('\t')
-				} else {
-					out.WriteByte(' ')
-				}
-			}
-		}
-		// U+FFFD is the reader saying a glyph has no Unicode mapping (a
-		// ligature piece, a zero-width mark); there is nothing to show for it.
-		out.WriteString(strings.ReplaceAll(run.S, "\uFFFD", ""))
-		prev = run
-	}
-	return out.String()
-}
-
-// lineTolerance is how far apart two runs may sit vertically and still be one
-// line: a fraction of the type size, so a superscript stays with its word.
-func lineTolerance(a, b pdf.Text) float64 {
-	size := a.FontSize
-	if b.FontSize > size {
-		size = b.FontSize
-	}
-	if size <= 0 {
-		size = 10
-	}
-	return size * 0.5
 }
 
 // ---- Office Open XML (docx, xlsx) ----
@@ -505,6 +416,6 @@ func columnIndex(ref string) int {
 
 // supportedDocumentTypes is what the refusal message offers.
 func supportedDocumentTypes() string {
-	kinds := []string{"PDF", "Word (.docx)", "Excel (.xlsx)", "text, Markdown, HTML", "images"}
+	kinds := []string{"PDF (as a document the agent reads with DevKit's PDF tools)", "Word (.docx)", "Excel (.xlsx)", "text, Markdown, HTML", "images"}
 	return strings.Join(kinds, ", ")
 }

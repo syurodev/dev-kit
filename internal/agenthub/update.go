@@ -317,10 +317,15 @@ type SessionUpdate struct {
 // ref never had content DevKit held in the first place (InvokeInput.Refs).
 type PromptAttachment struct {
 	Name string `json:"name"`
-	// Kind is "file", "image" or "ref".
+	// Kind is "file", "image", "document" or "ref".
 	Kind string `json:"kind"`
 	// URI is the devkit:// EntityRef URI, set only when Kind is "ref".
 	URI string `json:"uri,omitempty"`
+	// DocumentID and Pages are set when Kind is "document": a PDF kept in the
+	// session's document store (documents.go), named by the handle the agent
+	// reads it with.
+	DocumentID string `json:"documentId,omitempty"`
+	Pages      int    `json:"pages,omitempty"`
 }
 
 // DevKitWireKey is where DevKit annotates an update in transit: the adapter
