@@ -3,6 +3,7 @@ package telegramcontrol
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -173,5 +174,48 @@ func TestExpiredQuestionReplyCannotPromptAnotherSelectedSession(t *testing.T) {
 	s.turns.Wait()
 	if counted.calls.Load() != 0 {
 		t.Fatal("expired reply was rerouted as a prompt")
+	}
+}
+
+type sessionCatalogAgents struct {
+	*fakeAgents
+	catalog []agenthub.AgentSession
+}
+
+func (a *sessionCatalogAgents) ListSessions(context.Context) ([]agenthub.AgentSession, error) {
+	return a.catalog, nil
+}
+func TestDeletedRemoteSessionIDsDoNotConsumeCapacity(t *testing.T) {
+	s, _, _, _ := harness(t)
+	s.state.Config.SessionIDs = nil
+	for i := 0; i < 500; i++ {
+		s.state.Config.SessionIDs = append(s.state.Config.SessionIDs, fmt.Sprintf("deleted-%d", i))
+	}
+	if err := s.SetSessionEnabled(context.Background(), "session", true); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.state.Config.SessionIDs, []string{"session"}) {
+		t.Fatal("deleted session IDs retained capacity")
+	}
+}
+func TestRemoteSessionCapStillAppliesToLiveSessionsAndIsIdempotent(t *testing.T) {
+	s, _, agents, _ := harness(t)
+	catalog := &sessionCatalogAgents{fakeAgents: agents}
+	s.state.Config.SessionIDs = nil
+	for i := 0; i < 500; i++ {
+		id := fmt.Sprintf("live-%d", i)
+		s.state.Config.SessionIDs = append(s.state.Config.SessionIDs, id)
+		catalog.catalog = append(catalog.catalog, agenthub.AgentSession{ID: id})
+	}
+	s.deps.Agents = catalog
+	if err := s.SetSessionEnabled(context.Background(), "session", true); err == nil {
+		t.Fatal("live-session cap bypassed")
+	}
+	s.state.Config.SessionIDs[0] = "session"
+	if err := s.SetSessionEnabled(context.Background(), "session", true); err != nil {
+		t.Fatal("already enabled session rejected at capacity")
+	}
+	if len(s.state.Config.SessionIDs) != 500 {
+		t.Fatal("idempotent enable changed membership")
 	}
 }

@@ -83,7 +83,7 @@ func (s *Service) createRemoteSession(ctx context.Context, ws, vendor string) (a
 	if err != nil {
 		return sess, errors.New("không tạo được session; kiểm tra agent trong DevKit")
 	}
-	if err := s.setSessionEnabledLocked(sess.ID, true); err != nil {
+	if err := s.setSessionEnabledLocked(ctx, sess.ID, true); err != nil {
 		return sess, errors.New("session đã tạo nhưng chưa bật remote control; bật trong DevKit")
 	}
 	s.selected = sess.ID

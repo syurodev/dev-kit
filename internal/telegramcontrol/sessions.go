@@ -19,15 +19,29 @@ func (s *Service) SetSessionEnabled(ctx context.Context, id string, enabled bool
 			return errors.New("choose an allowed workspace in Remote control settings first")
 		}
 	}
-	return s.setSessionEnabledLocked(id, enabled)
+	return s.setSessionEnabledLocked(ctx, id, enabled)
 }
-func (s *Service) setSessionEnabledLocked(id string, enabled bool) error {
+func (s *Service) setSessionEnabledLocked(ctx context.Context, id string, enabled bool) error {
 	if id == "" {
 		return errors.New("session is required")
+	}
+	if enabled && slices.Contains(s.state.Config.SessionIDs, id) {
+		return nil
 	}
 	ids := slices.Clone(s.state.Config.SessionIDs)
 	ids = slices.DeleteFunc(ids, func(value string) bool { return value == id })
 	if enabled {
+		if len(ids) >= 500 {
+			list, err := s.deps.Agents.ListSessions(ctx)
+			if err != nil {
+				return errors.New("could not check existing remote sessions")
+			}
+			live := make(map[string]bool, len(list))
+			for _, session := range list {
+				live[session.ID] = true
+			}
+			ids = slices.DeleteFunc(ids, func(value string) bool { return !live[value] })
+		}
 		if len(ids) >= 500 {
 			return errors.New("too many remote sessions")
 		}
