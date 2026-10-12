@@ -2,6 +2,7 @@ import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge } from "./client";
 
 export type TelegramConfig = {
+  sessionIds?: string[];
   enabled: boolean;
   accountId: string;
   workspaces: string[];
@@ -32,4 +33,8 @@ export function acceptTelegramPair(userId: number): Promise<void> {
 }
 export function unpairTelegram(): Promise<void> {
   return callBridge(() => AppService.TelegramUnpair());
+}
+
+export function setTelegramSessionEnabled(sessionId: string, enabled: boolean): Promise<void> {
+  return callBridge(() => AppService.TelegramSetSessionEnabled(sessionId, enabled));
 }

@@ -86,3 +86,11 @@ func (s *AppService) TelegramUnpair(ctx context.Context) error {
 	_, err := s.telegramCall(ctx, true, func(context.Context) (any, error) { return nil, s.container.Telegram.Unpair() })
 	return err
 }
+
+// A session cannot opt itself in through an agent or terminal caller.
+func (s *AppService) TelegramSetSessionEnabled(ctx context.Context, sessionID string, enabled bool) error {
+	_, err := s.telegramCall(ctx, true, func(ctx context.Context) (any, error) {
+		return nil, s.container.Telegram.SetSessionEnabled(ctx, sessionID, enabled)
+	})
+	return err
+}

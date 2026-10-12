@@ -13,6 +13,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // measures. See ComponentGallery for why a browser-reachable route exists at
 // all: VaultGate needs the Wails bridge, so without this every shared component
 // is unreachable outside the desktop app.
+const SessionRemoteControlPreview = lazy(() => import("./dev/SessionRemoteControlPreview"));
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
 const CalmComponentsPreview = lazy(() => import("./dev/CalmComponentsPreview"));
 const DataToolsPreview = lazy(() => import("./dev/DataToolsPreview"));
@@ -35,6 +36,9 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("session-remote-preview")) {
+    return <Suspense fallback={null}><SessionRemoteControlPreview /></Suspense>;
+  }
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("data-tools-preview")) {
     return <Suspense fallback={null}><DataToolsPreview /></Suspense>;
   }

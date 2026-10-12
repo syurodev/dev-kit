@@ -61,6 +61,8 @@ type action struct {
 	fingerprint                string
 }
 type delivery struct {
+	session     string
+	revoked     bool
 	message     int64
 	fingerprint string
 }
@@ -178,6 +180,7 @@ func (s *Service) Configure(ctx context.Context, cfg Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.state
+	cfg.SessionIDs = slices.Clone(s.state.Config.SessionIDs)
 	next.Config = cfg
 	if cfg.AccountID != s.state.Config.AccountID {
 		next.UserID = 0
@@ -411,7 +414,7 @@ func (s *Service) allowed(id string) bool {
 }
 func (s *Service) session(ctx context.Context, id string) (agenthub.AgentSession, error) {
 	sess, err := s.deps.Agents.GetStatus(ctx, id)
-	if err != nil || !s.allowed(sess.WorkspaceID) {
+	if err != nil || !s.allowed(sess.WorkspaceID) || !slices.Contains(s.state.Config.SessionIDs, id) {
 		return sess, errors.New("session outside allowed workspaces")
 	}
 	return sess, nil
@@ -485,7 +488,7 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 		}
 		count, skipped := 0, 0
 		for _, sess := range sessions {
-			if !s.allowed(sess.WorkspaceID) {
+			if !s.allowed(sess.WorkspaceID) || !slices.Contains(s.state.Config.SessionIDs, sess.ID) {
 				continue
 			}
 			if skipped < offset {
@@ -508,7 +511,7 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 			}
 		}
 		if count == 0 {
-			s.send(ctx, c, "Không có session trong workspace được phép.", nil)
+			s.send(ctx, c, "Chưa có session bật điều khiển từ xa. Bật trong menu session của DevKit, hoặc dùng /new.", nil)
 		}
 	case "/more":
 		s.more(ctx, c)
@@ -586,6 +589,9 @@ func (s *Service) handle(ctx context.Context, c *Client, u Update) {
 			}
 			delete(s.ownTurns, id)
 			delete(s.observed, id)
+			if _, checkErr := s.session(ctx, id); checkErr != nil {
+				return
+			}
 			text := "Agent đã kết thúc: " + result.Status
 			if err != nil {
 				text = "Lượt chạy thất bại; xem chi tiết trong DevKit."

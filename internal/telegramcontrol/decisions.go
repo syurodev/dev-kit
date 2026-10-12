@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,11 +25,17 @@ func (s *Service) bind(buttons [][]Button, msg int64) {
 }
 func (s *Service) reconcile(ctx context.Context, c *Client) {
 	live := map[string]bool{}
+	for key, d := range s.sent {
+		if d.revoked {
+			_ = c.Do(ctx, "editMessageReplyMarkup", map[string]any{"chat_id": s.state.ChatID, "message_id": d.message, "reply_markup": map[string]any{"inline_keyboard": [][]Button{}}}, nil)
+			delete(s.sent, key)
+		}
+	}
 	sessions, err := s.deps.Agents.ListSessions(ctx)
 	if err == nil {
 		next := map[string]agenthub.SessionStatus{}
 		for _, sess := range sessions {
-			if !s.allowed(sess.WorkspaceID) {
+			if !s.allowed(sess.WorkspaceID) || !slices.Contains(s.state.Config.SessionIDs, sess.ID) {
 				continue
 			}
 			next[sess.ID] = sess.Status
@@ -92,7 +99,7 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 		msg := s.send(ctx, c, text, buttons)
 		if msg != 0 {
 			s.bind(buttons, msg)
-			s.sent[key] = delivery{message: msg, fingerprint: fp}
+			s.sent[key] = delivery{message: msg, fingerprint: fp, session: p.SessionID}
 		}
 	}
 	for _, q := range s.deps.Questions.PendingList() {
@@ -108,7 +115,7 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 		if err != nil {
 			msg := s.send(ctx, c, "Câu hỏi cần xử lý trên desktop (schema chưa hỗ trợ).\nSession: "+q.SessionID, nil)
 			if msg != 0 {
-				s.sent[key] = delivery{message: msg}
+				s.sent[key] = delivery{message: msg, session: q.SessionID}
 			}
 			continue
 		}
@@ -116,12 +123,12 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 		msg := s.send(ctx, c, "Câu hỏi agent\nSession: "+q.SessionID+"\n"+q.Message, buttons)
 		if msg != 0 {
 			s.bind(buttons, msg)
-			s.sent[key] = delivery{message: msg, fingerprint: f.fp}
+			s.sent[key] = delivery{message: msg, fingerprint: f.fp, session: q.SessionID}
 		}
 	}
 	if s.state.Config.ApproveInteractions {
 		for _, p := range s.deps.Interaction.PendingList() {
-			if p.Type != "confirm" {
+			if p.Type != "confirm" || !s.interactionAllowed(ctx, p.Caller) {
 				continue
 			}
 			key := "interaction:" + p.ID
@@ -134,14 +141,14 @@ func (s *Service) reconcile(ctx context.Context, c *Client) {
 			text := "Xác nhận DevKit trên máy này\nBên gọi: " + p.Caller + "\n" + p.Tool + "\n" + p.Summary + "\nĐích: " + string(raw) + "\nMôi trường: " + p.Env + "\nHết hạn: " + p.ExpiresAt.Format(time.RFC3339)
 			var buttons [][]Button
 			if len([]rune(text)) <= 3500 {
-				buttons = [][]Button{{s.button("Cho phép lần này", action{source: "interaction", id: p.ID, value: "allow", fingerprint: fp}), s.button("Từ chối", action{source: "interaction", id: p.ID, value: "deny", fingerprint: fp})}}
+				buttons = [][]Button{{s.button("Cho phép lần này", action{source: "interaction", id: p.ID, value: "allow", session: interactionSession(p.Caller), fingerprint: fp}), s.button("Từ chối", action{source: "interaction", id: p.ID, value: "deny", session: interactionSession(p.Caller), fingerprint: fp})}}
 			} else {
 				text = "Xác nhận quá dài; xem trên desktop."
 			}
 			msg := s.send(ctx, c, text, buttons)
 			if msg != 0 {
 				s.bind(buttons, msg)
-				s.sent[key] = delivery{message: msg, fingerprint: fp}
+				s.sent[key] = delivery{message: msg, fingerprint: fp, session: interactionSession(p.Caller)}
 			}
 		}
 	}
@@ -215,7 +222,7 @@ func (s *Service) complete(ctx context.Context, c *Client, a action) error {
 		}
 		for _, p := range s.deps.Interaction.PendingList() {
 			raw, _ := json.Marshal(p)
-			if p.ID == a.id && fingerprint(raw) == a.fingerprint && p.Type == "confirm" && (a.value == "allow" || a.value == "deny") {
+			if p.ID == a.id && fingerprint(raw) == a.fingerprint && p.Type == "confirm" && s.interactionAllowed(ctx, p.Caller) && (a.value == "allow" || a.value == "deny") {
 				return s.deps.Interaction.Complete(a.id, a.value)
 			}
 		}
@@ -455,4 +462,19 @@ func (s *Service) answerField(ctx context.Context, c *Client, f *form, text stri
 	f.answers[f.fields[f.index]] = value
 	f.index++
 	s.askField(ctx, c, f)
+}
+
+func interactionSession(caller string) string {
+	id, _ := strings.CutPrefix(caller, "agent:")
+	if strings.HasPrefix(caller, "agent:") {
+		return id
+	}
+	return ""
+}
+func (s *Service) interactionAllowed(ctx context.Context, caller string) bool {
+	if strings.HasPrefix(caller, "agent:") {
+		_, err := s.session(ctx, interactionSession(caller))
+		return err == nil
+	}
+	return true // UI/terminal confirmations retain their separate explicit setting.
 }
