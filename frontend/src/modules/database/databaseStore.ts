@@ -109,12 +109,16 @@ export type StatementRun = { outcome: "ok" | "error"; durationMs: number };
 
 /** One grid, and the statement that produced it. */
 export type ResultTab = {
+  durationMs?: number;
   /** Names the tab, and says which of four grids you are looking at. */
   statement: string;
   result: QueryResult;
 };
 
 export type ConsoleState = {
+  /** Null until first bound; a deleted bound profile never falls back to another. */
+  targetProfileId: string | null;
+  completionSchema: string;
   sql: string;
   /**
    * Every grid the last run produced, in the order the statements ran.
@@ -189,6 +193,8 @@ export function visibleResult(console: ConsoleState): QueryResult | null {
 export const DEFAULT_CONSOLE_ID = "console-1";
 
 export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
+  targetProfileId: null,
+  completionSchema: "",
   sql: "",
   results: [],
   activeResult: 0,
@@ -555,6 +561,11 @@ export type DatabaseStoreState = {
   closeResult: (consoleId: string, index: number) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
+  bindConsole: (consoleId: string, profileId: string) => void;
+  setCompletionSchema: (consoleId: string, schema: string) => void;
+  consoleViewModes: Record<string, "split" | "editor" | "results">;
+  setConsoleViewMode: (consoleId: string, mode: "split" | "editor" | "results") => void;
+  consoleEditorSizes: Record<string, number>;
   /** Drops a console's slice when its tab closes, and the file with it. */
   closeConsole: (consoleId: string) => void;
   /** Removes a console's file for good. The tab, if one is open, keeps its
@@ -829,24 +840,17 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // held, its work uncommitted — and the toolbar you arrive at describes
       // the other connection. Recorded for the sidebar to say it once.
       const leaving = profileOf(get(), get().selectedProfileId);
-      // #48: the consoles' connections on the profile being left are given
-      // back; a run on the new one opens its own.
-      if (get().selectedProfileId) {
-        void closeSession(get().selectedProfileId).catch(() => undefined);
-      }
+      // Bound consoles retain their sessions and in-flight queries.
       if (get().txOpen && leaving) {
         set({ strandedTransaction: leaving.name });
       }
-      // #41: a console's run too — its answer would land under the connection
-      // you switched to.
+      // Table loads follow Explorer; their old answers are no longer current.
       for (const call of [
-        ...pendingQueries.values(),
         ...pendingBrowseQueries.values(),
         ...pendingCountQueries.values(),
       ]) {
         call.cancel();
       }
-      pendingQueries.clear();
       pendingBrowseQueries.clear();
       pendingCountQueries.clear();
       set((state) => ({
@@ -890,30 +894,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // same click rather than asking for a second one.
       expandedProfiles: { ...get().expandedProfiles, [id]: true },
     });
-    // Every console's result came from the connection you just left, so none of
-    // them describe anything any more. The SQL stays: the same query against a
-    // different database is usually why you switched. The run id moves on so a
-    // run already answering is dropped, and the running flag goes with the
-    // cancelled call.
-    if (switching) {
-      set((state) => ({
-        consoles: Object.fromEntries(
-          Object.entries(state.consoles).map(([id, console]) => [
-            id,
-            {
-              ...console,
-              results: [],
-              activeResult: 0,
-              queryError: "",
-              queryStatus: "",
-              queryDurationMs: null,
-              queryRunId: console.queryRunId + 1,
-              runningQuery: false,
-            },
-          ]),
-        ),
-      }));
-    }
     if (id) {
       void get().loadSchemaSnapshot(id);
     }
@@ -1063,8 +1043,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
   executeQuery: async (consoleId, statement, options) => {
-    const { selectedProfileId } = get();
     const console = get().consoleState(consoleId);
+    const selectedProfileId = console.targetProfileId ?? get().selectedProfileId;
+    if (selectedProfileId && console.targetProfileId === null) get().bindConsole(consoleId, selectedProfileId);
     const sql = (statement ?? console.sql).trim();
     if (!selectedProfileId || !sql) {
       return "skipped";
@@ -1093,8 +1074,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       call = runQuery(selectedProfileId, sql, 0, consoleId);
       pendingQueries.set(consoleId, call);
       const result = await call;
-      // The connection changed under this run (setSelectedProfileId moves the
-      // run id on), so its answer no longer describes the console.
+      // Rebinding this console moves its run id, so an old target cannot answer.
       if (get().consoleState(consoleId).queryRunId !== runId) {
         return "superseded";
       }
@@ -1103,7 +1083,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // started — so the tabs on screen are always one run's worth.
       const elapsed = Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now());
       const previous = options?.append ? get().consoleState(consoleId).results : [];
-      const results = [...previous, { statement: sql, result }];
+      const results = [...previous, { statement: sql, result, durationMs: elapsed }];
       patchConsole(set, consoleId, {
         results,
         // The newest, so a script is watched arriving rather than reviewed
@@ -1173,13 +1153,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    * the connection; the store has the sequencing, because it has the run.
    */
   runScript: async (consoleId, statements) => {
-    if (statements.length === 0 || !get().selectedProfileId || get().consoleState(consoleId).runningQuery) {
+    if (statements.length === 0 || !(get().consoleState(consoleId).targetProfileId ?? get().selectedProfileId) || get().consoleState(consoleId).runningQuery) {
       return;
     }
-    const scriptProfileId=get().selectedProfileId;
+    const scriptProfileId=get().consoleState(consoleId).targetProfileId ?? get().selectedProfileId;
     patchConsole(set, consoleId, { statementRuns: {} });
     for (const [index, statement] of statements.entries()) {
-      if(get().selectedProfileId!==scriptProfileId)return;
+      if((get().consoleState(consoleId).targetProfileId ?? get().selectedProfileId)!==scriptProfileId)return;
       if ((await get().executeQuery(consoleId, statement, { append: index > 0 })) !== "ok") {
         return;
       }
@@ -1210,6 +1190,28 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
+  consoleViewModes: {},
+  consoleEditorSizes: {},
+  setConsoleViewMode: (id, mode) => set(state => ({consoleViewModes: {...state.consoleViewModes, [id]: mode}})),
+  setCompletionSchema: (id, schema) => patchConsole(set, id, {completionSchema: schema}),
+  bindConsole: (id, profileId) => {
+    const current = get().consoleState(id);
+    if (current.targetProfileId === profileId) return;
+    if (current.targetProfileId === null) {
+      patchConsole(set, id, {targetProfileId: profileId});
+      get().setSql(id, current.sql);
+      return;
+    }
+    pendingQueries.get(id)?.cancel();
+    pendingQueries.delete(id);
+    if (current.targetProfileId) void closeSession(current.targetProfileId, id).catch(() => undefined);
+    patchConsole(set, id, {
+      targetProfileId: profileId, completionSchema: "", results: [], activeResult: 0,
+      queryRunId: current.queryRunId + 1, runningQuery: false,
+      queryError: "", queryStatus: "", queryDurationMs: null,
+    });
+    get().setSql(id, current.sql);
+  },
 
   /*
    * Closing a console closes the TAB. The file stays.
@@ -1222,9 +1224,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    * edit is usually still inside the debounce window when a tab is closed.
    */
   closeConsole: (consoleId) => {
+    pendingQueries.get(consoleId)?.cancel();
+    pendingQueries.delete(consoleId);
     consoleFiles.release(consoleId);
     // #48: its connection goes back with it.
-    const { selectedProfileId } = get();
+    const selectedProfileId = get().consoleState(consoleId).targetProfileId;
     if (selectedProfileId) {
       void closeSession(selectedProfileId, consoleId).catch(() => undefined);
     }
@@ -1267,6 +1271,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         consoles[file.id] = {
           ...(current ?? EMPTY_CONSOLE),
           sql: file.sql,
+          targetProfileId: file.profileId || null,
           originProfileId: file.profileId,
           originDatabase: file.database,
         };
@@ -1658,10 +1663,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    * makes the file self-describing when you open it outside the app.
    */
   setSql: (consoleId, sql) => {
-    const { selectedProfileId, selectedSchema } = get();
-    const database = selectedSchema || profileOf(get(), selectedProfileId)?.database || "";
+    const selectedProfileId = get().consoleState(consoleId).targetProfileId ?? get().selectedProfileId;
+    const database = profileOf(get(), selectedProfileId)?.database || "";
     patchConsole(set, consoleId, {
       sql,
+      targetProfileId: get().consoleState(consoleId).targetProfileId ?? (selectedProfileId || null),
       originProfileId: selectedProfileId,
       originDatabase: database,
     });
@@ -1673,11 +1679,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     });
   },
 
-  setConsoleEditorSize: (consoleId, size) =>
-    patchConsole(set, consoleId, { editorSize: size }),
+  setConsoleEditorSize: (consoleId, size) => {
+    patchConsole(set, consoleId, { editorSize: size });
+    set(state => ({consoleEditorSizes: {...state.consoleEditorSizes, [consoleId]: size}}));
+  },
 
   clearQueryResult: (consoleId) =>
     patchConsole(set, consoleId, {
+      queryError: "",
       results: [],
       activeResult: 0,
       queryStatus: "",
@@ -1715,6 +1724,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         browsePageSize: state.browsePageSize,
         sidebarPane: state.sidebarPane,
         copyFormat: state.copyFormat,
+        consoleViewModes: state.consoleViewModes,
+        consoleEditorSizes: state.consoleEditorSizes,
         visibleSchemas: state.visibleSchemas,
         visibleDatabases: state.visibleDatabases,
       }),

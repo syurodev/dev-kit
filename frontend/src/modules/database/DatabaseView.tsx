@@ -1,3 +1,4 @@
+import { DatabaseDocumentLayout } from "./components/DatabaseDocumentLayout";
 import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 import { DatabaseBanners } from "./components/DatabaseBanners";
@@ -18,18 +19,27 @@ import { useIsActiveDocument } from "./useIsActiveDocument";
  * useDatabaseModuleActions). What is left is the console itself.
  */
 export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
-  const consoleId = typeof params?.consoleId === "string" ? params.consoleId : DEFAULT_CONSOLE_ID;
+  const consoleId =
+    typeof params?.consoleId === "string"
+      ? params.consoleId
+      : DEFAULT_CONSOLE_ID;
 
-  const { profileError, profiles, selectedProfileId, setShowConnectionOptionsDialog } =
-    useDatabaseStore(
-      useShallow((s) => ({
-        profileError: s.profileError,
-        profiles: s.profiles,
-        selectedProfileId: s.selectedProfileId,
-        setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
-      })),
-    );
-  const queryError = useDatabaseStore((s) => s.consoles[consoleId]?.queryError ?? "");
+  const {
+    profileError,
+    profiles,
+    selectedProfileId,
+    setShowConnectionOptionsDialog,
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profileError: s.profileError,
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+    })),
+  );
+  const queryError = useDatabaseStore(
+    (s) => s.consoles[consoleId]?.queryError ?? "",
+  );
   // The tab's own params, not the normalised consoleId: the module's home tab
   // is opened by the Workbench with no params at all, so asking for
   // `consoleId=console-1` names a tab that does not exist and the overlays
@@ -40,8 +50,13 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
   useDatabaseChrome();
   useConsoleLifetime(consoleId);
 
-  const blocking = profileError || queryError;
-  const profile = profiles.find((p) => p.id === selectedProfileId);
+  const boundTarget = useDatabaseStore(
+    (s) => s.consoles[consoleId]?.targetProfileId,
+  );
+  const targetId = boundTarget ?? selectedProfileId;
+  const blocking =
+    (targetId === selectedProfileId ? profileError : "") || queryError;
+  const profile = profiles.find((p) => p.id === targetId);
 
   if (isVaultLockedError(profileError)) {
     return <VaultLockedState />;
@@ -50,15 +65,22 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
     return (
       <TLSRefusedState
         target={profile ? `${profile.host}:${profile.port}` : "this host"}
-        onEditConnection={() => setShowConnectionOptionsDialog(true)}
+        onEditConnection={() => {
+          useDatabaseStore
+            .getState()
+            .setSelectedProfileId(profile?.parentProfileId || targetId);
+          setShowConnectionOptionsDialog(true);
+        }}
       />
     );
   }
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden text-text-primary">
-      <DatabaseBanners />
-      <QueryConsole consoleId={consoleId} />
+      <DatabaseBanners profileId={targetId} />
+      <DatabaseDocumentLayout active={isActive}>
+        <QueryConsole consoleId={consoleId} />
+      </DatabaseDocumentLayout>
       {isActive ? <DatabaseOverlays /> : null}
     </div>
   );

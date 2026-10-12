@@ -126,7 +126,8 @@ describe("consoles that outlive the window", () => {
     useDatabaseStore.getState().setSql("c1", "SELECT 1");
     const console = useDatabaseStore.getState().consoleState("c1");
     expect(console.originProfileId).toBe("p1");
-    expect(console.originDatabase).toBe("public");
+    expect(console.originDatabase).toBe(useDatabaseStore.getState().profiles.find(p => p.id === "p1")?.database ?? "");
+    expect(console.targetProfileId).toBe("p1");
   });
 
   /*
@@ -399,4 +400,13 @@ describe("the grid on screen", () => {
   test("is nothing when the index has outrun the list", () => {
     expect(visibleResult(console([{ statement: "SELECT 1", result: grid(1) }], 4))).toBeNull();
   });
+});
+
+
+test("clearing a console target does not fall back to Explorer on typing", () => {
+  useDatabaseStore.setState({selectedProfileId: "other", consoles: {}});
+  const state = useDatabaseStore.getState();
+  state.bindConsole("cleared", "");
+  state.setSql("cleared", "select 1");
+  expect(useDatabaseStore.getState().consoleState("cleared").targetProfileId).toBe("");
 });

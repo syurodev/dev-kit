@@ -15,6 +15,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // is unreachable outside the desktop app.
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
 const CalmComponentsPreview = lazy(() => import("./dev/CalmComponentsPreview"));
+const DatabaseWorkbenchPreview = lazy(() => import("./dev/DatabaseWorkbenchPreview"));
 const DataToolsPreview = lazy(() => import("./dev/DataToolsPreview"));
 const RemoteControlPreview = lazy(() => import("./dev/RemoteControlPreview"));
 const ShellHarness = lazy(() => import("./dev/ShellHarness"));
@@ -35,6 +36,9 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("database-workbench-preview")) {
+    return <Suspense fallback={null}><DatabaseWorkbenchPreview /></Suspense>;
+  }
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("data-tools-preview")) {
     return <Suspense fallback={null}><DataToolsPreview /></Suspense>;
   }

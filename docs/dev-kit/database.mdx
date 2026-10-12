@@ -1284,7 +1284,7 @@ Explorer hiển thị **connection → database → schema → table**. Danh sá
 
 Mỗi database khác điểm đăng nhập ban đầu có một liên kết metadata trong vault, với ID riêng cho pool, cache và transaction. Liên kết không giữ bản sao password; nó kế thừa credentials, TLS, SSH tunnel, environment và read-only từ connection gốc. Cấu hình connection phải chỉnh ở connection gốc; xóa connection gốc cũng xóa các liên kết database con. Metadata liên kết có thể sync như profile, nhưng credentials cục bộ vẫn thuộc connection gốc. Bản app cũ chưa hiểu loại liên kết này sẽ không kết nối được các profile con.
 
-Tab bảng mới có profile/database context trong identity; hai database có `public.users` là hai tab và hai trạng thái riêng. Chuyển sang tab của database khác kích hoạt đúng ngữ cảnh; thao tác ghi bị chặn khi ngữ cảnh không khớp. Console tiếp tục dùng ngữ cảnh connection đang chọn và hiển thị đích thực thi trong toolbar; không ngầm tạo connection xuyên database trong một transaction.
+Tab bảng mới có profile/database context trong identity; hai database có `public.users` là hai tab và hai trạng thái riêng. Chuyển sang tab của database khác kích hoạt đúng ngữ cảnh; thao tác ghi bị chặn khi ngữ cảnh không khớp. Mỗi console giữ target riêng, khôi phục từ profile trong file console. Chọn connection/database trong Explorer không đổi target và không hủy query của console đã gắn. Đổi target ngay trên thanh console mới hủy run cũ, đóng session của console đó và xóa kết quả cũ.
 
 Kiểm tra thực tế trên PostgreSQL tạm:
 
@@ -1293,3 +1293,16 @@ DEVKIT_PG_CATALOG_TEST=1 DEVKIT_PG_CATALOG_PORT=<port> DEVKIT_PG_CATALOG_PASSWOR
 ```
 
 Test nhận mật khẩu qua `DEVKIT_PG_CATALOG_PASSWORD` trên server PostgreSQL disposable, tạo/xóa database test riêng. Không bật test này trên production.
+
+
+### Database workbench: console và kết quả
+
+- Thanh target chọn connection và (PostgreSQL) database, luôn hiện environment và Read-only. Một target đã bị xóa không tự chuyển sang connection khác.
+- **Completion schema** chỉ chọn schema cho autocomplete. SQL vẫn phân giải tên theo session của server: dùng tên đầy đủ `schema.table`, `SET search_path` trên PostgreSQL hoặc `USE` trên MySQL/MariaDB khi cần đổi phạm vi thực thi.
+- **Run** chạy phần đang chọn hoặc toàn script (⌘/Ctrl+Enter). Menu có chạy statement tại cursor (⇧⌘/Ctrl+Enter) và toàn script; Stop hủy query. Explain và History hiện trực tiếp; Save query và Explain analyze nằm trong More.
+- Transaction controls thao tác đúng profile của console, độc lập với Explorer. Transaction vẫn thuộc profile, được chia sẻ với các document dùng profile đó; không phải transaction riêng mỗi console.
+- **Split**, **Editor only**, **Results only** cùng tỷ lệ resize được nhớ theo console. Khi chưa có output, editor vẫn hiện kể cả chọn Results only.
+- Result 1/2/... giữ statement gốc trong tooltip. **Messages** hiển thị lỗi đầy đủ, trạng thái và SQL vừa chạy. Thời gian/số hàng ở toolbar kết quả, không gộp vào nút Run.
+- Toolbar grid dùng chung cho console và table: Copy as, Copy selection, Export loaded result hoặc Export selection. Chỉ export các hàng đã tải; không ngầm query thêm dữ liệu.
+- Double-click ô mở inspector cạnh nội dung, không có modal/backdrop. Trên pane hẹp, inspector nằm dưới nội dung. NULL không có text để copy; giá trị JSON có Formatted/Raw.
+

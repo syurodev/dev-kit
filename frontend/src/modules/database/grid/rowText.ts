@@ -53,13 +53,17 @@ export function serializeSelection(
   format: CopyFormat,
 ): string {
   if (format === "tsv") return selectionAsTSV(result.rows, order, range);
+  const selected = selectedResult(result, order, range);
+  return format === "json" ? serializeJSON(selected) : serializeCSV(selected);
+}
+
+export function selectedResult(result: QueryResult, order: readonly number[], range: {top: number; bottom: number; left: number; right: number}): QueryResult {
   const columns = order.slice(range.left, range.right + 1);
-  const selected: QueryResult = {
+  return {
     columns: columns.map((column) => result.columns[column]),
     rows: result.rows.slice(Math.max(0, range.top), range.bottom + 1)
       .map((row) => columns.map((column) => row[column] ?? null)),
     rowCount: Math.max(0, Math.min(result.rows.length - 1, range.bottom) - Math.max(0, range.top) + 1),
     truncated: false,
   };
-  return format === "json" ? serializeJSON(selected) : serializeCSV(selected);
 }

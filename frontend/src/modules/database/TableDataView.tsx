@@ -1,3 +1,4 @@
+import { DatabaseDocumentLayout } from "./components/DatabaseDocumentLayout";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApplyEditsDialog } from "./components/ApplyEditsDialog";
@@ -268,6 +269,7 @@ export function TableDataView({
   };
   const openInConsole = () => {
     const consoleId = consoleIdFor(key);
+    useDatabaseStore.getState().bindConsole(consoleId, selectedProfileId);
     setSql(
       consoleId,
       buildBrowseQuery({
@@ -296,6 +298,7 @@ export function TableDataView({
   if(!targetReady) return <div className="flex h-full flex-col items-center justify-center gap-3"><p className="text-body-13 text-text-secondary">This table belongs to another database.</p><Button onClick={()=>activateProfile(boundProfileId)}>Activate this database</Button></div>;
 
   return (
+    <DatabaseDocumentLayout active={isActive}>
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <TableToolbar
         where={browse.where}
@@ -316,7 +319,6 @@ export function TableDataView({
           setBrowseOrder(key, next);
           void loadBrowsePage(key, { schema, table });
         }}
-        rowCount={browse.rows?.rows.length ?? 0}
         loading={busy || stagedCount > 0}
         onRefresh={() => {
           if (!blockedByPending()) void loadBrowsePage(key, { schema, table });
@@ -347,7 +349,6 @@ export function TableDataView({
         // A28: the page already in hand, not a query re-run to fetch it again.
         // The toolbar disables this with no rows, and the guard here is what
         // makes that a courtesy rather than the only thing holding it up.
-        onExport={exportPage}
         onShowDDL={() => openDDL(schema, table)}
         onOpenInConsole={openInConsole}
       />
@@ -410,6 +411,7 @@ export function TableDataView({
       {browse.rows ? (
         <ResultGrid
           result={shownRows!}
+          onExport={result => openExportModal(result, tableExportFilename(table))}
           changedCells={
             stagedCount > 0 ? new Set(Object.keys(browse.staged)) : undefined
           }
@@ -588,6 +590,7 @@ export function TableDataView({
 
       {isActive ? <DatabaseOverlays /> : null}
     </div>
+    </DatabaseDocumentLayout>
   );
 }
 

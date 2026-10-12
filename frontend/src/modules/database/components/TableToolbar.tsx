@@ -5,7 +5,6 @@ import {
   ArrowUpAZ,
   ArrowUpDown,
   Check,
-  Download,
   FileCode,
   RefreshCw,
   SquareArrowOutUpRight,
@@ -217,10 +216,8 @@ export function TableToolbar({
   orderBy,
   columns,
   onOrderByChange,
-  rowCount,
   loading,
   onRefresh,
-  onExport,
   onOpenInConsole,
   onShowDDL,
   pager,
@@ -240,17 +237,9 @@ export function TableToolbar({
   onOrderByChange: (
     next: { column: string; direction: "asc" | "desc" } | null,
   ) => void;
-  /** Rows on this page. Only Export reads it — with none there is nothing to write. */
-  rowCount: number;
+
   loading: boolean;
   onRefresh: () => void;
-  /**
-   * A28: exports the rows this tab already has. The table tab lost Export when
-   * it stopped being a console, which left "export this table" meaning open a
-   * console, re-run the query, then export — a round trip for rows that are
-   * already on screen. Disabled with no rows, since there is nothing to write.
-   */
-  onExport: () => void;
   onOpenInConsole: () => void;
   onShowDDL: () => void;
   /**
@@ -288,16 +277,6 @@ export function TableToolbar({
           </Button>
         </ActionTooltip>
 
-        <ActionTooltip label="Export the rows on this page">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onExport}
-            disabled={rowCount === 0}
-          >
-            <Download />
-          </Button>
-        </ActionTooltip>
         <ActionTooltip label="Open this query in a console">
           <Button variant="ghost" size="icon-sm" onClick={onOpenInConsole}>
             <SquareArrowOutUpRight />
