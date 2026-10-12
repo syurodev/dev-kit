@@ -152,6 +152,22 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 
 	uri := "file://" + resolved
 
+	// PDF and Office files: DevKit reads the text out of them (attachment_docs.go).
+	if kind := documentKind(filepath.Ext(resolved)); kind != "" {
+		text, err := extractDocument(kind, body)
+		if err != nil {
+			return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, filepath.Base(path), err)
+		}
+		return acp.ContentBlock{
+			Type: "resource",
+			Resource: &acp.ResourceContents{
+				URI:      uri,
+				Text:     text,
+				MimeType: "text/plain",
+			},
+		}, nil
+	}
+
 	if isImage {
 		return acp.ContentBlock{
 			Type:     "image",
@@ -165,8 +181,8 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 	// as mojibake, so it is refused rather than sent as something the model
 	// will read as noise and answer about anyway.
 	if !utf8Text(body) {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not text or an image",
-			ErrInvalidPrompt, filepath.Base(path))
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not text or an image (DevKit reads %s)",
+			ErrInvalidPrompt, filepath.Base(path), supportedDocumentTypes())
 	}
 	if mimeType == "" {
 		mimeType = "text/plain"

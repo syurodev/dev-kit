@@ -255,6 +255,17 @@ go test ./internal/acp/ ./internal/agenthub/ ./internal/bridge/ ./internal/mcp/ 
 DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexRealBinary -v
 ```
 
+### Prompt attachments (`internal/agenthub/attachment*.go`)
+DevKit reads an attached file itself and sends its contents (limit 8 MiB). Text, Markdown and HTML go
+as they are; images as image blocks; **PDF, `.docx`, `.doc`, `.xlsx`, `.xls` have their text extracted**
+(`attachment_docs.go`, pure Go: `dslipak/pdf`, `extrame/xls` + `extrame/ole2`, the rest `archive/zip` +
+`encoding/xml`) and ride as a `text/plain` resource, capped at 1 MiB of text with the cut said aloud.
+Plain text only: no layout, images, comments, formulas (the cached result is read) or headers/footnotes;
+a spreadsheet date is its serial number; a scanned PDF has no text and is refused by name. PDF runs are
+laid out by position (the library's plain-text reader follows file order and misplaces fallback-font glyphs),
+and a malformed file panicking a reader is a refused attachment, not a crash. Fixtures in
+`testdata/docs/` were made by python-docx/openpyxl and converted by LibreOffice.
+
 ### Agent sandbox (`internal/sandbox`)
 **Implemented** leaf package for OS-isolated subprocesses. Linux: **bubblewrap**
 (`apt install bubblewrap`). macOS: Seatbelt / `sandbox-exec`. Landlock helper
