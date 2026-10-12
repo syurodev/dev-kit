@@ -101,8 +101,9 @@ func (h *SessionHost) Open(sessionID string) (agenthub.MCPEndpoint, error) {
 		_ = os.Remove(path)
 	}
 	return agenthub.MCPEndpoint{
-		GateOwnedTools: h.server.GateOwnedTools(),
-		SocketPath:     path,
+		GateOwnedTools:   h.server.GateOwnedTools(),
+		PreApprovedTools: h.server.PreApprovedTools(),
+		SocketPath:       path,
 		Server: acp.McpServerStdio{
 			Name:    "devkit",
 			Command: h.proxyPath,
