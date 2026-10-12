@@ -14,6 +14,7 @@ const (
 	tableAgentTurns       = "agent_turns"
 	tableAgentTranscript  = "agent_transcript"
 	tableAgentCheckpoints = "agent_checkpoints"
+	tableAgentDocuments   = "agent_documents"
 	storeTimeLayout       = time.RFC3339Nano
 )
 
@@ -503,7 +504,7 @@ func (st *SQLStore) PruneClosedSessions(ctx context.Context, closedBefore time.T
 }
 
 // DeleteSessions removes the given sessions along with their turns,
-// transcripts and checkpoint rows, permanently. (A checkpoint's snapshot is in
+// transcripts, checkpoint and document rows, permanently. (A checkpoint's snapshot is in
 // the shadow repository; without its row, maintenance collects it.)
 //
 // Children first, then the sessions themselves: agent_turns and
@@ -527,7 +528,7 @@ func (st *SQLStore) DeleteSessions(ctx context.Context, ids []string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, table := range []string{tableAgentTranscript, tableAgentTurns, tableAgentCheckpoints} {
+	for _, table := range []string{tableAgentTranscript, tableAgentTurns, tableAgentCheckpoints, tableAgentDocuments} {
 		for _, id := range ids {
 			if _, err := tx.ExecContext(ctx,
 				`DELETE FROM `+table+` WHERE session_id = ?`, id); err != nil {

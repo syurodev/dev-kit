@@ -228,7 +228,11 @@ type Deps struct {
 	// workspaces are not available.
 	Workspace       WorkspaceAPI
 	WorkspaceMemory WorkspaceMemoryAPI
-	Hub             *interaction.Hub // optional nil → headless
+	// PDFDocuments backs the pdf.* tools: the PDFs attached to Agent Hub
+	// sessions. Nil leaves them unregistered, so an agent is never offered a
+	// tool that cannot answer.
+	PDFDocuments PDFDocumentsAPI
+	Hub          *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -243,6 +247,17 @@ type Server struct {
 func (s *Server) gateOwnedTool(tool *sdk.Tool) *sdk.Tool {
 	s.gateOwned.Store(tool.Name, struct{}{})
 	return tool
+}
+
+// PreApprovedTools are the tools an agent may run without being asked: the
+// read-only pdf.* tools, which answer only for the calling session's own
+// documents. Reading a document the user attached is what attaching it is for;
+// a prompt per page would make the feature unusable.
+func (s *Server) PreApprovedTools() []string {
+	if s.deps.PDFDocuments == nil {
+		return nil
+	}
+	return []string{"pdf.list", "pdf.info", "pdf.search", "pdf.readText", "pdf.viewPages"}
 }
 
 func (s *Server) GateOwnedTools() []string {
@@ -288,6 +303,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerCodexHook(ms)
 	s.registerWorkspace(ms)
 	s.registerWorkspaceMemory(ms)
+	s.registerPDF(ms)
 	return ms
 }
 

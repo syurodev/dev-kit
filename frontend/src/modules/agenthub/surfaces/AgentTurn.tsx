@@ -161,7 +161,8 @@ export const AgentTurn = React.memo(function AgentTurn({
                     <AgentFileChip
                       key={`${attachment.kind}:${attachment.name}:${index}`}
                       path={attachment.name}
-                      kind={attachment.kind === "image" ? "image" : "file"}
+                      kind={attachment.kind === "image" ? "image" : attachment.kind === "document" ? "document" : "file"}
+                      detail={attachment.kind === "document" && attachment.pages ? `${attachment.pages} page${attachment.pages === 1 ? "" : "s"}` : undefined}
                     />
                   ))}
                 </div>

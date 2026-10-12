@@ -47,12 +47,15 @@ import { AgentContextMeter } from "./AgentContextMeter";
 import { ModelSettingsPopover } from "./ModelSettingsPopover";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
+import { continueList, formatShortcut, toggleList, toggleWrap, type TextEdit } from "./composer/listEditing";
 import { ComposerPanelArea, type TrayPanel } from "./composer/ComposerTray";
 import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composer/composerSerialization";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
+import { onAgentHubFilesDropped } from "@/bridge/agenthub";
 import { getAgentSandbox } from "@/bridge/preferences";
+import { toast } from "sonner";
 import type { AgentSandboxSettings } from "../../../../bindings/devkit/internal/preferences/models";
 import type { EntityRef } from "@/workbench/intents";
 import { vendorInfo } from "../vendors";
@@ -632,6 +635,93 @@ export function AgentComposer({
     return found ? { path, start: found.start, end: offset, query: found.query } : null;
   }
 
+  // Files dragged in from the OS. The webview cannot see their paths, so the
+  // desktop shell reports the drop as an event naming the composer it landed on
+  // (data-composer-id below); each file becomes the same chip "@" makes. Not in
+  // server mode or a browser: there nothing emits it, and an image dropped
+  // there still goes through onDrop on the field.
+  const composerId = React.useId();
+  const dropRef = useRef({ onSelectContext, disabled });
+  dropRef.current = { onSelectContext, disabled };
+  useEffect(
+    () =>
+      onAgentHubFilesDropped((drop) => {
+        if (drop.composer !== composerId || dropRef.current.disabled) return;
+        if (!editor.selection) editor.tf.focus({ edge: "end" });
+        for (const path of drop.paths) {
+          const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1) || path;
+          getMentionOnSelectItem()(editor, { key: path, text: name });
+          dropRef.current.onSelectContext?.(path);
+        }
+        if (drop.skipped > 0) {
+          toast.info(`${drop.skipped} item${drop.skipped === 1 ? "" : "s"} skipped — only files can be attached.`);
+        }
+        editor.tf.focus();
+      }),
+    [composerId, editor],
+  );
+
+  /**
+   * The text leaf the selection sits in, with the selection's offsets — null
+   * when it spans more than one (a chip between the ends, two paragraphs), where
+   * these line edits would be guessing. `lineStart` says whether offset 0 of the
+   * leaf is also the start of a line: after a chip it is not.
+   */
+  function selectedLeaf() {
+    const selection = editor.selection;
+    if (!selection || selection.anchor.path.join() !== selection.focus.path.join()) return null;
+    const path = selection.anchor.path;
+    const leaf = editor.api.node(path)?.[0] as { text?: unknown } | undefined;
+    if (typeof leaf?.text !== "string") return null;
+    return {
+      path,
+      text: leaf.text,
+      start: Math.min(selection.anchor.offset, selection.focus.offset),
+      end: Math.max(selection.anchor.offset, selection.focus.offset),
+      lineStart: path[path.length - 1] === 0,
+    };
+  }
+
+  function applyTextEdit(path: Path, edit: TextEdit) {
+    editor.tf.select({ anchor: { path, offset: edit.from }, focus: { path, offset: edit.to } });
+    if (edit.text) editor.tf.insertText(edit.text);
+    else editor.tf.delete();
+    editor.tf.select({ anchor: { path, offset: edit.select.start }, focus: { path, offset: edit.select.end } });
+  }
+
+  /** Cmd/Ctrl+B, +I, +Shift+8 and +Shift+7: markdown typed for you. True when it did something. */
+  function applyFormat(shortcut: NonNullable<ReturnType<typeof formatShortcut>>): boolean {
+    const at = selectedLeaf();
+    if (!at) return false;
+    if (shortcut.kind === "wrap") {
+      applyTextEdit(at.path, toggleWrap(at.text, at.start, at.end, shortcut.mark));
+      return true;
+    }
+    // A line that begins after a chip is not the start of a list item.
+    if (!at.lineStart && at.text.lastIndexOf("\n", at.start - 1) === -1) return false;
+    applyTextEdit(at.path, toggleList(at.text, at.start, at.end, shortcut.list));
+    return true;
+  }
+
+  /** Shift+Enter inside a list: the next item, or — on an empty one — the end of the list. */
+  function continueListAtCaret(): boolean {
+    const at = selectedLeaf();
+    if (!at || at.start !== at.end) return false;
+    const from = at.text.lastIndexOf("\n", at.start - 1) + 1;
+    if (from === 0 && !at.lineStart) return false;
+    const next = at.text.indexOf("\n", at.start);
+    const to = next === -1 ? at.text.length : next;
+    const step = continueList(at.text.slice(from, to), at.start - from);
+    if (!step) return false;
+    if (step.kind === "continue") {
+      editor.tf.insertText(step.insert);
+    } else {
+      editor.tf.select({ anchor: { path: at.path, offset: from + step.from }, focus: { path: at.path, offset: from + step.to } });
+      editor.tf.delete();
+    }
+    return true;
+  }
+
   function acceptMention(file: ContextFileItem | undefined) {
     if (!file || !mention) return;
     // The "@query" becomes the chip: select it, delete it, insert in its place.
@@ -868,8 +958,16 @@ export function AgentComposer({
         data-testid="agent-composer"
         data-size={size}
         data-state={effectiveState}
-        className="flex min-h-0 w-full flex-col gap-1 p-(--space-inline)"
+        data-file-drop-target=""
+        data-composer-id={composerId}
+        className="group/drop relative flex min-h-0 w-full flex-col gap-1 p-(--space-inline) [&.file-drop-target-active]:bg-state-soft"
       >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center rounded-[inherit] border border-dashed border-status-info/50 bg-surface-raised/80 text-body-13-medium text-text-secondary group-[.file-drop-target-active]/drop:flex"
+        >
+          Drop files to attach
+        </span>
         {hasAttachments || queuedPrompts.length > 0 || imageError ? (
           // Their own scroll box: a long queue or a dozen attachments must not
           // take the pane from the field below them.
@@ -982,6 +1080,13 @@ export function AgentComposer({
                 }}
                 onKeyDown={(e) => {
                   const insideCodeBlock = editor.api.some({ match: { type: types.codeBlock } });
+                  if (!insideCodeBlock && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                    const shortcut = formatShortcut(e);
+                    if ((shortcut && applyFormat(shortcut)) || (e.key === "Enter" && e.shiftKey && continueListAtCaret())) {
+                      e.preventDefault();
+                      return;
+                    }
+                  }
                   if (e.key === "Enter" && e.shiftKey && !insideCodeBlock) {
                     // Plate registers no default behaviour for Shift+Enter (only
                     // plain Enter inserts a break); left alone it would fall to

@@ -155,6 +155,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: notify must not import %s", short(imp))
 	}
 
+	// pdfdoc is a leaf: it reads PDFs (text, search, page images) with an
+	// engine of its own, and both the attachment store in agenthub and the MCP
+	// tools stand on it, so it can import nothing of DevKit's.
+	for _, imp := range graph[pkg("pdfdoc")] {
+		t.Errorf("layering violation: pdfdoc must not import %s", short(imp))
+	}
+
 	// gitssh is a leaf: it serves an SSH key to ssh and reads one, and both
 	// accounts (which validates keys) and git (which uses them) import it, so it
 	// can import neither.

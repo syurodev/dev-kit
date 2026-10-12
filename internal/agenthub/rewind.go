@@ -464,6 +464,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
+		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)

@@ -31,6 +31,7 @@ import (
 	"devkit/internal/mcp/install"
 	"devkit/internal/notes"
 	"devkit/internal/notify"
+	"devkit/internal/pdfdoc"
 	"devkit/internal/preferences"
 	"devkit/internal/servermode"
 	"devkit/internal/telegramcontrol"
@@ -500,6 +501,35 @@ func main() {
 	}
 	agentStore := agenthub.NewSQLStore(db)
 
+	// PDFs attached to a session are kept in the data directory and read with
+	// DevKit's own PDF engine (internal/pdfdoc, PDFium under wazero: no cgo and
+	// nothing to install). The directory exists before any session spawns, so it
+	// is listed and hidden from every agent with the rest of the data directory
+	// (ProtectDataDir); an agent reaches a document only through the pdf.* tools.
+	pdfEngine := pdfdoc.New(pdfdoc.Options{CacheDir: filepath.Join(dataDir, "pdf-engine")})
+	defer pdfEngine.Close()
+	documentsDir := filepath.Join(dataDir, "agent-documents")
+	if err := os.MkdirAll(documentsDir, 0o700); err != nil {
+		log.Printf("agenthub: documents directory: %v", err)
+	}
+	agentDocuments := agenthub.NewDocumentLibrary(agentStore, documentsDir, pdfEngine)
+	// Folders of sessions that are gone, and files no row accounts for — a delete
+	// that could not remove a file, a crash between the copy and its row.
+	go func() {
+		removed, err := agentDocuments.Sweep(context.Background(), func(id string) (bool, error) {
+			_, err := agentStore.GetSession(context.Background(), id)
+			if errors.Is(err, agenthub.ErrSessionNotFound) {
+				return false, nil
+			}
+			return err == nil, err
+		})
+		if err != nil {
+			log.Printf("agenthub: document sweep: %v", err)
+		} else if removed > 0 {
+			log.Printf("agenthub: removed %d orphaned document file(s)", removed)
+		}
+	}()
+
 	// Nothing had ever deleted from agent_transcript: it is append-plus-upsert,
 	// no session delete cascades into it, and a long session writes a row per
 	// streamed chunk. Prune once at startup rather than on a timer — the table
@@ -534,6 +564,7 @@ func main() {
 			"parsed":    agenthub.ParseSessionUpdate(update),
 		})
 	})
+	agentSvc.Documents = agentDocuments
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
@@ -948,8 +979,10 @@ func main() {
 		// workspace and which of them its session may write.
 		Workspace:       container.Workspace,
 		WorkspaceMemory: container.WorkspaceMemory,
-		Tasks:           container.Tasks,
-		Git:             container.Git,
+		// pdf.*: the PDFs attached to Agent Hub sessions, read by page.
+		PDFDocuments: agentDocuments,
+		Tasks:        container.Tasks,
+		Git:          container.Git,
 		// Each git tool acts on the caller's own repository (an agent's
 		// working directory, or the service it names), not only the one open
 		// in the Git view.
@@ -1148,7 +1181,12 @@ func main() {
 		// Linux only, and the whole reason is that GTK would otherwise stack its
 		// own decoration on top of the app's title bar. See framelessWindow in
 		// native_webview_linux.go.
-		Frameless:        framelessWindow,
+		Frameless: framelessWindow,
+		// A file dragged in from the OS reaches the webview only as paths the
+		// page cannot see (WKWebView and WebKitGTK intercept the drag natively).
+		// Elements marked data-file-drop-target — the prompt composer — are the
+		// only ones that report a drop; see file_drop.go.
+		EnableFileDrop:   true,
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		// "/" everywhere but a WebKitGTK window compositing on the CPU, which
@@ -1171,6 +1209,12 @@ func main() {
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	trackWindowFrame(mainWindow, container.UIState)
 	trackWindowShape(wailsApp, mainWindow)
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		ctx := event.Context()
+		if payload, ok := droppedFilesPayload(ctx.DroppedFiles(), ctx.DropTargetDetails()); ok {
+			emitAppEvent(filesDroppedEvent, payload)
+		}
+	})
 
 	// Permission to notify is asked for when the user is here — the window
 	// gaining focus (the first time, normally at launch) or the setting being

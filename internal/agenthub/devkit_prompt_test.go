@@ -75,3 +75,25 @@ func TestPromptWithoutABriefSendsTheAgentToLook(t *testing.T) {
 		t.Error("the neutral prompt no longer warns that names may be reformatted")
 	}
 }
+
+// Codex does not call DevKit's tools as functions: it runs JavaScript in `exec`,
+// and an image in a tool's result reaches the model only if the script forwards
+// it. The prompt has to say both, in the names Codex has.
+func TestCodexPromptNamesTheToolsCodexSeesAndHowToForwardImages(t *testing.T) {
+	prompt := devkitPrompt(codexNaming, "Working directory: /w")
+	for _, want := range []string{"`mcp__devkit__pdf_viewPages`", "`mcp__devkit__git_commit`", "await tools.<name>(args)", "image(result.content[i])"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the Codex prompt lacks %s", want)
+		}
+	}
+	if strings.Contains(prompt, "{{") || strings.Contains(prompt, "%NAMING%") {
+		t.Error("the Codex prompt has an unrendered placeholder")
+	}
+	guide := pdfToolsGuide(codexNaming)
+	if !strings.Contains(guide, "image(c)") || !strings.Contains(guide, "never shown to you") {
+		t.Errorf("the PDF guide for Codex does not say images must be forwarded:\n%s", guide)
+	}
+	if strings.Contains(pdfToolsGuide(claudeNaming), "image(") {
+		t.Error("Claude's guide talks about forwarding images, which it does not need")
+	}
+}

@@ -1631,6 +1631,18 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         expect(html).toContain("Review the whole diff of src/app.ts");
       });
 
+      it("in the tray wears the panel heading the repository list wears", () => {
+        const html = renderToString(
+          <AgentPermissionRequest pending={mockPending} session={mockSession} onResolve={() => {}} panel waiting={2} onMinimize={() => {}} />,
+        );
+        expect(html).toContain("Permission request");
+        expect(html).toContain('data-testid="permission-minimize"');
+        expect(html).toContain('aria-label="Close permission request"');
+        expect(html).toContain('data-testid="permission-allow-once"');
+        // The panel heading owns the close button; the card draws no chevron of its own.
+        expect(html).not.toContain('aria-label="Minimize permission request"');
+      });
+
       it("draws no diff for a request that edits no file", () => {
         const html = renderToString(
           <AgentPermissionRequest pending={mockPending} session={mockSession} onResolve={() => {}} />,

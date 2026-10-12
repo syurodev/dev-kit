@@ -8,12 +8,17 @@ export function TrayPanelHeading({
   title,
   count,
   detail,
+  trailing,
   onClose,
+  closeTestId,
 }: {
   title: string;
   count?: number;
   detail?: ReactNode;
+  /** Marks that belong to the whole panel, between the title and the close button. */
+  trailing?: ReactNode;
   onClose?: () => void;
+  closeTestId?: string;
 }) {
   return (
     <header title={typeof detail === "string" ? detail : undefined} className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
@@ -31,11 +36,13 @@ export function TrayPanelHeading({
           <p className="sr-only">{detail}</p>
         ) : null}
       </div>
+      {trailing}
       {onClose ? (
         <Button
           size="icon-xs"
           variant="ghost"
           aria-label={`Close ${title.toLowerCase()}`}
+          data-testid={closeTestId}
           onClick={onClose}
         >
           <X />

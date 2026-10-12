@@ -879,6 +879,16 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       setRefs((prev) => ({ ...prev, [session.id]: [] }));
     } catch (e) {
       reportError(e);
+      // The words were cleared above so the field is ready for the next
+      // message; a turn that never started must not take them with it. Put
+      // back only into an empty field — the person may already be typing.
+      if (!retry && text && !useAgentSessionsStore.getState().promptBySession[session.id]) {
+        setPrompt(session.id, text);
+      }
+      // A refused prompt (an attachment DevKit will not send) leaves the
+      // session idle, so there is no error card to say so: without this the
+      // send looked like it did nothing.
+      if (toAppError(e).code === "validation_failed") toast.error(errorMessage(e));
       if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
     } finally {
       setBusy(false);

@@ -90,6 +90,11 @@ func (r *codexRuntime) delegatesMCPGate(params json.RawMessage) bool {
 			return true
 		}
 	}
+	for _, tool := range r.preApprovedMCP[request.ServerName] {
+		if tool == meta.Tool {
+			return true
+		}
+	}
 	return false
 }
 
@@ -97,6 +102,9 @@ func delegatedClaudeTools(spec OpenSpec) []string {
 	var names []string
 	for _, server := range spec.McpServers {
 		for _, tool := range spec.GateOwnedMCP[server.Name] {
+			names = append(names, "mcp__"+server.Name+"__"+strings.ReplaceAll(tool, ".", "_"))
+		}
+		for _, tool := range spec.PreApprovedMCP[server.Name] {
 			names = append(names, "mcp__"+server.Name+"__"+strings.ReplaceAll(tool, ".", "_"))
 		}
 	}

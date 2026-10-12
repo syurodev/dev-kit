@@ -179,6 +179,9 @@ type mockRuntime struct {
 	// the service's tests run against, and what DevKit asks the vendor for on a
 	// turn is part of the turn's contract.
 	promptMetas []json.RawMessage
+	// prompts is every prompt's content blocks, in order — what the vendor
+	// would have been sent.
+	prompts [][]acp.ContentBlock
 	// turnRunning says a prompt is in flight, which is the only state in which
 	// steering injects rather than reporting promptRequired — the same rule the
 	// real agent applies.
@@ -222,6 +225,13 @@ func (r *mockRuntime) SetGoal(ctx context.Context, objective string) error {
 }
 
 // Steered is what the mock was told mid-turn, for the tests.
+// Prompts is every prompt sent to the runtime, as content blocks.
+func (r *mockRuntime) Prompts() [][]acp.ContentBlock {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]acp.ContentBlock(nil), r.prompts...)
+}
+
 func (r *mockRuntime) Steered() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -357,6 +367,9 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 	// carried but not interpreted, which is what a stand-in should do.
 	text := PromptText(prompt)
 	r.recordPromptMeta(promptMeta)
+	r.mu.Lock()
+	r.prompts = append(r.prompts, append([]acp.ContentBlock(nil), prompt...))
+	r.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}

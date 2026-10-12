@@ -15,8 +15,13 @@ type OpenSpec struct {
 	// GateOwnedMCP is supplied by the trusted identity-bound endpoint registry.
 	// These tools ask through DevKit's gate after vendor dispatch, exactly once.
 	GateOwnedMCP map[string][]string
-	Cwd          string
-	WorkspaceID  string
+	// PreApprovedMCP names tools the vendor is told to run without asking the
+	// person: read-only ones that only ever answer for the calling session (the
+	// pdf.* tools). Same registry, same trust as GateOwnedMCP; unlike it, there
+	// is no gate after dispatch because there is nothing to confirm.
+	PreApprovedMCP map[string][]string
+	Cwd            string
+	WorkspaceID    string
 	// AllowUnixSockets is the session's identity-bound MCP socket (see sandbox.Policy).
 	AllowUnixSockets []string
 	// McpServers is advertised to the agent via ACP session/new.mcpServers.

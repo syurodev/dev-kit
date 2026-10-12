@@ -500,7 +500,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		store = codexStoreEphemeral
 	}
 
-	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAsk, network: true, gateOwnedMCP: spec.GateOwnedMCP}
+	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAsk, network: true, gateOwnedMCP: spec.GateOwnedMCP, preApprovedMCP: spec.PreApprovedMCP}
 	p, err := a.start(workDir, l, spec, store, &codexConnHandler{rt: rt})
 	if err != nil {
 		return nil, err
@@ -545,7 +545,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Cwd:                   workDir,
 			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
-			DeveloperInstructions: devkitPrompt(neutralNaming, spec.Brief),
+			DeveloperInstructions: devkitPrompt(codexNaming, spec.Brief),
 		}, &thread); err != nil {
 			return fail(p.failure("thread/resume", err))
 		}
@@ -561,7 +561,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 			Cwd:                   workDir,
 			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
-			DeveloperInstructions: devkitPrompt(neutralNaming, spec.Brief),
+			DeveloperInstructions: devkitPrompt(codexNaming, spec.Brief),
 		}, &thread); err != nil {
 			return fail(p.failure("thread/start", err))
 		}
@@ -703,12 +703,14 @@ func (codexNoHandler) Request(_ context.Context, method string, _ json.RawMessag
 // codexRuntime is one Codex thread in one app-server process.
 type codexRuntime struct {
 	gateOwnedMCP map[string][]string
-	conn         *codexapp.Conn
-	proc         *sandbox.Proc
-	tr           *codexTranslator
-	network      bool
-	cancelServe  context.CancelFunc
-	serveDone    chan struct{}
+	// preApprovedMCP: read-only session-scoped tools answered without asking.
+	preApprovedMCP map[string][]string
+	conn           *codexapp.Conn
+	proc           *sandbox.Proc
+	tr             *codexTranslator
+	network        bool
+	cancelServe    context.CancelFunc
+	serveDone      chan struct{}
 	// approvals numbers MCP approval cards that have no call of their own.
 	approvals atomic.Int64
 

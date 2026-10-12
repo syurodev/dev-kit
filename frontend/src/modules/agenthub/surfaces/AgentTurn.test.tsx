@@ -208,3 +208,25 @@ describe("a prompt of only attachments", () => {
     expect(html).not.toContain('data-testid="turn-prompt"');
   });
 });
+
+describe("a PDF a prompt carried", () => {
+  it("is named with its page count, so the person can see it was kept as a document", () => {
+    const turns = groupTurns([
+      {
+        id: "u1",
+        kind: "user_message_chunk",
+        text: "Điều nào quy định xác thực?",
+        messageId: "p1",
+        attachments: [
+          { name: "Thông tư 64.pdf", kind: "document", documentId: "doc1", pages: 45 },
+          { name: "một trang.pdf", kind: "document", documentId: "doc2", pages: 1 },
+        ],
+      },
+    ]);
+    const html = renderToString(<AgentTurn turn={turns[0]} onCopy={() => {}} />);
+    expect(html).toContain("Thông tư 64.pdf");
+    expect(html).toContain("45 pages");
+    expect(html).toContain("1 page<");
+    expect(html).not.toContain("1 pages");
+  });
+});

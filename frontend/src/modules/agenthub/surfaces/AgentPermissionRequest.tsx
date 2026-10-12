@@ -16,6 +16,7 @@ import {
 } from "./permissionCard";
 import { PermissionFileEdits } from "./PermissionFileEdits";
 import { GatePermissionDetails, gatePermission } from "./GatePermissionDetails";
+import { TrayPanelHeading } from "./composer/TrayPanelHeading";
 
 export type { PermissionEnv };
 
@@ -39,6 +40,14 @@ export type AgentPermissionRequestProps = {
    * the gate — not this card — closes it.
    */
   onMinimize?: () => void;
+  /**
+   * Drawn as a composer-tray panel: the same heading as Repositories or Tasks
+   * (title, how many are waiting, the env and deadline marks, a close button
+   * that folds it) over the body, rather than a header row of its own.
+   */
+  panel?: boolean;
+  /** Requests waiting in this session, this one included. Shown in the panel heading when more than one. */
+  waiting?: number;
   className?: string;
 };
 
@@ -94,6 +103,8 @@ export function AgentPermissionRequest({
   env: explicitEnv,
   size = "rail",
   onMinimize,
+  panel = false,
+  waiting = 1,
   className,
 }: AgentPermissionRequestProps) {
   const gate = gatePermission(pending.params);
@@ -151,68 +162,84 @@ export function AgentPermissionRequest({
     </div>
   );
 
+  const marks = (
+    <PermissionMarks env={env} environment={gate?.env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
+  );
+
   return (
     <div
       role="alert"
       data-testid="agent-permission-request"
       data-env={env}
       data-size={size}
-      className={cn("flex w-full min-w-0 flex-col gap-2 p-3", className)}
+      className={cn("flex w-full min-w-0 flex-col", className)}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span title={askedBy} className="flex shrink-0 items-center text-status-warning">
-          <ShieldAlert className="size-4" aria-label={askedBy} />
-        </span>
-        <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary" title={heading}>
-          {heading}
-          {depth > 0 ? (
-            <span className="text-caption-11 font-normal text-text-tertiary">{` · ${agentTitle}, depth ${depth}`}</span>
+      {panel ? (
+        <TrayPanelHeading
+          title="Permission request"
+          count={waiting > 1 ? waiting : undefined}
+          detail="The agent is waiting for your answer"
+          trailing={marks}
+          onClose={onMinimize}
+          closeTestId="permission-minimize"
+        />
+      ) : null}
+      <div className="flex w-full min-w-0 flex-col gap-2 p-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span title={askedBy} className="flex shrink-0 items-center text-status-warning">
+            <ShieldAlert className="size-4" aria-label={askedBy} />
+          </span>
+          <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary" title={heading}>
+            {heading}
+            {depth > 0 ? (
+              <span className="text-caption-11 font-normal text-text-tertiary">{` · ${agentTitle}, depth ${depth}`}</span>
+            ) : null}
+          </p>
+          {panel ? null : marks}
+          {!panel && onMinimize ? (
+            <ActionTooltip label="Minimize — read the conversation">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Minimize permission request"
+                data-testid="permission-minimize"
+                onClick={onMinimize}
+                className="shrink-0 text-text-tertiary hover:text-text-primary"
+              >
+                <ChevronDown />
+              </Button>
+            </ActionTooltip>
           ) : null}
-        </p>
-        <PermissionMarks env={env} environment={gate?.env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
-        {onMinimize ? (
-          <ActionTooltip label="Minimize — read the conversation">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Minimize permission request"
-              data-testid="permission-minimize"
-              onClick={onMinimize}
-              className="shrink-0 text-text-tertiary hover:text-text-primary"
-            >
-              <ChevronDown />
-            </Button>
-          </ActionTooltip>
+        </div>
+
+        {gate ? <GatePermissionDetails params={pending.params} showTool={false} /> : null}
+        {!gate && detail.message ? (
+          <p data-testid="permission-message" className="line-clamp-3 text-body-13 text-text-secondary">
+            {detail.message}
+          </p>
         ) : null}
-      </div>
+        {!gate && (command || detail.args) ? (
+          // The whole command, wrapped, scrolling past five lines — never cut
+          // with an ellipsis: what is allowed is exactly what is shown.
+          <pre
+            data-testid={command ? "permission-command" : "permission-args"}
+            className="max-h-28 min-w-0 overflow-y-auto rounded-md bg-surface-well px-2.5 py-1.5 text-code-12 whitespace-pre-wrap break-all text-text-primary"
+          >
+            {command ?? detail.args}
+          </pre>
+        ) : null}
 
-      {gate ? <GatePermissionDetails params={pending.params} showTool={false} /> : null}
-      {!gate && detail.message ? (
-        <p data-testid="permission-message" className="line-clamp-3 text-body-13 text-text-secondary">
-          {detail.message}
-        </p>
-      ) : null}
-      {!gate && (command || detail.args) ? (
-        // The whole command, wrapped, scrolling past five lines — never cut
-        // with an ellipsis: what is allowed is exactly what is shown.
-        <pre
-          data-testid={command ? "permission-command" : "permission-args"}
-          className="max-h-28 min-w-0 overflow-y-auto rounded-md bg-surface-well px-2.5 py-1.5 text-code-12 whitespace-pre-wrap break-all text-text-primary"
-        >
-          {command ?? detail.args}
-        </pre>
-      ) : null}
+        {/* What the edit is, not only which tool: the file as it would be. */}
+        <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
-      {/* What the edit is, not only which tool: the file as it would be. */}
-      <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
-
-      <PermissionLockedNote env={env} environment={gate?.env} />
-      {/* Sticky to the foot of whatever scrolls this card (the composer's panel
-          area on a short pane): a long command or a stack of file edits scrolls
-          past, and Deny / Allow stay where they can be pressed. */}
-      <div data-testid="permission-actions" className="sticky bottom-0 -mx-3 -mb-3 bg-surface-raised px-3 pt-1 pb-3">
-        {actions}
+        <PermissionLockedNote env={env} environment={gate?.env} />
+        {/* Sticky to the foot of whatever scrolls this card (the composer's panel
+            area on a short pane): a long command or a stack of file edits scrolls
+            past, and Deny / Allow stay where they can be pressed. */}
+        <div data-testid="permission-actions" className="sticky bottom-0 -mx-3 -mb-3 bg-surface-raised px-3 pt-1 pb-3">
+          {actions}
+        </div>
       </div>
     </div>
   );

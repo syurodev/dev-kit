@@ -47,9 +47,19 @@ func buildPrompt(text string, attachments []string, allowedRoot string, callerIs
 // that names the MCP tool that resolves them, appended after the prompt's own
 // text rather than mixed into it.
 func buildPromptWithImages(text string, attachments []string, images []ImageAttachment, refs []string, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
-	blocks := make([]acp.ContentBlock, 0, len(attachments)+len(images)+2)
+	return buildPromptBlocks(text, attachments, images, refs, "", allowedRoot, callerIsAgent)
+}
+
+// buildPromptBlocks is buildPromptWithImages with one more thing a prompt can
+// carry: documentsText, DevKit's account of the PDFs attached with it (what they
+// are and how to read them), placed straight after the user's own words.
+func buildPromptBlocks(text string, attachments []string, images []ImageAttachment, refs []string, documentsText string, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
+	blocks := make([]acp.ContentBlock, 0, len(attachments)+len(images)+3)
 	if strings.TrimSpace(text) != "" {
 		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: text})
+	}
+	if documentsText != "" {
+		blocks = append(blocks, docBlock(documentsText))
 	}
 
 	for _, path := range attachments {
@@ -110,21 +120,9 @@ func pastedImageBlock(image ImageAttachment) (acp.ContentBlock, error) {
 // the session's own project, and the jail's boundary is preserved by the one
 // component that could otherwise walk around it.
 func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentBlock, error) {
-	abs, err := filepath.Abs(path)
+	resolved, err := resolveAttachmentPath(path, allowedRoot, callerIsAgent)
 	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s", ErrInvalidPrompt, path)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, path, err)
-	}
-
-	if callerIsAgent {
-		root, err := filepath.EvalSymlinks(allowedRoot)
-		if err != nil || !withinRoot(resolved, root) {
-			return acp.ContentBlock{}, fmt.Errorf("%w: attachment outside the session's project: %s",
-				ErrCwdOutsideParent, path)
-		}
+		return acp.ContentBlock{}, err
 	}
 
 	info, err := os.Stat(resolved)
@@ -152,6 +150,32 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 
 	uri := "file://" + resolved
 
+	if strings.EqualFold(filepath.Ext(resolved), ".pdf") {
+		// A PDF is a document, not prompt text (Service.importDocuments). Reaching
+		// here means a caller skipped that; refuse rather than read it as text.
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is a PDF; PDFs are attached as documents, not read into the prompt", ErrInvalidPrompt, filepath.Base(path))
+	}
+	if app := legacyOffice(filepath.Ext(resolved)); app != "" {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is an old %s format DevKit cannot read; save it as %s and attach that",
+			ErrInvalidPrompt, filepath.Base(path), app, map[string]string{"Word": ".docx", "Excel": ".xlsx"}[app])
+	}
+
+	// PDF and Office files: DevKit reads the text out of them (attachment_docs.go).
+	if kind := documentKind(filepath.Ext(resolved)); kind != "" {
+		text, err := extractDocument(kind, body)
+		if err != nil {
+			return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, filepath.Base(path), err)
+		}
+		return acp.ContentBlock{
+			Type: "resource",
+			Resource: &acp.ResourceContents{
+				URI:      uri,
+				Text:     text,
+				MimeType: "text/plain",
+			},
+		}, nil
+	}
+
 	if isImage {
 		return acp.ContentBlock{
 			Type:     "image",
@@ -165,8 +189,8 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 	// as mojibake, so it is refused rather than sent as something the model
 	// will read as noise and answer about anyway.
 	if !utf8Text(body) {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not text or an image",
-			ErrInvalidPrompt, filepath.Base(path))
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not text or an image (DevKit reads %s)",
+			ErrInvalidPrompt, filepath.Base(path), supportedDocumentTypes())
 	}
 	if mimeType == "" {
 		mimeType = "text/plain"
@@ -179,6 +203,28 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 			MimeType: mimeType,
 		},
 	}, nil
+}
+
+// resolveAttachmentPath is the path check every attachment goes through, a
+// document as much as a text file: an absolute path with symlinks resolved, and
+// — when an agent is the caller, which means a model chose the path — inside
+// the session's own project.
+func resolveAttachmentPath(path, allowedRoot string, callerIsAgent bool) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", ErrInvalidPrompt, path)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, path, err)
+	}
+	if callerIsAgent {
+		root, err := filepath.EvalSymlinks(allowedRoot)
+		if err != nil || !withinRoot(resolved, root) {
+			return "", fmt.Errorf("%w: attachment outside the session's project: %s", ErrCwdOutsideParent, path)
+		}
+	}
+	return resolved, nil
 }
 
 // withinRoot reports whether path is root or sits under it. Compares cleaned

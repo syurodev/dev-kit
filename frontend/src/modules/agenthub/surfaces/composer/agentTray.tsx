@@ -225,9 +225,10 @@ export function useAgentTray(input: AgentTrayInput): {
             onResolve={permission.onResolve}
             busy={permission.busy}
             size={size}
+            panel
+            waiting={permissionCount}
             onMinimize={() => fold(permission.pending.id)}
           />
-          {more(permissionCount)}
         </div>
       ),
     };

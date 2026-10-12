@@ -11,8 +11,16 @@ import (
 //
 // Invoke does not send the result on every turn: see workspaceContextDue.
 func (s *Service) workspaceTurnContext(ctx context.Context, sess AgentSession) (string, error) {
+	documents, err := s.documentsContext(ctx, sess)
+	if err != nil {
+		return "", err
+	}
 	if s.WorkspaceInstructions == nil && s.SessionBrief == nil && s.WorkspaceMemory == nil {
-		return "", nil
+		if documents == "" {
+			return "", nil
+		}
+		// No workspace machinery wired (a bare host): the documents alone.
+		return "# Current DevKit session context\n" + documents, nil
 	}
 	instructions := ""
 	if sess.WorkspaceID != "" && s.WorkspaceInstructions != nil {
@@ -59,5 +67,6 @@ func (s *Service) workspaceTurnContext(ctx context.Context, sess AgentSession) (
 	} else {
 		b.WriteString(brief)
 	}
+	b.WriteString(documents)
 	return b.String(), nil
 }
