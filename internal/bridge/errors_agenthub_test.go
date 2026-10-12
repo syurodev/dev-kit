@@ -127,3 +127,14 @@ func TestAgentHubIdentityErrorsMap(t *testing.T) {
 		}
 	}
 }
+
+func TestInvalidPromptNamesTheRefusedAttachment(t *testing.T) {
+	err := fmt.Errorf("%w: %s is not text or an image", agenthub.ErrInvalidPrompt, "report.docx")
+	if got := invalidPromptMessage(err); got != "The prompt was not sent: report.docx is not text or an image." {
+		t.Fatalf("message = %q", got)
+	}
+	// No detail to name: the generic sentence, as before.
+	if got := invalidPromptMessage(agenthub.ErrInvalidPrompt); got != invalidPromptGeneric {
+		t.Fatalf("message = %q", got)
+	}
+}

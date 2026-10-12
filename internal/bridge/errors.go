@@ -373,7 +373,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, agenthub.ErrInvalidConfigOption):
 			return apperrors.New(codeValidationFailed, "Choose a valid agent setting.", true)
 		case errors.Is(err, agenthub.ErrInvalidPrompt):
-			return apperrors.New(codeValidationFailed, "The prompt is empty, or an attachment is unreadable, unsupported, or too large (images: 3.75 MB).", true)
+			return apperrors.New(codeValidationFailed, invalidPromptMessage(err), true)
 		case errors.Is(err, agenthub.ErrCallerMismatch):
 			return apperrors.New(codeValidationFailed, "callerSessionId does not match the calling agent.", true)
 		case errors.Is(err, agenthub.ErrProxyNotFound):
@@ -721,4 +721,19 @@ func apiClientMessage(err error) (string, bool) {
 		return "Some of the request is missing or malformed — check the name, the URL and the environment's tag.", true
 	}
 	return "", false
+}
+
+const invalidPromptGeneric = "The prompt is empty, or an attachment is unreadable, unsupported, or too large (images: 3.75 MB)."
+
+// invalidPromptMessage says which attachment was refused and why when the
+// error carries it ("report.pdf is not text or an image"). The generic line
+// left a person staring at a prompt that would not send with no way to tell
+// which of their files was the problem. Only the sentence DevKit itself wrote
+// after the sentinel is shown, and only when it is short enough to be one.
+func invalidPromptMessage(err error) string {
+	detail := strings.TrimPrefix(err.Error(), agenthub.ErrInvalidPrompt.Error()+": ")
+	if detail == err.Error() || detail == "" || len(detail) > 240 || strings.Contains(detail, "\n") {
+		return invalidPromptGeneric
+	}
+	return "The prompt was not sent: " + detail + "."
 }
