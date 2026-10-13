@@ -92,16 +92,26 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
           case "code": {
             const ref = onOpenFile ? fileRef(token.value) : null;
             if (ref && onOpenFile) {
+              const open = () => onOpenFile(ref.path, ref.line);
               return (
-                <button
+                // An inline <code>, not a <button>: a button is an atomic
+                // inline-block and would stop a long path wrapping like text.
+                <code
                   key={idx}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   data-testid="agent-file-ref"
-                  onClick={() => onOpenFile(ref.path, ref.line)}
-                  className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-left align-baseline text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
+                  onClick={open}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      open();
+                    }
+                  }}
+                  className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
                 >
                   {token.value}
-                </button>
+                </code>
               );
             }
             return (
@@ -131,17 +141,23 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
             return (
               <Tooltip key={idx}>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
+                  <a
+                    href={token.href}
+                    rel="noreferrer"
                     data-testid="agent-link"
-                    title={token.href}
-                    onClick={() => void openExternal(token.href)}
+                    data-href={token.href}
+                    onClick={(e) => {
+                      // The WebView does nothing with a plain navigation; the
+                      // system browser gets it through the bridge instead.
+                      e.preventDefault();
+                      void openExternal(token.href);
+                    }}
                     // A long URL is exactly the same unbroken-run case as inline
                     // code, and had no wrap protection of its own at all.
-                    className="cursor-pointer wrap-anywhere text-left text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
+                    className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
                   >
                     <InlineNodes tokens={token.children} />
-                  </button>
+                  </a>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-96 break-all">
                   {token.href}

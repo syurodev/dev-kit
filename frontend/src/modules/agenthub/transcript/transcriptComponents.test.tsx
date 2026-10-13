@@ -719,10 +719,12 @@ describe("Agent Hub Transcript Leaves", () => {
 });
 
 describe("AgentProse links and file refs", () => {
-  it("links render as buttons that name their URL", () => {
+  it("links stay inline anchors that carry their URL", () => {
     const html = renderToString(<AgentProse text="See [dash](https://grafana.local/d/auth) now" />);
     expect(html).toContain('data-testid="agent-link"');
-    expect(html).toContain('title="https://grafana.local/d/auth"');
+    expect(html).toContain('data-href="https://grafana.local/d/auth"');
+    expect(html).toContain("<a ");
+    expect(html).not.toContain("title=");
     expect(html).not.toContain('target="_blank"');
   });
 
@@ -733,6 +735,7 @@ describe("AgentProse links and file refs", () => {
       </TranscriptActionsProvider>,
     );
     expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+    expect(html).toContain('role="button"');
     expect(html).toContain(">auth/session.go:88<");
   });
 
