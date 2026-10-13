@@ -78,6 +78,9 @@ function chrome(tokenOrValue: string, mode: Mode): string {
 const shellCss = readIndexCss();
 function shellColour(token: string, mode: Mode) {
   const values = [...shellCss.matchAll(new RegExp(`${token}:\\s*(#[a-f0-9]+)`, "g"))];
+  if (values.length !== 2) {
+    throw new Error(`expected one dark and one light ${token} in index.css, found ${values.length}`);
+  }
   return values[mode === "dark" ? 0 : 1][1];
 }
 
