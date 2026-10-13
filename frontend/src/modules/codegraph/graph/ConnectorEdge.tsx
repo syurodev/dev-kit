@@ -84,7 +84,7 @@ export function EdgeLabelPill({
   title?: string;
   children: string;
 }) {
-  const info = "var(--status-info)";
+  const info = "var(--hue-blue)";
   return (
     <span
       title={title}

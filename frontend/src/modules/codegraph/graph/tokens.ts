@@ -11,9 +11,9 @@ export type LayerVisual = {
 };
 
 export const LAYERS: Record<Layer, LayerVisual> = {
-  controller: { cssVar: "--status-info", icon: Globe, label: "CONTROLLER" },
-  service: { cssVar: "--status-success", icon: Zap, label: "SERVICE" },
-  repository: { cssVar: "--status-warning", icon: Database, label: "REPOSITORY" },
+  controller: { cssVar: "--hue-blue", icon: Globe, label: "CONTROLLER" },
+  service: { cssVar: "--hue-green", icon: Zap, label: "SERVICE" },
+  repository: { cssVar: "--hue-yellow", icon: Database, label: "REPOSITORY" },
   unknown: { cssVar: "--text-tertiary", icon: Box, label: "UNKNOWN" },
 };
 
@@ -29,14 +29,14 @@ export function layerOf(raw: string): Layer {
 export function verbChipClass(verb: string): string {
   switch (verb.toUpperCase()) {
     case "GET":
-      return "bg-status-info text-action-primary-foreground";
+      return "bg-(--hue-blue) text-action-primary-foreground";
     case "POST":
-      return "bg-status-success text-action-primary-foreground";
+      return "bg-(--hue-green) text-action-primary-foreground";
     case "DELETE":
-      return "bg-status-danger text-action-primary-foreground";
+      return "bg-(--hue-red) text-action-primary-foreground";
     case "PUT":
     case "PATCH":
-      return "bg-status-warning text-action-primary-foreground";
+      return "bg-(--hue-yellow) text-action-primary-foreground";
     default:
       return "bg-surface-raised text-text-primary";
   }
