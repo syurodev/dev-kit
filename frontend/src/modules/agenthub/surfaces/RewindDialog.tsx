@@ -184,7 +184,7 @@ export function RewindDialog({
                     {action.kind === "delete" ? (
                       <FileMinus aria-hidden="true" className="size-(--icon-12) shrink-0 text-status-warning" />
                     ) : (
-                      <FilePlus aria-hidden="true" className="size-(--icon-12) shrink-0 text-brand-lime" />
+                      <FilePlus aria-hidden="true" className="size-(--icon-12) shrink-0 text-status-success" />
                     )}
                     <span className="min-w-0 truncate text-code-12 text-text-secondary">{action.path}</span>
                   </li>

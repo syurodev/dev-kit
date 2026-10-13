@@ -76,7 +76,7 @@ export function AgentTurnChanges({ checkpoint, loadDiff, commitTurn, className }
         <span className="min-w-0 truncate">{summary.label}</span>
         {/* The same pairing AgentToolDiff uses: lime for what arrived, warning
             for what was lost. A diff has no opinion about which is good. */}
-        <span className="shrink-0 text-caption-11 text-brand-lime">{`+${summary.added}`}</span>
+        <span className="shrink-0 text-caption-11 text-status-success">{`+${summary.added}`}</span>
         <span className="shrink-0 text-caption-11 text-status-warning">{`−${summary.removed}`}</span>
         <ChevronRight
           aria-hidden="true"
