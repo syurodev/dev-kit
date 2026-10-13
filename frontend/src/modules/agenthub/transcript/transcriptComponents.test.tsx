@@ -20,6 +20,7 @@ import {
 } from "./index";
 import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { TranscriptActionsProvider } from "./transcriptActions";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 
 // The provider is mounted once in App.tsx; these leaves carry tooltips of
@@ -714,5 +715,29 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(model.items[0].asyncTask).toMatchObject({ id: "t1", name: "Lint", state: "failed" });
       expect(model.items[1].subagent).toEqual({ id: "s1", name: "Explore", task: "Map the repo", state: "completed" });
     });
+  });
+});
+
+describe("AgentProse links and file refs", () => {
+  it("links render as buttons that name their URL", () => {
+    const html = renderToString(<AgentProse text="See [dash](https://grafana.local/d/auth) now" />);
+    expect(html).toContain('data-testid="agent-link"');
+    expect(html).toContain('title="https://grafana.local/d/auth"');
+    expect(html).not.toContain('target="_blank"');
+  });
+
+  it("a file ref in inline code is a button when files can open", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ onOpenFile: () => {} }}>
+        <AgentProse text="Look at `auth/session.go:88` and `SessionTTL`" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+    expect(html).toContain(">auth/session.go:88<");
+  });
+
+  it("without a file handler a ref stays plain code", () => {
+    const html = renderToString(<AgentProse text="`auth/session.go:88`" />);
+    expect(html).not.toContain("agent-file-ref");
   });
 });

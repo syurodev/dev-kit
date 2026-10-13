@@ -2,6 +2,10 @@ import * as React from "react";
 import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { openExternal } from "@/bridge/browser";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { fileRef } from "./fileRef";
+import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import {
   parseInline,
@@ -80,11 +84,26 @@ export function Inline({ text }: { text: string }) {
 }
 
 function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
+  const { onOpenFile } = useTranscriptActions();
   return (
     <>
       {tokens.map((token, idx) => {
         switch (token.type) {
-          case "code":
+          case "code": {
+            const ref = onOpenFile ? fileRef(token.value) : null;
+            if (ref && onOpenFile) {
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  data-testid="agent-file-ref"
+                  onClick={() => onOpenFile(ref.path, ref.line)}
+                  className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-left align-baseline text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
+                >
+                  {token.value}
+                </button>
+              );
+            }
             return (
               // The notes editor's inline code, class for class. It sat on
               // surface/base, which is the transcript's own ground since the
@@ -105,21 +124,29 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 {token.value}
               </code>
             );
+          }
           case "secret":
             return <MaskedSecret key={idx} value={token.value} />;
           case "link":
             return (
-              <a
-                key={idx}
-                href={token.href}
-                target="_blank"
-                rel="noreferrer"
-                // A long URL is exactly the same unbroken-run case as inline
-                // code, and had no wrap protection of its own at all.
-                className="wrap-anywhere text-status-info underline"
-              >
-                <InlineNodes tokens={token.children} />
-              </a>
+              <Tooltip key={idx}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="agent-link"
+                    title={token.href}
+                    onClick={() => void openExternal(token.href)}
+                    // A long URL is exactly the same unbroken-run case as inline
+                    // code, and had no wrap protection of its own at all.
+                    className="cursor-pointer wrap-anywhere text-left text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
+                  >
+                    <InlineNodes tokens={token.children} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-96 break-all">
+                  {token.href}
+                </TooltipContent>
+              </Tooltip>
             );
           case "strong":
             return (
