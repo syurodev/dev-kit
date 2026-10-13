@@ -32,7 +32,6 @@ export type AgentSessionGroupProps = {
   attention: Record<string, Attention>;
   subagents: Record<string, Subagent[]>;
   now: number;
-  narrow: boolean;
   onToggleCollapsed: (key: string) => void;
   onToggleOlder: (key: string) => void;
   /** Starts a session in this group: the workspace as a whole, or the folder. */
@@ -121,7 +120,6 @@ function AgentSessionGroupView({
   attention,
   subagents,
   now,
-  narrow,
   onToggleCollapsed,
   onToggleOlder,
   onNewSession,
@@ -189,11 +187,12 @@ function AgentSessionGroupView({
       session={session}
       selected={session.id === activeId}
       attention={attention[session.id]}
+      ask={null}
+      folder={null}
       pinned={pinnedIds.includes(session.id)}
       subagents={subagents[session.id] ?? NO_SUBAGENTS}
       parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
       now={now}
-      narrow={narrow}
       enter={enter}
     />
   );

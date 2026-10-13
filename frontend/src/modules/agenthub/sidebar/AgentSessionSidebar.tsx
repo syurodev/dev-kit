@@ -12,7 +12,7 @@ import type { Subagent } from "../types";
 import { SessionActionsContext, type SessionActions } from "./actions";
 import { AgentSessionGroup } from "./AgentSessionGroup";
 import { countDescendants, type SidebarWorkspace } from "./grouping";
-import { useMinuteClock, useNarrowRail } from "./hooks";
+import { useMinuteClock } from "./hooks";
 import {
   groupSessions,
   drawnWhenHidingClosed,
@@ -153,7 +153,6 @@ export function AgentSessionSidebar({
 
   const rootRef = React.useRef<HTMLDivElement>(null);
   const viewportRef = React.useRef<HTMLDivElement>(null);
-  const narrow = useNarrowRail(viewportRef);
   const now = useMinuteClock();
 
   const newSessionIn = React.useCallback(
@@ -263,7 +262,6 @@ export function AgentSessionSidebar({
                 attention={attention}
                 subagents={subagents}
                 now={now}
-                narrow={narrow}
                 onToggleCollapsed={toggleCollapsed}
                 onToggleOlder={toggleOlder}
                 onNewSession={handlers.onNewSessionIn ? newSessionIn : undefined}

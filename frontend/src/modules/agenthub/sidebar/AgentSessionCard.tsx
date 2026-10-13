@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CircleAlert, CornerDownRight, Ellipsis, LoaderCircle, MessageCircleQuestionMark, Pin, ShieldAlert } from "lucide-react";
+import { Ellipsis } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import { Button } from "@/components/ui/button";
@@ -21,21 +21,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
-import { VendorIcon } from "../surfaces/VendorIcon";
 import { vendorInfo } from "../vendors";
 import { sessionTitle } from "../documents";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
-import { AgentSubagentAvatars } from "./AgentSubagentAvatars";
 import { useRisingEdge } from "./hooks";
-import {
-  attentionKind,
-  cardIndicator,
-  cardSummary,
-  indicatorLabel,
-  shortAge,
-  type Attention,
-  type CardIndicator,
-} from "./model";
+import { attentionKind, cardSummary, secondLine, shortAge, type Attention } from "./model";
+import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 
 const CONTEXT_KIT: MenuKit = {
   Item: ContextMenuItem as MenuKit["Item"],
@@ -51,14 +42,17 @@ export type AgentSessionCardProps = {
   /** The session the focused group shows. */
   selected: boolean;
   attention?: Attention;
+  /** What the session waits on the person for, in its own words (a permission's title, a question). */
+  ask: string | null;
+  /** The folder it works in, when its workspace has more than one; null otherwise. */
+  folder: string | null;
   pinned: boolean;
+  /** Said in the tooltip and the description only; the row draws no avatars for them. */
   subagents: readonly Subagent[];
   /** The parent's title, for a child session: where the lineage is said, since it is not drawn. */
   parentTitle?: string;
   /** The minute clock, so a card's age is the only thing a tick changes. */
   now: number;
-  /** A narrow rail drops the time and one avatar. */
-  narrow: boolean;
   /**
    * Mounted into a group that was already drawn (pulled out of the stack, or
    * new): it fades in once. Read at mount only; later renders cannot replay it.
@@ -66,85 +60,56 @@ export type AgentSessionCardProps = {
   enter?: boolean;
 };
 
-const AVATARS_WIDE = 3;
-const AVATARS_NARROW = 2;
-
-/** One glyph per state worth a glance; idle and closed have none. */
-function IndicatorIcon({ indicator, pulse }: { indicator: Exclude<CardIndicator, null>; pulse: boolean }) {
-  const common = "size-3";
-  switch (indicator) {
-    case "permission":
-      return <ShieldAlert aria-hidden="true" className={cn(common, "text-status-warning", pulse && "agent-attention-pulse")} />;
-    case "question":
-      return (
-        <MessageCircleQuestionMark
-          aria-hidden="true"
-          className={cn(common, "text-status-warning", pulse && "agent-attention-pulse")}
-        />
-      );
-    case "error":
-      return <CircleAlert aria-hidden="true" className={cn(common, "text-status-danger")} />;
-    case "running":
-      // Small and slow. With reduced motion it is a still ring: the tooltip and
-      // the card's text still say "Running".
-      return (
-        <LoaderCircle
-          aria-hidden="true"
-          className={cn(common, "text-status-info animate-spin motion-reduce:animate-none")}
-          style={{ animationDuration: "1.6s" }}
-        />
-      );
-  }
-}
-
 /**
- * A non-interactive glyph with a name for the pointer. A reader does not get it
- * from here: it is hidden, and the card's description (the open button's
- * aria-describedby) says the same thing once, in a sentence.
- */
-function MetaIcon({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span aria-hidden="true" data-meta={label} className="relative z-10 inline-flex shrink-0 items-center">
-          {children}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-/**
- * One session: a title and one line of metadata.
+ * One session: a face, a title and where it got to, in a fixed 50px row.
  *
- * The title is the point — body size, one line, truncated with the full name in
- * the tooltip. Beneath it, small: the vendor mark, a state glyph only when the
- * session is running, waiting on the person or failed, its subagents, and how
- * long ago it moved. Nothing is drawn for "idle" and nothing for "no
- * subagents": a row of identical empty slots says nothing.
+ * The face (SessionAvatar) carries the vendor and the state — an arc while it
+ * runs, a dot when it waits on the person or failed. Beside it, the title and
+ * its age, then one line: what it is waiting for (warning), else the last thing
+ * it said (danger when it failed), behind the folder when the workspace has
+ * several. Nothing else is drawn: pinned, child-of and subagents are said in
+ * the tooltip and the description.
  *
  * Structure: the card is a `div`, never a button. The title is the open button;
  * its ::after stretches over the card so the whole card opens the session, and
- * the controls that must work on their own — the avatars, the "…" menu — sit
- * above it (z-10) as siblings, so no button holds another.
+ * the "…" menu sits above it (z-20) as a sibling, so no button holds another.
  *
- * Waiting: a bar at the left edge and the glyph are the standing signal. The
- * background flash and the glyph's three beats play once, on the render where
- * waiting begins (useRisingEdge) — not on mount, not on selection.
+ * Waiting: the dot on the face is the standing signal. The background flash
+ * plays once, on the render where waiting begins (useRisingEdge) — not on
+ * mount, not on selection.
  */
-function AgentSessionCardView({ session, selected, attention, pinned, subagents, parentTitle, now, narrow, enter }: AgentSessionCardProps) {
+function AgentSessionCardView({
+  session,
+  selected,
+  attention,
+  ask,
+  folder,
+  pinned,
+  subagents,
+  parentTitle,
+  now,
+  enter,
+}: AgentSessionCardProps) {
   const [entering] = React.useState(Boolean(enter));
   const actions = useSessionActions();
   const vendor = vendorInfo(session.agentType);
   const title = sessionTitle(session);
-  const indicator = cardIndicator(session, attention);
-  const waiting = attentionKind(session, attention) !== null;
+  const kind = attentionKind(session, attention);
+  const waiting = kind !== null;
   const flash = useRisingEdge(waiting);
   const age = shortAge(session.updatedAt, now);
   const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle });
+  const line = secondLine({ session, ask, folder });
+  const avatarState: AvatarState = waiting
+    ? "waiting"
+    : session.status === "error"
+      ? "error"
+      : session.status === "running"
+        ? "running"
+        : null;
 
   const closed = session.status === "closed";
+  const strong = selected || waiting || session.status === "running";
   const summaryId = React.useId();
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -157,120 +122,96 @@ function AgentSessionCardView({ session, selected, attention, pinned, subagents,
       data-status={session.status || "idle"}
       data-selected={selected || undefined}
       data-waiting={waiting || undefined}
+      // The ground the face's dot rings itself with: the row's own.
+      style={{ "--avatar-ground": selected ? "var(--surface-raised)" : "var(--background-app)" } as React.CSSProperties}
       className={cn(
-        "group/card relative flex flex-col gap-1 rounded-md px-3 py-2 transition-colors duration-(--motion-fast)",
-        selected
-          ? // The ring is the shape cue; the heavier title below is the second one.
-            "bg-surface-raised ring-1 ring-border ring-inset"
-          : "hover:bg-state-soft focus-within:bg-state-soft",
+        "group/card relative flex h-12.5 items-center gap-2.75 rounded-lg px-2 transition-colors duration-(--motion-fast)",
+        selected ? "bg-surface-raised" : "hover:bg-state-soft focus-within:bg-state-soft",
         entering && "agent-card-enter",
         flash && "agent-attention-flash",
       )}
     >
-      {waiting ? (
-        <span
-          aria-hidden="true"
-          data-testid="agent-card-bar"
-          className="absolute inset-y-2 left-0 w-0.75 rounded-sm bg-status-warning"
-        />
-      ) : null}
+      <SessionAvatar vendor={session.agentType} state={avatarState} />
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            data-sidebar-nav=""
-            data-testid="agent-card-open"
-            aria-current={selected ? "true" : undefined}
-            aria-describedby={summaryId}
-            onClick={() => actions.open(session)}
-            // Double-click renames, as in a file tree.
-            onDoubleClick={actions.rename ? () => actions.rename?.(session) : undefined}
-            className={cn(
-              "block min-w-0 cursor-pointer text-left outline-none",
-              // The stretched hit area doubles as the focus ring, so the ring is
-              // the whole card rather than a line of text.
-              "after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-status-info",
-            )}
-          >
-            <span
-              data-testid="agent-card-title"
-              className={cn(
-                "block truncate",
-                selected ? "text-body-13-medium text-text-primary" : "text-body-13",
-                !selected && (closed ? "text-text-tertiary" : "text-text-secondary"),
-              )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-sidebar-nav=""
+                data-testid="agent-card-open"
+                aria-current={selected ? "true" : undefined}
+                aria-describedby={summaryId}
+                onClick={() => actions.open(session)}
+                // Double-click renames, as in a file tree.
+                onDoubleClick={actions.rename ? () => actions.rename?.(session) : undefined}
+                className={cn(
+                  "block min-w-0 flex-1 cursor-pointer text-left outline-none",
+                  // The stretched hit area doubles as the focus ring, so the ring is
+                  // the whole card rather than a line of text.
+                  "after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-status-info",
+                )}
+              >
+                <span
+                  data-testid="agent-card-title"
+                  className={cn(
+                    "block truncate text-body-13",
+                    strong ? "text-text-primary" : closed ? "text-text-tertiary" : "text-text-secondary",
+                  )}
+                >
+                  {title}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="right"
+              align="start"
+              className="h-auto max-w-72 flex-col items-start gap-0.5 py-1.5 whitespace-normal"
             >
-              {title}
+              <span className="block max-w-full text-label-12 break-words">{title}</span>
+              <span data-testid="agent-card-summary" className="block text-caption-11 text-text-tertiary">
+                {summary.join(" · ")}
+              </span>
+            </TooltipContent>
+          </Tooltip>
+          {age ? (
+            <span
+              data-testid="agent-card-age"
+              aria-hidden="true"
+              // Gives its place to the "…" menu on hover and focus.
+              className="relative z-10 shrink-0 text-caption-11 text-text-tertiary tabular-nums transition-opacity duration-(--motion-fast) group-hover/card:opacity-0 group-focus-within/card:opacity-0"
+            >
+              {age}
             </span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="start"
-          className="h-auto max-w-72 flex-col items-start gap-0.5 py-1.5 whitespace-normal"
+          ) : null}
+        </div>
+        <span
+          data-testid="agent-card-line"
+          className={cn(
+            "mt-0.5 block truncate text-body-12",
+            line.tone === "warning"
+              ? "text-status-warning"
+              : line.tone === "danger"
+                ? "text-status-danger"
+                : "text-text-tertiary",
+          )}
         >
-          <span className="block max-w-full text-label-12 break-words">{title}</span>
-          <span data-testid="agent-card-summary" className="block text-caption-11 text-text-tertiary">
-            {summary.join(" · ")}
-          </span>
-        </TooltipContent>
-      </Tooltip>
+          {line.folder ? <span className="opacity-70">{`${line.folder} · `}</span> : null}
+          {/* A blank line still takes its height, so every row is the same two lines. */}
+          {line.text || (line.folder ? null : "\u00a0")}
+        </span>
+      </div>
 
       <span id={summaryId} data-testid="agent-card-description" className="sr-only">
         {summary.join(". ")}
       </span>
 
-      <div
-        data-testid="agent-card-meta"
-        className="flex min-h-4 min-w-0 items-center gap-1.5 overflow-hidden text-caption-11 text-text-tertiary"
-      >
-        <MetaIcon label={vendor.name}>
-          <VendorIcon vendor={session.agentType} working={session.status === "running"} className="size-3" />
-        </MetaIcon>
-
-        {indicator ? (
-          <MetaIcon label={indicatorLabel(indicator, attention)}>
-            <IndicatorIcon indicator={indicator} pulse={flash} />
-          </MetaIcon>
-        ) : null}
-
-        {parentTitle ? (
-          <MetaIcon label={`Child of ${parentTitle}`}>
-            <CornerDownRight aria-hidden="true" className="size-3" />
-          </MetaIcon>
-        ) : null}
-
-        {subagents.length ? (
-          <AgentSubagentAvatars
-            subagents={subagents}
-            max={narrow ? AVATARS_NARROW : AVATARS_WIDE}
-            onOpen={(agent) => actions.openSubagent(session, agent)}
-          />
-        ) : null}
-
-        {/* Pushes what follows to the right edge; the time yields first when narrow. */}
-        <span className="min-w-0 flex-1" />
-
-        {pinned ? (
-          <MetaIcon label="Pinned">
-            <Pin aria-hidden="true" data-testid="agent-row-pin" className="size-3 fill-current" />
-          </MetaIcon>
-        ) : null}
-
-        {age && !narrow ? (
-          <span data-testid="agent-card-age" aria-hidden="true" className="relative z-10 shrink-0 tabular-nums">
-            {age}
-          </span>
-        ) : null}
-      </div>
-
       {/* Appears on hover and on keyboard focus anywhere in the card, and stays
-          while its menu is open. It sits over the end of the title rather than
-          taking room from it. */}
+          while its menu is open. It sits where the age was. */}
       <div
         className={cn(
-          "absolute top-1 right-1 z-20 opacity-0 transition-opacity duration-(--motion-fast)",
+          "absolute top-1.5 right-1.5 z-20 opacity-0 transition-opacity duration-(--motion-fast)",
           "group-hover/card:opacity-100 group-focus-within/card:opacity-100",
           menuOpen && "opacity-100",
         )}

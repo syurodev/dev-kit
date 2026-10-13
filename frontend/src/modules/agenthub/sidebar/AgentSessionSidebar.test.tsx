@@ -9,6 +9,8 @@ import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { activeAgentHubSessionId, closeAgentSessionTabs, openAgentSession } from "../documents";
 import { useSubagentPanel } from "../subagents";
 import type { Subagent } from "../types";
+import { SessionActionsContext, type SessionActions } from "./actions";
+import { AgentSessionCard, type AgentSessionCardProps } from "./AgentSessionCard";
 import { AgentSessionSidebar, type AgentSessionSidebarProps } from "./AgentSessionSidebar";
 import { AgentSubagentAvatars } from "./AgentSubagentAvatars";
 import { attentionBySession } from "./model";
@@ -44,6 +46,25 @@ function render(over: Partial<AgentSessionSidebarProps> = {}): string {
   return renderToString(node);
 }
 
+const NO_ACTIONS: SessionActions = {
+  open: noop,
+  openSubagent: noop,
+  descendantCount: () => 0,
+  hold: noop,
+  release: noop,
+};
+
+/** One row on its own, for what the rail does not pass yet (an ask, a folder). */
+function renderCard(over: Partial<AgentSessionCardProps> & Pick<AgentSessionCardProps, "session">): string {
+  return renderToString(
+    <TooltipProvider>
+      <SessionActionsContext.Provider value={NO_ACTIONS}>
+        <AgentSessionCard selected={false} pinned={false} subagents={[]} ask={null} folder={null} now={Date.now()} {...over} />
+      </SessionActionsContext.Provider>
+    </TooltipProvider>,
+  );
+}
+
 const cards = (html: string) => html.match(/data-testid="agent-session-card"/g)?.length ?? 0;
 const cardIds = (html: string) => [...html.matchAll(/data-testid="agent-session-card" data-session-id="([^"]+)"/g)].map((m) => m[1]);
 const cardHtml = (html: string, id: string) => {
@@ -52,6 +73,8 @@ const cardHtml = (html: string, id: string) => {
   const next = html.indexOf('<div role="listitem"', at);
   return html.slice(at, next === -1 ? undefined : next);
 };
+/** The class list of a card's own element (not its children's). */
+const rootClass = (html: string, id: string) => cardHtml(html, id).match(/^[^>]*class="([^"]*)"/)?.[1] ?? "";
 
 /** The deepest a <button> sits inside another <button>: 1 means none nest. */
 function buttonDepth(html: string): number {
@@ -196,8 +219,9 @@ describe("five recent and the stack", () => {
     const html = render({ sessions: aged(8), pinnedIds: ["s6"] });
     expect(cardIds(html)[0]).toBe("s6");
     expect(cardIds(html)).toHaveLength(6);
-    expect(cardHtml(html, "s6")).toContain('data-testid="agent-row-pin"');
-    expect(cardHtml(html, "s0")).not.toContain('data-testid="agent-row-pin"');
+    // Said in the card's description, not drawn as a glyph in the row.
+    expect(cardHtml(html, "s6")).toMatch(/data-testid="agent-card-description"[^>]*>[^<]*Pinned/);
+    expect(cardHtml(html, "s0")).not.toContain("Pinned");
   });
 
   it("an exception drawn from the stack is not drawn twice when the stack opens", () => {
@@ -226,26 +250,53 @@ describe("five recent and the stack", () => {
 });
 
 describe("a card", () => {
-  it("is two lines: the title, then metadata, with the title larger", () => {
+  it("is two lines: the title, then the second line, with the title larger", () => {
     const html = render({ sessions: [session("a", { title: "Fix the flaky retry test" })] });
     expect(html).toContain("Fix the flaky retry test");
     expect(html).toMatch(/data-testid="agent-card-title" class="[^"]*text-body-13/);
-    expect(html).toMatch(/data-testid="agent-card-meta" class="[^"]*text-caption-11/);
     // One line, cut with an ellipsis rather than shrunk.
     expect(html).toMatch(/data-testid="agent-card-title" class="[^"]*\btruncate\b/);
   });
 
-  it("draws nothing for idle: no state glyph, no dot, no turn count", () => {
+  it("a row is two fixed lines: title + age, then the second line", () => {
+    const html = render({ sessions: [session("a", { status: "idle", preview: "Done." })] });
+    const card = cardHtml(html, "a");
+    expect(card).toContain("h-12.5");
+    expect(card).toContain('data-testid="agent-card-title"');
+    expect(card).toContain('data-testid="agent-card-line"');
+    expect(card).toContain(">Done.<");
+    expect(card).toContain('data-slot="session-avatar"');
+  });
+
+  it("an empty second line still holds its place", () => {
+    const card = cardHtml(render({ sessions: [session("a")] }), "a");
+    expect(card).toMatch(/data-testid="agent-card-line"[^>]*>\u00a0</);
+  });
+
+  it("a waiting row says what it waits for, in the warning tone", () => {
+    const html = renderCard({
+      session: session("a", { status: "awaiting_permission" }),
+      attention: { permissions: 1, questions: 0 },
+      ask: "Allow migrate up?",
+    });
+    expect(cardHtml(html, "a")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow migrate up\?/);
+  });
+
+  it("a failed row says where it stopped, in the danger tone, and a folder goes first", () => {
+    const html = renderCard({ session: session("a", { status: "error", preview: "Build broke." }), folder: "web" });
+    expect(html).toMatch(/agent-card-line[^>]*text-status-danger/);
+    expect(html).toMatch(/opacity-70">web · <\/span>Build broke\./);
+  });
+
+  it("draws nothing for idle: no state on the face, no turn count", () => {
     const html = cardHtml(render({ sessions: [session("a")] }), "a");
-    for (const label of ["Running", "Waiting for permission", "Stopped with an error", "Has a question for you"]) {
-      expect(html).not.toContain(`data-meta="${label}"`);
-    }
+    expect(html).toContain('data-state="idle"');
     expect(html).not.toContain('data-slot="agent-state"');
     expect(html).not.toMatch(/\bturns?\b/);
     expect(html).not.toContain("data-waiting");
   });
 
-  it("marks running, error, permission and question with their own glyph", () => {
+  it("marks running, error, permission and question on the face", () => {
     const html = render({
       sessions: [
         session("run", { status: "running", updatedAt: 5 }),
@@ -255,19 +306,17 @@ describe("a card", () => {
       ],
       attention: attentionBySession([], [{ sessionId: "ask" }]),
     });
-    expect(cardHtml(html, "run")).toContain('data-meta="Running"');
-    expect(cardHtml(html, "err")).toContain('data-meta="Stopped with an error"');
-    expect(cardHtml(html, "perm")).toContain('data-meta="Waiting for permission"');
-    expect(cardHtml(html, "ask")).toContain('data-meta="Has a question for you"');
-    expect(cardHtml(html, "ask")).not.toContain('data-meta="Running"');
+    expect(cardHtml(html, "run")).toContain('data-state="running"');
+    expect(cardHtml(html, "err")).toContain('data-state="error"');
+    expect(cardHtml(html, "perm")).toContain('data-state="waiting"');
+    expect(cardHtml(html, "ask")).toContain('data-state="waiting"');
   });
 
-  it("only running motion is continuous, and it stops under reduced motion", () => {
+  it("the face's motion is its own; the one-off beat does not play on first paint", () => {
     const run = cardHtml(render({ sessions: [session("a", { status: "running" })] }), "a");
-    expect(run).toContain("animate-spin motion-reduce:animate-none");
+    expect(run).toContain("agent-avatar-spin");
     const wait = cardHtml(render({ sessions: [session("a", { status: "awaiting_permission" })] }), "a");
-    // A waiting card draws no infinite animation on first paint: the beat is a
-    // one-off played by the component when waiting begins, not by markup.
+    expect(wait).toContain("agent-avatar-breathe");
     expect(wait).not.toContain("animate-pulse");
     expect(wait).not.toContain("animate-spin");
     expect(wait).not.toContain("agent-attention-pulse");
@@ -275,22 +324,22 @@ describe("a card", () => {
     expect(wait).not.toContain("shimmer");
   });
 
-  it("a card waiting on the person has the bar and the glyph as its standing signal", () => {
+  it("a card waiting on the person says so on the card", () => {
     const html = cardHtml(render({ sessions: [session("a", { status: "awaiting_permission" })] }), "a");
-    expect(html).toContain('data-testid="agent-card-bar"');
     expect(html).toContain('data-waiting="true"');
   });
 
-  it("selection is a ring, a heavier title and aria-current, not only a colour", () => {
+  it("selected is a raised ground, no ring, and aria-current", () => {
     const html = render({ sessions: aged(2), activeSessionId: "s1" });
     const selected = cardHtml(html, "s1");
     expect(selected).toContain('data-selected="true"');
     expect(selected).toContain('aria-current="true"');
-    expect(selected).toContain("ring-border ring-inset");
-    expect(selected).toContain("text-body-13-medium");
+    expect(rootClass(html, "s1")).toContain("bg-surface-raised");
+    // The face keeps its own hairline; the row draws no ring.
+    expect(rootClass(html, "s1")).not.toContain("ring");
     const other = cardHtml(html, "s0");
     expect(other).not.toContain("aria-current");
-    expect(other).not.toContain("ring-border ring-inset");
+    expect(rootClass(html, "s0")).not.toContain("bg-surface-raised");
   });
 
   it("names the card in words for a screen reader and for a keyboard's tooltip", () => {
@@ -307,12 +356,12 @@ describe("a card", () => {
     expect(html).toMatch(/data-testid="agent-card-open"[^>]*aria-describedby=/);
   });
 
-  it("says a child's parent in its metadata and draws it as a card of its own", () => {
+  it("says a child's parent in its description and draws it as a card of its own", () => {
     const html = render({
       sessions: [session("root", { updatedAt: 9 }), session("kid", { parentSessionId: "root", depth: 1, updatedAt: 8 })],
     });
     expect(cardIds(html)).toEqual(["root", "kid"]);
-    expect(cardHtml(html, "kid")).toContain('data-meta="Child of Title root"');
+    expect(cardHtml(html, "kid")).toMatch(/data-testid="agent-card-description"[^>]*>[^<]*Child of Title root/);
     expect(cardHtml(html, "root")).not.toContain("Child of");
     // Flat: no tree role, no indentation.
     expect(html).not.toContain('role="tree"');
@@ -339,7 +388,7 @@ describe("a card", () => {
     expect(html).toContain("focus-visible:after:ring-2");
   });
 
-  it("never nests one button in another, with avatars, stack, menu and groups on screen", () => {
+  it("never nests one button in another, with stack, menu and groups on screen", () => {
     const html = render({
       sessions: aged(9),
       subagents: { s0: [1, 2, 3, 4, 5].map((n) => ({ id: `a${n}`, name: `Agent ${n}` })) },
@@ -347,7 +396,6 @@ describe("a card", () => {
       onNewSessionIn: noop,
       onToggleHideClosed: noop,
     });
-    expect(html).toContain("agent-subagent-avatar");
     expect(buttonDepth(html)).toBe(1);
   });
 });
