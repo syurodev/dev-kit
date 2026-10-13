@@ -169,7 +169,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [family, resolvedTheme, setFamily, setTheme, theme],
   );
 
-  // Avoid painting the default CSS palette before the persisted preference is
+  // Avoid painting the default CSS before the persisted preference is
   // known. The native window already has the correct appearance from Go. The
   // family is part of that gate now: a frame of Mono code before Dracula's
   // colours arrive is the "phần tử đuổi theo theme" smoothness §8.4 rules out.

@@ -299,7 +299,9 @@ type ContrastRow = { palette: string; border: number; label: number; guide: numb
 /**
  * Every palette in both modes: the selection border against the rail (a mark,
  * 3:1), the selected label against its tint (text, 4.5:1), and the guide
- * against the rail (decoration — reported, not required).
+ * against the rail (decoration — reported, not required). The chrome is Mono,
+ * so rows differ only by mode; the loop stays so a palette that ever reaches
+ * the chrome would show up here.
  */
 function ContrastTable() {
   const { family } = useTheme();
