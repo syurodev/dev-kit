@@ -70,7 +70,7 @@ export function AgentTurnChanges({ checkpoint, loadDiff, commitTurn, className }
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
+        className="flex w-full min-w-0 cursor-pointer transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
       >
         <FileDiff aria-hidden="true" className="size-(--icon-12) shrink-0" />
         <span className="min-w-0 truncate">{summary.label}</span>
@@ -187,7 +187,7 @@ export function ChangedFileRow({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={canOpen ? open : undefined}
         className={cn(
-          "flex h-(--control-height-sm) w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
+          "flex h-(--control-height-sm) w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50",
           canOpen ? "cursor-pointer hover:bg-surface-tinted" : "cursor-default",
         )}
       >

@@ -391,7 +391,7 @@ function AppearanceTab() {
               <RadioGroupPrimitive.Item asChild key={option} value={option}>
               <button type="button"
                 className={cn(
-                  "h-8 rounded-sm border px-4.5 capitalize transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
+                  "h-8 rounded-sm border px-4.5 capitalize transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50",
                   active
                     ? "border-border-subtle bg-surface-raised text-body-14-medium text-text-primary"
                     : "border-transparent text-body-14 text-text-secondary hover:text-text-primary",
@@ -418,7 +418,7 @@ function AppearanceTab() {
               <RadioGroupPrimitive.Item asChild key={definition.id} value={definition.id}>
               <button type="button" aria-label={definition.label}
                 className={cn(
-                  "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
+                  "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50",
                   active
                     ? "border-border-focus bg-surface-raised"
                     : "border-border-subtle hover:bg-state-soft",

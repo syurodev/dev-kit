@@ -134,6 +134,17 @@ describe("the Mono chrome is readable on its own surfaces", () => {
       expect(ratio).toBeGreaterThanOrEqual(3);
     });
 
+    // The keyboard focus ring is --border-focus at 50% (`ring-border-focus/50`,
+    // the global `outline-ring/50`): a WCAG focus indicator, non-text, 3:1
+    // against whatever it is drawn on, once flattened.
+    it(`${mode} focus ring at 50% is visible on every ground`, () => {
+      for (const [name, ground] of Object.entries(grounds(mode))) {
+        const ring = over(chrome("--border-focus", mode), ground, 0.5);
+        const ratio = contrast(ring, ground);
+        expect(ratio, `focus ring on ${name} ${ground} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
+      }
+    });
+
     // A solid status fill (status pill, Stop button, git/verb chips) carries
     // a glyph in --surface-base (4.5:1) and stands off the card (3:1).
     for (const token of ["--status-success", "--status-warning", "--status-danger"]) {

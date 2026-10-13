@@ -101,7 +101,7 @@ export function KeyValueTable({
               aria-label={`${keyPlaceholder} ${index + 1}`}
               onChange={(event) => update(index, { key: event.target.value })}
               className={cn(
-                "h-(--control-height-sm) w-full min-w-0 border-r border-border-subtle bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/40",
+                "h-(--control-height-sm) w-full min-w-0 border-r border-border-subtle bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50",
                 fixedKeys && "text-text-secondary",
               )}
             />
@@ -113,7 +113,7 @@ export function KeyValueTable({
               autoComplete="off"
               aria-label={`${valuePlaceholder} for ${row.key || `row ${index + 1}`}`}
               onChange={(event) => update(index, { value: event.target.value })}
-              className="h-(--control-height-sm) w-full min-w-0 bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/40"
+              className="h-(--control-height-sm) w-full min-w-0 bg-transparent px-2 font-mono text-code-12 text-text-primary outline-none transition-control placeholder:text-text-tertiary focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
             />
             {onToggleSecret ? (
               <div className="flex justify-center">
@@ -124,7 +124,7 @@ export function KeyValueTable({
                     aria-label={`${secret ? "Make plain" : "Make secret"}: ${row.key || `row ${index + 1}`}`}
                     aria-pressed={secret}
                     title={secret ? "Secret — sealed, never shown again. Click to make it plain." : "Plain — click to make it secret"}
-                    className={cn("rounded p-1 transition-control hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/40", secret ? "text-status-warning" : "text-text-tertiary")}
+                    className={cn("rounded p-1 transition-control hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50", secret ? "text-status-warning" : "text-text-tertiary")}
                   >
                     {secret ? <Lock className="size-(--icon-12)" /> : <LockOpen className="size-(--icon-12)" />}
                   </button>
@@ -138,7 +138,7 @@ export function KeyValueTable({
                     type="button"
                     onClick={() => remove(index)}
                     aria-label={`Remove ${row.key || `row ${index + 1}`}`}
-                    className="rounded p-1 text-text-tertiary opacity-0 transition-control group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-raised hover:text-text-primary focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/40"
+                    className="rounded p-1 text-text-tertiary opacity-0 transition-control group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-raised hover:text-text-primary focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50"
                   >
                     <X className="size-(--icon-12)" />
                   </button>

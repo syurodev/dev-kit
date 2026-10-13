@@ -77,7 +77,7 @@ export function RequestToolbar({
           onChange={(e) => onNameChange(e.target.value)}
           aria-label="Request name"
           spellCheck={false}
-          className="h-8 min-w-28 flex-1 truncate rounded-md bg-transparent px-2 text-title-14 text-text-primary outline-none transition-control hover:bg-state-hover focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-status-info/20"
+          className="h-8 min-w-28 flex-1 truncate rounded-md bg-transparent px-2 text-title-14 text-text-primary outline-none transition-control hover:bg-state-hover focus:bg-surface-well focus-visible:ring-2 focus-visible:ring-border-focus/50"
         />
         <span
           className={cn(
@@ -161,7 +161,7 @@ export function RequestToolbar({
         </Button>
       </div>
       <div className="flex items-stretch gap-2">
-        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-well transition-control focus-within:border-status-info/50 focus-within:ring-2 focus-within:ring-status-info/20">
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-well transition-control focus-within:border-status-info/50 focus-within:ring-2 focus-within:ring-border-focus/50">
           <NativeSelect
             value={method}
             aria-label="Method"

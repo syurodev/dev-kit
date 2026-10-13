@@ -78,7 +78,7 @@ export function ExportModal() {
           <button
             type="button"
             aria-pressed={format === "csv"}
-            className={`relative p-3 rounded-lg border text-left flex flex-col gap-1 transition-control outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 ${
+            className={`relative p-3 rounded-lg border text-left flex flex-col gap-1 transition-control outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 ${
               format === "csv"
                 ? "border-action-primary bg-action-primary/10 text-text-primary shadow-xs"
                 : "border-border-subtle bg-surface-well text-text-secondary hover:bg-state-soft"
@@ -94,7 +94,7 @@ export function ExportModal() {
           <button
             type="button"
             aria-pressed={format === "json"}
-            className={`relative p-3 rounded-lg border text-left flex flex-col gap-1 transition-control outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 ${
+            className={`relative p-3 rounded-lg border text-left flex flex-col gap-1 transition-control outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 ${
               format === "json"
                 ? "border-action-primary bg-action-primary/10 text-text-primary shadow-xs"
                 : "border-border-subtle bg-surface-well text-text-secondary hover:bg-state-soft"

@@ -40,7 +40,7 @@ export function NumberStepper({ value, onChange, min = 0, max = 100, step = 1,
     <span role="spinbutton" tabIndex={disabled ? -1 : 0} aria-label={label}
       aria-valuenow={value} aria-valuemin={min} aria-valuemax={max} aria-disabled={disabled || undefined}
       onKeyDown={onKeyDown}
-      className="flex h-full min-w-0 items-center justify-center text-code-12 text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 aria-disabled:opacity-50">
+      className="flex h-full min-w-0 items-center justify-center text-code-12 text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 aria-disabled:opacity-50">
       <AnimatedNumber value={value} aria-hidden="true" />
     </span>
     <Button type="button" variant="ghost" size="icon" className="h-full w-full rounded-l-none"

@@ -55,7 +55,7 @@ function Slider({
           key={index}
           aria-label={ariaLabel && (_values.length > 1 ? `${ariaLabel} ${index + 1}` : ariaLabel)}
           aria-labelledby={labelledBy}
-          className="relative block size-3 shrink-0 rounded-full border border-border-default bg-surface-raised ring-status-info/20 transition-control select-none after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden active:ring-2 active:scale-110 motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50"
+          className="relative block size-3 shrink-0 rounded-full border border-border-default bg-surface-raised ring-border-focus/50 transition-control select-none after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden active:ring-2 active:scale-110 motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50"
         />
       ))}
     </SliderPrimitive.Root>

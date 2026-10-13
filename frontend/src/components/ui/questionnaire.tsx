@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils"
 export const QUESTIONNAIRE_CHOICE = cn(
   "group/questionnaire-choice relative grid min-h-(--control-height-lg) min-w-0 cursor-pointer grid-cols-auto-fr-auto items-start gap-x-2.5 gap-y-0.5 rounded-md border border-border-subtle bg-surface-well px-3 py-2 text-start text-body-13 text-text-primary transition-control outline-none select-none",
   "hover:bg-state-soft",
-  "has-[>input:focus-visible]:ring-2 has-[>input:focus-visible]:ring-status-info/20 has-[>input:focus-visible]:border-status-info",
+  "has-[>input:focus-visible]:ring-2 has-[>input:focus-visible]:ring-border-focus/50 has-[>input:focus-visible]:border-status-info",
   "data-checked:border-status-info data-checked:bg-state-soft",
   "data-invalid:border-status-danger",
   "data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50"
@@ -240,7 +240,7 @@ function QuestionnaireInput({
         className={cn(
           "h-(--control-height-md) w-full min-w-0 rounded-md border border-border-subtle bg-surface-well px-3 text-body-13 text-text-primary transition-control outline-none",
           "placeholder:text-text-tertiary",
-          "focus-visible:ring-2 focus-visible:ring-status-info/20 focus-visible:border-status-info",
+          "focus-visible:ring-2 focus-visible:ring-border-focus/50 focus-visible:border-status-info",
           "data-filled:border-status-info",
           "disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-text-tertiary",
           "aria-invalid:border-status-danger",

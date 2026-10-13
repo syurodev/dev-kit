@@ -525,7 +525,7 @@
     --destructive: var(--status-danger);
     --border: var(--border-default);
     --input: var(--border-default);
-    --ring: var(--status-info);
+    --ring: var(--border-focus);
     --radius: var(--radius-control);
 
     /* Scrollbar. Not a Foundations token — Figma draws no scrollbar — so it
@@ -543,7 +543,7 @@
     --sidebar-accent: var(--surface-raised);
     --sidebar-accent-foreground: var(--text-primary);
     --sidebar-border: var(--border-subtle);
-    --sidebar-ring: var(--status-info);
+    --sidebar-ring: var(--border-focus);
 }
 
 /* Light mode. ThemeProvider stamps data-theme on <html>; dark stays the
@@ -655,7 +655,7 @@
     --destructive: var(--status-danger);
     --border: var(--border-default);
     --input: var(--border-default);
-    --ring: var(--status-info);
+    --ring: var(--border-focus);
 }
 
 @layer base {

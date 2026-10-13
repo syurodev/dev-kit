@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { themeBlocks } from "./cssTokens";
+import { parseBlock, readIndexCss, resolveVar, themeBlocks } from "./cssTokens";
 import { DEVKIT_FAMILY } from "./families";
 import {
   CONTRACT,
@@ -151,5 +151,27 @@ describe("the base palette in index.css is devkit", () => {
       expect(dark.get(`--note-folder-${hue}`)).toBe(`var(--hue-${hue})`);
       expect(light.has(`--note-folder-${hue}`)).toBe(false);
     }
+  });
+});
+
+describe("focus rings use the focus token", () => {
+  // shadcn's `ring-ring` and the global `outline-ring/50` read --ring; it
+  // used to be --status-info, which is grey in Mono and so a ring nobody sees.
+  const shadcnDark = parseBlock(readIndexCss(), /\n\.dark/);
+  for (const [label, block] of [["root", dark], [".dark", shadcnDark]] as const) {
+    for (const token of ["--ring", "--sidebar-ring"]) {
+      const declared = block.get(token);
+      if (declared === undefined) continue;
+      test(`${label} ${token} is --border-focus`, () => {
+        expect(resolveVar(token, block, dark)).toBe(resolveVar("--border-focus", dark, dark));
+      });
+    }
+  }
+  test("root declares both rings", () => {
+    expect(dark.has("--ring")).toBe(true);
+    expect(dark.has("--sidebar-ring")).toBe(true);
+  });
+  test(".dark declares --ring", () => {
+    expect(shadcnDark.has("--ring")).toBe(true);
   });
 });

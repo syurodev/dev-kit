@@ -19,7 +19,7 @@ export function SettingsLayout({ activeTab, onSelect, children }: { activeTab: S
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
         {groups.map((group) => <div key={group.label}><p className="mb-1 px-2 text-label-11-caps text-text-tertiary">{group.label}</p><div className="space-y-0.5">
           {group.items.map((item) => { const Icon = ICONS[item.id]; const active = item.id === activeTab; return <button key={item.id} type="button" id={`settings-nav-${item.id}`} onClick={() => onSelect(item.id)} aria-current={active ? "page" : undefined}
-            className={cn("flex h-8 w-full items-center gap-2.5 rounded-md border px-2 text-left text-body-13 transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20", active ? "border-border-subtle bg-surface-raised text-text-primary" : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary")}>
+            className={cn("flex h-8 w-full items-center gap-2.5 rounded-md border px-2 text-left text-body-13 transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50", active ? "border-border-subtle bg-surface-raised text-text-primary" : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary")}>
             <Icon aria-hidden className="size-4 shrink-0" strokeWidth={1.5} /><span className="truncate">{item.label}</span>
           </button>; })}
         </div></div>)}

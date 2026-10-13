@@ -30,7 +30,7 @@ function Switch({
       data-slot="switch"
       className={cn(
         "peer group/switch relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full border border-border-subtle bg-surface-well transition-control outline-none",
-        "focus-visible:ring-2 focus-visible:ring-status-info/20 focus-visible:outline-none",
+        "focus-visible:ring-2 focus-visible:ring-border-focus/50 focus-visible:outline-none",
         "data-checked:bg-action-primary",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
