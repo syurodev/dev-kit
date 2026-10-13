@@ -1,4 +1,5 @@
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
+import { HUE_TOKENS } from "./tokens";
 import type { HueToken, PaletteToken, SyntaxStyleToken, SyntaxToken } from "./tokens";
 
 /**
@@ -41,7 +42,7 @@ const MONO_SYNTAX = {
 } as const;
 
 /** Which hue a syntax role takes when the family names no syntax colours. */
-const SYNTAX_FROM_HUE: Record<SyntaxToken, HueToken | string> = {
+const SYNTAX_FROM_HUE: Record<SyntaxToken, HueToken | `var(--${string})`> = {
   "--syntax-keyword": "--hue-violet",
   "--syntax-string": "--hue-green",
   "--syntax-number": "--hue-orange",
@@ -61,8 +62,8 @@ const SYNTAX_FROM_HUE: Record<SyntaxToken, HueToken | string> = {
  * Literal values work on any element.
  */
 export function resolvePalette(palette: ThemePalette): ResolvedPalette {
-  const hue = (token: string) =>
-    token.startsWith("--hue-") ? palette[token as HueToken] : token;
+  const hue = (source: string) =>
+    (HUE_TOKENS as readonly string[]).includes(source) ? palette[source as HueToken] : source;
   const syntax = Object.fromEntries(
     Object.entries(SYNTAX_FROM_HUE).map(([token, source]) => [
       token,
@@ -89,7 +90,7 @@ export function resolvePalette(palette: ThemePalette): ResolvedPalette {
   };
 }
 
-/** Mono: the muted hues the chrome's status ramp is drawn in, and code in the text ramp. */
+/** Mono: muted hues at the status ramp's saturation, and code in the text ramp. */
 export const DEVKIT_FAMILY: ThemeFamilyDefinition = {
   id: "devkit",
   label: "DevKit",
@@ -169,7 +170,7 @@ const DRACULA: ThemeFamilyDefinition = {
   },
 };
 
-/** Ayu Dark and Ayu Light syntax colours. */
+/** Ayu Dark and Ayu Light syntax colours. Ayu has no pink; a magenta stands in. */
 const AYU: ThemeFamilyDefinition = {
   id: "ayu",
   label: "Ayu",
@@ -191,7 +192,7 @@ const AYU: ThemeFamilyDefinition = {
     "--hue-teal": "#2a765d",
     "--hue-blue": "#166ead",
     "--hue-violet": "#8751bc",
-    "--hue-pink": "#b44a15",
+    "--hue-pink": "#b43c81",
   },
 };
 
@@ -273,7 +274,7 @@ const LOTUS: ThemeFamilyDefinition = {
   },
 };
 
-/** Aurora and Frost. Nord publishes one set for both modes; light takes it darker. */
+/** Aurora and Frost. Nord publishes one set for both modes; light takes it darker. Nord has no pink; a deeper aurora rose stands in for light. */
 const NORD: ThemeFamilyDefinition = {
   id: "nord",
   label: "Nord",
@@ -295,7 +296,7 @@ const NORD: ThemeFamilyDefinition = {
     "--hue-teal": "#447170",
     "--hue-blue": "#4c6c93",
     "--hue-violet": "#8a5c82",
-    "--hue-pink": "#895b81",
+    "--hue-pink": "#a3476f",
   },
 };
 

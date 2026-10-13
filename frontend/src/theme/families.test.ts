@@ -41,6 +41,17 @@ describe("resolvePalette", () => {
     expect(r["--syntax-keyword-weight"]).toBe("600");
   });
 
+  test("every family and mode resolves to non-empty strings", () => {
+    for (const family of Object.values(FAMILIES)) {
+      for (const mode of ["dark", "light"] as const) {
+        for (const [token, value] of Object.entries(resolvePalette(family[mode]))) {
+          expect(typeof value, `${family.id}/${mode} ${token}`).toBe("string");
+          expect(value.length, `${family.id}/${mode} ${token}`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
   test("resolvedPalettes gives both modes", () => {
     const both = resolvedPalettes("nord");
     expect(both.dark["--hue-blue"]).toBe(FAMILIES.nord.dark["--hue-blue"]);
