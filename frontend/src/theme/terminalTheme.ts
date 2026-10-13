@@ -7,12 +7,10 @@ import { readThemeColors, resolveColor } from "./themeColors";
  * `var(--token)` and left to re-resolve itself — the values have to be read
  * out of the document and pushed in on every theme change.
  *
- * The sixteen ANSI slots come off the status ramp rather than from sixteen new
- * tokens. No family in FAMILIES publishes a full ANSI set, and inventing one
- * per family is sixteen guesses each; mapping onto colours that are already
- * contrast-checked against the surfaces keeps a terminal legible in a theme
- * nobody tested it against. Bright variants lift toward the foreground, which
- * is what "bright" means on every real terminal palette.
+ * The six chromatic ANSI slots are the Color palette's `--ansi-*` (derived
+ * from its hues, contrast-checked against the Mono grounds). Black, white and
+ * the foreground come from the chrome. Bright variants lift toward the
+ * foreground, which is what "bright" means on every real terminal palette.
  */
 const TOKENS = [
   "--text-primary",
@@ -20,12 +18,13 @@ const TOKENS = [
   "--text-tertiary",
   "--surface-tinted",
   "--brand-text",
-  "--status-info",
-  "--status-success",
-  "--status-warning",
-  "--status-recovery",
-  "--status-danger",
   "--background-app",
+  "--ansi-red",
+  "--ansi-green",
+  "--ansi-yellow",
+  "--ansi-blue",
+  "--ansi-magenta",
+  "--ansi-cyan",
 ] as const;
 
 export type TerminalPalette = {
@@ -75,22 +74,22 @@ export function terminalTheme(): TerminalPalette | null {
     cursorAccent: c["--background-app"],
     selectionBackground: c["--surface-tinted"],
     black: c["--background-app"],
-    red: c["--status-danger"],
-    green: c["--status-success"],
-    yellow: c["--status-warning"],
-    blue: c["--status-info"],
-    magenta: c["--status-recovery"],
-    cyan: c["--brand-text"],
+    red: c["--ansi-red"],
+    green: c["--ansi-green"],
+    yellow: c["--ansi-yellow"],
+    blue: c["--ansi-blue"],
+    magenta: c["--ansi-magenta"],
+    cyan: c["--ansi-cyan"],
     white: c["--text-secondary"],
     // "Bright" is the same hue carried toward the foreground — the relationship
     // every terminal palette encodes, rather than eight more invented colours.
     brightBlack: c["--text-tertiary"],
-    brightRed: lift(c["--status-danger"], fg, 30),
-    brightGreen: lift(c["--status-success"], fg, 30),
-    brightYellow: lift(c["--status-warning"], fg, 30),
-    brightBlue: lift(c["--status-info"], fg, 30),
-    brightMagenta: lift(c["--status-recovery"], fg, 30),
-    brightCyan: lift(c["--brand-text"], fg, 30),
+    brightRed: lift(c["--ansi-red"], fg, 30),
+    brightGreen: lift(c["--ansi-green"], fg, 30),
+    brightYellow: lift(c["--ansi-yellow"], fg, 30),
+    brightBlue: lift(c["--ansi-blue"], fg, 30),
+    brightMagenta: lift(c["--ansi-magenta"], fg, 30),
+    brightCyan: lift(c["--ansi-cyan"], fg, 30),
     brightWhite: fg,
   };
 }
