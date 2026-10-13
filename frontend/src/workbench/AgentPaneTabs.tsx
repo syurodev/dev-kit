@@ -26,7 +26,7 @@ import {
 
 /** Matches AgentState's dot colours; a tab has room for a dot, not a word. */
 const DOT_CLASS: Record<string, string> = {
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   awaiting_permission: "bg-status-warning",
   error: "bg-status-danger",
   closed: "bg-text-tertiary/50",

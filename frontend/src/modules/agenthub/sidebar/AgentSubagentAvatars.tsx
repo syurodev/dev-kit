@@ -9,12 +9,12 @@ import type { Subagent } from "../types";
 import { initials, orderSubagents, subagentLabel, subagentName, subagentsLabel, subagentState, subagentStateWord, type SubagentState } from "./model";
 
 /**
- * A running subagent reads as info, a failed one as danger, a finished one as
+ * A running subagent reads as running (--status-running), a failed one as danger, a finished one as
  * quiet. Colour is the second signal: the tooltip, the list and the group's
  * accessible name all say the state in words.
  */
 const AVATAR_TONE: Record<SubagentState, string> = {
-  running: "bg-status-info/15 text-status-info",
+  running: "bg-(--status-running)/15 text-(--status-running)",
   failed: "bg-status-danger/15 text-status-danger",
   done: "bg-surface-raised text-text-tertiary",
 };

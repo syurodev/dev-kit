@@ -59,7 +59,7 @@ export type AgentToolCallProps = {
  * Failed is the only state that changes the ground (feedback/danger-soft) and
  * the only one that adds a second line — the reason.
  *
- * Dots, from the exported SVGs: running status/info, done
+ * Dots, from the exported SVGs: running --status-running (text/primary), done
  * text/tertiary, failed status/danger. Done is deliberately grey: a
  * finished tool call is not good news, it is just finished.
  */
@@ -110,7 +110,7 @@ export function toolActivityState(status?: string): "running" | "done" | "failed
 
 const DOT: Record<ToolState, string> = {
   pending: "border border-text-tertiary",
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   awaiting: "bg-status-warning",
   done: "bg-text-tertiary",
   failed: "bg-status-danger",

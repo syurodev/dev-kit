@@ -1815,7 +1815,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
         expect(html).toContain('data-testid="agent-dock-badge-running"');
         expect(html).toContain('data-state="running"');
-        expect(html).toContain("bg-status-info");
+        expect(html).toContain("bg-(--status-running)");
         // Figma: "Running is a dot and needs nothing." An animation that never
         // stops is the one thing on the dock you cannot ignore.
         expect(html).not.toContain("animate-ping");

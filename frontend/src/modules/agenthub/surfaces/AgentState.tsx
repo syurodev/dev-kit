@@ -20,7 +20,7 @@ export type AgentStatus =
  * node pixel by pixel rather than from the node's own properties:
  *
  *   idle     rgb(139,142,138)  text/tertiary
- *   running  rgb(178,213,229)  status/info
+ *   running  rgb(178,213,229)  was status/info; now --status-running (text/primary)
  *   awaiting rgb(241,254,200)  status/warning
  *   error    rgb(216,120,134)  status/danger
  *   closed   rgb(84,85,83)     text/tertiary at 50% over surface/base
@@ -31,7 +31,7 @@ export type AgentStatus =
 
 const DOT_CLASS: Record<AgentStatus, string> = {
   idle: "bg-text-tertiary",
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   awaiting: "bg-status-warning",
   error: "bg-status-danger",
   closed: "bg-text-tertiary/50",

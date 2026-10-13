@@ -355,7 +355,7 @@
     --brand: var(--action-primary);
     --brand-text: var(--text-primary);
     --status-idle: var(--text-tertiary);
-    --status-running: var(--status-info);
+    --status-running: var(--text-primary);
     --status-error: var(--status-danger);
     --status-permission: var(--status-warning);
     --status-permission-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);

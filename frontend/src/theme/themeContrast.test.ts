@@ -155,6 +155,13 @@ describe("the Mono chrome is readable on its own surfaces", () => {
       });
     }
 
+    // A running agent's dot must not read as an idle one: --status-running is
+    // plain text colour, --status-idle is --text-tertiary.
+    it(`${mode} running agents are distinguishable from idle ones`, () => {
+      const ratio = contrast(chrome("--status-running", mode), chrome("--text-tertiary", mode));
+      expect(ratio).toBeGreaterThanOrEqual(1.5);
+    });
+
     // The primary action: its label on its fill.
     it(`${mode} primary action label is legible`, () => {
       const ratio = contrast(chrome("--action-primary-foreground", mode), chrome("--action-primary", mode));

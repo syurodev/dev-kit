@@ -610,7 +610,7 @@ function TrayTaskRows({
                     done
                       ? "text-status-success"
                       : active
-                        ? "text-status-info"
+                        ? "text-(--status-running)"
                         : "text-text-tertiary",
                   )}
                 />
