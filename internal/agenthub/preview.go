@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -144,16 +145,31 @@ func notASentenceEnd(token string) bool {
 	return abbreviations[strings.ToLower(token)]
 }
 
-// PreviewFromError is why a turn failed, in the vendor's own words when it
-// gave any (the only place that says when a limit lifts), else the error.
+// PreviewFromError is why a turn failed, in plain words. The vendor's own
+// sentence wins when it gave one (the only place that says when a limit
+// lifts); otherwise the failure is named by kind. The error's own text
+// ("agenthub.processFailed: …") is an internal detail and never shown.
 func PreviewFromError(err error) string {
 	if err == nil {
 		return ""
 	}
-	if msg := ErrorVendorMessage(err); msg != "" {
-		return PreviewFromMessage(msg)
+	if msg := PreviewFromMessage(ErrorVendorMessage(err)); msg != "" {
+		return msg
 	}
-	return PreviewFromMessage(err.Error())
+	switch {
+	// Before auth: an unusable key always comes with ErrAgentAuthRequired,
+	// but signing in does not fix it.
+	case errors.Is(err, ErrAgentAPIKeyUnusable):
+		return "The chosen API key was refused."
+	case errors.Is(err, ErrAgentAuthRequired):
+		return "Sign in to continue."
+	case errors.Is(err, ErrProcessFailed):
+		return "The agent stopped unexpectedly."
+	case errors.Is(err, ErrAgentUsageLimit):
+		return "Usage limit reached."
+	default: // ErrTurnFailed and anything else
+		return "The agent could not finish this turn."
+	}
 }
 
 func clipPreview(s string) string {

@@ -1546,7 +1546,8 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 		// A cancelled turn keeps the previous preview: stopping it was the
 		// person's own doing, and what the last finished turn said still holds.
-		if !errors.Is(promptErr, ErrCancelled) {
+		// So does a busy refusal, which ran nothing.
+		if !errors.Is(promptErr, ErrCancelled) && !errors.Is(promptErr, ErrSessionBusy) {
 			writePreview(PreviewFromError(promptErr))
 		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)

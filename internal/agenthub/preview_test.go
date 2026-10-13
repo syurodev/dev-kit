@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -48,15 +49,24 @@ func TestPreviewClipsToRunes(t *testing.T) {
 }
 
 func TestPreviewFromError(t *testing.T) {
-	vendor := &VendorError{Agent: AgentTypeCodex, Err: ErrAgentUsageLimit, Message: "You hit your usage limit. Try again at 14:00."}
-	if got := PreviewFromError(vendor); got != "You hit your usage limit." {
-		t.Fatalf("vendor: %q", got)
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, ""},
+		{"vendor message wins", &VendorError{Agent: AgentTypeCodex, Err: ErrAgentUsageLimit, Message: "You hit your usage limit. Try again at 14:00."}, "You hit your usage limit."},
+		{"usage limit", &VendorError{Agent: AgentTypeCodex, Err: ErrAgentUsageLimit}, "Usage limit reached."},
+		{"process failed", fmt.Errorf("%w: codex exited", ErrProcessFailed), "The agent stopped unexpectedly."},
+		{"turn failed", fmt.Errorf("%w: context window", ErrTurnFailed), "The agent could not finish this turn."},
+		{"auth", &VendorError{Agent: AgentTypeClaude, Err: ErrAgentAuthRequired}, "Sign in to continue."},
+		{"api key before auth", &VendorError{Agent: AgentTypeCodex, Err: fmt.Errorf("%w: %w", ErrAgentAuthRequired, ErrAgentAPIKeyUnusable)}, "The chosen API key was refused."},
+		{"anything else", errors.New("boom"), "The agent could not finish this turn."},
 	}
-	if got := PreviewFromError(errors.New("boom")); got != "boom" {
-		t.Fatalf("plain: %q", got)
-	}
-	if got := PreviewFromError(nil); got != "" {
-		t.Fatalf("nil: %q", got)
+	for _, tc := range cases {
+		if got := PreviewFromError(tc.err); got != tc.want {
+			t.Errorf("%s: PreviewFromError = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 

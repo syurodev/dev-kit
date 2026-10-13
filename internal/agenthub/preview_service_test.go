@@ -216,15 +216,52 @@ func TestInvokePreviewWithoutMessageIDsKeepsTheLastMessage(t *testing.T) {
 	}
 }
 
+// A busy session is a refusal before anything ran; it leaves the line alone.
+func TestInvokeBusyRefusalWritesNoPreview(t *testing.T) {
+	svc, st := newServiceForPreviewTest(t, refusingAdapter{rt: &refusingRuntime{err: agenthub.ErrSessionBusy}})
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: "refusing", Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"}); !errors.Is(err, agenthub.ErrSessionBusy) {
+		t.Fatalf("Invoke = %v, want ErrSessionBusy", err)
+	}
+	if got := previewOf(t, st, sess.ID); got != "" {
+		t.Fatalf("preview = %q, want none", got)
+	}
+}
+
+// A turn that fails after the agent answered says it failed, in plain words,
+// rather than quoting what the agent said before it.
+func TestInvokeWritesPreviewWhenAFinishedTurnFailsToRecord(t *testing.T) {
+	rt := &scriptedRuntime{updates: []json.RawMessage{
+		json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"All done."}}`),
+	}}
+	svc, st := newServiceForPreviewTest(t, scriptedAdapter{rt: rt, usageErr: errors.New("bad usage meta")})
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: "scripted", Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"}); err == nil {
+		t.Fatal("Invoke succeeded, want the usage error")
+	}
+	if got, want := previewOf(t, st, sess.ID), "The agent could not finish this turn."; got != want {
+		t.Fatalf("preview = %q, want %q", got, want)
+	}
+}
+
 // scriptedAdapter's runtime sends a fixed list of updates and ends the turn.
-type scriptedAdapter struct{ rt *scriptedRuntime }
+type scriptedAdapter struct {
+	rt       *scriptedRuntime
+	usageErr error
+}
 
 func (a scriptedAdapter) Type() agenthub.AgentType { return agenthub.AgentType("scripted") }
 func (a scriptedAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
 	return a.rt, nil
 }
 func (a scriptedAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
-	return agenthub.NormalizedUsage{}, nil
+	return agenthub.NormalizedUsage{}, a.usageErr
 }
 func (a scriptedAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
 	return nil, "", nil
