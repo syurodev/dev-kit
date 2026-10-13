@@ -182,7 +182,7 @@ const AYU: ThemeFamilyDefinition = {
     "--hue-teal": "#95e6cb",
     "--hue-blue": "#59c2ff",
     "--hue-violet": "#d2a6ff",
-    "--hue-pink": "#f29668",
+    "--hue-pink": "#f07dbb",
   },
   light: {
     "--hue-red": "#d31616",
@@ -286,7 +286,7 @@ const NORD: ThemeFamilyDefinition = {
     "--hue-teal": "#8fbcbb",
     "--hue-blue": "#81a1c1",
     "--hue-violet": "#b48ead",
-    "--hue-pink": "#c7aac2",
+    "--hue-pink": "#e07fa6",
   },
   light: {
     "--hue-red": "#b04751",
@@ -338,7 +338,7 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--hue-teal": "#8ec07c",
     "--hue-blue": "#83a598",
     "--hue-violet": "#d3869b",
-    "--hue-pink": "#f28fad",
+    "--hue-pink": "#fb6e8f",
   },
   light: {
     "--hue-red": "#9d0006",
@@ -348,7 +348,7 @@ const GRUVBOX: ThemeFamilyDefinition = {
     "--hue-teal": "#3f7654",
     "--hue-blue": "#076678",
     "--hue-violet": "#8f3f71",
-    "--hue-pink": "#a04f74",
+    "--hue-pink": "#b0305f",
   },
 };
 
@@ -390,7 +390,7 @@ const EVERFOREST: ThemeFamilyDefinition = {
     "--hue-teal": "#83c092",
     "--hue-blue": "#7fbbb3",
     "--hue-violet": "#d699b6",
-    "--hue-pink": "#e3a1c4",
+    "--hue-pink": "#e67fa8",
   },
   light: {
     "--hue-red": "#d60c09",

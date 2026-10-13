@@ -197,7 +197,7 @@ describe("every color palette is readable on the Mono grounds", () => {
       // foreground as its glyph.
       it(`${family.id}/${mode} hues carry a glyph`, () => {
         const glyph = chrome("--action-primary-foreground", mode);
-        for (const hue of ["--hue-red", "--hue-green", "--hue-yellow", "--hue-blue"] as const) {
+        for (const hue of ["--hue-red", "--hue-green", "--hue-yellow", "--hue-blue", "--hue-violet"] as const) {
           const ratio = contrast(glyph, resolved[hue]);
           expect(ratio, `${glyph} on ${resolved[hue]} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
         }

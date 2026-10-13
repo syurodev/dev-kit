@@ -56,6 +56,14 @@ describe("decorative colour is a hue", () => {
     expect(block).not.toContain("status-info");
   });
 
+  test("git's renamed mark is the violet hue", () => {
+    const src = read("modules/git/GitParts.tsx");
+    const start = src.indexOf("renamed: {");
+    const block = src.slice(start, src.indexOf("}", start));
+    expect(block).toContain("bg-(--hue-violet)");
+    expect(block).not.toContain("status-recovery");
+  });
+
   test("Files tab renamed mark is the violet hue", () => {
     const line = read("modules/codegraph/sidebar/FilesTab.tsx")
       .split("\n")
