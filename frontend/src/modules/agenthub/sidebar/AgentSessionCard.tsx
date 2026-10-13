@@ -53,11 +53,6 @@ export type AgentSessionCardProps = {
   parentTitle?: string;
   /** The minute clock, so a card's age is the only thing a tick changes. */
   now: number;
-  /**
-   * Mounted into a group that was already drawn (pulled out of the stack, or
-   * new): it fades in once. Read at mount only; later renders cannot replay it.
-   */
-  enter?: boolean;
 };
 
 /**
@@ -88,9 +83,7 @@ function AgentSessionCardView({
   subagents,
   parentTitle,
   now,
-  enter,
 }: AgentSessionCardProps) {
-  const [entering] = React.useState(Boolean(enter));
   const actions = useSessionActions();
   const vendor = vendorInfo(session.agentType);
   const title = sessionTitle(session);
@@ -127,7 +120,6 @@ function AgentSessionCardView({
       className={cn(
         "group/card relative flex h-12.5 items-center gap-2.75 rounded-lg px-2 transition-colors duration-(--motion-fast)",
         selected ? "bg-surface-raised" : "hover:bg-state-soft focus-within:bg-state-soft",
-        entering && "agent-card-enter",
         flash && "agent-attention-flash",
       )}
     >

@@ -97,6 +97,28 @@ describe("groups", () => {
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>2</);
   });
 
+  it("the label is small and quiet, its count a superscript", () => {
+    const html = render({ sessions: aged(3) });
+    expect(html).toMatch(/data-testid="agent-group-name" class="[^"]*text-caption-11 text-text-tertiary/);
+    expect(html).toMatch(/<sup data-testid="agent-group-count"[^>]*>3</);
+    // The label of the group on screen reads a step stronger.
+    const active = render({ sessions: aged(3), activeSessionId: "s1" });
+    expect(active).toMatch(/data-testid="agent-group-name" class="[^"]*text-text-secondary/);
+  });
+
+  it("a workspace of several folders says each row's folder; of one, it does not", () => {
+    const several = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
+    });
+    expect(cardHtml(several, "a")).toMatch(/opacity-70">web · <\/span>Done\./);
+    const one = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/web"] }],
+    });
+    expect(cardHtml(one, "a")).not.toContain("opacity-70");
+  });
+
   it("names the workspace, and puts no-project last", () => {
     const html = render({
       sessions: [session("a", { projectPath: "/cfg/s/1" }), session("b", { projectPath: "/work/api", workspaceId: "ws1" })],
@@ -169,6 +191,15 @@ describe("five recent and the stack", () => {
     expect(cardHtml(closed, "s1")).toContain('aria-current="true"');
     expect(cardHtml(open, "s1")).toContain('aria-current="true"');
     expect(open.match(/aria-current="true"/g)).toHaveLength(1);
+  });
+
+  it("the stack is a line of text and a hairline, not layered cards", () => {
+    const html = render({ sessions: aged(22) });
+    const toggle = html.slice(html.indexOf('data-testid="agent-stack-toggle"'));
+    const row = toggle.slice(0, toggle.indexOf("</button>"));
+    expect(row).toContain(">17 older sessions<");
+    expect(row).toContain('data-testid="agent-stack-rule"');
+    expect(html).not.toContain("bg-surface-raised/50");
   });
 
   it("no stack row at five", () => {

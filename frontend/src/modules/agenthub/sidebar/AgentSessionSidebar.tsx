@@ -25,6 +25,7 @@ const NO_WORKSPACES: SidebarWorkspace[] = [];
 const NO_STRINGS: string[] = [];
 const NO_ATTENTION: Record<string, Attention> = {};
 const NO_SUBAGENTS: Record<string, Subagent[]> = {};
+const NO_ASKS: Record<string, string> = {};
 
 export type AgentSessionSidebarProps = {
   sessions: AgentSession[];
@@ -260,6 +261,7 @@ export function AgentSessionSidebar({
                 activeId={activeSessionId}
                 pinnedIds={pinnedIds}
                 attention={attention}
+                asks={NO_ASKS}
                 subagents={subagents}
                 now={now}
                 onToggleCollapsed={toggleCollapsed}
