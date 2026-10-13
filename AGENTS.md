@@ -27,6 +27,16 @@ and gate document dialogs with `useModuleVisibility`. The shared sidebar has no
 fill/border/shadow of its own; controls keep their theme colors. SSH's manifest,
 sidebar and `documents.ts` are the current reference implementation.
 
+### Theme: Mono chrome + Color palette
+The chrome is one monochrome design (`frontend/src/index.css`, light and dark); nothing
+the person picks changes it. The theme family (`theme_family`, Settings → "Color palette")
+supplies only `--hue-*` (8 per mode), `--syntax-*` and `--ansi-*`: `theme/families.ts`
+declares hues (+ optional syntax) and `resolvePalette` derives the rest; `applyThemeFamily`
+writes only palette tokens. Status (`--status-*`) belongs to the chrome — use it for how
+safe something is; use `--hue-*` for which kind it is. `bun test src/theme` floors every
+palette colour at 4.5:1 on every Mono ground. Design:
+`docs/superpowers/specs/2026-10-13-mono-chrome-color-palettes-design.md`.
+
 ### Toolchain (preinstalled in the environment)
 - Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; needs >= 1.25).
 - `bun` (frontend package manager — `bun.lock` is the lockfile; the `Taskfile` default

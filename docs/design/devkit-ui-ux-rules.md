@@ -213,7 +213,7 @@ Hợp đồng tích hợp bắt buộc: [Sidebar và tab strip của app shell](
 
 ## 10. Theme và token
 
-- Giữ palette, semantic colors, syntax colors, vendor colors và màu trạng thái theo từng theme family hiện tại.
+- Khung (chrome) là một thiết kế Mono duy nhất; theme family là "Color palette": chỉ quyết định 8 hue, màu syntax và màu terminal. Màu trạng thái (status) thuộc khung, không đổi theo palette. Màu mang tính phân loại (chip, layer, thư mục note) dùng `--hue-*`, không dùng `--status-*`.
 - Nền app dùng lớp/token nền riêng. Repo đã có `--background-app`, `--background-canvas` và utility `bg-bg-app`/`bg-bg-canvas`; ưu tiên kiểm tra scope của chúng trước khi thêm token mới.
 - Không sửa `surface-base`, `primary`, `text-*` hoặc `status-*` chỉ để đạt màu nền app mới.
 - Glass lấy tint từ theme và material chung; tăng khả năng đọc bằng material đúng/fallback thay vì tùy tiện đổi màu chữ.
@@ -367,7 +367,7 @@ Các primitive đã có: `components/ui/sonner.tsx`, `dialog.tsx`, `alert-dialog
 
 ## 20. Shell foundation đã triển khai (bước 1)
 
-- Nền app riêng theo dark/light: `--shell-backdrop` và `--shell-backdrop-top`, gradient nhẹ theo chiều dọc. Không ghi đè palette background của editor/terminal hay module.
+- Nền app riêng theo dark/light: `--shell-backdrop` và `--shell-backdrop-top` (xám trung tính), gradient nhẹ theo chiều dọc.
 - Pane dùng `surface-base` opaque của theme hiện tại, viền hiện có và bóng nhẹ theo mode. Bo góc tối thiểu 12px; radius lớn hơn của cửa sổ vẫn được tính theo gutter. Giữ xử lý squircle hiện có trên macOS.
 - Sidebar hòa trực tiếp vào nền app shell: không fill, border hoặc shadow riêng. Control và trạng thái chọn vẫn dùng token theme hiện có. Nền shell đã opaque nên giảm transparency không cần fill thay thế cho sidebar.
 - Gutter 4px và kích thước/hành vi resize hiện tại được giữ nguyên. Bước này không đổi vòng đời module hoặc animation chuyển module.

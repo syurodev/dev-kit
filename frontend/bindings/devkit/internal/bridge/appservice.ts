@@ -1987,7 +1987,7 @@ export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> 
 }
 
 /**
- * PreferencesGetThemeFamily reads which palette the UI is painted with.
+ * PreferencesGetThemeFamily reads the person's Color palette (hues, code, terminal).
  * 
  * Deliberately no applyTheme call on the write path below, unlike SetTheme:
  * the native window frame follows the MODE, and a family supplies both modes.
