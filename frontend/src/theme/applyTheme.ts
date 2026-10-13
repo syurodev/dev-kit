@@ -1,5 +1,7 @@
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
-import type { ThemePalette } from "./families";
+import type { ResolvedPalette } from "./families";
+
+type Palettes = { dark: Partial<ResolvedPalette>; light: Partial<ResolvedPalette> };
 
 /** The one element the whole palette lives in. */
 const STYLE_ID = "devkit-theme";
@@ -34,7 +36,7 @@ export function themeSelector(family: ThemeFamilyPreference, mode: "light" | "da
  */
 export function themeCss(
   family: ThemeFamilyPreference,
-  palettes: { dark: ThemePalette; light: ThemePalette },
+  palettes: Palettes,
 ): string {
   const blocks: string[] = [];
   for (const mode of ["dark", "light"] as const) {
@@ -49,7 +51,8 @@ export function themeCss(
 }
 
 /**
- * Puts a family's palette on the document.
+ * Puts a Color palette on the document — hues, syntax and ANSI, resolved. Never a
+ * chrome token: the chrome is Mono and lives in index.css.
  *
  * One `textContent` write, not one `setProperty` per token. The tokens are a
  * single state — half of a palette is not a palette — and forty-odd separate
@@ -68,7 +71,7 @@ export function themeCss(
  */
 export function applyThemeFamily(
   family: ThemeFamilyPreference,
-  palettes: { dark: ThemePalette; light: ThemePalette },
+  palettes: Palettes,
 ): void {
   if (typeof document === "undefined") {
     return;
