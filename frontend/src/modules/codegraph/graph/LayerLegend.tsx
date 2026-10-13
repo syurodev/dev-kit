@@ -36,7 +36,7 @@ export function LayerLegend({ plan = false }: { plan?: boolean }) {
       <PopoverContent side="top" align="start" className="w-auto gap-1.75 p-2.5">
         {plan && (
           <span className={cn(CARD_ROW, "border-b border-border-subtle pb-1.75")}>
-            <span className="size-2.5 shrink-0 rounded-xs border border-dashed border-(--hue-blue)" />
+            <span className="size-2.5 shrink-0 rounded-xs border border-dashed border-border" />
             <span className="text-label-11-caps text-text-tertiary">
               Dashed = plan not satisfied
             </span>

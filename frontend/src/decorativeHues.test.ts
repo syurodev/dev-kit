@@ -9,7 +9,6 @@ import { join } from "node:path";
  */
 const FILES = [
   "modules/codegraph/graph/tokens.ts",
-  "modules/codegraph/graph/LayerLegend.tsx",
   "modules/codegraph/graph/ConnectorEdge.tsx",
   "modules/database/icons/engineMarks.tsx",
 ];
@@ -24,6 +23,13 @@ describe("decorative colour is a hue", () => {
       expect(src).toMatch(/hue-/);
     });
   }
+
+  // The "dashed = plan not satisfied" swatch matches the plan nodes' neutral
+  // dashed border, so the legend needs no hue of its own for it.
+  test("layer legend carries no status-info", () => {
+    const src = strip(readFileSync(join(import.meta.dir, "modules/codegraph/graph/LayerLegend.tsx"), "utf8"));
+    expect(src).not.toContain("status-info");
+  });
 
   // requestModel.ts also colours HTTP status CODES (2xx/3xx/5xx), which is
   // semantic and stays on status; only the method tone is categorical.

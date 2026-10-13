@@ -9,7 +9,7 @@ export const PLAN_BADGE =
  * (862:33605) and plan canvas (482:8255).
  *
  * Deliberately achromatic. The node's layer already spends the four accent
- * colours — status/info, status/success, status/warning and text/tertiary —
+ * colours — hue-blue, hue-green, hue-yellow and text/tertiary —
  * so status is carried by border style (dashed = the plan is not satisfied)
  * and a neutral badge. A green "done" and a "Repository" node would otherwise
  * be the same colour saying two different things. `status-danger` is the one

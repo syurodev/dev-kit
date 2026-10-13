@@ -22,9 +22,9 @@ export function layerOf(raw: string): Layer {
 }
 
 /**
- * Figma `method-chip/*` (482:880–482:900): a solid status colour with the
- * on-accent text. Reads the same in the sidebar rows and the canvas header,
- * which is the point of a chip.
+ * Figma `method-chip/*` (482:880–482:900): a solid hue (--hue-*, the verb's
+ * kind, not a status) with the on-accent text. Reads the same in the sidebar
+ * rows and the canvas header, which is the point of a chip.
  */
 export function verbChipClass(verb: string): string {
   switch (verb.toUpperCase()) {
