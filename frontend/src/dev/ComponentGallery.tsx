@@ -223,7 +223,7 @@ export default function ComponentGallery() {
             <Tag>backend</Tag>
             <Tag dotColor="var(--hue-green)">With dot</Tag>
             <Tag onRemove={() => {}}>Dismissible</Tag>
-            <Tag dotColor="#99e1d9" onRemove={() => {}}>Full chip</Tag>
+            <Tag dotColor="var(--hue-teal)" onRemove={() => {}}>Full chip</Tag>
           </div>
         </Spec>
 

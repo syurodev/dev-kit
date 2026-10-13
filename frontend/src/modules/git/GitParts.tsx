@@ -26,7 +26,7 @@ const MARK: Record<MarkKind, { letter: string; className: string }> = {
   },
   untracked: {
     letter: "U",
-    className: "bg-status-info text-action-primary-foreground",
+    className: "bg-(--hue-blue) text-action-primary-foreground",
   },
   renamed: {
     letter: "R",

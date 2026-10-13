@@ -46,4 +46,32 @@ describe("decorative colour is a hue", () => {
     const erd = strip(readFileSync(join(import.meta.dir, "modules/database/components/ERDView.tsx"), "utf8"));
     expect(erd).not.toMatch(/status-info/);
   });
+
+  const read = (file: string) => strip(readFileSync(join(import.meta.dir, file), "utf8"));
+
+  test("git's untracked mark is the blue hue", () => {
+    const src = read("modules/git/GitParts.tsx");
+    const block = src.slice(src.indexOf("untracked: {"), src.indexOf("renamed: {"));
+    expect(block).toContain("bg-(--hue-blue)");
+    expect(block).not.toContain("status-info");
+  });
+
+  test("Files tab renamed mark is the violet hue", () => {
+    const line = read("modules/codegraph/sidebar/FilesTab.tsx")
+      .split("\n")
+      .find((l) => l.trim().startsWith("R:"));
+    expect(line).toContain("hue-violet");
+  });
+
+  test("data-flow read highlight is the blue hue", () => {
+    const src = read("modules/codegraph/inspector/DataFlowTab.tsx");
+    expect(src).toContain("text-(--hue-blue)");
+    expect(src).not.toContain("text-status-info");
+  });
+
+  test("result grid key icon is the yellow hue, like the ERD's primary key", () => {
+    const src = read("modules/database/grid/ResultGrid.tsx");
+    expect(src).toContain("text-(--hue-yellow)");
+    expect(src).not.toContain("isKey ? \"text-status-info\"");
+  });
 });

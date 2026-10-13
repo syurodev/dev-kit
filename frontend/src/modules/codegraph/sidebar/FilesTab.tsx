@@ -20,7 +20,7 @@ const MARK_TONE: Record<CodeGraphGitMark, string> = {
   M: "text-status-warning",
   A: "text-status-success",
   D: "text-status-danger",
-  R: "text-status-info",
+  R: "text-(--hue-violet)",
 };
 
 export type { FileFilter };
