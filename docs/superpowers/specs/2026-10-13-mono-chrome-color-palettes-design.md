@@ -53,11 +53,16 @@ its floor moves in lightness, not hue.
 | `--icon-secondary` | = text-secondary | = text-secondary |
 | `--action-primary` | `#0a0a0a` | `#fafafa` |
 | `--action-primary-foreground` | `#ffffff` | `#0a0a0a` |
-| `--action-primary-hover` / `-pressed` | derived with the existing `states()` rule | same |
+| `--action-primary-hover` / `-pressed` | 85% / 75% mix of the fill with white | 88% / 78% mix of the fill with black |
 | `--brand-text` | = text-primary | = text-primary |
 | `--border-focus` | = text-primary | = text-primary |
 | `--tint-veil` / `--tint-border` | `#0a0a0a` | `#ffffff` |
 | `--tint-specular` | unchanged | unchanged |
+
+Hover and pressed move **toward the page** (a `color-mix` of `--action-primary`
+with the page colour, not the `states()` rule that lifts or recesses a
+surface), so the solid fill stays the strongest thing on the screen: dark mixes
+with black (88% / 78%), light with white (85% / 75%).
 
 Status keeps its hues, desaturated, and is **not** part of a palette: an error
 must look like an error whichever palette is chosen.
@@ -90,8 +95,13 @@ before it, so a palette that declares only its 8 hues is complete.
    Required for every palette, both modes. Taken from the family's official
    palette (its light variant for light, dark variant for dark), adjusted in
    lightness only where the floor demands.
-2. **Syntax** — existing `SYNTAX_TOKENS`. Defaults in `index.css` move from
-   the status ramp to hues:
+2. **Syntax** — existing `SYNTAX_TOKENS`. `index.css` carries the `devkit`
+   palette's Mono syntax (keyword/type/function/definition `--text-primary`,
+   keyword weight 600, string/number `--text-secondary`, comment/meta
+   `--text-tertiary`). Every other palette that does not declare a token gets
+   it from its hues, derived in TypeScript by `resolvePalette`
+   (`SYNTAX_FROM_HUE` in `families.ts`; written out as literals so the Settings
+   swatch works on any element):
    - keyword ← `--hue-violet`
    - string ← `--hue-green`
    - number ← `--hue-orange`
@@ -194,6 +204,30 @@ to "which color palette (hues, code, terminal)".
 - Visual check: `task run:server`, Playwright screenshots of the workbench,
   a code editor, the terminal and Settings in light and dark with `devkit`,
   Dracula and Solarized.
+
+## Decisions made after the plan
+
+- **Running agents** use `--status-running` = `--text-primary`. With info
+  grey, the old running dot was ~1.2:1 from idle (`--text-tertiary`);
+  `themeContrast.test.ts` now requires at least 1.5:1 between them.
+- **Diffs keep their status colours**: added is `--status-success` (tint
+  `--feedback-success-soft`), removed `--status-danger`, in the shared diff,
+  the file diff pane, code blocks and the terminal. (`brand-lime` was never a
+  defined utility; its uses read `text-status-success`.)
+- **Focus**: rings and borders use `--border-focus` (= `--text-primary`);
+  rings are drawn at 50% (`ring-border-focus/50`), borders at full strength.
+  `focusRing.test.ts` forbids translucent status-info rings and status-info
+  focus borders. The link button is primary text, always underlined.
+- **Light grounds**: app `#f7f7f7` and raised `#efefef`, so a raised surface
+  stands off both the app background and the base (>= 1.06:1, tested).
+- **More categorical moves** (colour tells *which*, not *how safe*): git
+  untracked `U` and renamed `R` chips (`--hue-blue`, `--hue-violet`), Files
+  tab `R` (`--hue-violet`), CodeGraph data-flow read (`--hue-blue`) and the
+  result grid's key icon (`--hue-yellow`, like the ERD primary key).
+  `decorativeHues.test.ts` pins them. The glyph-on-fill check covers
+  red, green, yellow, blue and violet.
+- **Near-duplicate hues**: pink is nudged away from red in Everforest, Gruvbox,
+  Nord and Ayu dark (and Gruvbox light), staying above 4.5:1 on the grounds.
 
 ## Risks
 
