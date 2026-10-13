@@ -17,6 +17,17 @@ func TestPreviewFromMessage(t *testing.T) {
 		"Line one\n\n  line two":             "Line one line two",
 		"Đã sửa TTL. Tiếp theo là test.":     "Đã sửa TTL.",
 		"See v1.2.3 for details. Then more.": "See v1.2.3 for details.",
+		"1. First step. Second":              "First step.",
+		"2) Second step. Third":              "Second step.",
+		"- Fixed the TTL. Then tests":        "Fixed the TTL.",
+		"> Quoted. More":                     "Quoted.",
+		"## Summary\nAll good. More":         "Summary",
+		"**Done.** Next":                     "Done.",
+		"Use `go test`. Then":                "Use go test.",
+		"e.g. this works. Next":              "e.g. this works.",
+		"Dr. Smith did it. Yes":              "Dr. Smith did it.",
+		"Step 1. Do it":                      "Step 1. Do it",
+		"- a. b. Next":                       "a. b. Next",
 	}
 	for in, want := range cases {
 		if got := PreviewFromMessage(in); got != want {
