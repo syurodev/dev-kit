@@ -1416,12 +1416,8 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		lastUpdate   json.RawMessage
 		permDenied   atomic.Bool
 		touched      touchedPaths
-		// The agent's last message this turn, for the session preview. Only
-		// the top-level agent's text: subagent chunks carry an Origin. Under
-		// lastUpdateMu like lastUpdate: the handler runs on the runtime's
-		// reader goroutine and is read here once the prompt returns.
-		lastMsg   strings.Builder
-		lastMsgID string
+		// The agent's last message this turn, for the session preview.
+		lastMsg lastAgentMessage
 	)
 	// writePreview records the session's one-line preview. Its error is
 	// ignored on purpose: a preview must never fail a turn.
@@ -1452,15 +1448,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
 			parsed := s.handleUpdate(recordCtx, in.SessionID, update)
-			if parsed.Kind == UpdateAgentMessageChunk && parsed.Origin == "" {
-				lastUpdateMu.Lock()
-				if parsed.MessageID != lastMsgID {
-					lastMsg.Reset()
-					lastMsgID = parsed.MessageID
-				}
-				lastMsg.WriteString(parsed.Text())
-				lastUpdateMu.Unlock()
-			}
+			lastMsg.observe(parsed)
 			// Where a tool call says it worked. This is the only evidence a
 			// changed file was the agent's doing rather than a Bash script's,
 			// short of the vendor's report.
@@ -1617,10 +1605,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		return InvokeResult{Status: "error"}, err
 	}
 
-	lastUpdateMu.Lock()
-	finalMessage := lastMsg.String()
-	lastUpdateMu.Unlock()
-	writePreview(PreviewFromMessage(finalMessage))
+	writePreview(PreviewFromMessage(lastMsg.String()))
 
 	if err := s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle); err != nil {
 		return InvokeResult{Status: "error"}, err

@@ -3,6 +3,7 @@ package agenthub
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -10,6 +11,67 @@ import (
 // previewMaxRunes bounds the sidebar's second line. Runes, not bytes: a
 // Vietnamese sentence is two or three bytes a letter.
 const previewMaxRunes = 140
+
+// previewBufferBytes bounds how much of one agent message is kept for the
+// preview. Only its first sentence is shown, so the rest is not worth holding.
+const previewBufferBytes = 4096
+
+// lastAgentMessage is the top-level agent's latest message in a turn, for the
+// session preview. A subagent's chunks (they carry an Origin) never count.
+//
+// A message is a run of agent_message_chunk updates. Claude names it by
+// MessageID; Codex and the mock send none, so a message also ends where
+// anything else of the turn — a thought, a tool call, a plan, a subagent —
+// comes between two runs of chunks. Metadata (usage, mode, commands, session
+// info) does not split a message.
+//
+// Safe for concurrent use: updates arrive on the runtime's reader goroutine,
+// and the turn reads the result once the prompt returns.
+type lastAgentMessage struct {
+	mu    sync.Mutex
+	text  strings.Builder
+	id    string
+	ended bool // something other than a message chunk came after the last one
+}
+
+func (m *lastAgentMessage) observe(u SessionUpdate) {
+	if u.Origin != "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case u.Kind == UpdateAgentMessageChunk:
+		if u.MessageID != m.id || m.ended {
+			m.text.Reset()
+			m.id = u.MessageID
+			m.ended = false
+		}
+		if m.text.Len() <= previewBufferBytes {
+			m.text.WriteString(u.Text())
+		}
+	case endsAgentMessage(u.Kind):
+		m.ended = true
+	}
+}
+
+func (m *lastAgentMessage) String() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.text.String()
+}
+
+// endsAgentMessage says whether an update of this kind is part of the turn's
+// content, so a message chunk after it starts a new message.
+func endsAgentMessage(kind UpdateKind) bool {
+	switch kind {
+	case UpdateUserMessageChunk, UpdateAgentThoughtChunk, UpdateToolCall, UpdateToolCallUpdate,
+		UpdatePlan, UpdateSubagentSpawned, UpdateSubagentState,
+		UpdateAsyncTaskSpawned, UpdateAsyncTaskProgress, UpdateAsyncTaskState:
+		return true
+	}
+	return false
+}
 
 // PreviewFromMessage is the first sentence of an agent message, on one line.
 // A sentence ends at . ! ? or … followed by whitespace or the end, so

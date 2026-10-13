@@ -177,6 +177,45 @@ func TestInvokePreviewIsTheLastTopLevelMessage(t *testing.T) {
 	}
 }
 
+// Codex (and the mock) send no message ids, so a message ends where anything
+// else of the turn comes between two runs of chunks: the preview is the text
+// after the tool call, not the turn's first sentence.
+func TestInvokePreviewWithoutMessageIDsKeepsTheLastMessage(t *testing.T) {
+	update := func(fields map[string]any) json.RawMessage {
+		raw, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	text := func(s string) json.RawMessage {
+		return update(map[string]any{
+			"sessionUpdate": "agent_message_chunk",
+			"content":       map[string]any{"type": "text", "text": s},
+		})
+	}
+	rt := &scriptedRuntime{updates: []json.RawMessage{
+		text("I'll inspect"),
+		text(" the cache."),
+		update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read cache.go", "status": "pending"}),
+		update(map[string]any{"sessionUpdate": "usage_update", "used": 10, "size": 100}),
+		text("Fixed the"),
+		update(map[string]any{"sessionUpdate": "usage_update", "used": 11, "size": 100}),
+		text(" TTL bug. And more."),
+	}}
+	svc, st := newServiceForPreviewTest(t, scriptedAdapter{rt: rt})
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: "scripted", Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := previewOf(t, st, sess.ID), "Fixed the TTL bug."; got != want {
+		t.Fatalf("preview = %q, want %q", got, want)
+	}
+}
+
 // scriptedAdapter's runtime sends a fixed list of updates and ends the turn.
 type scriptedAdapter struct{ rt *scriptedRuntime }
 

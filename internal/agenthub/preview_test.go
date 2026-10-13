@@ -59,3 +59,39 @@ func TestPreviewFromError(t *testing.T) {
 		t.Fatalf("nil: %q", got)
 	}
 }
+
+func agentText(id, text string) SessionUpdate {
+	return SessionUpdate{Kind: UpdateAgentMessageChunk, MessageID: id, Content: &ContentBlock{Type: "text", Text: text}}
+}
+
+// Only the first sentence is ever shown, so a long message stops growing the
+// buffer once it is past previewBufferBytes; a new message still starts over.
+func TestLastAgentMessageIsBounded(t *testing.T) {
+	var m lastAgentMessage
+	chunk := strings.Repeat("x", 1000)
+	for i := 0; i < 20; i++ {
+		m.observe(agentText("m1", chunk))
+	}
+	if n := len(m.String()); n > previewBufferBytes+len(chunk) {
+		t.Fatalf("buffer grew to %d bytes", n)
+	}
+	m.observe(agentText("m2", "Done."))
+	if got := m.String(); got != "Done." {
+		t.Fatalf("new message = %q", got)
+	}
+}
+
+// Chunks with no message id belong to one message until something else of the
+// turn comes between them; metadata such as usage does not split a message.
+func TestLastAgentMessageWithoutIDs(t *testing.T) {
+	var m lastAgentMessage
+	m.observe(agentText("", "First."))
+	m.observe(SessionUpdate{Kind: UpdateAgentThoughtChunk})
+	m.observe(agentText("", "Second"))
+	m.observe(SessionUpdate{Kind: UpdateUsage})
+	m.observe(agentText("", " part."))
+	m.observe(SessionUpdate{Kind: UpdateAgentMessageChunk, Origin: "sub", Content: &ContentBlock{Type: "text", Text: "Sub."}})
+	if got := m.String(); got != "Second part." {
+		t.Fatalf("got %q", got)
+	}
+}
