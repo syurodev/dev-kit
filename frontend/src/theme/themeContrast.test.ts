@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
-import { FAMILIES } from "./families";
+import { readIndexCss, resolveVar, themeBlocks } from "./cssTokens";
+import { FAMILIES, resolvePalette } from "./families";
+import { PALETTE_TOKENS, SYNTAX_STYLE_TOKENS } from "./tokens";
 
 /**
  * Every palette has to be readable on its own surfaces.
@@ -46,11 +47,8 @@ function over(top: string, bottom: string, alpha: number): string {
 }
 
 /**
- * Three tiers, not one floor.
- *
- * 4.5 everywhere would pass a palette whose primary, secondary and tertiary
- * all land on 4.6 — legal, and a hierarchy with no hierarchy left in it. Two
- * of the light palettes did exactly that once their tertiary was lifted.
+ * Three tiers, not one floor: 4.5 everywhere would pass a ramp whose primary,
+ * secondary and tertiary all land on 4.6 — a hierarchy with none left in it.
  */
 const FLOOR: Record<string, number> = {
   "--text-primary": 7,
@@ -63,210 +61,115 @@ const FLOOR: Record<string, number> = {
   "--status-warning": 4.5,
   "--status-recovery": 4.5,
   "--status-danger": 4.5,
-  // Code is text. Only a family that sets these is measured here; the rest
-  // derive them from the ramp above, which is already floored.
-  "--syntax-keyword": 4.5,
-  "--syntax-string": 4.5,
-  "--syntax-number": 4.5,
-  "--syntax-type": 4.5,
-  "--syntax-function": 4.5,
-  "--syntax-definition": 4.5,
-  "--syntax-comment": 4.5,
-  "--syntax-meta": 4.5,
 };
 
-/** Every content ground, including both ends of the shell backdrop shared by the rail. */
-const shellCss = readFileSync(new URL("../index.css", import.meta.url), "utf8");
-function shellColour(token: string, mode: "dark" | "light") {
+const blocks = themeBlocks();
+const MODES = ["dark", "light"] as const;
+type Mode = (typeof MODES)[number];
+
+/** A chrome token or a `var(--x)` / hex value, as the hex it paints. */
+function chrome(tokenOrValue: string, mode: Mode): string {
+  const value = resolveVar(tokenOrValue, blocks[mode], blocks.dark);
+  if (!value?.startsWith("#")) throw new Error(`${tokenOrValue} (${mode}) is ${value}, not a hex`);
+  return value;
+}
+
+/** The shell backdrop pair, declared outside the token blocks. */
+const shellCss = readIndexCss();
+function shellColour(token: string, mode: Mode) {
   const values = [...shellCss.matchAll(new RegExp(`${token}:\\s*(#[a-f0-9]+)`, "g"))];
   return values[mode === "dark" ? 0 : 1][1];
 }
-function groundsOf(palette: Record<string, string>, mode: "dark" | "light") {
-  const base = palette["--surface-base"];
-  const shell = shellColour("--shell-backdrop", mode);
-  const shellTop = shellColour("--shell-backdrop-top", mode);
+
+/** Every ground text sits on, including both ends of the shell backdrop. */
+function grounds(mode: Mode): Record<string, string> {
+  const base = chrome("--surface-base", mode);
   return {
     base,
-    raised: palette["--surface-raised"],
+    raised: chrome("--surface-raised", mode),
+    canvas: chrome("--background-canvas", mode),
+    app: chrome("--background-app", mode),
     // index.css: --surface-well is --tint-veil at 6% in dark, 4% in light.
-    well: over(palette["--tint-veil"], base, mode === "dark" ? 0.06 : 0.04),
-    app: palette["--background-app"],
-    shell,
-    shellTop,
+    well: over(chrome("--tint-veil", mode), base, mode === "dark" ? 0.06 : 0.04),
+    shell: shellColour("--shell-backdrop", mode),
+    shellTop: shellColour("--shell-backdrop-top", mode),
   };
 }
 
-describe("every family is readable on its own surfaces", () => {
-  for (const family of Object.values(FAMILIES)) {
-    for (const mode of ["dark", "light"] as const) {
-      const palette = family[mode] as Record<string, string>;
-      const grounds = groundsOf(palette, mode);
+function expectOnGrounds(colour: string, mode: Mode, floor: number) {
+  for (const [name, ground] of Object.entries(grounds(mode))) {
+    const ratio = contrast(colour, ground);
+    expect(ratio, `${colour} on ${name} ${ground} is ${ratio.toFixed(2)}:1, floor ${floor}:1`).toBeGreaterThanOrEqual(floor);
+  }
+}
 
-      for (const [token, floor] of Object.entries(FLOOR)) {
-        const colour = palette[token];
-        if (!colour?.startsWith("#")) continue;
-        it(`${family.id}/${mode} ${token}`, () => {
-          for (const [name, ground] of Object.entries(grounds)) {
-            const ratio = contrast(colour, ground);
-            expect(
-              ratio,
-              `${colour} on ${name} ${ground} is ${ratio.toFixed(2)}:1, floor ${floor}:1`,
-            ).toBeGreaterThanOrEqual(floor);
-          }
-        });
-      }
+describe("the Mono chrome is readable on its own surfaces", () => {
+  for (const mode of MODES) {
+    for (const [token, floor] of Object.entries(FLOOR)) {
+      it(`${mode} ${token}`, () => expectOnGrounds(chrome(token, mode), mode, floor));
+    }
 
-      // The tiers have to stay in order as well as above the floor: a palette
-      // whose tertiary out-contrasts its secondary has three names for two
-      // colours.
-      it(`${family.id}/${mode} keeps its text ramp in order`, () => {
-        const on = (token: string) => contrast(palette[token], grounds.app);
-        expect(on("--text-primary")).toBeGreaterThan(on("--text-secondary"));
-        expect(on("--text-secondary")).toBeGreaterThan(on("--text-tertiary"));
+    it(`${mode} keeps its text ramp in order`, () => {
+      const on = (token: string) => contrast(chrome(token, mode), chrome("--background-app", mode));
+      expect(on("--text-primary")).toBeGreaterThan(on("--text-secondary"));
+      expect(on("--text-secondary")).toBeGreaterThan(on("--text-tertiary"));
+    });
+
+    // The selected mark (active tab, selected tree row) is --status-info at
+    // full opacity; non-text, 3:1 against the fill it outlines.
+    it(`${mode} selected mark is visible`, () => {
+      const ratio = contrast(chrome("--status-info", mode), chrome("--surface-raised", mode));
+      expect(ratio).toBeGreaterThanOrEqual(3);
+    });
+
+    // A solid status fill (status pill, Stop button, git/verb chips) carries
+    // a glyph in --surface-base (4.5:1) and stands off the card (3:1).
+    for (const token of ["--status-success", "--status-warning", "--status-danger"]) {
+      it(`${mode} ${token} as a filled pill`, () => {
+        const fill = chrome(token, mode);
+        expect(contrast(chrome("--surface-base", mode), fill)).toBeGreaterThanOrEqual(4.5);
+        expectOnGrounds(fill, mode, 3);
       });
     }
+
+    // The primary action: its label on its fill.
+    it(`${mode} primary action label is legible`, () => {
+      const ratio = contrast(chrome("--action-primary-foreground", mode), chrome("--action-primary", mode));
+      expect(ratio).toBeGreaterThanOrEqual(7);
+    });
   }
-});
 
-/**
- * The mark that says "this one is selected": the hairline on the active tab and
- * on the selected row of a tree.
- *
- * accessibility.md › Vision puts non-text interface elements at 3:1. The mark
- * used to be `--action-primary` at 45%, and a brand colour is free to be pale —
- * on devkit light that came to 1.08:1 against the fill it outlines, so the
- * active tab and the tab beside it were the same object with different words
- * on them. `--status-info` is already the app's "this is the focused thing"
- * (`--feedback-selected` is mixed from it, and the filter box borders with it)
- * and it is floored against every surface above, so it is the one token that
- * holds in all ten palettes — at full opacity: at 70% the worst family lands
- * on 2.92:1.
- */
-describe("the selected mark is visible on the surface it outlines", () => {
-  for (const family of Object.values(FAMILIES)) {
-    for (const mode of ["dark", "light"] as const) {
-      const palette = family[mode] as Record<string, string>;
-      it(`${family.id}/${mode}`, () => {
-        const fill = palette["--surface-raised"];
-        const mark = palette["--status-info"];
-        const ratio = contrast(mark, fill);
-        expect(
-          ratio,
-          `${mark} on ${fill} is ${ratio.toFixed(2)}:1, floor 3:1`,
-        ).toBeGreaterThanOrEqual(3);
-      });
-    }
-  }
-});
-
-/**
- * The solid danger button — Stop, while a query runs.
- *
- * Two floors, because it is two things at once. Its glyph is text-sized
- * (4.5:1), and the fill itself is the boundary of a control, which
- * accessibility.md › Vision puts at 3:1 — the tinted `destructive` measured
- * 1.02:1 against a dark card, which is why this variant exists at all.
- *
- * The glyph is --surface-base rather than a foreground of its own, and that
- * works because --status-danger is already inverted against the theme: a light
- * rose on dark, a deep red on light.
- */
-/**
- * The status pill beside Run, which is a filled tone in three colours.
- *
- * Same shape of contract as the danger button below, and the same reason for
- * --surface-base as the type: these tokens are already inverted against the
- * theme, light on a dark palette and dark on a light one, so the surface they
- * are NOT on is the legible foreground. The fill also has to stand off the
- * card, which is the 3:1 non-text floor — a pill at 1.1:1 was the first
- * attempt, on --surface-raised, and it read as a smudge.
- */
-describe("the status pill is legible on every theme", () => {
-  for (const family of Object.values(FAMILIES)) {
-    for (const mode of ["dark", "light"] as const) {
-      const palette = family[mode] as Record<string, string>;
-      for (const token of ["--status-success", "--status-warning", "--status-danger"]) {
-        it(`${family.id}/${mode} ${token}`, () => {
-          const fill = palette[token];
-          const glyph = palette["--surface-base"];
-          const onFill = contrast(glyph, fill);
-          expect(
-            onFill,
-            `glyph ${glyph} on ${fill} is ${onFill.toFixed(2)}:1, floor 4.5:1`,
-          ).toBeGreaterThanOrEqual(4.5);
-
-          const onCard = contrast(fill, palette["--surface-base"]);
-          expect(
-            onCard,
-            `fill ${fill} on the card is ${onCard.toFixed(2)}:1, floor 3:1`,
-          ).toBeGreaterThanOrEqual(3);
-        });
-      }
-    }
-  }
-});
-
-describe("the solid danger button is legible on every theme", () => {
-  for (const family of Object.values(FAMILIES)) {
-    for (const mode of ["dark", "light"] as const) {
-      const palette = family[mode] as Record<string, string>;
-      it(`${family.id}/${mode}`, () => {
-        const fill = palette["--status-danger"];
-        const glyph = palette["--surface-base"];
-        const glyphRatio = contrast(glyph, fill);
-        expect(
-          glyphRatio,
-          `glyph ${glyph} on ${fill} is ${glyphRatio.toFixed(2)}:1, floor 4.5:1`,
-        ).toBeGreaterThanOrEqual(4.5);
-
-        for (const [name, ground] of Object.entries(groundsOf(palette, mode))) {
-          const fillRatio = contrast(fill, ground);
-          expect(
-            fillRatio,
-            `fill ${fill} on ${name} ${ground} is ${fillRatio.toFixed(2)}:1, floor 3:1`,
-          ).toBeGreaterThanOrEqual(3);
-        }
-      });
-    }
-  }
-});
-
-/**
- * The vendor mark, while its agent is working.
- *
- * A brand colour is not the app's to adjust — except that this one has to be
- * visible on ten palettes in two modes. Claude's own coral holds on every dark
- * ground and lands on 2.36:1 against Catppuccin Latte's, so the light block
- * carries the same hue taken darker. Both values live in index.css and are
- * read from it here: a copy of them in this file would pass forever after
- * someone edited the stylesheet.
- *
- * accessibility.md › Vision puts non-text interface elements at 3:1. The mark
- * is not text and never carries meaning alone — the status dot and the
- * vendor's own shape both say what it says.
- */
-describe("a working agent's mark is visible on every theme", () => {
-  const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
-  const found = [...css.matchAll(/--vendor-claude:\s*(#[0-9a-f]{6})/g)].map((m) => m[1]);
-
-  it("is defined once per mode, dark first", () => {
-    expect(found).toHaveLength(2);
+  // Claude's coral: a brand mark, non-text, 3:1. Read from index.css so a
+  // copy here cannot pass forever after someone edits the stylesheet.
+  it("a working agent's mark is visible", () => {
+    for (const mode of MODES) expectOnGrounds(chrome("--vendor-claude", mode), mode, 3);
   });
+});
 
-  const [dark, light] = found;
+/**
+ * Every palette's colours are text on the Mono grounds: hues (chips, folder
+ * names), syntax and ANSI. A family colour that misses is moved in its own
+ * hue, lightness only, in families.ts.
+ */
+describe("every color palette is readable on the Mono grounds", () => {
+  const style = new Set<string>(SYNTAX_STYLE_TOKENS);
   for (const family of Object.values(FAMILIES)) {
-    for (const [mode, colour] of [
-      ["dark", dark],
-      ["light", light],
-    ] as const) {
-      const palette = family[mode] as Record<string, string>;
-      it(`${family.id}/${mode}`, () => {
-        for (const [name, ground] of Object.entries(groundsOf(palette, mode))) {
-          const ratio = contrast(colour, ground);
-          expect(
-            ratio,
-            `${colour} on ${name} ${ground} is ${ratio.toFixed(2)}:1, floor 3:1`,
-          ).toBeGreaterThanOrEqual(3);
+    for (const mode of MODES) {
+      const resolved = resolvePalette(family[mode]);
+      for (const token of PALETTE_TOKENS) {
+        if (style.has(token)) continue;
+        it(`${family.id}/${mode} ${token}`, () => {
+          expectOnGrounds(chrome(resolved[token], mode), mode, 4.5);
+        });
+      }
+
+      // A filled hue chip (codegraph verb chips) carries the primary action's
+      // foreground as its glyph.
+      it(`${family.id}/${mode} hues carry a glyph`, () => {
+        const glyph = chrome("--action-primary-foreground", mode);
+        for (const hue of ["--hue-red", "--hue-green", "--hue-yellow", "--hue-blue"] as const) {
+          const ratio = contrast(glyph, resolved[hue]);
+          expect(ratio, `${glyph} on ${resolved[hue]} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
         }
       });
     }
