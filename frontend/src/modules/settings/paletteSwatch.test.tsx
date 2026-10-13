@@ -10,6 +10,8 @@ describe("PaletteSwatch", () => {
     expect(html).toContain(`--hue-red:${FAMILIES.dracula.dark["--hue-red"]}`);
     expect(html).toContain("text-(--syntax-keyword)");
     expect(html).toContain("text-(--syntax-string)");
+    expect(html).toContain("--syntax-keyword:");
+    expect(html).toContain("--syntax-string:");
   });
 
   test("never paints chrome", () => {
