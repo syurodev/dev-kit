@@ -551,10 +551,10 @@
    Mono chrome in light is near-black on white; status and the base palette's
    hues are darker pairs of the same hue. */
 :root[data-theme="light"] {
-    --background-app: #f5f5f5;
+    --background-app: #f7f7f7;
     --background-canvas: #fafafa;
     --surface-base: #ffffff;
-    --surface-raised: #f5f5f5;
+    --surface-raised: #efefef;
     /* --surface-glass-floating is not here: dark already says "surface-base at
        72%", and --surface-base is overridden below, so the dark declaration
        re-resolves to white glass on its own. Only the tokens whose PERCENTAGE

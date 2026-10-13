@@ -42,10 +42,10 @@ its floor moves in lightness, not hue.
 
 | Token | Light | Dark |
 |---|---|---|
-| `--background-app` | `#f5f5f5` | `#000000` |
+| `--background-app` | `#f7f7f7` | `#000000` |
 | `--background-canvas` | `#fafafa` | `#0a0a0a` |
 | `--surface-base` | `#ffffff` | `#141414` |
-| `--surface-raised` | `#f5f5f5` | `#1c1c1c` |
+| `--surface-raised` | `#efefef` | `#1c1c1c` |
 | `--surface-tinted` | `#ebebeb` | `#262626` |
 | `--text-primary` | `#0a0a0a` | `#fafafa` |
 | `--text-secondary` | `#525252` | `#a3a3a3` |

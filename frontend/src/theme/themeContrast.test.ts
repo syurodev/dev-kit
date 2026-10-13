@@ -118,6 +118,15 @@ describe("the Mono chrome is readable on its own surfaces", () => {
       expect(on("--text-secondary")).toBeGreaterThan(on("--text-tertiary"));
     });
 
+    // A selected sidebar row is --surface-raised on the app-coloured rail, and a
+    // raised card sits on a base page: the fill has to be a visible step off
+    // both, or the selection is invisible (light once had them identical).
+    it(`${mode} raised surface stands off the app background and the base`, () => {
+      const raised = chrome("--surface-raised", mode);
+      expect(contrast(raised, chrome("--background-app", mode))).toBeGreaterThanOrEqual(1.06);
+      expect(contrast(raised, chrome("--surface-base", mode))).toBeGreaterThanOrEqual(1.06);
+    });
+
     // The selected mark (active tab, selected tree row) is --status-info at
     // full opacity; non-text, 3:1 against the fill it outlines.
     it(`${mode} selected mark is visible`, () => {
