@@ -136,10 +136,11 @@ export function EntryPointsTab({
           <span className={cn(VERB_CHIP, "mr-2 min-w-12 align-middle", verbChipClass(ep.verb))}>{ep.verb}</span>
           {/* Under its plugin, a phase's target is the plugin again: the
               chip alone says which phase it is. */}
-          {ep.kind === "plugin" && ep.target === ep.group ? null : ep.target}
+          {ep.kind === "plugin" && ep.target === ep.group ? null : ep.routeId || ep.target}
+          {ep.routeId || ep.consumerGroup ? <span className="ml-2 text-text-tertiary">{ep.routeId ? ep.target : ""}{ep.consumerGroup ? ` · group ${ep.consumerGroup}` : ""}</span> : null}
         </>
       ),
-      title: `${ep.verb} ${ep.target}`,
+      title: [ep.routeId, `${ep.verb} ${ep.target}`, ep.consumerGroup ? `Consumer group: ${ep.consumerGroup}` : ""].filter(Boolean).join(" · "),
       selected: selected?.folderId === folderId && selected.entryPointId === ep.id,
       onSelect: () => onSelect(folderId, ep),
       onActivate: () => onKeep(folderId, ep),
@@ -215,7 +216,7 @@ export function EntryPointsTab({
         expandable: true,
         expanded: !closed.has(`folder:${f.folderId}`),
         onToggle: () => onToggleGroup(`folder:${f.folderId}`),
-        emptyLabel: f.count === 0 ? <FolderNote note={f.note || (f.entries.length === 0 ? "No entry points" : "No entry points match")} health={f.health} onReindex={() => onReindexFolder(f.folderId)} /> : undefined,
+        emptyLabel: f.count === 0 ? <FolderNote note={f.note || (f.entries.length === 0 ? `No supported entry points found. ${f.health.detail}` : "No entry points match")} health={f.health} onReindex={() => onReindexFolder(f.folderId)} /> : undefined,
         children: build(f, 1),
       }));
   }, [shown, searching, collapsed, selected, onSelect, onKeep, onAskAgent, onToggleGroup, onReindexFolder, menuActions, pathOf]);
@@ -259,11 +260,22 @@ export function EntryPointsTab({
         </SidebarInset>
       ) : null}
 
+      {folders.some((f) => f.health.health === "limited" && f.entries.length > 0) ? (
+        <SidebarInset className="text-body-12 text-text-secondary" role="status">
+          {folders.filter((f) => f.health.health === "limited" && f.entries.length > 0).map((f) => (
+            <details key={f.folderId}>
+              <summary>{f.label}: indexed with entry point limits</summary>
+              <p>{f.health.detail}</p>
+            </details>
+          ))}
+        </SidebarInset>
+      ) : null}
+
       {nodes.length > 0 ? (
         <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />
       ) : (
         <p className="px-2 py-3 text-center text-body-12 text-text-tertiary">
-          {folders.length === 0 ? "No folders in view." : all.length === 0 ? "No entry points found in these folders." : "No entry points match."}
+          {folders.length === 0 ? "No folders in view." : all.length === 0 ? "No supported entry points found. Index completion does not imply support for every framework or runtime route." : "No entry points match."}
         </p>
       )}
     </div>

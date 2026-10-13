@@ -119,7 +119,8 @@ func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (Ana
 	return result, nil
 }
 
-// subprocessOutput is the file the Java analyzer writes. Its endpoints are
+// subprocessOutput is the file the Java analyzer writes. Non-HTTP entryPoints
+// already use AnalysisResult's additive wire fields. Its legacy endpoints are
 // HTTP routes and keep the jar's own field names: a jar already installed
 // beside an older or newer DevKit must still read, so the wire format is the
 // jar's, and only this is translated.

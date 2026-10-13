@@ -109,6 +109,10 @@ func RunKafka(services []Service, q KafkaQuery) (KafkaReport, error) {
 				report.Unresolved = append(report.Unresolved, use)
 				continue
 			}
+			if a.Client == codegraph.KafkaCamel && strings.Contains(folded, "{") {
+				report.Unresolved = append(report.Unresolved, use)
+				continue
+			}
 			if a.Pattern {
 				use.Resolved = folded
 				regexConsumers = append(regexConsumers, use)
@@ -116,6 +120,11 @@ func RunKafka(services []Service, q KafkaQuery) (KafkaReport, error) {
 			}
 			resolved := normalizeKey(folded)
 			if !specific(resolved) {
+				if a.Client == codegraph.KafkaCamel {
+					// A runtime Camel source reference names no concrete topic;
+					// show it as unresolved rather than joining it to everything.
+					report.Unresolved = append(report.Unresolved, use)
+				}
 				continue
 			}
 			use.Resolved = resolved

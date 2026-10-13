@@ -2,6 +2,8 @@ package codegraph
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 )
@@ -24,10 +26,12 @@ const (
 
 // EntryPointsView is one folder's entry points and how current they are.
 type EntryPointsView struct {
-	Path      string       `json:"path"`
-	State     string       `json:"state"`
-	Entries   []EntryPoint `json:"entries"`
-	IndexedAt int64        `json:"indexedAt,omitempty"`
+	EntryPointSupport  string       `json:"entryPointSupport,omitempty"`
+	EntryPointWarnings []string     `json:"entryPointWarnings,omitempty"`
+	Path               string       `json:"path"`
+	State              string       `json:"state"`
+	Entries            []EntryPoint `json:"entries"`
+	IndexedAt          int64        `json:"indexedAt,omitempty"`
 	// Stale: served from the stored index while a refresh runs.
 	Stale bool   `json:"stale,omitempty"`
 	Error string `json:"error,omitempty"`
@@ -56,6 +60,7 @@ func ReadStoredEntryPoints(ctx context.Context, configDir, projectPath string) (
 	view.State = ViewIndexed
 	view.Entries = entries
 	view.IndexedAt, _ = store.IndexedAt(ctx)
+	fillEntrySupport(ctx, store, &view)
 	return view, nil
 }
 
@@ -97,6 +102,10 @@ func (r *Registry) EntryPointsOf(ctx context.Context, servicePath string) (Entry
 		switch {
 		case err == nil:
 			view.Entries = entries
+			if store, release, err := svc.activeStore(); err == nil {
+				fillEntrySupport(ctx, store, &view)
+				release()
+			}
 			if info, ierr := svc.IndexInfo(ctx); ierr == nil {
 				view.IndexedAt, view.Stale = info.IndexedAt, info.Stale
 			}
@@ -119,6 +128,36 @@ func (r *Registry) EntryPointsOf(ctx context.Context, servicePath string) (Entry
 		}
 	}
 	return ReadStoredEntryPoints(ctx, r.configDir(), servicePath)
+}
+
+type entrySupport struct {
+	Support  string   `json:"support"`
+	Warnings []string `json:"warnings"`
+}
+
+func (s *sqliteStore) readEntrySupport(ctx context.Context) (entrySupport, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM index_meta WHERE key = 'entry_support'`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return entrySupport{}, nil
+	}
+	if err != nil {
+		return entrySupport{}, err
+	}
+	var info entrySupport
+	err = json.Unmarshal([]byte(raw), &info)
+	return info, err
+}
+
+func fillEntrySupport(ctx context.Context, store Store, view *EntryPointsView) {
+	if reader, ok := store.(interface {
+		readEntrySupport(context.Context) (entrySupport, error)
+	}); ok {
+		info, err := reader.readEntrySupport(ctx)
+		if err == nil {
+			view.EntryPointSupport, view.EntryPointWarnings = info.Support, info.Warnings
+		}
+	}
 }
 
 // OutlineSymbol is one declaration in a file, with those it contains.

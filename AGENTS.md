@@ -706,8 +706,15 @@ the list. The UI groups kind → service → owner and does no guessing of its o
   `entry_points` in place (rows copied, not dropped — a reopen serves the stored index).
 - **Kong phases are `plugin` entries under their plugin, `Order`ed as Kong runs them**; a
   plugin's Admin API is `http` under the same plugin name.
-- **The Java jar's wire format is unchanged** (`endpoints`, `httpMethod`, `path`):
-  `analyzer_subprocess.go` translates it, so an installed jar keeps working with any DevKit.
+- **Java HTTP keeps its wire format** (`endpoints`, `httpMethod`, `path`):
+  `analyzer_subprocess.go` translates it, so older jars still read. Camel adds `entryPoints`
+  with `kind=message` for Kafka (`camel` when the source component is unresolved), route/topic/group
+  source expressions, and `entryPointSupport`/`entryPointWarnings`. A synthetic method per
+  source route template owns runtime callback edges; `configure()` does not call the handler.
+  `direct:`/`seda:` sources are internal flow nodes, not external entries. Rebuild the Java jar
+  before running `go test ./internal/codegraph/ -run TestCamel -count=1`: this test invokes the
+  real analyzer on `analyzer/src/test/resources/camel-project`, persists SQLite, and traverses
+  Go flows. No Kafka/application process is needed. Details: `docs/design/codegraph-camel.md`.
 - **Kept stable on purpose**: the MCP tool names (`codegraph.listEndpoints`, `getApiFlow`'s
   `endpointId` input — agents' allowlists name them), the entity-ref kind `"endpoint"`
   (agents and saved transcripts resolve it), and the API Client's `EndpointDraft` (an HTTP

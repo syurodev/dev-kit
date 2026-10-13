@@ -23,6 +23,9 @@ export type CodeGraphEntryKind =
  * EntryPoint.
  */
 export type CodeGraphEntryPoint = {
+  routeId?: string;
+  topic?: string;
+  consumerGroup?: string;
   id: string;
   /** What the chip says: GET, ACCESS, EVENT, GRPC, CRON… */
   verb: string;
@@ -113,6 +116,9 @@ export async function listCodeGraphEntryPoints(servicePath = ""): Promise<CodeGr
       owner: e.owner,
       group: e.group,
       order: e.order,
+      routeId: e.routeId,
+      topic: e.topic,
+      consumerGroup: e.consumerGroup,
     }));
   });
 }

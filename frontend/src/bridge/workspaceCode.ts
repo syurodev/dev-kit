@@ -101,6 +101,8 @@ export function folderGitStatus(workspaceId: string, folderId: string): Promise<
 export type EntryViewState = "indexed" | "indexing" | "not-indexed" | "unsupported" | "failed";
 
 export type FolderEntryPoints = {
+  entryPointSupport?: string;
+  entryPointWarnings?: string[];
   state: EntryViewState;
   entries: CodeGraphEntryPoint[];
   /** Unix ms of the index being shown; 0 when unknown. */
@@ -126,11 +128,16 @@ export function folderEntryPoints(workspaceId: string, folderId: string): Promis
         owner: e.owner,
         group: e.group,
         order: e.order,
+        routeId: e.routeId,
+        topic: e.topic,
+        consumerGroup: e.consumerGroup,
       })),
       indexedAt: Number(v.indexedAt ?? 0),
       stale: v.stale ?? false,
       error: v.error ?? "",
       missingToolchain: v.missingToolchain ?? false,
+      entryPointSupport: v.entryPointSupport ?? "",
+      entryPointWarnings: v.entryPointWarnings ?? [],
     };
   });
 }

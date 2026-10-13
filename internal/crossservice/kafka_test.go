@@ -6,6 +6,19 @@ import (
 	"devkit/internal/codegraph"
 )
 
+func TestCamelRuntimeSourceIsReportedWithoutInventingCrossServiceLinks(t *testing.T) {
+	a := withKafka(svc("webhook", "8081", nil), nil,
+		kafka("consume", "{domain.source().topic()}", codegraph.KafkaCamel, "{source.groupId()}.{domain.name()}"))
+	b := withKafka(svc("publisher", "8082", nil), nil, kafka("produce", "orders", "kafka-template", ""))
+	report, err := RunKafka([]Service{a, b}, KafkaQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Topics) != 0 || len(report.Unresolved) != 1 || report.Unresolved[0].Topic != "{domain.source().topic()}" {
+		t.Fatalf("runtime source lost or guessed: %+v", report)
+	}
+}
+
 func kafka(role, topic, client, group string) codegraph.SnapshotKafka {
 	return codegraph.SnapshotKafka{
 		KafkaAccess: codegraph.KafkaAccess{From: "node", Topic: topic, Role: role, Client: client, GroupID: group, File: "K.java", Line: 1},

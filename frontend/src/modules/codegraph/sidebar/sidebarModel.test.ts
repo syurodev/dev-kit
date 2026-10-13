@@ -38,6 +38,16 @@ const java = [
   ep("GET", "/orders/{id}", order),
 ];
 
+it("searches Camel route identity, topic and consumer group", () => {
+  const route = ep("MESSAGE", "kafka:{source.topic()}", {
+    kind: "message", owner: "Routes", group: "Routes", routeId: "webhook-dispatch-{domain.name()}",
+    topic: "{source.topic()}", consumerGroup: "webhook-consumers",
+  });
+  expect(filterEntryPoints([route], "webhook-dispatch", new Set())).toEqual([route]);
+  expect(filterEntryPoints([route], "webhook-consumers", new Set())).toEqual([route]);
+  expect(groupEntryPoints([route])[0].kind).toBe("message");
+});
+
 // A Kong repository: two plugins' phases, and one plugin's Admin API.
 const plugin = (phase: string, name: string, order: number) =>
   ep(phase, name, { kind: "plugin", owner: `kong.plugins.${name}.handler`, group: name, order });
