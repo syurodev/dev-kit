@@ -17,6 +17,9 @@ import {
   subagentsLabel,
   waitingCount,
   drawnWhenHidingClosed,
+  groupCollapsed,
+  needsYou,
+  secondLine,
 } from "./model";
 
 const session = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
@@ -387,5 +390,69 @@ describe("the card's sentence", () => {
     expect(
       cardSummary({ vendorName: "Codex", session: session("a", { status: "closed" }), subagents: [], pinned: false, age: "now" }),
     ).toEqual(["Codex", "Closed", "Active just now"]);
+  });
+});
+
+describe("needsYou", () => {
+  it("waiting or failed sessions, newest first", () => {
+    const list = [
+      session("a", { status: "idle", updatedAt: 1 }),
+      session("b", { status: "error", updatedAt: 3 }),
+      session("c", { status: "running", updatedAt: 2 }),
+      session("d", { status: "idle", updatedAt: 4 }),
+    ];
+    const attention = { c: { permissions: 1, questions: 0 } };
+    expect(needsYou(list, attention).map((x) => x.id)).toEqual(["b", "c"]);
+  });
+
+  it("closed sessions never need you", () => {
+    expect(needsYou([session("a", { status: "closed" })], { a: { permissions: 1, questions: 0 } })).toEqual([]);
+  });
+});
+
+describe("secondLine", () => {
+  it("a pending ask wins and is a warning", () => {
+    expect(secondLine({ session: session("a", { status: "running", preview: "old" }), ask: "Allow migrate up?", folder: null })).toEqual({
+      text: "Allow migrate up?",
+      tone: "warning",
+      folder: null,
+    });
+  });
+
+  it("an error shows the preview as danger", () => {
+    expect(secondLine({ session: session("a", { status: "error", preview: "Usage limit." }), ask: null, folder: "api" })).toEqual({
+      text: "Usage limit.",
+      tone: "danger",
+      folder: "api",
+    });
+  });
+
+  it("otherwise the preview, plain", () => {
+    expect(secondLine({ session: session("a", { preview: "Done." }), ask: null, folder: null })).toEqual({
+      text: "Done.",
+      tone: "plain",
+      folder: null,
+    });
+  });
+
+  it("nothing to say", () => {
+    expect(secondLine({ session: session("a"), ask: null, folder: null })).toEqual({ text: "", tone: "plain", folder: null });
+  });
+});
+
+describe("groupCollapsed", () => {
+  it("the current workspace is open unless collapsed", () => {
+    expect(groupCollapsed("workspace:1", "1", new Set(), new Set())).toBe(false);
+    expect(groupCollapsed("workspace:1", "1", new Set(["workspace:1"]), new Set())).toBe(true);
+  });
+
+  it("other groups are collapsed unless expanded", () => {
+    expect(groupCollapsed("workspace:2", "1", new Set(), new Set())).toBe(true);
+    expect(groupCollapsed("workspace:2", "1", new Set(), new Set(["workspace:2"]))).toBe(false);
+    expect(groupCollapsed("project:/x", "1", new Set(), new Set())).toBe(true);
+  });
+
+  it("with no current workspace every group follows the collapsed list", () => {
+    expect(groupCollapsed("workspace:2", null, new Set(), new Set())).toBe(false);
   });
 });

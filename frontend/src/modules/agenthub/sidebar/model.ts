@@ -184,6 +184,47 @@ export function compareRecent(a: AgentSession, b: AgentSession): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * The sessions that wait on the person, across every workspace: a pending
+ * permission or question, or a failed turn. Newest first. They are drawn
+ * once, here, and left out of their own group.
+ */
+export function needsYou(sessions: readonly AgentSession[], attention: Record<string, Attention>): AgentSession[] {
+  return sessions
+    .filter((x) => x.status !== "closed" && (x.status === "error" || attentionKind(x, attention[x.id]) !== null))
+    .sort(compareRecent);
+}
+
+export type SecondLine = { text: string; tone: "plain" | "warning" | "danger"; folder: string | null };
+
+/** What a row says under its title: a pending ask, else the preview (danger on error). */
+export function secondLine(input: {
+  session: Pick<AgentSession, "status" | "preview">;
+  ask: string | null;
+  folder: string | null;
+}): SecondLine {
+  const { session, ask, folder } = input;
+  if (ask) return { text: ask, tone: "warning", folder };
+  const text = session.preview ?? "";
+  if (session.status === "error") return { text, tone: "danger", folder };
+  return { text, tone: "plain", folder };
+}
+
+/**
+ * Whether a group is folded. The workspace chosen in the title bar opens by
+ * default; every other group folds by default, so the rail is about the
+ * work in front of you. With no current workspace, nothing folds by default.
+ */
+export function groupCollapsed(
+  key: string,
+  currentWorkspaceId: string | null,
+  collapsed: ReadonlySet<string>,
+  expanded: ReadonlySet<string>,
+): boolean {
+  if (!currentWorkspaceId || key === `workspace:${currentWorkspaceId}`) return collapsed.has(key);
+  return !expanded.has(key);
+}
+
 export type PartitionOptions = {
   activeId?: string;
   /** Pinned ids, in pin order. */
