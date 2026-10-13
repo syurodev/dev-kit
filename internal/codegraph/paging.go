@@ -149,7 +149,7 @@ func (q EntryPointQuery) matches(ep EntryPoint) bool {
 	}
 	if q.Contains != "" {
 		needle := strings.ToLower(q.Contains)
-		if !strings.Contains(strings.ToLower(ep.Target), needle) && !strings.Contains(strings.ToLower(ep.Owner), needle) {
+		if !strings.Contains(strings.ToLower(ep.Target+" "+ep.RouteID+" "+ep.Topic+" "+ep.ConsumerGroup), needle) && !strings.Contains(strings.ToLower(ep.Owner), needle) {
 			return false
 		}
 	}

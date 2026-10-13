@@ -1,14 +1,32 @@
 import { describe, expect, it } from "bun:test";
 import type { FolderEntryPoints, FolderState } from "@/bridge/workspaceCode";
+import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
 import type { ServiceIndexStatus } from "@/bridge/workspace";
 import { batchProgress, folderHealth, summarizeHealth } from "./indexHealth";
 
 const NOW = 1_700_000_000_000;
 const fs = (over: Partial<FolderState> = {}): FolderState => ({ folderId: "f", accessible: true, error: "", isRepo: true, branch: "main", changed: 0, ...over });
-const entries = (over: Partial<FolderEntryPoints> = {}): FolderEntryPoints => ({ state: "indexed", entries: [], indexedAt: NOW - 120_000, stale: false, error: "", missingToolchain: false, ...over });
+const entry: CodeGraphEntryPoint = { id: "http", entryNode: "handler", verb: "GET", target: "/", kind: "http", owner: "Controller", group: "Controller", service: "", order: 0 };
+const entries = (over: Partial<FolderEntryPoints> = {}): FolderEntryPoints => ({ state: "indexed", entries: [entry], indexedAt: NOW - 120_000, stale: false, error: "", missingToolchain: false, ...over });
 const status = (over: Partial<ServiceIndexStatus> = {}): ServiceIndexStatus => ({ path: "/p", state: "indexed", error: "", missingToolchain: false, indexedAt: NOW, ...over });
 
 describe("folderHealth", () => {
+  it("zero entries distinguish completed indexing from unsupported discovery", () => {
+    const h = folderHealth(fs(), entries({ entries: [], entryPointSupport: "Spring HTTP and Camel Java routes only." }), status(), NOW);
+    expect(h.health).toBe("limited");
+    expect(h.tone).toBe("warn");
+    expect(h.label).toContain("Indexed");
+    expect(h.detail).toContain("Spring HTTP and Camel");
+    expect(summarizeHealth([h]).tone).toBe("warn");
+  });
+  it("an unresolved handler remains visible even when some routes were found", () => {
+    const h = folderHealth(fs(), entries({ entryPointWarnings: ["Camel route handler is unresolved: fanout"] }), status(), NOW);
+    expect(h.health).toBe("limited");
+    expect(h.detail).toContain("handler is unresolved");
+  });
+  it("legacy indexes do not claim framework coverage", () => {
+    expect(folderHealth(fs(), entries({ entries: [] }), status(), NOW).detail).toContain("support was not reported");
+  });
   it("a folder that cannot be read is unavailable whatever its index says", () => {
     expect(folderHealth(fs({ accessible: false, error: "folder not found" }), entries(), status(), NOW).health).toBe("unavailable");
   });

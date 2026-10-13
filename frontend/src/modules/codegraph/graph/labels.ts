@@ -9,6 +9,8 @@
  * the tooltip.
  */
 export function shortLabel(label: string, kind: string): string {
+  const route = label.indexOf(".route ");
+  if (route >= 0) return label.slice(label.lastIndexOf(".", route - 1) + 1);
   const segments = label.split(".");
   // A method's identity is Class.method; a class's is just its own name.
   // Nested classes still read correctly: com.a.Outer.Inner.run -> Inner.run.

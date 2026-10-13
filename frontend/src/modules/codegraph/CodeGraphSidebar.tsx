@@ -195,6 +195,7 @@ export function CodeGraphSidebar() {
         else if (health.health === "indexing" || health.health === "pending") note = d?.entries?.entries.length ? "" : "Indexing…";
         else if (health.health === "not-indexed") note = "Not indexed yet";
         else if (health.health === "unavailable") note = health.detail;
+        else if (health.health === "limited") note = "No supported entry points found. " + health.detail;
         return { folderId: f.id, path: f.path, label: labels[f.id], entries: d?.entries?.entries ?? [], health, note };
       }),
     [inView, data, healthOf, labels],

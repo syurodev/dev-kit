@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { shortLabel } from "./labels";
 
+test("Camel route labels preserve the full runtime expression", () => {
+  expect(shortLabel("com.acme.WebhookRoutes.route webhook-dispatch-{domain.name()}", "method"))
+    .toBe("WebhookRoutes.route webhook-dispatch-{domain.name()}");
+});
+
 test("a method keeps its class and method name", () => {
   expect(
     shortLabel("com.synx.devkit.identity.adapter.web.DeviceEnrollmentController.enroll", "method"),

@@ -142,7 +142,11 @@ type Edge struct {
 // a message or event pattern, a gRPC method, a GraphQL field, a WebSocket
 // message and a scheduled job are entry points too, and Kind says which.
 type EntryPoint struct {
-	ID string `json:"id"`
+	// Camel route templates retain source expressions; these are not evaluated configuration.
+	RouteID       string `json:"routeId,omitempty"`
+	Topic         string `json:"topic,omitempty"`
+	ConsumerGroup string `json:"consumerGroup,omitempty"`
+	ID            string `json:"id"`
 	// Verb is what the chip says: GET, ACCESS, EVENT, GRPC, CRON…
 	Verb string `json:"verb"`
 	// Target is what the entry point answers to: a URL, a Kong plugin's name,
@@ -364,12 +368,14 @@ type DataFlowTrace struct {
 
 // AnalysisResult is everything an Analyzer produces for one project.
 type AnalysisResult struct {
-	Nodes            []Node           `json:"nodes"`
-	Edges            []Edge           `json:"edges"`
-	EntryPoints      []EntryPoint     `json:"entryPoints"`
-	FileDependencies []FileDependency `json:"fileDependencies"`
-	FieldAccesses    []FieldAccess    `json:"fieldAccesses"`
-	CallSites        []CallSite       `json:"callSites"`
+	EntryPointSupport  string           `json:"entryPointSupport,omitempty"`
+	EntryPointWarnings []string         `json:"entryPointWarnings,omitempty"`
+	Nodes              []Node           `json:"nodes"`
+	Edges              []Edge           `json:"edges"`
+	EntryPoints        []EntryPoint     `json:"entryPoints"`
+	FileDependencies   []FileDependency `json:"fileDependencies"`
+	FieldAccesses      []FieldAccess    `json:"fieldAccesses"`
+	CallSites          []CallSite       `json:"callSites"`
 	// ConfigKeys are the properties the project's config files set, and
 	// ConfigUsages the places its code reads or switches on one. Both are
 	// text: the index says what a file sets and what a field is bound to, and

@@ -125,6 +125,9 @@ export function filterEntryPoints(
     if (!needle) return true;
     return (
       ep.target.toLowerCase().includes(needle) ||
+      (ep.routeId ?? "").toLowerCase().includes(needle) ||
+      (ep.topic ?? "").toLowerCase().includes(needle) ||
+      (ep.consumerGroup ?? "").toLowerCase().includes(needle) ||
       ep.verb.toLowerCase() === needle ||
       ep.group.toLowerCase().includes(needle)
     );

@@ -80,6 +80,7 @@ public class ProjectAnalyzer {
     private static final int MAX_DEFAULT_PARSE_THREADS = 8;
 
     private final int parseThreads;
+    private Set<com.github.javaparser.ast.Node> deferredCamelCallbacks = Set.of();
 
     public ProjectAnalyzer(Path projectRoot) {
         this(projectRoot, defaultParseThreads());
@@ -212,6 +213,12 @@ public class ProjectAnalyzer {
         linkSupertypes(index);
         Dispatch dispatch = linkOverrides(index, result);
         extractEndpoints(index, dispatch, annotations, constants, result);
+        List<ConfigExtractor.Owner> camelOwners = new ArrayList<>();
+        for (TypeInfo type : index.all) {
+            camelOwners.add(new ConfigExtractor.Owner(type.decl, type.id, type.file.relativePath(),
+                    type.methods.stream().map(m -> new ConfigExtractor.Member(m.decl(), m.id())).toList()));
+        }
+        deferredCamelCallbacks = new CamelExtractor(camelOwners, constants, result).extract();
 
         // Snapshot of every node id pass 1 actually created — pass 2 uses it
         // to reject edges pointing at a method that resolve() found (e.g. a
@@ -289,7 +296,7 @@ public class ProjectAnalyzer {
         result.entityTables = tables.entities();
         result.tableAccesses = tables.accesses();
 
-        result.kafkaAccesses = KafkaExtractor.extract(owners, configScopes, annotations, constants, nodeIds);
+        result.kafkaAccesses.addAll(KafkaExtractor.extract(owners, configScopes, annotations, constants, nodeIds));
 
         // Redis keys are read from the same calls.
         for (CallScope scope : scopes) {
@@ -900,6 +907,7 @@ public class ProjectAnalyzer {
                               Map<String, List<String>> methodsByTypeAndName, AnalysisResult result) {
         String module = scope.owner().file.module();
         for (MethodCallExpr call : scope.node().findAll(MethodCallExpr.class)) {
+            if (deferredCamel(call)) continue;
             if (!belongsTo(call, scope.node())) {
                 continue; // a local class's method records its own calls
             }
@@ -976,6 +984,7 @@ public class ProjectAnalyzer {
         constructions.sort((a, b) -> Integer.compare(
                 a.getRange().map(r -> r.begin.line).orElse(0), b.getRange().map(r -> r.begin.line).orElse(0)));
         for (com.github.javaparser.ast.Node construction : constructions) {
+            if (deferredCamel(construction)) continue;
             if (!belongsTo(construction, scope.node())) {
                 continue;
             }
@@ -1002,6 +1011,7 @@ public class ProjectAnalyzer {
         // gaps that matter; so would one for every reference the solver cannot
         // follow, which it cannot more often than it can a call.
         for (MethodReferenceExpr reference : scope.node().findAll(MethodReferenceExpr.class)) {
+            if (deferredCamel(reference)) continue;
             if (!belongsTo(reference, scope.node())) {
                 continue;
             }
@@ -1014,6 +1024,13 @@ public class ProjectAnalyzer {
             recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
                     dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()));
         }
+    }
+
+    private boolean deferredCamel(com.github.javaparser.ast.Node node) {
+        for (var n = node; n != null; n = n.getParentNode().orElse(null)) {
+            if (deferredCamelCallbacks.contains(n)) return true;
+        }
+        return false;
     }
 
     /**

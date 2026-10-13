@@ -125,7 +125,10 @@ CREATE TABLE IF NOT EXISTS entry_points (
 	service TEXT NOT NULL DEFAULT '',
 	owner TEXT NOT NULL DEFAULT '',
 	grp TEXT NOT NULL DEFAULT '',
-	ord INTEGER NOT NULL DEFAULT 0
+	ord INTEGER NOT NULL DEFAULT 0,
+    route_id TEXT NOT NULL DEFAULT '',
+    topic TEXT NOT NULL DEFAULT '',
+    consumer_group TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS file_dependencies (
 	file_path TEXT NOT NULL,
@@ -274,7 +277,41 @@ func migrateSchema(db *sql.DB) error {
 	if err := migrateEdgeGuard(db); err != nil {
 		return err
 	}
-	return migrateEndpointsTable(db)
+	if err := migrateEndpointsTable(db); err != nil {
+		return err
+	}
+	// Additive migration keeps old HTTP indexes readable. Analyzer identity
+	// (jar + Go build) already invalidates reuse on a rebuild.
+	for _, name := range []string{"route_id", "topic", "consumer_group"} {
+		rows, err := db.Query("PRAGMA table_info(entry_points)")
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var cid, notnull, pk int
+			var col, typ string
+			var dflt *string
+			if err := rows.Scan(&cid, &col, &typ, &notnull, &dflt, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if col == name {
+				found = true
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if !found {
+			if _, err := db.Exec("ALTER TABLE entry_points ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrateEdgeGuard adds edges.guard to an index written before edges carried
@@ -408,7 +445,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	// an entirely valid project. First-seen wins, in the analyzer's own file
 	// order — deterministic, and losing one entry from the list
 	// beats losing the whole index over it.
-	entryStmt, err := insert(`INSERT INTO entry_points (id, verb, target, entry_node, kind, service, owner, grp, ord) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	entryStmt, err := insert(`INSERT INTO entry_points (id, verb, target, entry_node, kind, service, owner, grp, ord, route_id, topic, consumer_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -419,7 +456,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			continue
 		}
 		seenEntries[ep.ID] = true
-		if _, err := entryStmt.ExecContext(ctx, ep.ID, ep.Verb, ep.Target, ep.EntryNode, ep.Kind, ep.Service, ep.Owner, ep.Group, ep.Order); err != nil {
+		if _, err := entryStmt.ExecContext(ctx, ep.ID, ep.Verb, ep.Target, ep.EntryNode, ep.Kind, ep.Service, ep.Owner, ep.Group, ep.Order, ep.RouteID, ep.Topic, ep.ConsumerGroup); err != nil {
 			return fmt.Errorf("codegraph: insert entry point %q: %w", ep.ID, err)
 		}
 	}
@@ -552,6 +589,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
+	support, err := json.Marshal(entrySupport{Support: result.EntryPointSupport, Warnings: result.EntryPointWarnings})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO index_meta(key, value) VALUES ('entry_support', ?)`, string(support)); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO index_meta(key, value) VALUES ('version', '1')
         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
 		return fmt.Errorf("codegraph: increment index version: %w", err)
@@ -660,7 +704,7 @@ func (s *sqliteStore) SetIndexedAnalyzer(ctx context.Context, identity string) e
 }
 
 func (s *sqliteStore) ListEntryPoints(ctx context.Context) ([]EntryPoint, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, verb, target, entry_node, kind, service, owner, grp, ord FROM entry_points ORDER BY target`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, verb, target, entry_node, kind, service, owner, grp, ord, route_id, topic, consumer_group FROM entry_points ORDER BY target`)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: ListEntryPoints: %w", err)
 	}
@@ -669,7 +713,7 @@ func (s *sqliteStore) ListEntryPoints(ctx context.Context) ([]EntryPoint, error)
 	var out []EntryPoint
 	for rows.Next() {
 		var ep EntryPoint
-		if err := rows.Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order); err != nil {
+		if err := rows.Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order, &ep.RouteID, &ep.Topic, &ep.ConsumerGroup); err != nil {
 			return nil, fmt.Errorf("codegraph: scan entry point: %w", err)
 		}
 		out = append(out, ep)
@@ -680,8 +724,8 @@ func (s *sqliteStore) ListEntryPoints(ctx context.Context) ([]EntryPoint, error)
 func (s *sqliteStore) GetEntryPoint(ctx context.Context, entryPointID string) (EntryPoint, error) {
 	var ep EntryPoint
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, verb, target, entry_node, kind, service, owner, grp, ord FROM entry_points WHERE id = ?`, entryPointID,
-	).Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order)
+		`SELECT id, verb, target, entry_node, kind, service, owner, grp, ord, route_id, topic, consumer_group FROM entry_points WHERE id = ?`, entryPointID,
+	).Scan(&ep.ID, &ep.Verb, &ep.Target, &ep.EntryNode, &ep.Kind, &ep.Service, &ep.Owner, &ep.Group, &ep.Order, &ep.RouteID, &ep.Topic, &ep.ConsumerGroup)
 	if err == sql.ErrNoRows {
 		return EntryPoint{}, ErrNodeNotFound
 	}

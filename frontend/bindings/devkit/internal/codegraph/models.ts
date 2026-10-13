@@ -147,6 +147,9 @@ export interface Edge {
  * message and a scheduled job are entry points too, and Kind says which.
  */
 export interface EntryPoint {
+    "routeId"?: string;
+    "topic"?: string;
+    "consumerGroup"?: string;
     "id": string;
 
     /**
@@ -197,6 +200,8 @@ export interface EntryPoint {
  * EntryPointsView is one folder's entry points and how current they are.
  */
 export interface EntryPointsView {
+    "entryPointSupport"?: string;
+    "entryPointWarnings"?: string[] | null;
     "path": string;
     "state": string;
     "entries": EntryPoint[] | null;

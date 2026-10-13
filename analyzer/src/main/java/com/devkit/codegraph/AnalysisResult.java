@@ -7,6 +7,9 @@ public class AnalysisResult {
     public List<Node> nodes = new ArrayList<>();
     public List<Edge> edges = new ArrayList<>();
     public List<Endpoint> endpoints = new ArrayList<>();
+    public List<EntryPoint> entryPoints = new ArrayList<>();
+    public List<String> entryPointWarnings = new ArrayList<>();
+    public String entryPointSupport = "Java entry points: Spring HTTP mappings and source-resolved Camel Java routes. Dynamic DSLs and runtime configuration may be unresolved.";
     public List<FileDependency> fileDependencies = new ArrayList<>();
     public List<FieldAccess> fieldAccesses = new ArrayList<>();
     public List<CallSite> callSites = new ArrayList<>();

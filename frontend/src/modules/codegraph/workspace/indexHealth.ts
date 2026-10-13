@@ -11,6 +11,7 @@ import type { FolderEntryPoints, FolderState } from "@/bridge/workspaceCode";
  */
 export type Health =
   | "ready"
+  | "limited"
   | "stale"
   | "indexing"
   | "pending"
@@ -58,7 +59,12 @@ export function folderHealth(
     if (entries.stale) {
       return { health: "stale", tone: "warn", label: "Refreshing", detail: `Showing the index from ${ago(entries.indexedAt, now)} while it refreshes.` };
     }
-    return { health: "ready", tone: "ok", label: "Ready", detail: entries.indexedAt ? `Indexed ${ago(entries.indexedAt, now)}.` : "Indexed." };
+    const support = entries.entryPointSupport || "Entry point support was not reported by this index; absence is not proof that this folder has no entry points.";
+    const warnings = entries.entryPointWarnings ?? [];
+    if (warnings.length || !entries.entries.length) {
+      return { health: "limited", tone: "warn", label: "Indexed · entry limits", detail: [support, ...warnings].join(" ") };
+    }
+    return { health: "ready", tone: "ok", label: "Indexed", detail: `${entries.indexedAt ? `Indexed ${ago(entries.indexedAt, now)}.` : "Indexed."} ${support}` };
   }
   if (entries?.state === "not-indexed") {
     return { health: "not-indexed", tone: "neutral", label: "Not indexed", detail: "No index yet. Reindex to build one." };
@@ -88,6 +94,7 @@ export type HealthSummary = {
 
 const ORDER: Array<[Health, string]> = [
   ["ready", "ready"],
+  ["limited", "entry limits"],
   ["indexing", "indexing"],
   ["pending", "queued"],
   ["stale", "refreshing"],
@@ -104,7 +111,7 @@ export function summarizeHealth(healths: readonly FolderHealth[]): HealthSummary
   const parts = ORDER.filter(([h]) => counts[h] > 0).map(([h, word]) => `${counts[h]} ${word}`);
   let tone: Tone = "ok";
   if (counts.failed || counts.unavailable) tone = "failed";
-  else if (counts["needs-analyzer"] || counts.stale) tone = "warn";
+  else if (counts["needs-analyzer"] || counts.stale || counts.limited) tone = "warn";
   else if (counts.indexing || counts.pending) tone = "busy";
   else if (counts.ready === 0) tone = "neutral";
   return { total: healths.length, counts, text: parts.join(" · ") || "No folders", tone };

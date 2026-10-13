@@ -8,6 +8,7 @@ const (
 	KafkaConsumer = "kafka-consumer" // the plain client's subscribe
 	KafkaStreams  = "kafka-streams"  // Kafka Streams
 	KafkaResty    = "resty-kafka"    // OpenResty's resty.kafka.producer, as a Kong plugin uses it
+	KafkaCamel    = "camel-kafka"    // Apache Camel Kafka routes
 )
 
 // The roles of a KafkaAccess.

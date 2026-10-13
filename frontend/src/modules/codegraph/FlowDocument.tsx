@@ -82,7 +82,8 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
                   <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
                     {entry.verb}
                   </span>
-                  <span className="truncate text-title-16 text-text-primary">{entry.target}</span>
+                  <span className="truncate text-title-16 text-text-primary" title={entry.target}>{entry.routeId || entry.target}</span>
+                  {entry.routeId || entry.consumerGroup ? <span className="truncate text-code-11 text-text-tertiary" title={entry.consumerGroup ? `Consumer group: ${entry.consumerGroup}` : undefined}>{entry.routeId ? entry.target : ""}{entry.consumerGroup ? ` · group ${entry.consumerGroup}` : ""}</span> : null}
                 </>
               ) : (
                 <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>

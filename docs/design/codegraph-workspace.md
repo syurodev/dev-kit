@@ -177,6 +177,10 @@ cô lập tuyệt đối.
   workspace. UI nói rõ "trong folder X"; kết quả tìm văn bản **không** được gọi là references.
 - Liên kết giữa service qua HTTP/Kafka/Redis đã có ở `internal/crossservice` (join khi hỏi). Không vẽ
   cạnh call tĩnh giữa hai folder, không suy luận từ tên giống nhau.
+- Java nhận diện Camel route templates và callback flows trong từng folder; Kafka consumers là
+  `message`, `direct:`/`seda:` chỉ là flow nội bộ. `WorkspaceEntryPoints` trả thêm phạm vi hỗ trợ
+  và cảnh báo: index hoàn tất không khẳng định mọi entry point đã được nhận diện. Xem
+  [Camel Java routes](./codegraph-camel.md) để biết identity, biểu thức runtime và kiểm thử.
 - Plan là dữ liệu **của từng project** (`plan_nodes` trong index riêng). UI Plan chọn một folder và nói rõ
   nguồn; không gộp mảng giữa folder.
 

@@ -86,6 +86,16 @@ func TestPageEntryPointsFilters(t *testing.T) {
 	}
 }
 
+func TestPageCamelEntriesSearchesRouteAndConsumerMetadata(t *testing.T) {
+	entries := []EntryPoint{{ID: "route", Kind: EntryKindMessage, Target: "kafka:events", RouteID: "webhook-dispatch", Topic: "events", ConsumerGroup: "webhook-group"}}
+	for _, query := range []string{"webhook-dispatch", "webhook-group", "events"} {
+		page, err := PageEntryPoints(entries, EntryPointQuery{Contains: query})
+		if err != nil || page.Total != 1 {
+			t.Fatalf("%s: %+v %v", query, page, err)
+		}
+	}
+}
+
 func TestPageEntryPointsEmptyResultIsNotNull(t *testing.T) {
 	page, err := PageEntryPoints(nil, EntryPointQuery{})
 	if err != nil || page.Result == nil || len(page.Result) != 0 || page.NextCursor != "" {

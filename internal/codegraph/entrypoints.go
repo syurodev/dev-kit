@@ -14,6 +14,7 @@ const (
 	EntryKindGraphQL  = "graphql"
 	EntryKindRPC      = "rpc"
 	EntryKindMessage  = "message"
+	EntryKindCamel    = "camel" // source component is not statically classified
 	EntryKindSocket   = "socket"
 	EntryKindSchedule = "schedule"
 	// EntryKindPlugin is a Kong plugin phase: code that runs inside every
@@ -22,7 +23,7 @@ const (
 )
 
 // verbKinds is the kind a verb implies, for an entry point whose analyzer did
-// not say — the Java analyzer's (HTTP only), and every index written before
+// not say — older Java analyzers, and every index written before
 // entry points had a kind.
 var verbKinds = func() map[string]string {
 	kinds := map[string]string{
@@ -51,7 +52,7 @@ func kongPhaseOrder(phase string) int {
 
 // completeEntryPoints fills what an analyzer left empty, in place, and
 // returns the slice. It runs on every read, so an index written before these
-// fields existed — or by the Java analyzer, which knows only HTTP routes —
+// fields existed — or by an older Java analyzer —
 // reads the same as one written today. Anything already set is kept: the
 // analyzer knew better.
 func completeEntryPoints(entries []EntryPoint) []EntryPoint {
@@ -68,6 +69,9 @@ func completeEntryPoints(entries []EntryPoint) []EntryPoint {
 			ep.Order = kongPhaseOrder(ep.Verb)
 		}
 		if ep.Owner != "" {
+			if ep.Service == "" && strings.Contains(ep.EntryNode, ".<camel:") {
+				javaStyle = append(javaStyle, i)
+			}
 			continue
 		}
 		if ep.Kind == EntryKindPlugin {
