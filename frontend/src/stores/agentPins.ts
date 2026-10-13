@@ -20,6 +20,13 @@ type AgentPinsState = {
   collapsed: string[];
   toggleCollapsed: (key: string) => void;
   /**
+   * Workspace groups the person opened, by the rail's own keys. The opposite of
+   * `collapsed`: every group but the workspace chosen in the title bar starts
+   * folded, so what is remembered is the ones opened, not the ones shut.
+   */
+  expanded: string[];
+  toggleExpanded: (key: string) => void;
+  /**
    * Groups whose stack of older sessions is open, by the same keys as
    * `collapsed`. Open rather than closed, the opposite of `collapsed`: a stack
    * starts folded, and a group nobody has touched must not unfold everything.
@@ -84,6 +91,13 @@ export const useAgentPinsStore = create<AgentPinsState>()(
             ? state.collapsed.filter((k) => k !== key)
             : [...state.collapsed, key],
         })),
+      expanded: [],
+      toggleExpanded: (key) =>
+        set((state) => ({
+          expanded: state.expanded.includes(key)
+            ? state.expanded.filter((k) => k !== key)
+            : [...state.expanded, key],
+        })),
       olderOpen: [],
       toggleOlderOpen: (key) =>
         set((state) => ({
@@ -112,6 +126,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
       partialize: (state) => ({
         pinned: state.pinned,
         collapsed: state.collapsed,
+        expanded: state.expanded,
         olderOpen: state.olderOpen,
         hideClosed: state.hideClosed,
         recentProjects: state.recentProjects,

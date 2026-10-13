@@ -413,7 +413,7 @@ describe("tabs, selection and resources", () => {
     useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes" });
     useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], activeSessionId: "", chatOpen: false });
     useSubagentPanel.setState({ open: null });
-    useAgentPinsStore.setState({ olderOpen: [], collapsed: [] });
+    useAgentPinsStore.setState({ olderOpen: [], collapsed: [], expanded: [] });
   });
 
   it("choosing a subagent opens its session's tab and that subagent's panel", () => {
@@ -472,5 +472,13 @@ describe("tabs, selection and resources", () => {
     });
     // api open (8 cards), web folded (5): the key is the group's, not global.
     expect(cards(html)).toBe(13);
+  });
+
+  it("expanded keys toggle and persist like collapsed", () => {
+    const { toggleExpanded } = useAgentPinsStore.getState();
+    toggleExpanded("workspace:2");
+    expect(useAgentPinsStore.getState().expanded).toEqual(["workspace:2"]);
+    toggleExpanded("workspace:2");
+    expect(useAgentPinsStore.getState().expanded).toEqual([]);
   });
 });
