@@ -453,6 +453,15 @@ export function AgentHubListContextFiles(id: string, query: string): $Cancellabl
 }
 
 /**
+ * AgentHubListDocuments lists the PDFs attached to a session, oldest first,
+ * for the session summary card. Metadata only — no bytes, no text. A build
+ * with no document library (server mode) has none to list.
+ */
+export function AgentHubListDocuments(id: string): $CancellablePromise<agenthub$0.Document[] | null> {
+    return $Call.ByID(633554908, id);
+}
+
+/**
  * AgentHubListDraftContextFiles is AgentHubListContextFiles for a draft, which
  * has no session to read its folders from: the draft's own folder first, then
  * the workspace's others.

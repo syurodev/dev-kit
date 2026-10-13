@@ -92,6 +92,21 @@ export function handleAgentTurnFinished(
   if (session && !ours && session.status !== nextStatus) {
     state.upsertSession({ ...session, status: nextStatus });
   }
+  if (session && !ours) {
+    // The preview is written with the status; a turn from elsewhere (MCP,
+    // another agent) only told us the status, so read the row once. Only the
+    // preview is taken from it: the next queued turn may already be running
+    // here by the time the read answers, and its status must not go back.
+    const getStatus = bridge?.getStatus ?? agentHubGetStatus;
+    void getStatus(sessionId)
+      .then((fresh) => {
+        const current = useAgentSessionsStore.getState().sessionsById[sessionId];
+        if (fresh && current && current.preview !== fresh.preview) {
+          useAgentSessionsStore.getState().upsertSession({ ...current, preview: fresh.preview });
+        }
+      })
+      .catch(() => {});
+  }
 
   // The turn is over, so the dot stops saying anything is happening. Whether
   // anyone has seen the answer is the unread badge's job (below); a "success"

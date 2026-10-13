@@ -479,6 +479,30 @@ func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointSu
 	return []agenthub.CheckpointSummary{}, nil
 }
 
+// AgentHubListDocuments lists the PDFs attached to a session, oldest first,
+// for the session summary card. Metadata only — no bytes, no text. A build
+// with no document library (server mode) has none to list.
+func (s *AppService) AgentHubListDocuments(id string) ([]agenthub.Document, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action":     "list_documents",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.Documents.List(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if docs, _ := result.([]agenthub.Document); docs != nil {
+		return docs, nil
+	}
+	return []agenthub.Document{}, nil
+}
+
 // AgentHubCheckpointFileDiff returns one changed file's two versions out of a
 // checkpoint. The path is checked against the checkpoint's own list of changed
 // files, so this cannot be used to read an arbitrary file out of a project.
