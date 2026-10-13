@@ -306,7 +306,7 @@
        Tailwind's Vite plugin, whose targets neither build.cssTarget nor a
        browserslist entry reaches — both were tried and changed nothing) emits
        `--x: var(--source)` guarded by @supports for every one of these. That
-       fallback has no alpha: a solid candy-blue hairline, a solid white sheet
+       fallback has no alpha: a solid white hairline, a solid white sheet
        for --state-soft. It is accepted rather than worked around because it
        is unreachable — it fires only where color-mix is missing (Safari
        < 16.2), and this file already uses @starting-style in six places,
@@ -409,7 +409,7 @@
     --ansi-cyan: var(--hue-teal);
 
     /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
-       (same hue as the background, Apple-style — the lavender/orchid ambience
+       (same hue as the background, Apple-style — any ambience
        comes from the vibrancy blobs BEHIND the glass, not from the tint);
        three opacities; depth is encoded by opacity and blur, never new color.
        - rail:  sidebar/titlebar/window chrome — fully transparent, the native
@@ -465,22 +465,19 @@
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     /* The added-line wash in a code block. Derived at the same 14% as its
        danger twin, so a diff reads as one pair in every theme. */
-    /* The tint on a selected grid cell. Derived from the same accent the focus
-       ring uses, so a rectangle of selected cells and the one cell inside it
-       that holds the focus read as one gesture rather than two colours. */
+    /* The tint on a selected grid cell. Derived from --status-info (grey in
+       Mono), so a rectangle of selected cells and the one cell inside it that
+       holds the focus read as one gesture rather than two colours. */
     --feedback-selected: color-mix(in srgb, var(--status-info) 18%, transparent);
     /* Selected TEXT: the same wash, at the strength each mode can carry.
        A tint moves the ground the syntax sits on, so every token's contrast
        is spent on it.
 
-       Measured on the editor's own ground here at 18%: keywords 12.04:1 →
-       7.71, operators 8.44 → 5.40, literals 13.40 → 8.58 — all clear of the
-       4.5:1 floor. COMMENTS are not: 4.58:1 → 2.93, and no visible band can
-       save them. A comment is dim on purpose, which leaves it half a point
-       of headroom, and the arithmetic says a band light enough to keep it at
-       4.5 would be 0.0013 of luminance away from the ground — a selection
-       nobody can see. Every editor with dim comments makes the same trade;
-       this one at least knows the number. */
+       Measured under the previous palette — theme/themeContrast.test.ts
+       floors the text colours; re-measure the band when changing it. The
+       reasoning holds: dim comments have little headroom, and a band light
+       enough to keep them at 4.5:1 would be a selection nobody can see.
+       Every editor with dim comments makes the same trade. */
     --editor-selection: var(--feedback-selected);
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
@@ -551,7 +548,8 @@
 
 /* Light mode. ThemeProvider stamps data-theme on <html>; dark stays the
    :root default so the pre-hydration paint matches the dark-first product.
-   Accents follow the Figma "Light mode accent pairs": same hue, darker. */
+   Mono chrome in light is near-black on white; status and the base palette's
+   hues are darker pairs of the same hue. */
 :root[data-theme="light"] {
     --background-app: #f5f5f5;
     --background-canvas: #fafafa;
@@ -585,9 +583,9 @@
        status colours above get in this block, and the same reason. */
     --vendor-claude: #b4552f;
 
-    /* Ink, not the accent: a hairline on white recesses, and candy-blue at 12%
-       on white is a blue smudge. The percentages are higher than dark's for
-       the same reason. */
+    /* Ink, not white: a white hairline vanishes on a white surface, so light
+       tints with near-black. The percentages are higher than dark's for the
+       same reason. */
     --tint-veil: #0a0a0a;
     --tint-border: #0a0a0a;
     --border-default: color-mix(in srgb, var(--tint-border) 12%, transparent);
@@ -612,16 +610,13 @@
        page. The dark pair lifts instead; see the note where they are set. */
     --segment-track: color-mix(in srgb, var(--tint-veil) 7%, transparent);
     --segment-chip: var(--surface-base);
-    /* 8%, not the 18% dark gets. Measured on the editor's own ground: the
-       SQL keyword is 5.05:1 there, so a tint of 12% takes it to 4.29 and
-       18% to 3.93 — under the floor, in the control where selecting is how
-       you choose what to run. 8% leaves 4.53:1 and is the most band this
-       palette can carry. A darker light-mode keyword would buy more; that
-       is a palette change, not a selection one. */
+    /* 8%, not the 18% dark gets: a tint moves the ground the syntax sits on,
+       and light, where selected text has less headroom, takes a lighter band.
+       Re-measure when changing it. */
     --editor-selection: color-mix(in srgb, var(--status-info) 8%, transparent);
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
-       light's own --status-danger is #b3374a. Light has been drawing salmon
+       light's own --status-danger is #b3363f. Light has been drawing salmon
        feedback under a deep-red status colour. Derived from --status-danger,
        each mode now gets its own. */
 
