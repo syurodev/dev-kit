@@ -22,8 +22,8 @@ export function openExternalWith(deps: Deps) {
 
 /**
  * Opens a link in the system browser. An <a target="_blank"> does nothing in
- * the Wails WebView, which is why agent links never opened. Server mode has
- * no native browser to hand it to, so the link is copied instead.
+ * the Wails WebView, which is why agent links never opened. When the host
+ * cannot open it (a headless machine), the link is copied instead.
  */
 export const openExternal = openExternalWith({
   open: (url) => Browser.OpenURL(url),

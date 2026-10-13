@@ -94,6 +94,31 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(row.status).toBe("running");
   });
 
+  it("keeps the newest preview when two reads answer out of order", async () => {
+    const replies: Array<(preview: string, updatedAt: number) => void> = [];
+    const bridge: TurnBridge = {
+      invoke: () => new Promise(() => {}),
+      getStatus: (id) =>
+        new Promise((resolve) => {
+          replies.push((preview, updatedAt) =>
+            resolve({ ...useAgentSessionsStore.getState().sessionsById[id], preview, updatedAt }),
+          );
+        }),
+    };
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    expect(replies.length).toBe(2);
+    replies[1]("Second answer.", 2000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    replies[0]("First answer.", 1000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const row = useAgentSessionsStore.getState().sessionsById.s1;
+    expect(row.preview).toBe("Second answer.");
+    expect(row.updatedAt).toBe(2000);
+  });
+
   it("does not read the row for a turn of its own", async () => {
     let reads = 0;
     const bridge: TurnBridge = {
