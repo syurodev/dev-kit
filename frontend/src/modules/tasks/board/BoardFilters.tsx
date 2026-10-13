@@ -30,7 +30,7 @@ export function BoardFilters({
   const filtering = isFiltering(filter);
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
-      <label className="flex h-(--control-height-sm) w-60 items-center gap-2 rounded-md border border-border-subtle bg-surface-well px-2.5 transition-control focus-within:border-status-info focus-within:ring-2 focus-within:ring-border-focus/50">
+      <label className="flex h-(--control-height-sm) w-60 items-center gap-2 rounded-md border border-border-subtle bg-surface-well px-2.5 transition-control focus-within:border-border-focus focus-within:ring-2 focus-within:ring-border-focus/50">
         <Search aria-hidden className="size-(--icon-14) shrink-0 text-text-tertiary" />
         <input
           value={filter.query}

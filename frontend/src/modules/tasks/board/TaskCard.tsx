@@ -150,7 +150,7 @@ export function TaskCard({
         }}
         className={cn(
           CARD_CLASS,
-          "cursor-pointer hover:border-status-info/40 focus-visible:border-status-info focus-visible:outline-none",
+          "cursor-pointer hover:border-status-info/40 focus-visible:border-border-focus focus-visible:outline-none",
           selected && "border-status-info bg-state-soft hover:border-status-info",
           // The original stays where it was, faded, while its overlay moves:
           // the column does not reflow under the pointer mid-drag.

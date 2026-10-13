@@ -161,7 +161,7 @@ export function RequestToolbar({
         </Button>
       </div>
       <div className="flex items-stretch gap-2">
-        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-well transition-control focus-within:border-status-info/50 focus-within:ring-2 focus-within:ring-border-focus/50">
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-well transition-control focus-within:border-border-focus/50 focus-within:ring-2 focus-within:ring-border-focus/50">
           <NativeSelect
             value={method}
             aria-label="Method"

@@ -48,7 +48,7 @@ export function TaskTitle({ task }: { task: Task }) {
       }}
       aria-label="Task title"
       maxLength={200}
-      className="-mx-1.5 w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-title-16 text-text-primary transition-colors duration-(--motion-fast) outline-none hover:border-border-subtle focus:border-status-info"
+      className="-mx-1.5 w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-title-16 text-text-primary transition-colors duration-(--motion-fast) outline-none hover:border-border-subtle focus:border-border-focus"
     />
   );
 }

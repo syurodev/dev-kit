@@ -23,10 +23,10 @@ export const TINT_TOKENS = [
 /**
  * The semantic colours, grouped the way the design file groups them.
  *
- * `--action-primary` and its hover/pressed pair are here even though light
- * does not override them: light deliberately keeps the lime fill (onyx text
- * on lime passes in both modes), but a theme with its own accent has to say
- * all three, and a hover shade is not derivable from a hue without a decision.
+ * `--action-primary` and its hover/pressed pair are here because the Mono
+ * chrome sets them per mode (white fill on dark, black on light, hover and
+ * press moving toward the page), and a theme with its own accent has to say
+ * all three: a hover shade is not derivable from a hue without a decision.
  */
 export const THEME_TOKENS = [
   // Backgrounds and surfaces

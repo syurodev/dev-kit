@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { EASE_OUT, MOTION_BASE, noMotion } from "@/lib/motion";
 
-export const VAULT_FIELD = "flex h-12 w-full items-center rounded-lg border bg-surface-well pr-3 pl-4 text-code-12 text-text-primary transition-control placeholder:text-text-tertiary focus-within:border-status-info focus-within:ring-2 focus-within:ring-border-focus/50";
+export const VAULT_FIELD = "flex h-12 w-full items-center rounded-lg border bg-surface-well pr-3 pl-4 text-code-12 text-text-primary transition-control placeholder:text-text-tertiary focus-within:border-border-focus focus-within:ring-2 focus-within:ring-border-focus/50";
 
 export function VaultPasswordField({ label, value, onChange, placeholder, autoFocus, invalid, disabled, creating = false }: {
   label: string; value: string; onChange: (value: string) => void; placeholder: string; autoFocus?: boolean; invalid?: boolean; disabled?: boolean; creating?: boolean;

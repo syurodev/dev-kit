@@ -355,7 +355,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
             <button
               type="button"
               onClick={() => void Browser.OpenURL(s.licenseUrl!)}
-              className="self-start text-body-12 text-status-info underline-offset-4 hover:underline"
+              className="self-start text-body-12 text-text-primary underline underline-offset-2"
             >
               Read the license
             </button>

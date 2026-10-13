@@ -18,7 +18,7 @@ const MotionButton = motion.create(React.forwardRef<
 
 const buttonVariants = cva(
   // CSS owns colours; Motion owns the press transform and can retarget it.
-  "group/button motion-control inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-control outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button motion-control inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-control outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-border-focus [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -67,7 +67,7 @@ const buttonVariants = cva(
         // across all ten palettes: 5.26:1 at worst.
         danger:
           "bg-status-danger text-surface-base hover:bg-(--status-danger-hover) active:bg-(--status-danger-pressed)",
-        link: "text-status-info underline-offset-4 hover:underline",
+        link: "text-text-primary underline underline-offset-2",
       },
       size: {
         xs: "h-(--control-height-sm) gap-1.5 rounded-md px-3 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",

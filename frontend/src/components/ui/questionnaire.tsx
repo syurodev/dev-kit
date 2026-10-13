@@ -240,7 +240,7 @@ function QuestionnaireInput({
         className={cn(
           "h-(--control-height-md) w-full min-w-0 rounded-md border border-border-subtle bg-surface-well px-3 text-body-13 text-text-primary transition-control outline-none",
           "placeholder:text-text-tertiary",
-          "focus-visible:ring-2 focus-visible:ring-border-focus/50 focus-visible:border-status-info",
+          "focus-visible:ring-2 focus-visible:ring-border-focus/50 focus-visible:border-border-focus",
           "data-filled:border-status-info",
           "disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-text-tertiary",
           "aria-invalid:border-status-danger",

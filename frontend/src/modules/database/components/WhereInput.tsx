@@ -203,7 +203,7 @@ export function WhereInput({
     // so a second tint here would only draw a box around the half of the field
     // that is not the word WHERE. A border still marks focus, because the
     // ground is on whether this is a field, not on whether it has the caret.
-    <div className="flex h-(--control-height-sm) min-w-0 flex-1 items-center rounded-md border border-transparent px-2 text-code-12 focus-within:border-status-info">
+    <div className="flex h-(--control-height-sm) min-w-0 flex-1 items-center rounded-md border border-transparent px-2 text-code-12 focus-within:border-border-focus">
       <CodeEditor value={value} onChange={onChange} extensions={extensions} />
     </div>
   );

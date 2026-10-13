@@ -14,10 +14,10 @@ export type ToastTone = "info" | "success" | "warning" | "error" | "loading";
  *   EXCEPTION: Body text is --text-tertiary, not --text-secondary.
  *   EXCEPTION: Gap between title and body is 0 (--space-0).
  * - Tone glyph: 20px — the ONLY coloured element:
- *   - info: --status-info (#b2d5e5)
- *   - success: --status-success (#99e1d9)
- *   - warning: --status-warning (#f1fec8)
- *   - error: --status-danger (#d87886)
+ *   - info: --status-info (Mono: the secondary text grey)
+ *   - success: --status-success (muted green)
+ *   - warning: --status-warning (muted amber)
+ *   - error: --status-danger (muted red)
  *   - loading: --text-tertiary
  * - Close glyph: 16px
  * - Title: 13 Medium --text-primary (text-body-13-medium)
