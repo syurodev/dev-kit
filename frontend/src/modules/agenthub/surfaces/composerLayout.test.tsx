@@ -137,6 +137,15 @@ describe("the composer is in the layout, below the transcript", () => {
     expect(html).toMatch(/relative mx-auto w-full max-w-190/);
   });
 
+  it("grows both columns to 880px on very wide conversations, in the Hub only", () => {
+    const html = hub();
+    const region = html.slice(html.indexOf('data-testid="agent-composer-region"'));
+    expect(region.slice(0, 500)).toContain("@7xl/agent-conversation:max-w-220");
+    expect(html).toMatch(/relative mx-auto w-full max-w-190 @7xl\/agent-conversation:max-w-220/);
+    const rail = render(<AgentRail activeSession={session} items={[]} {...base} />);
+    expect(rail).not.toContain("max-w-220");
+  });
+
   it("docks the summary on wide conversations and folds it to a button on narrow ones", () => {
     const html = hub({ items: [planItem] });
     expect(html).toMatch(/data-testid="session-summary-dock"[^>]*hidden[^>]*@6xl\/agent-conversation:block/);

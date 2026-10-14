@@ -462,10 +462,10 @@ export function AgentHubContent({
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
                 onOpenFile={onOpenFile}
-                // 760 here; the rail keeps 720. On a wide conversation the
+                // 760 here (880 from 80rem); the rail keeps 720. On a wide conversation the
                 // scroller's right padding clears the docked summary, so the
                 // column centres in what is left rather than running under it.
-                columnClassName="max-w-190"
+                columnClassName="max-w-190 @7xl/agent-conversation:max-w-220"
                 viewportClassName="@6xl/agent-conversation:pr-80"
               />
             )}
@@ -481,7 +481,7 @@ export function AgentHubContent({
             data-testid="agent-composer-region"
             className="composer-region-cap flex min-h-0 w-full shrink-0 flex-col px-6 pb-3 @6xl/agent-conversation:pr-80"
           >
-            <div className="mx-auto flex min-h-0 w-full max-w-190 flex-col gap-2">
+            <div className="mx-auto flex min-h-0 w-full max-w-190 flex-col gap-2 @7xl/agent-conversation:max-w-220">
               {/* A failed session keeps its composer. The card used to replace it,
                   which left Retry as the only way forward: the same prompt again,
                   or nothing. A turn that failed is often one you want to answer

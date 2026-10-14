@@ -35,6 +35,12 @@ export type AgentTurnProps = {
   latest?: boolean;
   vendor?: string;
   /**
+   * This turn holds the session's newest plan, the one the docked summary
+   * card shows in full. Then its card gives way to a single quiet line while
+   * the summary is docked; older turns' plans are untouched.
+   */
+  latestPlan?: boolean;
+  /**
    * What this turn changed on disk, if it was checkpointed. Absent for a turn
    * that was not — which is not the same as a turn that changed nothing, so the
    * count is simply not drawn rather than drawn as a zero.
@@ -89,6 +95,7 @@ export const AgentTurn = React.memo(function AgentTurn({
   turn,
   live = false,
   latest = false,
+  latestPlan = false,
   vendor,
   checkpoint,
   loadFileDiff,
@@ -214,7 +221,20 @@ export const AgentTurn = React.memo(function AgentTurn({
               return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
             }
             if (segment.kind === "plan") {
-              return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
+              const entries = segment.item.plan ?? [];
+              if (!latestPlan) return <AgentPlan key={segment.item.id} entries={entries} />;
+              const done = entries.filter((e) => e.status === "completed").length;
+              return (
+                <React.Fragment key={segment.item.id}>
+                  <AgentPlan entries={entries} className="@6xl/agent-conversation:hidden" />
+                  <p
+                    data-testid="turn-plan-docked"
+                    className="hidden w-full items-center gap-2 text-caption-11 text-text-tertiary @6xl/agent-conversation:flex"
+                  >
+                    {entries.length > 0 ? `Plan · ${done} of ${entries.length} — in the summary` : "Plan — in the summary"}
+                  </p>
+                </React.Fragment>
+              );
             }
             return (
               <StepGroup

@@ -5,6 +5,7 @@ import {
   currentStep,
   formatElapsed,
   groupTurns,
+  newestPlanTurnIndex,
   runningSubagents,
   stepCount,
   stepLabel,
@@ -366,5 +367,23 @@ describe("stepLabel", () => {
     ],
   ])("%o reads as a verb and its object", (call, verb, object) => {
     expect(stepLabel({ id: "x", ...call })).toEqual({ verb, object });
+  });
+});
+
+describe("newestPlanTurnIndex", () => {
+  const turnsOf = (planIn: number[]) =>
+    groupTurns(
+      [0, 1, 2].flatMap((n) => [
+        { id: `u${n}`, kind: "user_message_chunk", text: "q" } as TranscriptItem,
+        ...(planIn.includes(n)
+          ? [{ id: `p${n}`, kind: "plan", plan: [{ content: "a", status: "pending" }] } as TranscriptItem]
+          : []),
+        { id: `a${n}`, kind: "agent_message_chunk", text: "done" } as TranscriptItem,
+      ]),
+    );
+
+  it("is the newest turn holding a plan, or -1", () => {
+    expect(newestPlanTurnIndex(turnsOf([0, 1]))).toBe(1);
+    expect(newestPlanTurnIndex(turnsOf([]))).toBe(-1);
   });
 });

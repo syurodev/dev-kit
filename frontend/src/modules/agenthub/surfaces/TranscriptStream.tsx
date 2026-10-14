@@ -7,7 +7,7 @@ import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { scheduleTranscriptFrame } from "../transcript";
 import type { TranscriptItem } from "../types";
-import { groupTurns, type Turn } from "../turns";
+import { groupTurns, newestPlanTurnIndex, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
@@ -224,6 +224,9 @@ export function TranscriptStream({
     if (previous.length === 0) previousTicksRef.current = [];
     return groupTurns(items, previous);
   }, [items, streamKey]);
+  // Once per grouping, not per turn render: the turn the docked summary's plan
+  // belongs to, whose own plan card steps back to a line when docked.
+  const planTurnIndex = useMemo(() => newestPlanTurnIndex(turns), [turns]);
   const ticks = useMemo(() => {
     const next = ticksOf(turns, previousTurnsRef.current, previousTicksRef.current);
     previousTurnsRef.current = turns;
@@ -543,6 +546,7 @@ export function TranscriptStream({
         key={turn.id}
         turn={turn}
         latest={latest}
+        latestPlan={index === planTurnIndex}
         live={latest && streaming}
         vendor={vendor}
         checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}

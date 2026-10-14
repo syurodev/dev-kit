@@ -18,6 +18,7 @@ import {
   drawnWhenHidingClosed,
   groupCollapsed,
   needsYou,
+  plainAsk,
   secondLine,
 } from "./model";
 
@@ -470,5 +471,18 @@ describe("askBySession", () => {
         { sessionId: "a", message: "Second?" },
       ]),
     ).toEqual({ a: "First?" });
+  });
+});
+
+describe("plainAsk", () => {
+  it("strips code ticks, bold and underscores emphasis, and folds whitespace", () => {
+    expect(plainAsk("Run `rm -rf build`?")).toBe("Run rm -rf build?");
+    expect(plainAsk("Allow **write** to  __a.ts__\n  now?")).toBe("Allow write to a.ts now?");
+    expect(plainAsk("  plain  ")).toBe("plain");
+  });
+
+  it("is applied where asks are built", () => {
+    expect(askBySession([{ sessionId: "a", title: "Run `rm -rf build`?" }], [])).toEqual({ a: "Run rm -rf build?" });
+    expect(askBySession([], [{ sessionId: "a", message: "Use **npm** or `bun`?" }])).toEqual({ a: "Use npm or bun?" });
   });
 });

@@ -452,6 +452,18 @@ export function workSegments(work: TranscriptItem[]): WorkSegment[] {
   return out;
 }
 
+/**
+ * The index of the newest turn that holds a plan of the session's own: the
+ * one whose plan the summary card shows. A subagent's plan is its own. -1
+ * when no turn has one. One backwards pass, run once per grouping.
+ */
+export function newestPlanTurnIndex(turns: readonly Turn[]): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i].work.some((item) => String(item.kind) === "plan" && !item.origin)) return i;
+  }
+  return -1;
+}
+
 const STEP_PHRASES: Record<string, string> = {
   read: "read files",
   edit: "edited files",

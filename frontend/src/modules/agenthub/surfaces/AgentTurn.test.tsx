@@ -278,3 +278,35 @@ describe("AgentFileChip", () => {
     expect(html).toContain("6 pages");
   });
 });
+
+describe("the plan card when the summary is docked", () => {
+  const planned = (status: string): TranscriptItem[] => [
+    { id: "u", kind: "user_message_chunk", text: "go", createdAt: "2026-09-14T10:00:00Z" },
+    {
+      id: "p",
+      kind: "plan",
+      plan: [
+        { content: "a", status: "completed" },
+        { content: "b", status: "completed" },
+        { content: "c", status: status },
+        { content: "d", status: "pending" },
+      ],
+    },
+    { id: "a", kind: "agent_message_chunk", text: "Done." },
+  ];
+
+  it("the latest plan is one quiet line when docked, and the full card is hidden then", () => {
+    const [turn] = groupTurns(planned("in_progress"));
+    const html = renderToString(<AgentTurn turn={turn} latestPlan />);
+    expect(html).toMatch(/data-testid="turn-plan-docked"[^>]*class="hidden [^"]*@6xl\/agent-conversation:flex/);
+    expect(html).toContain("Plan · 2 of 4 — in the summary");
+    expect(html).toMatch(/data-testid="agent-plan"[^>]*@6xl\/agent-conversation:hidden/);
+  });
+
+  it("an older turn's plan has no docked line and keeps its card", () => {
+    const [turn] = groupTurns(planned("in_progress"));
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(html).not.toContain("turn-plan-docked");
+    expect(html).not.toMatch(/data-testid="agent-plan"[^>]*@6xl\/agent-conversation:hidden/);
+  });
+});

@@ -210,18 +210,27 @@ export function needsYou(sessions: readonly AgentSession[], attention: Record<st
     .sort(compareRecent);
 }
 
+/**
+ * An ask as plain words for a one-line row: no code ticks, no bold or
+ * underscore emphasis, whitespace folded. `Run \`rm -rf build\`?` reads
+ * `Run rm -rf build?`.
+ */
+export function plainAsk(text: string): string {
+  return text.replace(/`/g, "").replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim();
+}
+
 /** The first thing each session asks: a permission's title wins over a question's message. */
 export function askBySession(
   permissions: readonly Pick<PendingPermission, "sessionId" | "title">[],
   questions: readonly Pick<PendingElicitation, "sessionId" | "message">[],
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const q of questions) if (q.message && !out[q.sessionId]) out[q.sessionId] = q.message;
+  for (const q of questions) if (q.message && !out[q.sessionId]) out[q.sessionId] = plainAsk(q.message);
   // The first permission of a session, over any question: walked newest-first
   // so the oldest one is written last.
   for (let i = permissions.length - 1; i >= 0; i--) {
     const p = permissions[i];
-    if (p.title) out[p.sessionId] = p.title;
+    if (p.title) out[p.sessionId] = plainAsk(p.title);
   }
   return out;
 }
