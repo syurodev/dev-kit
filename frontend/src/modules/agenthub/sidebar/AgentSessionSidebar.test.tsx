@@ -590,6 +590,33 @@ describe("needs you, and the workspace in front of you", () => {
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>1</);
   });
 
+  it("the current workspace's group comes first, whatever its name", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [
+        { id: "1", name: "Alpha", paths: ["/ws/1"] },
+        { id: "2", name: "Zeta", paths: ["/ws/2"] },
+      ],
+      currentWorkspaceId: "2",
+    });
+    expect(html.indexOf('data-group-key="workspace:2"')).toBeLessThan(html.indexOf('data-group-key="workspace:1"'));
+    // With none chosen, the names decide.
+    const none = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [
+        { id: "1", name: "Alpha", paths: ["/ws/1"] },
+        { id: "2", name: "Zeta", paths: ["/ws/2"] },
+      ],
+    });
+    expect(none.indexOf('data-group-key="workspace:1"')).toBeLessThan(none.indexOf('data-group-key="workspace:2"'));
+  });
+
+  it("needs-you sits inside a collapse, so it eases in and out rather than popping", () => {
+    const html = render({ sessions: [session("a", { status: "error" })] });
+    const before = html.slice(html.indexOf('data-testid="agent-session-viewport"'), html.indexOf('data-testid="agent-needs-you"'));
+    expect(before).toContain('data-slot="animated-collapse"');
+  });
+
   it("no needs-you section when nothing waits", () => {
     expect(render({ sessions: [session("a", { status: "idle" })] })).not.toContain("agent-needs-you");
   });

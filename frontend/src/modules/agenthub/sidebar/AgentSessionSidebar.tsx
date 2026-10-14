@@ -4,6 +4,7 @@ import { Eye, EyeOff, MessagesSquare, Plus } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarInset } from "@/components/ui/sidebar-shell";
@@ -179,14 +180,24 @@ export function AgentSessionSidebar({
   // and (when hidden) closed ones are left out of what is drawn — see
   // groupSessions' `keep`. Filtering first would move a waiting parent's
   // children into whatever group their own folder says.
+  // groupSessions orders by name; the workspace chosen in the title bar goes
+  // first (a stable sort keeps the rest as they were).
   const groups = React.useMemo(() => {
     const closed = drawnWhenHidingClosed(hideClosed, activeSessionId);
-    return groupSessions(allSessions, scratchRoot, workspaces, (s) => !waitingIds.has(s.id) && (closed?.(s) ?? true));
-  }, [allSessions, scratchRoot, workspaces, hideClosed, activeSessionId, waitingIds]);
+    const named = groupSessions(allSessions, scratchRoot, workspaces, (s) => !waitingIds.has(s.id) && (closed?.(s) ?? true));
+    if (!currentWorkspaceId) return named;
+    const first = `workspace:${currentWorkspaceId}`;
+    return [...named].sort((a, b) => Number(b.key === first) - Number(a.key === first));
+  }, [allSessions, scratchRoot, workspaces, hideClosed, activeSessionId, waitingIds, currentWorkspaceId]);
   const hiddenCount = allSessions.length - waiting.length - groups.reduce((n, g) => n + g.sessions.length, 0);
   const titles = React.useMemo(() => new Map(allSessions.map((s) => [s.id, sessionTitle(s)])), [allSessions]);
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   const expanded = React.useMemo(() => new Set(expandedKeys), [expandedKeys]);
+  // While the section folds away its last rows stay drawn, so it shrinks from
+  // its own height instead of jumping to an empty label first.
+  const lastWaiting = React.useRef(waiting);
+  if (waiting.length > 0) lastWaiting.current = waiting;
+  const drawnWaiting = waiting.length > 0 ? waiting : lastWaiting.current;
   const [needsRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
   const olderOpen = React.useMemo(() => new Set(olderOpenKeys), [olderOpenKeys]);
 
@@ -275,15 +286,17 @@ export function AgentSessionSidebar({
           onKeyDown={onKeyDown}
           className="min-h-0 flex-1 overflow-y-auto pb-2"
         >
-          {waiting.length > 0 ? (
+          {/* Eases in when the first session starts waiting and out when the
+              last one is answered, instead of pushing the rail down a step. */}
+          <AnimatedCollapse open={waiting.length > 0}>
             <SidebarInset>
               <section data-testid="agent-needs-you" aria-label="Needs you" className="flex flex-col">
                 <div className="px-2 pt-1 pb-1.5 text-caption-11 text-text-tertiary">
                   Needs you
-                  <sup className="ml-0.5 text-text-tertiary/70 tabular-nums">{waiting.length}</sup>
+                  <sup className="ml-0.5 text-text-tertiary/70 tabular-nums">{drawnWaiting.length}</sup>
                 </div>
                 <div ref={needsRef} role="list" aria-label="Sessions that need you" className="flex flex-col gap-0.5">
-                  {waiting.map((session) => (
+                  {drawnWaiting.map((session) => (
                     <AgentSessionCard
                       key={session.id}
                       session={session}
@@ -300,7 +313,7 @@ export function AgentSessionSidebar({
                 </div>
               </section>
             </SidebarInset>
-          ) : null}
+          </AnimatedCollapse>
           {groups.length === 0 && waiting.length === 0 ? (
             <EmptyState
               size="rail"
