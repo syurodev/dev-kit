@@ -3,7 +3,8 @@ import { renderToString } from "react-dom/server";
 
 import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
-import { AgentTurn, StepGroup } from "./AgentTurn";
+import { AgentTurn, StepGroup, SubagentActivity } from "./AgentTurn";
+import { registerToolResultView } from "@/workbench/toolResultViews";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
 
@@ -351,5 +352,110 @@ describe("the plan card when the summary is docked", () => {
     expect(html).not.toContain("turn-plan-docked");
     expect(html).toContain('data-testid="agent-plan"');
     expect(html).not.toMatch(/data-testid="agent-plan"[^>]*@6xl\/agent-conversation:hidden/);
+  });
+});
+
+describe("results outside the fold", () => {
+  // A view registered the way an owning module would, for a tool no module owns.
+  registerToolResultView("x.view", (input) => (
+    <div data-testid="fake-view">{`value ${(input.rawOutput as { n: number }).n}`}</div>
+  ));
+  // A view that declines: the card it would have been draws nothing.
+  registerToolResultView("x.none", () => null);
+
+  const viewed = (id: string, n: number, status = "completed"): TranscriptItem => ({
+    id,
+    kind: "tool_call",
+    toolCall: { id, name: "x.view", kind: "other", title: `View ${id}`, status, rawOutput: { n } },
+  });
+  const other: TranscriptItem = {
+    id: "o",
+    kind: "tool_call",
+    toolCall: { id: "o", kind: "read", title: "Read other.go", status: "completed" },
+  };
+  const count = (html: string, needle: string) => html.split(needle).length - 1;
+  /** What sits after the fold: everything past the collapse's closing toggle. */
+  const afterFold = (html: string) => html.slice(html.indexOf("</button>"));
+
+  it("shows done results with a view after the fold, three at most, in call order", () => {
+    const html = renderToString(
+      <StepGroup items={[viewed("a", 1), other, viewed("b", 2), viewed("c", 3), viewed("d", 4)]} />,
+    );
+    expect(html).toContain('data-testid="step-group"');
+    expect(count(html, 'data-testid="turn-result-card"')).toBe(3);
+    const after = afterFold(html);
+    expect(after.indexOf("value 1")).toBeLessThan(after.indexOf("value 2"));
+    expect(after.indexOf("value 2")).toBeLessThan(after.indexOf("value 3"));
+    expect(after).not.toContain("value 4");
+    expect(after).toContain("+1 more result in the work above");
+  });
+
+  it("says results, plural, when more than one stays behind", () => {
+    const html = renderToString(
+      <StepGroup items={[viewed("a", 1), viewed("b", 2), viewed("c", 3), viewed("d", 4), viewed("e", 5)]} />,
+    );
+    expect(html).toContain("+2 more results in the work above");
+  });
+
+  it("still lists every step in the fold", () => {
+    const html = renderToString(
+      <StepGroup defaultOpen items={[viewed("a", 1), other, viewed("b", 2), viewed("c", 3), viewed("d", 4)]} />,
+    );
+    expect(count(html, 'data-variant="row"')).toBe(5);
+    expect(html).toContain("other.go");
+  });
+
+  it("puts the cards before the run's activity cards", () => {
+    const build: TranscriptItem = {
+      id: "p",
+      kind: "tool_call",
+      toolCall: { id: "p", kind: "execute", title: "go build ./...", status: "in_progress" },
+    };
+    const html = renderToString(<StepGroup items={[viewed("a", 1), other, build]} />);
+    expect(html).toContain('data-testid="step-activities"');
+    expect(html.indexOf('data-testid="turn-result-card"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-testid="turn-result-card"')).toBeLessThan(html.indexOf('data-testid="step-activities"'));
+  });
+
+  it("leaves running and failed calls in the fold", () => {
+    const html = renderToString(
+      <StepGroup items={[viewed("a", 1, "in_progress"), viewed("b", 2, "failed"), other]} />,
+    );
+    expect(html).not.toContain('data-testid="turn-result-card"');
+    expect(html).not.toContain("more result");
+  });
+
+  it("draws a lone result with a view as its card, not a closed row", () => {
+    const html = renderToString(<StepGroup items={[viewed("a", 7)]} />);
+    expect(html).toContain('data-testid="turn-result-card"');
+    expect(html).toContain("value 7");
+    expect(html).not.toContain('data-variant="row"');
+  });
+
+  it("keeps the row for a lone call whose view declines, and draws no empty card", () => {
+    const declined: TranscriptItem = {
+      id: "z",
+      kind: "tool_call",
+      toolCall: { id: "z", name: "x.none", kind: "other", title: "Nothing to show", status: "completed", rawOutput: { n: 1 } },
+    };
+    expect(renderToString(<StepGroup items={[declined]} />)).toContain('data-variant="row"');
+    const html = renderToString(<StepGroup items={[declined, other]} />);
+    expect(html).not.toContain('data-testid="turn-result-card"');
+  });
+
+  it("surfaces nothing from a subagent's work", () => {
+    const html = renderToString(
+      <SubagentActivity
+        subagent={{ id: "s1", name: "Look" }}
+        activity={[viewed("a", 1), other, viewed("b", 2)]}
+        brief={false}
+      />,
+    );
+    expect(html).not.toContain('data-testid="turn-result-card"');
+    const lone = renderToString(
+      <SubagentActivity subagent={{ id: "s1", name: "Look" }} activity={[viewed("a", 1)]} brief={false} />,
+    );
+    expect(lone).not.toContain('data-testid="turn-result-card"');
+    expect(lone).toContain('data-variant="row"');
   });
 });

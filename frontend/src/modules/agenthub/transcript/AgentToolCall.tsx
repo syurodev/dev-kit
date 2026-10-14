@@ -14,8 +14,8 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { renderToolResult } from "@/workbench/toolResultViews";
-import { toolResultInputOf } from "@/workbench/toolPayload";
+import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
+import { toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -156,6 +156,86 @@ export function toolOutputText(raw: unknown): string {
   return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
 }
 
+/**
+ * The whole row behind a truncated preview (`agentHubToolCallDetail`). Pages
+ * carry bounded previews — raw fields, text content, diffs — so one huge
+ * terminal dump cannot make every page load heavy; the full row is fetched
+ * only when something asks for it: "Show full output", or a result card whose
+ * view has nothing to read in the preview (ToolResultCard).
+ */
+export function useFullToolCall(call: ToolCall, sessionId?: string) {
+  const [fullCall, setFullCall] = React.useState<ToolCall | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const canLoad = Boolean(call.truncated && sessionId);
+  const load = React.useCallback(() => {
+    if (!canLoad || loading || fullCall !== null) return;
+    setLoading(true);
+    agentHubToolCallDetail(sessionId!, call.id)
+      .then((entry) => setFullCall(toolCallFromDetail(entry?.Payload) ?? { id: call.id }))
+      .catch(() => setFullCall(null))
+      .finally(() => setLoading(false));
+  }, [canLoad, loading, fullCall, sessionId, call.id]);
+  return { fullCall, loading, canLoad, load: canLoad ? load : undefined };
+}
+
+/** The call a result view reads: the full row answers for the output, the call on screen for who and how. */
+function resultCallOf(call: ToolCall, fullCall: ToolCall | null): ToolCall {
+  return fullCall
+    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
+    : call;
+}
+
+/**
+ * Whether a call's result is drawn as a card of its own after a turn's work
+ * (AgentTurn's StepGroup): it landed, and the module that owns the tool
+ * registered a view for it. Running and failed calls stay rows.
+ */
+export function hasResultCard(call: ToolCall | undefined): boolean {
+  return Boolean(call) && toToolState(call!.status) === "done" && hasToolResultView(toolNameOf(call!));
+}
+
+/**
+ * Just the result view of a call — no row, no disclosure — for a result shown
+ * outside the work fold. Loads the full row once when the preview gave the
+ * view nothing to read. When the view declines (or there is nothing to show
+ * yet) it draws `fallback`, which is nothing unless the caller has a row to
+ * keep in its place.
+ */
+export const ToolResultCard = React.memo(function ToolResultCard({
+  call,
+  sessionId,
+  fallback = null,
+}: {
+  call: ToolCall;
+  sessionId?: string;
+  fallback?: React.ReactNode;
+}) {
+  const { fullCall, load } = useFullToolCall(call, sessionId);
+  const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
+  const done = toToolState(call.status) === "done";
+  const node = React.useMemo(() => {
+    const input = done ? toolResultInputOf(resultCall) : null;
+    return input ? renderToolResult(input) : null;
+  }, [done, resultCall]);
+  // A cut preview that does not parse is no payload: ask for the whole row,
+  // once — a failed load is not retried behind the person's back.
+  const needsFull = done && fullCall === null && load !== undefined && toolPayloadOf(call) === null;
+  const asked = React.useRef(false);
+  React.useEffect(() => {
+    if (!needsFull || asked.current) return;
+    asked.current = true;
+    load?.();
+  }, [needsFull, load]);
+
+  if (!node) return <>{fallback}</>;
+  return (
+    <div data-testid="turn-result-card" className="w-full min-w-0">
+      {/* The view may load lazily (registerToolResultView). */}
+      <React.Suspense fallback={fallback}>{node}</React.Suspense>
+    </div>
+  );
+});
+
 export type ToolOutputView = { code: string; language: string; wrap: boolean; startLine?: number };
 
 /**
@@ -221,23 +301,9 @@ export function AgentToolCall({
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
-  // The whole call behind a truncated preview, fetched on ask. Pages carry
-  // bounded previews — raw fields, text content, diffs — so one huge terminal
-  // dump cannot make every page load heavy; the full row is one click away,
-  // and once loaded it replaces the preview's content too.
-  const [fullCall, setFullCall] = React.useState<ToolCall | null>(null);
-  const [loadingFull, setLoadingFull] = React.useState(false);
-  const canLoadFull = call.truncated && Boolean(sessionId);
-  const loadFull = canLoadFull
-    ? () => {
-        if (loadingFull || fullCall !== null) return;
-        setLoadingFull(true);
-        agentHubToolCallDetail(sessionId!, call.id)
-          .then((entry) => setFullCall(toolCallFromDetail(entry?.Payload) ?? { id: call.id }))
-          .catch(() => setFullCall(null))
-          .finally(() => setLoadingFull(false));
-      }
-    : undefined;
+  // The whole call behind a truncated preview, fetched on ask; once loaded it
+  // replaces the preview's content too.
+  const { fullCall, loading: loadingFull, canLoad: canLoadFull, load: loadFull } = useFullToolCall(call, sessionId);
   const fullOutput = fullCall ? toolOutputText(fullCall.rawOutput) : null;
 
   const locations = call.locations ?? [];
@@ -261,9 +327,7 @@ export function AgentToolCall({
   // content text, Codex's MCP result in rawOutput) and names a Codex call by
   // its title; an error gives no input, so the failed row stays as it is.
   // The full row answers for the output; the call on screen for who and how.
-  const resultCall = fullCall
-    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
-    : call;
+  const resultCall = resultCallOf(call, fullCall);
   const resultInput = state === "done" ? toolResultInputOf(resultCall) : null;
   const toolResultNode = resultInput ? renderToolResult(resultInput) : null;
   // Truncated output also makes the row openable: the preview is the summary,

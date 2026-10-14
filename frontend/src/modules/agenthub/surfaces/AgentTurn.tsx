@@ -16,6 +16,8 @@ import {
   AgentAsyncTask,
   AgentThinking,
   AgentToolCall,
+  ToolResultCard,
+  hasResultCard,
 } from "../transcript/index";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
@@ -320,11 +322,15 @@ export const AgentTurn = React.memo(function AgentTurn({
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
 
+/** At most this many results stand outside one run's fold; the rest are counted. */
+const SURFACED_RESULTS = 3;
+
 export function StepGroup({
   items,
   subagents,
   onOpenFile,
   defaultOpen = false,
+  surfaceResults = true,
 }: {
   items: TranscriptItem[];
   /** What each subagent in `items` did, by id — see Turn.subagents. */
@@ -332,6 +338,12 @@ export function StepGroup({
   onOpenFile?: (path: string, line?: number) => void;
   /** Lets a caller (a unit test, mainly) start it expanded. */
   defaultOpen?: boolean;
+  /**
+   * Whether results with a view stand outside the fold. Off inside a
+   * subagent: its work is the subagent's detail, and the lead agent reports
+   * what matters from it.
+   */
+  surfaceResults?: boolean;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
@@ -339,12 +351,30 @@ export function StepGroup({
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
   // behind the fold.
   const commands = React.useMemo(() => items.filter(isRunningCommand), [items]);
+  // A result the owning module draws (a query's rows, a plan, a message) is
+  // what the person asked for, not the account of getting it: it stands after
+  // the fold, in call order, the first few of them. Activities already have
+  // their own card.
+  const results = React.useMemo(
+    () =>
+      surfaceResults
+        ? items.filter((item) => hasResultCard(item.toolCall) && !isToolActivity(item.toolCall))
+        : [],
+    [items, surfaceResults],
+  );
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing. Unless it
-  // is a card: then the line is the way to its raw call.
+  // is a card: then the line is the way to its raw call. A lone result is its
+  // card — the row stays only if the view has nothing to show.
   if (items.length === 1 && activities.length === 0 && commands.length === 0) {
-    return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
+    const row = <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
+    if (results.length === 1) {
+      return <ToolResultCard call={items[0].toolCall!} sessionId={items[0].sessionId} fallback={row} />;
+    }
+    return row;
   }
+  const shown = results.length > SURFACED_RESULTS ? results.slice(0, SURFACED_RESULTS) : results;
+  const more = results.length - shown.length;
   return (
     <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
       <button
@@ -366,6 +396,18 @@ export function StepGroup({
           ))}
         </div>
       </AnimatedCollapse>
+      {shown.length > 0 ? (
+        <div data-testid="step-results" className="flex w-full min-w-0 flex-col gap-2 pt-2">
+          {shown.map((item) => (
+            <ToolResultCard key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
+          ))}
+          {more > 0 ? (
+            <span data-testid="step-results-more" className="text-caption-11 text-text-tertiary">
+              {`+${more} more result${more === 1 ? "" : "s"} in the work above`}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {activities.length > 0 || commands.length > 0 ? (
         <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
@@ -514,7 +556,15 @@ export function SubagentActivity({
             </div>
           );
         }
-        return <StepGroup key={segment.id} items={segment.items} subagents={subagents} onOpenFile={onOpenFile} />;
+        return (
+          <StepGroup
+            key={segment.id}
+            items={segment.items}
+            subagents={subagents}
+            onOpenFile={onOpenFile}
+            surfaceResults={false}
+          />
+        );
       })}
     </div>
   );

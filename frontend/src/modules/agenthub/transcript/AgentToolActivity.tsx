@@ -8,14 +8,15 @@ import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } fro
 import { getModule } from "@/modules/registry";
 import { dispatchIntent } from "@/workbench/intents";
 import { renderToolResult } from "@/workbench/toolResultViews";
-import { toolResultInputOf } from "@/workbench/toolPayload";
+import { toolNameOf, toolResultInputOf } from "@/workbench/toolPayload";
 import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolActivityTarget } from "@/workbench/toolActivity";
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
 
 /** Whether a call is one of the DevKit tools that change something. */
 export function isToolActivity(call: ToolCall | undefined): boolean {
-  return Boolean(toolActivityOf(call?.name));
+  // Codex names no call; its title is `devkit.<tool>` (toolNameOf).
+  return Boolean(call && toolActivityOf(toolNameOf(call)));
 }
 
 /** The intent that opens a target: `<module>.reveal`, but API client's is `api.`. */
@@ -41,7 +42,8 @@ function revealIntent(module: string): string {
  * standing still.
  */
 export const AgentToolActivity = React.memo(function AgentToolActivity({ call }: { call: ToolCall }) {
-  const activity = toolActivityOf(call.name);
+  const name = toolNameOf(call);
+  const activity = toolActivityOf(name);
   const state = toolActivityState(call.status);
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running").current;
@@ -49,9 +51,9 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({ call }:
   const target = React.useMemo(
     () =>
       activity
-        ? activity.target({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, state })
+        ? activity.target({ name, rawInput: call.rawInput, rawOutput: call.rawOutput, state })
         : null,
-    [activity, call.name, call.rawInput, call.rawOutput, state],
+    [activity, name, call.rawInput, call.rawOutput, state],
   );
 
   // The result card's code, fetched while the call is still running.
@@ -78,7 +80,7 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({ call }:
     <div
       data-testid="tool-activity"
       data-state={state}
-      data-tool={call.name}
+      data-tool={name}
       className={cn("w-full min-w-0", bornLive && "activity-enter")}
     >
       {result ? (
