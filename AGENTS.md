@@ -242,11 +242,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     reads the console files once per window, shared with the rail). `db.query` results carry `profile_id`
     (the id the gate confirmed; MCP-only `dbQueryResult`, the console's `QueryResult` is unchanged): the card
     names the connection, and Open in Database (query, and `db.explain` by its input's `profileId`) selects it
-    first through `selectProfileById` (shared with `database.reveal`; not on this device → toast, nothing opens).
-    A query's rows show as the console's result without running (`showAgentResult`, `ResultTab.origin:
-    "agent"`, in memory only, "Agent's result · N rows — run to refresh"), only into a console holding that
-    statement with no result or run of its own; a run replaces them. An older transcript's query (no
-    `profile_id`) opens on the selected connection with a notice, rows included.
+    first through `selectProfileById` (shared with `database.reveal`; not on this device → toast, nothing opens;
+    the reload before it does not auto-select). A switch that would end an open transaction or stop a running
+    console query asks first (`workbench/confirmRequest` → `ConfirmHost`, the shared `ConfirmDialog`; no host →
+    no); Cancel opens nothing, without a toast. A query's rows show as the console's result without running
+    (`showAgentResult`, `ResultTab.origin: "agent"`, in memory only, "Agent's result · N rows — run to
+    refresh"), only into a console holding that statement with nothing of the person's (no result, error or
+    run; earlier agent rows refresh); a run replaces them. Writes get no Open, by shape or by statement
+    (`isWriteStatement`: RETURNING, a data-modifying CTE). An older transcript's query (no `profile_id`) opens
+    on the selected connection with a notice, rows labelled "connection unknown".
   - Tables and topics the session's own results named are references (`transcript/entityRefs.ts`): from
     `db.schema.get`, `db.listForeignKeys`, `kafka.listTopics` and the topic of an answered peek / describe /
     publish. Settled messages only, never inside a link. Order: entity (unless the span has a `/` and reads

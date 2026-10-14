@@ -435,8 +435,8 @@ Where it departs from the sections above, this list wins.
   Only a text entry marked cut makes content text a preview: the call's
   `truncated` flag may stand for a cut `rawInput` or an emptied page image. The
   stored page-image marker (`transcript_slim.go`) is not the answer; `content` is.
-- **F4. Results carry no profile or env.** No card shows an env chip or a
-  duration. Where an *input* names a profile it is used: `db.explain`'s
+- **F4. Results carry no env; only db.query names its profile.** No card shows
+  an env chip or a duration. Where an *input* names a profile it is used: `db.explain`'s
   `profileId` for Open in Database, and `db.schema.get` /
   `db.listForeignKeys`'s for table references (`EntityRef.profileId`).
   Follow-up: `db.query` results now carry `profile_id`, the id the gate
@@ -495,12 +495,20 @@ Where it departs from the sections above, this list wins.
   "Agent query", beside the transcript, on the agent's connection: `db.query`'s
   `profile_id` or `db.explain`'s input `profileId` is selected first, the way
   `database.reveal` selects a table's (reload once, verify; otherwise "its
-  connection isn't on this device" and nothing opens). A query's rows come
-  along as the console's result, labelled "Agent's result · N rows — run to
-  refresh" and held in memory only; a run replaces them. They go only into a
-  console that holds the statement and has no result or run of its own. A
-  query from an older transcript, naming no profile, opens on the selected
-  connection with a notice, rows included. `openSqlConsole` writes only into an empty console, after
+  connection isn't on this device" and nothing opens). A switch that would
+  end an open transaction or stop a running console query asks first
+  ("Switching to staging rolls back the open transaction on prod and stops 1
+  running query. Switch?", `workbench/confirmRequest` + `ConfirmHost`); Cancel
+  opens nothing and says nothing more. A switch that loses nothing is silent,
+  and the list reload before it does not auto-select its first connection.
+  A query's rows come along as the console's result, labelled "Agent's result
+  · N rows — run to refresh" and held in memory only; a run replaces them.
+  They go only into a console that holds the statement and has nothing of
+  the person's: no result of a run, no error of a failed one, no run in
+  progress (earlier agent rows are refreshed). A write — by result shape or
+  by statement (`isWriteStatement`: RETURNING, a data-modifying CTE) — offers
+  no Open. A query from an older transcript, naming no profile, opens on the
+  selected connection with a notice, rows labelled "connection unknown". `openSqlConsole` writes only into an empty console, after
   reading the console files once per window (`database/consoleHydration.ts`,
   shared with the rail). The rail no longer re-reads them on every remount, and
   an open right after a relaunch keeps the person's saved edit.
@@ -525,7 +533,8 @@ Where it departs from the sections above, this list wins.
   active here; unchanged, since its picker already connects the shared
   connection. `db.query` and table references do carry the agent's profile.
 - Switching to the agent's connection is the rail's own switch: it clears
-  every console's result and stops runs in flight, as a click in the rail does.
+  every console's result, as a click in the rail does. It asks first only
+  when a transaction is open or a console query is running.
 - `ssh.runCommand` has no exit code.
 - Result-view chunks are not prefetched. A card's first draw waits on its lazy
   chunk (only activities preload).
