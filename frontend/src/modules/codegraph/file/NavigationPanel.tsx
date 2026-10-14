@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { focusWhenInteractive } from "@/lib/focusWhenInteractive";
 import { Columns2, ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
@@ -52,8 +53,10 @@ export function NavigationPanel({ panel }: { panel: NavigationPanelState }) {
       : `${panel.locations.length} reference${panel.locations.length === 1 ? "" : "s"} to ${panel.identifier}`;
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Once the pane can take it: it is still inert while it slides in.
   useEffect(() => {
-    rootRef.current?.focus();
+    const el = rootRef.current;
+    return el ? focusWhenInteractive(el) : undefined;
   }, [panel.mode, panel.source.path, panel.source.line, panel.identifier]);
 
   const go = (loc: PanelLocation, beside: boolean) =>
