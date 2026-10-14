@@ -23,6 +23,8 @@ import {
   groupSessions,
   drawnWhenHidingClosed,
   needsYou,
+  rowFolder,
+  sessionCount,
   type Attention,
   type SidebarGroup,
 } from "./model";
@@ -174,7 +176,10 @@ export function AgentSessionSidebar({
 
   // What waits on the person, from every workspace, is drawn once, on top.
   const waiting = React.useMemo(() => needsYou(allSessions, attention), [allSessions, attention]);
-  const waitingIds = React.useMemo(() => new Set(waiting.map((x) => x.id)), [waiting]);
+  // Keyed on who is in it, not on the list: a queue change that leaves the same
+  // sessions waiting must not regroup (and rerender) every group.
+  const waitingKey = waiting.map((x) => x.id).join("\u0000");
+  const waitingIds = React.useMemo(() => new Set(waitingKey ? waitingKey.split("\u0000") : []), [waitingKey]);
 
   // Membership is decided on every session, then the ones drawn in Needs you
   // and (when hidden) closed ones are left out of what is drawn — see
@@ -191,6 +196,8 @@ export function AgentSessionSidebar({
   }, [allSessions, scratchRoot, workspaces, hideClosed, activeSessionId, waitingIds, currentWorkspaceId]);
   const hiddenCount = allSessions.length - waiting.length - groups.reduce((n, g) => n + g.sessions.length, 0);
   const titles = React.useMemo(() => new Map(allSessions.map((s) => [s.id, sessionTitle(s)])), [allSessions]);
+  const byId = React.useMemo(() => new Map(allSessions.map((s) => [s.id, s])), [allSessions]);
+  const needsLabelId = React.useId();
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   const expanded = React.useMemo(() => new Set(expandedKeys), [expandedKeys]);
   // While the section folds away its last rows stay drawn, so it shrinks from
@@ -201,9 +208,26 @@ export function AgentSessionSidebar({
   const [needsRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
   const olderOpen = React.useMemo(() => new Set(olderOpenKeys), [olderOpenKeys]);
 
-  const rootRef = React.useRef<HTMLDivElement>(null);
   const viewportRef = React.useRef<HTMLDivElement>(null);
-  const now = useMinuteClock();
+
+  // A card that moves lists — into Needs you, back into its group, out of a
+  // stack when pinned — is remounted by React, and keyboard focus goes with
+  // the old element. If the card the person had focused moved and focus fell
+  // to the page, give it back to the card where it now is. Watched here, over
+  // every list, because a move into Needs you leaves the group altogether.
+  const focusedCard = React.useRef<{ id: string; list: Element | null } | null>(null);
+  React.useLayoutEffect(() => {
+    const focused = focusedCard.current;
+    if (!focused || typeof document === "undefined") return;
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (!lost) return;
+    const moved = Array.from(viewportRef.current?.querySelectorAll<HTMLElement>("[data-session-id]") ?? []).find(
+      (el) => el.dataset.sessionId === focused.id && el.closest('[role="list"]') !== focused.list,
+    );
+    if (!moved) return;
+    focused.list = moved.closest('[role="list"]');
+    moved.querySelector<HTMLElement>('[data-testid="agent-card-open"]')?.focus();
+  });  const now = useMinuteClock();
 
   const newSessionIn = React.useCallback(
     (group: SidebarGroup) => latest.current.onNewSessionIn?.(group.path, group.workspace?.id, group.workspace?.paths),
@@ -216,6 +240,11 @@ export function AgentSessionSidebar({
     if (!current || key === `workspace:${current}`) fold?.(key);
     else open?.(key);
   }, []);
+  const isCurrent = (group: SidebarGroup) => !currentWorkspaceId || group.key === `workspace:${currentWorkspaceId}`;
+  // The session on screen is never folded away inside another workspace: its
+  // group draws open while it holds it.
+  const holdsActive = (group: SidebarGroup) =>
+    !isCurrent(group) && Boolean(activeSessionId) && group.sessions.some((s) => s.id === activeSessionId);
   const toggleOlder = React.useCallback((key: string) => latest.current.onToggleOlder?.(key), []);
 
   // Up/Down/Home/End walk the rail's own stops (group headers, cards, stack
@@ -240,7 +269,7 @@ export function AgentSessionSidebar({
 
   return (
     <SessionActionsContext.Provider value={actions}>
-      <div ref={rootRef} data-testid="agent-session-sidebar" className={cn("flex h-full min-h-0 w-full flex-col", className)}>
+      <div data-testid="agent-session-sidebar" className={cn("flex h-full min-h-0 w-full flex-col", className)}>
         {/* The rail's header, outside the scroller so it stays put. */}
         <SidebarInset className="shrink-0">
           <div className="flex items-center gap-2 px-2 pt-1.5 pb-3">
@@ -284,16 +313,24 @@ export function AgentSessionSidebar({
           ref={viewportRef}
           data-testid="agent-session-viewport"
           onKeyDown={onKeyDown}
+          onFocus={(event) => {
+            const card = (event.target as HTMLElement).closest<HTMLElement>("[data-session-id]");
+            const id = card?.dataset.sessionId;
+            focusedCard.current = id ? { id, list: card.closest('[role="list"]') } : null;
+          }}
           className="min-h-0 flex-1 overflow-y-auto pb-2"
         >
           {/* Eases in when the first session starts waiting and out when the
               last one is answered, instead of pushing the rail down a step. */}
           <AnimatedCollapse open={waiting.length > 0}>
             <SidebarInset>
-              <section data-testid="agent-needs-you" aria-label="Needs you" className="flex flex-col">
-                <div className="px-2 pt-1 pb-1.5 text-caption-11 text-text-tertiary">
+              <section data-testid="agent-needs-you" aria-labelledby={needsLabelId} className="flex flex-col">
+                <div id={needsLabelId} className="px-2 pt-1 pb-1.5 text-caption-11 text-text-tertiary">
                   Needs you
-                  <sup className="ml-0.5 text-text-tertiary/70 tabular-nums">{drawnWaiting.length}</sup>
+                  <sup aria-hidden="true" className="ml-0.5 text-text-tertiary/70 tabular-nums">
+                    {drawnWaiting.length}
+                  </sup>
+                  <span className="sr-only">{sessionCount(drawnWaiting.length)}</span>
                 </div>
                 <div ref={needsRef} role="list" aria-label="Sessions that need you" className="flex flex-col gap-0.5">
                   {drawnWaiting.map((session) => (
@@ -303,7 +340,7 @@ export function AgentSessionSidebar({
                       selected={session.id === activeSessionId}
                       attention={attention[session.id]}
                       ask={asks[session.id] ?? null}
-                      folder={null}
+                      folder={rowFolder(session, byId, scratchRoot, workspaces)}
                       pinned={pinnedIds.includes(session.id)}
                       subagents={subagents[session.id] ?? NO_SUBAGENT_LIST}
                       parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
@@ -331,13 +368,11 @@ export function AgentSessionSidebar({
               <AgentSessionGroup
                 key={group.key}
                 group={group}
-                collapsed={groupCollapsed(group.key, currentWorkspaceId, collapsed, expanded)}
-                current={!currentWorkspaceId || group.key === `workspace:${currentWorkspaceId}`}
+                collapsed={groupCollapsed(group.key, currentWorkspaceId, collapsed, expanded) && !holdsActive(group)}
+                current={isCurrent(group)}
                 olderOpen={olderOpen.has(group.key)}
                 activeId={activeSessionId}
                 pinnedIds={pinnedIds}
-                attention={attention}
-                asks={asks}
                 subagents={subagents}
                 now={now}
                 onToggleCollapsed={toggleCollapsed}

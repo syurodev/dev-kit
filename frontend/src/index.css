@@ -1853,10 +1853,10 @@
     max-height: max(3.5rem, calc(78cqh - 8.5rem));
 }
 
-/* Agent Hub rail: a session (or a group's badge) has just started waiting on the
-   person. Played once by the component that sees the rising edge — never on
-   mount, selection or rerender — and it ends: the left bar and the icon are the
-   standing signal. No fill-mode, so the card's own background returns. */
+/* Agent Hub composer tray: a permission or question has just arrived. Played
+   once by the component that sees the rising edge (useRisingEdge) — never on
+   mount, selection or rerender — and it ends: the tray's chip is the standing
+   signal. No fill-mode, so the element's own background returns. */
 .agent-attention-flash {
     animation: agent-attention-flash 1400ms var(--ease-out-strong) 1;
 }
@@ -1883,8 +1883,21 @@
     box-shadow: inset 0 0 0 1.5px currentColor;
 }
 /* Session avatar (sidebar/SessionAvatar.tsx). The arc is a half-ring turning
-   slowly; the badge sits on the row's ground (--avatar-ground, set by the row:
-   app on rest, raised when selected or hovered). Only transform/opacity move. */
+   slowly; the badge rings itself in the row's ground (--avatar-ground, set
+   below from the row's state: the app ground at rest, state-soft over it when
+   hovered or focused, raised when selected). Only transform/opacity move. */
+[data-slot="agent-session-card"] {
+    --avatar-ground: var(--background-app);
+}
+/* What bg-state-soft draws over the app ground, as one opaque colour. */
+[data-slot="agent-session-card"]:hover,
+[data-slot="agent-session-card"]:focus-within {
+    --avatar-ground: color-mix(in srgb, var(--tint-veil) 6%, var(--background-app));
+}
+/* After hover so a selected row keeps its raised ground under the pointer. */
+[data-slot="agent-session-card"][data-selected] {
+    --avatar-ground: var(--surface-raised);
+}
 .agent-avatar-spin {
     border: 1.5px solid transparent;
     border-top-color: var(--text-primary);

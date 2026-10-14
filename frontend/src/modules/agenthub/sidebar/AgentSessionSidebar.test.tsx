@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type * as React from "react";
 import { renderToString } from "react-dom/server";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -13,7 +15,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionActionsContext, SessionMenuItems, subagentMenuEntries, type MenuKit, type SessionActions } from "./actions";
 import { AgentSessionCard, type AgentSessionCardProps } from "./AgentSessionCard";
 import { AgentSessionSidebar, type AgentSessionSidebarProps } from "./AgentSessionSidebar";
-import { AgentSubagentAvatars } from "./AgentSubagentAvatars";
 import { attentionBySession } from "./model";
 import { showSubagent } from "./openSubagent";
 
@@ -436,60 +437,6 @@ describe("a card", () => {
   });
 });
 
-describe("subagent avatars", () => {
-  const five: Subagent[] = [1, 2, 3, 4, 5].map((n) => ({ id: `a${n}`, name: `Agent ${n}`, state: n === 3 ? "failed" : n === 5 ? "completed" : undefined }));
-  const avatars = (max: number, list = five) =>
-    renderToString(
-      <TooltipProvider>
-        <AgentSubagentAvatars subagents={list} max={max} onOpen={noop} />
-      </TooltipProvider>,
-    );
-
-  it("shows up to three avatars and the rest as +N", () => {
-    const html = avatars(3);
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(3);
-    expect(html).toContain("+2");
-    expect(html).toContain('aria-label="5 subagents, show all"');
-  });
-
-  it("two when the rail is narrow", () => {
-    const html = avatars(2);
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(2);
-    expect(html).toContain("+3");
-  });
-
-  it("no +N when they all fit", () => {
-    const html = avatars(3, five.slice(0, 3));
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(3);
-    expect(html).not.toContain("agent-subagent-more");
-  });
-
-  it("the group is named in full, with every state, and sits at 16px", () => {
-    const html = avatars(3);
-    expect(html).toContain('role="group"');
-    expect(html).toContain("5 subagents: Agent 1, running; Agent 2, running; Agent 4, running; Agent 3, failed; Agent 5, done");
-    expect(html).toContain("size-4");
-  });
-
-  it("running ones come first, so the avatars that fit are the ones worth a glance", () => {
-    const html = avatars(3);
-    const shown = [...html.matchAll(/aria-label="Open ([^"]+)"/g)].map((m) => m[1]);
-    expect(shown).toEqual(["Agent 1, running", "Agent 2, running", "Agent 4, running"]);
-  });
-
-  it("uses the subagent's own initials, and a bot glyph when it never gave a name", () => {
-    const html = avatars(3, [{ id: "abcdef123", name: "Review whitelist" }, { id: "zzzzzz999" }]);
-    expect(html).toContain(">R<");
-    expect(html).toContain("lucide-bot");
-    // No picture is invented for either.
-    expect(html).not.toContain("<img");
-  });
-
-  it("renders nothing for no subagents", () => {
-    expect(avatars(3, [])).toBe("");
-  });
-});
-
 describe("tabs, selection and resources", () => {
   const tabs = () => moduleTabs(useWorkbenchTabsStore.getState().modules, "agenthub");
 
@@ -733,5 +680,56 @@ describe("subagents in a row's menu", () => {
 
   it("no group for a session with none", () => {
     expect(menu([])).not.toContain("Subagents");
+  });
+});
+
+describe("after needs-you", () => {
+  it("a folder with nothing after it has no dangling dot", () => {
+    const html = renderCard({ session: session("a"), folder: "web" });
+    expect(html).toContain('opacity-70">web</span>');
+    expect(html).not.toContain("web · ");
+  });
+
+  it("a waiting row in a workspace of several folders says its folder too", () => {
+    const html = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", status: "error", preview: "Broke." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
+    });
+    expect(html).toContain('data-testid="agent-needs-you"');
+    expect(cardHtml(html, "a")).toMatch(/opacity-70">web · <\/span>Broke\./);
+  });
+
+  it("the face's ring colour is the stylesheet's, not an inline style", () => {
+    const html = render({ sessions: aged(2), activeSessionId: "s1" });
+    expect(html).not.toContain("--avatar-ground");
+  });
+
+  it("the session on screen is drawn though its workspace is folded", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      activeSessionId: "y",
+    });
+    expect(cardIds(html)).toContain("y");
+    expect(html).not.toMatch(/data-group-key="workspace:2"[^>]*data-collapsed="true"/);
+  });
+
+  it("counts are said in words to a screen reader, and Needs you is named by its label", () => {
+    const html = render({ sessions: [...aged(3), session("w", { status: "error" })] });
+    expect(html).toContain('<span class="sr-only">, 3 sessions</span>');
+    expect(html).toContain('<span class="sr-only">, 1 session</span>');
+    const id = html.match(/data-testid="agent-needs-you" aria-labelledby="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`id="${id}"`);
+    expect(html).not.toContain('aria-label="Needs you"');
+  });
+
+  it("the rail draws its focus rings with the focus token", () => {
+    const dir = import.meta.dir;
+    const offenders = readdirSync(dir)
+      .filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))
+      .filter((name) => readFileSync(join(dir, name), "utf8").includes("ring-status-info"));
+    expect(offenders).toEqual([]);
   });
 });

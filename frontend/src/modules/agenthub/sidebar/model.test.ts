@@ -10,7 +10,6 @@ import {
   cardSummary,
   compareRecent,
   groupSessions,
-  initials,
   nextWaiting,
   orderSubagents,
   partitionGroup,
@@ -336,15 +335,6 @@ describe("subagents", () => {
 
   it("puts running first, then failed, then done, each in the order it came", () => {
     expect(orderSubagents(agents).map((a) => a.id)).toEqual(["b", "d", "c", "a"]);
-  });
-
-  it("takes initials from the name it has, and none when it has none", () => {
-    expect(initials("Review whitelist")).toBe("RW");
-    expect(initials("explore")).toBe("E");
-    expect(initials("  ")).toBe("");
-    expect(initials(undefined)).toBe("");
-    expect(initials("Éclair-fix")).toBe("ÉF");
-    expect(initials("Review whitelist", 1)).toBe("R");
   });
 
   it("names every subagent and its state, not only the ones that fit", () => {

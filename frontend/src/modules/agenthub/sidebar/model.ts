@@ -12,9 +12,6 @@ import { projectLabel, sessionGroup, type SidebarWorkspace } from "./grouping";
 /** Ordinary recent sessions a group shows before the rest fold into its stack. */
 export const RECENT_LIMIT = 5;
 
-/** A rail narrower than this drops the time and one avatar (see useRailWidth). */
-export const NARROW_RAIL_WIDTH = 240;
-
 // ---------------------------------------------------------------------------
 // Attention
 
@@ -84,6 +81,33 @@ export type SidebarGroup = {
   sessions: AgentSession[];
 };
 
+/** The top of a session's lineage among `byId`: itself when its parent is not there. */
+export function lineageRoot(session: AgentSession, byId: ReadonlyMap<string, AgentSession>): AgentSession {
+  const seen = new Set<string>([session.id]);
+  let at = session;
+  for (;;) {
+    const parent = at.parentSessionId ? byId.get(at.parentSessionId) : undefined;
+    if (!parent || seen.has(parent.id)) return at;
+    seen.add(parent.id);
+    at = parent;
+  }
+}
+
+/**
+ * The folder label a row shows before its second line: only when the
+ * workspace the session is filed in (by groupSessions' rule, through its
+ * lineage) has more than one folder. Null otherwise.
+ */
+export function rowFolder(
+  session: AgentSession,
+  byId: ReadonlyMap<string, AgentSession>,
+  scratchRoot: string,
+  workspaces: SidebarWorkspace[],
+): string | null {
+  const { workspace } = sessionGroup(lineageRoot(session, byId), scratchRoot, workspaces);
+  return workspace && workspace.paths.length > 1 ? projectLabel(session.projectPath) : null;
+}
+
 /**
  * Sessions by workspace / folder.
  *
@@ -109,16 +133,7 @@ export function groupSessions(
   keep?: (session: AgentSession) => boolean,
 ): SidebarGroup[] {
   const byId = new Map(sessions.map((s) => [s.id, s]));
-  const rootOf = (session: AgentSession): AgentSession => {
-    const seen = new Set<string>([session.id]);
-    let at = session;
-    for (;;) {
-      const parent = at.parentSessionId ? byId.get(at.parentSessionId) : undefined;
-      if (!parent || seen.has(parent.id)) return at;
-      seen.add(parent.id);
-      at = parent;
-    }
-  };
+  const rootOf = (session: AgentSession) => lineageRoot(session, byId);
 
   const groups = new Map<string, { workspace?: SidebarWorkspace; sessions: AgentSession[] }>();
   for (const session of sessions) {
@@ -239,6 +254,11 @@ export function groupCollapsed(
 ): boolean {
   if (!currentWorkspaceId || key === `workspace:${currentWorkspaceId}`) return collapsed.has(key);
   return !expanded.has(key);
+}
+
+/** ", 3 sessions": the superscript count, as a screen reader says it. */
+export function sessionCount(n: number): string {
+  return `, ${n} ${n === 1 ? "session" : "sessions"}`;
 }
 
 export type PartitionOptions = {
@@ -364,20 +384,7 @@ export function orderSubagents(agents: readonly Subagent[]): Subagent[] {
     .map(({ agent }) => agent);
 }
 
-/**
- * Capitals from a name — the first letter of its first `count` words — or an
- * empty string when there is nothing to take them from.
- */
-export function initials(name: string | undefined, count = 2): string {
-  const words = (name ?? "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  return words
-    .slice(0, count)
-    .map((word) => Array.from(word)[0] ?? "")
-    .join("")
-    .toLocaleUpperCase();
-}
-
-/** The avatar group's accessible name: every subagent, not only the ones that fit. */
+/** Every subagent of a session, in one sentence: the card's description says them all. */
 export function subagentsLabel(agents: readonly Subagent[]): string {
   if (agents.length === 0) return "";
   return `${agents.length} subagent${agents.length === 1 ? "" : "s"}: ${orderSubagents(agents).map(subagentLabel).join("; ")}`;

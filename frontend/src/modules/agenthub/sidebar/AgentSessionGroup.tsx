@@ -21,7 +21,7 @@ import { sessionTitle } from "../documents";
 import { useSessionActions } from "./actions";
 import { AgentSessionCard } from "./AgentSessionCard";
 import { projectLabel } from "./grouping";
-import { partitionGroup, attentionKind, type Attention, type SidebarGroup } from "./model";
+import { partitionGroup, sessionCount, type SidebarGroup } from "./model";
 
 const NO_SUBAGENTS: readonly Subagent[] = [];
 
@@ -36,9 +36,6 @@ export type AgentSessionGroupProps = {
   olderOpen: boolean;
   activeId?: string;
   pinnedIds: readonly string[];
-  attention: Record<string, Attention>;
-  /** What each waiting session asks, in its own words, by session id. */
-  asks: Record<string, string>;
   subagents: Record<string, Subagent[]>;
   now: number;
   onToggleCollapsed: (key: string) => void;
@@ -87,8 +84,6 @@ function AgentSessionGroupView({
   olderOpen,
   activeId,
   pinnedIds,
-  attention,
-  asks,
   subagents,
   now,
   onToggleCollapsed,
@@ -109,35 +104,15 @@ function AgentSessionGroupView({
       partitionGroup(group.sessions, {
         activeId: olderOpen ? undefined : activeId,
         pinnedIds,
-        waiting: (s) => attentionKind(s, attention[s.id]) !== null,
       }),
-    [group.sessions, activeId, olderOpen, pinnedIds, attention],
+    [group.sessions, activeId, olderOpen, pinnedIds],
   );
 
-  // A card that still has to move lists (a pin, a session that starts waiting)
-  // is remounted by React. If it held focus, give it back.
-  const sectionRef = React.useRef<HTMLElement>(null);
-  const focusedCard = React.useRef<string | null>(null);
-  const placed = React.useRef(new Map<string, "shown" | "stacked">());
-  React.useLayoutEffect(() => {
-    const next = new Map<string, "shown" | "stacked">();
-    for (const s of shown) next.set(s.id, "shown");
-    for (const s of stacked) next.set(s.id, "stacked");
-    const id = focusedCard.current;
-    const lost = typeof document !== "undefined" && (!document.activeElement || document.activeElement === document.body);
-    if (id && lost && placed.current.has(id) && placed.current.get(id) !== next.get(id)) {
-      const button = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>("[data-session-id]") ?? [])
-        .find((el) => el.dataset.sessionId === id)
-        ?.querySelector<HTMLElement>('[data-testid="agent-card-open"]');
-      button?.focus();
-    }
-    placed.current = next;
-  });
   const running = React.useMemo(() => group.sessions.filter((s) => s.status === "running").length, [group.sessions]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
 
   // Rows that come and go — pulled out of the stack, a new session, one that
-  // starts or stops waiting — slide instead of cutting. A list drawn because
+  // leaves for or comes back from Needs you — slide instead of cutting. A list drawn because
   // the group or the stack just opened is not animated: auto-animate only
   // reacts to changes after it attaches, and the collapse already moves.
   const listMotion = { duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS };
@@ -158,8 +133,8 @@ function AgentSessionGroupView({
       key={session.id}
       session={session}
       selected={session.id === activeId}
-      attention={attention[session.id]}
-      ask={asks[session.id] ?? null}
+      // Anything waiting on the person is drawn in Needs you, not here.
+      ask={null}
       folder={severalFolders ? projectLabel(session.projectPath) : null}
       pinned={pinnedIds.includes(session.id)}
       subagents={subagents[session.id] ?? NO_SUBAGENTS}
@@ -170,10 +145,6 @@ function AgentSessionGroupView({
 
   return (
     <section
-      ref={sectionRef}
-      onFocus={(event) => {
-        focusedCard.current = (event.target as HTMLElement).closest<HTMLElement>("[data-session-id]")?.dataset.sessionId ?? null;
-      }}
       data-testid="agent-session-group"
       data-group-key={group.key}
       data-collapsed={collapsed || undefined}
@@ -192,7 +163,7 @@ function AgentSessionGroupView({
               aria-controls={bodyId}
               title={hint}
               onClick={() => onToggleCollapsed(group.key)}
-              className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-status-info"
+              className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50"
             >
               {/* Inline, so the count sits as a superscript after the name and
                   both truncate together. */}
@@ -203,10 +174,15 @@ function AgentSessionGroupView({
                 >
                   {group.label}
                 </span>
-                {/* Light: the count is context, the badge beside it is the signal. */}
-                <sup data-testid="agent-group-count" className="ml-0.5 text-caption-11 text-text-tertiary/70 tabular-nums">
+                {/* Light: the count is context. Said in words to a reader. */}
+                <sup
+                  data-testid="agent-group-count"
+                  aria-hidden="true"
+                  className="ml-0.5 text-caption-11 text-text-tertiary/70 tabular-nums"
+                >
                   {group.sessions.length}
                 </sup>
+                <span className="sr-only">{sessionCount(group.sessions.length)}</span>
               </span>
               <ChevronRight
                 aria-hidden="true"

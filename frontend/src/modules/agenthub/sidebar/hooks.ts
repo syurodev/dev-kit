@@ -1,19 +1,18 @@
 import * as React from "react";
-import { NARROW_RAIL_WIDTH } from "./model";
 
 /** How long a "just started waiting" effect holds its class: flash 1.4s, then 3 pulses of 0.64s. */
 export const ATTENTION_EFFECT_MS = 2200;
 
 /**
- * True for a moment after `value` goes UP — a session that started waiting, a
- * group whose waiting count grew.
+ * True for a moment after `value` goes UP — the composer tray's count of
+ * permissions and questions grew.
  *
- * Only a change seen while mounted counts. A card that mounts already waiting
- * (a group opened, a stack unfolded, the rail reopened) plays nothing, and
- * neither does a rerender or a selection change: the effect is "this just
- * happened", and the standing signal for "this is waiting" is the bar and the
- * icon. The timer is not tied to the effect's cleanup, or the next unrelated
- * change would cancel it and leave the class on for good.
+ * Only a change seen while mounted counts. A tray that mounts with something
+ * already waiting plays nothing, and neither does a rerender: the effect is
+ * "this just happened", and the standing signal for "this is waiting" is
+ * whatever stays drawn (the tray's chip, the dot on a session's face). The
+ * timer is not tied to the effect's cleanup, or the next unrelated change
+ * would cancel it and leave the class on for good.
  */
 export function useRisingEdge(value: number | boolean): boolean {
   const level = Number(value);
@@ -55,27 +54,4 @@ export function useMinuteClock(): number {
     return () => clearInterval(id);
   }, []);
   return now;
-}
-
-/**
- * Whether the rail is narrow, from the width its own content box is given. The
- * shell owns the width and lets the person drag it; the rail only reads it, to
- * decide what it can still afford to say. Wide until measured, which is also
- * what server rendering shows.
- */
-export function useNarrowRail(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [narrow, setNarrow] = React.useState(false);
-  React.useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const read = (width: number) => setNarrow(width > 0 && width < NARROW_RAIL_WIDTH);
-    read(el.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
-      if (box) read(box.width);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
-  return narrow;
 }

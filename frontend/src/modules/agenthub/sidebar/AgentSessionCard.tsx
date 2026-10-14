@@ -25,7 +25,6 @@ import type { Subagent } from "../types";
 import { vendorInfo } from "../vendors";
 import { sessionTitle } from "../documents";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
-import { useRisingEdge } from "./hooks";
 import { attentionKind, cardSummary, secondLine, shortAge, type Attention } from "./model";
 import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 
@@ -72,9 +71,12 @@ export type AgentSessionCardProps = {
  * its ::after stretches over the card so the whole card opens the session, and
  * the "…" menu sits above it (z-20) as a sibling, so no button holds another.
  *
- * Waiting: the dot on the face is the standing signal. The background flash
- * plays once, on the render where waiting begins (useRisingEdge) — not on
- * mount, not on selection.
+ * Waiting: the dot on the face is the standing signal. A session that starts
+ * waiting moves into Needs you, and that list's enter motion is the "this just
+ * happened"; the row plays nothing of its own.
+ *
+ * The face's dot rings itself in the row's ground (--avatar-ground), which the
+ * stylesheet sets from the row's state: at rest, hovered or focused, selected.
  */
 function AgentSessionCardView({
   session,
@@ -92,7 +94,6 @@ function AgentSessionCardView({
   const title = sessionTitle(session);
   const kind = attentionKind(session, attention);
   const waiting = kind !== null;
-  const flash = useRisingEdge(waiting);
   const age = shortAge(session.updatedAt, now);
   const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle });
   const line = secondLine({ session, ask, folder });
@@ -118,12 +119,9 @@ function AgentSessionCardView({
       data-status={session.status || "idle"}
       data-selected={selected || undefined}
       data-waiting={waiting || undefined}
-      // The ground the face's dot rings itself with: the row's own.
-      style={{ "--avatar-ground": selected ? "var(--surface-raised)" : "var(--background-app)" } as React.CSSProperties}
       className={cn(
         "group/card relative flex h-12.5 items-center gap-2.75 rounded-lg px-2 transition-colors duration-(--motion-fast)",
         selected ? "bg-surface-raised" : "hover:bg-state-soft focus-within:bg-state-soft",
-        flash && "agent-attention-flash",
       )}
     >
       <SessionAvatar vendor={session.agentType} state={avatarState} />
@@ -145,7 +143,7 @@ function AgentSessionCardView({
                   "block min-w-0 flex-1 cursor-pointer text-left outline-none",
                   // The stretched hit area doubles as the focus ring, so the ring is
                   // the whole card rather than a line of text.
-                  "after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-status-info",
+                  "after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-border-focus/50",
                 )}
               >
                 <span
@@ -192,7 +190,7 @@ function AgentSessionCardView({
                 : "text-text-tertiary",
           )}
         >
-          {line.folder ? <span className="opacity-70">{`${line.folder} · `}</span> : null}
+          {line.folder ? <span className="opacity-70">{line.text ? `${line.folder} · ` : line.folder}</span> : null}
           {/* A blank line still takes its height, so every row is the same two lines. */}
           {line.text || (line.folder ? null : "\u00a0")}
         </span>
