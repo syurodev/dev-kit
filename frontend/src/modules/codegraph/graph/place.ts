@@ -46,3 +46,27 @@ export function place(
   }
   return out;
 }
+
+/**
+ * How much room the placed cards take, unscaled: from the top-left card's
+ * corner to the far edges of the right- and bottom-most. Null with nothing
+ * placed or measured.
+ */
+export function graphBounds(
+  positions: ReadonlyMap<string, Position>,
+  sizes: ReadonlyMap<string, Size>,
+): Size | null {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const [id, p] of positions) {
+    const size = sizes.get(id);
+    if (!size) continue;
+    left = Math.min(left, p.x);
+    top = Math.min(top, p.y);
+    right = Math.max(right, p.x + size.width);
+    bottom = Math.max(bottom, p.y + size.height);
+  }
+  return right > left ? { width: right - left, height: bottom - top } : null;
+}

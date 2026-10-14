@@ -25,9 +25,9 @@ import { ApiNode } from "./ApiNode";
 import { PlanNode } from "../plan/PlanNode";
 import { ConnectorEdge } from "./ConnectorEdge";
 import { LayerLegend } from "./LayerLegend";
-import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasFitButton, CanvasToolbar } from "./CanvasToolbar";
 import { rankGraph } from "./rank";
-import { place } from "./place";
+import { graphBounds, place, type Size } from "./place";
 import { shortLabel } from "./labels";
 import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
@@ -57,9 +57,10 @@ const edgeTypes = { connector: ConnectorEdge };
  * the whole graph's aspect ratio, so shrinking the tighter (bottom) constraint
  * lets it zoom in and use the width too.
  */
-function fitPadding(legend: boolean) {
+function fitPadding(legend: boolean, compact: boolean) {
   // `as const` so the values keep their literal types: React Flow's Padding is
   // a template literal (`${number}px`), and a widened `string` does not match.
+  if (compact) return { top: "12px", left: "12px", right: "12px", bottom: "12px" } as const;
   return {
     top: "16px",
     left: "16px",
@@ -161,6 +162,21 @@ export type FlowCanvasProps = {
   hint?: ReactNode;
   /** Adds the dashed-border legend the plan canvas needs. */
   planLegend?: boolean;
+  /**
+   * A glance in a card rather than a document: no header strip (its search
+   * and expand do nothing there), one fit button over the canvas, never
+   * zoomed past 100% to fill the box, and the wheel scrolls the page around
+   * it rather than zooming a canvas the reader was scrolling past.
+   */
+  compact?: boolean;
+  /**
+   * React Flow's "React Flow" badge. On by default, as codegraph keeps it; a
+   * canvas whose box is too small for it to read (or whose dark ground it
+   * cannot read on) turns it off.
+   */
+  attribution?: boolean;
+  /** The placed graph's unscaled size, after every layout — for a box that sizes to it. */
+  onGraphSize?: (size: Size) => void;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -187,6 +203,9 @@ function Canvas({
   meta,
   hint,
   planLegend,
+  compact = false,
+  attribution = true,
+  onGraphSize,
 }: FlowCanvasProps) {
   const { fitView } = useReactFlow();
 
@@ -259,9 +278,11 @@ function Canvas({
   }, [desiredNodes, selectedNodeId]);
 
   const fitOptions = useMemo(
-    () => ({ padding: fitPadding(legend), duration: 200 }),
-    [legend],
+    () => ({ padding: fitPadding(legend, compact), duration: 200, ...(compact ? { maxZoom: 1 } : {}) }),
+    [legend, compact],
   );
+  const onGraphSizeRef = useRef(onGraphSize);
+  onGraphSizeRef.current = onGraphSize;
 
   // The layout is a function of the ranking alone, so it re-runs when the
   // ranking does (a new node, a new edge) and never on a data-only update.
@@ -299,6 +320,8 @@ function Canvas({
     lastPlacedIds.current = ids;
     setPlacedIds(ids);
     setPlacedKey(layoutKey);
+    const bounds = graphBounds(positions, sizes);
+    if (bounds) onGraphSizeRef.current?.(bounds);
     // Fit on the first placement and when the node set changed; a re-layout
     // of the same nodes keeps whatever pan and zoom the user chose. fitView is
     // queued by React Flow until the new positions have reached its store.
@@ -422,26 +445,28 @@ function Canvas({
   };
 
   return (
-    <div className="flex size-full flex-col px-4 pt-3">
+    <div className={compact ? "flex size-full flex-col" : "flex size-full flex-col px-4 pt-3"}>
       {/* Header lives outside ReactFlow but inside its provider, so the
           toolbar's fitView works and the row never pans with the graph. */}
-      <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
-        <div className="flex min-w-0 items-center gap-2.5">{header}</div>
-        <div className="flex shrink-0 items-center gap-3.5">
-          {typeof meta === "function" ? meta(counts) : meta}
-          <CanvasToolbar
-            onSearch={() => {}}
-            onFit={() => {
-              // Asking for a fit hands the view back to the layout.
-              userMoved.current = false;
-              void fitView(fitOptions);
-            }}
-            onExpand={() => {}}
-            fitActive
-          />
+      {compact ? null : (
+        <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
+          <div className="flex min-w-0 items-center gap-2.5">{header}</div>
+          <div className="flex shrink-0 items-center gap-3.5">
+            {typeof meta === "function" ? meta(counts) : meta}
+            <CanvasToolbar
+              onSearch={() => {}}
+              onFit={() => {
+                // Asking for a fit hands the view back to the layout.
+                userMoved.current = false;
+                void fitView(fitOptions);
+              }}
+              onExpand={() => {}}
+              fitActive
+            />
+          </div>
         </div>
-      </div>
-      <div className="h-px shrink-0 bg-border-subtle" />
+      )}
+      {compact ? null : <div className="h-px shrink-0 bg-border-subtle" />}
 
       <div
         ref={viewport}
@@ -478,7 +503,9 @@ function Canvas({
           onMoveStart={(event) => {
             if (event) userMoved.current = true;
           }}
-          proOptions={{ hideAttribution: false }}
+          proOptions={{ hideAttribution: !attribution }}
+          zoomOnScroll={!compact}
+          preventScrolling={!compact}
         >
           <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />
           {legend && (
@@ -496,6 +523,16 @@ function Canvas({
               <div className="rounded-md border border-glass-border bg-surface-glass-floating px-3 py-2.25 text-label-12 text-text-secondary shadow-canvas-overlay backdrop-blur-lg">
                 {hint}
               </div>
+            </Panel>
+          )}
+          {compact && (
+            <Panel position="top-right">
+              <CanvasFitButton
+                onFit={() => {
+                  userMoved.current = false;
+                  void fitView(fitOptions);
+                }}
+              />
             </Panel>
           )}
           {inspector}

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { QueryResultCard } from "./QueryResultCard";
-import { PlanResultCard } from "./PlanResultCard";
+import { PlanResultCard, planBoxHeight } from "./PlanResultCard";
 import { ForeignKeysResultCard, SchemaResultCard } from "./SchemaResultCard";
 import type { ParsedQueryResult } from "./parse";
 import { tableKey } from "./lists";
@@ -126,6 +126,22 @@ describe("PlanResultCard", () => {
 
   test("without the statement there is nothing to open", () => {
     expect(renderToString(<PlanResultCard plan={plan} sql="" />)).not.toContain("Open in Database");
+  });
+
+  // The card is a glance: the canvas's search/expand strip and the rule under
+  // it crowded a 288px box, and React Flow's badge was unreadable in dark mode.
+  test("draws the compact canvas: one fit button, no toolbar strip, no badge", () => {
+    const html = renderToString(<PlanResultCard plan={plan} sql="select 1" />);
+    expect(html).toContain('aria-label="Fit to view"');
+    expect(html).not.toContain('aria-label="Search nodes"');
+    expect(html).not.toContain('aria-label="Expand all"');
+    expect(html).not.toContain("react-flow__attribution");
+  });
+
+  test("the box takes the laid-out graph's height, within bounds", () => {
+    expect(planBoxHeight(330)).toBe(354);
+    expect(planBoxHeight(40)).toBe(160);
+    expect(planBoxHeight(2000)).toBe(448);
   });
 });
 

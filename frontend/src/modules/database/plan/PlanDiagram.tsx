@@ -144,7 +144,16 @@ function toCanvasNode(node: GraphNode): CodeGraphNode {
   };
 }
 
-export function PlanDiagram({ graph }: { graph: GraphSpec }) {
+export function PlanDiagram({
+  graph,
+  compact = false,
+  onGraphSize,
+}: {
+  graph: GraphSpec;
+  /** The card's glance: see FlowCanvas's `compact`. The console's Explain keeps the full canvas. */
+  compact?: boolean;
+  onGraphSize?: (size: { width: number; height: number }) => void;
+}) {
   const canvas = useMemo(() => {
     const byId = new Map(graph.nodes.map((node) => [node.id, node]));
     const nodes = graph.nodes.map(toCanvasNode);
@@ -194,6 +203,11 @@ export function PlanDiagram({ graph }: { graph: GraphSpec }) {
       nodeTypes={nodeTypes}
       legend={false}
       buildData={buildData}
+      compact={compact}
+      onGraphSize={onGraphSize}
+      // React Flow's badge sat bottom-right as a pale box nobody could read on
+      // the dark ground, in the card and in the console's Explain alike.
+      attribution={false}
     />
   );
 }
