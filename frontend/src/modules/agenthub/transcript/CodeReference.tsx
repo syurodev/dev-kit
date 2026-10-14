@@ -131,8 +131,9 @@ export function CommitPreview({ sha, folder, onOpen }: { sha: string; folder: st
         {folder ? <span className="min-w-0 truncate text-caption-11 text-text-tertiary">{`Commit in ${folder}`}</span> : null}
       </div>
       <PreviewFooter>
+        {/* Opening pins Git to this repository; the button says so before it happens. */}
         <Button size="xs" variant="secondary" onClick={onOpen}>
-          Open in Git
+          {folder ? `Open in Git (switches Git to ${folder})` : "Open in Git"}
         </Button>
       </PreviewFooter>
     </div>

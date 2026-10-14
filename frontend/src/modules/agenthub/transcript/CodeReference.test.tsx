@@ -62,6 +62,35 @@ describe("symbols in prose", () => {
   });
 });
 
+describe("code inside a link", () => {
+  test("a commit hash linked to its page is the link only", () => {
+    const html = prose("Fixed in [`abc1234`](https://github.com/o/r/commit/abc1234).", true);
+    expect(html).toContain('data-testid="agent-link"');
+    expect(html).not.toContain("agent-commit-ref");
+    expect(html).not.toContain('role="button"');
+  });
+
+  test("a symbol or a path linked to a file is the link only", () => {
+    const html = prose("See [`Service.Invoke`](src/service.go:12) and [`src/service.go`](src/service.go).", true);
+    expect(html.match(/data-testid="agent-link"/g)?.length).toBe(2);
+    expect(html).not.toContain("agent-symbol-ref");
+    expect(html).not.toContain("agent-file-ref");
+  });
+
+  test("emphasis inside a link is still inside it", () => {
+    expect(prose("[**`abc1234`**](https://x.dev/c/abc1234)", true)).not.toContain("agent-commit-ref");
+  });
+});
+
+describe("accessible names", () => {
+  test("each reference says what it is and where it opens", () => {
+    const html = prose("`Service.Invoke`, `a1b2c3d4e5` and `auth/session.go:88`.", true);
+    expect(html).toContain('aria-label="Symbol Service.Invoke, opens definition"');
+    expect(html).toContain('aria-label="Commit a1b2c3d, opens in Git"');
+    expect(html).toContain('aria-label="File auth/session.go:88, opens in editor"');
+  });
+});
+
 describe("commits in prose", () => {
   test("a settled message links a commit hash, with a dotted underline", () => {
     const html = prose("Landed in `a1b2c3d`.", true);
@@ -79,12 +108,12 @@ describe("commits in prose", () => {
 });
 
 describe("CommitPreview", () => {
-  test("the short sha, the folder and Open in Git", () => {
+  test("the short sha, the folder and Open in Git, which says it moves Git", () => {
     const html = renderToString(<CommitPreview sha="a1b2c3d4e5f6a7b8" folder="repo" onOpen={() => {}} />);
     expect(html).toContain('data-testid="ref-preview-commit"');
     expect(html).toContain(">a1b2c3d<");
     expect(html).toContain("Commit in repo");
-    expect(html).toContain(">Open in Git<");
+    expect(html).toContain("Open in Git (switches Git to repo)");
   });
 });
 

@@ -68,12 +68,20 @@ const REF_CODE =
  * text. A file is underlined solid; a symbol or commit, found by lookup or by
  * shape rather than written as a path, dotted.
  */
-function refCode(testId: string, value: string, open?: (event: React.SyntheticEvent<HTMLElement>) => void, dotted = false) {
+function refCode(
+  testId: string,
+  value: string,
+  label: string,
+  open?: (event: React.SyntheticEvent<HTMLElement>) => void,
+  dotted = false,
+) {
   return (
     <code
       role="button"
       tabIndex={0}
       data-testid={testId}
+      // What it is and where it goes; the code alone says neither to a screen reader.
+      aria-label={label}
       // Without `open` the wrapper opens it (FileReference), so nothing here can go stale.
       onClick={open}
       onKeyDown={
@@ -129,7 +137,12 @@ export function Inline({ text }: { text: string }) {
   return <InlineNodes tokens={parseInline(text)} />;
 }
 
-function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
+/**
+ * `inLink`: these tokens are a link's text. Code there stays plain code, so a
+ * click opens what the link points at, once, rather than a reference nested
+ * inside it as well.
+ */
+function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink?: boolean }) {
   const { onOpenFile, openRef, refContext, refPlacement } = useTranscriptActions();
   const { settled, symbols } = React.useContext(CodeRefsContext);
   const canOpen = Boolean(openRef || onOpenFile);
@@ -138,29 +151,35 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
       {tokens.map((token, idx) => {
         switch (token.type) {
           case "code": {
-            const ref = canOpen ? fileRef(token.value) : null;
+            const ref = canOpen && !inLink ? fileRef(token.value) : null;
             if (ref) {
               return (
                 <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
-                  {refCode("agent-file-ref", token.value)}
+                  {refCode("agent-file-ref", token.value, `File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`)}
                 </FileReference>
               );
             }
             const placement = refPlacement ?? "beside";
             // A commit needs a repository to open in: the session's project.
-            if (settled && refContext?.projectPath && commitCandidate(token.value)) {
+            if (settled && !inLink && refContext?.projectPath && commitCandidate(token.value)) {
               const sha = token.value;
               return (
                 <CommitReference key={idx} sha={sha} refContext={refContext}>
-                  {refCode("agent-commit-ref", sha, () => void openCommitRef(sha, refContext, placement), true)}
+                  {refCode(
+                    "agent-commit-ref",
+                    sha,
+                    `Commit ${sha.slice(0, 7)}, opens in Git`,
+                    () => void openCommitRef(sha, refContext, placement),
+                    true,
+                  )}
                 </CommitReference>
               );
             }
-            const hit = settled ? symbols.get(token.value) : undefined;
+            const hit = settled && !inLink ? symbols.get(token.value) : undefined;
             if (hit) {
               return (
                 <SymbolReference key={idx} hit={hit} name={token.value}>
-                  {refCode("agent-symbol-ref", token.value, () => void openSymbol(hit, placement), true)}
+                  {refCode("agent-symbol-ref", token.value, `Symbol ${token.value}, opens definition`, () => void openSymbol(hit, placement), true)}
                 </SymbolReference>
               );
             }
@@ -196,7 +215,7 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 <Tooltip key={idx}>
                   <TooltipTrigger asChild>
                     <span data-testid="agent-link" data-link="other" data-href={token.href} className="wrap-anywhere">
-                      <InlineNodes tokens={token.children} />
+                      <InlineNodes tokens={token.children} inLink />
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-96 break-all">
@@ -230,7 +249,7 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 // code, and had no wrap protection of its own at all.
                 className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
               >
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink />
               </a>
             );
             // The hover card says where it goes, so the link needs no tooltip of its own.
@@ -247,19 +266,19 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
           case "strong":
             return (
               <strong key={idx} className="font-medium text-text-primary">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </strong>
             );
           case "em":
             return (
               <em key={idx} className="italic">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </em>
             );
           case "del":
             return (
               <del key={idx} className="text-text-tertiary">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </del>
             );
           case "break":

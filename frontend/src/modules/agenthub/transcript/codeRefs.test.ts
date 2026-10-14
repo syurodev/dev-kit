@@ -93,13 +93,28 @@ describe("codeSpans and symbolNames", () => {
     ]);
   });
 
-  test("distinct symbol names only: no commits, files or words, capped at 20", () => {
+  test("distinct symbol names only: no commits, files or words, capped at 12", () => {
     expect(symbolNames(["Service.Invoke", "Service.Invoke", "a1b2c3d", "auth/session.go", "main.go", "null", "useHighlight"])).toEqual([
       "Service.Invoke",
       "useHighlight",
     ]);
     const many = Array.from({ length: 30 }, (_, i) => `Name${i}`);
-    expect(symbolNames(many)).toHaveLength(20);
+    expect(symbolNames(many)).toHaveLength(12);
+  });
+
+  test("a short bare word is not looked up; a qualified, called or cased one is", () => {
+    expect(symbolNames(["get", "run", "Add", "getUser", "Run()", "Foo.add", "load", "SessionTTL"])).toEqual([
+      "getUser",
+      "Run()",
+      "Foo.add",
+      "load",
+      "SessionTTL",
+    ]);
+  });
+
+  test("code inside a link is the link's, not a span of its own", () => {
+    const md = "See [`abc1234`](https://github.com/o/r/commit/abc1234), [**`Service.Invoke`**](src/service.go:12) and `Real`.";
+    expect(codeSpans(parseMarkdownIncremental(md, undefined).blocks)).toEqual(["Real"]);
   });
 });
 

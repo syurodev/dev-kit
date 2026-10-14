@@ -14,7 +14,7 @@ export type SymbolHit = {
 };
 
 /** Names looked up per message; past this, a span stays code. */
-export const MAX_SYMBOLS_PER_MESSAGE = 20;
+export const MAX_SYMBOLS_PER_MESSAGE = 12;
 
 const SYMBOL = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*(\(\))?$/;
 // Words of the languages an agent writes about that read like identifiers but name nothing in an index.
@@ -76,7 +76,8 @@ export function exactSymbolMatch<M extends { label: string }>(span: string, matc
 function inlineSpans(tokens: readonly InlineToken[], out: string[]) {
   for (const token of tokens) {
     if (token.type === "code") out.push(token.value);
-    else if ("children" in token) inlineSpans(token.children, out);
+    // Code inside a link is the link's text: it opens what the link points at.
+    else if (token.type !== "link" && "children" in token) inlineSpans(token.children, out);
   }
 }
 
@@ -109,8 +110,17 @@ export function codeSpans(blocks: readonly MarkdownBlock[]): string[] {
 }
 
 /**
- * The distinct names worth a symbol lookup, at most 20: not a file (that is a
- * file reference) and not a commit hash.
+ * Whether a candidate says enough to be worth asking the index about. A bare
+ * short word (`get`, `run`, `Add`) matches half a codebase and names none of
+ * it; a qualified name, a call, a camel-cased name or four letters do.
+ */
+export function worthLookingUp(name: string): boolean {
+  return lastSegment(name).length >= 4 || name.includes(".") || name.endsWith("()") || /[a-z0-9][A-Z]/.test(name);
+}
+
+/**
+ * The distinct names worth a symbol lookup, at most 12: not a file (that is a
+ * file reference), not a commit hash, not a short bare word.
  */
 export function symbolNames(spans: readonly string[]): string[] {
   const names: string[] = [];
@@ -118,7 +128,7 @@ export function symbolNames(spans: readonly string[]): string[] {
   for (const span of spans) {
     if (seen.has(span)) continue;
     seen.add(span);
-    if (!symbolCandidate(span) || commitCandidate(span) || fileRef(span)) continue;
+    if (!symbolCandidate(span) || !worthLookingUp(span) || commitCandidate(span) || fileRef(span)) continue;
     names.push(span);
     if (names.length === MAX_SYMBOLS_PER_MESSAGE) break;
   }
