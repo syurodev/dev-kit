@@ -7,6 +7,7 @@ import {
   MAX_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
   dragWidths,
+  fitWidths,
   keyboardResize,
   tableColumnWidth,
 } from "./columns";
@@ -93,7 +94,9 @@ function stringRows(rows: DataTableProps["rows"]): (string | null)[][] | undefin
  *
  * Widths are this component's state: they survive re-renders and are not
  * persisted. Until somebody resizes, they follow the content, so a table that
- * streams in is measured on what it has rather than on its first row.
+ * streams in is measured on what it has rather than on its first row, and they
+ * are fitted to the room (`fitWidths`), so the last column is never cut at the
+ * edge because an earlier one measured wide. A drag or auto-fit ends both.
  */
 export function DataTable({
   columns,
@@ -124,9 +127,20 @@ export function DataTable({
     );
   }, [initialWidths, text, columns]);
   const [dragged, setDragged] = React.useState<number[] | null>(null);
-  const widths = columns.map(
-    (_, index) => dragged?.[index] ?? measured?.[index] ?? DEFAULT_COLUMN_WIDTH_PX,
-  );
+  const rowHeight = dense ? DENSE_ROW_HEIGHT_PX : ROW_HEIGHT_PX;
+  const virtual = useVirtualRows(rows.length, rowHeight);
+  const room = useRoom(virtual.scrollRef);
+  // Until somebody resizes, the content's widths are fitted to the room, so a
+  // wide column cannot push the last one past the edge; after, theirs win.
+  const fitted = React.useMemo(() => {
+    const start = columns.map((_, index) => measured?.[index] ?? DEFAULT_COLUMN_WIDTH_PX);
+    if (room === null) return start;
+    return fitWidths(start, room, {
+      min: columns.map((column) => tableColumnWidth(labelOf(column), [], {})),
+      wraps: columns.map((column) => !column.nowrap && !virtual.virtualized),
+    });
+  }, [columns, measured, room, virtual.virtualized]);
+  const widths = columns.map((_, index) => dragged?.[index] ?? fitted[index]);
   const total = widths.reduce((sum, width) => sum + width, 0);
 
   // One width update per frame, however many pointer events arrive in it.
@@ -166,8 +180,6 @@ export function DataTable({
     });
   };
 
-  const rowHeight = dense ? DENSE_ROW_HEIGHT_PX : ROW_HEIGHT_PX;
-  const virtual = useVirtualRows(rows.length, rowHeight);
   const unmeasured = virtual.virtualized && virtual.indices.length === 0;
   const firstPaint = Math.min(rows.length, FIRST_PAINT_ROWS);
   const indices = unmeasured ? Array.from({ length: firstPaint }, (_, i) => i) : virtual.indices;
@@ -245,6 +257,42 @@ export function DataTable({
       </table>
     </div>
   );
+}
+
+/**
+ * The width the table may take before it scrolls sideways: the content box of
+ * the scroller's parent (the scroller is `max-w-full`), less what the scroller
+ * spends on its own border, padding and a vertical scrollbar. Null until it
+ * has been read — under renderToString, and without ResizeObserver.
+ *
+ * The parent is assumed to take its width from outside; one that shrinks to
+ * its content would report the table's own width back and never let it grow.
+ */
+function useRoom(ref: React.RefObject<HTMLDivElement | null>): number | null {
+  const [room, setRoom] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    const scroller = ref.current;
+    const parent = scroller?.parentElement;
+    if (!scroller || !parent || typeof ResizeObserver === "undefined") return;
+    const read = () => {
+      const outer = getComputedStyle(parent);
+      const inner = getComputedStyle(scroller);
+      const content =
+        parent.clientWidth - parseFloat(outer.paddingLeft) - parseFloat(outer.paddingRight);
+      const chrome =
+        scroller.offsetWidth -
+        scroller.clientWidth +
+        parseFloat(inner.paddingLeft) +
+        parseFloat(inner.paddingRight);
+      const next = Math.max(0, Math.floor(content - chrome));
+      setRoom((current) => (current === next ? current : next));
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [ref]);
+  return room;
 }
 
 function ResizeHandle({

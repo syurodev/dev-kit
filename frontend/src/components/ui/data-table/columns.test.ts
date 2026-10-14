@@ -4,6 +4,7 @@ import {
   MAX_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
   dragWidths,
+  fitWidths,
   keyboardResize,
   tableColumnWidth,
   measureColumns,
@@ -106,5 +107,56 @@ describe("dragWidths", () => {
   test("stops at the maximum", () => {
     expect(dragWidths([100], 0, 0, 100_000)).toEqual([MAX_COLUMN_WIDTH_PX]);
     expect(nextWidths([100], 0, 100_000)).toEqual([MAX_COLUMN_WIDTH_PX]);
+  });
+});
+
+describe("fitWidths", () => {
+  const floors = (n: number) => Array.from({ length: n }, () => MIN_COLUMN_WIDTH_PX);
+
+  test("leaves widths that already fit alone, and never grows them", () => {
+    expect(fitWidths([100, 200], 400, { min: floors(2), wraps: [true, true] })).toEqual([100, 200]);
+    expect(fitWidths([100, 200], 300, { min: floors(2), wraps: [true, true] })).toEqual([100, 200]);
+  });
+
+  // The Kafka peek: offset, key, a 640px value and a time, in an 872px card.
+  test("shrinks the widest column so the last one is not cut at the edge", () => {
+    const fitted = fitWidths([90, 120, 640, 75], 872, {
+      min: [70, 50, 60, 50],
+      wraps: [false, false, false, false],
+    });
+    expect(fitted.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(872);
+    expect(fitted[0]).toBe(90);
+    expect(fitted[1]).toBe(120);
+    expect(fitted[3]).toBe(75);
+    expect(fitted[2]).toBeLessThan(640);
+  });
+
+  test("takes width from wrapping columns before one that can only be cut", () => {
+    const fitted = fitWidths([300, 600], 800, { min: floors(2), wraps: [true, false] });
+    expect(fitted).toEqual([200, 600]);
+  });
+
+  test("evens out the widest columns rather than emptying one", () => {
+    const fitted = fitWidths([400, 300, 100], 600, { min: floors(3), wraps: [true, true, true] });
+    expect(fitted).toEqual([250, 250, 100]);
+  });
+
+  test("a cut column gives up width once the wrapping ones are at their floor", () => {
+    const fitted = fitWidths([150, 600], 500, { min: [100, 64], wraps: [true, false] });
+    expect(fitted).toEqual([100, 400]);
+  });
+
+  test("never goes below a column's floor; past that the table scrolls", () => {
+    const fitted = fitWidths([200, 300], 100, { min: [80, 90], wraps: [true, false] });
+    expect(fitted).toEqual([80, 90]);
+  });
+
+  test("a floor above the starting width does not widen the column", () => {
+    expect(fitWidths([40, 500], 300, { min: [64, 64], wraps: [true, true] })).toEqual([40, 260]);
+  });
+
+  test("an unknown or empty room changes nothing", () => {
+    expect(fitWidths([100, 200], 0, { min: floors(2), wraps: [true, true] })).toEqual([100, 200]);
+    expect(fitWidths([100, 200], Number.NaN, { min: floors(2), wraps: [true, true] })).toEqual([100, 200]);
   });
 });

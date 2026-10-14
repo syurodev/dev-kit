@@ -187,3 +187,66 @@ export function keyboardResize(
   if (direction === 0) return null;
   return nextWidths(widths, index, direction * KEYBOARD_STEP_PX * (shift ? 4 : 1));
 }
+
+/**
+ * Starting widths shrunk to fit `available` px, so a table whose content asks
+ * for more than the room does not push its last column past the edge — a
+ * measured 640px value would otherwise leave a timestamp after it cut in half.
+ *
+ * Width comes off the widest columns first, levelled so two wide columns share
+ * the cut rather than one emptying, and off columns that wrap before columns
+ * that can only be cut (`wraps`): a narrower wrapping cell still says all of
+ * it. No column goes below its floor (`min`, by position — the header's own
+ * width, at least MIN_COLUMN_WIDTH_PX) or grows; past every floor the table is
+ * as narrow as it gets and scrolls.
+ */
+export function fitWidths(
+  widths: readonly number[],
+  available: number,
+  { min, wraps }: { min: readonly number[]; wraps: readonly boolean[] },
+): number[] {
+  const next = [...widths];
+  if (!(available > 0)) return next;
+  const floors = widths.map((width, index) => Math.min(width, min[index] ?? MIN_COLUMN_WIDTH_PX));
+  let excess = next.reduce((sum, width) => sum + width, 0) - available;
+  const passes = [
+    widths.map((_, index) => wraps[index] === true),
+    widths.map(() => true),
+  ];
+  for (const inPass of passes) {
+    if (excess <= 0) break;
+    excess -= level(next, floors, inPass, excess);
+  }
+  return next;
+}
+
+/**
+ * Lowers the widest of the chosen columns to one level, the highest that frees
+ * at least `excess` px (or every floor, when none does), in place. Returns how
+ * much it freed.
+ */
+function level(
+  widths: number[],
+  floors: readonly number[],
+  chosen: readonly boolean[],
+  excess: number,
+): number {
+  const freedAt = (at: number) =>
+    widths.reduce(
+      (sum, width, index) => (chosen[index] ? sum + Math.max(0, width - Math.max(at, floors[index])) : sum),
+      0,
+    );
+  // The highest whole-pixel level that frees enough; freedAt falls as it rises.
+  let low = 0;
+  let high = Math.max(0, ...widths.map(Math.floor));
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (freedAt(mid) >= excess) low = mid;
+    else high = mid - 1;
+  }
+  const freed = freedAt(low);
+  widths.forEach((width, index) => {
+    if (chosen[index]) widths[index] = Math.min(width, Math.max(low, floors[index]));
+  });
+  return freed;
+}
