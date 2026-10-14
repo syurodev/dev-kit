@@ -252,6 +252,28 @@
 
     --ease-in-strong: cubic-bezier(0.7, 0, 0.84, 0);
     --animate-spin-slow: spin 3s linear infinite;
+    /* tw-animate's collapsible-down/up move only height. These replace them
+       with the same height keyframes plus a fade, in one animation so one
+       class (and one animationend, which Radix waits for) drives both.
+       Duration and easing still come from duration-* / ease-* utilities, and
+       default to the motion tokens. Opacity is compositor work; the height is
+       the part that costs, and it was already moving. */
+    --animate-collapsible-down:
+      collapsible-down var(--tw-duration, var(--motion-slow)) var(--tw-ease, var(--ease-out-strong)),
+      collapsible-fade-in var(--tw-duration, var(--motion-slow)) var(--tw-ease, var(--ease-out-strong));
+    --animate-collapsible-up:
+      collapsible-up var(--tw-duration, var(--motion-base)) var(--tw-ease, var(--ease-out-strong)),
+      collapsible-fade-out var(--tw-duration, var(--motion-base)) var(--tw-ease, var(--ease-out-strong));
+    @keyframes collapsible-fade-in {
+      from {
+        opacity: 0;
+      }
+    }
+    @keyframes collapsible-fade-out {
+      to {
+        opacity: 0;
+      }
+    }
     --transition-property-color-shadow: color, box-shadow;
     --transition-property-border-bg: border-color, background-color;
     --transition-property-transform-fade: translate, scale, opacity;

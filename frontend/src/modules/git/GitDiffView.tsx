@@ -224,8 +224,12 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
                 Commit message
               </Button>
             </CollapsibleTrigger>
-            <CollapsibleContent className="max-h-32 overflow-auto whitespace-pre-wrap break-words py-2 text-body-13 text-text-secondary">
-              {body.text}
+            {/* The scroller and its padding sit inside: the content animates its
+                height, and padding cannot shrink with it. */}
+            <CollapsibleContent>
+              <div className="max-h-32 overflow-auto whitespace-pre-wrap break-words py-2 text-body-13 text-text-secondary">
+                {body.text}
+              </div>
             </CollapsibleContent>
           </Collapsible>
         )}
