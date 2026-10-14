@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { shellDrag } from "@/lib/panelMotion";
 
 /**
  * Pointer-drag resize with min/max clamping, animated via the caller's own
@@ -43,7 +44,11 @@ export function useResizableSize(opts: {
     document.addEventListener("pointerup", onUp);
     document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
     document.body.style.userSelect = "none";
+    // Every shell panel follows a drag instantly, not only this one: the
+    // sidebar and the columns clamp against each other (lib/panelMotion).
+    shellDrag.set(true);
     return () => {
+      shellDrag.set(false);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.body.style.cursor = "";

@@ -371,6 +371,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     id: "sidebar",
     target: drawn,
     open,
+    stored: sidebarWidth,
     instant: isResizing || reduceMotion,
     windowSize: windowWidth,
     from: 0,

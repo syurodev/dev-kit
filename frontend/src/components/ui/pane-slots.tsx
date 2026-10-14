@@ -407,7 +407,14 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
   const drawn = open ? Math.min(height, max) + GAP_WIDTH : 0;
   const [lastDrawn, setLastDrawn] = React.useState(drawn);
   if (open && drawn !== lastDrawn) setLastDrawn(drawn);
-  const motion = usePanelMotionReport({ id: "bottom", target: drawn, open, instant: isResizing || reduceMotion, windowSize: windowHeight });
+  const motion = usePanelMotionReport({
+    id: "bottom",
+    target: drawn,
+    open,
+    stored: height,
+    instant: isResizing || reduceMotion,
+    windowSize: windowHeight,
+  });
   const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
 
   // While it closes, what it showed — unless that pane is on screen elsewhere
@@ -510,6 +517,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
     id: `column-${column}`,
     target: drawn,
     open,
+    stored: width,
     instant: isResizing || reduceMotion,
     windowSize: windowWidth,
   });

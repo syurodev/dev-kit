@@ -12,9 +12,12 @@ import { CONTENT_FADE_DELAY, EASE_OUT_STRONG, MOTION_BASE, MOTION_FAST, MOTION_S
  * picks split or unified by width. Those listen here and do their work once,
  * after the panels settle (settledRunner), instead of on every frame of it.
  *
- * Only real animations raise it. A drag on a sash, a window resize and Reduce
- * Motion move the panels instantly; there is nothing to wait for, and holding
- * a terminal's fit back during a drag would make the drag lie.
+ * Only real animations raise it: a panel opening or closing, or a module's
+ * requested width. A drag on any shell sash (shellDrag), a window resize, a
+ * size forced only by a neighbour's clamp, and Reduce Motion move the panels
+ * instantly and never raise it — there is nothing to wait for, and holding a
+ * terminal's fit back during a drag would make the drag lie
+ * (panelMotionStep).
  */
 export type PanelMotionSignal = {
   /** A panel began moving. `watchdogMs` ends it if its completion never comes. */
@@ -22,6 +25,8 @@ export type PanelMotionSignal = {
   /** A panel stopped. Idempotent: ending one that is not moving is a no-op. */
   end: (id: string) => void;
   moving: () => boolean;
+  /** Whether this one panel is moving. */
+  isMoving: (id: string) => boolean;
   /** Called on the edges only: still → moving and moving → still. */
   subscribe: (listener: () => void) => () => void;
 };
@@ -62,6 +67,7 @@ export function createPanelMotion(timers: Timers = realTimers): PanelMotionSigna
     },
     end,
     moving: () => active.size > 0,
+    isMoving: (id) => active.has(id),
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -71,6 +77,41 @@ export function createPanelMotion(timers: Timers = realTimers): PanelMotionSigna
 
 /** The shell's one signal. */
 export const panelMotion = createPanelMotion();
+
+/**
+ * Whether a shell sash is being dragged. Set by useResizableSize for the
+ * length of a drag; every shell panel treats it as "instant", because a drag
+ * on one sash moves its neighbours' ceilings too (the sidebar and the columns
+ * clamp against each other) and they must follow the pointer, not spring.
+ */
+export type ShellDrag = {
+  set: (dragging: boolean) => void;
+  dragging: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+};
+
+export function createShellDrag(): ShellDrag {
+  let dragging = false;
+  const listeners = new Set<() => void>();
+  return {
+    set(next) {
+      if (next === dragging) return;
+      dragging = next;
+      for (const fn of [...listeners]) fn();
+    },
+    dragging: () => dragging,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+
+export const shellDrag = createShellDrag();
+
+export function useShellDragging(): boolean {
+  return React.useSyncExternalStore(shellDrag.subscribe, shellDrag.dragging, () => false);
+}
 
 /** Whether a shell panel is moving right now, for components that render on it. */
 export function usePanelMotion(): boolean {
@@ -85,21 +126,29 @@ type Frames = {
 /**
  * Wraps a re-measure so it runs at most once per panel motion.
  *
- * `schedule()` from a ResizeObserver: with nothing moving it runs right away,
- * exactly as before — a window resize or a drag stays live. While panels move
- * it only remembers that it is owed, and runs once on the frame after they
- * settle; a resize observed in that frame (the final layout) runs it there and
- * drops the queued frame, so it is still once.
+ * `schedule(size)` from a ResizeObserver: with nothing moving it runs right
+ * away, exactly as before — a window resize or a drag stays live. While panels
+ * move it only remembers that it is owed, and runs once on the frame after
+ * they settle; a resize observed in that frame (the final layout) runs it there
+ * and drops the queued frame, so it is still once.
+ *
+ * `size` is any measure of the element that is 0 while it is not laid out.
+ * A change to or from 0 runs at once whatever is moving: that is a pane shown
+ * from (or parked in) display:none — an inactive tab — not a frame of a panel
+ * animation, and deferring it showed the zero-size answer (an unfitted graph,
+ * a unified diff about to flip to split) for the length of the motion. The
+ * first size seen counts as a change from 0.
  */
 export function settledRunner(
   run: () => void,
   opts: { signal?: PanelMotionSignal } & Partial<Frames> = {},
-): { schedule: () => void; dispose: () => void } {
+): { schedule: (size?: number) => void; dispose: () => void } {
   const signal = opts.signal ?? panelMotion;
   const raf = opts.raf ?? ((fn: () => void) => requestAnimationFrame(fn));
   const caf = opts.caf ?? ((id: number) => cancelAnimationFrame(id));
   let owed = false;
   let frame = 0;
+  let lastSize = 0;
 
   const flush = () => {
     if (frame) caf(frame);
@@ -117,8 +166,11 @@ export function settledRunner(
   });
 
   return {
-    schedule() {
-      if (signal.moving()) {
+    schedule(size) {
+      const previous = lastSize;
+      if (size !== undefined) lastSize = size;
+      const appeared = size !== undefined && (size === 0 || previous === 0);
+      if (signal.moving() && !appeared) {
         owed = true;
         return;
       }
@@ -166,42 +218,98 @@ export function panelCloseMs(reduceMotion: boolean): number {
 const WATCHDOG_SLACK_MS = 250;
 
 /**
+ * What a panel last committed: the window's size along its axis, whether it
+ * was open, the size stored for it (what a drag or a module set), and the
+ * size it was drawn at — `null` when unknown, which makes the next target a
+ * real change (a remount replaying an interrupted motion).
+ */
+export type PanelMotionLast = { window: number; open: boolean; stored: number; target: number | null };
+
+/**
+ * Whether a panel's change of size is instant, and what to tell panelMotion.
+ *
+ * Instant — and never raising the signal — for its own sash drag or Reduce
+ * Motion (`requestedInstant`), a drag on any shell sash (`dragging`), a window
+ * resize, and a size forced only by a clamp (neither its open state nor its
+ * stored size changed: a neighbour moved its ceiling) while the panel is
+ * still. The last one is how a window resize that makes the sidebar yield
+ * stays instant on the second pass, when the sidebar's open state reaches the
+ * columns. While the panel is already moving, the same clamp change is the
+ * opening retargeting before its first frame (a column opening as the sidebar
+ * yields to it) and keeps the spring.
+ */
+export function panelMotionStep(
+  last: PanelMotionLast,
+  next: { window: number; open: boolean; stored: number; target: number; requestedInstant: boolean; dragging: boolean },
+  moving: boolean,
+): { instant: boolean; action: "start" | "end" | "none" } {
+  const changed = last.target !== next.target;
+  const clampOnly = changed && last.target !== null && last.open === next.open && last.stored === next.stored;
+  const instant =
+    next.requestedInstant || next.dragging || last.window !== next.window || (clampOnly && !moving);
+  return { instant, action: !changed ? "none" : instant ? "end" : "start" };
+}
+
+/** What to remember across an unmount: a motion cut short is replayed on a remount (StrictMode). */
+export function afterUnmount(last: PanelMotionLast, wasMoving: boolean): PanelMotionLast {
+  return wasMoving ? { ...last, target: null } : last;
+}
+
+/**
  * Reports one panel's size animation to `panelMotion`, and says whether the
- * change should be instant.
+ * change should be instant (panelMotionStep).
  *
  * Started in a layout effect on the target's change — before the first frame
  * of the animation, so a ResizeObserver firing in that frame already sees it —
  * and ended by framer's onAnimationComplete (the returned callback), by the
- * watchdog, or by unmounting. A window resize moves the panel instantly: its
- * edge follows the window's rather than trailing it by a transition, and a
- * terminal beside it keeps fitting live.
+ * watchdog, or by unmounting. The id is scoped to this instance, so a second
+ * shell (the gallery, a harness) cannot end this one's motion.
  */
 export function usePanelMotionReport(opts: {
   id: string;
   target: number;
   open: boolean;
-  /** A drag on the sash or Reduce Motion. */
+  /** The size stored for the panel, before any clamp. */
+  stored: number;
+  /** Its own sash drag, or Reduce Motion. */
   instant: boolean;
   /** The window's size along this panel's axis. */
   windowSize: number;
   /** The size the panel animates from on mount, when it does (the sidebar). */
   from?: number;
 }): { instant: boolean; onAnimationComplete: () => void } {
-  const { id, target, open, windowSize } = opts;
-  const lastWindow = React.useRef(windowSize);
-  const windowMoved = lastWindow.current !== windowSize;
-  const instant = opts.instant || windowMoved;
-  const lastTarget = React.useRef(opts.from ?? target);
+  const { target, open, stored, windowSize } = opts;
+  const id = `${opts.id}:${React.useId()}`;
+  const dragging = useShellDragging();
+  const last = React.useRef<PanelMotionLast>({
+    window: windowSize,
+    open: opts.from !== undefined ? false : open,
+    stored,
+    target: opts.from ?? target,
+  });
+  const next = { window: windowSize, open, stored, target, requestedInstant: opts.instant, dragging };
+  const { instant } = panelMotionStep(last.current, next, panelMotion.isMoving(id));
+
+  // Before the effect below, so on StrictMode's rehearsal its cleanup has
+  // run when that effect runs again.
+  React.useLayoutEffect(
+    () => () => {
+      last.current = afterUnmount(last.current, panelMotion.isMoving(id));
+      panelMotion.end(id);
+    },
+    [id],
+  );
 
   React.useLayoutEffect(() => {
-    lastWindow.current = windowSize;
-    if (lastTarget.current === target) return;
-    lastTarget.current = target;
-    if (instant) panelMotion.end(id);
-    else panelMotion.start(id, (open ? MOTION_SLOW : MOTION_FAST) * 1000 + WATCHDOG_SLACK_MS);
-  }, [id, target, open, instant, windowSize]);
-
-  React.useEffect(() => () => panelMotion.end(id), [id]);
+    const step = panelMotionStep(
+      last.current,
+      { window: windowSize, open, stored, target, requestedInstant: opts.instant, dragging },
+      panelMotion.isMoving(id),
+    );
+    last.current = { window: windowSize, open, stored, target };
+    if (step.action === "end") panelMotion.end(id);
+    else if (step.action === "start") panelMotion.start(id, (open ? MOTION_SLOW : MOTION_FAST) * 1000 + WATCHDOG_SLACK_MS);
+  }, [id, target, open, stored, windowSize, opts.instant, dragging]);
 
   const onAnimationComplete = React.useCallback(() => panelMotion.end(id), [id]);
   return { instant, onAnimationComplete };

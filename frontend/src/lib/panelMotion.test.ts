@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { createPanelMotion, panelCloseMs, panelContentFade, panelTransition, settledRunner } from "./panelMotion";
+import {
+  afterUnmount,
+  createPanelMotion,
+  createShellDrag,
+  panelCloseMs,
+  panelContentFade,
+  panelMotionStep,
+  panelTransition,
+  settledRunner,
+  type PanelMotionLast,
+} from "./panelMotion";
 import { MOTION_BASE, MOTION_FAST, MOTION_SLOW, CONTENT_FADE_DELAY, noMotion } from "./motion";
 
 /** A hand-wound clock: timers fire only when the test says time has passed. */
@@ -229,5 +239,108 @@ describe("panel transitions", () => {
   test("a closing panel keeps its content for the close, not for a completion event", () => {
     expect(panelCloseMs(false)).toBe(MOTION_FAST * 1000);
     expect(panelCloseMs(true)).toBe(0);
+  });
+});
+
+describe("isMoving", () => {
+  test("answers per panel", () => {
+    const motion = createPanelMotion(fakeTimers());
+    motion.start("column-a", 100);
+    expect(motion.isMoving("column-a")).toBe(true);
+    expect(motion.isMoving("sidebar")).toBe(false);
+    motion.end("column-a");
+    expect(motion.isMoving("column-a")).toBe(false);
+  });
+});
+
+describe("settledRunner and sizes to or from zero", () => {
+  test("a pane shown from display:none (0 → width) measures at once, even mid-motion", () => {
+    const motion = createPanelMotion(fakeTimers());
+    const f = fakeFrames();
+    let runs = 0;
+    const r = settledRunner(() => runs++, { signal: motion, ...f });
+    r.schedule(800);
+    motion.start("sidebar", 300);
+    r.schedule(0); // parked in an inactive tab
+    expect(runs).toBe(2);
+    r.schedule(760); // shown again while the sidebar still moves
+    expect(runs).toBe(3);
+    r.schedule(750); // an ordinary frame of the motion
+    expect(runs).toBe(3);
+    motion.end("sidebar");
+    f.frame();
+    expect(runs).toBe(4);
+    r.dispose();
+  });
+
+  test("the first size it ever sees is measured at once", () => {
+    const motion = createPanelMotion(fakeTimers());
+    const f = fakeFrames();
+    let runs = 0;
+    const r = settledRunner(() => runs++, { signal: motion, ...f });
+    motion.start("column-a", 300);
+    r.schedule(640);
+    expect(runs).toBe(1);
+    r.dispose();
+  });
+});
+
+describe("the shell drag flag", () => {
+  test("is up between a sash's pointerdown and pointerup, and says so on each edge", () => {
+    const drag = createShellDrag();
+    const seen: boolean[] = [];
+    drag.subscribe(() => seen.push(drag.dragging()));
+    drag.set(true);
+    drag.set(true);
+    drag.set(false);
+    expect(seen).toEqual([true, false]);
+  });
+});
+
+describe("panelMotionStep", () => {
+  const last = { window: 1440, open: true, stored: 420, target: 424 } satisfies PanelMotionLast;
+  const still = { requestedInstant: false, dragging: false };
+
+  test("opening animates and raises the signal", () => {
+    const closed = { ...last, open: false, target: 0 };
+    expect(panelMotionStep(closed, { ...last, ...still }, false)).toEqual({ instant: false, action: "start" });
+  });
+
+  test("a window resize moves the panel instantly and raises nothing", () => {
+    expect(panelMotionStep(last, { ...last, window: 1300, target: 380, ...still }, false)).toEqual({ instant: true, action: "end" });
+  });
+
+  test("a drag anywhere in the shell is instant for every panel", () => {
+    // Dragging the sidebar changes this column's ceiling, not its stored width.
+    expect(panelMotionStep(last, { ...last, target: 400, requestedInstant: false, dragging: true }, false)).toEqual({ instant: true, action: "end" });
+  });
+
+  test("its own sash drag (or Reduce Motion) is instant", () => {
+    expect(panelMotionStep(last, { ...last, stored: 500, target: 504, requestedInstant: true, dragging: false }, false)).toEqual({ instant: true, action: "end" });
+  });
+
+  test("a change made only by a neighbour's clamp is instant while the panel is still", () => {
+    // The sidebar yields on a window resize; its open state reaches the
+    // columns a pass later and widens their ceiling.
+    expect(panelMotionStep(last, { ...last, target: 500, ...still }, false)).toEqual({ instant: true, action: "end" });
+  });
+
+  test("but retargets an opening already under way (a column opening as the sidebar yields to it)", () => {
+    expect(panelMotionStep(last, { ...last, target: 500, ...still }, true)).toEqual({ instant: false, action: "start" });
+  });
+
+  test("a module's requested width animates", () => {
+    expect(panelMotionStep(last, { ...last, stored: 520, target: 524, ...still }, false)).toEqual({ instant: false, action: "start" });
+  });
+
+  test("no change, nothing to report", () => {
+    expect(panelMotionStep(last, { ...last, ...still }, false)).toEqual({ instant: false, action: "none" });
+  });
+
+  test("an unmount mid-motion (StrictMode's rehearsal) restarts the motion on remount", () => {
+    const remembered = afterUnmount(last, true);
+    expect(panelMotionStep(remembered, { ...last, ...still }, false)).toEqual({ instant: false, action: "start" });
+    // Still when it unmounted: nothing to replay.
+    expect(panelMotionStep(afterUnmount(last, false), { ...last, ...still }, false).action).toBe("none");
   });
 });
