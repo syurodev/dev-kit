@@ -218,6 +218,17 @@ describe("tables and topics in prose", () => {
     expect(html).not.toContain("agent-entity-ref");
   });
 
+  test("a listed topic that reads like a file or a commit is the topic", () => {
+    const listed = sessionEntities([
+      { id: "t", kind: "tool_call", toolCall: devkitCall("t", "kafka.listTopics", { result: [{ name: "audit.json" }, { name: "deadbeef1" }] }) },
+    ]);
+    const html = prose("Read `audit.json` and `deadbeef1`; see `src/audit.json`.", true, { ...withEntities, entities: listed });
+    expect(html.match(/data-kind="topic"/g)?.length).toBe(2);
+    expect(html).not.toContain("agent-commit-ref");
+    // A path is still a file: only a span without a slash can be a name.
+    expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+  });
+
   test("a table is not also looked up as a symbol", () => {
     const looked: string[] = [];
     const lookup = (name: string) => {

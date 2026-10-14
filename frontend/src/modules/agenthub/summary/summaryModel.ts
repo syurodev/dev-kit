@@ -1,3 +1,4 @@
+import { toolNameOf } from "@/workbench/toolPayload";
 import type { CheckpointIndex } from "../checkpoints";
 import type { PlanEntry, TranscriptItem } from "../types";
 import { CheckpointStatus } from "../../../../bindings/devkit/internal/agenthub/models";
@@ -45,7 +46,6 @@ export function sessionChanges(index: CheckpointIndex): SessionChange[] {
 
 const DATA_MODULES: Record<string, string> = { db: "Database", kafka: "Kafka", ssh: "SSH" };
 const WIRE = "mcp__devkit__";
-const CODEX_TITLE = "devkit.";
 
 /**
  * Only tools that touch a target's data make a module a source. Listing the
@@ -73,14 +73,10 @@ const DATA_TOOLS: ReadonlySet<string> = new Set([
  * (codex_translate.go), so a DevKit one reads `devkit.db.query`.
  */
 function devkitTool(call: NonNullable<TranscriptItem["toolCall"]>): string | null {
-  let name: string;
-  if (call.name) {
-    name = call.name.startsWith(WIRE) ? call.name.slice(WIRE.length) : call.name;
-  } else if (call.title?.startsWith(CODEX_TITLE)) {
-    name = call.title.slice(CODEX_TITLE.length);
-  } else {
-    return null;
-  }
+  // The name, else the tail of Codex's title (toolNameOf); "" for neither.
+  let name = toolNameOf(call);
+  if (!name) return null;
+  if (name.startsWith(WIRE)) name = name.slice(WIRE.length);
   name = name.replace(/_/g, ".");
   return DATA_TOOLS.has(name) ? name : null;
 }

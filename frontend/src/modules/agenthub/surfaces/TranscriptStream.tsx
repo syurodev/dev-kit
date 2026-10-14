@@ -1,6 +1,8 @@
 import { Shimmer } from "@/components/ui/shimmer";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQueries } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query";
 import { useReducedMotion } from "framer-motion";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
@@ -18,7 +20,9 @@ import { vendorInfo } from "../vendors";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
 import type { RefContext } from "../transcript/resolveFileRef";
 import { refOpener } from "../transcript/openReference";
-import { sessionEntities, type SessionEntities } from "../transcript/entityRefs";
+import { callsToLoad, sessionEntities, type SessionEntities } from "../transcript/entityRefs";
+import { toolCallDetailQuery } from "../transcript/toolCallDetail";
+import type { ToolCall } from "../types";
 import { RefPickerHost } from "../transcript/RefPicker";
 import type { Placement } from "@/workbench/intents";
 
@@ -291,14 +295,34 @@ export function TranscriptStream({
     [stableRefContext, refPlacement],
   );
   // The tables and topics this session's results named. Each call is read
-  // once and the last answer comes back while no call changed, so a streamed
-  // token neither re-reads payloads nor re-renders prose through the context.
+  // once and the last answer comes back while what they name is unchanged, so
+  // a streamed token neither re-reads payloads nor re-renders prose through
+  // the context. A schema read or topic list the page read cut is loaded whole
+  // (the four most recent, through the query result cards share).
+  const toLoad = useMemo(() => callsToLoad(items, sessionId), [items, sessionId]);
+  const combineLoaded = useCallback(
+    (results: { data?: ToolCall }[]) => {
+      const map = new Map<string, ToolCall>();
+      results.forEach((result, index) => {
+        if (result.data) map.set(toLoad[index].callId, result.data);
+      });
+      return map;
+    },
+    [toLoad],
+  );
+  const loaded = useQueries(
+    {
+      queries: toLoad.map(({ sessionId: owner, callId }) => toolCallDetailQuery(owner, callId)),
+      combine: combineLoaded,
+    },
+    queryClient,
+  );
   const entitiesRef = useRef<SessionEntities | undefined>(undefined);
-  const entities = useMemo(() => {
-    const next = sessionEntities(items, entitiesRef.current);
-    entitiesRef.current = next;
-    return next;
-  }, [items]);
+  const entities = useMemo(() => sessionEntities(items, entitiesRef.current, loaded), [items, loaded]);
+  // Remembered once committed, not while rendering.
+  useEffect(() => {
+    entitiesRef.current = entities;
+  }, [entities]);
   // Prose deep inside a turn opens a file through this, not through props.
   const transcriptActions = useMemo(
     () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef, refPlacement, entities }),

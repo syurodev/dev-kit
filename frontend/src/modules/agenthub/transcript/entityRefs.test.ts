@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolCall, TranscriptItem } from "../types";
-import { entityOf, NO_ENTITIES, sessionEntities, tableId } from "./entityRefs";
+import { callsToLoad, entityOf, MAX_FULL_ROWS, NO_ENTITIES, sessionEntities, tableId } from "./entityRefs";
 
 const claudeText = (text: string) => [{ type: "content", content: { type: "text", text } }];
 
@@ -116,6 +116,105 @@ describe("sessionEntities", () => {
     const afterFirst = reads;
     sessionEntities([item(call), { id: "m", kind: "agent_message_chunk", text: "x" }], first);
     expect(reads).toBe(afterFirst);
+  });
+});
+
+/** A call the page read cut: its raw output is the first bytes of its JSON. */
+const cut = (id: string, tool: string, rawInput?: unknown, sessionId?: string): TranscriptItem => ({
+  id,
+  kind: "tool_call",
+  sessionId,
+  toolCall: {
+    id,
+    name: "mcp__devkit__" + tool.split(".").join("_"),
+    status: "completed",
+    truncated: true,
+    rawInput,
+    rawOutput: '{"namespace":{"public":{"ord',
+  },
+});
+
+describe("what a call answered", () => {
+  test("a cut peek still names its topic: the topic is in the input, not the answer", () => {
+    const entities = sessionEntities([cut("p", "kafka.peekMessages", { topic: "payments", partition: 0 })]);
+    expect(entityOf(entities, "payments")).toMatchObject({ kind: "topic" });
+  });
+
+  test("a completed call that answered with an error names nothing", () => {
+    // Claude fences a DevKit AppError in content, the call itself marked completed.
+    const entities = sessionEntities([
+      item({
+        id: "p",
+        name: "mcp__devkit__kafka_describeTopic",
+        status: "completed",
+        rawInput: { topic: "ghost" },
+        content: claudeText("```\nkafka.unknownTopic: no such topic\n```"),
+      }),
+    ]);
+    expect(entityOf(entities, "ghost")).toBeNull();
+  });
+
+  test("a call replaced by its completed self goes from nothing to its topic", () => {
+    const running: ToolCall = { id: "d", name: "mcp__devkit__kafka_describeTopic", status: "in_progress", rawInput: { topic: "audit" } };
+    const first = sessionEntities([item(running)]);
+    expect(entityOf(first, "audit")).toBeNull();
+    const done = sessionEntities([item({ ...running, status: "completed", content: claudeText('{"name":"audit"}') })], first);
+    expect(entityOf(done, "audit")).toMatchObject({ kind: "topic" });
+  });
+
+  test("an update that names nothing new keeps the same answer", () => {
+    const call = claude("t", "kafka.listTopics", { result: [{ name: "a" }] });
+    const first = sessionEntities([call]);
+    const again = claude("t", "kafka.listTopics", { result: [{ name: "a" }] });
+    expect(again.toolCall).not.toBe(call.toolCall);
+    expect(sessionEntities([again], first)).toBe(first);
+  });
+});
+
+describe("full rows behind cut answers", () => {
+  test("a cut schema read names nothing until its full row is handed in", () => {
+    const items = [cut("s", "db.schema.get", undefined, "s1")];
+    expect(sessionEntities(items)).toBe(NO_ENTITIES);
+    const full: ToolCall = { id: "s", status: "completed", content: claudeText(JSON.stringify(schema)) };
+    const loaded = new Map([["s", full]]);
+    const entities = sessionEntities(items, undefined, loaded);
+    expect(entityOf(entities, "public.users")).toMatchObject({ kind: "table" });
+    // A new map holding the same rows, on a later publish: the same answer.
+    expect(sessionEntities([...items, { id: "m", kind: "agent_message_chunk", text: "x" }], entities, new Map(loaded))).toBe(entities);
+  });
+
+  test("callsToLoad: only cut answers of tools that read them, the four most recent", () => {
+    const items: TranscriptItem[] = [
+      ...Array.from({ length: 6 }, (_, i) => cut(`s${i}`, i % 2 ? "db.listForeignKeys" : "db.schema.get", undefined, "s1")),
+      cut("lt", "kafka.listTopics"),
+      // The topic is in the input: nothing to load.
+      cut("p", "kafka.peekMessages", { topic: "x" }, "s1"),
+      // Whole: nothing to load.
+      claude("whole", "db.schema.get", schema),
+      { ...cut("f", "db.schema.get", undefined, "s1"), toolCall: { ...cut("f", "db.schema.get").toolCall!, status: "failed" } },
+      { ...cut("q", "db.query", undefined, "s1") },
+    ];
+    expect(MAX_FULL_ROWS).toBe(4);
+    expect(callsToLoad(items, "fallback")).toEqual([
+      { sessionId: "fallback", callId: "lt" },
+      { sessionId: "s1", callId: "s5" },
+      { sessionId: "s1", callId: "s4" },
+      { sessionId: "s1", callId: "s3" },
+    ]);
+    // With no session to ask, nothing.
+    expect(callsToLoad([cut("lt", "kafka.listTopics")], undefined)).toEqual([]);
+  });
+});
+
+describe("names that collide", () => {
+  test("two tables spelled the same qualified way are neither, nor are their bare names", () => {
+    const entities = sessionEntities([
+      claude("s", "db.schema.get", { namespace: { a: { "b.c": ["id"] }, "a.b": { c: ["id"] }, x: { y: ["id"] } } }),
+    ]);
+    expect(entityOf(entities, "a.b.c")).toBeNull();
+    expect(entityOf(entities, "b.c")).toBeNull();
+    expect(entityOf(entities, "c")).toBeNull();
+    expect(entityOf(entities, "y")).toMatchObject({ id: "x.y" });
   });
 });
 

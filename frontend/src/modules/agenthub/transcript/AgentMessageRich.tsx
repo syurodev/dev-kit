@@ -156,6 +156,21 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
       {tokens.map((token, idx) => {
         switch (token.type) {
           case "code": {
+            const placement = refPlacement ?? "beside";
+            // A table or topic this session's own results named, ahead of
+            // everything: a topic the session listed as `audit.json` or
+            // `deadbeef1` is that topic, not a file or a commit that only
+            // reads like one. A span with a slash that reads as a path stays
+            // a file. AgentProse does not look these names up as symbols.
+            const entity = settled && !inLink ? entityOf(entities, token.value) : null;
+            if (entity && !(token.value.includes("/") && fileRef(token.value))) {
+              const what = entity.kind === "table" ? `Table ${entityLabel(entity)}, opens in Database` : `Topic ${entity.name}, opens in Kafka`;
+              return (
+                <EntityReference key={idx} hit={entity} name={token.value}>
+                  {refCode("agent-entity-ref", token.value, what, () => void openEntity(entity, placement), true, entity.kind)}
+                </EntityReference>
+              );
+            }
             const ref = canOpen && !inLink ? fileRef(token.value) : null;
             if (ref) {
               return (
@@ -164,7 +179,6 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
                 </FileReference>
               );
             }
-            const placement = refPlacement ?? "beside";
             // A commit needs a repository to open in: the session's project.
             if (settled && !inLink && refContext?.projectPath && commitCandidate(token.value)) {
               const sha = token.value;
@@ -178,17 +192,6 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
                     true,
                   )}
                 </CommitReference>
-              );
-            }
-            // A table or topic this session's own results named: before the
-            // symbol lookup, which AgentProse does not ask about these names.
-            const entity = settled && !inLink ? entityOf(entities, token.value) : null;
-            if (entity) {
-              const what = entity.kind === "table" ? `Table ${entityLabel(entity)}, opens in Database` : `Topic ${entity.name}, opens in Kafka`;
-              return (
-                <EntityReference key={idx} hit={entity} name={token.value}>
-                  {refCode("agent-entity-ref", token.value, what, () => void openEntity(entity, placement), true, entity.kind)}
-                </EntityReference>
               );
             }
             const hit = settled && !inLink ? symbols.get(token.value) : undefined;

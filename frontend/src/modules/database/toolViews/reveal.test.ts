@@ -20,6 +20,13 @@ describe("database.reveal routing", () => {
     expect(revealTarget(ref("table", '"sales.eu.orders'))).toBeNull();
   });
 
+  test("the ids Agent Hub writes (entityRefs.tableId) open the table they name", () => {
+    expect(revealTarget(ref("table", "public.orders"))).toEqual({ open: "table", schema: "public", table: "orders" });
+    expect(revealTarget(ref("table", '"sales.eu".orders'))).toEqual({ open: "table", schema: "sales.eu", table: "orders" });
+    expect(revealTarget(ref("table", '"a""b.c".t'))).toEqual({ open: "table", schema: 'a"b.c', table: "t" });
+    expect(revealTarget(ref("table", '"""x".t'))).toEqual({ open: "table", schema: '"x', table: "t" });
+  });
+
   test("a table without its schema cannot be opened", () => {
     expect(revealTarget(ref("table", "orders"))).toBeNull();
     expect(revealTarget(ref("table", ".orders"))).toBeNull();
