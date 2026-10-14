@@ -15,6 +15,7 @@ import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
 import { renderToolResult } from "@/workbench/toolResultViews";
+import { toolResultInputOf } from "@/workbench/toolPayload";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -256,14 +257,15 @@ export function AgentToolCall({
   // so a card that bailed on a truncated preview (rawOutput cut mid-document
   // by ToolRawPreviewLimit) upgrades once the whole row is in. Only once the
   // call is actually done — a running call has no rawOutput yet to render.
-  const toolResultNode =
-    state === "done"
-      ? renderToolResult({
-          name: call.name ?? "",
-          rawInput: (fullCall ?? call).rawInput,
-          rawOutput: (fullCall ?? call).rawOutput,
-        })
-      : null;
+  // toolResultInputOf reads the result wherever the vendor put it (Claude's
+  // content text, Codex's MCP result in rawOutput) and names a Codex call by
+  // its title; an error gives no input, so the failed row stays as it is.
+  // The full row answers for the output; the call on screen for who and how.
+  const resultCall = fullCall
+    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
+    : call;
+  const resultInput = state === "done" ? toolResultInputOf(resultCall) : null;
+  const toolResultNode = resultInput ? renderToolResult(resultInput) : null;
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
   const hasBody =

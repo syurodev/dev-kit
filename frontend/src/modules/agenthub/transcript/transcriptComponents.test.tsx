@@ -476,6 +476,77 @@ describe("Agent Hub Transcript Leaves", () => {
       }
     });
 
+    it("renders the view for Claude's result, which rides in the content text", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
+        <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-claude",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: '{"endpointId":"e2","steps":[]}' } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).toContain("flow for e2");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("renders the view for a Codex call, named only by its devkit.<tool> title", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
+        <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-codex",
+              title: "devkit.codegraph.getApiFlow",
+              status: "completed",
+              rawOutput: {
+                content: [{ type: "text", text: '{"endpointId":"e3"}' }],
+                structuredContent: { endpointId: "e3", steps: [] },
+              },
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).toContain("flow for e3");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("keeps the failed row for a Claude error: views see only successful payloads", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => (
+        <div data-testid="fake-flow-card">should not appear</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-failed",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "failed",
+              content: [{ type: "content", content: { type: "text", text: "```\nnot_found: no endpoint\n```" } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain("fake-flow-card");
+      } finally {
+        unregister();
+      }
+    });
+
     it("falls back to the JSON block when the registered renderer declines", () => {
       const unregister = registerToolResultView("codegraph.getApiFlow", () => null);
       try {

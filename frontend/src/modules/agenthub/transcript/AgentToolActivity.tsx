@@ -8,6 +8,7 @@ import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } fro
 import { getModule } from "@/modules/registry";
 import { dispatchIntent } from "@/workbench/intents";
 import { renderToolResult } from "@/workbench/toolResultViews";
+import { toolResultInputOf } from "@/workbench/toolPayload";
 import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolActivityTarget } from "@/workbench/toolActivity";
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
@@ -61,9 +62,14 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({ call }:
   const result = React.useMemo(
     () =>
       state === "done" && activity
-        ? renderToolResult({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, heading: activity.done })
+        ? (() => {
+            // Wherever the vendor put the result (./toolPayload.ts); an error
+            // has no input and keeps this card's own failed state.
+            const input = toolResultInputOf(call, activity.done);
+            return input ? renderToolResult(input) : null;
+          })()
         : null,
-    [activity, state, call.name, call.rawInput, call.rawOutput],
+    [activity, state, call],
   );
 
   if (!activity) return null;
