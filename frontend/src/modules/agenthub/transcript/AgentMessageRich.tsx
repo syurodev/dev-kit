@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fileRef, linkTarget, type FileRef } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
+import { FileReference, UrlReference } from "./ReferencePreview";
 import {
   parseInline,
   parseMarkdownIncremental,
@@ -103,22 +104,23 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
               return (
                 // An inline <code>, not a <button>: a button is an atomic
                 // inline-block and would stop a long path wrapping like text.
-                <code
-                  key={idx}
-                  role="button"
-                  tabIndex={0}
-                  data-testid="agent-file-ref"
-                  onClick={open}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      open(e);
-                    }
-                  }}
-                  className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
-                >
-                  {token.value}
-                </code>
+                <FileReference key={idx} fileRef={ref}>
+                  <code
+                    role="button"
+                    tabIndex={0}
+                    data-testid="agent-file-ref"
+                    onClick={open}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        open(e);
+                      }
+                    }}
+                    className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
+                  >
+                    {token.value}
+                  </code>
+                </FileReference>
               );
             }
             return (
@@ -146,42 +148,60 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
             return <MaskedSecret key={idx} value={token.value} />;
           case "link": {
             const target = linkTarget(token.href);
+            if (target.kind === "other") {
+              // A scheme DevKit will not open (javascript:, ftp:, …) or text
+              // that is not a path: the words stay, with nothing to click.
+              return (
+                <Tooltip key={idx}>
+                  <TooltipTrigger asChild>
+                    <span data-testid="agent-link" data-link="other" data-href={token.href} className="wrap-anywhere">
+                      <InlineNodes tokens={token.children} />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-96 break-all">
+                    {token.href}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
             const follow = (e: React.SyntheticEvent<HTMLElement>) => {
               // The WebView does nothing with a plain navigation; the
               // system browser gets it through the bridge instead.
               e.preventDefault();
               if (target.kind === "url") void openExternal(target.url);
-              else if (target.kind === "file") openFileRef(target.ref, e.currentTarget);
+              else openFileRef(target.ref, e.currentTarget);
             };
-            return (
-              <Tooltip key={idx}>
-                <TooltipTrigger asChild>
-                  <a
-                    // Only the web keeps an href: a scheme DevKit will not open
-                    // (javascript:, ftp:, …) must not be one click from running.
-                    href={target.kind === "url" ? target.url : undefined}
-                    rel="noreferrer"
-                    data-testid="agent-link"
-                    data-link={target.kind}
-                    data-href={token.href}
-                    // Without an href an anchor is not focusable; it still is.
-                    role={target.kind === "url" ? undefined : "link"}
-                    tabIndex={target.kind === "url" ? undefined : 0}
-                    onClick={follow}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && target.kind !== "url") follow(e);
-                    }}
-                    // A long URL is exactly the same unbroken-run case as inline
-                    // code, and had no wrap protection of its own at all.
-                    className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
-                  >
-                    <InlineNodes tokens={token.children} />
-                  </a>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-96 break-all">
-                  {token.href}
-                </TooltipContent>
-              </Tooltip>
+            const anchor = (
+              <a
+                // Only the web keeps an href.
+                href={target.kind === "url" ? target.url : undefined}
+                rel="noreferrer"
+                data-testid="agent-link"
+                data-link={target.kind}
+                data-href={token.href}
+                // Without an href an anchor is not focusable; a file link still is.
+                role={target.kind === "file" ? "link" : undefined}
+                tabIndex={target.kind === "file" ? 0 : undefined}
+                onClick={follow}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && target.kind === "file") follow(e);
+                }}
+                // A long URL is exactly the same unbroken-run case as inline
+                // code, and had no wrap protection of its own at all.
+                className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
+              >
+                <InlineNodes tokens={token.children} />
+              </a>
+            );
+            // The hover card says where it goes, so the link needs no tooltip of its own.
+            return target.kind === "url" ? (
+              <UrlReference key={idx} url={target.url}>
+                {anchor}
+              </UrlReference>
+            ) : (
+              <FileReference key={idx} fileRef={target.ref}>
+                {anchor}
+              </FileReference>
             );
           }
           case "strong":
