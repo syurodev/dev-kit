@@ -84,6 +84,19 @@ const cardHtml = (html: string, id: string) => {
 /** The class list of a card's own element (not its children's). */
 const rootClass = (html: string, id: string) => cardHtml(html, id).match(/^[^>]*class="([^"]*)"/)?.[1] ?? "";
 
+/** The opening tag of the element carrying `testid` (attributes in any order). */
+const tagOf = (html: string, testid: string) => {
+  const at = html.indexOf(`data-testid="${testid}"`);
+  return at === -1 ? "" : html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
+};
+
+/** A group's header: from its section to the end of its toggle button. */
+const header = (html: string, key: string) => {
+  const at = html.indexOf(`data-group-key="${key}"`);
+  const toggle = html.indexOf('data-testid="agent-group-toggle"', at);
+  return html.slice(html.lastIndexOf("<button", toggle), html.indexOf("</button>", toggle));
+};
+
 /** The deepest a <button> sits inside another <button>: 1 means none nest. */
 function buttonDepth(html: string): number {
   let depth = 0;
@@ -105,13 +118,55 @@ describe("groups", () => {
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>2</);
   });
 
-  it("the label is small and quiet, its count a superscript", () => {
+  it("the header is one quiet row: chevron, name, and the count on the right — not a superscript", () => {
     const html = render({ sessions: aged(3) });
-    expect(html).toMatch(/data-testid="agent-group-name" class="[^"]*text-caption-11 text-text-tertiary/);
-    expect(html).toMatch(/<sup data-testid="agent-group-count"[^>]*>3</);
+    const toggle = header(html, "project:/work/api");
+    const cls = (toggle.match(/^<button[^>]*class="([^"]*)"/)?.[1] ?? "").split(" ");
+    for (const c of ["h-8", "px-2", "rounded-md", "hover:bg-state-soft", "focus-visible:ring-2"]) expect(cls).toContain(c);
+    expect(html).toMatch(/data-testid="agent-group-name" class="[^"]*text-body-13 font-medium text-text-secondary/);
+    expect(html).not.toContain("<sup");
+    expect(html).toMatch(/data-testid="agent-group-count" aria-hidden="true" class="[^"]*text-caption-11 tabular-nums text-text-tertiary[^"]*">3</);
+    expect(html).toContain("3 sessions");
     // The label of the group on screen reads a step stronger.
     const active = render({ sessions: aged(3), activeSessionId: "s1" });
-    expect(active).toMatch(/data-testid="agent-group-name" class="[^"]*text-text-secondary/);
+    expect(active).toMatch(/data-testid="agent-group-name" class="[^"]*text-text-primary/);
+  });
+
+  it("the chevron is always there, and turns when the group is open", () => {
+    const chevron = (html: string) => html.match(/<svg[^>]*data-testid="agent-group-chevron"[^>]*>/)?.[0] ?? "";
+    const open = chevron(render({ sessions: aged(2) }));
+    expect(open).toContain("rotate-90");
+    expect(open).not.toContain("opacity-0");
+    expect(open).toContain("motion-reduce:transition-none");
+    const shut = chevron(render({ sessions: aged(2), collapsedKeys: ["project:/work/api"] }));
+    expect(shut).not.toContain("rotate-90");
+    expect(shut).not.toContain("opacity-0");
+  });
+
+  it("the group is a Collapsible: Radix wires the header to its body, and the body animates", () => {
+    const html = render({ sessions: aged(2) });
+    expect(html).toMatch(/data-testid="agent-session-group"[^>]*data-state="open"/);
+    const id = header(html, "project:/work/api").match(/aria-controls="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    const body = html.match(new RegExp(`<div[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+    expect(body).toContain('data-slot="collapsible-content"');
+    expect(body).toContain("data-open:animate-collapsible-down");
+    // Folded, the body draws nothing: an empty, hidden element and no cards.
+    const shut = render({ sessions: aged(2), collapsedKeys: ["project:/work/api"] });
+    expect(shut).toMatch(/<div data-state="closed" id="[^"]+" hidden="" data-slot="collapsible-content"[^>]*><\/div>/);
+    expect(cards(shut)).toBe(0);
+  });
+
+  it("the + takes the count's place on hover, so nothing beside it moves", () => {
+    const html = render({ sessions: aged(3), onNewSessionIn: noop });
+    // The count's slot is at least as wide as the + and gives way to it.
+    const slot = header(html, "project:/work/api").match(/<span aria-hidden="true" class="([^"]*)"><span data-testid="agent-group-count"/)?.[1] ?? "";
+    expect(slot).toContain("min-w-(--control-height-xs)");
+    expect(slot).toContain("group-hover/header:opacity-0");
+    expect(slot).toContain("group-focus-within/header:opacity-0");
+    expect(html).toMatch(/data-testid="agent-tree-project-new"[^>]*class="[^"]*\babsolute\b/);
+    // Without a + there is nothing to make room for.
+    expect(header(render({ sessions: aged(3) }), "project:/work/api")).not.toContain("group-hover/header:opacity-0");
   });
 
   it("a workspace of several folders says each row's folder; of one, it does not", () => {
@@ -180,14 +235,18 @@ describe("five recent and the stack", () => {
     expect(cardIds(html)).toEqual(["s0", "s1", "s2", "s3", "s4"]);
     expect(html).toContain("3 older sessions");
     expect(html).toContain('data-testid="agent-stack-toggle"');
-    expect(html).toMatch(/data-testid="agent-stack-toggle"[^>]*aria-expanded="false"/);
+    expect(tagOf(html, "agent-stack-toggle")).toContain('aria-expanded="false"');
   });
 
   it("opening the stack draws the rest below, with a way back, and the count of the group is unchanged", () => {
     const html = render({ sessions: aged(8), olderOpenKeys: ["project:/work/api"] });
     expect(cardIds(html)).toEqual(["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"]);
     expect(html).toContain("Hide older sessions");
-    expect(html).toMatch(/data-testid="agent-stack-toggle"[^>]*aria-expanded="true"/);
+    expect(tagOf(html, "agent-stack-toggle")).toContain('aria-expanded="true"');
+    // A Collapsible of its own: Radix points the row at the list it opens.
+    const id = tagOf(html, "agent-stack-toggle").match(/aria-controls="([^"]+)"/)?.[1];
+    const list = html.match(new RegExp(`<div[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+    expect(list).toContain('data-slot="collapsible-content"');
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>8</);
   });
 
@@ -533,6 +592,9 @@ describe("needs you, and the workspace in front of you", () => {
     expect(cardIdsIn(needs)).toEqual(["b", "c"]);
     expect(cardIds(html).filter((id) => id === "c").length).toBe(1);
     expect(cardHtml(html, "c")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow\?/);
+    // Its label is the same row as a group's header: no superscript count.
+    expect(needs).not.toContain("<sup");
+    expect(needs).toMatch(/text-caption-11 tabular-nums text-text-tertiary">2</);
     // The group keeps only what does not wait, and counts only that.
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>1</);
   });
@@ -596,20 +658,17 @@ describe("needs you, and the workspace in front of you", () => {
     expect(cardIds(html).sort()).toEqual(["x", "y"]);
   });
 
-  it("a folded workspace is one compact line; the current one keeps its room", () => {
+  it("every header is the same row, folded or open: no big jump above the open one", () => {
     const html = render({
       sessions: [inWs("x", "1"), inWs("y", "2")],
       workspaces: [ws("1"), ws("2")],
       currentWorkspaceId: "1",
     });
-    const header = (key: string) => {
-      const at = html.indexOf(`data-group-key="${key}"`);
-      return html.slice(at, html.indexOf('data-testid="agent-group-toggle"', at));
-    };
-    expect(header("workspace:2")).toContain("h-8");
-    expect(header("workspace:2")).not.toContain("pt-4");
-    expect(header("workspace:1")).toContain("pt-4 pb-1.5");
-    expect(header("workspace:1")).not.toContain("h-8");
+    for (const key of ["workspace:1", "workspace:2"]) {
+      expect(header(html, key)).toMatch(/class="[^"]*\bh-8\b/);
+      expect(html.slice(html.indexOf(`data-group-key="${key}"`))).not.toMatch(/^[^>]*pt-4/);
+    }
+    expect(html).not.toContain("pt-4 pb-1.5");
   });
 
   it("a folded workspace says how many of its sessions run", () => {
@@ -620,6 +679,9 @@ describe("needs you, and the workspace in front of you", () => {
     });
     expect(html).toContain('data-testid="agent-group-running"');
     expect(html).toMatch(/data-testid="agent-group-running"[^>]*>.*?2 running</);
+    // Running says more than the total, so it stands in the count's place.
+    const folded = html.slice(html.indexOf('data-group-key="workspace:2"'));
+    expect(folded.slice(0, folded.indexOf("</section>"))).not.toContain('data-testid="agent-group-count"');
     // Open, the rows say it themselves.
     const open = render({
       sessions: [inWs("x", "2", { status: "running" })],

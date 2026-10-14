@@ -325,11 +325,12 @@ export function AgentSessionSidebar({
           <AnimatedCollapse open={waiting.length > 0}>
             <SidebarInset>
               <section data-testid="agent-needs-you" aria-labelledby={needsLabelId} className="flex flex-col">
-                <div id={needsLabelId} className="px-2 pt-1 pb-1.5 text-caption-11 text-text-tertiary">
-                  Needs you
-                  <sup aria-hidden="true" className="ml-0.5 text-text-tertiary/70 tabular-nums">
+                {/* The same row as a group's header, without a chevron: it does not fold. */}
+                <div id={needsLabelId} className="flex h-8 items-center gap-1.5 px-2">
+                  <span className="min-w-0 flex-1 truncate text-body-13 font-medium text-text-primary">Needs you</span>
+                  <span aria-hidden="true" className="shrink-0 text-caption-11 tabular-nums text-text-tertiary">
                     {drawnWaiting.length}
-                  </sup>
+                  </span>
                   <span className="sr-only">{sessionCount(drawnWaiting.length)}</span>
                 </div>
                 <div ref={needsRef} role="list" aria-label="Sessions that need you" className="flex flex-col gap-0.5">

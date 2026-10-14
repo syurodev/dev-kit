@@ -3,8 +3,8 @@ import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ChevronDown, ChevronRight, Copy, Plus } from "lucide-react";
 
 import { ActionTooltip } from "@/components/ui/action-tooltip";
-import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SidebarInset } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
@@ -46,30 +46,30 @@ export type AgentSessionGroupProps = {
 
 /**
  * The row that folds a group's older sessions: how many, a hairline to the
- * edge, and a chevron. Open, it becomes the way back.
+ * edge, and a chevron. Open, it becomes the way back. A Collapsible trigger:
+ * Radix gives it aria-expanded / aria-controls and the click.
  */
-function StackRow({ count, open, onToggle, controlsId }: { count: number; open: boolean; onToggle: () => void; controlsId: string }) {
+function StackRow({ count, open }: { count: number; open: boolean }) {
   const label = open ? "Hide older sessions" : count === 1 ? "1 older session" : `${count} older sessions`;
   return (
-    <button
-      type="button"
-      data-sidebar-nav=""
-      data-testid="agent-stack-toggle"
-      aria-expanded={open}
-      aria-controls={controlsId}
-      onClick={onToggle}
-      className="mt-0.5 flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-body-12 text-text-tertiary outline-none hover:text-text-secondary focus-visible:ring-2 focus-visible:ring-border-focus/50"
-    >
-      <span className="shrink-0">{label}</span>
-      <span aria-hidden="true" data-testid="agent-stack-rule" className="h-px min-w-4 flex-1 bg-border-subtle" />
-      <ChevronDown
-        aria-hidden="true"
-        className={cn(
-          "size-3.5 shrink-0 transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
-          open && "rotate-180",
-        )}
-      />
-    </button>
+    <CollapsibleTrigger asChild>
+      <button
+        type="button"
+        data-sidebar-nav=""
+        data-testid="agent-stack-toggle"
+        className="mt-0.5 flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-body-12 text-text-tertiary outline-none hover:text-text-secondary focus-visible:ring-2 focus-visible:ring-border-focus/50"
+      >
+        <span className="shrink-0">{label}</span>
+        <span aria-hidden="true" data-testid="agent-stack-rule" className="h-px min-w-4 flex-1 bg-border-subtle" />
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            "size-3.5 shrink-0 transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+    </CollapsibleTrigger>
   );
 }
 
@@ -91,8 +91,6 @@ function AgentSessionGroupView({
   onNewSession,
 }: AgentSessionGroupProps) {
   const actions = useSessionActions();
-  const bodyId = React.useId();
-  const stackId = React.useId();
 
   // While the stack is open every card is on screen, so the session being
   // viewed needs no exception: pulling it out of the stack on selection would
@@ -143,130 +141,144 @@ function AgentSessionGroupView({
     />
   );
 
-  return (
-    <section
-      data-testid="agent-session-group"
-      data-group-key={group.key}
-      data-collapsed={collapsed || undefined}
-      aria-label={group.label}
-      className="flex flex-col"
-    >
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className={cn("group/header flex items-center gap-1 px-2", compact ? "h-8" : "pt-4 pb-1.5")}>
-            <button
-              type="button"
-              data-sidebar-nav=""
-              data-testid="agent-group-toggle"
-              data-contains-active={containsActive || undefined}
-              aria-expanded={!collapsed}
-              aria-controls={bodyId}
-              title={hint}
-              onClick={() => onToggleCollapsed(group.key)}
-              className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50"
-            >
-              {/* Inline, so the count sits as a superscript after the name and
-                  both truncate together. */}
-              <span className="min-w-0 truncate">
-                <span
-                  data-testid="agent-group-name"
-                  className={cn("text-caption-11", containsActive ? "text-text-secondary" : "text-text-tertiary")}
-                >
-                  {group.label}
-                </span>
-                {/* Light: the count is context. Said in words to a reader. */}
-                <sup
-                  data-testid="agent-group-count"
-                  aria-hidden="true"
-                  className="ml-0.5 text-caption-11 text-text-tertiary/70 tabular-nums"
-                >
-                  {group.sessions.length}
-                </sup>
-                <span className="sr-only">{sessionCount(group.sessions.length)}</span>
-              </span>
-              <ChevronRight
-                aria-hidden="true"
-                className={cn(
-                  "size-3 shrink-0 text-text-tertiary opacity-0 transition duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
-                  "group-hover/header:opacity-100 group-focus-within/header:opacity-100",
-                  !collapsed && "rotate-90",
-                )}
-              />
-              {compact && running > 0 ? (
-                <span
-                  data-testid="agent-group-running"
-                  className="ml-auto flex shrink-0 items-center gap-1 text-caption-11 text-text-tertiary"
-                >
-                  <span aria-hidden="true" className="size-1.5 rounded-full bg-text-primary" />
-                  {`${running} running`}
-                </span>
-              ) : null}
-            </button>
-            {onNewSession ? (
-              <ActionTooltip label={newLabel}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  data-testid="agent-tree-project-new"
-                  onClick={() => onNewSession(group)}
-                  // Hidden until the header is hovered or something in it has
-                  // focus — and still a tab stop, so the keyboard finds it.
-                  className="shrink-0 text-text-tertiary opacity-0 transition-opacity duration-(--motion-fast) group-hover/header:opacity-100 group-focus-within/header:opacity-100 focus-visible:opacity-100"
-                >
-                  <Plus aria-hidden="true" />
-                </Button>
-              </ActionTooltip>
-            ) : null}
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuLabel className="truncate">{group.label}</ContextMenuLabel>
-          <ContextMenuSeparator />
-          {onNewSession ? (
-            <ContextMenuItem icon={<Plus />} onSelect={() => onNewSession(group)}>
-              New session
-            </ContextMenuItem>
-          ) : null}
-          {actions.copy && group.kind !== "scratch" ? (
-            <ContextMenuItem icon={<Copy />} onSelect={() => actions.copy?.(group.path)}>
-              Copy path
-            </ContextMenuItem>
-          ) : null}
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => onToggleCollapsed(group.key)}>{collapsed ? "Expand" : "Collapse"}</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+  // Folded with something running, that is the news; otherwise the total.
+  const showRunning = compact && running > 0;
 
-      <AnimatedCollapse open={!collapsed}>
-        <SidebarInset id={bodyId} className="pt-0.5 pb-1">
-          <div ref={shownRef} role="list" aria-label={`${group.label} sessions`} className="flex flex-col gap-0.5">
-            {shown.map((session) => renderCard(session))}
-          </div>
-          {stacked.length > 0 ? (
-            <>
-              <StackRow
-                count={stacked.length}
-                open={olderOpen}
-                onToggle={() => onToggleOlder(group.key)}
-                controlsId={stackId}
-              />
-              <AnimatedCollapse open={olderOpen}>
-                <div
-                  ref={stackedRef}
-                  id={stackId}
-                  role="list"
-                  aria-label={`${group.label} older sessions`}
-                  className="flex flex-col gap-0.5 pb-1"
+  return (
+    <Collapsible asChild open={!collapsed} onOpenChange={() => onToggleCollapsed(group.key)}>
+      <section
+        data-testid="agent-session-group"
+        data-group-key={group.key}
+        data-collapsed={collapsed || undefined}
+        aria-label={group.label}
+        className="flex flex-col pt-1"
+      >
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            {/* Inset like the cards, so the header's hover ground lines up with theirs. */}
+            <SidebarInset className="group/header relative">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  data-sidebar-nav=""
+                  data-testid="agent-group-toggle"
+                  data-contains-active={containsActive || undefined}
+                  title={hint}
+                  className="flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left outline-none transition-colors duration-(--motion-fast) group-hover/header:bg-state-soft hover:bg-state-soft focus-visible:ring-2 focus-visible:ring-border-focus/50"
                 >
-                  {stacked.map((session) => renderCard(session))}
-                </div>
-              </AnimatedCollapse>
-            </>
-          ) : null}
-        </SidebarInset>
-      </AnimatedCollapse>
-    </section>
+                  <ChevronRight
+                    aria-hidden="true"
+                    data-testid="agent-group-chevron"
+                    className={cn(
+                      "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
+                      !collapsed && "rotate-90",
+                    )}
+                  />
+                  <span
+                    data-testid="agent-group-name"
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-body-13 font-medium",
+                      containsActive ? "text-text-primary" : "text-text-secondary",
+                    )}
+                  >
+                    {group.label}
+                  </span>
+                  {/* Said in words to a reader; drawn as a number. */}
+                  <span className="sr-only">
+                    {sessionCount(group.sessions.length)}
+                    {showRunning ? `, ${running} running` : ""}
+                  </span>
+                  {/* The + appears in this slot on hover / focus: the slot is at
+                      least as wide as the +, so the name never moves. */}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "flex shrink-0 items-center justify-end transition-opacity duration-(--motion-fast)",
+                      onNewSession &&
+                        "min-w-(--control-height-xs) group-hover/header:opacity-0 group-focus-within/header:opacity-0",
+                    )}
+                  >
+                    {showRunning ? (
+                      <span
+                        data-testid="agent-group-running"
+                        className="flex items-center gap-1.5 text-caption-11 text-text-secondary"
+                      >
+                        <span className="size-1.5 rounded-full bg-text-primary" />
+                        {`${running} running`}
+                      </span>
+                    ) : (
+                      <span
+                        data-testid="agent-group-count"
+                        aria-hidden="true"
+                        className="text-caption-11 tabular-nums text-text-tertiary"
+                      >
+                        {group.sessions.length}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+              {onNewSession ? (
+                <ActionTooltip label={newLabel}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    data-testid="agent-tree-project-new"
+                    onClick={() => onNewSession(group)}
+                    // Over the count's slot, hidden until the header is hovered
+                    // or something in it has focus — and still a tab stop, so
+                    // the keyboard finds it.
+                    className="absolute top-1 right-2 text-text-tertiary opacity-0 transition-opacity duration-(--motion-fast) group-hover/header:opacity-100 group-focus-within/header:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Plus aria-hidden="true" />
+                  </Button>
+                </ActionTooltip>
+              ) : null}
+            </SidebarInset>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-56">
+            <ContextMenuLabel className="truncate">{group.label}</ContextMenuLabel>
+            <ContextMenuSeparator />
+            {onNewSession ? (
+              <ContextMenuItem icon={<Plus />} onSelect={() => onNewSession(group)}>
+                New session
+              </ContextMenuItem>
+            ) : null}
+            {actions.copy && group.kind !== "scratch" ? (
+              <ContextMenuItem icon={<Copy />} onSelect={() => actions.copy?.(group.path)}>
+                Copy path
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => onToggleCollapsed(group.key)}>{collapsed ? "Expand" : "Collapse"}</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        <CollapsibleContent>
+          <SidebarInset className="pt-0.5 pb-2">
+            <div ref={shownRef} role="list" aria-label={`${group.label} sessions`} className="flex flex-col gap-0.5">
+              {shown.map((session) => renderCard(session))}
+            </div>
+            {stacked.length > 0 ? (
+              <Collapsible open={olderOpen} onOpenChange={() => onToggleOlder(group.key)}>
+                <StackRow count={stacked.length} open={olderOpen} />
+                <CollapsibleContent>
+                  <div
+                    ref={stackedRef}
+                    role="list"
+                    aria-label={`${group.label} older sessions`}
+                    className="flex flex-col gap-0.5 pb-1"
+                  >
+                    {stacked.map((session) => renderCard(session))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            ) : null}
+          </SidebarInset>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 
