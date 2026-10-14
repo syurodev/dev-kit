@@ -118,11 +118,15 @@ export function openSavedQuery(entry: { id: string; name: string; sql: string })
  * A console holding a statement that came from outside the module — an
  * agent's query in the transcript, a reference to one. Keyed by the SQL
  * itself (a hash: two statements that start alike are still two consoles),
- * so opening the same one twice focuses the console it already has.
+ * so opening the same one twice focuses the console it already has. The SQL
+ * is written only into a console that is still empty: once the person has
+ * typed in it, it is theirs, and a second open just brings it forward.
+ * Nothing is run.
  */
 export function openSqlConsole(sql: string, title = "Console", options: { beside?: boolean } = {}): void {
   const consoleId = consoleIdFor(`sql-${hashText(sql)}`);
-  useDatabaseStore.getState().setSql(consoleId, sql);
+  const state = useDatabaseStore.getState();
+  if (state.consoleState(consoleId).sql === "") state.setSql(consoleId, sql);
   openConsoleTab(consoleId, title, options);
 }
 

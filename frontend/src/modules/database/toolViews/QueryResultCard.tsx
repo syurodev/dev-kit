@@ -1,21 +1,21 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Copy, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { copyText } from "@/bridge/clipboard";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
-import { openSqlConsole } from "../documents";
-import { toCsv, type ParsedQueryResult } from "./parse";
+import { openAgentSql } from "./openAgentSql";
+import { toCsv, writeSummary, type ParsedQueryResult } from "./parse";
 
 /** Rows the card shows before Show all: enough to read, not a page. */
 const PREVIEW_ROWS = 20;
 
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-
 /**
  * `db.query` — what the statement returned, as a table the reader can resize.
  * The cells are the strings the driver gave (F4: no column types), NULL for
- * SQL NULL. A write has no columns and says what it changed instead.
+ * SQL NULL. A write has no columns and says what it changed instead, and
+ * offers nothing to open: a console holding an agent's write is one keystroke
+ * from running it again, on whatever connection is selected here.
  */
 export function QueryResultCard({
   result,
@@ -30,19 +30,14 @@ export function QueryResultCard({
   const write = result.columns.length === 0;
   const count = result.rows.length;
   const meta = write
-    ? result.rowsAffected < 0
-      ? "Done"
-      : `${plural(result.rowsAffected, "row")} affected`
-    : `${plural(count, "row")}${result.truncated ? " · truncated" : ""}`;
+    ? writeSummary(result.rowsAffected, sql)
+    : `${count} ${count === 1 ? "row" : "rows"}${result.truncated ? " · truncated" : ""}`;
   const firstLine = sql.split("\n")[0] ?? "";
-  const columns: DataTableColumn[] = result.columns.map((name, index) => ({
-    key: String(index),
-    header: name,
-    label: name,
-    mono: true,
-    nowrap: true,
-  }));
-  const rows = all ? result.rows : result.rows.slice(0, PREVIEW_ROWS);
+  const columns = useMemo<DataTableColumn[]>(
+    () => result.columns.map((name, index) => ({ key: String(index), header: name, label: name, mono: true, nowrap: true })),
+    [result.columns],
+  );
+  const rows = useMemo(() => (all ? result.rows : result.rows.slice(0, PREVIEW_ROWS)), [all, result.rows]);
 
   const copyCsv = () =>
     void copyText(toCsv(result.columns, result.rows))
@@ -56,19 +51,17 @@ export function QueryResultCard({
         title={heading ?? "Query"}
         meta={meta}
         action={
-          <>
-            {write ? null : (
+          write ? null : (
+            <>
               <FramedCardAction opens={false} onClick={copyCsv}>
                 <Copy aria-hidden="true" />
                 Copy CSV
               </FramedCardAction>
-            )}
-            {sql ? (
-              <FramedCardAction onClick={() => openSqlConsole(sql, "Query", { beside: true })}>
-                Open in Database
-              </FramedCardAction>
-            ) : null}
-          </>
+              {sql ? (
+                <FramedCardAction onClick={() => openAgentSql(sql, undefined)}>Open in Database</FramedCardAction>
+              ) : null}
+            </>
+          )
         }
       />
       <FramedCardPreview>
@@ -79,9 +72,12 @@ export function QueryResultCard({
         ) : null}
         {write ? null : (
           <>
+            {/* Measured over every returned row, not the twenty on screen, so
+                Show all adds rows without moving a column. */}
             <DataTable
               columns={columns}
               rows={rows}
+              cellText={result.rows}
               dense
               maxHeight={all ? "max-h-120" : undefined}
               data-testid="query-result-table"

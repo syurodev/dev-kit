@@ -1,29 +1,37 @@
 import { useState } from "react";
 import { ChevronRight, KeyRound, Layers } from "lucide-react";
-import {
-  FramedCard,
-  FramedCardHeader,
-  FramedCardPreview,
-  FramedCardRow,
-} from "@/components/ui/framed-card";
+import { FramedCard, FramedCardHeader, FramedCardPreview, FramedCardRow } from "@/components/ui/framed-card";
 import { cn } from "@/lib/utils";
+import { listWindow, tableKey, visibleSchemas } from "./lists";
 import type { ForeignKey, ParsedSchema, SchemaColumn } from "./parse";
-
-/** Rows a card lists before Show all — a schema can hold hundreds of tables. */
-const LIST_CAP = 40;
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-function ShowAll({ shown, total, onClick }: { shown: number; total: number; onClick(): void }) {
-  if (shown >= total) return null;
+/** The ring every control here draws on focus, inset so the preview's clip cannot cut it. */
+const FOCUS = "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none";
+
+/** The toggle under a capped list, and what even the opened list leaves out. */
+function ListFooter({ toggle, notShown, onToggle }: { toggle: string | null; notShown: number; onToggle(): void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="px-(--space-inline) py-(--space-micro) text-left text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) hover:text-text-primary focus-visible:bg-(--state-soft) focus-visible:outline-none"
-    >
-      Show all {total}
-    </button>
+    <>
+      {notShown > 0 ? (
+        <div className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">
+          {`+${notShown} more not shown`}
+        </div>
+      ) : null}
+      {toggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className={cn(
+            "rounded-sm px-(--space-inline) py-(--space-micro) text-left text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) hover:text-text-primary",
+            FOCUS,
+          )}
+        >
+          {toggle}
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -47,20 +55,25 @@ function ColumnLine({ column }: { column: SchemaColumn }) {
 /**
  * `db.schema.get` — what the schema index holds: schemas, their tables with
  * a column count, and a table's columns on demand. `initiallyExpanded` takes
- * `schema.table` keys (tests, and a caller that knows what was asked about).
+ * lists.ts `tableKey`s and `initiallyAll` starts the list opened (tests, and
+ * a caller that knows what was asked about).
  */
 export function SchemaResultCard({
   schema,
   heading,
   initiallyExpanded = [],
+  initiallyAll = false,
 }: {
   schema: ParsedSchema;
   heading?: string;
   initiallyExpanded?: string[];
+  initiallyAll?: boolean;
 }) {
   const [expanded, setExpanded] = useState(() => new Set(initiallyExpanded));
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(initiallyAll);
   const total = schema.schemas.reduce((sum, s) => sum + s.tables.length, 0);
+  const view = listWindow(total, all);
+  const shownSchemas = visibleSchemas(schema.schemas, view.shown);
   const toggle = (key: string) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -68,16 +81,6 @@ export function SchemaResultCard({
       else next.add(key);
       return next;
     });
-
-  let budget = all ? Number.POSITIVE_INFINITY : LIST_CAP;
-  const shownSchemas = schema.schemas
-    .map((s) => {
-      const tables = s.tables.slice(0, Math.max(0, budget));
-      budget -= tables.length;
-      return { name: s.name, tables };
-    })
-    .filter((s, index) => s.tables.length > 0 || schema.schemas[index].tables.length === 0);
-  const shown = shownSchemas.reduce((sum, s) => sum + s.tables.length, 0);
 
   return (
     <FramedCard data-testid="tool-result-card">
@@ -100,7 +103,7 @@ export function SchemaResultCard({
               ) : (
                 <ul className="flex min-w-0 flex-col">
                   {s.tables.map((table) => {
-                    const key = `${s.name}.${table.name}`;
+                    const key = tableKey(s.name, table.name);
                     const open = expanded.has(key);
                     return (
                       <li key={key} className="flex min-w-0 flex-col">
@@ -108,7 +111,10 @@ export function SchemaResultCard({
                           type="button"
                           aria-expanded={open}
                           onClick={() => toggle(key)}
-                          className="flex w-full min-w-0 cursor-pointer items-center gap-(--space-inline) px-(--space-inline) py-(--space-micro) text-left transition-colors duration-(--motion-fast) hover:bg-(--state-soft) focus-visible:bg-(--state-soft) focus-visible:outline-none"
+                          className={cn(
+                            "flex w-full min-w-0 cursor-pointer items-center gap-(--space-inline) px-(--space-inline) py-(--space-micro) text-left transition-colors duration-(--motion-fast) hover:bg-(--state-soft)",
+                            FOCUS,
+                          )}
                         >
                           <ChevronRight
                             aria-hidden="true"
@@ -124,8 +130,8 @@ export function SchemaResultCard({
                         </button>
                         {open ? (
                           <ul className="flex min-w-0 flex-col pb-(--space-micro)">
-                            {table.columns.map((column) => (
-                              <ColumnLine key={column.name} column={column} />
+                            {table.columns.map((column, index) => (
+                              <ColumnLine key={`${index}\u0000${column.name}`} column={column} />
                             ))}
                           </ul>
                         ) : null}
@@ -137,7 +143,7 @@ export function SchemaResultCard({
             </section>
           ))
         )}
-        <ShowAll shown={shown} total={total} onClick={() => setAll(true)} />
+        <ListFooter toggle={view.toggle} notShown={view.notShown} onToggle={() => setAll((open) => !open)} />
       </FramedCardPreview>
     </FramedCard>
   );
@@ -146,11 +152,19 @@ export function SchemaResultCard({
 /**
  * `db.listForeignKeys` — the declared keys, one row each, read the way a
  * join is written: `table.column → referenced_table.referenced_column`. A key
- * into another schema names that schema underneath.
+ * into another schema names both schemas underneath.
  */
-export function ForeignKeysResultCard({ keys, heading }: { keys: ForeignKey[]; heading?: string }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? keys : keys.slice(0, LIST_CAP);
+export function ForeignKeysResultCard({
+  keys,
+  heading,
+  initiallyAll = false,
+}: {
+  keys: ForeignKey[];
+  heading?: string;
+  initiallyAll?: boolean;
+}) {
+  const [all, setAll] = useState(initiallyAll);
+  const view = listWindow(keys.length, all);
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader icon={KeyRound} title={heading ?? "Foreign keys"} meta={plural(keys.length, "key")} />
@@ -160,9 +174,9 @@ export function ForeignKeysResultCard({ keys, heading }: { keys: ForeignKey[]; h
             No foreign keys declared
           </div>
         ) : (
-          shown.map((key) => (
+          keys.slice(0, view.shown).map((key, index) => (
             <FramedCardRow
-              key={`${key.schema}.${key.table}.${key.column}->${key.referencedSchema}.${key.referencedTable}.${key.referencedColumn}`}
+              key={[index, key.schema, key.table, key.column, key.referencedSchema, key.referencedTable, key.referencedColumn].join("\u0000")}
               label={
                 <span className="text-code-12">
                   {`${key.table}.${key.column} → ${key.referencedTable}.${key.referencedColumn}`}
@@ -172,7 +186,7 @@ export function ForeignKeysResultCard({ keys, heading }: { keys: ForeignKey[]; h
             />
           ))
         )}
-        <ShowAll shown={shown.length} total={keys.length} onClick={() => setAll(true)} />
+        <ListFooter toggle={view.toggle} notShown={view.notShown} onToggle={() => setAll((open) => !open)} />
       </FramedCardPreview>
     </FramedCard>
   );

@@ -1,6 +1,6 @@
 import type { PlanNode, QueryPlan } from "@/bridge/database";
 import { parseToolOutput } from "@/workbench/toolResultViews";
-import { escapeCSVCell } from "../export";
+import { serializeCSV } from "../export";
 
 /**
  * What the database tools return, read for the transcript's cards
@@ -207,20 +207,59 @@ export function parseForeignKeys(rawOutput: unknown): ForeignKey[] | null {
   return keys;
 }
 
-/** RFC 4180: a header record, then the rows, CRLF between them; NULL is an empty field. */
+/**
+ * The rows as CSV, exactly as the console's own Export writes them
+ * (export.ts serializeCSV, RFC 4180: CRLF between records, quotes only
+ * where needed). NULL and the empty string both serialize as an empty field
+ * — CSV has no way to tell them apart. No spreadsheet-formula guard, so the
+ * bytes match an export of the same result.
+ */
 export function toCsv(columns: string[], rows: (string | null)[][]): string {
-  return [columns, ...rows].map((record) => record.map(escapeCSVCell).join(",")).join("\r\n");
+  return serializeCSV({ columns, rows, rowCount: rows.length, truncated: false });
 }
 
-/** The statement a db.query / db.explain call sent (`{sql}`), trimmed, or "". */
-export function sqlOf(rawInput: unknown): string {
+/** A JSON object from rawInput, which may still be JSON text. */
+function inputRecord(rawInput: unknown): Record<string, unknown> | null {
   let value = rawInput;
   if (typeof value === "string") {
     try {
       value = JSON.parse(value);
     } catch {
-      return "";
+      return null;
     }
   }
-  return isRecord(value) && typeof value.sql === "string" ? value.sql.trim() : "";
+  return isRecord(value) ? value : null;
+}
+
+/** The statement a db.query / db.explain call sent (`{sql}`), trimmed, or "". */
+export function sqlOf(rawInput: unknown): string {
+  const value = inputRecord(rawInput);
+  return typeof value?.sql === "string" ? value.sql.trim() : "";
+}
+
+/** The connection a db.explain call named (`{profileId}`); db.query names none (F4). */
+export function profileIdOf(rawInput: unknown): string | undefined {
+  const value = inputRecord(rawInput);
+  return typeof value?.profileId === "string" && value.profileId ? value.profileId : undefined;
+}
+
+/** Statements whose count is rows they wrote — a data-modifying CTE starts with WITH. */
+const ROW_WRITES = new Set(["INSERT", "UPDATE", "DELETE", "MERGE", "WITH"]);
+
+/** The statement's first keyword, past leading whitespace and comments. */
+function firstKeyword(sql: string): string {
+  const body = sql.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, "");
+  return (/^[A-Za-z]+/.exec(body)?.[0] ?? "").toUpperCase();
+}
+
+/**
+ * What a statement with no result columns did. A count, unless the driver
+ * cannot say (-1) or the 0 is DDL's: Postgres reports 0 for CREATE/ALTER,
+ * which read as "0 rows affected" looks like a failure. A 0 from a statement
+ * that writes rows is real — it matched none — and stays.
+ */
+export function writeSummary(rowsAffected: number, sql: string): string {
+  if (rowsAffected < 0) return "Done";
+  if (rowsAffected === 0 && !ROW_WRITES.has(firstKeyword(sql))) return "Done";
+  return `${rowsAffected} ${rowsAffected === 1 ? "row" : "rows"} affected`;
 }

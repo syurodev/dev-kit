@@ -4,8 +4,10 @@ import {
   parsePlanResult,
   parseQueryResult,
   parseSchemaResult,
+  profileIdOf,
   sqlOf,
   toCsv,
+  writeSummary,
 } from "./parse";
 
 describe("db.query results", () => {
@@ -184,6 +186,10 @@ describe("toCsv", () => {
   test("a header that needs quoting is quoted too", () => {
     expect(toCsv(["a,b"], [])).toBe('"a,b"');
   });
+
+  test("NULL and the empty string both come out empty, as the console's export writes them", () => {
+    expect(toCsv(["a", "b"], [[null, ""]])).toBe("a,b\r\n,");
+  });
 });
 
 describe("sqlOf", () => {
@@ -193,5 +199,37 @@ describe("sqlOf", () => {
     expect(sqlOf(JSON.stringify({ sql: "select 3" }))).toBe("select 3");
     expect(sqlOf({})).toBe("");
     expect(sqlOf(null)).toBe("");
+  });
+});
+
+describe("profileIdOf", () => {
+  test("the connection a db.explain call named, or nothing", () => {
+    expect(profileIdOf({ profileId: "p1", sql: "select 1" })).toBe("p1");
+    expect(profileIdOf({ sql: "select 1" })).toBeUndefined();
+    expect(profileIdOf(null)).toBeUndefined();
+  });
+});
+
+describe("writeSummary", () => {
+  test("a count, singular for one", () => {
+    expect(writeSummary(3, "update users set x = 1")).toBe("3 rows affected");
+    expect(writeSummary(1, "delete from users where id = 1")).toBe("1 row affected");
+  });
+
+  test("a driver that cannot count says Done", () => {
+    expect(writeSummary(-1, "update users set x = 1")).toBe("Done");
+  });
+
+  test("0 from DDL is not a failure: Done", () => {
+    expect(writeSummary(0, "create table t (id int)")).toBe("Done");
+    expect(writeSummary(0, "-- make it\n  ALTER TABLE t add c int")).toBe("Done");
+    expect(writeSummary(0, "")).toBe("Done");
+  });
+
+  test("0 from a statement that writes rows means it matched none", () => {
+    expect(writeSummary(0, "update users set x = 1 where false")).toBe("0 rows affected");
+    expect(writeSummary(0, "  /* c */ DELETE FROM t")).toBe("0 rows affected");
+    expect(writeSummary(0, "insert into t select * from s where false")).toBe("0 rows affected");
+    expect(writeSummary(0, "merge into t using s on false when matched then delete")).toBe("0 rows affected");
   });
 });

@@ -4,6 +4,7 @@ import { QueryResultCard } from "./QueryResultCard";
 import { PlanResultCard } from "./PlanResultCard";
 import { ForeignKeysResultCard, SchemaResultCard } from "./SchemaResultCard";
 import type { ParsedQueryResult } from "./parse";
+import { tableKey } from "./lists";
 
 const bodyRows = (html: string) => (html.split("<tbody")[1]?.match(/<tr/g) ?? []).length;
 
@@ -55,12 +56,36 @@ describe("QueryResultCard", () => {
     expect(html).toContain("Open in Database");
   });
 
-  test("a write says how many rows it changed, and has no table", () => {
+  test("columns are measured over every returned row, so Show all does not move them", () => {
+    const wide = read(30);
+    wide.rows[25] = ["25", "a value far wider than any of the first twenty rows hold"];
+    const folded = renderToString(<QueryResultCard result={wide} sql="select 1" />);
+    const widths = (html: string) => html.match(/<col style="width:[0-9.]+px"/g);
+    const narrow = renderToString(<QueryResultCard result={read(30)} sql="select 1" />);
+    expect(widths(folded)).not.toEqual(widths(narrow));
+  });
+
+  test("a write says how many rows it changed, has no table, and nothing to open", () => {
     const write = { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 3 };
     const html = renderToString(<QueryResultCard result={write} sql="update users set x = 1" />);
     expect(html).toContain("3 rows affected");
     expect(html).not.toContain("<table");
     expect(html).not.toContain("Copy CSV");
+    expect(html).not.toContain("Open in Database");
+  });
+
+  test("one row affected is one row", () => {
+    const write = { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 1 };
+    expect(renderToString(<QueryResultCard result={write} sql="delete from t where id = 1" />)).toContain(
+      "1 row affected",
+    );
+  });
+
+  test("DDL's 0 is Done, not a failure", () => {
+    const write = { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 0 };
+    const html = renderToString(<QueryResultCard result={write} sql="create table t (id int)" />);
+    expect(html).toContain("Done");
+    expect(html).not.toContain("0 rows affected");
   });
 
   test("a write the driver cannot count says Done", () => {
@@ -91,7 +116,7 @@ describe("PlanResultCard", () => {
   };
 
   test("a fixed-height diagram and Open in Database", () => {
-    const html = renderToString(<PlanResultCard plan={plan} sql="select * from users" />);
+    const html = renderToString(<PlanResultCard plan={plan} sql="select * from users" profileId="p1" />);
     expect(html).toContain('data-testid="tool-result-card"');
     expect(html).toContain(">Plan<");
     expect(html).toContain("1 step");
@@ -140,12 +165,45 @@ describe("SchemaResultCard", () => {
   });
 
   test("an expanded table lists name, type and nullability", () => {
-    const html = renderToString(<SchemaResultCard schema={schema} initiallyExpanded={["public.users"]} />);
+    const html = renderToString(<SchemaResultCard schema={schema} initiallyExpanded={[tableKey("public", "users")]} />);
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("email");
     expect(html).toContain("text");
     expect(html).toContain("nullable");
     expect(html).toContain("not null");
+  });
+
+  const many = (n: number) => ({
+    schemas: [
+      {
+        name: "public",
+        tables: Array.from({ length: n }, (_, i) => ({ name: `t${String(i).padStart(3, "0")}`, columns: [] })),
+      },
+    ],
+  });
+
+  test("a long schema lists the first 40 tables and offers the rest", () => {
+    const html = renderToString(<SchemaResultCard schema={many(45)} />);
+    expect(html.match(/aria-expanded=/g)?.length).toBe(40);
+    expect(html).toContain("Show all 45");
+  });
+
+  test("opened, it lists them all and offers the way back", () => {
+    const html = renderToString(<SchemaResultCard schema={many(45)} initiallyAll />);
+    expect(html.match(/aria-expanded=/g)?.length).toBe(45);
+    expect(html).toContain("Show fewer");
+  });
+
+  test("past 500 it says how many it left out", () => {
+    const html = renderToString(<SchemaResultCard schema={many(520)} initiallyAll />);
+    expect(html.match(/aria-expanded=/g)?.length).toBe(500);
+    expect(html).toContain("+20 more not shown");
+  });
+
+  test("its toggles draw the ring focus style", () => {
+    const html = renderToString(<SchemaResultCard schema={many(45)} />);
+    expect(html).toContain("focus-visible:ring-1");
+    expect(html).not.toContain("focus-visible:bg-(--state-soft) focus-visible:outline-none\"");
   });
 
   test("nothing indexed says so", () => {
@@ -171,6 +229,39 @@ describe("ForeignKeysResultCard", () => {
     );
     expect(html).toContain(">Foreign keys<");
     expect(html).toContain("orders.user_id → users.id");
+  });
+
+  const key = (i: number, referencedSchema = "public") => ({
+    schema: "public",
+    table: `t${i}`,
+    column: "user_id",
+    referencedSchema,
+    referencedTable: "users",
+    referencedColumn: "id",
+  });
+
+  test("a key into another schema names both schemas", () => {
+    const html = renderToString(<ForeignKeysResultCard keys={[key(1, "auth")]} />);
+    expect(html).toContain("public → auth");
+  });
+
+  test("a key inside one schema has no second line", () => {
+    expect(renderToString(<ForeignKeysResultCard keys={[key(1)]} />)).not.toContain("public → public");
+  });
+
+  test("a long list folds to 40, opens to all, and folds back", () => {
+    const keys = Array.from({ length: 45 }, (_, i) => key(i));
+    const folded = renderToString(<ForeignKeysResultCard keys={keys} />);
+    expect(folded.match(/data-slot="framed-card-row"/g)?.length).toBe(40);
+    expect(folded).toContain("Show all 45");
+    const open = renderToString(<ForeignKeysResultCard keys={keys} initiallyAll />);
+    expect(open.match(/data-slot="framed-card-row"/g)?.length).toBe(45);
+    expect(open).toContain("Show fewer");
+  });
+
+  test("the same key twice is two rows", () => {
+    const html = renderToString(<ForeignKeysResultCard keys={[key(1), key(1)]} />);
+    expect(html.match(/data-slot="framed-card-row"/g)?.length).toBe(2);
   });
 
   test("none declared says so", () => {

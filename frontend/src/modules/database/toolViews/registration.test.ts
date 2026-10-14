@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToolResult } from "@/workbench/toolResultViews";
 import { hasIntent } from "@/workbench/intents";
+import { toolResultInputOf } from "@/workbench/toolPayload";
 import "../manifest";
 
 const view = (name: string, rawOutput: unknown, rawInput: unknown = {}) =>
@@ -24,6 +25,23 @@ describe("the database module's tool result views", () => {
     expect(view("db.explain", { nodes: [] })).toBeNull();
     expect(view("db.schema.get", "text")).toBeNull();
     expect(view("db.listForeignKeys", { nope: true })).toBeNull();
+  });
+
+  test("no foreign keys, as Go sends them — a nil slice in the envelope — is still the card", () => {
+    const claude = toolResultInputOf({
+      name: "mcp__devkit__db_listForeignKeys",
+      status: "completed",
+      content: [{ type: "content", content: { type: "text", text: JSON.stringify({ result: null }) } }],
+    });
+    expect(claude).not.toBeNull();
+    expect(renderToolResult(claude!)).not.toBeNull();
+    const codex = toolResultInputOf({
+      title: "devkit.db.listForeignKeys",
+      status: "completed",
+      rawOutput: { content: [{ type: "text", text: "{}" }], structuredContent: { result: null } },
+    });
+    expect(codex).not.toBeNull();
+    expect(renderToolResult(codex!)).not.toBeNull();
   });
 
   test("database.reveal is registered", () => {

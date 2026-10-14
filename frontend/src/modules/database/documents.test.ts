@@ -46,6 +46,16 @@ describe("a console for a statement from outside", () => {
     const consoleId = tabs.openTabs[0].params?.consoleId as string;
     expect(useDatabaseStore.getState().consoleState(consoleId).sql).toBe(`${long}id = 1`);
   });
+
+  test("opening it again keeps what the person typed there", () => {
+    openSqlConsole("select 1", "Agent query");
+    const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+    const consoleId = tabs.openTabs[0].params?.consoleId as string;
+    useDatabaseStore.getState().setSql(consoleId, "select 1 -- mine now");
+    openSqlConsole("select 1", "Agent query");
+    expect(useDatabaseStore.getState().consoleState(consoleId).sql).toBe("select 1 -- mine now");
+    expect(moduleTabs(useWorkbenchTabsStore.getState().modules, "database").openTabs).toHaveLength(1);
+  });
 });
 
 // The + button must give you a console you did not have. tabKey resolves the

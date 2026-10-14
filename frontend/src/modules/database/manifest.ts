@@ -17,7 +17,14 @@ import {
 } from "./documents";
 import { useDatabaseStore } from "./databaseStore";
 import { databaseTabActions } from "./tabActions";
-import { parseForeignKeys, parsePlanResult, parseQueryResult, parseSchemaResult, sqlOf } from "./toolViews/parse";
+import {
+  parseForeignKeys,
+  parsePlanResult,
+  parseQueryResult,
+  parseSchemaResult,
+  profileIdOf,
+  sqlOf,
+} from "./toolViews/parse";
 import { revealTarget } from "./toolViews/reveal";
 
 export const databaseModule: ModuleManifest = {
@@ -189,9 +196,15 @@ export const databaseModule: ModuleManifest = {
 /**
  * `database.reveal` (docs/dev-kit/cross-module.mdx): open a table or a
  * statement from anywhere — a table an agent named in prose — without the
- * caller importing this module. `{kind:"table", id:"schema.table"}` opens the
- * table on the selected connection; `{kind:"console", id: sql}` a console
- * holding the SQL. Routing is toolViews/reveal.ts, pure and tested.
+ * caller importing this module. Routing is toolViews/reveal.ts, pure and
+ * tested. The ref formats, which callers (Agent Hub references) produce:
+ *
+ * - `{kind:"table", id}` — `id` is `schema.table`, split at the first dot;
+ *   a schema with a dot in it is written in SQL double quotes,
+ *   `"sales.eu".orders` (`""` for a quote inside). Opens the table on the
+ *   connection selected here. An id with no schema is "unavailable".
+ * - `{kind:"console", id, label?}` — `id` is the SQL itself; it opens in a
+ *   console titled `label` (else "Console"), never run.
  */
 registerIntent("database.reveal", (ref, { placement }) => {
   const target = revealTarget(ref);
@@ -223,7 +236,7 @@ const LazyPlanResultCard = lazy(() =>
 registerToolResultView("db.explain", ({ rawInput, rawOutput, heading }) => {
   const plan = parsePlanResult(rawOutput);
   if (!plan) return null;
-  return createElement(LazyPlanResultCard, { plan, sql: sqlOf(rawInput), heading });
+  return createElement(LazyPlanResultCard, { plan, sql: sqlOf(rawInput), profileId: profileIdOf(rawInput), heading });
 });
 
 const LazySchemaResultCard = lazy(() =>

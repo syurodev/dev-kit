@@ -13,6 +13,13 @@ describe("database.reveal routing", () => {
     });
   });
 
+  test("a quoted schema keeps its dots", () => {
+    expect(revealTarget(ref("table", '"sales.eu".orders'))).toEqual({ open: "table", schema: "sales.eu", table: "orders" });
+    expect(revealTarget(ref("table", '"a""b".t'))).toEqual({ open: "table", schema: 'a"b', table: "t" });
+    expect(revealTarget(ref("table", '"sales.eu"'))).toBeNull();
+    expect(revealTarget(ref("table", '"sales.eu.orders'))).toBeNull();
+  });
+
   test("a table without its schema cannot be opened", () => {
     expect(revealTarget(ref("table", "orders"))).toBeNull();
     expect(revealTarget(ref("table", ".orders"))).toBeNull();
