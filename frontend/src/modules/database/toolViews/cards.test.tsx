@@ -96,6 +96,15 @@ describe("QueryResultCard", () => {
   test("the transcript's heading replaces the noun", () => {
     expect(renderToString(<QueryResultCard result={read(1)} sql="" heading="Ran query" />)).toContain(">Ran query<");
   });
+
+  // The connection's name comes from the Database store (connectionPhrase);
+  // renderToString reads the store's initial, empty list, so here it is the
+  // case where nothing is known yet: the meta says nothing about it.
+  test("a connection this window cannot name yet is left out of the meta", () => {
+    const html = renderToString(<QueryResultCard result={{ ...read(2), profileId: "p1" }} sql="select 1" />);
+    expect(html).toContain("2 rows<");
+    expect(html).not.toContain(" · on ");
+  });
 });
 
 describe("PlanResultCard", () => {

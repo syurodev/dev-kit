@@ -37,9 +37,11 @@ export type ParsedQueryResult = {
   truncated: boolean;
   /** What a write changed; -1 when the driver cannot say. */
   rowsAffected: number;
+  /** The connection that ran it — absent in transcripts written before Go named it. */
+  profileId?: string;
 };
 
-/** `db.query` → `{columns, rows, row_count, truncated, rows_affected}`. */
+/** `db.query` → `{columns, rows, row_count, truncated, rows_affected, profile_id?}`. */
 export function parseQueryResult(rawOutput: unknown): ParsedQueryResult | null {
   const value = parseToolOutput(rawOutput);
   if (!isRecord(value) || !("columns" in value) || !("rows" in value)) return null;
@@ -54,13 +56,15 @@ export function parseQueryResult(rawOutput: unknown): ParsedQueryResult | null {
   const rowCount = numberOr0(value.row_count);
   const rowsAffected = value.rows_affected === undefined ? -1 : numberOr0(value.rows_affected);
   if (rowCount === null || rowsAffected === null) return null;
-  return {
+  const parsed: ParsedQueryResult = {
     columns: columns as string[],
     rows: rows as (string | null)[][],
     rowCount,
     truncated: value.truncated === true,
     rowsAffected,
   };
+  if (typeof value.profile_id === "string" && value.profile_id) parsed.profileId = value.profile_id;
+  return parsed;
 }
 
 function planNodeOf(value: unknown): PlanNode | null {

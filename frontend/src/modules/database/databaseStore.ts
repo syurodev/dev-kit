@@ -112,6 +112,12 @@ export type ResultTab = {
   /** Names the tab, and says which of four grids you are looking at. */
   statement: string;
   result: QueryResult;
+  /**
+   * "agent": rows an agent's db.query returned, shown by Open in Database
+   * without running anything here (`showAgentResult`). The console says so
+   * until a run of its own replaces them. Absent for a run's own result.
+   */
+  origin?: "agent";
 };
 
 export type ConsoleState = {
@@ -545,6 +551,12 @@ export type DatabaseStoreState = {
   runScript: (consoleId: string, statements: readonly string[]) => Promise<void>;
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
+  /**
+   * Shows rows an agent already has as the console's result — nothing runs,
+   * nothing is written to the console's file (results never are). The next
+   * run replaces them like any result.
+   */
+  showAgentResult: (consoleId: string, statement: string, result: QueryResult) => void;
   clearQueryError: (consoleId: string) => void;
   /** Reports a failure into one console — Explain and friends, which run
    * outside executeQuery but land in the same error slot. */
@@ -1681,6 +1693,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchConsole(set, consoleId, {
       results: [],
       activeResult: 0,
+      queryStatus: "",
+      queryDurationMs: null,
+    }),
+
+  showAgentResult: (consoleId, statement, result) =>
+    patchConsole(set, consoleId, {
+      results: [{ statement, result, origin: "agent" }],
+      activeResult: 0,
+      queryError: "",
       queryStatus: "",
       queryDurationMs: null,
     }),

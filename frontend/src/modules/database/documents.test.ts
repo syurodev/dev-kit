@@ -105,6 +105,76 @@ describe("a console for a statement from outside", () => {
   });
 });
 
+/**
+ * Open in Database from a db.query card brings the agent's rows with the
+ * statement, so the console shows what the agent saw without running it. The
+ * rows go only where they describe the console's text: a console the person
+ * has edited keeps its text and gets no rows, and a result of their own is
+ * never replaced.
+ */
+describe("an agent's result comes with its statement", () => {
+  const noFiles = async (): Promise<StoredConsole[]> => [];
+  const rows = { columns: ["id"], rows: [["7"]], rowCount: 1, truncated: false, rowsAffected: -1 };
+  const id = () => sqlConsoleId("select id from t");
+  const results = () => useDatabaseStore.getState().consoleState(id()).results;
+
+  beforeEach(() => {
+    resetConsoleHydration();
+    useDatabaseStore.setState({ consoles: {} });
+  });
+
+  test("a new console holds the statement and shows the agent's rows", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(useDatabaseStore.getState().consoleState(id()).sql).toBe("select id from t");
+    expect(results()).toEqual([{ statement: "select id from t", result: rows, origin: "agent" }]);
+  });
+
+  test("the same statement again, with nothing shown, shows the rows", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles });
+    expect(results()).toEqual([]);
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(results()[0]?.origin).toBe("agent");
+    expect(moduleTabs(useWorkbenchTabsStore.getState().modules, "database").openTabs).toHaveLength(1);
+  });
+
+  test("a result the person ran is not replaced", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles });
+    const own = { columns: ["id"], rows: [["1"], ["2"]], rowCount: 2, truncated: false };
+    useDatabaseStore.setState({
+      consoles: {
+        ...useDatabaseStore.getState().consoles,
+        [id()]: { ...useDatabaseStore.getState().consoleState(id()), results: [{ statement: "select id from t", result: own }] },
+      },
+    });
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(results()).toEqual([{ statement: "select id from t", result: own }]);
+  });
+
+  test("a console the person edited keeps its text and gets no rows", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles });
+    useDatabaseStore.getState().setSql(id(), "select id from t where id > 5");
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(useDatabaseStore.getState().consoleState(id()).sql).toBe("select id from t where id > 5");
+    expect(results()).toEqual([]);
+  });
+
+  test("an edit saved on disk keeps its text and gets no rows", async () => {
+    const saved: StoredConsole = { id: id(), profileId: "", database: "", sql: "select 2", updatedAt: "" };
+    await openSqlConsole("select id from t", "Agent query", { load: async () => [saved], result: rows });
+    expect(useDatabaseStore.getState().consoleState(id()).sql).toBe("select 2");
+    expect(results()).toEqual([]);
+  });
+
+  test("a console still running is left to its run", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles });
+    useDatabaseStore.setState({
+      consoles: { [id()]: { ...useDatabaseStore.getState().consoleState(id()), runningQuery: true } },
+    });
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(results()).toEqual([]);
+  });
+});
+
 // The + button must give you a console you did not have. tabKey resolves the
 // same module+view+params to the same tab, so a fixed id would focus the
 // existing console instead of opening a new one.

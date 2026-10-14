@@ -1,3 +1,5 @@
+import type { QueryResult } from "@/bridge/database";
+
 /**
  * What the console says about the statement it just ran.
  *
@@ -110,4 +112,14 @@ function stripNoise(sql: string): string {
     .replace(/--[^\n]*/g, " ")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/'(?:[^']|'')*'/g, "''");
+}
+
+/**
+ * The line over an agent's rows in a console: whose they are, how many, and
+ * that they are not live. A cut result says where it was cut, since rows
+ * stopped at the cap look exactly like all of them.
+ */
+export function agentResultNote(result: Pick<QueryResult, "rowCount" | "truncated">): string {
+  const count = `${result.rowCount} ${result.rowCount === 1 ? "row" : "rows"}`;
+  return `Agent's result · ${result.truncated ? `truncated at ${count}` : count} — run to refresh`;
 }

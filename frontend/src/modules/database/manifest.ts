@@ -25,6 +25,7 @@ import {
   profileIdOf,
   sqlOf,
 } from "./toolViews/parse";
+import { liveProfileSelection } from "./toolViews/liveProfiles";
 import { reveal, type RevealDeps } from "./toolViews/reveal";
 
 export const databaseModule: ModuleManifest = {
@@ -210,10 +211,7 @@ export const databaseModule: ModuleManifest = {
  *   console titled `label` (else "Console"), never run.
  */
 const liveRevealDeps: RevealDeps = {
-  profileIds: () => useDatabaseStore.getState().profiles.map((profile) => profile.id),
-  selectedProfileId: () => useDatabaseStore.getState().selectedProfileId,
-  refreshProfiles: () => useDatabaseStore.getState().fetchProfiles(),
-  selectProfile: (id) => useDatabaseStore.getState().setSelectedProfileId(id),
+  ...liveProfileSelection,
   openTable: (schema, table, beside) => openTableTab(schema, table, false, { beside }),
   openConsole: (sql, title, beside) => openSqlConsole(sql, title, { beside }),
 };

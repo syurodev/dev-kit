@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { copyText } from "@/bridge/clipboard";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
-import { openAgentSql } from "./openAgentSql";
+import { useDatabaseStore } from "../databaseStore";
+import { connectionPhrase, openAgentSql } from "./openAgentSql";
 import { toCsv, writeSummary, type ParsedQueryResult } from "./parse";
 
 /** Rows the card shows before Show all: enough to read, not a page. */
@@ -13,9 +14,13 @@ const PREVIEW_ROWS = 20;
 /**
  * `db.query` — what the statement returned, as a table the reader can resize.
  * The cells are the strings the driver gave (F4: no column types), NULL for
- * SQL NULL. A write has no columns and says what it changed instead, and
+ * SQL NULL. The header names the connection that ran it when this window
+ * knows it. A write has no columns and says what it changed instead, and
  * offers nothing to open: a console holding an agent's write is one keystroke
- * from running it again, on whatever connection is selected here.
+ * from running it again.
+ *
+ * Open in Database switches to the agent's connection and shows these rows as
+ * the console's result, without running anything (openAgentSql).
  */
 export function QueryResultCard({
   result,
@@ -29,9 +34,11 @@ export function QueryResultCard({
   const [all, setAll] = useState(false);
   const write = result.columns.length === 0;
   const count = result.rows.length;
-  const meta = write
+  const connection = useDatabaseStore((s) => connectionPhrase(result.profileId, s.profiles));
+  const summary = write
     ? writeSummary(result.rowsAffected, sql)
     : `${count} ${count === 1 ? "row" : "rows"}${result.truncated ? " · truncated" : ""}`;
+  const meta = connection ? `${summary} · ${connection}` : summary;
   const firstLine = sql.split("\n")[0] ?? "";
   const columns = useMemo<DataTableColumn[]>(
     () => result.columns.map((name, index) => ({ key: String(index), header: name, label: name, mono: true, nowrap: true })),
@@ -58,7 +65,21 @@ export function QueryResultCard({
                 Copy CSV
               </FramedCardAction>
               {sql ? (
-                <FramedCardAction onClick={() => void openAgentSql(sql, undefined)}>Open in Database</FramedCardAction>
+                <FramedCardAction
+                  onClick={() =>
+                    void openAgentSql(sql, result.profileId, {
+                      result: {
+                        columns: result.columns,
+                        rows: result.rows,
+                        rowCount: result.rowCount,
+                        truncated: result.truncated,
+                        rowsAffected: result.rowsAffected,
+                      },
+                    })
+                  }
+                >
+                  Open in Database
+                </FramedCardAction>
               ) : null}
             </>
           )

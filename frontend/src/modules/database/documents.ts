@@ -1,7 +1,7 @@
 import { getModule, viewIcon } from "@/modules/registry";
 import { perfLog } from "@/lib/perfLog";
 import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { listConsoles, type StoredConsole } from "@/bridge/database";
+import { listConsoles, type QueryResult, type StoredConsole } from "@/bridge/database";
 import { consolesHydrationStarted, ensureConsolesHydrated } from "./consoleHydration";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
@@ -137,7 +137,17 @@ export function sqlConsoleId(sql: string): string {
 export async function openSqlConsole(
   sql: string,
   title = "Console",
-  options: { beside?: boolean; load?: () => Promise<StoredConsole[]> } = {},
+  options: {
+    beside?: boolean;
+    load?: () => Promise<StoredConsole[]>;
+    /**
+     * Rows an agent already has for this statement (db.query), shown as the
+     * console's result without running anything — only while the console
+     * holds this statement, and never over a result of its own or a run in
+     * progress. In memory only: results are never written to the file.
+     */
+    result?: QueryResult;
+  } = {},
 ): Promise<void> {
   const consoleId = sqlConsoleId(sql);
   const load = options.load ?? listConsoles;
@@ -150,6 +160,10 @@ export async function openSqlConsole(
   }
   const state = useDatabaseStore.getState();
   if (state.consoleState(consoleId).sql === "") state.setSql(consoleId, sql);
+  const current = useDatabaseStore.getState().consoleState(consoleId);
+  if (options.result && current.sql === sql && current.results.length === 0 && !current.runningQuery) {
+    state.showAgentResult(consoleId, sql, options.result);
+  }
   openConsoleTab(consoleId, title, { beside: options.beside });
 }
 

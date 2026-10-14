@@ -38,7 +38,7 @@ export function PlanResultCard({
 }: {
   plan: QueryPlan;
   sql: string;
-  /** The connection the agent planned it on — compared with the console's when it opens. */
+  /** The connection the agent planned it on — Open in Database switches to it first. */
   profileId?: string;
   heading?: string;
 }) {

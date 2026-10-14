@@ -38,6 +38,16 @@ describe("db.query results", () => {
     expect(parsed?.rows).toEqual([["x"]]);
   });
 
+  test("the profile that ran it, when the result names one", () => {
+    const named = parseQueryResult({ columns: ["a"], rows: [], row_count: 0, truncated: false, rows_affected: -1, profile_id: "p1" });
+    expect(named?.profileId).toBe("p1");
+    // A transcript written before Go named it, or a value that is not an id.
+    const old = parseQueryResult({ columns: ["a"], rows: [], row_count: 0, truncated: false, rows_affected: -1 });
+    expect(old).not.toHaveProperty("profileId");
+    expect(parseQueryResult({ columns: ["a"], rows: [], profile_id: "" })).not.toHaveProperty("profileId");
+    expect(parseQueryResult({ columns: ["a"], rows: [], profile_id: 7 })).not.toHaveProperty("profileId");
+  });
+
   test("anything else is not a query result", () => {
     expect(parseQueryResult(null)).toBeNull();
     expect(parseQueryResult("not json")).toBeNull();

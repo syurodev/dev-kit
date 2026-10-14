@@ -67,4 +67,16 @@ describe("the result slot", () => {
     expect(panel).toContain("row cap reached");
     expect(panel).toContain("Close the result");
   });
+
+  // Open in Database from a db.query card shows the agent's rows here without
+  // running anything; until the person runs it the panel says whose rows they
+  // are, and the note carries the cut (the cap chip would say it twice).
+  it("says when the rows are the agent's, not a run of this console", () => {
+    const panel = source.slice(source.indexOf('id="results"'));
+    expect(panel).toContain('origin === "agent"');
+    expect(panel).toContain("agentResultNote(");
+    const note = panel.indexOf("agentResultNote(");
+    const chip = panel.indexOf("row cap reached");
+    expect(note, "the note and the chip are one choice").toBeLessThan(chip);
+  });
 });

@@ -63,14 +63,34 @@ export function revealTarget(ref: Pick<EntityRef, "kind" | "id" | "label" | "pro
   return null;
 }
 
-/** What `reveal` needs from the store and the workbench; the manifest wires the live ones. */
-export type RevealDeps = {
+/** The store's connections and its selection; `liveProfileSelection` wires the live ones. */
+export type ProfileSelection = {
   profileIds: () => readonly string[];
   selectedProfileId: () => string;
   /** Loads the profile list again (the store's fetchProfiles). */
   refreshProfiles: () => Promise<void>;
   /** The store's own selection — the rail's click — so whatever a switch does, it does here too. */
   selectProfile: (id: string) => void;
+};
+
+/**
+ * Selects the connection an agent's call ran on, as a click in the rail
+ * would. A connection this machine does not have (asked for once more, in
+ * case the list was not loaded) is false, as is a selection that did not
+ * take — the caller then opens nothing rather than open on whichever
+ * connection happened to be selected, which may be prod.
+ */
+export async function selectProfileById(profileId: string, deps: ProfileSelection): Promise<boolean> {
+  if (!deps.profileIds().includes(profileId)) {
+    await deps.refreshProfiles();
+    if (!deps.profileIds().includes(profileId)) return false;
+  }
+  if (deps.selectedProfileId() !== profileId) deps.selectProfile(profileId);
+  return deps.selectedProfileId() === profileId;
+}
+
+/** What `reveal` needs from the store and the workbench; the manifest wires the live ones. */
+export type RevealDeps = ProfileSelection & {
   /** Opens a table on the selected connection. */
   openTable: (schema: string, table: string, beside: boolean) => void;
   openConsole: (sql: string, title: string, beside: boolean) => Promise<void>;
@@ -78,12 +98,9 @@ export type RevealDeps = {
 
 /**
  * Runs a `database.reveal`. A table that names its connection opens on that
- * connection: it is selected first, through the same action as a click in
- * the rail, and only then opened — never on whichever happened to be
- * selected, which may be prod. A connection this machine does not have
- * (asked for once more, in case the list was not loaded) is "unavailable",
- * as is a selection that did not take. Without one, the table opens on the
- * selected connection, as it always has.
+ * connection: it is selected first (`selectProfileById`) and only then
+ * opened; one that cannot be selected is "unavailable". Without one, the
+ * table opens on the selected connection, as it always has.
  */
 export async function reveal(ref: EntityRef, placement: Placement, deps: RevealDeps): Promise<"ok" | "unavailable"> {
   const target = revealTarget(ref);
@@ -93,15 +110,7 @@ export async function reveal(ref: EntityRef, placement: Placement, deps: RevealD
     await deps.openConsole(target.sql, target.title, beside);
     return "ok";
   }
-  const { profileId } = target;
-  if (profileId) {
-    if (!deps.profileIds().includes(profileId)) {
-      await deps.refreshProfiles();
-      if (!deps.profileIds().includes(profileId)) return "unavailable";
-    }
-    if (deps.selectedProfileId() !== profileId) deps.selectProfile(profileId);
-    if (deps.selectedProfileId() !== profileId) return "unavailable";
-  }
+  if (target.profileId && !(await selectProfileById(target.profileId, deps))) return "unavailable";
   deps.openTable(target.schema, target.table, beside);
   return "ok";
 }
