@@ -83,7 +83,8 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
     const decide = settledRunner(() => setWide(width >= 760));
     const observer = new ResizeObserver((entries) => {
       width = entries[0].contentRect.width;
-      decide.schedule();
+      // A tab shown from display:none (width 0) decides at once.
+      decide.schedule(width);
     });
     observer.observe(element);
     return () => {

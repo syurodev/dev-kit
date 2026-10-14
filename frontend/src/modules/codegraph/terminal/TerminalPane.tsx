@@ -17,6 +17,7 @@ import { monoFontStack, useAppearanceStore } from "@/stores/appearance";
 import { terminalTheme } from "@/theme/terminalTheme";
 import { onThemeChange } from "@/theme/themeColors";
 import { settledRunner } from "@/lib/panelMotion";
+import { ptySizeSync } from "./ptySync";
 
 /**
  * A shell rooted at the open project, in the bottom slot.
@@ -70,17 +71,11 @@ export function TerminalPane({
     let exited = false;
     let sessionId = "";
     let detach: (() => void) | undefined;
-    // The PTY's size as last told. Every fit used to send one, including the
-    // ones that changed nothing; a resize is an IPC round trip and a SIGWINCH
-    // that makes a full-screen program redraw.
-    let sentRows = 0;
-    let sentCols = 0;
-    const syncSize = () => {
-      if (!sessionId || (term.rows === sentRows && term.cols === sentCols)) return;
-      sentRows = term.rows;
-      sentCols = term.cols;
-      void resizeTerminal(sessionId, term.rows, term.cols);
-    };
+    // Tells the PTY its size only when the grid changed (ptySync.ts).
+    const syncSize = ptySizeSync(
+      () => (sessionId ? { id: sessionId, rows: term.rows, cols: term.cols } : null),
+      resizeTerminal,
+    );
 
     setError("");
     const prefs = useAppearanceStore.getState();
@@ -168,8 +163,7 @@ export function TerminalPane({
           return;
         }
         sessionId = id;
-        sentRows = startedRows;
-        sentCols = startedCols;
+        syncSize.started(startedRows, startedCols);
         detach = attached.detach;
         term.onData((data) => void writeTerminal(id, data));
         // The size the shell was started with is whatever the first fit saw.
@@ -192,7 +186,11 @@ export function TerminalPane({
       fit.fit();
       syncSize();
     });
-    const observer = new ResizeObserver(() => refit.schedule());
+    const observer = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      // Shown from display:none (an inactive terminal tab): fit at once.
+      refit.schedule(width > 0 && height > 0 ? width : 0);
+    });
     observer.observe(host);
 
     return () => {
