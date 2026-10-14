@@ -1,6 +1,8 @@
 import { runDocumentCommand } from "./documentCommands";
 import { Activity, Bookmark, Database, History, Network, Table2, Terminal } from "lucide-react";
-import { lazy } from "react";
+import { createElement, lazy } from "react";
+import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
 import { INFRA_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import {
@@ -10,9 +12,13 @@ import {
   openHistoryTab,
   openNewConsoleTab,
   openSavedTab,
+  openSqlConsole,
+  openTableTab,
 } from "./documents";
 import { useDatabaseStore } from "./databaseStore";
 import { databaseTabActions } from "./tabActions";
+import { parseForeignKeys, parsePlanResult, parseQueryResult, parseSchemaResult, sqlOf } from "./toolViews/parse";
+import { revealTarget } from "./toolViews/reveal";
 
 export const databaseModule: ModuleManifest = {
   id: "database",
@@ -179,3 +185,61 @@ export const databaseModule: ModuleManifest = {
     search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
   },
 };
+
+/**
+ * `database.reveal` (docs/dev-kit/cross-module.mdx): open a table or a
+ * statement from anywhere — a table an agent named in prose — without the
+ * caller importing this module. `{kind:"table", id:"schema.table"}` opens the
+ * table on the selected connection; `{kind:"console", id: sql}` a console
+ * holding the SQL. Routing is toolViews/reveal.ts, pure and tested.
+ */
+registerIntent("database.reveal", (ref, { placement }) => {
+  const target = revealTarget(ref);
+  if (!target) return "unavailable";
+  const beside = placement === "beside";
+  if (target.open === "table") openTableTab(target.schema, target.table, false, { beside });
+  else openSqlConsole(target.sql, target.title, { beside });
+  return "ok";
+});
+
+/**
+ * ToolResultViews for the database tools (docs/dev-kit/tool-result-view.mdx).
+ * Each shape is checked synchronously before its card's chunk loads; a
+ * payload that is not the shape (another tool's, a cut preview) returns null
+ * and the transcript keeps its generic block.
+ */
+const LazyQueryResultCard = lazy(() =>
+  import("./toolViews/QueryResultCard").then(({ QueryResultCard }) => ({ default: QueryResultCard })),
+);
+registerToolResultView("db.query", ({ rawInput, rawOutput, heading }) => {
+  const result = parseQueryResult(rawOutput);
+  if (!result) return null;
+  return createElement(LazyQueryResultCard, { result, sql: sqlOf(rawInput), heading });
+});
+
+const LazyPlanResultCard = lazy(() =>
+  import("./toolViews/PlanResultCard").then(({ PlanResultCard }) => ({ default: PlanResultCard })),
+);
+registerToolResultView("db.explain", ({ rawInput, rawOutput, heading }) => {
+  const plan = parsePlanResult(rawOutput);
+  if (!plan) return null;
+  return createElement(LazyPlanResultCard, { plan, sql: sqlOf(rawInput), heading });
+});
+
+const LazySchemaResultCard = lazy(() =>
+  import("./toolViews/SchemaResultCard").then(({ SchemaResultCard }) => ({ default: SchemaResultCard })),
+);
+registerToolResultView("db.schema.get", ({ rawOutput, heading }) => {
+  const schema = parseSchemaResult(rawOutput);
+  if (!schema) return null;
+  return createElement(LazySchemaResultCard, { schema, heading });
+});
+
+const LazyForeignKeysResultCard = lazy(() =>
+  import("./toolViews/SchemaResultCard").then(({ ForeignKeysResultCard }) => ({ default: ForeignKeysResultCard })),
+);
+registerToolResultView("db.listForeignKeys", ({ rawOutput, heading }) => {
+  const keys = parseForeignKeys(rawOutput);
+  if (!keys) return null;
+  return createElement(LazyForeignKeysResultCard, { keys, heading });
+});

@@ -12,7 +12,7 @@ import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
  * a second click on something else replaces it, so browsing the rail does not
  * leave a trail of tabs behind.
  */
-function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true) {
+function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true, beside = false) {
   // Start the chunk before React needs it: the tab appears in the same frame
   // either way, but the view lands sooner.
   const preload = getModule("database")?.views.find((v) => v.id === viewId)?.preload;
@@ -36,14 +36,15 @@ function open(viewId: string, title: string, params?: Record<string, unknown>, p
     icon: viewIcon("database", viewId),
     params,
     preview,
+    beside,
   });
 }
 
-export function openTableTab(schema: string, table: string, preview = false): void {
+export function openTableTab(schema: string, table: string, preview = false, options: { beside?: boolean } = {}): void {
   const state=useDatabaseStore.getState();
   const profile=state.profiles.find(p=>p.id===state.selectedProfileId);
   const params={schema,table,...(profile?.parentProfileId || profile?.engine==="postgres" || !profile?.engine ? state.selectedProfileId ? {profileId:state.selectedProfileId} : {} : {})};
-  open("database.table", profile?.parentProfileId ? `${table} · ${profile.database}` : table, params, preview);
+  open("database.table", profile?.parentProfileId ? `${table} · ${profile.database}` : table, params, preview, options.beside);
 }
 
 /**
@@ -63,8 +64,8 @@ export function consoleIdFor(seed: string): string {
   return `console-${slug || "untitled"}`;
 }
 
-export function openConsoleTab(consoleId: string, title = "Console"): void {
-  open("database.console", title, { consoleId }, false);
+export function openConsoleTab(consoleId: string, title = "Console", options: { beside?: boolean } = {}): void {
+  open("database.console", title, { consoleId }, false, options.beside);
 }
 
 /**
@@ -111,6 +112,28 @@ export function openSavedQuery(entry: { id: string; name: string; sql: string })
   const consoleId = consoleIdFor(`saved-${entry.id}`);
   useDatabaseStore.getState().setSql(consoleId, entry.sql);
   openConsoleTab(consoleId, entry.name || "Console");
+}
+
+/**
+ * A console holding a statement that came from outside the module — an
+ * agent's query in the transcript, a reference to one. Keyed by the SQL
+ * itself (a hash: two statements that start alike are still two consoles),
+ * so opening the same one twice focuses the console it already has.
+ */
+export function openSqlConsole(sql: string, title = "Console", options: { beside?: boolean } = {}): void {
+  const consoleId = consoleIdFor(`sql-${hashText(sql)}`);
+  useDatabaseStore.getState().setSql(consoleId, sql);
+  openConsoleTab(consoleId, title, options);
+}
+
+/** FNV-1a, base 36: short, stable, and only ever used to name a console. */
+function hashText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function openErdTab(): void {

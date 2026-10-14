@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { consoleIdFor, openNewConsoleTab, openTableTab } from "./documents";
+import { useDatabaseStore } from "./databaseStore";
+import { consoleIdFor, openNewConsoleTab, openSqlConsole, openTableTab } from "./documents";
 
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
@@ -29,6 +30,21 @@ describe("table documents", () => {
     openTableTab("billing", "users");
     const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
     expect(tabs.openTabs).toHaveLength(2);
+  });
+});
+
+// An agent's statement opens in a console that holds it; the same statement
+// twice is the console it already has, and two that start alike are two.
+describe("a console for a statement from outside", () => {
+  test("holds the SQL, once per statement", () => {
+    const long = "select id, name, email, created_at from public.users where ";
+    openSqlConsole(`${long}id = 1`, "Query");
+    openSqlConsole(`${long}id = 1`, "Query");
+    openSqlConsole(`${long}id = 2`, "Query");
+    const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+    expect(tabs.openTabs).toHaveLength(2);
+    const consoleId = tabs.openTabs[0].params?.consoleId as string;
+    expect(useDatabaseStore.getState().consoleState(consoleId).sql).toBe(`${long}id = 1`);
   });
 });
 
