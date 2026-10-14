@@ -206,12 +206,12 @@ export const databaseModule: ModuleManifest = {
  * - `{kind:"console", id, label?}` — `id` is the SQL itself; it opens in a
  *   console titled `label` (else "Console"), never run.
  */
-registerIntent("database.reveal", (ref, { placement }) => {
+registerIntent("database.reveal", async (ref, { placement }) => {
   const target = revealTarget(ref);
   if (!target) return "unavailable";
   const beside = placement === "beside";
   if (target.open === "table") openTableTab(target.schema, target.table, false, { beside });
-  else openSqlConsole(target.sql, target.title, { beside });
+  else await openSqlConsole(target.sql, target.title, { beside });
   return "ok";
 });
 

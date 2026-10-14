@@ -34,6 +34,11 @@ describe("visibleSchemas", () => {
     ]);
   });
 
+  test("an uncapped list keeps a trailing empty schema", () => {
+    const shown = visibleSchemas([schema("a", 3), schema("b", 0)], 3);
+    expect(shown.map((s) => s.name)).toEqual(["a", "b"]);
+  });
+
   test("an empty schema shows while there is budget, and not after", () => {
     const shown = visibleSchemas([schema("a", 0), schema("b", 40), schema("c", 0), schema("d", 5)], 40);
     expect(shown.map((s) => s.name)).toEqual(["a", "b"]);

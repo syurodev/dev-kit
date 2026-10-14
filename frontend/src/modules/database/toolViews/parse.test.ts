@@ -224,6 +224,7 @@ describe("writeSummary", () => {
     expect(writeSummary(0, "create table t (id int)")).toBe("Done");
     expect(writeSummary(0, "-- make it\n  ALTER TABLE t add c int")).toBe("Done");
     expect(writeSummary(0, "")).toBe("Done");
+    expect(writeSummary(0, "# made by hand\nCREATE INDEX i ON t (c)")).toBe("Done");
   });
 
   test("0 from a statement that writes rows means it matched none", () => {
@@ -231,5 +232,9 @@ describe("writeSummary", () => {
     expect(writeSummary(0, "  /* c */ DELETE FROM t")).toBe("0 rows affected");
     expect(writeSummary(0, "insert into t select * from s where false")).toBe("0 rows affected");
     expect(writeSummary(0, "merge into t using s on false when matched then delete")).toBe("0 rows affected");
+    expect(writeSummary(0, "replace into t values (1)")).toBe("0 rows affected");
+    expect(writeSummary(0, "upsert into t values (1)")).toBe("0 rows affected");
+    expect(writeSummary(0, "copy t from stdin")).toBe("0 rows affected");
+    expect(writeSummary(0, "# mysql comment\nUPDATE t SET x = 1")).toBe("0 rows affected");
   });
 });

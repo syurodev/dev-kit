@@ -86,7 +86,7 @@ export function SchemaResultCard({
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader icon={Layers} title={heading ?? "Schema"} meta={plural(total, "table")} />
       <FramedCardPreview flush>
-        {schema.schemas.length === 0 ? (
+        {total === 0 ? (
           <div className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">
             No tables indexed
           </div>

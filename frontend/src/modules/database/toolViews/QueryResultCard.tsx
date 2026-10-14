@@ -58,7 +58,7 @@ export function QueryResultCard({
                 Copy CSV
               </FramedCardAction>
               {sql ? (
-                <FramedCardAction onClick={() => openAgentSql(sql, undefined)}>Open in Database</FramedCardAction>
+                <FramedCardAction onClick={() => void openAgentSql(sql, undefined)}>Open in Database</FramedCardAction>
               ) : null}
             </>
           )
@@ -72,8 +72,10 @@ export function QueryResultCard({
         ) : null}
         {write ? null : (
           <>
-            {/* Measured over every returned row, not the twenty on screen, so
-                Show all adds rows without moving a column. */}
+            {/* Measured from every returned row (DataTable reads a sample of
+                them), not from the twenty on screen, so the sample — and the
+                widths — are the same folded and opened: Show all adds rows
+                without moving a column. */}
             <DataTable
               columns={columns}
               rows={rows}

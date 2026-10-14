@@ -29,12 +29,12 @@ export function agentSqlNotice(agentProfileId: string | undefined, state: Profil
  * console beside the transcript, never run — the person decides whether,
  * and where. Returns what it told them about the connection.
  */
-export function openAgentSql(
+export async function openAgentSql(
   sql: string,
   agentProfileId: string | undefined,
   open: typeof openSqlConsole = openSqlConsole,
-): string | null {
-  open(sql, AGENT_QUERY_TITLE, { beside: true });
+): Promise<string | null> {
+  await open(sql, AGENT_QUERY_TITLE, { beside: true });
   const notice = agentSqlNotice(agentProfileId, useDatabaseStore.getState());
   if (notice) toast.info("Opened, not run", { description: notice });
   return notice;

@@ -37,7 +37,7 @@ export function PlanResultCard({
         meta={`${steps} ${steps === 1 ? "step" : "steps"}${plan.analyzed ? " · analyzed" : ""}`}
         action={
           sql ? (
-            <FramedCardAction onClick={() => openAgentSql(sql, profileId)}>Open in Database</FramedCardAction>
+            <FramedCardAction onClick={() => void openAgentSql(sql, profileId)}>Open in Database</FramedCardAction>
           ) : null
         }
       />

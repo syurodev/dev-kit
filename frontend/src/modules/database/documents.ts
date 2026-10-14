@@ -1,6 +1,8 @@
 import { getModule, viewIcon } from "@/modules/registry";
 import { perfLog } from "@/lib/perfLog";
 import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { listConsoles, type StoredConsole } from "@/bridge/database";
+import { consolesHydrationStarted, ensureConsolesHydrated } from "./consoleHydration";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
 /**
@@ -114,20 +116,41 @@ export function openSavedQuery(entry: { id: string; name: string; sql: string })
   openConsoleTab(consoleId, entry.name || "Console");
 }
 
+/** The console a statement from outside opens in — keyed by the SQL itself. */
+export function sqlConsoleId(sql: string): string {
+  return consoleIdFor(`sql-${hashText(sql)}`);
+}
+
 /**
  * A console holding a statement that came from outside the module — an
  * agent's query in the transcript, a reference to one. Keyed by the SQL
  * itself (a hash: two statements that start alike are still two consoles),
- * so opening the same one twice focuses the console it already has. The SQL
- * is written only into a console that is still empty: once the person has
- * typed in it, it is theirs, and a second open just brings it forward.
- * Nothing is run.
+ * so opening the same one twice focuses the console it already has. Nothing
+ * is run.
+ *
+ * The SQL is written only into a console that is empty on disk as well as in
+ * memory: once the person has typed in it, it is theirs. So the files are
+ * read first — the rail may not have mounted yet after a relaunch — and a
+ * console closed since (its slice dropped, its file kept) is read back
+ * before it is judged empty.
  */
-export function openSqlConsole(sql: string, title = "Console", options: { beside?: boolean } = {}): void {
-  const consoleId = consoleIdFor(`sql-${hashText(sql)}`);
+export async function openSqlConsole(
+  sql: string,
+  title = "Console",
+  options: { beside?: boolean; load?: () => Promise<StoredConsole[]> } = {},
+): Promise<void> {
+  const consoleId = sqlConsoleId(sql);
+  const load = options.load ?? listConsoles;
+  const readNow = !consolesHydrationStarted();
+  await ensureConsolesHydrated(load);
+  if (!readNow && useDatabaseStore.getState().consoleState(consoleId).sql === "") {
+    await useDatabaseStore
+      .getState()
+      .hydrateConsoles(async () => (await load()).filter((file) => file.id === consoleId));
+  }
   const state = useDatabaseStore.getState();
   if (state.consoleState(consoleId).sql === "") state.setSql(consoleId, sql);
-  openConsoleTab(consoleId, title, options);
+  openConsoleTab(consoleId, title, { beside: options.beside });
 }
 
 /** FNV-1a, base 36: short, stable, and only ever used to name a console. */

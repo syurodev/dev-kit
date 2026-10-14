@@ -207,7 +207,12 @@ describe("SchemaResultCard", () => {
   });
 
   test("nothing indexed says so", () => {
-    expect(renderToString(<SchemaResultCard schema={{ schemas: [] }} />)).toContain("No tables");
+    expect(renderToString(<SchemaResultCard schema={{ schemas: [] }} />)).toContain("No tables indexed");
+  });
+
+  test("schemas with no tables at all say nothing is indexed", () => {
+    const html = renderToString(<SchemaResultCard schema={{ schemas: [{ name: "empty", tables: [] }] }} />);
+    expect(html).toContain("No tables indexed");
   });
 });
 

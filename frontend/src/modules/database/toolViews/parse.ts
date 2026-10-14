@@ -244,11 +244,11 @@ export function profileIdOf(rawInput: unknown): string | undefined {
 }
 
 /** Statements whose count is rows they wrote — a data-modifying CTE starts with WITH. */
-const ROW_WRITES = new Set(["INSERT", "UPDATE", "DELETE", "MERGE", "WITH"]);
+const ROW_WRITES = new Set(["INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE", "UPSERT", "COPY", "WITH"]);
 
-/** The statement's first keyword, past leading whitespace and comments. */
+/** The statement's first keyword, past leading whitespace and comments (`--`, MySQL's `#`, block). */
 function firstKeyword(sql: string): string {
-  const body = sql.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, "");
+  const body = sql.replace(/^(?:\s+|--[^\n]*(?:\n|$)|#[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, "");
   return (/^[A-Za-z]+/.exec(body)?.[0] ?? "").toUpperCase();
 }
 

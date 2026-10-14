@@ -26,14 +26,16 @@ export function listWindow(total: number, all: boolean): ListWindow {
 
 /**
  * The schemas to draw with at most `limit` tables between them, spent in
- * order. Once the budget is gone nothing more is drawn — not even an empty
- * schema, which would otherwise sit below a list that stopped short.
+ * order. Once a capped list's budget is gone nothing more is drawn — not even
+ * an empty schema, which would otherwise sit below a list that stopped short.
+ * A list the limit does not cut keeps every schema, empty ones included.
  */
 export function visibleSchemas(schemas: ParsedSchema["schemas"], limit: number): ParsedSchema["schemas"] {
+  const total = schemas.reduce((sum, schema) => sum + schema.tables.length, 0);
   const out: ParsedSchema["schemas"] = [];
   let budget = limit;
   for (const schema of schemas) {
-    if (budget <= 0) break;
+    if (budget <= 0 && limit < total) break;
     const tables = schema.tables.slice(0, budget);
     budget -= tables.length;
     out.push({ name: schema.name, tables });

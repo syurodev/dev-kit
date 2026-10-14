@@ -48,6 +48,7 @@ import {
 import { TreeRowAction, TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore, type SidebarPane } from "../databaseStore";
+import { ensureConsolesHydrated } from "../consoleHydration";
 import { countTables, filterNamespace, keepsProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
 import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
@@ -132,7 +133,6 @@ export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; param
     setSelectedProfileId,
     loadingProfiles,
     fetchProfiles,
-    hydrateConsoles,
     sidebarPane,
     setSidebarPane,
     refreshTxState,
@@ -170,7 +170,6 @@ export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; param
       setSelectedProfileId: s.setSelectedProfileId,
       loadingProfiles: s.loadingProfiles,
       fetchProfiles: s.fetchProfiles,
-      hydrateConsoles: s.hydrateConsoles,
       sidebarPane: s.sidebarPane,
       setSidebarPane: s.setSidebarPane,
       refreshTxState: s.refreshTxState,
@@ -227,13 +226,13 @@ export function DatabaseSidebar({ loadData = true }: { loadData?: boolean; param
     // And the console files, for the same reason and in the same place: the
     // rail mounts once for the module, so this is one read rather than one
     // per console tab the window restored.
-    void hydrateConsoles();
+    void ensureConsolesHydrated();
     // And whether the selected connection is already inside a transaction: one
     // outlives the window that opened it, so arriving can mean arriving inside
     // one, and showing "Auto" beside it would be a lie about what the next
     // statement does.
     void refreshTxState();
-  }, [fetchProfiles, hydrateConsoles, refreshTxState, loadData]);
+  }, [fetchProfiles, refreshTxState, loadData]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");

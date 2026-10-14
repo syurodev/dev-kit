@@ -563,7 +563,8 @@ export type DatabaseStoreState = {
   deleteConsoleFile: (consoleId: string) => void;
   setSidebarPane: (pane: SidebarPane) => void;
   /** Reads the console files back from disk into consoles nobody has typed in
-   * yet. Called once when the module's rail mounts. The loader is a parameter
+   * yet. Called once per window through consoleHydration.ts, which the rail
+   * and Open in Database share. The loader is a parameter
    * so the rule below — never land on top of typed text — can be tested
    * without a bridge. */
   hydrateConsoles: (load?: () => Promise<StoredConsole[]>) => Promise<void>;
