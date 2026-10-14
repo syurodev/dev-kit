@@ -218,7 +218,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       const panel = allPanels[m];
       if (panel) {
         out[contextPane(m)] = (
-          <div key={panel.generation} className="flex min-h-0 flex-1 flex-col overflow-auto">
+          <div key={panel.generation} data-scroll-box className="flex min-h-0 flex-1 flex-col overflow-auto">
             {panel.content}
           </div>
         );

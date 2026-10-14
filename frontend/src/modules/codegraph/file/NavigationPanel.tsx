@@ -122,7 +122,7 @@ function ReferenceList({ panel, onOpen }: { panel: NavigationPanelState; onOpen:
   const showFolders = groups.length > 1;
 
   return (
-    <div role="listbox" aria-label="References" className="min-h-0 flex-1 overflow-y-auto py-1 scrollbar-gutter-stable">
+    <div role="listbox" aria-label="References" data-scroll-box className="min-h-0 flex-1 overflow-y-auto py-1 scrollbar-gutter-stable">
       {groups.map(([folderId, files]) => (
         <div key={folderId}>
           {showFolders ? <FolderHeading folderId={folderId} /> : null}
@@ -221,7 +221,7 @@ function PeekBody({ panel, onOpen }: { panel: NavigationPanelState; onOpen: (loc
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {panel.locations.length > 1 ? (
-        <div role="listbox" aria-label="Definitions" className="max-h-28 shrink-0 overflow-y-auto border-b border-border-subtle py-1">
+        <div role="listbox" aria-label="Definitions" data-scroll-box className="max-h-28 shrink-0 overflow-y-auto border-b border-border-subtle py-1">
           {panel.locations.map((l, i) => (
             <button
               key={i}

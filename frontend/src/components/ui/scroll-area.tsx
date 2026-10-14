@@ -16,6 +16,8 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
+        // Quieted while its shell panel is inert (workbench/slots/slots.css).
+        data-scroll-box
         // Radix wraps children in its own `display: table` div so it can
         // scroll sideways too — as a table, that wrapper sizes to its
         // widest line and drags the whole viewport open with it, silently
