@@ -453,7 +453,7 @@ export function StepGroup({
       {activities.length > 0 || commands.length > 0 ? (
         <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
-            <AgentToolActivity key={item.id} call={item.toolCall!} />
+            <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
           ))}
           {commands.map((item) => (
             <AgentRunningCommand key={item.id} item={item} />

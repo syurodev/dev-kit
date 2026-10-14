@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { toolNameOf, toolPayloadOf, toolResultInputOf } from "./toolPayload";
-import { registerToolResultView, renderToolResult } from "./toolResultViews";
+import { parseToolOutput, registerToolResultView, renderToolResult } from "./toolResultViews";
 
 /** Claude (claude-agent-acp): the result is the content's text, no rawOutput. */
 function claudeText(text: string) {
@@ -45,7 +45,9 @@ test("Claude: a fenced AppError on a failed call is the error, fence stripped", 
 });
 
 test("Claude: a fenced AppError is an error even when the status says nothing", () => {
-  expect(toolPayloadOf({ content: claudeText("```\npdf.notFound: No such document\n```") })).toEqual({
+  expect(
+    toolPayloadOf({ name: "mcp__devkit__pdf_info", content: claudeText("```\npdf.notFound: No such document\n```") }),
+  ).toEqual({
     error: "pdf.notFound: No such document",
   });
 });
@@ -224,4 +226,65 @@ test("a page image dropped from the stored row does not make the caption a previ
     ],
   };
   expect(toolPayloadOf(call)).toEqual({ payload: "Document doc1\n[]" });
+});
+
+// --- what "truncated" means (review of 69bc02f9) ------------------------------------
+
+test("a cut rawInput does not make a complete text result a preview", () => {
+  // The page read sets call.truncated for any cut field; a cut content entry
+  // is marked on the entry itself (internal/agenthub/service.go).
+  expect(toolPayloadOf({ status: "completed", truncated: true, content: claudeText("Page 1\nHello") })).toEqual({
+    payload: "Page 1\nHello",
+  });
+  expect(toolPayloadOf({ status: "completed", truncated: true, rawOutput: "Page 1\nHello" })).toEqual({
+    payload: "Page 1\nHello",
+  });
+  expect(
+    toolPayloadOf({ status: "completed", truncated: true, rawOutput: { content: [{ type: "text", text: "plain" }] } }),
+  ).toEqual({ payload: "plain" });
+});
+
+test("a genuinely cut rawOutput preview is null, whatever JSON it began as", () => {
+  expect(toolPayloadOf({ status: "completed", truncated: true, rawOutput: '[{"name":"a"},{"na' })).toBeNull();
+  // A string result's own JSON, cut: the preview starts with its quote.
+  expect(toolPayloadOf({ status: "completed", truncated: true, rawOutput: '"Document doc1\\n--- page 1' })).toBeNull();
+});
+
+test("a cut rawOutput falls back to the content text when that is whole", () => {
+  expect(
+    toolPayloadOf({
+      status: "completed",
+      truncated: true,
+      rawOutput: '{"columns":["a"],"ro',
+      content: claudeText('{"columns":["a"],"rows":[]}'),
+    }),
+  ).toEqual({ payload: { columns: ["a"], rows: [] } });
+});
+
+test("rawOutput as an array of MCP text blocks reads like content", () => {
+  const call = { status: "completed", rawOutput: [{ type: "text", text: '{"a":1}' }] };
+  expect(toolPayloadOf(call)).toEqual({ payload: { a: 1 } });
+  expect(toolResultInputOf({ ...call, name: "x" })?.content).toEqual([{ type: "text", text: '{"a":1}' }]);
+});
+
+test("a fenced AppError is an error only for DevKit tools: a shell's own fenced output is its result", () => {
+  const fenced = claudeText("```console\nerror: pathspec 'x' did not match\n```");
+  expect(toolPayloadOf({ name: "Bash", status: "completed", content: fenced })).toEqual({
+    payload: "```console\nerror: pathspec 'x' did not match\n```",
+  });
+  expect(toolPayloadOf({ name: "mcp__devkit__git_commit", status: "completed", content: fenced })).toEqual({
+    error: "error: pathspec 'x' did not match",
+  });
+});
+
+test("parseToolOutput passes a payload through: already parsed, already unwrapped", () => {
+  const result = toolPayloadOf({ status: "completed", rawOutput: '{"result":[{"result":1}]}' });
+  expect(result).toEqual({ payload: [{ result: 1 }] });
+  expect(parseToolOutput((result as { payload: unknown }).payload)).toEqual([{ result: 1 }]);
+  // A text payload stays text in the input; parseToolOutput is for JSON, so a
+  // view of a text result reads rawOutput as the string it is.
+  expect(toolResultInputOf({ name: "x", status: "completed", content: claudeText("Document doc1") })?.rawOutput).toBe(
+    "Document doc1",
+  );
+  expect(parseToolOutput("Document doc1")).toBeNull();
 });

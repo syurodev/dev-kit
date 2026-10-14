@@ -15,7 +15,9 @@
  *   JSON text still to parse.
  *
  * And a page read cuts any raw field over 8 KiB to a preview, a JSON *string*
- * of its first bytes, and sets `truncated`.
+ * of its first bytes, and a content text past it, marking that entry; any cut
+ * sets the call's `truncated` — a cut rawInput or an emptied page image too —
+ * so the flag alone never makes a whole answer a preview (STARTS_LIKE_JSON).
  *
  * Views read only what this file makes of a call, so none of them has to know
  * which vendor it is looking at. The types are structural on purpose: the
@@ -59,6 +61,7 @@ export type ToolCallLike = {
 export type ToolPayload = { payload: unknown } | { error: string };
 
 const CODEX_SERVER_PREFIX = "devkit.";
+const CLAUDE_WIRE_PREFIX = "mcp__devkit__";
 const FENCE = /^```[a-z]*\n([\s\S]*?)\n```$/;
 /** internal/mcp's AppError text: "<code>: <message>", code like `query_failed` or `pdf.notFound`. */
 const APP_ERROR = /^[A-Za-z_.]+:/;
@@ -77,6 +80,17 @@ export function toolNameOf(call: Pick<ToolCallLike, "name" | "title">): string {
   if (!title.startsWith(CODEX_SERVER_PREFIX)) return "";
   const tool = title.slice(CODEX_SERVER_PREFIX.length);
   return /^[A-Za-z0-9_.]+$/.test(tool) ? tool : "";
+}
+
+/**
+ * Whether the call is one of DevKit's own tools: Claude's wire form, a Go
+ * name as written (`db.query` — DevKit names have dots, a vendor's own tools
+ * do not), or a Codex `devkit.<tool>` title. Claude's `Bash` has a name too,
+ * so a name alone is not enough.
+ */
+export function isDevkitTool(call: Pick<ToolCallLike, "name" | "title">): boolean {
+  if (call.name) return call.name.startsWith(CLAUDE_WIRE_PREFIX) || call.name.includes(".");
+  return toolNameOf(call) !== "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +118,15 @@ function isMcpResult(value: Record<string, unknown>): boolean {
   return Array.isArray(value.content) && Object.keys(value).every((key) => MCP_RESULT_KEYS.has(key));
 }
 
+/** A bare array of MCP content blocks (`[{type:"text", text}]`), as some vendors put in rawOutput. */
+function isBlockArray(value: unknown): value is ToolContentBlock[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((block) => isRecord(block) && typeof block.type === "string" && (block.type !== "text" || typeof block.text === "string"))
+  );
+}
+
 function textOf(blocks: readonly (ToolContentBlock | undefined)[]): string {
   return blocks
     .filter((block): block is ToolContentBlock => block?.type === "text" && typeof block.text === "string")
@@ -118,45 +141,65 @@ function unfenced(text: string): string {
 }
 
 /**
- * A result's text: an error when the call failed or the text is a fenced
- * AppError; otherwise its JSON (envelope unwrapped) or, not being JSON, the
- * text itself — unless the text is a cut preview, which is null so the caller
- * loads the full row instead of showing half a document.
+ * How a text is read: whether the call failed, whether it is a DevKit tool's
+ * (only those answer a failure as a fenced AppError — a shell's own output can
+ * be fenced and start `error:` and still be its result), and whether a text
+ * that does not parse is a cut preview.
  */
-function fromText(text: string, isError: boolean, truncated: boolean): ToolPayload | null {
+type TextRead = { isError: boolean; devkit: boolean; mayBeCut: boolean };
+
+/**
+ * A preview cut by the page read is the first bytes of the field's JSON, so it
+ * starts the way JSON does — `{`, `[`, or the quote of a string. A whole text
+ * result reads as words. `call.truncated` alone cannot tell: it is set as well
+ * when only rawInput was cut, or a page image was emptied.
+ */
+const STARTS_LIKE_JSON = /^\s*[[{"]/;
+
+/**
+ * A result's text: an error when the call failed or the text is a DevKit
+ * tool's fenced AppError; otherwise its JSON (envelope unwrapped) or, not
+ * being JSON, the text itself — unless the text is a cut preview, which is
+ * null so the caller loads the full row instead of showing half a document.
+ */
+function fromText(text: string, read: TextRead, cut: boolean): ToolPayload | null {
   const fenced = FENCE.exec(text.trim());
-  if (fenced && APP_ERROR.test(fenced[1].trim())) return { error: fenced[1].trim() };
-  if (isError) return { error: unfenced(text) || "failed" };
+  if (read.devkit && fenced && APP_ERROR.test(fenced[1].trim())) return { error: fenced[1].trim() };
+  if (read.isError) return { error: unfenced(text) || "failed" };
   if (text === "") return null;
   try {
     return { payload: parseToolOutput(JSON.parse(text)) };
   } catch {
-    return truncated ? null : { payload: text };
+    return cut || (read.mayBeCut && STARTS_LIKE_JSON.test(text)) ? null : { payload: text };
   }
 }
 
-function fromRawOutput(raw: unknown, isError: boolean, truncated: boolean): ToolPayload | null {
+function fromRawOutput(raw: unknown, read: TextRead): ToolPayload | null {
   let value = raw;
   if (typeof value === "string") {
     try {
       value = JSON.parse(value);
     } catch {
-      return fromText(value as string, isError, truncated);
+      // The one place rawOutput can be a preview: a string that does not parse.
+      return fromText(value as string, read, false);
     }
   }
+  // Parsed, it is whole: whatever text it holds was not cut.
+  const whole = { ...read, mayBeCut: false };
   if (isRecord(value)) {
     const error = codexError(value);
     if (error !== null) return { error };
-    if (isCodexStub(value)) return isError ? { error: "failed" } : null;
+    if (isCodexStub(value)) return read.isError ? { error: "failed" } : null;
     if (isMcpResult(value)) {
-      const mcpError = isError || value.isError === true;
+      const mcpError = read.isError || value.isError === true;
       if (!mcpError && value.structuredContent !== undefined && value.structuredContent !== null) {
         return { payload: parseToolOutput(value.structuredContent) };
       }
-      return fromText(textOf(value.content as ToolContentBlock[]), mcpError, truncated);
+      return fromText(textOf(value.content as ToolContentBlock[]), { ...whole, isError: mcpError }, false);
     }
   }
-  if (isError) return { error: typeof raw === "string" ? unfenced(raw) || "failed" : "failed" };
+  if (isBlockArray(value)) return fromText(textOf(value), whole, false);
+  if (read.isError) return { error: typeof raw === "string" ? unfenced(raw) || "failed" : "failed" };
   if (value === null || value === undefined) return null;
   return { payload: parseToolOutput(value) };
 }
@@ -169,26 +212,35 @@ function fromRawOutput(raw: unknown, isError: boolean, truncated: boolean): Tool
  */
 export function toolPayloadOf(call: ToolCallLike): ToolPayload | null {
   const isError = failed(call.status);
+  const devkit = isDevkitTool(call);
+  const read: TextRead = { isError, devkit, mayBeCut: Boolean(call.truncated) };
   const content = call.content ?? [];
-  if (call.rawOutput !== undefined && call.rawOutput !== null) {
-    const truncated = Boolean(call.truncated) || content.some((item) => item.truncated);
-    return fromRawOutput(call.rawOutput, isError, truncated);
-  }
   const text = textOf(content.filter((item) => item.type === "content").map((item) => item.content));
-  if (text !== "") return fromText(text, isError, textWasCut(call, content));
+  if (call.rawOutput !== undefined && call.rawOutput !== null) {
+    const fromRaw = fromRawOutput(call.rawOutput, read);
+    // A cut rawOutput beside whole content text (a vendor that sends both):
+    // the text answers.
+    if (fromRaw === null && text !== "" && !textEntryWasCut(content)) return fromText(text, { ...read, mayBeCut: false }, false);
+    return fromRaw;
+  }
+  if (text !== "") return fromText(text, read, textEntryWasCut(content));
   return isError ? { error: "failed" } : null;
 }
 
 /**
- * Whether the text read from `content` is a preview. A text entry says so
- * itself. The call's own flag counts only when no entry names what was cut:
- * a page image emptied from a stored row (transcript_slim.go, then the page
- * read) marks its entry and the call, yet the caption beside it is whole.
+ * Whether a text entry says it was cut. The page read marks every content
+ * entry it cuts (internal/agenthub/service.go: previewToolContent); a page
+ * image emptied from a stored row (transcript_slim.go) marks its own entry,
+ * not the caption beside it.
  */
-function textWasCut(call: ToolCallLike, content: ToolCallContentLike[]): boolean {
-  const cut = content.filter((item) => item.truncated);
-  if (cut.some((item) => item.content?.type === "text")) return true;
-  return Boolean(call.truncated) && cut.length === 0;
+function textEntryWasCut(content: ToolCallContentLike[]): boolean {
+  return content.some((item) => item.truncated && item.content?.type === "text");
+}
+
+/** A completed call's payload, or undefined when it has none to read (an error, a cut preview, nothing yet). */
+export function successPayloadOf(call: ToolCallLike): unknown {
+  const result = toolPayloadOf(call);
+  return result && "payload" in result ? result.payload : undefined;
 }
 
 /** The content blocks a call carries — images ride here, not in the payload. */
@@ -197,13 +249,11 @@ function contentBlocksOf(call: ToolCallLike): ToolContentBlock[] {
   for (const item of call.content ?? []) {
     if (item.type === "content" && item.content) blocks.push(item.content);
   }
-  if (blocks.length === 0 && call.rawOutput && typeof call.rawOutput === "object" && !Array.isArray(call.rawOutput)) {
-    const raw = call.rawOutput as Record<string, unknown>;
-    if (isMcpResult(raw)) {
-      for (const block of raw.content as unknown[]) {
-        if (isRecord(block) && typeof block.type === "string") blocks.push(block as ToolContentBlock);
-      }
-    }
+  if (blocks.length > 0) return blocks;
+  const raw = call.rawOutput;
+  const list = isBlockArray(raw) ? raw : isRecord(raw) && isMcpResult(raw) ? (raw.content as unknown[]) : [];
+  for (const block of list) {
+    if (isRecord(block) && typeof block.type === "string") blocks.push(block as ToolContentBlock);
   }
   return blocks;
 }

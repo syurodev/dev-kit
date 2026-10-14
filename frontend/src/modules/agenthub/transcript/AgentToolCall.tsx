@@ -13,8 +13,8 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { renderToolResult } from "@/workbench/toolResultViews";
-import { toolResultInputOf } from "@/workbench/toolPayload";
+import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
+import { isDevkitTool, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -238,9 +238,15 @@ export function AgentToolCall({
   // content text, Codex's MCP result in rawOutput) and names a Codex call by
   // its title; an error gives no input, so the failed row stays as it is.
   // The full row answers for the output; the call on screen for who and how.
-  const resultCall = resultCallOf(call, fullCall);
-  const resultInput = state === "done" ? toolResultInputOf(resultCall) : null;
-  const toolResultNode = resultInput ? renderToolResult(resultInput) : null;
+  // Read only for a tool with a view: a turn has dozens of done rows, and the
+  // answer is up to a preview's 8 KiB of JSON — or the whole row once loaded.
+  const name = toolNameOf(call);
+  const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
+  const toolResultNode = React.useMemo(() => {
+    if (state !== "done" || !hasToolResultView(name)) return null;
+    const input = toolResultInputOf(resultCall);
+    return input ? renderToolResult(input) : null;
+  }, [state, name, resultCall]);
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
   const hasBody =
@@ -256,7 +262,15 @@ export function AgentToolCall({
   // scrolls inside itself.
   const summary = isOneLineStatus(raw) ? raw : "";
   const result = state === "failed" ? FALLBACK.failed : summary || FALLBACK[state];
-  const reason = state === "failed" ? raw : "";
+  // Why it failed: the text a vendor put in rawOutput, or — for a DevKit tool —
+  // the error wherever its vendor put it (Claude's fenced AppError in content,
+  // Codex's `{error}`). A bare "failed" says nothing the slot does not.
+  const reason = React.useMemo(() => {
+    if (state !== "failed") return "";
+    if (raw || !isDevkitTool(call)) return raw;
+    const read = toolPayloadOf(resultCall);
+    return read && "error" in read && read.error !== FALLBACK.failed ? read.error : "";
+  }, [state, raw, call, resultCall]);
 
   // The whole row is the toggle when there is output to show, and a plain row
   // when there is not — a button that opens nothing is a lie about what the

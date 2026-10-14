@@ -31,9 +31,11 @@ export type ToolResultInput = {
   /**
    * The tool's result, whichever vendor carried it and however
    * (./toolPayload.ts: toolPayloadOf) — an object or array already parsed,
-   * or text that is not JSON. Never an error: a failed call keeps the
-   * transcript's own failed row. Still read it through parseToolOutput,
-   * which passes a parsed value through.
+   * or text that is not JSON. Already unwrapped: a `{"result": …}` envelope
+   * is gone. Never an error: a failed call keeps the transcript's own failed
+   * row. A JSON payload may still be read through parseToolOutput, which
+   * passes a parsed value through; a text payload stays a string — read it
+   * as one, since parseToolOutput would answer null for it.
    */
   rawOutput: unknown;
   /** The call's content blocks (text, images) — where a result's pictures ride. */
@@ -142,6 +144,11 @@ export function renderToolResult(input: ToolResultInput): React.ReactNode | null
  * Returns null when the value isn't parseable JSON at all — including a
  * rawOutput cut short by ToolRawPreviewLimit — so a renderer can fall back
  * to the generic view instead of showing a half-parsed document.
+ *
+ * A view is handed toolPayloadOf's payload (./toolPayload.ts), which is
+ * already parsed and unwrapped: this passes it through. A payload that is
+ * text (pdf.readText) is not JSON and answers null here — such a view reads
+ * `rawOutput` as the string it is.
  */
 export function parseToolOutput(rawOutput: unknown): unknown | null {
   let value: unknown = rawOutput;
