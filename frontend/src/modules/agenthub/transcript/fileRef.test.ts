@@ -34,6 +34,27 @@ describe("fileRef", () => {
   });
 });
 
+describe("fileRef review fixes", () => {
+  test("line ranges", () => {
+    expect(fileRef("a/b.go:27-30")).toEqual({ path: "a/b.go", line: 27 });
+  });
+  test("an extension needs a stem", () => {
+    expect(fileRef(".go")).toBeNull();
+    expect(fileRef(".ts")).toBeNull();
+    expect(fileRef("src/.ts")).toBeNull();
+    expect(fileRef(".env")).toEqual({ path: ".env" });
+  });
+  test("framework names are prose", () => {
+    for (const s of ["Node.js", "Next.js", "Vue.js", "Nuxt.js", "D3.js"]) expect(fileRef(s)).toBeNull();
+    expect(fileRef("index.js")).toEqual({ path: "index.js" });
+    expect(fileRef("Button.js")).toEqual({ path: "Button.js" });
+    expect(fileRef("src/Node.js")).toEqual({ path: "src/Node.js" });
+  });
+  test("file://localhost", () => {
+    expect(linkTarget("file://localhost/a/b.go")).toEqual({ kind: "file", ref: { path: "/a/b.go" } });
+  });
+});
+
 describe("linkTarget", () => {
   test("classifies hrefs", () => {
     expect(linkTarget("https://x.test/a")).toEqual({ kind: "url", url: "https://x.test/a" });

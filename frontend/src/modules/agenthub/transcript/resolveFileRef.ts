@@ -67,15 +67,20 @@ function locate(folders: Folder[], abs: string): { folder: Folder; rel: string }
 
 type Candidate = { folder: Folder; rel: string };
 
+/** A copy of a resolution with `line` set on its target(s); the resolver itself never puts a line there. */
+export function withLine(resolution: RefResolution, line: number | undefined): RefResolution {
+  if (line === undefined) return resolution;
+  if (resolution.kind === "found") return { kind: "found", target: { ...resolution.target, line } };
+  if (resolution.kind === "ambiguous") return { kind: "ambiguous", targets: resolution.targets.map((t) => ({ ...t, line })) };
+  return resolution;
+}
+
+/** Resolves the path only; apply the line afterwards with withLine. */
 export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: ResolverDeps): Promise<RefResolution> {
   // A scratch session has no workspace to resolve against.
   if (!ctx.workspaceId) return { kind: "unsupported" };
-  let folders: Folder[];
-  try {
-    folders = await deps.folders(ctx.workspaceId);
-  } catch {
-    return { kind: "missing" };
-  }
+  // A failed folder lookup is an error, not "missing": callers retry and nothing wrong is cached.
+  const folders: Folder[] = await deps.folders(ctx.workspaceId);
   if (folders.length === 0) return { kind: "missing" };
 
   // A stat that rejects means the file is not there.
@@ -83,8 +88,8 @@ export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: Resolv
     try {
       const st = await deps.stat(ctx.workspaceId, c.folder.id, c.rel);
       if (!st.exists) return null;
+      // The line is not part of the answer: it is applied by withLine, so one cached resolution serves every line.
       const target: RefTarget = { workspaceId: ctx.workspaceId, folderId: c.folder.id, folderName: c.folder.name, rel: c.rel };
-      if (ref.line !== undefined) target.line = ref.line;
       if (st.unreadable === "binary" || st.unreadable === "too_large" || st.unreadable === "not_regular") {
         target.unreadable = st.unreadable;
       }
@@ -129,14 +134,14 @@ export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: Resolv
 
   // 3. Relative to each folder root. A path that climbs out of its root names nothing here.
   const rootRel = normalizePath(ref.path);
-  if (rootRel !== "" && !rootRel.startsWith("..")) {
+  if (rootRel !== "" && rootRel !== ".." && !rootRel.startsWith("../")) {
     const hit = settle(await probeAll(folders.map((folder) => ({ folder, rel: rootRel }))));
     if (hit) return hit;
   }
 
   // 4. By name: the context-file search, kept to paths that end in the reference.
   const suffixPath = rootRel.replace(/^(\.\.\/)+/, "");
-  if (suffixPath === "" || suffixPath.startsWith("..")) return { kind: "missing" };
+  if (suffixPath === "" || suffixPath === ".." || suffixPath.startsWith("../")) return { kind: "missing" };
   const base = suffixPath.slice(suffixPath.lastIndexOf("/") + 1);
   let files: { path: string }[];
   try {
@@ -146,11 +151,18 @@ export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: Resolv
   }
   const suffix = "/" + suffixPath;
   const cands: Candidate[] = [];
+  const seenCand = new Set<string>();
   for (const f of files) {
     const abs = normalizePath(f.path);
     if (!abs.endsWith(suffix)) continue;
     const at = locate(folders, abs);
-    if (at) cands.push(at);
+    if (!at) continue;
+    const key = `${at.folder.id}\u0000${at.rel}`;
+    if (seenCand.has(key)) continue;
+    seenCand.add(key);
+    cands.push(at);
+    // One more than the cap is enough to know the answer is ambiguous; never stat a hundred files.
+    if (cands.length > MAX_AMBIGUOUS) break;
   }
   return settle(await probeAll(cands)) ?? { kind: "missing" };
 }
@@ -162,11 +174,23 @@ export const liveResolverDeps: ResolverDeps = {
   byName: (sessionId, name) => agentHubListContextFiles(sessionId, name),
 };
 
+/** The query for a reference's resolution; keyed and fetched on the path only, so the line never reaches the cache. */
+export function fileRefQuery(ref: FileRef, ctx: RefContext) {
+  const path = ref.path;
+  return {
+    queryKey: ["agenthub", "fileRef", ctx.sessionId, path] as const,
+    queryFn: () => resolveFileRef({ path }, ctx, liveResolverDeps),
+  };
+}
+
 export function useFileRefResolution(ref: FileRef | null, ctx: RefContext | null, enabled: boolean) {
+  const line = ref?.line;
   return useQuery({
-    queryKey: ["agenthub", "fileRef", ctx?.sessionId ?? "", ref?.path ?? ""],
-    queryFn: () => resolveFileRef(ref as FileRef, ctx as RefContext, liveResolverDeps),
+    ...(ref && ctx
+      ? fileRefQuery(ref, ctx)
+      : { queryKey: ["agenthub", "fileRef", "", ""] as const, queryFn: () => Promise.resolve<RefResolution>({ kind: "missing" }) }),
     staleTime: 30_000,
     enabled: enabled && !!ref && !!ctx,
+    select: (r: RefResolution) => withLine(r, line),
   });
 }

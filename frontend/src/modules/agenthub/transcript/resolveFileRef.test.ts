@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { joinPath, normalizePath, resolveFileRef, type ResolverDeps } from "./resolveFileRef";
+import { fileRefQuery, joinPath, normalizePath, resolveFileRef, withLine, type ResolverDeps } from "./resolveFileRef";
 
 const ctx = { sessionId: "s1", workspaceId: "ws", projectPath: "/w/api" };
 const FOLDERS = [
@@ -60,11 +60,11 @@ describe("resolveFileRef", () => {
     const r = await resolveFileRef({ path: "/w/api/a.go" }, ctx, deps);
     expect(r.kind === "found" && r.target.folderId).toBe("inner");
   });
-  test("project-relative with a line", async () => {
+  test("project-relative (the line is not part of the resolution)", async () => {
     const { deps } = fakeDeps({ files: ["/w/api/handler.lua"] });
     expect(await resolveFileRef({ path: "handler.lua", line: 27 }, ctx, deps)).toEqual({
       kind: "found",
-      target: { workspaceId: "ws", folderId: "api", folderName: "api", rel: "handler.lua", line: 27 },
+      target: { workspaceId: "ws", folderId: "api", folderName: "api", rel: "handler.lua" },
     });
   });
   test("folder-relative fallback", async () => {
@@ -132,5 +132,64 @@ describe("resolveFileRef", () => {
     };
     const r = await resolveFileRef({ path: "src/a.ts" }, ctx, deps);
     expect(r.kind === "found" && r.target.folderId).toBe("web");
+  });
+});
+
+describe("line handling and limits", () => {
+  test("the core never puts a line in a target", async () => {
+    const { deps } = fakeDeps({ files: ["/w/api/a.go"] });
+    const r = await resolveFileRef({ path: "a.go", line: 9 }, ctx, deps);
+    expect(r.kind === "found" && "line" in r.target).toBe(false);
+  });
+  test("withLine copies, for found and ambiguous", () => {
+    const t = { workspaceId: "ws", folderId: "api", folderName: "api", rel: "a.go" };
+    const found = { kind: "found" as const, target: t };
+    expect(withLine(found, 3)).toEqual({ kind: "found", target: { ...t, line: 3 } });
+    expect(found.target).not.toHaveProperty("line");
+    expect(withLine({ kind: "ambiguous", targets: [t, t] }, 4)).toEqual({ kind: "ambiguous", targets: [{ ...t, line: 4 }, { ...t, line: 4 }] });
+    expect(withLine(found, undefined)).toBe(found);
+    expect(withLine({ kind: "missing" }, 3)).toEqual({ kind: "missing" });
+  });
+  test("two refs with one path share a query and each gets its own line", () => {
+    const c = { sessionId: "s1", workspaceId: "ws", projectPath: "/w/api" };
+    expect(fileRefQuery({ path: "a.go", line: 1 }, c).queryKey).toEqual(fileRefQuery({ path: "a.go", line: 2 }, c).queryKey);
+  });
+  test("a shared resolution gets each line", async () => {
+    const { deps } = fakeDeps({ files: ["/w/api/a.go"] });
+    const shared = await resolveFileRef({ path: "a.go" }, ctx, deps);
+    const a = withLine(shared, 1);
+    const b = withLine(shared, 2);
+    expect(a.kind === "found" && a.target.line).toBe(1);
+    expect(b.kind === "found" && b.target.line).toBe(2);
+  });
+  test("by name stats at most 11 of 100 matches (and answers ambiguous with 10)", async () => {
+    const many = Array.from({ length: 100 }, (_, i) => `/w/api/d${i}/handler.lua`);
+    let byNameStats = 0;
+    let searched = false;
+    const deps: ResolverDeps = {
+      folders: async () => FOLDERS,
+      stat: async (_w, _f, rel) => {
+        if (searched && rel.includes("/")) byNameStats++;
+        return { exists: true, unreadable: "" };
+      },
+      byName: async () => {
+        searched = true;
+        return many.map((path) => ({ path }));
+      },
+    };
+    // Roots miss (stat only says yes for nested rel paths), then by name.
+    const wrapped: ResolverDeps = { ...deps, stat: async (w, f, rel) => (rel.includes("/") ? deps.stat(w, f, rel) : { exists: false, unreadable: "" }) };
+    await resolveFileRef({ path: "handler.lua" }, ctx, wrapped);
+    expect(byNameStats).toBeLessThanOrEqual(11);
+  });
+  test("a failing folder lookup throws instead of answering missing", async () => {
+    const deps: ResolverDeps = {
+      folders: async () => {
+        throw new Error("bridge down");
+      },
+      stat: async () => ({ exists: false, unreadable: "" }),
+      byName: async () => [],
+    };
+    await expect(resolveFileRef({ path: "a.ts" }, ctx, deps)).rejects.toThrow("bridge down");
   });
 });

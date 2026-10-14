@@ -1,9 +1,12 @@
 export type FileRef = { path: string; line?: number };
 
-const SOURCE_EXT = /\.(go|ts|tsx|js|jsx|mjs|cjs|java|kt|lua|py|rb|rs|c|h|cpp|hpp|cs|swift|sql|json|ya?ml|toml|md|mdx|css|scss|html|sh|proto|gradle|xml|properties|env)$/i;
+// A stem is required before the extension: `.go` alone is a word, not a file.
+const SOURCE_EXT = /(^|\/)[^/]+\.(go|ts|tsx|js|jsx|mjs|cjs|java|kt|lua|py|rb|rs|c|h|cpp|hpp|cs|swift|sql|json|ya?ml|toml|md|mdx|css|scss|html|sh|proto|gradle|xml|properties|env)$/i;
 // Well-known names with no (or an unusual) extension; they count as files on their own.
 const KNOWN_NAMES = /(^|\/)(Dockerfile|Makefile|Taskfile\.ya?ml|go\.mod|go\.sum|package\.json|tsconfig\.json|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|\.env(\.\w+)?)$/;
-const SHAPE = /^(\/?[\w.@-]+(?:\/[\w.@-]+)*)(?::(\d+))?(?::\d+)?$/;
+const SHAPE = /^(\/?[\w.@-]+(?:\/[\w.@-]+)*)(?::(\d+)(?:-\d+)?)?(?::\d+)?$/; // path[:line[-end]][:col]
+// Libraries and frameworks that read like a file name in prose ("Node.js").
+const PROSE_NAMES = /^(Node|Next|Vue|Nuxt|Express|Three|D3|Chart)\.js$/;
 // GitHub-style line anchor: #L27 or #L27-L30 (the first number is the line).
 const LINE_ANCHOR = /#L(\d+)(?:-L\d+)?$/;
 
@@ -32,6 +35,7 @@ export function fileRef(text: string): FileRef | null {
   if (!match) return null;
   const path = match[1];
   if (!staysInside(path)) return null;
+  if (PROSE_NAMES.test(path)) return null;
   if (!SOURCE_EXT.test(path) && !KNOWN_NAMES.test(path)) return null;
   const line = anchor ? Number(anchor[1]) : match[2] ? Number(match[2]) : undefined;
   return line ? { path, line } : { path };
@@ -47,7 +51,7 @@ export function linkTarget(href: string): LinkTarget {
     // A file URL is a path once the scheme is dropped and the escapes decoded.
     let path: string;
     try {
-      path = decodeURIComponent(href.replace(/^file:\/\//i, ""));
+      path = decodeURIComponent(href.replace(/^file:\/\/(localhost(?=\/))?/i, "")); // file://localhost/a is /a
     } catch {
       return { kind: "other" };
     }
