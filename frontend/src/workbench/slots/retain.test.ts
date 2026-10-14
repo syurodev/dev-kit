@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { expireKept, retainStep, shownRecord } from "./retain";
+import { expireKept, retainStep, shownRecord, stillLeaving } from "./retain";
 
 describe("retaining what a closing panel showed", () => {
   test("a key that leaves is kept for the close and no longer", () => {
@@ -37,5 +37,27 @@ describe("retaining what a closing panel showed", () => {
 
   test("Reduce Motion keeps nothing", () => {
     expect(retainStep({ notes: "A" }, {}, {}, 0, 0)).toEqual({});
+  });
+});
+
+describe("stillLeaving: which kept panes a closing container may still draw", () => {
+  test("a pane now on screen elsewhere is not drawn here", () => {
+    const { shown } = stillLeaving({ top: "context:notes", bottom: "agent" }, new Set(["agent"]), new Set());
+    expect(shown).toEqual({ top: "context:notes", bottom: null });
+  });
+
+  test("once seen elsewhere it stays gone, even after it closes there too", () => {
+    // Move P from column A to the bottom row, then close it within 120 ms:
+    // the column's kept P must not come back while the row keeps its own.
+    const first = stillLeaving({ top: "P" }, new Set(["P"]), new Set());
+    expect(first.shown).toEqual({ top: null });
+    const second = stillLeaving({ top: "P" }, new Set(), first.seen);
+    expect(second.shown).toEqual({ top: null });
+  });
+
+  test("nothing seen elsewhere, everything kept is drawn", () => {
+    const { shown, seen } = stillLeaving({ top: "a", bottom: null }, new Set(), new Set());
+    expect(shown).toEqual({ top: "a", bottom: null });
+    expect(seen.size).toBe(0);
   });
 });

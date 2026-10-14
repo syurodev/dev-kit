@@ -53,7 +53,7 @@ import { useBottomContentStore } from "@/stores/bottomContent";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
 import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
-import { useRetainedRecord, useRetainedWhileClosing } from "@/workbench/slots/retain";
+import { useRetainedRecord, useRetainedWhileClosing, useStillLeaving } from "@/workbench/slots/retain";
 import { moveHost } from "@/workbench/slots/hostMove";
 import "@/workbench/slots/slots.css";
 
@@ -223,6 +223,9 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // scroll boxes would be lost; display:none would do the same.
   const parkRef = React.useRef<HTMLDivElement>(null);
   const release = React.useCallback((pane: PaneId, host: HTMLDivElement, body: HTMLElement) => {
+    // Only if it is still ours: when two panes swap, the other slot may
+    // already have adopted it.
+    if (host.parentNode !== body) return;
     const park = parkRef.current;
     if (pane === "agent" && park) {
       const r = body.getBoundingClientRect();
@@ -233,9 +236,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       moveHost(park, host);
       return;
     }
-    // Only if it is still ours: when two panes swap, the other slot may
-    // already have adopted it.
-    if (host.parentNode === body) body.removeChild(host);
+    body.removeChild(host);
   }, []);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -420,7 +421,8 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
   // While it closes, what it showed — unless that pane is on screen elsewhere
   // now (moved to a column), where it already is.
   const kept = useRetainedWhileClosing(pane, panelCloseMs(reduceMotion));
-  const shown = pane ?? (kept !== null && !Object.values(resolved).includes(kept) ? kept : null);
+  const leaving = useStillLeaving(pane === null && kept !== null ? { pane: kept } : null, Object.values(resolved));
+  const shown = pane ?? leaving?.pane ?? null;
 
   return (
     <PanelFade.Provider value={fade}>
@@ -436,7 +438,8 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
       >
         {/* Pinned to the open height and hung from the top edge, the one that
             moves: the row slides up into view rather than growing. */}
-        <div className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
+        {/* inert while closing or closed: a card on its way out is not a target. */}
+        <div inert={!open} className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
           {shown ? (
             <ShellResizeHandle
               orientation="horizontal"
@@ -534,10 +537,8 @@ function SlotColumn({ column }: { column: ColumnId }) {
     [open, top, bottom, bTop, bBottom],
   );
   const kept = useRetainedWhileClosing(live, panelCloseMs(reduceMotion));
-  const onScreen = new Set(Object.values(resolved));
-  const leaving = (pane: PaneId | null) => (pane !== null && !onScreen.has(pane) ? pane : null);
-  const shown: ColumnPanes | null =
-    live ?? (kept ? { top: leaving(kept.top), bottom: leaving(kept.bottom), bTop: leaving(kept.bTop), bBottom: leaving(kept.bBottom) } : null);
+  const leaving = useStillLeaving(live === null ? kept : null, Object.values(resolved));
+  const shown: ColumnPanes | null = live ?? leaving;
   const extras: [SlotId, PaneId][] = shown
     ? ([["b.top", shown.bTop], ["b.bottom", shown.bBottom]] as [SlotId, PaneId | null][]).filter(
         (e): e is [SlotId, PaneId] => e[1] !== null,
@@ -586,7 +587,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
       >
         {/* Pinned to the open width and hung from the left edge, the one that
             moves: the column slides in from the right and back out to it. */}
-        <div className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+        <div inert={!open} className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
           {open ? (
             <ShellResizeHandle
               orientation="vertical"

@@ -53,30 +53,31 @@ export function shownRecord<V>(live: Record<string, V>, kept: Kept<V>): Record<s
  * read as one.
  */
 export function useRetainedRecord<V>(live: Record<string, V>, ms: number): Record<string, V> {
-  const [state, setState] = React.useState<{ live: Record<string, V>; kept: Kept<V> }>(() => ({ live, kept: {} }));
-  let current = state;
-  if (live !== state.live) {
-    // Derived during render (React's "storing information from previous
-    // renders"), so the frame that closes a panel still draws its content.
-    current = { live, kept: retainStep(state.live, live, state.kept, Date.now(), ms) };
-    setState(current);
+  // A ref, not state: derived during render, so the frame that closes a panel
+  // still draws its content, without the extra render a state update during
+  // render costs. Idempotent per `live`, so a StrictMode double render agrees.
+  const state = React.useRef<{ live: Record<string, V>; kept: Kept<V> }>({ live, kept: {} });
+  const [, rerender] = React.useReducer((n: number) => n + 1, 0);
+  if (live !== state.current.live) {
+    state.current = { live, kept: retainStep(state.current.live, live, state.current.kept, Date.now(), ms) };
   }
 
-  const kept = current.kept;
+  const kept = state.current.kept;
   React.useEffect(() => {
     const untils = Object.values(kept).map((entry) => entry.until);
     if (untils.length === 0) return;
     const first = Math.min(...untils);
-    const timer = setTimeout(
+    const timer = setTimeout(() => {
+      if (state.current.kept !== kept) return;
       // At least up to the entry this timer was set for, so a timer that
       // fires a millisecond early by the wall clock still makes progress.
-      () => setState((s) => (s.kept === kept ? { ...s, kept: expireKept(s.kept, Math.max(Date.now(), first)) } : s)),
-      Math.max(0, first - Date.now()),
-    );
+      state.current = { ...state.current, kept: expireKept(kept, Math.max(Date.now(), first)) };
+      rerender();
+    }, Math.max(0, first - Date.now()));
     return () => clearTimeout(timer);
   }, [kept]);
 
-  return React.useMemo(() => shownRecord(current.live, kept), [current.live, kept]);
+  return React.useMemo(() => shownRecord(live, kept), [live, kept]);
 }
 
 const NOTHING: Record<string, never> = {};
@@ -85,4 +86,46 @@ const NOTHING: Record<string, never> = {};
 export function useRetainedWhileClosing<T>(live: T | null, ms: number): T | null {
   const record = React.useMemo<Record<string, T>>(() => (live === null ? NOTHING : { value: live }), [live]);
   return useRetainedRecord(record, ms).value ?? null;
+}
+
+/**
+ * The kept panes a closing container may still draw: not one on screen
+ * elsewhere now, and not one that was at any point since it started closing.
+ * Without the second rule a pane moved out (column → bottom row) and then
+ * closed within the close would be drawn by both closing containers at once,
+ * two cards fighting over one host. `seen` is the caller's to keep for the
+ * length of one close.
+ */
+export function stillLeaving<K extends string>(
+  kept: Record<K, string | null>,
+  onScreen: ReadonlySet<string>,
+  seen: ReadonlySet<string>,
+): { shown: Record<K, string | null>; seen: Set<string> } {
+  const nextSeen = new Set(seen);
+  for (const pane of Object.values(kept) as (string | null)[]) if (pane !== null && onScreen.has(pane)) nextSeen.add(pane);
+  const shown = {} as Record<K, string | null>;
+  for (const key of Object.keys(kept) as K[]) {
+    const pane = kept[key];
+    shown[key] = pane !== null && !nextSeen.has(pane) ? pane : null;
+  }
+  return { shown, seen: nextSeen };
+}
+
+/**
+ * stillLeaving for one closing container: `closing` is what it kept (null
+ * while it is open, which also starts the next close afresh), `onScreen` the
+ * panes drawn anywhere right now.
+ */
+export function useStillLeaving<K extends string>(
+  closing: Record<K, string | null> | null,
+  onScreen: readonly (string | undefined)[],
+): Record<K, string | null> | null {
+  const seen = React.useRef<ReadonlySet<string>>(new Set());
+  if (closing === null) {
+    if (seen.current.size > 0) seen.current = new Set();
+    return null;
+  }
+  const result = stillLeaving(closing, new Set(onScreen.filter((p): p is string => p !== undefined)), seen.current);
+  seen.current = result.seen;
+  return result.shown;
 }

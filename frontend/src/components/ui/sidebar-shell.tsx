@@ -393,7 +393,8 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         onAnimationComplete={motion.onAnimationComplete}
         className="relative flex min-h-0 shrink-0 overflow-hidden"
       >
-        <div className="absolute inset-y-0 right-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+        {/* inert while closing or closed: a hidden rail is not a target. */}
+        <div inert={!open} className="absolute inset-y-0 right-0 flex" style={{ width: open ? drawn : lastDrawn }}>
           {/* The rail shares the app shell backdrop without its own fill or
               outline. Module controls keep their palette. */}
           {/* The shell owns width, material and clipping, not content padding.
