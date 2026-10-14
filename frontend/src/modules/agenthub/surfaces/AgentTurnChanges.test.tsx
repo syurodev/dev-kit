@@ -124,6 +124,28 @@ describe("a changed file's row", () => {
     expect(html).not.toContain("+0");
   });
 
+  it("starts open when asked, so a caller that only shows one file shows its diff", () => {
+    const html = renderToString(
+      <ChangedFileRow
+        checkpointId="cp1"
+        file={file()}
+        overlap={null}
+        loadDiff={() => new Promise(() => {})}
+        defaultOpen
+      />,
+    );
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("Loading…");
+  });
+
+  it("starts closed by default", () => {
+    const html = renderToString(
+      <ChangedFileRow checkpointId="cp1" file={file()} overlap={null} loadDiff={() => new Promise(() => {})} />,
+    );
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("Loading…");
+  });
+
   it("offers no drawer for a binary file: there is nothing a diff view could show", () => {
     const html = renderToString(
       <ChangedFileRow

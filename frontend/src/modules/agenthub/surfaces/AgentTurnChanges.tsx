@@ -149,13 +149,16 @@ export function ChangedFileRow({
   file,
   overlap,
   loadDiff,
+  defaultOpen,
 }: {
   checkpointId: string;
   file: ChangedFile;
   overlap: string | null;
   loadDiff?: (checkpointId: string, path: string) => Promise<CheckpointFileDiff>;
+  /** Starts open, its diff loading on mount: for a caller that shows this one file. */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(defaultOpen ?? false);
   const [diff, setDiff] = React.useState<CheckpointFileDiff | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const source = sourceLabel(file);
