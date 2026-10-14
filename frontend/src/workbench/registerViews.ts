@@ -5,4 +5,4 @@ import { registerMemoryResultViews } from "./memoryResultViews";
  * manifest does for its own tools. Imported once by ./Workbench.tsx, beside
  * the module registrations. Workspace memory has no module of its own.
  */
-registerMemoryResultViews();
+export const workbenchViews: (() => void)[] = registerMemoryResultViews();

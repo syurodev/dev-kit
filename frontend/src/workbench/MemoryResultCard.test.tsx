@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { hasToolResultView, renderToolResult } from "./toolResultViews";
-import { parseMemoryEntry, parseMemoryPage, registerMemoryResultViews } from "./memoryResultViews";
+import { parseMemoryEntry, parseMemoryPage } from "./memoryResultViews";
 import { MemoryEntryCard, MemoryListCard, overflowsClamp } from "./MemoryResultCard";
 
 // workspace.memory.* as internal/workspacememory answers (camelCase JSON).
@@ -24,16 +24,6 @@ const summary = (id: string, kind: string, title: string, text: string) => {
   const { body: _body, ...rest } = ENTRY;
   return { ...rest, id, kind, title, summary: text };
 };
-
-// First, before any test registers and disposes its own: the Workbench's
-// registration point is what puts the views in the app.
-describe("the workbench registers the memory views", () => {
-  it("importing the registration point registers workspace.memory.get", async () => {
-    await import("./registerViews");
-    expect(hasToolResultView("workspace.memory.get")).toBe(true);
-    expect(hasToolResultView("mcp__devkit__workspace_memory_restore")).toBe(true);
-  });
-});
 
 describe("workspace.memory entry", () => {
   it("reads an Entry and declines anything else", () => {
@@ -112,8 +102,8 @@ describe("workspace.memory list / search", () => {
 });
 
 describe("registration", () => {
-  it("every tool answering an entry or a page has a view; a shape they cannot read falls back", () => {
-    const dispose = registerMemoryResultViews();
+  it("the workbench's registration point registers every memory view, and can undo it", async () => {
+    const { workbenchViews } = await import("./registerViews");
     for (const tool of ["get", "create", "update", "delete", "restore", "list", "search"]) {
       expect(hasToolResultView(`workspace.memory.${tool}`)).toBe(true);
       expect(hasToolResultView(`mcp__devkit__workspace_memory_${tool}`)).toBe(true);
@@ -122,7 +112,8 @@ describe("registration", () => {
     expect(renderToolResult({ name: "workspace.memory.get", rawInput: {}, rawOutput: { entries: [] } })).toBeNull();
     expect(renderToolResult({ name: "workspace.memory.list", rawInput: {}, rawOutput: ENTRY })).toBeNull();
     expect(renderToolResult({ name: "workspace.memory.restore", rawInput: {}, rawOutput: ENTRY })).not.toBeNull();
-    for (const unregister of dispose) unregister();
+    expect(workbenchViews).toHaveLength(7);
+    for (const unregister of workbenchViews) unregister();
     expect(hasToolResultView("workspace.memory.delete")).toBe(false);
   });
 });

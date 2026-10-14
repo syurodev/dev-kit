@@ -123,7 +123,8 @@ export type PdfSearch = {
   complete: boolean;
   resumeFromPage?: number;
   truncated: boolean;
-  notes: string[];
+  /** Pages with no text layer, so not searched (capped by Go). */
+  pagesWithoutText: number[];
 };
 
 /** `pdf.search` → `{documentId, query, result: {hits, pagesSearched, complete, resumeFromPage?}, notes}`. */
@@ -147,7 +148,10 @@ export function parsePdfSearch(rawOutput: unknown): PdfSearch | null {
     complete: result.complete,
     resumeFromPage: isNumber(result.resumeFromPage) ? result.resumeFromPage : undefined,
     truncated: result.truncated === true,
-    notes: strings(value.notes),
+    // Go's `notes` are written for the agent — how to continue, what to try,
+    // that snippets are data. The fields above already say what they say;
+    // the one fact the card adds is which pages could not be searched.
+    pagesWithoutText: numbers(result.pagesWithoutText),
   };
 }
 
@@ -240,7 +244,8 @@ export type PdfText = {
   footer: string[];
 };
 
-const PAGE_MARK = /\n--- page (\d+) of (\d+) ---\n/g;
+/** Go writes every mark after a blank line: the header and each page end in "\n", the mark starts with one. */
+const PAGE_MARK = /\n\n--- page (\d+) of (\d+) ---\n/g;
 const FOOTER_LINE = /^\[Output limit reached\b.*\]$/;
 /** Go's `Document %s · %q · %d pages.` — the name is quoted, so it may hold anything but an unescaped quote. */
 const DOCUMENT_HEAD = /^Document \S+ · "(?:[^"\\]|\\.)*" · (\d+) pages\./;
@@ -261,8 +266,11 @@ function pageSpan(spec: string): number[] {
 /**
  * `pdf.readText` → its text: a header, then `--- page N of M ---` per page,
  * then footer notes. Document text can hold a line that looks like a mark, so
- * a mark counts only when M is the header's page count and N is the next of
- * the pages the header lists; anything else is the page's own text.
+ * a mark counts only when it follows a blank line, M is the header's page
+ * count and N is one of the pages the header lists, in order. Several that
+ * name the same page: the last before the next page's first is the real one
+ * (Go writes the mark, then the page's own text — any copy inside that text
+ * comes after a real mark, never before it).
  */
 export function parsePdfText(rawOutput: unknown): PdfText | null {
   if (typeof rawOutput !== "string") return null;
@@ -271,14 +279,19 @@ export function parsePdfText(rawOutput: unknown): PdfText | null {
   if (!head) return null;
   const total = head[1];
   const expected = pageSpan(PAGE_LIST.exec(header)?.[1] ?? "");
-  let next = 0;
   const marks: RegExpMatchArray[] = [];
+  let current = -1; // the index in `expected` of the page whose mark is marks' last
   for (const mark of rawOutput.matchAll(PAGE_MARK)) {
     if (mark[2] !== total) continue;
-    const at = expected.indexOf(Number(mark[1]), next);
+    const page = Number(mark[1]);
+    if (current >= 0 && expected[current] === page) {
+      marks[marks.length - 1] = mark;
+      continue;
+    }
+    const at = expected.indexOf(page, current + 1);
     if (at === -1) continue;
     marks.push(mark);
-    next = at + 1;
+    current = at;
   }
   if (marks.length === 0) return null;
   const pages = marks.map((mark, i) => {

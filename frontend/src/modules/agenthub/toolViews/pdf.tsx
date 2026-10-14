@@ -65,8 +65,8 @@ export function PdfPageZoom({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* As wide as the window allows, not a form's width: the page keeps
           its own pixels and scrolls inside when it is larger still. The
-          `!` beats DialogContent's own sm:max-w-sm, which cn cannot see as
-          the same property as this named width. */}
+          `!` is for DialogContent's own sm:max-w-sm: a variant is another
+          conflict group to cn, so it would stay and win from sm up. */}
       <DialogContent
         portal={portal}
         aria-describedby={undefined}
@@ -190,7 +190,9 @@ export function PdfSearchCard({ search, heading }: { search: PdfSearch; heading?
       />
       <FramedCardPreview flush>
         {shown.length === 0 ? (
-          <p className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">No matches</p>
+          <p className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">
+            {search.complete ? "No matches" : "No matches so far"}
+          </p>
         ) : null}
         {shown.map((hit, i) => (
           <FramedCardRow
@@ -210,7 +212,11 @@ export function PdfSearchCard({ search, heading }: { search: PdfSearch; heading?
             {[stopped, search.truncated ? "More matches than were returned" : ""].filter(Boolean).join(" · ")}
           </p>
         ) : null}
-        <Notes notes={search.notes} />
+        {search.pagesWithoutText.length > 0 ? (
+          <p className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">
+            {`No text layer, not searched: p.${search.pagesWithoutText.join(", ")}`}
+          </p>
+        ) : null}
       </FramedCardPreview>
     </FramedCard>
   );
