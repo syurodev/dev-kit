@@ -165,6 +165,30 @@ describe("an agent's result comes with its statement", () => {
     expect(results()).toEqual([]);
   });
 
+  // A run of the person's that failed is still their run: its error is on
+  // screen and the agent's rows must not replace it.
+  test("a console whose own run failed keeps its error, not the agent's rows", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles });
+    useDatabaseStore.getState().setQueryError(id(), "relation \"t\" does not exist");
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    expect(results()).toEqual([]);
+    expect(useDatabaseStore.getState().consoleState(id()).queryError).toContain("does not exist");
+  });
+
+  // Earlier rows of the agent's are not the person's: a second Open brings
+  // the newer answer.
+  test("opening again refreshes rows that were the agent's", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows });
+    const newer = { ...rows, rows: [["8"], ["9"]], rowCount: 2 };
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: newer });
+    expect(results()).toEqual([{ statement: "select id from t", result: newer, origin: "agent" }]);
+  });
+
+  test("rows from a connection nobody named are marked so", async () => {
+    await openSqlConsole("select id from t", "Agent query", { load: noFiles, result: rows, connectionUnknown: true });
+    expect(results()).toEqual([{ statement: "select id from t", result: rows, origin: "agent", connectionUnknown: true }]);
+  });
+
   test("a console still running is left to its run", async () => {
     await openSqlConsole("select id from t", "Agent query", { load: noFiles });
     useDatabaseStore.setState({

@@ -118,6 +118,8 @@ export type ResultTab = {
    * until a run of its own replaces them. Absent for a run's own result.
    */
   origin?: "agent";
+  /** An agent's rows whose call did not name its connection (an older transcript). */
+  connectionUnknown?: true;
 };
 
 export type ConsoleState = {
@@ -561,7 +563,12 @@ export type DatabaseStoreState = {
    * nothing is written to the console's file (results never are). The next
    * run replaces them like any result.
    */
-  showAgentResult: (consoleId: string, statement: string, result: QueryResult) => void;
+  showAgentResult: (
+    consoleId: string,
+    statement: string,
+    result: QueryResult,
+    options?: { connectionUnknown?: boolean },
+  ) => void;
   clearQueryError: (consoleId: string) => void;
   /** Reports a failure into one console — Explain and friends, which run
    * outside executeQuery but land in the same error slot. */
@@ -1702,9 +1709,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryDurationMs: null,
     }),
 
-  showAgentResult: (consoleId, statement, result) =>
+  showAgentResult: (consoleId, statement, result, options) =>
     patchConsole(set, consoleId, {
-      results: [{ statement, result, origin: "agent" }],
+      results: [
+        options?.connectionUnknown
+          ? { statement, result, origin: "agent", connectionUnknown: true }
+          : { statement, result, origin: "agent" },
+      ],
       activeResult: 0,
       queryError: "",
       queryStatus: "",

@@ -117,9 +117,14 @@ function stripNoise(sql: string): string {
 /**
  * The line over an agent's rows in a console: whose they are, how many, and
  * that they are not live. A cut result says where it was cut, since rows
- * stopped at the cap look exactly like all of them.
+ * stopped at the cap look exactly like all of them; rows from a call that
+ * named no connection say the connection is unknown.
  */
-export function agentResultNote(result: Pick<QueryResult, "rowCount" | "truncated">): string {
+export function agentResultNote(
+  result: Pick<QueryResult, "rowCount" | "truncated">,
+  options: { connectionUnknown?: boolean } = {},
+): string {
   const count = `${result.rowCount} ${result.rowCount === 1 ? "row" : "rows"}`;
-  return `Agent's result · ${result.truncated ? `truncated at ${count}` : count} — run to refresh`;
+  const where = options.connectionUnknown ? " · connection unknown" : "";
+  return `Agent's result${where} · ${result.truncated ? `truncated at ${count}` : count} — run to refresh`;
 }

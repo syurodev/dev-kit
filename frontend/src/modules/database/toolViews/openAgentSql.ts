@@ -75,7 +75,13 @@ export async function openAgentSql(
       return { opened: false, notice: null };
     }
   }
-  await open(sql, AGENT_QUERY_TITLE, options.result ? { beside: true, result: options.result } : { beside: true });
+  await open(
+    sql,
+    AGENT_QUERY_TITLE,
+    options.result
+      ? { beside: true, result: options.result, ...(agentProfileId === undefined ? { connectionUnknown: true } : {}) }
+      : { beside: true },
+  );
   // Selected above when named, so only a result that names none has
   // anything to say about the connection.
   const notice = agentProfileId === undefined ? agentSqlNotice(undefined, useDatabaseStore.getState()) : null;

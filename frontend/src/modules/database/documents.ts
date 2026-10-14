@@ -143,10 +143,14 @@ export async function openSqlConsole(
     /**
      * Rows an agent already has for this statement (db.query), shown as the
      * console's result without running anything — only while the console
-     * holds this statement, and never over a result of its own or a run in
-     * progress. In memory only: results are never written to the file.
+     * holds this statement and nothing of the person's is there: no result
+     * of a run (earlier agent rows are replaced), no error of a failed run,
+     * no run in progress. In memory only: results are never written to the
+     * file.
      */
     result?: QueryResult;
+    /** The agent's call named no connection (an older transcript); the console says so. */
+    connectionUnknown?: boolean;
   } = {},
 ): Promise<void> {
   const consoleId = sqlConsoleId(sql);
@@ -161,8 +165,10 @@ export async function openSqlConsole(
   const state = useDatabaseStore.getState();
   if (state.consoleState(consoleId).sql === "") state.setSql(consoleId, sql);
   const current = useDatabaseStore.getState().consoleState(consoleId);
-  if (options.result && current.sql === sql && current.results.length === 0 && !current.runningQuery) {
-    state.showAgentResult(consoleId, sql, options.result);
+  const nothingOfTheirs =
+    current.results.every((tab) => tab.origin === "agent") && !current.queryError && !current.runningQuery;
+  if (options.result && current.sql === sql && nothingOfTheirs) {
+    state.showAgentResult(consoleId, sql, options.result, { connectionUnknown: options.connectionUnknown });
   }
   openConsoleTab(consoleId, title, { beside: options.beside });
 }

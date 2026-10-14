@@ -75,6 +75,7 @@ describe("the result slot", () => {
     const panel = source.slice(source.indexOf('id="results"'));
     expect(panel).toContain('origin === "agent"');
     expect(panel).toContain("agentResultNote(");
+    expect(panel, "an older transcript's rows say their connection is unknown").toContain("connectionUnknown");
     const note = panel.indexOf("agentResultNote(");
     const chip = panel.indexOf("row cap reached");
     expect(note, "the note and the chip are one choice").toBeLessThan(chip);

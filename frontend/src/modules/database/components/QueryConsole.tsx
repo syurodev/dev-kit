@@ -726,7 +726,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                       cut, so the cap chip is not said twice. */}
                   {slice.results[slice.activeResult]?.origin === "agent" ? (
                     <span className="flex min-h-7 min-w-0 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
-                      {agentResultNote(queryResult)}
+                      {agentResultNote(queryResult, {
+                        connectionUnknown: slice.results[slice.activeResult]?.connectionUnknown,
+                      })}
                     </span>
                   ) : queryResult.truncated ? (
                     <span className="flex min-h-7 min-w-0 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">

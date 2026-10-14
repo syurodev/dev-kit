@@ -79,8 +79,10 @@ describe("on the agent's connection", () => {
       switchCost: () => null,
       confirm: async () => (log.push("ask"), true),
     };
-    const open = async (sql: string, _title?: string, options?: { result?: unknown }) => {
-      log.push(`open ${sql} on ${current}${options?.result ? " with rows" : ""}`);
+    const open = async (sql: string, _title?: string, options?: { result?: unknown; connectionUnknown?: boolean }) => {
+      log.push(
+        `open ${sql} on ${current}${options?.result ? " with rows" : ""}${options?.connectionUnknown ? " (connection unknown)" : ""}`,
+      );
     };
     return { profiles, open, log };
   };
@@ -130,7 +132,7 @@ describe("on the agent's connection", () => {
   test("a result that names none opens on the selected connection, says so, and still brings its rows", async () => {
     const { profiles, open, log } = fake(["p1", "p2"], "p1");
     const outcome = await openAgentSql("select 1", undefined, { profiles, open, result: rows });
-    expect(log).toEqual(["open select 1 on p1 with rows"]);
+    expect(log).toEqual(["open select 1 on p1 with rows (connection unknown)"]);
     expect(outcome).toEqual({
       opened: true,
       notice: "This result does not say which connection the agent used; this console is on staging.",
@@ -163,6 +165,14 @@ describe("what the console says about the agent's rows", () => {
   test("how many, and that a run refreshes them", () => {
     expect(agentResultNote({ rowCount: 25, truncated: false })).toBe("Agent's result · 25 rows — run to refresh");
     expect(agentResultNote({ rowCount: 1, truncated: false })).toBe("Agent's result · 1 row — run to refresh");
+  });
+
+  // An older transcript's query names no connection; its rows were read
+  // somewhere this console cannot say.
+  test("rows from a connection nobody named say so", () => {
+    expect(agentResultNote({ rowCount: 25, truncated: false }, { connectionUnknown: true })).toBe(
+      "Agent's result · connection unknown · 25 rows — run to refresh",
+    );
   });
 
   test("a cut result says where it was cut", () => {
