@@ -5,6 +5,7 @@ import { registerToolResultView } from "@/workbench/toolResultViews";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { parseApiFlow } from "./apiFlowResult";
 import { parseEntryPointMatches, parseSymbolMatches } from "./searchResult";
+import { revealFileArgs } from "./revealFile";
 
 export const codegraphModule: ModuleManifest = {
   id: "codegraph",
@@ -100,9 +101,13 @@ registerIntent("codegraph.reveal", async (ref, { placement }) => {
   const actions = await import("./codegraphActions");
   const beside = placement === "beside";
   switch (ref.kind) {
-    case "file":
-      await actions.openFileInProject(ref.project ?? "", ref.id, ref.line, placement);
+    case "file": {
+      // Already resolved to a folder (Agent Hub references): open it as named.
+      const direct = revealFileArgs(ref, placement);
+      if (direct) await actions.openResolvedFile(direct);
+      else await actions.openFileInProject(ref.project ?? "", ref.id, ref.line, placement);
       return;
+    }
     case "endpoint": {
       // "endpoint" is the ref kind agents and saved transcripts use for any
       // entry point, HTTP or not. It is looked for in the folder the ref names,

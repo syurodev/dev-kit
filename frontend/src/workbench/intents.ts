@@ -22,6 +22,14 @@ export type EntityRef = {
   project?: string;
   /** A line inside a file ref. */
   line?: number;
+  /**
+   * Set (with `folderId`) when the caller already resolved the file to a
+   * workspace folder; `id` is then folder-relative and project resolution is
+   * bypassed.
+   */
+  workspaceId?: string;
+  /** The workspace folder (`workspace_services.id`) a resolved file ref lives in. */
+  folderId?: string;
 };
 
 /**

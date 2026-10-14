@@ -15,6 +15,7 @@ import { wireFileEvents, openFile } from "./fileActions";
 import { wireWorkspaceEvents } from "./workspaceSync";
 import { docKey } from "./workspace/identity";
 import { Within } from "./workspace/paths";
+import type { RevealFileArgs } from "./revealFile";
 
 /**
  * The entry point of Code Graph's actions: what starts the module, and the
@@ -117,6 +118,16 @@ export async function openFileInProject(root: string, path: string, line?: numbe
     preview: false,
     beside: placement === "beside",
   });
+}
+
+/**
+ * Opens a file the caller already resolved to a workspace folder (any
+ * workspace, not only the title bar's), with the sidebar on Files the way
+ * `openFileInProject` leaves it.
+ */
+export async function openResolvedFile(args: RevealFileArgs): Promise<boolean> {
+  set({ activeTab: "files" });
+  return openFile(args.location, args.line, args.options);
 }
 
 /** Brings up "Find in workspace" over the sidebar's scope. */
