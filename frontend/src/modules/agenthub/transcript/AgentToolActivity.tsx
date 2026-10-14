@@ -4,6 +4,7 @@ import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Shimmer } from "@/components/ui/shimmer";
 import { Spinner } from "@/components/ui/spinner";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { getModule } from "@/modules/registry";
 import { dispatchIntent } from "@/workbench/intents";
@@ -108,13 +109,17 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
       className={cn("w-full min-w-0", bornLive && "activity-enter")}
     >
       {result ? (
-        <React.Suspense fallback={card}>
-          {/* Keyed apart from the running card so the arrival is its own
-              element: it fades in over the frame the running card held. */}
-          <div key="result" className={cn("w-full min-w-0", bornLive && "activity-enter")}>
-            {result}
-          </div>
-        </React.Suspense>
+        // A result card that throws, or whose chunk is gone after an update,
+        // leaves this card standing instead of taking the page with it.
+        <ErrorBoundary label={`${name || "tool"} result card`} fallback={card} resetKey={call}>
+          <React.Suspense fallback={card}>
+            {/* Keyed apart from the running card so the arrival is its own
+                element: it fades in over the frame the running card held. */}
+            <div key="result" className={cn("w-full min-w-0", bornLive && "activity-enter")}>
+              {result}
+            </div>
+          </React.Suspense>
+        </ErrorBoundary>
       ) : (
         card
       )}

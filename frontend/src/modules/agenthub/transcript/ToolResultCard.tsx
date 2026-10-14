@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Wrench } from "lucide-react";
 
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { FramedCard, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
@@ -123,15 +124,18 @@ export const ToolResultCard = React.memo(function ToolResultCard({
   }, [pending, call, fullCall]);
 
   const declined = candidate === null || (pending && (failed || (fullCall !== null && loaded === null)));
-  if (declined) {
-    return asRow ? <AgentToolCall variant="row" call={call} sessionId={sessionId} onOpenFile={onOpenFile} /> : null;
-  }
+  const row = asRow ? <AgentToolCall variant="row" call={call} sessionId={sessionId} onOpenFile={onOpenFile} /> : null;
+  if (declined) return row;
   const skeleton = <ResultSkeleton call={call} />;
   const node = candidate.kind === "ready" ? candidate.node : loaded;
   return (
     <div data-testid="turn-result-card" className="w-full min-w-0">
-      {/* The view may load lazily (registerToolResultView): its skeleton holds the place. */}
-      <React.Suspense fallback={skeleton}>{node ?? skeleton}</React.Suspense>
+      {/* A view that throws, or whose chunk is gone after an update, falls
+          back to what a declined card draws rather than taking the page. */}
+      <ErrorBoundary label={`${toolNameOf(call) || "tool"} result card`} fallback={row} resetKey={call}>
+        {/* The view may load lazily (registerToolResultView): its skeleton holds the place. */}
+        <React.Suspense fallback={skeleton}>{node ?? skeleton}</React.Suspense>
+      </ErrorBoundary>
     </div>
   );
 });

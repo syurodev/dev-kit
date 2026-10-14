@@ -4,6 +4,7 @@ import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Shrink, Terminal,
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { resultCallOf, useFullToolCall } from "./toolCallDetail";
 import type { ToolCall } from "../types";
 import { commandDescription, isCompaction, stepLabel, toolCommand } from "../turns";
@@ -305,6 +306,37 @@ export function AgentToolCall({
     />
   ) : null;
 
+  // The call's own output: what a tool without a view shows, and what a view
+  // that failed to draw falls back to.
+  const genericBody = (
+    <>
+      {content.map((item, idx) => {
+        if (item.type === "diff") {
+          return (
+            <AgentToolDiff
+              key={idx}
+              path={item.path}
+              oldText={item.oldText}
+              newText={item.newText}
+              truncated={item.truncated}
+            />
+          );
+        }
+        if (item.type === "terminal") {
+          return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
+        }
+        if (item.content?.text) {
+          return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
+        }
+        return null;
+      })}
+
+      {fullOutput ? (
+        <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
+      ) : null}
+    </>
+  );
+
   const body = (
     <>
       {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
@@ -340,37 +372,16 @@ export function AgentToolCall({
 
       {toolResultNode ? (
         // The card may load lazily (registerToolResultView); this boundary
-        // keeps a suspending card to itself rather than the whole transcript.
+        // keeps a suspending card to itself rather than the whole transcript,
+        // and the error boundary a throwing one (or a chunk gone after an
+        // update): the call's own output is drawn instead.
         <div data-testid="tool-call-result-view">
-          <React.Suspense fallback={null}>{toolResultNode}</React.Suspense>
+          <ErrorBoundary label={`${name || "tool"} result view`} fallback={genericBody} resetKey={call}>
+            <React.Suspense fallback={null}>{toolResultNode}</React.Suspense>
+          </ErrorBoundary>
         </div>
       ) : (
-        <>
-          {content.map((item, idx) => {
-            if (item.type === "diff") {
-              return (
-                <AgentToolDiff
-                  key={idx}
-                  path={item.path}
-                  oldText={item.oldText}
-                  newText={item.newText}
-                  truncated={item.truncated}
-                />
-              );
-            }
-            if (item.type === "terminal") {
-              return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
-            }
-            if (item.content?.text) {
-              return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
-            }
-            return null;
-          })}
-
-          {fullOutput ? (
-            <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
-          ) : null}
-        </>
+        genericBody
       )}
       {fullCall === null && canLoadFull ? (
         <button
