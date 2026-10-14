@@ -198,6 +198,7 @@ export function DataTable({
     <div
       ref={virtual.scrollRef}
       data-testid={testId}
+      data-scroll-box
       className={cn("w-fit max-w-full overflow-auto", bound, className)}
     >
       <table className="table-fixed border-collapse" style={{ width: total }}>

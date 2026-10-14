@@ -17,7 +17,7 @@ import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 import { armBeside } from "@/stores/workbenchTabs";
-import { MOTION_FAST, MOTION_SLOW, noMotion } from "@/lib/motion";
+import { panelContentFade, panelTransition, useClosedInert, usePanelMotionReport } from "@/lib/panelMotion";
 import { AnimatedNumber } from "./animated-number";
 
 /**
@@ -352,11 +352,31 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     sign: 1,
   });
 
-  // Publish the sidebar's own occupancy so SplitPanelSlot can clamp against it.
+  // Publish the sidebar's own occupancy so the columns can clamp against it —
+  // before paint, so a yield under pressure and the column opening that caused
+  // it start in one frame, each toward its final width.
   const setSidebarOpen = usePanelWidthsStore((s) => s.setSidebarOpen);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     setSidebarOpen(open);
   }, [open, setSidebarOpen]);
+
+  // Moves like every shell panel (pane-slots.tsx, above BottomRow): the box
+  // animates and clips, the rail inside is pinned at its open width and hung
+  // from the right edge — the one that moves — so it slides in from the left
+  // and lays out once rather than on every frame.
+  const drawn = open ? Math.min(sidebarWidth, max) + GAP_WIDTH : 0;
+  const [lastDrawn, setLastDrawn] = React.useState(drawn);
+  if (open && drawn !== lastDrawn) setLastDrawn(drawn);
+  const motion = usePanelMotionReport({
+    id: "sidebar",
+    target: drawn,
+    open,
+    stored: sidebarWidth,
+    instant: isResizing || reduceMotion,
+    windowSize: windowWidth,
+    from: 0,
+  });
+  const { inert, shielded } = useClosedInert(open, motion.still);
 
   return (
     <LazyMotion features={domAnimation}>
@@ -370,46 +390,53 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         // still had the hole; this is that note being paid. The *stored* width
         // stays unclamped, so widening the window restores the user's choice.
         animate={{ width: open ? Math.min(sidebarWidth, max) + GAP_WIDTH : 0 }}
-        transition={isResizing || reduceMotion ? noMotion : {
-          type: "spring",
-          duration: open ? MOTION_SLOW : MOTION_FAST,
-          bounce: 0,
-        }}
-        className="flex min-h-0 shrink-0 overflow-hidden"
+        transition={panelTransition(open, motion.instant)}
+        onAnimationComplete={motion.onAnimationComplete}
+        className="relative flex min-h-0 shrink-0 overflow-hidden"
       >
-        {/* The rail shares the app shell backdrop without its own fill or
-            outline. Module controls keep their palette. */}
-        {/* The shell owns width, material and clipping, not content padding.
-            Scroll viewports reach the rail edge; headers and controls use
-            SidebarInset, while tree/list rows own their internal spacing. */}
-        {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
-            beside the focused group rather than in it. Armed on the way down,
-            consumed by the openTab that click makes — no rail had to change. */}
-        <div
-          className="shell-sidebar relative flex min-h-0 flex-1 flex-col overflow-hidden"
-          onClickCapture={(e) => {
-            if (e.metaKey || e.ctrlKey) armBeside();
-          }}
-        >
-          {visited.map((moduleId) => (
-            // `contents` keeps the rail a direct flex child of the column, as
-            // it was before it had a wrapper; `hidden` takes a background one
-            // out of layout, focus and the accessibility tree.
-            <div key={moduleId} className={moduleId === activeModuleId ? "contents" : "hidden"}>
-              {/* A document's rail wins where there is one; the module's own is the floor. */}
-              {registered[moduleId] ?? <MemoModuleSidebar moduleId={moduleId} />}
-            </div>
-          ))}
+        {/* Inert once closed, changed only while still (useClosedInert). */}
+        <div inert={inert} className="absolute inset-y-0 right-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+          {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
+          {/* The rail shares the app shell backdrop without its own fill or
+              outline. Module controls keep their palette. */}
+          {/* The shell owns width, material and clipping, not content padding.
+              Scroll viewports reach the rail edge; headers and controls use
+              SidebarInset, while tree/list rows own their internal spacing. */}
+          {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
+              beside the focused group rather than in it. Armed on the way down,
+              consumed by the openTab that click makes — no rail had to change. */}
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: open ? 1 : 0 }}
+            transition={panelContentFade(open, motion.instant)}
+            className="shell-sidebar relative flex min-h-0 flex-1 flex-col overflow-hidden"
+            onClickCapture={(e) => {
+              if (e.metaKey || e.ctrlKey) armBeside();
+            }}
+          >
+            {visited.map((moduleId) => (
+              // `contents` keeps the rail a direct flex child of the column, as
+              // it was before it had a wrapper; `hidden` takes a background one
+              // out of layout, focus and the accessibility tree.
+              <div key={moduleId} className={moduleId === activeModuleId ? "contents" : "hidden"}>
+                {/* A document's rail wins where there is one; the module's own is the floor. */}
+                {registered[moduleId] ?? <MemoModuleSidebar moduleId={moduleId} />}
+              </div>
+            ))}
+          </m.div>
+          {open ? (
+            <ShellResizeHandle
+              orientation="vertical"
+              aria-label="Resize sidebar"
+              onPointerDown={onPointerDown}
+              isResizing={isResizing}
+              style={{ width: GAP_WIDTH }}
+            />
+          ) : (
+            // The sash's place, so the closing rail does not widen into it.
+            <div aria-hidden className="shrink-0" style={{ width: GAP_WIDTH }} />
+          )}
         </div>
-        {open ? (
-          <ShellResizeHandle
-            orientation="vertical"
-            aria-label="Resize sidebar"
-            onPointerDown={onPointerDown}
-            isResizing={isResizing}
-            style={{ width: GAP_WIDTH }}
-          />
-        ) : null}
       </m.div>
     </LazyMotion>
   );

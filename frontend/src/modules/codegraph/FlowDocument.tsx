@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { tabKey } from "@/stores/workbenchTabs";
 import { cn } from "@/lib/utils";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
@@ -159,7 +159,7 @@ function useInspectorPane(folderId: string, root: string, key: string, front: bo
     () => (front && key && inspector?.flow === key ? (subgraph?.nodes.find((n) => n.id === inspector.nodeId) ?? null) : null),
     [front, inspector, root, subgraph],
   );
-  const { openPanel, closePanel } = useSplitPanel();
+  const { openPanel, closePanel } = useSplitPanelActions();
 
   useEffect(() => {
     if (!node) return;
@@ -176,8 +176,9 @@ function useInspectorPane(folderId: string, root: string, key: string, front: bo
         canJump={(id) => Boolean(subgraph?.nodes.some((n) => n.id === id))}
         onOpenFile={(path, line) => void openFile({ workspaceId, folderId, path }, line, { preview: false, beside: true })}
       />,
-      { width: 520, onClose: closeInspector },
+      // Another flow is another tree (its tab and picks start over); another node of this flow is not.
+      { width: 520, onClose: closeInspector, key: `flow:${key}` },
     );
     return () => closePanel();
-  }, [node, root, folderId, workspaceId, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
+  }, [node, root, key, folderId, workspaceId, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 }

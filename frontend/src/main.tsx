@@ -5,6 +5,7 @@ import App from './App'
 import { installNativeZoomGuard } from './lib/nativeZoom'
 import { installWindowShape } from './lib/windowShape'
 import { SQUIRCLE_SHELL_CLASS } from './lib/shellSquircle'
+import { markQuietScrollBoxes } from './lib/platform'
 
 // Inside Wails, html/body stay clear so nothing paints over the native window;
 // background/app is painted by the shell wrapper in AppShell, which is the
@@ -24,6 +25,9 @@ if ('_wails' in window) {
   if (/Macintosh|Mac OS X/.test(navigator.userAgent)) {
     document.documentElement.classList.add(SQUIRCLE_SHELL_CLASS)
   }
+  // WebKitGTK with overlay scrollbars: shell panels quiet their scroll boxes
+  // while inert (lib/platform.quietsScrollBoxes, workbench/slots/slots.css).
+  markQuietScrollBoxes(document)
 }
 
 // Set by the native side when WebKitGTK composites on the CPU and will not paint

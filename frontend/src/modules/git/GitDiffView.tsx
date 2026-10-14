@@ -50,6 +50,7 @@ import { changeMarkKind, splitPath } from "./rail";
 import { gitUI, useGitBusy, type DiffMode } from "./gitUI";
 import { bumpGitRevision, useGitRevision } from "./gitRevision";
 import { refreshGitRepo, useGitRepo } from "./gitRepo";
+import { settledRunner } from "@/lib/panelMotion";
 
 const FILE_ROWS = 200;
 const DIFF_LINES = 1500;
@@ -76,9 +77,20 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
   useEffect(() => {
     const element = paneRef.current;
     if (!element) return;
-    const observer = new ResizeObserver((entries) => setWide(entries[0].contentRect.width >= 760));
+    // Decided once a shell panel beside it has finished moving: crossing 760
+    // mid-animation flipped the whole diff between split and unified, and back.
+    let width = 0;
+    const decide = settledRunner(() => setWide(width >= 760));
+    const observer = new ResizeObserver((entries) => {
+      width = entries[0].contentRect.width;
+      // A tab shown from display:none (width 0) decides at once.
+      decide.schedule(width);
+    });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      decide.dispose();
+    };
   }, []);
   useEffect(() => {
     if (!visible) setPickerOpen(false);

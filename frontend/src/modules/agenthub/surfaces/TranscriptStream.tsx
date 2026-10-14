@@ -672,6 +672,7 @@ export function TranscriptStream({
           onTouchMove={markUserScroll}
           onKeyDown={markUserScroll}
           data-testid="transcript-viewport"
+          data-scroll-box
           // Focusable from code only: the reference picker gives focus back
           // here when the reference it opened from has re-rendered away.
           tabIndex={-1}

@@ -358,7 +358,11 @@ thứ tự:
 5. Companion **không bao giờ** bị tự đóng.
 
 Chạy: `panelLayout.layoutPressure` (có test), đọc qua `useLayoutPressure` ở
-sidebar, các cột và document group.
+sidebar, các cột và document group. Số cột, trạng thái mở của sidebar và bề rộng
+các cột được publish trong layout effect (trước paint), nên một cột mở ra làm
+sidebar nhường chỗ thì hai cái bắt đầu chạy trong cùng một frame, mỗi cái về
+đúng kích thước cuối — cột không phải đổi đích giữa chừng khi sidebar nhả chỗ.
+Không xếp tuần tự (sidebar xong rồi mới tới cột): như vậy là thêm một nhịp trễ.
 
 Nới cửa sổ ra thì chạy ngược lại, trả về đúng layout đã lưu. Cửa sổ tối thiểu
 vẫn là 1080×700.
@@ -588,12 +592,78 @@ header cho cùng các đích, không cần kéo.
 
 **Không remount:** thân mỗi pane được render một lần vào một phần tử tách rời;
 card của vị trí "nhận nuôi" phần tử đó. Chuyển pane là chuyển phần tử DOM, nên
-xterm, canvas hay tin nhắn đang gõ dở không mount lại.
+xterm, canvas hay tin nhắn đang gõ dở không mount lại. Phần tử được chuyển bằng
+`Element.moveBefore` khi engine có, không thì đọc vị trí cuộn trước và ghi lại
+sau (`slots/hostMove.ts`), nên pane đổi chỗ không bị cuộn về đầu.
+
+**Mở/đóng:** cột, hàng dưới và sidebar chuyển động giống nhau (smoothness 3.8,
+4.4): box ngoài animate kích thước và clip, box trong ghim ở kích thước mở và
+treo vào cạnh đang chuyển động — cột trượt vào từ phải và trượt ra về phải, hàng
+dưới trượt lên, sidebar trượt từ trái. Mặt card đi theo panel, nội dung trên nó
+hiện ra sau 60 ms (một lớp phủ màu mặt card mờ dần, không phải `opacity` của nội
+dung — smoothness 3.8). Đóng thì nội dung cuối ở lại tới khi panel đóng xong
+(`--motion-fast`), trừ pane đang hiện ở chỗ khác. Bề rộng module xin cho context
+pane được áp trước frame đầu, nên animation mở không đổi đích giữa chừng. Resize
+cửa sổ, kéo bất kỳ sash nào, hay một thay đổi chỉ do clamp của panel bên cạnh thì
+panel đi theo tức thì. Card đã đóng (và sidebar đã đóng) là `inert`, nhưng
+`inert` chỉ đổi khi panel đứng yên — đổi nó restyle cả cây bên dưới — nên panel
+vẫn `inert` suốt lúc mở và thành `inert` sau khi đóng xong; lúc đang đóng một
+tấm chắn nhận click. Một pane đã sang chỗ khác trong lúc chỗ cũ đang đóng thì chỗ
+cũ không vẽ lại nó.
+
+**Agent đóng là ẩn, không gỡ:** sau lần mở đầu, companion Agent ở lại mounted
+khi pane đóng (và khi đang ở Agent Hub), `visible={false}` — đọc transcript
+store đang giữ mà không subscribe, không fetch, không toast, và **đóng băng**: trả
+lại element dựng lần cuối còn hiện, nên gõ prompt trong Agent Hub không làm rail ẩn
+render lại (mở lại thì render một lần với state mới). Lúc ẩn, menu/popover/select
+nó mở (portal ra body) được đóng bằng Escape khi lớp trên cùng là của nó, và focus
+trong nó bị blur. Card của nó **nằm yên tại chỗ** (`slots/retain.restingStep`):
+trong cột đã đóng như sidebar đóng giữ rail, hoặc — khi pane khác vẫn mở trong
+cùng cột — "cất" ra khỏi flow (`absolute`, `invisible`, `inert`, phủ cả cột) để
+pane kia lấy cả cột, và cất rồi thì giữ vậy tới khi Agent hiện lại. Chuyển phần
+tử sang chỗ khác là dựng lại cả cuộc hội thoại trên WebKit (không có
+`moveBefore`): 70–90 ms mỗi lần mở và mỗi lần đóng. Chỉ khi một pane khác chiếm
+đúng vị trí của nó, hay nó hiện ở chỗ khác, phần tử mới sang "bãi đỗ" trong
+document (fixed, ngoài màn hình, `invisible`, `inert`, cùng kích thước card vừa
+rời). Mở lại vẫn đúng chỗ cuộn và composer như lúc đóng.
+
+**Context pane của module đóng cũng là ẩn, không gỡ** (`splitPanelModel.ts`):
+`closePanel()` giữ thân pane nằm yên trong card của nó như Agent — `inert`, menu
+của nó đóng, focus bị blur — và `openPanel` lần sau render lại đúng cây đó tại chỗ
+với nội dung mới, trong cùng commit: frame đầu đã là món mới. Bên trên không gì
+render lại nó (phần tử là cái module đẩy lần cuối); bên trong, thứ nó subscribe hay
+đọc thì chờ `usePaneShown()` — peek của panel references chỉ đọc buffer và đọc đĩa
+khi pane đang mở, panel references lấy focus mỗi lần pane hiện lại.
+
+**Thân pane được nhận diện bằng `key`** module đặt khi mở: `"nav"` cho panel
+references, `flow:<key>` cho inspector của flow, `meta:`/`history:<note>` cho Notes,
+`task:<id>`, `subagent:`/`activity:` cho Agent Hub, `"message"` cho Kafka. Key khác là
+cây mới (mở hay đang ẩn đều vậy); cùng key thì giữ cây dù document nào mở — chọn một
+kết quả references là document khác mở lại pane, danh sách không dựng lại, giữ chỗ
+cuộn. Bỏ (`discard`) rồi mở lại cũng là cây mới. Document mở pane (`opener`) chỉ quyết
+định close của ai được tính (close từ document không đang giữ pane thì bỏ qua) và
+unmount của ai làm pane bị bỏ — trễ một microtask, để document tới trong cùng commit
+nhận pane trước. Module tự bỏ bằng `closePanel({ discard: true })` khi thân pane
+không nên sống qua lần đóng: Tasks (TaskDetail poll lần verify đang chạy, cần mới mỗi
+lần mở), Agent Hub (panel activity/subagent đọc transcript đang stream), lịch sử của
+Notes (danh sách version phải đọc mới). Giữ: tin Kafka, inspector của flow, Metadata
+của Notes (vẽ từ props), panel references (đọc buffer/đĩa chỉ khi đang hiện). Module
+rời màn hình thì pane ẩn của nó bị bỏ.
+
+Trên WebKitGTK có thanh cuộn overlay (`lib/platform.quietsScrollBoxes`, gắn
+`data-quiet-scroll-boxes` lên `<html>`), lúc cột hay hàng dưới còn `inert` (đóng,
+hoặc đang trượt mở) các hộp cuộn đã đăng ký `data-scroll-box` (viewport ScrollArea,
+transcript, DataTable, wrapper của pane, danh sách references) và `.cm-scroller` là
+`overflow: hidden` (`slots.css`): WebKit bỏ layer của hộp cuộn khi panel bị kẹp về 0
+và dựng lại ngay trong các frame mở — giữ lại tới frame nhấc `inert`, sau chuyển
+động; vị trí cuộn vẫn giữ. Engine khác, hay thanh cuộn chiếm bề rộng, thì không.
 
 Code: luật thuần ở `frontend/src/workbench/slots/slotModel.ts` (có test),
 kéo ở `paneDrag.ts`, vẽ ở `frontend/src/components/ui/pane-slots.tsx`, vị trí ở
-`frontend/src/stores/paneSlots.ts`. Module không đổi gì: `openPanel`, companion
-và bottom slot giữ nguyên API.
+`frontend/src/stores/paneSlots.ts`. Module gọi `useSplitPanelActions()` —
+`openPanel`, `closePanel`, `openCompanion`, `closeCompanion` ổn định suốt đời
+component và không subscribe gì, nên document không render lại mỗi lần một pane
+bật/tắt; chỉ slot layout và menu Layouts đọc trạng thái (`useSplitPanelState()`).
 
 ## Out of scope (v1)
 

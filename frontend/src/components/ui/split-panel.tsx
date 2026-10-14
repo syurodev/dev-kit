@@ -1,33 +1,22 @@
 import * as React from "react";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import {
+  createSplitPanelStore,
+  type BoundPanelActions,
+  type CompanionEntry,
+  type PanelEntry,
+  type SplitPanelState,
+  type SplitPanelStore,
+} from "@/components/ui/splitPanelModel";
 
-type PanelState = {
-  content: React.ReactNode;
-  width: number;
-  onClose: () => void;
-};
+export type { PanelCloseOptions, PanelOpenOptions } from "@/components/ui/splitPanelModel";
+
+type PanelState = PanelEntry<React.ReactNode>;
 
 /** A caller outside any module's subtree (the dev harness, the shell itself). */
 export const SHELL_PANEL_OWNER = "shell";
 
-type SplitPanelStore = {
-  /** Each module's context pane, keyed by module id. */
-  panels: Record<string, PanelState>;
-  openPanelFor: (owner: string, content: React.ReactNode, opts: { width?: number; onClose: () => void }) => void;
-  closePanelFor: (owner: string) => void;
-  companion: PanelState | null;
-  openCompanion: (content: React.ReactNode, opts: { onClose: () => void }) => void;
-  closeCompanion: () => void;
-};
-
-type SplitPanelContextValue = SplitPanelStore & {
-  /** The calling module's own panel. */
-  panel: PanelState | null;
-  openPanel: (content: React.ReactNode, opts: { width?: number; onClose: () => void }) => void;
-  closePanel: () => void;
-};
-
-const SplitPanelContext = React.createContext<SplitPanelStore | null>(null);
+const SplitPanelContext = React.createContext<SplitPanelStore<React.ReactNode> | null>(null);
 
 /**
  * What the right-hand panes hold. Each module has its own `panel` — its context
@@ -38,59 +27,86 @@ const SplitPanelContext = React.createContext<SplitPanelStore | null>(null);
  * A panel belongs to the module that opened it, not to whichever module is
  * active: with two document groups on screen, Notes' Metadata and Code
  * Graph's inspector are both shown, each beside its own document
- * (docs/dev-kit/layout.mdx § Document group). useSplitPanel binds openPanel
- * to the caller's module through SidebarModuleIdContext, which every module
- * view already sits under, so no module had to change.
+ * (docs/dev-kit/layout.mdx § Document group). useSplitPanelActions binds
+ * openPanel to the caller's module through SidebarModuleIdContext, which every
+ * module view already sits under, so no module had to change.
+ *
+ * The state lives in a small external store (splitPanelModel.ts) whose
+ * actions never change: a document that only opens and closes its pane
+ * (useSplitPanelActions) holds no subscription and does not re-render when a
+ * pane toggles. The few readers of what is open use useSplitPanelState.
  *
  * Only the content. Where each is drawn is the slot layout's business
  * (components/ui/pane-slots.tsx).
  */
 export function SplitPanelProvider({ children }: { children: React.ReactNode }) {
-  const [panels, setPanels] = React.useState<Record<string, PanelState>>({});
-  const [companion, setCompanion] = React.useState<PanelState | null>(null);
-
-  const openPanelFor = React.useCallback(
-    (owner: string, content: React.ReactNode, opts: { width?: number; onClose: () => void }) => {
-      setPanels((prev) => ({ ...prev, [owner]: { content, width: opts.width ?? 420, onClose: opts.onClose } }));
-    },
-    [],
-  );
-  const closePanelFor = React.useCallback((owner: string) => {
-    setPanels((prev) => {
-      if (!(owner in prev)) return prev;
-      const { [owner]: _, ...rest } = prev;
-      return rest;
-    });
-  }, []);
-
-  const openCompanion = React.useCallback(
-    (content: React.ReactNode, opts: { onClose: () => void }) => {
-      // No width of its own: it shares the column, and letting it request one
-      // would mean the column jumped every time the companion opened.
-      setCompanion({ content, width: 0, onClose: opts.onClose });
-    },
-    [],
-  );
-  const closeCompanion = React.useCallback(() => setCompanion(null), []);
-
-  const value = React.useMemo(
-    () => ({ panels, openPanelFor, closePanelFor, companion, openCompanion, closeCompanion }),
-    [panels, openPanelFor, closePanelFor, companion, openCompanion, closeCompanion],
-  );
-
-  return <SplitPanelContext.Provider value={value}>{children}</SplitPanelContext.Provider>;
+  const [store] = React.useState(() => createSplitPanelStore<React.ReactNode>());
+  return <SplitPanelContext.Provider value={store}>{children}</SplitPanelContext.Provider>;
 }
 
-export function useSplitPanel(): SplitPanelContextValue {
-  const ctx = React.useContext(SplitPanelContext);
-  if (!ctx) throw new Error("useSplitPanel must be used within a SplitPanelProvider");
+function useStore(): SplitPanelStore<React.ReactNode> {
+  const store = React.useContext(SplitPanelContext);
+  if (!store) throw new Error("split panel hooks must be used within a SplitPanelProvider");
+  return store;
+}
+
+/**
+ * Open and close the caller's module pane, and the companion. Stable for the
+ * caller's lifetime and subscribed to nothing.
+ *
+ * A pane closed with `closePanel()` is hidden, not unmounted: its body stays
+ * where it was and the next `openPanel` renders the same tree in place.
+ * `closePanel({ discard: true })` drops it. When the caller unmounts (its
+ * document closed, its module left the mounted set), a pane it opened is
+ * dropped with it.
+ */
+export function useSplitPanelActions(): BoundPanelActions<React.ReactNode> {
+  const store = useStore();
   const owner = React.useContext(SidebarModuleIdContext) ?? SHELL_PANEL_OWNER;
-  const { openPanelFor, closePanelFor } = ctx;
-  // Stable per owner: modules list these in effect dependencies.
-  const openPanel = React.useCallback(
-    (content: React.ReactNode, opts: { width?: number; onClose: () => void }) => openPanelFor(owner, content, opts),
-    [openPanelFor, owner],
-  );
-  const closePanel = React.useCallback(() => closePanelFor(owner), [closePanelFor, owner]);
-  return { ...ctx, panel: ctx.panels[owner] ?? null, openPanel, closePanel };
+  const opener = React.useId();
+  React.useEffect(() => {
+    store.attach(owner, opener);
+    return () => store.detach(owner, opener);
+  }, [store, owner, opener]);
+  return store.bound(owner, opener);
+}
+
+/** The store's own actions, for the shell (pane-slots.tsx). Stable. */
+export function useSplitPanelStoreActions() {
+  return useStore().actions;
+}
+
+/**
+ * Reads what is open at the moment it is called, without subscribing: for an
+ * action that needs it (the Layouts menu closing the module's pane).
+ */
+export function useSplitPanelSnapshot(): () => SplitPanelState<React.ReactNode> {
+  return useStore().getState;
+}
+
+/**
+ * Whether the pane this body is drawn in is open. A kept body (a module pane
+ * closed without `discard`, the hidden companion) stays mounted while its
+ * pane is closed; what it subscribes to or fetches should wait for this, so a
+ * hidden body does no work for what nobody sees (pane-slots.tsx provides it).
+ */
+export const PaneShownContext = React.createContext(true);
+
+export function usePaneShown(): boolean {
+  return React.useContext(PaneShownContext);
+}
+
+/**
+ * What is open, for the few that draw or act on it (the slot layout, the
+ * Layouts menu). Re-renders on every pane change; documents use
+ * useSplitPanelActions instead.
+ */
+export function useSplitPanelState(): {
+  /** Each module's context pane, keyed by module id; `hidden` when closed but kept. */
+  panels: Record<string, PanelState>;
+  companion: CompanionEntry<React.ReactNode> | null;
+} {
+  const store = useStore();
+  const state: SplitPanelState<React.ReactNode> = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  return { panels: state.panels, companion: state.companion };
 }

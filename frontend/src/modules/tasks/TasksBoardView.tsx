@@ -13,7 +13,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   createTask,
@@ -241,14 +241,18 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
   // only; TaskDetail reads and subscribes by itself, so an edit in the pane
   // never re-pushes it.
   const visible = useModuleVisibility();
-  const { openPanel, closePanel } = useSplitPanel();
+  const { openPanel, closePanel } = useSplitPanelActions();
   useEffect(() => {
     if (!visible || !inspectedId) return;
     openPanel(<TaskDetail key={inspectedId} taskId={inspectedId} layout="panel" onGone={closeInspector} />, {
       width: INSPECTOR_WIDTH,
       onClose: closeInspector,
+      key: `task:${inspectedId}`,
     });
-    return () => closePanel();
+    // Discarded, not kept hidden: TaskDetail polls a live verify run and
+    // means to be fresh on every visit (staleTime 0), and it is keyed by task,
+    // so a kept body would only ever be reused for the same task.
+    return () => closePanel({ discard: true });
   }, [visible, inspectedId, openPanel, closePanel, closeInspector]);
 
   // Its own subscription rather than leaning on the sidebar's: a board tab

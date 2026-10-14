@@ -81,3 +81,33 @@ export function reservesWindowButtons(platform: Platform): boolean {
 export function ownsWindowControls(platform: Platform): boolean {
   return platform === "linux";
 }
+
+/**
+ * Whether a shell panel's scroll boxes stop scrolling while the panel is inert
+ * (closed, or still sliding open — workbench/slots/slots.css).
+ *
+ * WebKitGTK drops a scroller's layer while its panel is clipped shut and
+ * rebuilds it in the frames that reveal it (35-45 ms each, measured), so on
+ * Linux the rebuild is held until the panel is still. Only where scrollbars
+ * overlay the content: a scrollbar that takes width would disappear with
+ * `overflow: hidden` and the content re-wrap when inert lifts. Other engines
+ * keep their scroll boxes.
+ */
+export function quietsScrollBoxes(platform: Platform, scrollbarWidth: number): boolean {
+  return platform === "linux" && scrollbarWidth === 0;
+}
+
+/** The width a scrollbar takes in this document, 0 for overlay scrollbars. */
+function scrollbarWidth(doc: Document): number {
+  const probe = doc.createElement("div");
+  probe.style.cssText = "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll;visibility:hidden";
+  (doc.body ?? doc.documentElement).appendChild(probe);
+  const width = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return width;
+}
+
+/** Marks <html> with `data-quiet-scroll-boxes` where quietsScrollBoxes says so. */
+export function markQuietScrollBoxes(doc: Document = document): void {
+  if (quietsScrollBoxes(detectPlatform(), scrollbarWidth(doc))) doc.documentElement.dataset.quietScrollBoxes = "";
+}

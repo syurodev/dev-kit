@@ -80,6 +80,33 @@ export function columnVisible(resolved: Resolved, column: ColumnId): boolean {
 }
 
 /**
+ * The widths modules asked for, per column, from the panels that just opened.
+ *
+ * A module asks for a width when it opens its context pane; it is honoured for
+ * the column the pane lands in, and only on the closed → open edge, so content
+ * re-pushed while open (NoteEditor does it on every edit) never undoes a drag.
+ * Not for the bottom row, which has no width. With two requests for one column
+ * the first listed (the focused module's) wins. Applied before the column's
+ * open animation starts, so the animation never re-targets mid-flight.
+ */
+export function requestedWidths(opts: {
+  modules: readonly string[];
+  panels: Readonly<Record<string, { width: number } | undefined>>;
+  wasOpen: ReadonlySet<string>;
+  resolved: Resolved;
+}): Partial<Record<ColumnId, number>> {
+  const out: Partial<Record<ColumnId, number>> = {};
+  for (const m of opts.modules) {
+    const panel = opts.panels[m];
+    if (!panel || opts.wasOpen.has(m)) continue;
+    const slot = slotOf(opts.resolved, contextPane(m));
+    const column = slot ? columnOf(slot) : null;
+    if (column && out[column] === undefined) out[column] = panel.width;
+  }
+  return out;
+}
+
+/**
  * Moves `pane` to `to`. Whatever sat there — open or not — swaps into the
  * pane's old slot, so a closed pane never comes back on top of the one that
  * replaced it.

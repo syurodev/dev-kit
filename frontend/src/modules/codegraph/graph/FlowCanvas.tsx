@@ -31,6 +31,7 @@ import { graphBounds, place, type Size } from "./place";
 import { shortLabel } from "./labels";
 import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
+import { settledRunner } from "@/lib/panelMotion";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
@@ -342,15 +343,21 @@ function Canvas({
   useEffect(() => {
     const el = viewport.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => fitRef.current());
+    // A shell panel opening beside the canvas resizes it on every frame of
+    // the animation; refitting each of those made the graph swim. It refits
+    // once, when the panels settle (lib/panelMotion.settledRunner) — already
+    // inside a frame either way: the observer's callback, or the runner's own
+    // frame after the motion. A window resize or a sash drag still refits as
+    // it goes, and a canvas shown from display:none (0 wide) at once.
+    const refit = settledRunner(() => fitRef.current());
+    const observer = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      refit.schedule(width > 0 && height > 0 ? width : 0);
     });
     observer.observe(el);
     return () => {
-      cancelAnimationFrame(frame);
       observer.disconnect();
+      refit.dispose();
     };
   }, []);
 
