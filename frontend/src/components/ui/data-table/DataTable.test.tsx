@@ -110,18 +110,29 @@ describe("DataTable", () => {
     expect(html).toContain("touch-none");
   });
 
-  test("clickable rows are focusable, keyboard-operable and show focus", () => {
+  // The row stays a row, so its cells keep their owner and a screen reader
+  // still reads them as cells; what opens it is a real button in the first
+  // cell, which brings Enter and Space with it.
+  test("clickable rows open through a button in their first cell", () => {
     const html = renderToString(
       <DataTable columns={columns} rows={rows(2)} onRowClick={() => {}} />,
     );
     const body = html.split("<tbody")[1];
-    expect(body.match(/<tr tabindex="0"/g)?.length).toBe(2);
-    expect(body.match(/role="button"/g)?.length).toBe(2);
-    expect(body).toContain('aria-keyshortcuts="Enter Space"');
+    const trs = body.split("<tr").slice(1);
+    expect(trs).toHaveLength(2);
+    for (const tr of trs) {
+      const open = tr.split(">")[0];
+      expect(open).not.toContain("tabindex");
+      expect(open).not.toContain("role=");
+      expect(open).not.toContain("aria-");
+      const cells = tr.split("<td").slice(1);
+      expect(cells[0]).toContain('<button type="button"');
+      expect(cells[1]).not.toContain("<button");
+    }
+    expect(body).not.toContain("aria-keyshortcuts");
     expect(body).toContain("focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset");
     const still = renderToString(<DataTable columns={columns} rows={rows(2)} />);
-    expect(still).not.toContain('role="button"');
-    expect(still).not.toContain("tabindex=\"0\" aria-keyshortcuts");
+    expect(still).not.toContain("<button");
   });
 
   test("clickable rows can be named, and say which one is open", () => {
@@ -135,10 +146,11 @@ describe("DataTable", () => {
       />,
     );
     const trs = html.split("<tbody")[1].split("<tr").slice(1);
-    expect(trs[0]).toContain('aria-label="Message 0 0"');
-    expect(trs[0]).toContain('aria-expanded="false"');
-    expect(trs[1]).toContain('aria-expanded="true"');
-    expect(trs[1]).toContain('data-expanded="true"');
+    const button = (tr: string) => tr.slice(tr.indexOf("<button")).split(">")[0];
+    expect(button(trs[0])).toContain('aria-label="Message 0 0"');
+    expect(button(trs[0])).toContain('aria-expanded="false"');
+    expect(button(trs[1])).toContain('aria-expanded="true"');
+    expect(trs[1].split(">")[0]).toContain('data-expanded="true"');
     expect(trs[1]).toContain("bg-(--state-soft)");
     expect(trs[0].split(">")[0]).not.toContain(" bg-(--state-soft)");
     // Without expandedRow nothing claims to expand.

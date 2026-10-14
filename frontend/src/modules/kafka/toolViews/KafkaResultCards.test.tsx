@@ -56,7 +56,7 @@ describe("PeekResultCard", () => {
 
   test("rows can be opened — they are focusable click targets", () => {
     const html = renderToString(<PeekResultCard peek={peek} />);
-    expect(html.split("<tbody")[1].match(/<tr tabindex="0"/g)?.length).toBe(2);
+    expect(html.split("<tbody")[1].match(/<button type="button"/g)?.length).toBe(2);
   });
 
   test("rows are named by their offset and say they are closed until opened", () => {
@@ -109,7 +109,7 @@ describe("TopicsResultCard", () => {
     const html = renderToString(<TopicsResultCard topics={["orders", "payments"]} />);
     expect(html).toContain('aria-label="Open orders in Kafka"');
     expect(html).toContain('aria-label="Open payments in Kafka"');
-    expect(html).toContain('role="button"');
+    expect(html.split("<tbody")[1].match(/<button type="button"/g)?.length).toBe(2);
     expect(html).not.toContain("aria-expanded");
   });
 

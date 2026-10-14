@@ -38,7 +38,8 @@ export type DataTableProps = {
   dense?: boolean;
   caption?: string;
   onRowClick?(i: number): void;
-  /** What a clickable row is called to a screen reader; its cells otherwise. */
+  /** The name of the button that opens a clickable row (it sits in the first
+   *  cell); without it the button is named by that cell's content. */
   rowAriaLabel?: (row: DataTableProps["rows"][number], index: number) => string;
   /** The clickable row whose detail is open: it reads as expanded and stays
    *  highlighted. Leave unset when a click opens nothing in place. */
@@ -330,6 +331,14 @@ function renderedWidth(table: HTMLTableElement, index: number): number | null {
   return widest > 0 ? Math.ceil(widest) + 1 : null;
 }
 
+function CellValue({ value }: { value: React.ReactNode }) {
+  return value === null || value === undefined ? (
+    <span className="text-text-tertiary italic">NULL</span>
+  ) : (
+    <>{value}</>
+  );
+}
+
 type BodyProps = {
   columns: DataTableColumn[];
   rows: DataTableProps["rows"];
@@ -390,29 +399,21 @@ const Body = React.memo(function Body({
         return (
           <tr
             key={rowIndex}
-            tabIndex={clickable ? 0 : undefined}
-            // A row that opens something is a button to assistive tech, named by
-            // the caller or by its cells, and says whether its detail is open.
-            role={clickable ? "button" : undefined}
-            aria-label={clickable && rowAriaLabel ? rowAriaLabel(rows[rowIndex], rowIndex) : undefined}
-            aria-expanded={expanded}
             data-expanded={expanded || undefined}
-            aria-keyshortcuts={clickable ? "Enter Space" : undefined}
-            onClick={onRowClick ? () => onRowClick(rowIndex) : undefined}
-            onKeyDown={
+            // A pointer convenience: the whole row is a target for the mouse.
+            // The keyboard and assistive tech go through the button in the
+            // first cell, and a click that started on it is its own.
+            onClick={
               onRowClick
                 ? (event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
+                    if ((event.target as HTMLElement).closest("button")) return;
                     onRowClick(rowIndex);
                   }
                 : undefined
             }
             className={cn(
               "border-t border-border-subtle transition-colors duration-(--motion-fast) hover:bg-(--state-soft)",
-              clickable &&
-                "cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+              clickable && "cursor-pointer",
               expanded && "bg-(--state-soft)",
             )}
           >
@@ -433,10 +434,25 @@ const Body = React.memo(function Body({
                     column.align === "right" && "tabular-nums",
                   )}
                 >
-                  {value === null || value === undefined ? (
-                    <span className="text-text-tertiary italic">NULL</span>
+                  {onRowClick && index === 0 ? (
+                    // The row stays a row — its cells keep their owner — and
+                    // what opens it is a real button, which brings Enter and
+                    // Space, the name and the expanded state with it.
+                    <button
+                      type="button"
+                      aria-label={rowAriaLabel?.(rows[rowIndex], rowIndex)}
+                      aria-expanded={expanded}
+                      onClick={() => onRowClick(rowIndex)}
+                      className={cn(
+                        "w-full cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+                        ALIGN[column.align ?? "left"],
+                        oneLine ? "block truncate" : "wrap-anywhere",
+                      )}
+                    >
+                      <CellValue value={value} />
+                    </button>
                   ) : (
-                    value
+                    <CellValue value={value} />
                   )}
                 </td>
               );
