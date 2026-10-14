@@ -694,18 +694,24 @@ function SlotCard({
 
   return (
     <div ref={originRef} data-slot-card={slot} className={cn("pane-slot relative flex min-h-0 min-w-0 flex-col", className)} style={style}>
-      <div ref={setCard} className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
+      <div ref={setCard} className="isolate relative flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
+        <PaneHeader pane={pane} cardRef={cardRef} originRef={originRef} />
+        <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col" />
         {/* The surface moves with the panel; what is on it fades in after it
-            and out with it. From 0 when the card arrives with its panel. */}
+            and out with it — drawn as a veil of the surface's own colour
+            fading out over it, not as the content fading in. An opacity
+            animation on the content makes the engine give the whole pane a
+            layer of its own and paint all of it in one frame: on WebKitGTK
+            that frame, a few into the open, took 50-70ms on a transcript
+            (smoothness §3.8). The veil is a plain fill: nothing to paint. */}
         <m.div
-          initial={fade.instant ? false : { opacity: 0 }}
-          animate={{ opacity: fade.open ? 1 : 0 }}
+          aria-hidden
+          initial={fade.instant ? false : { "--veil": 1 } as never}
+          animate={{ "--veil": fade.open ? 0 : 1 } as never}
           transition={panelContentFade(fade.open, fade.instant)}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <PaneHeader pane={pane} cardRef={cardRef} originRef={originRef} />
-          <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col" />
-        </m.div>
+          className="pointer-events-none absolute inset-0 z-50"
+          style={{ background: "color-mix(in srgb, var(--surface-base) calc(var(--veil) * 100%), transparent)" }}
+        />
       </div>
     </div>
   );
