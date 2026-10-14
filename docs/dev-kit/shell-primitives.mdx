@@ -36,14 +36,14 @@ mô tả runtime đang chạy cho tới khi thay xong.
 flowchart LR
   subgraph Module["Module view, vd NoteEditor"]
     UMA["useModuleAction hook"]
-    USP["useSplitPanel hook"]
+    USP["useSplitPanelActions hook"]
     UBC["useBottomContent hook"]
   end
   UMA -->|register or unregister by id| MAS["useModuleActionsStore - Zustand"]
-  USP -->|openPanel, closePanel| SPP["SplitPanelProvider - Context state"]
+  USP -->|openPanel, closePanel| SPP["SplitPanelProvider - store (splitPanelModel)"]
   UBC -->|register by module id| BCS["useBottomContentStore - Zustand"]
   MAS -->|actions array| WB["Workbench.tsx header"]
-  SPP -->|panel content and width| SPS["SplitPanelSlot - framer-motion"]
+  SPP -->|panel content and width| SPS["PaneSlotsRow - pane-slots.tsx"]
   BCS -->|active module content| BSS["BottomSlotSurface - framer-motion"]
   WB --> TitleBar["Title-bar icon buttons"]
   SPS --> Pane["Flex sibling of the content section"]
@@ -93,9 +93,11 @@ nội bộ như bản đầu tiên.
 module gọi nó, và `openCompanion`/`closeCompanion` cho companion. Chúng ổn định
 suốt đời component và không subscribe gì: document gọi chúng không render lại khi
 một pane bật/tắt. Ai cần biết cái gì đang mở (slot layout, menu Layouts) dùng
-`useSplitPanelState()`. `closePanel()` ẩn pane và giữ thân nó (mở lại render tại
-chỗ); `closePanel({ discard: true })` bỏ hẳn; document mở pane unmount thì pane bị
-bỏ theo ([Layout](/dev-kit/layout)).
+`useSplitPanelState()`. `closePanel()` ẩn pane và giữ thân nó; `openPanel(content,
+{ key })` cùng key thì render lại thân đó tại chỗ, key khác là cây mới;
+`closePanel({ discard: true })` bỏ hẳn; document mở pane unmount thì pane bị bỏ
+theo. Thân pane chờ `usePaneShown()` trước khi subscribe hay đọc gì
+([Layout](/dev-kit/layout)).
 
 ### Hai slot, hai chủ sở hữu
 

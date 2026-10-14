@@ -484,6 +484,12 @@ platform module).
   frameless window otherwise has none, and `Titlebar` drops the 84px macOS traffic-light
   reservation everywhere except macOS. Wails skips `gtk_window_set_title` on a frameless
   window, so `applyWindowTitle` puts WM_NAME back by hand.
+- **Scroll boxes in an inert shell panel stop scrolling** (Linux app with overlay scrollbars
+  only: `lib/platform.quietsScrollBoxes` marks `<html data-quiet-scroll-boxes>`). WebKitGTK
+  drops a clipped scroller's layer and rebuilds it in the frames that reveal it, so while a
+  column or the bottom row is inert, boxes that opt in with `data-scroll-box` (and
+  `.cm-scroller`) are `overflow: hidden` (`workbench/slots/slots.css`). Give a new scroll box
+  inside a pane body `data-scroll-box`.
 - **Verifying the GUI headlessly.** `Xvfb :99 -screen 0 1400x900x24` + `DISPLAY=:99
   ./bin/dev-kit`, then `import -window root shot.png` and drive it with `xdotool`. Needs
   `dbus-x11` on PATH (single-instance uses `dbus-launch`). A bare Xvfb has no window
