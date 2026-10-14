@@ -4,8 +4,7 @@ import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Shrink, Terminal,
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
-import { agentHubToolCallDetail } from "../../../bridge/agenthub";
-import { parsePayload } from "../transcript";
+import { resultCallOf, useFullToolCall } from "./toolCallDetail";
 import type { ToolCall } from "../types";
 import { commandDescription, isCompaction, stepLabel, toolCommand } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
@@ -14,8 +13,8 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
-import { toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
+import { renderToolResult } from "@/workbench/toolResultViews";
+import { toolResultInputOf } from "@/workbench/toolPayload";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -140,101 +139,13 @@ function isOneLineStatus(raw: string): boolean {
   return !text.startsWith("{") && !text.startsWith("[");
 }
 
-/**
- * The whole tool call out of an agentHubToolCallDetail row. Payload is a Go
- * json.RawMessage, so the bridge hands it over already decoded — an object,
- * not a string. Parsing `String(payload)` parsed "[object Object]", threw,
- * and "Show full output" always showed nothing.
- */
-export function toolCallFromDetail(payload: unknown): ToolCall | null {
-  return parsePayload(payload).toolCall ?? null;
-}
+export { toolCallFromDetail } from "./toolCallDetail";
 
 /** rawOutput as text: vendor JSON of any shape, strings kept as they are. */
 export function toolOutputText(raw: unknown): string {
   if (raw === undefined || raw === null) return "";
   return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
 }
-
-/**
- * The whole row behind a truncated preview (`agentHubToolCallDetail`). Pages
- * carry bounded previews — raw fields, text content, diffs — so one huge
- * terminal dump cannot make every page load heavy; the full row is fetched
- * only when something asks for it: "Show full output", or a result card whose
- * view has nothing to read in the preview (ToolResultCard).
- */
-export function useFullToolCall(call: ToolCall, sessionId?: string) {
-  const [fullCall, setFullCall] = React.useState<ToolCall | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const canLoad = Boolean(call.truncated && sessionId);
-  const load = React.useCallback(() => {
-    if (!canLoad || loading || fullCall !== null) return;
-    setLoading(true);
-    agentHubToolCallDetail(sessionId!, call.id)
-      .then((entry) => setFullCall(toolCallFromDetail(entry?.Payload) ?? { id: call.id }))
-      .catch(() => setFullCall(null))
-      .finally(() => setLoading(false));
-  }, [canLoad, loading, fullCall, sessionId, call.id]);
-  return { fullCall, loading, canLoad, load: canLoad ? load : undefined };
-}
-
-/** The call a result view reads: the full row answers for the output, the call on screen for who and how. */
-function resultCallOf(call: ToolCall, fullCall: ToolCall | null): ToolCall {
-  return fullCall
-    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
-    : call;
-}
-
-/**
- * Whether a call's result is drawn as a card of its own after a turn's work
- * (AgentTurn's StepGroup): it landed, and the module that owns the tool
- * registered a view for it. Running and failed calls stay rows.
- */
-export function hasResultCard(call: ToolCall | undefined): boolean {
-  return Boolean(call) && toToolState(call!.status) === "done" && hasToolResultView(toolNameOf(call!));
-}
-
-/**
- * Just the result view of a call — no row, no disclosure — for a result shown
- * outside the work fold. Loads the full row once when the preview gave the
- * view nothing to read. When the view declines (or there is nothing to show
- * yet) it draws `fallback`, which is nothing unless the caller has a row to
- * keep in its place.
- */
-export const ToolResultCard = React.memo(function ToolResultCard({
-  call,
-  sessionId,
-  fallback = null,
-}: {
-  call: ToolCall;
-  sessionId?: string;
-  fallback?: React.ReactNode;
-}) {
-  const { fullCall, load } = useFullToolCall(call, sessionId);
-  const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
-  const done = toToolState(call.status) === "done";
-  const node = React.useMemo(() => {
-    const input = done ? toolResultInputOf(resultCall) : null;
-    return input ? renderToolResult(input) : null;
-  }, [done, resultCall]);
-  // A cut preview that does not parse is no payload: ask for the whole row,
-  // once — a failed load is not retried behind the person's back.
-  const needsFull = done && fullCall === null && load !== undefined && toolPayloadOf(call) === null;
-  const asked = React.useRef(false);
-  React.useEffect(() => {
-    if (!needsFull || asked.current) return;
-    asked.current = true;
-    load?.();
-  }, [needsFull, load]);
-
-  if (!node) return <>{fallback}</>;
-  return (
-    <div data-testid="turn-result-card" className="w-full min-w-0">
-      {/* The view may load lazily (registerToolResultView). */}
-      <React.Suspense fallback={fallback}>{node}</React.Suspense>
-    </div>
-  );
-});
 
 export type ToolOutputView = { code: string; language: string; wrap: boolean; startLine?: number };
 

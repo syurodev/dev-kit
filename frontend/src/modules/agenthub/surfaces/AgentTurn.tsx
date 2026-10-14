@@ -16,9 +16,8 @@ import {
   AgentAsyncTask,
   AgentThinking,
   AgentToolCall,
-  ToolResultCard,
-  hasResultCard,
 } from "../transcript/index";
+import { NO_RESULTS, surfaceResults, ToolResultCard, type StepResults } from "../transcript/ToolResultCard";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
 import { AgentProse } from "../transcript/AgentMessageRich";
@@ -120,6 +119,13 @@ export const AgentTurn = React.memo(function AgentTurn({
   // Always computed, never gated behind a fold of its own — see the module
   // doc: only the "steps" segments inside this fold themselves (StepGroup).
   const segments = React.useMemo(() => workSegments(turn.work), [turn.work]);
+  // Which results stand outside the folds: a few per turn, in call order,
+  // shared out among its runs of steps.
+  const stepResults = React.useMemo(() => {
+    const runs = segments.filter((segment) => segment.kind === "steps");
+    const shares = surfaceResults(runs.map((run) => run.items));
+    return new Map(runs.map((run, index) => [run.id, shares[index]]));
+  }, [segments]);
   // Reduce Motion keeps the fade and drops the travel and scale — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
@@ -245,6 +251,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                 items={segment.items}
                 subagents={turn.subagents}
                 onOpenFile={onOpenFile}
+                results={stepResults.get(segment.id) ?? NO_RESULTS}
               />
             );
           })}
@@ -322,15 +329,12 @@ export const AgentTurn = React.memo(function AgentTurn({
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
 
-/** At most this many results stand outside one run's fold; the rest are counted. */
-const SURFACED_RESULTS = 3;
-
 export function StepGroup({
   items,
   subagents,
   onOpenFile,
   defaultOpen = false,
-  surfaceResults = true,
+  results: given,
 }: {
   items: TranscriptItem[];
   /** What each subagent in `items` did, by id — see Turn.subagents. */
@@ -339,13 +343,17 @@ export function StepGroup({
   /** Lets a caller (a unit test, mainly) start it expanded. */
   defaultOpen?: boolean;
   /**
-   * Whether results with a view stand outside the fold. Off inside a
-   * subagent: its work is the subagent's detail, and the lead agent reports
-   * what matters from it.
+   * This run's share of the turn's results (surfaceResults: the cap is per
+   * turn). Left out, the run is taken as a turn of its own. NO_RESULTS inside
+   * a subagent: its work is its detail, and the lead agent reports what
+   * matters from it.
    */
-  surfaceResults?: boolean;
+  results?: StepResults;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  // The step the "+N more" line points at, focused once the fold opens on it.
+  const [focusId, setFocusId] = React.useState<string | null>(null);
+  const focusRef = React.useRef<HTMLDivElement>(null);
   const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
   // A shell command still running: it gets a card with its clock while it
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
@@ -353,58 +361,92 @@ export function StepGroup({
   const commands = React.useMemo(() => items.filter(isRunningCommand), [items]);
   // A result the owning module draws (a query's rows, a plan, a message) is
   // what the person asked for, not the account of getting it: it stands after
-  // the fold, in call order, the first few of them. Activities already have
-  // their own card.
-  const results = React.useMemo(
-    () =>
-      surfaceResults
-        ? items.filter((item) => hasResultCard(item.toolCall) && !isToolActivity(item.toolCall))
-        : [],
-    [items, surfaceResults],
-  );
+  // the fold, in call order (ToolResultCard.tsx).
+  const own = React.useMemo(() => (given ? null : surfaceResults([items])[0]), [given, items]);
+  const { shown, hidden } = given ?? own ?? NO_RESULTS;
+
+  React.useEffect(() => {
+    if (!open || !focusId) return;
+    focusRef.current?.querySelector<HTMLElement>("button, [href], [tabindex]")?.focus();
+  }, [open, focusId]);
+
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing. Unless it
   // is a card: then the line is the way to its raw call. A lone result is its
-  // card — the row stays only if the view has nothing to show.
-  if (items.length === 1 && activities.length === 0 && commands.length === 0) {
-    const row = <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
-    if (results.length === 1) {
-      return <ToolResultCard call={items[0].toolCall!} sessionId={items[0].sessionId} fallback={row} />;
-    }
-    return row;
-  }
-  const shown = results.length > SURFACED_RESULTS ? results.slice(0, SURFACED_RESULTS) : results;
-  const more = results.length - shown.length;
+  // card, no row.
+  const lone = items.length === 1 && activities.length === 0 && commands.length === 0;
+  const loneCard = lone && shown.length === 1;
+  // One wrapper and fixed slots — header, fold, results, activities — so a
+  // lone card is the same element when the run grows to two steps.
   return (
-    <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
-      >
-        <span className="min-w-0 truncate">{stepSummary(items)}</span>
-        <ChevronRight
-          aria-hidden="true"
-          className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
-        />
-      </button>
-      <AnimatedCollapse open={open} className="pt-2">
-        <div className="flex w-full flex-col gap-2">
-          {items.map((item) => (
-            <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
-          ))}
-        </div>
-      </AnimatedCollapse>
+    <div
+      data-step-run=""
+      data-testid={lone ? undefined : "step-group"}
+      data-state={lone ? undefined : open ? "expanded" : "collapsed"}
+      className="flex w-full min-w-0 flex-col"
+    >
+      {lone ? (
+        loneCard ? null : (
+          <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />
+        )
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
+        >
+          <span className="min-w-0 truncate">{stepSummary(items)}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
+          />
+        </button>
+      )}
+      {lone ? null : (
+        <AnimatedCollapse open={open} className="pt-2">
+          <div className="flex w-full flex-col gap-2">
+            {items.map((item) =>
+              item.id === focusId ? (
+                <div key={item.id} ref={focusRef} className="contents">
+                  <StepRow item={item} subagents={subagents} onOpenFile={onOpenFile} />
+                </div>
+              ) : (
+                <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+              ),
+            )}
+          </div>
+        </AnimatedCollapse>
+      )}
       {shown.length > 0 ? (
-        <div data-testid="step-results" className="flex w-full min-w-0 flex-col gap-2 pt-2">
+        <div
+          data-testid="step-results"
+          className={cn("flex w-full min-w-0 flex-col gap-2 empty:hidden", !lone && "pt-2")}
+        >
           {shown.map((item) => (
-            <ToolResultCard key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
+            <ToolResultCard
+              key={item.id}
+              call={item.toolCall!}
+              sessionId={item.sessionId}
+              asRow={loneCard}
+              onOpenFile={onOpenFile}
+            />
           ))}
-          {more > 0 ? (
-            <span data-testid="step-results-more" className="text-caption-11 text-text-tertiary">
-              {`+${more} more result${more === 1 ? "" : "s"} in the work above`}
-            </span>
+          {hidden.length > 0 ? (
+            <button
+              type="button"
+              data-testid="step-results-more"
+              onClick={() => {
+                setOpen(true);
+                setFocusId(hidden[0].id);
+              }}
+              className={cn(
+                "self-start cursor-pointer text-caption-11 text-text-tertiary underline decoration-border-subtle hover:text-text-secondary",
+                "focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+              )}
+            >
+              {`+${hidden.length} more result${hidden.length === 1 ? "" : "s"} in the work above`}
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -562,7 +604,7 @@ export function SubagentActivity({
             items={segment.items}
             subagents={subagents}
             onOpenFile={onOpenFile}
-            surfaceResults={false}
+            results={NO_RESULTS}
           />
         );
       })}

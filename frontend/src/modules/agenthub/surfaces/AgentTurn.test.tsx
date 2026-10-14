@@ -1,10 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 
 import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
 import { AgentTurn, StepGroup, SubagentActivity } from "./AgentTurn";
 import { registerToolResultView } from "@/workbench/toolResultViews";
+import { registerToolActivity } from "@/workbench/toolActivity";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
 
@@ -356,17 +357,43 @@ describe("the plan card when the summary is docked", () => {
 });
 
 describe("results outside the fold", () => {
-  // A view registered the way an owning module would, for a tool no module owns.
-  registerToolResultView("x.view", (input) => (
-    <div data-testid="fake-view">{`value ${(input.rawOutput as { n: number }).n}`}</div>
-  ));
-  // A view that declines: the card it would have been draws nothing.
-  registerToolResultView("x.none", () => null);
+  const disposers: (() => void)[] = [];
+  beforeAll(() => {
+    // A view registered the way an owning module would, for a tool no module owns.
+    disposers.push(
+      registerToolResultView("x.view", (input) => {
+        // Shape checked first, the way a real view does: anything else declines.
+        const n = (input.rawOutput as { n?: unknown } | null)?.n;
+        return typeof n === "number" ? <div data-testid="fake-view">{`value ${n}`}</div> : null;
+      }),
+    );
+    // A view that declines: the card it would have been draws nothing.
+    disposers.push(registerToolResultView("x.none", () => null));
+    // A tool that changes something and also has a view: its activity card is its result.
+    disposers.push(registerToolResultView("x.act", () => <div data-testid="fake-act-view">acted</div>));
+    disposers.push(
+      registerToolActivity("x.act", {
+        module: "x",
+        running: "Acting",
+        done: "Acted",
+        failed: "Couldn't act",
+        target: () => null,
+      }),
+    );
+  });
+  afterAll(() => {
+    for (const dispose of disposers.splice(0)) dispose();
+  });
 
   const viewed = (id: string, n: number, status = "completed"): TranscriptItem => ({
     id,
     kind: "tool_call",
     toolCall: { id, name: "x.view", kind: "other", title: `View ${id}`, status, rawOutput: { n } },
+  });
+  const declined = (id: string): TranscriptItem => ({
+    id,
+    kind: "tool_call",
+    toolCall: { id, name: "x.none", kind: "other", title: "Nothing to show", status: "completed", rawOutput: { n: 1 } },
   });
   const other: TranscriptItem = {
     id: "o",
@@ -387,7 +414,9 @@ describe("results outside the fold", () => {
     expect(after.indexOf("value 1")).toBeLessThan(after.indexOf("value 2"));
     expect(after.indexOf("value 2")).toBeLessThan(after.indexOf("value 3"));
     expect(after).not.toContain("value 4");
-    expect(after).toContain("+1 more result in the work above");
+    // The rest are counted, and the count opens the fold.
+    const more = html.match(/<button[^>]*data-testid="step-results-more"[^>]*>[^<]*/)?.[0] ?? "";
+    expect(more).toContain("+1 more result in the work above");
   });
 
   it("says results, plural, when more than one stays behind", () => {
@@ -411,18 +440,50 @@ describe("results outside the fold", () => {
       kind: "tool_call",
       toolCall: { id: "p", kind: "execute", title: "go build ./...", status: "in_progress" },
     };
-    const html = renderToString(<StepGroup items={[viewed("a", 1), other, build]} />);
-    expect(html).toContain('data-testid="step-activities"');
+    const act: TranscriptItem = {
+      id: "q",
+      kind: "tool_call",
+      toolCall: { id: "q", name: "x.act", kind: "other", title: "act", status: "in_progress" },
+    };
+    const html = renderToString(<StepGroup items={[viewed("a", 1), other, act, build]} />);
+    const activities = html.indexOf('data-testid="step-activities"');
+    expect(activities).toBeGreaterThan(-1);
+    expect(html.indexOf('data-testid="tool-activity"')).toBeGreaterThan(activities);
     expect(html.indexOf('data-testid="turn-result-card"')).toBeGreaterThan(-1);
-    expect(html.indexOf('data-testid="turn-result-card"')).toBeLessThan(html.indexOf('data-testid="step-activities"'));
+    expect(html.indexOf('data-testid="turn-result-card"')).toBeLessThan(activities);
   });
 
-  it("leaves running and failed calls in the fold", () => {
-    const html = renderToString(
-      <StepGroup items={[viewed("a", 1, "in_progress"), viewed("b", 2, "failed"), other]} />,
-    );
+  it("leaves calls that have not completed in the fold", () => {
+    for (const status of ["in_progress", "failed", undefined, "cancelled", "pending"]) {
+      // Built by hand: a default parameter would turn `undefined` back into "completed".
+      const item = viewed("a", 1);
+      const call = { ...item.toolCall!, status };
+      const html = renderToString(<StepGroup items={[{ ...item, toolCall: call }, other]} />);
+      expect(html).not.toContain('data-testid="turn-result-card"');
+      expect(html).not.toContain('data-testid="step-results"');
+    }
+  });
+
+  it("does not surface an activity's result twice", () => {
+    const act: TranscriptItem = {
+      id: "q",
+      kind: "tool_call",
+      toolCall: { id: "q", name: "x.act", kind: "other", title: "act", status: "completed", rawOutput: { ok: true } },
+    };
+    const html = renderToString(<StepGroup items={[act, other]} />);
+    expect(html).toContain('data-testid="tool-activity"');
     expect(html).not.toContain('data-testid="turn-result-card"');
-    expect(html).not.toContain("more result");
+  });
+
+  it("surfaces a Codex call, which has no name, by its title", () => {
+    const codex: TranscriptItem = {
+      id: "k",
+      kind: "tool_call",
+      toolCall: { id: "k", kind: "other", title: "devkit.x.view", status: "completed", rawOutput: { structuredContent: { n: 9 }, content: [] } },
+    };
+    const html = renderToString(<StepGroup items={[codex, other]} />);
+    expect(html).toContain('data-testid="turn-result-card"');
+    expect(html).toContain("value 9");
   });
 
   it("draws a lone result with a view as its card, not a closed row", () => {
@@ -430,17 +491,77 @@ describe("results outside the fold", () => {
     expect(html).toContain('data-testid="turn-result-card"');
     expect(html).toContain("value 7");
     expect(html).not.toContain('data-variant="row"');
+    expect(html).not.toContain('data-testid="step-group"');
   });
 
-  it("keeps the row for a lone call whose view declines, and draws no empty card", () => {
-    const declined: TranscriptItem = {
-      id: "z",
-      kind: "tool_call",
-      toolCall: { id: "z", name: "x.none", kind: "other", title: "Nothing to show", status: "completed", rawOutput: { n: 1 } },
+  it("keeps a lone card where it was when a second step joins the run", () => {
+    // The card sits in the same slot of the same wrapper either way, so React
+    // keeps it mounted when the run grows from one step to two.
+    const shape = (html: string) => {
+      const wrapper = html.match(/^<div[^>]*data-step-run[^>]*>/)?.[0];
+      const results = html.indexOf('data-testid="step-results"');
+      return { wrapper: Boolean(wrapper), results: results > -1 };
     };
-    expect(renderToString(<StepGroup items={[declined]} />)).toContain('data-variant="row"');
-    const html = renderToString(<StepGroup items={[declined, other]} />);
+    expect(shape(renderToString(<StepGroup items={[viewed("a", 7)]} />))).toEqual({ wrapper: true, results: true });
+    expect(shape(renderToString(<StepGroup items={[viewed("a", 7), other]} />))).toEqual({ wrapper: true, results: true });
+  });
+
+  it("draws no result wrapper for a view that declines, and keeps a lone call's row", () => {
+    expect(renderToString(<StepGroup items={[declined("z")]} />)).toContain('data-variant="row"');
+    const html = renderToString(<StepGroup items={[declined("z"), other]} />);
+    expect(html).not.toContain('data-testid="step-results"');
     expect(html).not.toContain('data-testid="turn-result-card"');
+  });
+
+  it("gives a declined view no slot", () => {
+    const html = renderToString(
+      <StepGroup items={[declined("z"), viewed("a", 1), viewed("b", 2), viewed("c", 3)]} />,
+    );
+    expect(count(html, 'data-testid="turn-result-card"')).toBe(3);
+    expect(html).not.toContain("more result");
+  });
+
+  it("caps results per turn, not per run of steps", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "go" },
+      viewed("a", 1),
+      { id: "n1", kind: "agent_message_chunk", text: "Now the rest.", messageId: "m1" },
+      viewed("b", 2),
+      viewed("c", 3),
+      viewed("d", 4),
+      { id: "n2", kind: "agent_message_chunk", text: "Done.", messageId: "m2" },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(count(html, 'data-testid="turn-result-card"')).toBe(3);
+    expect(html).toContain("value 1");
+    expect(html).toContain("value 3");
+    expect(html).not.toContain("value 4");
+    expect(html).toContain("+1 more result in the work above");
+  });
+
+  it("draws a card while the full row of a cut preview loads", () => {
+    const cut: TranscriptItem = {
+      id: "t",
+      kind: "tool_call",
+      sessionId: "s1",
+      toolCall: {
+        id: "t",
+        name: "x.view",
+        kind: "other",
+        title: "View big",
+        status: "completed",
+        truncated: true,
+        // A page read's preview: the first bytes of the JSON, which no longer parse.
+        rawOutput: '{"n": 1, "rows": [[1,2],[3',
+      },
+    };
+    const html = renderToString(<StepGroup items={[cut]} />);
+    expect(html).toContain('data-testid="turn-result-card"');
+    expect(html).toContain('data-testid="turn-result-loading"');
+    expect(html).toContain("View big");
+    // No session to load it from: nothing to wait for, so no card.
+    const orphan = renderToString(<StepGroup items={[{ ...cut, sessionId: undefined }, other]} />);
+    expect(orphan).not.toContain('data-testid="turn-result-card"');
   });
 
   it("surfaces nothing from a subagent's work", () => {
