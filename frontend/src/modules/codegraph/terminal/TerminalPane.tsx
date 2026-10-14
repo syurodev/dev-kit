@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { monoFontStack, useAppearanceStore } from "@/stores/appearance";
 import { terminalTheme } from "@/theme/terminalTheme";
 import { onThemeChange } from "@/theme/themeColors";
+import { settledRunner } from "@/lib/panelMotion";
 
 /**
  * A shell rooted at the open project, in the bottom slot.
@@ -69,6 +70,17 @@ export function TerminalPane({
     let exited = false;
     let sessionId = "";
     let detach: (() => void) | undefined;
+    // The PTY's size as last told. Every fit used to send one, including the
+    // ones that changed nothing; a resize is an IPC round trip and a SIGWINCH
+    // that makes a full-screen program redraw.
+    let sentRows = 0;
+    let sentCols = 0;
+    const syncSize = () => {
+      if (!sessionId || (term.rows === sentRows && term.cols === sentCols)) return;
+      sentRows = term.rows;
+      sentCols = term.cols;
+      void resizeTerminal(sessionId, term.rows, term.cols);
+    };
 
     setError("");
     const prefs = useAppearanceStore.getState();
@@ -103,7 +115,7 @@ export function TerminalPane({
       term.options.fontFamily = "monospace";
       term.options.fontFamily = monoFontStack(useAppearanceStore.getState().terminalFont);
       fit.fit();
-      if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+      syncSize();
     });
 
     // A canvas cannot read a CSS variable, so unlike every other surface the
@@ -124,7 +136,7 @@ export function TerminalPane({
       term.options.fontSize = s.terminalSize;
       term.options.fontFamily = monoFontStack(s.terminalFont);
       fit.fit();
-      if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+      syncSize();
     });
 
     void (async () => {
@@ -156,6 +168,8 @@ export function TerminalPane({
           return;
         }
         sessionId = id;
+        sentRows = startedRows;
+        sentCols = startedCols;
         detach = attached.detach;
         term.onData((data) => void writeTerminal(id, data));
         // The size the shell was started with is whatever the first fit saw.
@@ -163,23 +177,28 @@ export function TerminalPane({
         // land while start is still in flight, with no session to tell — and a
         // shell that believes in a different width than xterm draws redraws
         // its line over the wrong cells. Catch up once it exists.
-        if (term.rows !== startedRows || term.cols !== startedCols) {
-          void resizeTerminal(id, term.rows, term.cols);
-        }
+        syncSize();
       } catch (e) {
         if (!disposed) setError(errorMessage(e));
       }
     })();
 
-    const observer = new ResizeObserver(() => {
+    // While a shell panel opens or closes beside it the pane changes width on
+    // every frame, and each fit re-lays the grid out: it waits for the panels
+    // to settle and fits once. A window resize or a sash drag moves nothing by
+    // animation and stays live (lib/panelMotion.settledRunner).
+    const refit = settledRunner(() => {
+      if (disposed) return;
       fit.fit();
-      if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+      syncSize();
     });
+    const observer = new ResizeObserver(() => refit.schedule());
     observer.observe(host);
 
     return () => {
       disposed = true;
       observer.disconnect();
+      refit.dispose();
       offAppearance();
       offTheme();
       detach?.();

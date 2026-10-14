@@ -31,6 +31,7 @@ import { graphBounds, place, type Size } from "./place";
 import { shortLabel } from "./labels";
 import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
+import { settledRunner } from "@/lib/panelMotion";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
@@ -343,14 +344,20 @@ function Canvas({
     const el = viewport.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let frame = 0;
-    const observer = new ResizeObserver(() => {
+    // A shell panel opening beside the canvas resizes it on every frame of
+    // the animation; refitting each of those made the graph swim. It refits
+    // once, when the panels settle (lib/panelMotion.settledRunner). A window
+    // resize or a sash drag still refits as it goes.
+    const refit = settledRunner(() => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => fitRef.current());
     });
+    const observer = new ResizeObserver(() => refit.schedule());
     observer.observe(el);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      refit.dispose();
     };
   }, []);
 
