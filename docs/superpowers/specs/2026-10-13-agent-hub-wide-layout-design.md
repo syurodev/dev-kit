@@ -357,3 +357,58 @@ Cap: at most 3 surfaced results per turn. The rest stay in the fold, with a line
   short. A poor sentence is still better than a blank line.
 - **Surfacing results can lengthen a turn.** The cap of 3 limits that, and each
   card is compact (20-row preview).
+
+## Decisions made while planning and building Phase 1
+
+Phase 1 shipped §1–§4. Where it departs from the sections above, this list wins.
+
+**While planning** (`docs/superpowers/plans/2026-10-13-agent-hub-wide-layout-phase1.md`):
+
+- The docking threshold is Tailwind's `@6xl` (72rem ≈ 1152px) on the
+  `agent-conversation` container, not 1200px. Arbitrary `[1200px]` values are
+  banned by `shadcn/no-arbitrary-values` and `designSystemConformance.test.ts`.
+- Group and stack expand/collapse keep the existing `AnimatedCollapse` (framer).
+  The CSS `.tree-branch` grid pattern was removed on purpose in `1a6a872c`.
+- "Changes" sums `added`/`removed` over all of the session's checkpoints. A row
+  opens that path's diff from the newest checkpoint that touched it. There is no
+  header `↗` (YAGNI).
+- Sources lists PDFs, URLs and DevKit data tools by module (Database / Kafka /
+  SSH, with a call count). `db.query` runs on the active target and has no
+  profile in its input, so it is counted, not named.
+- MCP results blank `Preview` rather than tagging it `json:"-"`, which would also
+  hide it from the Wails binding.
+- No sidebar virtualization yet (§1.5). The partition draws at most 5 recent rows
+  plus exceptions per group, so rows stay bounded until someone opens a stack of
+  more than 200. Revisit if a fixture shows otherwise.
+
+**While building:**
+
+- "Needs you" uses `groupSessions`' keep filter: a waiting or failed session
+  leaves its workspace group for Needs you, but a child stays with its parent's
+  group, the way grouping already worked.
+- When a session has several asks, the first permission wins the second line,
+  over any question.
+- Rows are `rounded-lg` (12px), not the 8px drawn in §1.1.
+- The avatar's status badge rings itself in the row's ground. `--avatar-ground`
+  is set in CSS by row state (idle, hover, selected), not passed as a prop.
+- The subagent avatars on a row moved into the row menu; the row shows only the
+  session's own face.
+- `WaitingBadge` was removed. The avatar's dot and Needs you carry "waiting".
+- A folded non-current workspace that holds the selected session draws open, so
+  the selected row is never hidden.
+- A turn this window did not send (MCP, another agent) only reports its status,
+  so its `turnFinished` reads the session row once and merges only `preview` and
+  `updatedAt`, never the status (the next queued turn may already be running).
+  A latest-request guard per session drops a read that answers late.
+- Links are inline `<a>` elements whose click is `preventDefault`ed and sent to
+  `openExternal` (`bridge/browser.ts`), not buttons (§4), so they keep link
+  semantics and wrap with the prose.
+- The summary data (plan, changes, sources) is derived once per view
+  (`useSessionSummaryData` in `AgentHubContent`) and handed to both the docked
+  card and the corner button, which CSS picks between.
+- Changes are listed newest-touched first, not alphabetically.
+- Opening a change shows the diff of the newest checkpoint that touched the path,
+  titled "Last change to …"; the counts on the row are the whole session's.
+- PDF and attachment cards above the prompt are display-only: they say what was
+  attached; reading a PDF stays the agent's `pdf.*` tools.
+- UI copy stays English.

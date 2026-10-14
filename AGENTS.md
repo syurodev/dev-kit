@@ -160,6 +160,24 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   the recent set, never counted against it. Order is `AgentSession.updatedAt` (bridge: the row time, not
   touched by transcript chunks) then id. "Waiting" reads `pendingQueue`/`elicitationQueue` as well as
   `status`. `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
+- **The rail and the main view are a quiet list and a column with a summary card**
+  (spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`, its last section lists
+  what Phase 1 changed from it).
+  - Rows are 50px: the vendor face (`sidebar/SessionAvatar.tsx`) with its state on it (running arc,
+    waiting/error dot), title and age, then a second line: the pending ask (the first permission wins),
+    else `AgentSession.preview`, which Go writes at turn end (migration 41, `agenthub/preview.go`). MCP
+    blanks the preview. Subagents are in the row menu.
+  - "Needs you" lists waiting/failed sessions across workspaces (`needsYou`, through `groupSessions`'
+    keep filter, so a child stays with its parent's group).
+  - The title-bar workspace comes first and open; other groups fold to one line with a running count
+    (`agentPins.expanded`), except one holding the selected session.
+  - A turn this window did not send refreshes only `preview` + `updatedAt`
+    (`AgentSessionsSubscriber`, latest-read guard).
+  - At `@6xl/agent-conversation` the session summary card (`summary/`: Plan, Changes, Sources,
+    Subagents, Context) docks top-right and the column (`max-w-190`; the rail keeps `max-w-180`) moves
+    left (`pr-80`). Below that size a corner button opens it. The data is derived once per view.
+  - Links are inline anchors that open via `bridge/browser.ts` `openExternal`; inline-code file refs
+    (`transcript/fileRef.ts`) open in CodeGraph.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`
