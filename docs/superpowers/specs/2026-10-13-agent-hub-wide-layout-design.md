@@ -436,11 +436,15 @@ Where it departs from the sections above, this list wins.
   `truncated` flag may stand for a cut `rawInput` or an emptied page image. The
   stored page-image marker (`transcript_slim.go`) is not the answer; `content` is.
 - **F4. Results carry no profile or env.** No card shows a profile, an env chip
-  or a duration. `ssh.runCommand` has no exit code, so its card has no status
+  or a duration. Where an *input* names one it is used: `db.explain`'s
+  `profileId` for the connection notice, and `db.schema.get` /
+  `db.listForeignKeys`'s for table references (`EntityRef.profileId`). `ssh.runCommand` has no exit code, so its card has no status
   chip. Query cells are strings.
 - **F5. No `database.*` / `kafka.*` intents existed.** Added `database.reveal`
-  (`{kind:"table", id:"schema.table"}`, a schema holding a dot written in SQL
-  double quotes; `{kind:"console", id: sql}`) and `kafka.reveal`
+  (`{kind:"table", id:"schema.table", profileId?}`, a schema holding a dot
+  written in SQL double quotes, opened on `profileId` through the normal
+  selection path, "unavailable" for a profile not known here;
+  `{kind:"console", id: sql}`) and `kafka.reveal`
   (`{kind:"topic", id}`). agenthub opens tables and topics only through them.
 - **F6. `pdf.*` / `memory.*` AppErrors became `internal_error`.** The bridge keeps
   an explicit list (`keptCodes`), not a prefix: a prefix published
@@ -471,6 +475,10 @@ Where it departs from the sections above, this list wins.
   empty wrapper. The 3 slots are shared by the whole turn in call order, and a
   lone step's card spends one. "+N more" is a button that opens the fold at the
   first hidden step. A run whose results all fall past the cap still says so.
+  A card shown after the fold stays a one-line row inside the fold.
+- **Views render inside an error boundary.** A card that throws, or a lazy
+  chunk that fails to load, falls back to the call's row / generic content
+  instead of unmounting the transcript.
 - **One table, `DataTable`** (not `ResizableTable`). The box ends at its last
   column. Widths are component state and do not survive a remount. Windowed rows
   stay one line so the height estimate holds. A clickable row opens through a
@@ -503,8 +511,9 @@ Where it departs from the sections above, this list wins.
 
 **Known gaps**
 
-- Results carry no profile (F4). Open in Database, Open in Kafka and table
-  references use the connection selected now. For `db.*` the UI says so.
+- `db.query` and the Kafka tools name no profile (F4). Open in Database from a
+  query card and Open in Kafka use the connection selected or active here; for
+  `db.*` the UI says so. Table references do carry the agent's profile.
 - `ssh.runCommand` has no exit code.
 - Result-view chunks are not prefetched. A card's first draw waits on its lazy
   chunk (only activities preload).

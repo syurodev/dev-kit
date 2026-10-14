@@ -229,10 +229,13 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - Cards stand after the run's fold (`transcript/ToolResultCard.tsx`): `resultCandidate` takes only
     completed, non-activity calls whose view will draw (or a cut preview waiting on its row), 3 per turn in
     call order; the rest are counted in a "+N more" button that opens the fold at the first hidden step.
+    A card shown after the fold stays a one-line row inside it. Views render inside an error boundary: a
+    card that throws, or a lazy chunk that fails, falls back to the row / generic content, not a blank app.
   - Every table is `components/ui/data-table/DataTable` (markdown tables in prose too): column resize by
     drag, arrows or double-click auto-fit, widths in component state only; a clickable row opens through a
     button in its first cell (the row keeps its role); windowed past 100 rows.
-  - `database.reveal` (`{kind:"table", id:"schema.table"}`, a schema with a dot in SQL double quotes; or
+  - `database.reveal` (`{kind:"table", id:"schema.table", profileId?}`, a schema with a dot in SQL double
+    quotes, opened on `profileId` through the normal selection path, "unavailable" for an unknown profile; or
     `{kind:"console"}`) and `kafka.reveal` (`{kind:"topic"}`: shows Kafka first, refreshes from Go, gives up
     after 12 s) are how agenthub opens them. Open in Database never runs SQL, is not offered for writes,
     titles the console "Agent query", and never writes over a saved console (`database/consoleHydration.ts`
@@ -242,7 +245,9 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     publish. Settled messages only, never inside a link. Order: entity (unless the span has a `/` and reads
     as a path) → file → commit → symbol. A bare table only when one schema has it; a name that is both a
     table and a topic, or two tables spelling one qualified name, links nothing. Up to 4 cut answers per
-    session are loaded in full to read their names.
+    session are loaded in full to read their names. A table reference carries the `profileId` its
+    `db.schema.get` / `db.listForeignKeys` input named (`EntityRef.profileId`), so it opens on the agent's
+    connection; `db.query` names none, so Open in Database (and Kafka) use the connection selected here.
   - Go: the bridge keeps the message of only the listed `pdf.*` / `memory.*` codes (`bridge/errors.go`
     `keptCodes`; anything else is `internal_error`). PDF engine text reaches only the log.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,

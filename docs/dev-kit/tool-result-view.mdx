@@ -157,6 +157,9 @@ ba một lần, để không view nào phải biết mình đang nhìn vendor n�
   vẽ được. Transcript dựa vào đó để chọn card nào được đứng ngoài phần gập
   (`ToolResultCard.tsx` `resultCandidate`, tối đa 3 mỗi turn): view trả `null`
   thì không chiếm chỗ, call rơi về khối generic.
+- **Card nằm trong error boundary.** Card ném lỗi khi render, hay chunk lazy
+  tải hỏng, rơi về hàng / khối generic thay vì làm sập transcript. Card đã
+  đứng sau phần gập thì trong phần gập call vẫn chỉ là một hàng.
 
 - **Đăng ký ở module sở hữu tool**, trong file `manifest.ts` của module đó —
   giống hệt vị trí `agent.attach` được đăng ký trong `agenthub/manifest.ts`.
@@ -298,9 +301,10 @@ nào sở hữu workspace memory).
 **Hai intent mới cho Phase 2** (để Agent Hub mở bảng/topic mà không import
 module kia):
 
-- `database.reveal` — `{kind:"table", id:"schema.table"}` mở bảng trên
-  connection đang chọn (schema có dấu chấm viết trong ngoặc kép SQL:
-  `"sales.eu".orders`; thiếu schema → `"unavailable"`), hoặc
+- `database.reveal` — `{kind:"table", id:"schema.table", profileId?}` mở bảng
+  trên `profileId` (qua đường chọn connection bình thường; profile lạ →
+  `"unavailable"`; không có thì connection đang chọn). Schema có dấu chấm viết
+  trong ngoặc kép SQL: `"sales.eu".orders`; thiếu schema → `"unavailable"`. Hoặc
   `{kind:"console", id: sql, label?}` mở console chứa câu lệnh, không chạy.
 - `kafka.reveal` — `{kind:"topic", id}`: đưa Kafka lên màn hình trước, làm mới
   store từ Go, chờ tối đa 12 s rồi chọn topic; không có connection hay topic →
