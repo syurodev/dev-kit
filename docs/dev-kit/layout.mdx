@@ -625,13 +625,31 @@ tử sang chỗ khác là dựng lại cả cuộc hội thoại trên WebKit (k
 `moveBefore`): 70–90 ms mỗi lần mở và mỗi lần đóng. Chỉ khi một pane khác chiếm
 đúng vị trí của nó, hay nó hiện ở chỗ khác, phần tử mới sang "bãi đỗ" trong
 document (fixed, ngoài màn hình, `invisible`, `inert`, cùng kích thước card vừa
-rời). Mở lại vẫn đúng chỗ cuộn và composer như lúc đóng. Context pane của module
-vẫn gỡ khi đóng như cũ.
+rời). Mở lại vẫn đúng chỗ cuộn và composer như lúc đóng.
+
+**Context pane của module đóng cũng là ẩn, không gỡ** (`splitPanelModel.ts`):
+`closePanel()` giữ thân pane nằm yên trong card của nó như Agent (đông cứng —
+phần tử là cái module đẩy lần cuối, không gì bên trên render lại nó; `inert`, menu
+của nó đóng, focus bị blur), và `openPanel` lần sau render lại đúng cây đó tại chỗ
+với nội dung mới, trong cùng commit — frame đầu đã là món mới. Là cây mới khi
+pane bị bỏ (`discard`) rồi mở lại, và khi pane đang ẩn được mở lại bởi một document
+khác document đã để nó lại. Pane đi theo document mở nó: document unmount thì pane
+bị bỏ. Module tự bỏ bằng `closePanel({ discard: true })` khi thân pane không nên
+sống qua lần đóng: Tasks (TaskDetail poll lần verify đang chạy, cần mới mỗi lần mở),
+Agent Hub (panel activity/subagent đọc transcript đang stream), lịch sử của Notes
+(danh sách version phải đọc mới). Giữ: tin Kafka, inspector của flow, panel
+references, Metadata của Notes — vẽ từ props, không poll. Module không còn trên màn
+hình thì thân pane của nó vẫn gỡ như trước. Lúc cột hay hàng dưới còn `inert` (đóng,
+hoặc đang trượt mở), các hộp cuộn trong nó là `overflow: hidden` (`slots.css`):
+WebKit bỏ layer của hộp cuộn khi panel bị kẹp về 0 và dựng lại ngay trong các frame
+mở — giữ lại tới frame nhấc `inert`, sau chuyển động; vị trí cuộn vẫn giữ.
 
 Code: luật thuần ở `frontend/src/workbench/slots/slotModel.ts` (có test),
 kéo ở `paneDrag.ts`, vẽ ở `frontend/src/components/ui/pane-slots.tsx`, vị trí ở
-`frontend/src/stores/paneSlots.ts`. Module không đổi gì: `openPanel`, companion
-và bottom slot giữ nguyên API.
+`frontend/src/stores/paneSlots.ts`. Module gọi `useSplitPanelActions()` —
+`openPanel`, `closePanel`, `openCompanion`, `closeCompanion` ổn định suốt đời
+component và không subscribe gì, nên document không render lại mỗi lần một pane
+bật/tắt; chỉ slot layout và menu Layouts đọc trạng thái (`useSplitPanelState()`).
 
 ## Out of scope (v1)
 

@@ -79,8 +79,9 @@ Một `ModuleAction` gồm `id` (khoá upsert), `icon` (Lucide), `label` (toolti
 
 ## Split panel primitive
 
-`SplitPanelProvider` + `SplitPanelSlot` + `useSplitPanel()`
-(`frontend/src/components/ui/split-panel.tsx`) là side panel
+`SplitPanelProvider` + `useSplitPanelActions()` / `useSplitPanelState()`
+(`frontend/src/components/ui/split-panel.tsx`, trạng thái ở
+`splitPanelModel.ts`; vẽ ở `pane-slots.tsx`) là side panel
 **content-squeezing** — flex sibling co giãn `width` qua framer-motion, khác
 overlay/Sheet đè lên nội dung. Panel và main content là **hai box `bg-card`
 độc lập** (mỗi bên tự có `rounded-xl border border-border`), ngăn cách bởi
@@ -88,8 +89,13 @@ một gutter **trong suốt** (`GAP_WIDTH`, khớp margin `mx-1/mb-1` bao quanh
 toàn bộ content row của Workbench) — không phải một card chung có đường kẻ
 nội bộ như bản đầu tiên.
 
-`useSplitPanel()` trả về **hai cặp**: `openPanel`/`closePanel` cho slot trên,
-và `openCompanion`/`closeCompanion` cho slot dưới.
+`useSplitPanelActions()` trả về **hai cặp**: `openPanel`/`closePanel` cho pane của
+module gọi nó, và `openCompanion`/`closeCompanion` cho companion. Chúng ổn định
+suốt đời component và không subscribe gì: document gọi chúng không render lại khi
+một pane bật/tắt. Ai cần biết cái gì đang mở (slot layout, menu Layouts) dùng
+`useSplitPanelState()`. `closePanel()` ẩn pane và giữ thân nó (mở lại render tại
+chỗ); `closePanel({ discard: true })` bỏ hẳn; document mở pane unmount thì pane bị
+bỏ theo ([Layout](/dev-kit/layout)).
 
 ### Hai slot, hai chủ sở hữu
 
@@ -104,7 +110,7 @@ Nội dung slot trên do module gọi `openPanel` đăng ký, nên nó biến m�
 module — đúng ý đồ, vì thứ đang xem thường vô nghĩa ở module khác.
 
 <Callout type="warn" title="Thứ cần sống xuyên module không được đặt ở slot module">
-Rời module là **unmount cả subtree**, và cleanup của effect gọi `closePanel()`.
+Rời module là **unmount cả subtree**, và document mở pane unmount thì pane bị bỏ.
 Nên bất kỳ thứ gì phải sống xuyên module — hội thoại với agent, subscription
 sự kiện, transcript — đều **không thể** nằm ở slot `panel`. Không phải vì xấu,
 mà vì nó sẽ mất. Đó là lý do `companion` tồn tại và do shell giữ.
