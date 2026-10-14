@@ -103,7 +103,8 @@ describe("SessionSummaryBody", () => {
   test("sources list PDFs, DevKit tools and link hosts", () => {
     const items = [
       { id: "1", kind: "tool_call", toolCall: { name: "mcp__devkit__db_query" } },
-      { id: "2", kind: "tool_call", toolCall: { name: "db.explain" } },
+      { id: "2", kind: "tool_call", toolCall: { name: "db.query" } },
+      { id: "2b", kind: "tool_call", toolCall: { name: "mcp__devkit__ssh_listProfiles" } },
       { id: "3", kind: "user_message_chunk", text: "see https://example.com/x" },
     ] as TranscriptItem[];
     const html = render(<SessionSummaryBody {...base} items={items} />, [{ id: "doc1", name: "spec.pdf", pages: 12, size: 1 }]);
@@ -111,7 +112,9 @@ describe("SessionSummaryBody", () => {
     expect(html).toContain("spec.pdf");
     expect(html).toContain("12 pages");
     expect(html).toContain("Database");
-    expect(html).toContain("2 calls");
+    expect(html).toContain("2 queries");
+    expect(html).not.toContain("SSH");
+    expect(html).not.toContain("call");
     expect(html).toContain("example.com");
   });
 

@@ -45,39 +45,81 @@ export function sessionChanges(index: CheckpointIndex): SessionChange[] {
 
 const DATA_MODULES: Record<string, string> = { db: "Database", kafka: "Kafka", ssh: "SSH" };
 const WIRE = "mcp__devkit__";
-
 const CODEX_TITLE = "devkit.";
 
-function devkitPrefix(name: string): string | null {
-  const plain = name.startsWith(WIRE) ? name.slice(WIRE.length).split("_")[0] : name.split(".")[0];
-  return plain in DATA_MODULES ? plain : null;
-}
+/**
+ * Only tools that touch a target's data make a module a source. Listing the
+ * saved profiles, the active one, a connection test or history says nothing
+ * was read from or run on the target, so none of them are here.
+ */
+const DATA_TOOLS: ReadonlySet<string> = new Set([
+  "db.query",
+  "db.explain",
+  "db.schema.get",
+  "db.listForeignKeys",
+  "kafka.peekMessages",
+  "kafka.describeTopic",
+  "kafka.listTopics",
+  "kafka.listConsumerGroups",
+  "kafka.publishMessage",
+  "ssh.runCommand",
+]);
 
 /**
- * Codex's MCP calls carry no tool name: the title is `server.tool`
+ * The DevKit tool a call names, as `module.tool`, or null for anything else.
+ * The wire form (`mcp__devkit__db_schema_get`) swaps every "." for "_", and no
+ * DevKit tool name has a real underscore, so the whole name is normalised.
+ * Codex's MCP calls carry no name: the title is `server.tool`
  * (codex_translate.go), so a DevKit one reads `devkit.db.query`.
  */
-function toolName(call: NonNullable<TranscriptItem["toolCall"]>): string | null {
-  if (call.name) return call.name;
-  if (call.title?.startsWith(CODEX_TITLE)) return call.title.slice(CODEX_TITLE.length).split("_")[0];
-  return null;
+function devkitTool(call: NonNullable<TranscriptItem["toolCall"]>): string | null {
+  let name: string;
+  if (call.name) {
+    name = call.name.startsWith(WIRE) ? call.name.slice(WIRE.length) : call.name;
+  } else if (call.title?.startsWith(CODEX_TITLE)) {
+    name = call.title.slice(CODEX_TITLE.length);
+  } else {
+    return null;
+  }
+  name = name.replace(/_/g, ".");
+  return DATA_TOOLS.has(name) ? name : null;
 }
 
-export type ToolSource = { module: string; label: string; count: number };
+export type ToolSource = { module: string; label: string; count: number; detail: string };
 
-/** DevKit data tools the agent called, counted per module. `module` is the module manifest id. */
-export function toolSources(items: readonly TranscriptItem[]): ToolSource[] {
-  const counts = new Map<string, number>();
-  for (const it of items) {
-    const name = it.toolCall ? toolName(it.toolCall) : null;
-    if (!name) continue;
-    const prefix = devkitPrefix(name);
-    if (prefix) counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** What the agent did with the module, in a few words, from the tools it called (`count` per tool name). */
+function detailOf(prefix: string, tools: ReadonlyMap<string, number>): string {
+  const n = (name: string) => tools.get(`${prefix}.${name}`) ?? 0;
+  switch (prefix) {
+    case "db":
+      return n("query") > 0 ? plural(n("query"), "query", "queries") : "read the schema";
+    case "kafka":
+      if (n("publishMessage") > 0) return `published ${n("publishMessage")}`;
+      if (n("peekMessages") > 0) return `peeked ${plural(n("peekMessages"), "topic", "topics")}`;
+      return "read topics";
+    default:
+      return `ran ${plural(n("runCommand"), "command", "commands")}`;
   }
-  return [...counts].map(([prefix, count]) => ({
+}
+
+/** DevKit data tools the agent called, per module. `module` is the module manifest id. */
+export function toolSources(items: readonly TranscriptItem[]): ToolSource[] {
+  const byModule = new Map<string, Map<string, number>>();
+  for (const it of items) {
+    const tool = it.toolCall ? devkitTool(it.toolCall) : null;
+    if (!tool) continue;
+    const prefix = tool.slice(0, tool.indexOf("."));
+    const tools = byModule.get(prefix) ?? new Map<string, number>();
+    tools.set(tool, (tools.get(tool) ?? 0) + 1);
+    byModule.set(prefix, tools);
+  }
+  return [...byModule].map(([prefix, tools]) => ({
     module: prefix === "db" ? "database" : prefix,
     label: DATA_MODULES[prefix],
-    count,
+    count: [...tools.values()].reduce((a, b) => a + b, 0),
+    detail: detailOf(prefix, tools),
   }));
 }
 

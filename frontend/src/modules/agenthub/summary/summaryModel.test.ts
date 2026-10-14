@@ -73,30 +73,78 @@ describe("sessionChanges order and status", () => {
 });
 
 describe("toolSources", () => {
-  test("Codex's MCP calls carry no name; the title is server.tool", () => {
-    const items = [
-      item({ kind: "tool_call", toolCall: { id: "1", kind: "other", title: "devkit.db.query" } }),
-      item({ kind: "tool_call", toolCall: { id: "2", kind: "other", title: "devkit.ssh_runCommand" } }),
-      item({ kind: "tool_call", toolCall: { id: "3", kind: "other", title: "github.db.query" } }),
-      item({ kind: "tool_call", toolCall: { id: "4", kind: "execute", title: "db.sh" } }),
-    ];
-    expect(toolSources(items)).toEqual([
-      { module: "database", label: "Database", count: 1 },
-      { module: "ssh", label: "SSH", count: 1 },
+  const call = (name: string) => item({ kind: "tool_call", toolCall: { name } });
+  const titled = (title: string) => item({ kind: "tool_call", toolCall: { id: "x", kind: "other", title } });
+
+  test("listing saved profiles is not using the module", () => {
+    expect(toolSources([call("mcp__devkit__ssh_listProfiles")])).toEqual([]);
+    expect(
+      toolSources([
+        call("ssh.listProfiles"),
+        call("ssh.activeProfile"),
+        call("ssh.testConnection"),
+        call("db.listProfiles"),
+        call("db.history.list"),
+        call("mcp__devkit__db_savedQuery_list"),
+        call("kafka.connectionStatus"),
+        call("kafka.listProfiles"),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("ssh.runCommand says how many commands ran", () => {
+    expect(toolSources([call("ssh.runCommand"), call("ssh.listProfiles"), call("ssh.runCommand")])).toEqual([
+      { module: "ssh", label: "SSH", count: 2, detail: "ran 2 commands" },
+    ]);
+    expect(toolSources([call("ssh.runCommand")])).toEqual([{ module: "ssh", label: "SSH", count: 1, detail: "ran 1 command" }]);
+  });
+
+  test("wire names and Codex titles are read in full, not by prefix", () => {
+    expect(toolSources([call("mcp__devkit__ssh_runCommand"), titled("devkit.ssh.runCommand"), titled("devkit.ssh_runCommand")])).toEqual([
+      { module: "ssh", label: "SSH", count: 3, detail: "ran 3 commands" },
+    ]);
+    expect(toolSources([titled("devkit.db.query"), titled("devkit.db_schema_get")])).toEqual([
+      { module: "database", label: "Database", count: 2, detail: "1 query" },
+    ]);
+    expect(toolSources([call("mcp__devkit__db_schema_get")])).toEqual([
+      { module: "database", label: "Database", count: 1, detail: "read the schema" },
     ]);
   });
 
-  test("counts DevKit data tools by module, either name form", () => {
-    const items = [
-      item({ kind: "tool_call", toolCall: { name: "mcp__devkit__db_query" } }),
-      item({ kind: "tool_call", toolCall: { name: "db.explain" } }),
-      item({ kind: "tool_call", toolCall: { name: "kafka.peekMessages" } }),
-      item({ kind: "tool_call", toolCall: { name: "Read" } }),
-    ];
-    expect(toolSources(items)).toEqual([
-      { module: "database", label: "Database", count: 2 },
-      { module: "kafka", label: "Kafka", count: 1 },
+  test("another server's tool with the same name, or a shell script, is not a source", () => {
+    expect(
+      toolSources([
+        titled("github.db.query"),
+        item({ kind: "tool_call", toolCall: { id: "4", kind: "execute", title: "db.sh" } }),
+        call("Bash"),
+        call("Read"),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("database counts queries; schema reads ride along without being named", () => {
+    expect(toolSources([call("mcp__devkit__db_query"), call("db.query"), call("db.schema.get")])).toEqual([
+      { module: "database", label: "Database", count: 3, detail: "2 queries" },
     ]);
+    expect(toolSources([call("db.explain"), call("db.listForeignKeys")])).toEqual([
+      { module: "database", label: "Database", count: 2, detail: "read the schema" },
+    ]);
+  });
+
+  test("kafka names the most significant thing done", () => {
+    expect(toolSources([call("kafka.peekMessages"), call("kafka.peekMessages"), call("kafka.listTopics")])).toEqual([
+      { module: "kafka", label: "Kafka", count: 3, detail: "peeked 2 topics" },
+    ]);
+    expect(toolSources([call("kafka.peekMessages"), call("kafka.publishMessage")])).toEqual([
+      { module: "kafka", label: "Kafka", count: 2, detail: "published 1" },
+    ]);
+    expect(toolSources([call("kafka.describeTopic"), call("kafka.listConsumerGroups")])).toEqual([
+      { module: "kafka", label: "Kafka", count: 2, detail: "read topics" },
+    ]);
+  });
+
+  test("modules keep the order they were first used in", () => {
+    expect(toolSources([call("kafka.listTopics"), call("db.query")]).map((s) => s.module)).toEqual(["kafka", "database"]);
   });
 });
 

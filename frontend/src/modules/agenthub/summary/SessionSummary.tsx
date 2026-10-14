@@ -271,7 +271,7 @@ function SummarySections({
                 >
                   <Icon aria-hidden="true" className={ICON} />
                   <span className="min-w-0 truncate">{tool.label}</span>
-                  <span className={TRAILING}>{tool.count === 1 ? "1 call" : `${tool.count} calls`}</span>
+                  <span className={TRAILING}>{tool.detail}</span>
                 </button>
               );
             }),
