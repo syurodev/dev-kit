@@ -64,9 +64,27 @@ const MAX_MEASURED_WIDTH_PX = 320;
  */
 const HEADER_CHROME_PX = 40;
 
+/**
+ * How a table other than the grid measures: its face's advance, what its
+ * header spends beside the name (0 for a DataTable), slack for anything the
+ * character count misses, and the widest a measured column may start.
+ */
+export type MeasureOptions = {
+  charPx?: number;
+  headerChromePx?: number;
+  slackPx?: number;
+  maxPx?: number;
+};
+
 export function measureColumns(
   columns: readonly string[],
   rows: readonly (readonly (string | null)[])[],
+  {
+    charPx = CHAR_PX,
+    headerChromePx = HEADER_CHROME_PX,
+    slackPx = 0,
+    maxPx = MAX_MEASURED_WIDTH_PX,
+  }: MeasureOptions = {},
 ): number[] {
   const sample = rows.slice(0, SAMPLE_ROWS);
   return columns.map((name, index) => {
@@ -81,16 +99,75 @@ export function measureColumns(
       }
     }
     const wanted = Math.max(
-      Math.ceil(name.length * CHAR_PX) + CELL_PADDING_PX + HEADER_CHROME_PX,
-      Math.ceil(longest * CHAR_PX) + CELL_PADDING_PX,
-    );
-    return Math.min(MAX_MEASURED_WIDTH_PX, Math.max(MIN_COLUMN_WIDTH_PX, wanted));
+      Math.ceil(name.length * charPx) + CELL_PADDING_PX + headerChromePx,
+      Math.ceil(longest * charPx) + CELL_PADDING_PX,
+    ) + slackPx;
+    return Math.min(maxPx, Math.max(MIN_COLUMN_WIDTH_PX, wanted));
   });
 }
 
-/** One drag of `delta` px applied to column `index`: the DataTable's name for resizeColumn. */
+/**
+ * The widest a DataTable column may be dragged. The grid has no ceiling and
+ * keeps none; a table in a card or in prose needs one for its handle to state
+ * a range.
+ */
+export const MAX_COLUMN_WIDTH_PX = 1200;
+
+/** One resize of `delta` px on column `index`, held between the minimum and the maximum. */
 export function nextWidths(widths: readonly number[], index: number, delta: number): number[] {
-  return resizeColumn(widths, index, delta);
+  const next = resizeColumn(widths, index, delta);
+  next[index] = Math.min(MAX_COLUMN_WIDTH_PX, next[index]);
+  return next;
+}
+
+/**
+ * The widths while a handle is dragged: the width the column had when the drag
+ * began plus how far the pointer has moved since, then clamped. Adding each
+ * move to an already-clamped width would leave the edge behind the pointer
+ * after a drag past the minimum and back.
+ */
+export function dragWidths(
+  from: readonly number[],
+  index: number,
+  startX: number,
+  x: number,
+): number[] {
+  return nextWidths(from, index, x - startX);
+}
+
+/**
+ * A sans cell's advance. Body text is proportional, so this is a generous
+ * average for text-body-14 rather than an exact one: a column a little wide is
+ * a column, one a little narrow cuts its longest value.
+ */
+const SANS_CHAR_PX = 8;
+/** What a sans cell spends besides its letters: inline-code chips' padding, mostly. */
+const SANS_SLACK_PX = 16;
+/** A column that never wraps may start this wide before it truncates. */
+const NOWRAP_MAX_WIDTH_PX = 640;
+
+/**
+ * The width a DataTable column starts at, from its header and values. No
+ * header chrome (a DataTable header is only its name and the handle); sans
+ * columns measured as sans; a column that cannot wrap allowed past the wrap cap,
+ * since past its width it can only be cut.
+ */
+export function tableColumnWidth(
+  label: string,
+  values: readonly (string | null)[],
+  { mono = false, nowrap = false }: { mono?: boolean; nowrap?: boolean },
+): number {
+  const [width] = measureColumns(
+    [label],
+    values.map((value) => [value]),
+    {
+      charPx: mono ? CHAR_PX : SANS_CHAR_PX,
+      headerChromePx: 0,
+      slackPx: mono ? 0 : SANS_SLACK_PX,
+      maxPx: nowrap ? NOWRAP_MAX_WIDTH_PX : MAX_MEASURED_WIDTH_PX,
+    },
+  );
+  return width;
 }
 
 /** How far one arrow press moves a focused resize handle; Shift moves four times as far. */

@@ -335,8 +335,10 @@ function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table
     () => block.rows.map((row) => row.map((cell, idx) => <InlineNodes key={idx} tokens={cell} />)),
     [block.rows],
   );
+  // Text is for sizing the columns, which reads the first 50 rows, and for the
+  // hover title of the first column's cut names there; the rest is not walked.
   const cellText = React.useMemo(
-    () => block.rows.map((row) => row.map(inlineText)),
+    () => block.rows.slice(0, 50).map((row) => row.map(inlineText)),
     [block.rows],
   );
   return (

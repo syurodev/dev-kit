@@ -42,4 +42,14 @@ describe("markdown tables in prose", () => {
     expect(html).toContain("<strong");
     expect(html).toContain("src/");
   });
+
+  // Prose cells are sans with code chips; measured as mono and capped at the
+  // wrap width, a long first-column name was cut mid-word.
+  test("give a long first-column name the room it needs", () => {
+    const name = "services/gateway/internal/handlers (`routes.go`)";
+    const html = render(`| Path | n |\n| --- | --- |\n| ${name} | 1 |`);
+    const first = Number(html.match(/<col style="width:(\d+)px"\/>/)?.[1]);
+    expect(first).toBeGreaterThan(name.length * 8);
+    expect(html).toContain('title="services/gateway/internal/handlers (routes.go)"');
+  });
 });

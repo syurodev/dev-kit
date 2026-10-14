@@ -65,7 +65,85 @@ describe("DataTable", () => {
 
   test("windows a long table instead of rendering every row", () => {
     const html = renderToString(<DataTable columns={columns} rows={rows(500)} />);
+    const body = html.split("<tbody")[1];
     expect(bodyRows(html)).toBeLessThan(500);
+    // The first screen is drawn before the scroller is measured, and the rows
+    // below it are a spacer holding their height.
+    expect((body.match(/<td/g) ?? []).length).toBeGreaterThan(0);
+    expect(body).toMatch(/<tr style="height:\d+px" aria-hidden="true"><\/tr><\/tbody>/);
+  });
+
+  // Windowing estimates one height for every row, so a windowed row may not
+  // wrap: its cells truncate and say the whole value on hover.
+  test("a windowed table keeps every row one line high", () => {
+    const html = renderToString(<DataTable columns={columns} rows={rows(500)} />);
+    const cell = html.split("<tbody")[1].split("<td")[2];
+    expect(cell).toContain("truncate");
+    expect(cell).toContain("whitespace-nowrap");
+    expect(cell).toContain('title="row 0"');
+    const short = renderToString(<DataTable columns={columns} rows={rows(3)} />);
+    expect(short.split("<tbody")[1].split("<td")[2]).not.toContain("truncate");
+  });
+
+  test("a cell that cannot wrap says its whole value on hover", () => {
+    const html = renderToString(
+      <DataTable columns={[{ key: "n", header: "n", nowrap: true }]} rows={[["a very long name"]]} />,
+    );
+    expect(html).toContain('title="a very long name"');
+  });
+
+  test("ends its box at the last column, scrolling sideways past the room", () => {
+    const html = renderToString(<DataTable columns={columns} rows={rows(3)} />);
+    const wrapper = html.slice(0, html.indexOf(">"));
+    expect(wrapper).toContain("w-fit");
+    expect(wrapper).toContain("max-w-full");
+    expect(wrapper).toContain("overflow-auto");
+  });
+
+  test("a resize handle states its range in pixels", () => {
+    const html = renderToString(
+      <DataTable columns={columns} rows={rows(3)} initialWidths={[90, 210]} />,
+    );
+    expect(html).toContain('aria-valuemin="64"');
+    expect(html).toContain('aria-valuemax="1200"');
+    expect(html).toContain('aria-valuetext="90 pixels"');
+    expect(html).toContain("touch-none");
+  });
+
+  test("clickable rows are focusable, keyboard-operable and show focus", () => {
+    const html = renderToString(
+      <DataTable columns={columns} rows={rows(2)} onRowClick={() => {}} />,
+    );
+    const body = html.split("<tbody")[1];
+    expect(body.match(/<tr tabindex="0"/g)?.length).toBe(2);
+    expect(body.match(/role="button"/g)?.length).toBe(2);
+    expect(body).toContain('aria-keyshortcuts="Enter Space"');
+    expect(body).toContain("focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset");
+    const still = renderToString(<DataTable columns={columns} rows={rows(2)} />);
+    expect(still).not.toContain('role="button"');
+    expect(still).not.toContain("tabindex=\"0\" aria-keyshortcuts");
+  });
+
+  test("clickable rows can be named, and say which one is open", () => {
+    const html = renderToString(
+      <DataTable
+        columns={columns}
+        rows={rows(3)}
+        onRowClick={() => {}}
+        rowAriaLabel={(row, i) => `Message ${i} ${String(row[0])}`}
+        expandedRow={1}
+      />,
+    );
+    const trs = html.split("<tbody")[1].split("<tr").slice(1);
+    expect(trs[0]).toContain('aria-label="Message 0 0"');
+    expect(trs[0]).toContain('aria-expanded="false"');
+    expect(trs[1]).toContain('aria-expanded="true"');
+    expect(trs[1]).toContain('data-expanded="true"');
+    expect(trs[1]).toContain("bg-(--state-soft)");
+    expect(trs[0].split(">")[0]).not.toContain(" bg-(--state-soft)");
+    // Without expandedRow nothing claims to expand.
+    const plain = renderToString(<DataTable columns={columns} rows={rows(2)} onRowClick={() => {}} />);
+    expect(plain).not.toContain("aria-expanded");
   });
 
   test("keeps mono and alignment on cells, with a caption when given", () => {
