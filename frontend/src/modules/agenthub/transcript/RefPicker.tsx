@@ -12,24 +12,42 @@ type PickerState = {
   anchorRect: Rect | null;
   targets: RefTarget[];
   resolve: ((target: RefTarget | null) => void) | null;
+  /** Where focus goes back to: the clicked reference, else its transcript's scroller. */
+  anchor: HTMLElement | null;
+  fallbackFocus: HTMLElement | null;
 };
 
-export const useRefPickerStore = create<PickerState>(() => ({ hosts: [], anchorRect: null, targets: [], resolve: null }));
+const CLOSED: Omit<PickerState, "hosts"> = { anchorRect: null, targets: [], resolve: null, anchor: null, fallbackFocus: null };
 
-/** Settles the open question (null = dismissed) and closes the picker. */
+export const useRefPickerStore = create<PickerState>(() => ({ hosts: [], ...CLOSED }));
+
+/**
+ * Settles the open question (null = dismissed), closes the picker and gives
+ * focus back. There is no PopoverTrigger for Radix to return it to, so the
+ * picker does it: to the reference, or to the transcript if it re-rendered away.
+ */
 export function settleRefPicker(target: RefTarget | null): void {
-  const { resolve } = useRefPickerStore.getState();
-  useRefPickerStore.setState({ anchorRect: null, targets: [], resolve: null });
-  resolve?.(target);
+  const { resolve, anchor, fallbackFocus } = useRefPickerStore.getState();
+  if (!resolve) return;
+  useRefPickerStore.setState(CLOSED);
+  const back = anchor?.isConnected ? anchor : fallbackFocus;
+  back?.focus({ preventScroll: true });
+  resolve(target);
 }
 
-/** Asks which of several files was meant, anchored at the clicked element. */
-export function pickTarget(anchor: HTMLElement | null, targets: RefTarget[]): Promise<RefTarget | null> {
-  if (useRefPickerStore.getState().hosts.length === 0 || targets.length === 0) return Promise.resolve(null);
+/**
+ * Asks which of several files was meant, anchored at the clicked element.
+ * "unavailable" when no transcript is mounted to ask in.
+ */
+export function pickTarget(anchor: HTMLElement | null, targets: RefTarget[]): Promise<RefTarget | null | "unavailable"> {
+  if (useRefPickerStore.getState().hosts.length === 0 || targets.length === 0) return Promise.resolve("unavailable");
   settleRefPicker(null); // A newer click replaces an unanswered picker.
-  const r = anchor?.getBoundingClientRect();
+  // The first line box: a reference that wraps anchors where it starts, not
+  // at the box around both lines.
+  const r = anchor ? (anchor.getClientRects()[0] ?? anchor.getBoundingClientRect()) : null;
   const anchorRect = r ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: 0, top: 0, width: 0, height: 0 };
-  return new Promise((resolve) => useRefPickerStore.setState({ anchorRect, targets, resolve }));
+  const fallbackFocus = anchor?.closest<HTMLElement>('[data-testid="transcript-viewport"]') ?? null;
+  return new Promise((resolve) => useRefPickerStore.setState({ anchorRect, targets, resolve, anchor, fallbackFocus }));
 }
 
 function splitRel(rel: string): { name: string; dir: string } {
@@ -37,20 +55,39 @@ function splitRel(rel: string): { name: string; dir: string } {
   return cut < 0 ? { name: rel, dir: "" } : { name: rel.slice(cut + 1), dir: rel.slice(0, cut) };
 }
 
-/** The candidate rows; arrow keys move between them, Enter (a button's own) picks. */
-export function RefPickerList({ targets, onPick }: { targets: RefTarget[]; onPick: (target: RefTarget) => void }) {
+/** The candidate rows; arrows, Home and End move between them, Enter (a button's own) picks. */
+export function RefPickerList({
+  targets,
+  onPick,
+  labelledBy,
+}: {
+  targets: RefTarget[];
+  onPick: (target: RefTarget) => void;
+  labelledBy?: string;
+}) {
   const listRef = useRef<HTMLDivElement>(null);
   function onKeyDown(event: React.KeyboardEvent) {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
     const rows = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
     const at = rows.indexOf(document.activeElement as HTMLButtonElement);
-    const down = event.key === "ArrowDown";
-    const next = at < 0 ? (down ? 0 : rows.length - 1) : (at + (down ? 1 : rows.length - 1)) % rows.length;
+    const last = rows.length - 1;
+    let next: number;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = last;
+    else if (event.key === "ArrowDown") next = at < 0 || at === last ? 0 : at + 1;
+    else if (event.key === "ArrowUp") next = at <= 0 ? last : at - 1;
+    else return;
+    event.preventDefault();
     rows[next]?.focus();
   }
   return (
-    <div ref={listRef} role="group" aria-label="Which file?" onKeyDown={onKeyDown} className="flex flex-col">
+    <div
+      ref={listRef}
+      role="group"
+      aria-label={labelledBy ? undefined : "Which file?"}
+      aria-labelledby={labelledBy}
+      onKeyDown={onKeyDown}
+      className="flex flex-col"
+    >
       {targets.map((target) => {
         const { name, dir } = splitRel(target.rel);
         return (
@@ -76,6 +113,7 @@ export function RefPickerList({ targets, onPick }: { targets: RefTarget[]; onPic
 /** Rendered by every transcript; the first mounted one draws the picker. */
 export function RefPickerHost() {
   const id = useId();
+  const headingId = `${id}-heading`;
   useEffect(() => {
     useRefPickerStore.setState((s) => ({ hosts: [...s.hosts, id] }));
     return () => {
@@ -98,9 +136,18 @@ export function RefPickerHost() {
   return (
     <Popover open onOpenChange={(open) => !open && settleRefPicker(null)}>
       <PopoverAnchor virtualRef={virtualRef} />
-      <PopoverContent align="start" className="w-auto max-w-120 gap-1 p-1" data-testid="agent-ref-picker">
-        <p className="px-2 pt-1 text-caption-11 text-text-tertiary">Which file?</p>
-        <RefPickerList targets={targets} onPick={(target) => settleRefPicker(target)} />
+      <PopoverContent
+        align="start"
+        aria-labelledby={headingId}
+        // Focus goes back in settleRefPicker; Radix has no trigger to return it to.
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="w-auto max-w-120 gap-1 p-1"
+        data-testid="agent-ref-picker"
+      >
+        <p id={headingId} className="px-2 pt-1 text-caption-11 text-text-tertiary">
+          Which file?
+        </p>
+        <RefPickerList targets={targets} labelledBy={headingId} onPick={(target) => settleRefPicker(target)} />
       </PopoverContent>
     </Popover>
   );

@@ -284,6 +284,8 @@ export function AgentRail({
               onLoadOlder={onLoadOlder}
               onOpenFile={onOpenFile}
               refContext={refContext}
+              // The rail sits beside the work already: a reference opens in place.
+              refPlacement="replace"
             />
           </div>
 

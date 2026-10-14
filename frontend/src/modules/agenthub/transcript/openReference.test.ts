@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { EntityRef, IntentOptions } from "@/workbench/intents";
-import { openFileRef, type OpenDeps } from "./openReference";
+import { openFileRef, refOpener, type OpenDeps } from "./openReference";
 import type { RefResolution, RefTarget } from "./resolveFileRef";
 
 const ctx = { sessionId: "s1", workspaceId: "ws", projectPath: "/w/api" };
 const A: RefTarget = { workspaceId: "ws", folderId: "api", folderName: "api", rel: "kong/handler.lua" };
 const B: RefTarget = { workspaceId: "ws", folderId: "gw", folderName: "gateway", rel: "plugins/handler.lua" };
 
-function fakeDeps(resolution: RefResolution, picked: RefTarget | null = null) {
+function fakeDeps(resolution: RefResolution, picked: RefTarget | null | "unavailable" = null) {
   const calls = {
     dispatch: [] as { name: string; ref: EntityRef; options: IntentOptions }[],
     toast: [] as string[],
@@ -115,5 +115,43 @@ describe("openFileRef", () => {
     await openFileRef({ path: "a.ts" }, ctx, {}, deps);
     expect(calls.toast).toEqual(["Couldn't open a.ts: bridge down"]);
     expect(calls.dispatch).toEqual([]);
+  });
+
+  test("a reveal that throws is reported", async () => {
+    const { deps, calls } = fakeDeps({ kind: "found", target: A });
+    deps.dispatch = async () => {
+      throw new Error("tab store gone");
+    };
+    await openFileRef({ path: "kong/handler.lua" }, ctx, {}, deps);
+    expect(calls.toast).toEqual(["Couldn't open kong/handler.lua: tab store gone"]);
+  });
+
+  test("a project reveal that finds nothing says so", async () => {
+    const { deps, calls } = fakeDeps({ kind: "unsupported" });
+    deps.dispatch = async () => "unavailable";
+    await openFileRef({ path: "src/a.ts" }, { ...ctx, workspaceId: "" }, {}, deps);
+    expect(calls.toast).toEqual(["Couldn't find src/a.ts in this workspace"]);
+  });
+
+  test("several matches and nowhere to ask says so", async () => {
+    const { deps, calls } = fakeDeps({ kind: "ambiguous", targets: [A, B] }, "unavailable");
+    await openFileRef({ path: "handler.lua" }, ctx, {}, deps);
+    expect(calls.toast).toEqual(["Several files match handler.lua"]);
+    expect(calls.dispatch).toEqual([]);
+  });
+});
+
+describe("refOpener", () => {
+  const seen: { placement?: string; anchor?: HTMLElement | null }[] = [];
+  const open = async (_ref: unknown, _ctx: unknown, opts: { placement?: string; anchor?: HTMLElement | null }) => {
+    seen.push(opts);
+  };
+
+  test("the surface's placement is the default, an explicit one wins", () => {
+    seen.length = 0;
+    const rail = refOpener(ctx, "replace", open);
+    rail({ path: "a.ts" }, null);
+    rail({ path: "a.ts" }, null, "beside");
+    expect(seen.map((o) => o.placement)).toEqual(["replace", "beside"]);
   });
 });

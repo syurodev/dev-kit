@@ -16,9 +16,8 @@ import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/mod
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 import { vendorInfo } from "../vendors";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
-import type { FileRef } from "../transcript/fileRef";
 import type { RefContext } from "../transcript/resolveFileRef";
-import { openFileRef } from "../transcript/openReference";
+import { refOpener } from "../transcript/openReference";
 import { RefPickerHost } from "../transcript/RefPicker";
 import type { Placement } from "@/workbench/intents";
 
@@ -49,6 +48,11 @@ export type TranscriptStreamProps = {
    * a draft), prose falls back to `onOpenFile`.
    */
   refContext?: RefContext | null;
+  /**
+   * Where a reference in prose opens: beside (the Hub's default, so the session
+   * stays on screen) or in place (the rail, which sits beside the work already).
+   */
+  refPlacement?: Placement;
   /**
    * The Hub docks a summary card beside the conversation, which shows the
    * latest plan. Only then does that plan's card in the turn step back to one
@@ -224,6 +228,7 @@ export function TranscriptStream({
   onEditPrompt,
   onOpenFile,
   refContext,
+  refPlacement = "beside",
   planDocked = false,
   loading = false,
   hasMore = false,
@@ -281,12 +286,8 @@ export function TranscriptStream({
     [sessionId, workspaceId, projectPath],
   );
   const openRef = useMemo(
-    () =>
-      stableRefContext
-        ? (ref: FileRef, anchor: HTMLElement | null, placement?: Placement) =>
-            void openFileRef(ref, stableRefContext, { placement, anchor })
-        : undefined,
-    [stableRefContext],
+    () => (stableRefContext ? refOpener(stableRefContext, refPlacement) : undefined),
+    [stableRefContext, refPlacement],
   );
   // Prose deep inside a turn opens a file through this, not through props.
   const transcriptActions = useMemo(
@@ -637,10 +638,13 @@ export function TranscriptStream({
           onTouchMove={markUserScroll}
           onKeyDown={markUserScroll}
           data-testid="transcript-viewport"
+          // Focusable from code only: the reference picker gives focus back
+          // here when the reference it opened from has re-rendered away.
+          tabIndex={-1}
           // Radix wraps the content in a display:table div so it can scroll
           // sideways too; as a table it widens to fit a long code line and drags
           // the column past the pane. Block keeps it to the viewport's width.
-          className={cn("size-full px-6 [&>div]:block!", viewportClassName)}
+          className={cn("size-full px-6 outline-none [&>div]:block!", viewportClassName)}
           // Clear of the glass header above (it floats over this scroller, and
           // sets --header-inset). The composer is not an overlay: it sits below
           // this whole stream in the layout, so the foot needs only its own air.
