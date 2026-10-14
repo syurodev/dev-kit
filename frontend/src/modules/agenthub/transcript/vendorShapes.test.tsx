@@ -112,3 +112,20 @@ describe("a done row with no view reads nothing", () => {
     expect(parses).toBe(0);
   });
 });
+
+describe("following a session reads a cut answer from the full row when it is already loaded", () => {
+  it("names the target from the cached full row, and fetches nothing", () => {
+    const call: ToolCall = {
+      id: "cut-follow",
+      name: "mcp__devkit__tasks_board_create",
+      status: "completed",
+      truncated: true,
+      rawInput: { name: "Backend", keyPrefix: "be" },
+      rawOutput: '{"id":"b1","name":"Back',
+    };
+    const row = { ...item(call), sessionId: "s1" };
+    expect(latestTarget(activityFeed([row]))).toBeNull();
+    queryClient.setQueryData(toolCallDetailQuery("s1", call.id).queryKey, { ...call, truncated: false, rawOutput: board });
+    expect(latestTarget(activityFeed([row]))?.ref).toMatchObject({ module: "tasks", kind: "board", id: "b1" });
+  });
+});

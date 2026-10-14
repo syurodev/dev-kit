@@ -67,9 +67,7 @@ test("Claude: text that is not JSON is the payload as a string", () => {
 });
 
 test("Claude: a truncated text preview that does not parse is null — load the full row", () => {
-  expect(
-    toolPayloadOf({ status: "completed", truncated: true, content: claudeText('{"columns":["a"],"rows":[["1"') }),
-  ).toBeNull();
+  // The page read marks the entry it cut (internal/agenthub/service.go).
   expect(
     toolPayloadOf({
       status: "completed",
@@ -316,4 +314,11 @@ test("the page-image marker is the one Go writes", () => {
   expect(source).toContain(
     'const pageImageMarker = "page images are not kept in the transcript: DevKit keeps the document and can draw the pages again"',
   );
+});
+
+test("content text is a preview only when its entry says so, not because the call was cut", () => {
+  // call.truncated with no marked entry: rawInput or rawOutput was cut, not this text.
+  expect(toolPayloadOf({ status: "completed", truncated: true, content: claudeText("[page 1] hello") })).toEqual({
+    payload: "[page 1] hello",
+  });
 });

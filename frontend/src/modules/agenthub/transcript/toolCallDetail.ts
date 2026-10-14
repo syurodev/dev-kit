@@ -88,3 +88,13 @@ export function resultCallOf(call: ToolCall, fullCall: ToolCall | null): ToolCal
     ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
     : call;
 }
+
+/**
+ * The full row behind a truncated call when something has already loaded it
+ * — never a fetch. For readers outside React (the follow panel's target, its
+ * toasts) that should use a whole answer when there is one to hand.
+ */
+export function cachedFullToolCall(call: Pick<ToolCall, "id" | "truncated">, sessionId?: string): ToolCall | null {
+  if (!call.truncated || !sessionId) return null;
+  return queryClient.getQueryData(toolCallDetailQuery(sessionId, call.id).queryKey) ?? null;
+}

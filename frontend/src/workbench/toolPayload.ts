@@ -230,7 +230,9 @@ export function toolPayloadOf(call: ToolCallLike): ToolPayload | null {
     if (fromRaw === null && text !== "" && !textEntryWasCut(content)) return fromText(text, { ...read, mayBeCut: false }, false);
     return fromRaw;
   }
-  if (text !== "") return fromText(text, read, textEntryWasCut(content));
+  // Content text is a preview only when its entry says so: the call's own
+  // flag may stand for a cut rawInput or rawOutput.
+  if (text !== "") return fromText(text, { ...read, mayBeCut: false }, textEntryWasCut(content));
   return isError ? { error: "failed" } : null;
 }
 

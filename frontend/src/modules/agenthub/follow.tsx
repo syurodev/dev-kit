@@ -9,9 +9,10 @@ import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { hasEntityPreview, renderEntityPreview, toolActivityOf } from "@/workbench/toolActivity";
-import type { TranscriptItem } from "./types";
+import type { ToolCall, TranscriptItem } from "./types";
 import { AgentToolActivity, activityTargetOf, isToolActivity } from "./transcript/AgentToolActivity";
 import { toolNameOf } from "@/workbench/toolPayload";
+import { cachedFullToolCall, resultCallOf } from "./transcript/toolCallDetail";
 import { AgentRunningCommand, isRunningCommand } from "./transcript/AgentRunningCommand";
 import { toolActivityState } from "./transcript/AgentToolCall";
 
@@ -37,6 +38,11 @@ export function activityFeed(items: readonly TranscriptItem[]): TranscriptItem[]
   return out;
 }
 
+/** The call, answered by its full row when that is already loaded: a page row's answer may be a cut preview. */
+function withCachedFullRow(call: ToolCall, sessionId: string | undefined): ToolCall {
+  return resultCallOf(call, cachedFullToolCall(call, sessionId));
+}
+
 /**
  * The newest finished change whose target passes `accept` — by default any
  * that can be opened. The preview asks for one its module can draw, so a board
@@ -50,7 +56,7 @@ export function latestTarget(
     const call = item.toolCall;
     const activity = call ? toolActivityOf(toolNameOf(call)) : undefined;
     if (!call || !activity || toolActivityState(call.status) !== "done") continue;
-    const target = activityTargetOf(activity, call, "done");
+    const target = activityTargetOf(activity, withCachedFullRow(call, item.sessionId), "done");
     if (target?.ref && accept(target.ref)) return { ref: target.ref, label: target.detail || target.label };
   }
   return null;
@@ -179,7 +185,7 @@ export function useFollowToasts(sessionId: string, items: readonly TranscriptIte
       seen.current.add(item.id);
       const call = item.toolCall!;
       const activity = toolActivityOf(toolNameOf(call))!;
-      const target = activityTargetOf(activity, call, "done");
+      const target = activityTargetOf(activity, withCachedFullRow(call, item.sessionId ?? sessionId), "done");
       const ref = target?.ref;
       toast(target?.label ? `${activity.done} · ${target.label}` : activity.done, {
         id: `follow:${item.id}`,
