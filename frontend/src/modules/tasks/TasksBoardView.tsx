@@ -247,6 +247,7 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
     openPanel(<TaskDetail key={inspectedId} taskId={inspectedId} layout="panel" onGone={closeInspector} />, {
       width: INSPECTOR_WIDTH,
       onClose: closeInspector,
+      key: `task:${inspectedId}`,
     });
     // Discarded, not kept hidden: TaskDetail polls a live verify run and
     // means to be fresh on every visit (staleTime 0), and it is keyed by task,

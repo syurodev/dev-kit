@@ -1,7 +1,6 @@
 import * as React from "react";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import {
-  bindPanelActions,
   createSplitPanelStore,
   type BoundPanelActions,
   type CompanionEntry,
@@ -65,10 +64,26 @@ export function useSplitPanelActions(): BoundPanelActions<React.ReactNode> {
   const store = useStore();
   const owner = React.useContext(SidebarModuleIdContext) ?? SHELL_PANEL_OWNER;
   const opener = React.useId();
-  const actions = React.useMemo(() => bindPanelActions(store.actions, owner, opener), [store, owner, opener]);
-  React.useEffect(() => () => store.actions.releasePanelFor(owner, opener), [store, owner, opener]);
-  return actions;
+  React.useEffect(() => {
+    store.attach(owner, opener);
+    return () => store.detach(owner, opener);
+  }, [store, owner, opener]);
+  return store.bound(owner, opener);
 }
+
+/** The store's own actions, for the shell (pane-slots.tsx). Stable. */
+export function useSplitPanelStoreActions() {
+  return useStore().actions;
+}
+
+/**
+ * Reads what is open at the moment it is called, without subscribing: for an
+ * action that needs it (the Layouts menu closing the module's pane).
+ */
+export function useSplitPanelSnapshot(): () => SplitPanelState<React.ReactNode> {
+  return useStore().getState;
+}
+
 
 /**
  * What is open, for the few that draw or act on it (the slot layout, the

@@ -91,6 +91,7 @@ export function KafkaView() {
     openPanel(<MessagePanel message={inspected} topic={selectedTopic} partition={resultPartition ?? peekPartition} />, {
       width: 400,
       onClose: () => inspect(null),
+      key: "message",
     });
     return () => closePanel();
   }, [inspected, selectedTopic, resultPartition, peekPartition, openPanel, closePanel, inspect]);

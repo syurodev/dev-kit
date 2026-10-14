@@ -176,8 +176,9 @@ function useInspectorPane(folderId: string, root: string, key: string, front: bo
         canJump={(id) => Boolean(subgraph?.nodes.some((n) => n.id === id))}
         onOpenFile={(path, line) => void openFile({ workspaceId, folderId, path }, line, { preview: false, beside: true })}
       />,
-      { width: 520, onClose: closeInspector },
+      // Another flow is another tree (its tab and picks start over); another node of this flow is not.
+      { width: 520, onClose: closeInspector, key: `flow:${key}` },
     );
     return () => closePanel();
-  }, [node, root, folderId, workspaceId, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
+  }, [node, root, key, folderId, workspaceId, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 }

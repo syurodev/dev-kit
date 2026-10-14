@@ -434,6 +434,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       openPanel(<SubagentPanel sessionId={activeId} subagentId={subagentId} onClose={closeSubagent} />, {
         width: 420,
         onClose: closeSubagent,
+        key: `subagent:${activeId}:${subagentId}`,
       });
       return;
     }
@@ -446,6 +447,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     openPanel(<AgentActivityPanel sessionId={followedId} title={followedTitle} onStop={toggleFollowing} />, {
       width: 400,
       onClose: toggleFollowing,
+      key: `activity:${followedId}`,
     });
   }, [visible, subagentId, activeId, followedId, followedTitle, openPanel, closePanel, toggleFollowing, closeSubagent]);
 

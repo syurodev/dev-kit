@@ -307,7 +307,9 @@ function useNavigationPane(front: boolean) {
   const { openPanel, closePanel: closePane } = useSplitPanelActions();
   useEffect(() => {
     if (!front || !panel) return;
-    openPanel(<NavigationPanel panel={panel} />, { width: 480, onClose: closePanel });
+    // One tree for every lookup: choosing a result opens it from another
+    // document, and the list must stay where it was.
+    openPanel(<NavigationPanel panel={panel} />, { width: 480, onClose: closePanel, key: "nav" });
     return () => closePane();
   }, [front, panel, openPanel, closePane]);
 }

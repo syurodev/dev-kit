@@ -554,7 +554,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
           editor.tf.setValue(value);
         }}
       />,
-      { width: 460, onClose: () => setHistoryOpen(false) },
+      { width: 460, onClose: () => setHistoryOpen(false), key: `history:${note.id}` },
     );
     // Discarded when it closes, not kept hidden like Metadata: its versions
     // list and the body it would restore over must be read fresh each time.
@@ -582,7 +582,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
         onAddTag={tryAddTag}
         onRemoveTag={removeOwnTag}
       />,
-      { width: 420, onClose: () => setMetaOpen(false) },
+      { width: 420, onClose: () => setMetaOpen(false), key: `meta:${note.id}` },
     );
     return () => closePanel();
     // onFolderChange/onColorChange/tryAddTag/removeOwnTag (and the onSaved

@@ -2,7 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { Bot, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
-import { SHELL_PANEL_OWNER, useSplitPanelState } from "@/components/ui/split-panel";
+import { SHELL_PANEL_OWNER, useSplitPanelState, useSplitPanelStoreActions } from "@/components/ui/split-panel";
 import { shownPanels } from "@/components/ui/splitPanelModel";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -225,6 +225,11 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // instead of sliding out as an empty card (workbench/slots/retain.ts).
   const reduceMotion = useReducedMotion() ?? false;
   const bodies = useRetainedRecord(liveBodies, panelCloseMs(reduceMotion));
+
+  // A hidden pane of a module that left the screen has no body anywhere, and
+  // its reopen would mount a fresh one: the entry is dropped (splitPanelModel.forgetHiddenStep).
+  const { forgetHiddenPanels } = useSplitPanelStoreActions();
+  React.useEffect(() => forgetHiddenPanels(visibleModules), [visibleModules, allPanels, forgetHiddenPanels]);
 
   // A module asks for a width when it opens its panel (slotModel.requestedWidths).
   // In a layout effect: written before the first frame, so the column's open
