@@ -248,7 +248,10 @@ export function TasksBoardView({ params }: { params?: Record<string, unknown> })
       width: INSPECTOR_WIDTH,
       onClose: closeInspector,
     });
-    return () => closePanel();
+    // Discarded, not kept hidden: TaskDetail polls a live verify run and
+    // means to be fresh on every visit (staleTime 0), and it is keyed by task,
+    // so a kept body would only ever be reused for the same task.
+    return () => closePanel({ discard: true });
   }, [visible, inspectedId, openPanel, closePanel, closeInspector]);
 
   // Its own subscription rather than leaning on the sidebar's: a board tab

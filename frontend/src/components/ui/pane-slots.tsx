@@ -205,12 +205,22 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     // its scroll and its composer, and reopening it is instant.
     if (companion) out.agent = <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div>;
     if (terminalAlive) out.terminal = terminalBody;
+    // A module pane closed without `discard` is kept the same way, hidden: its
+    // content is the element it last pushed, so nothing here re-renders it,
+    // and reopening renders that same tree in place. A new generation is a new
+    // tree (splitPanelModel.openStep).
     for (const m of visibleModules) {
-      const panel = panels[m];
-      if (panel) out[contextPane(m)] = <div className="flex min-h-0 flex-1 flex-col overflow-auto">{panel.content}</div>;
+      const panel = allPanels[m];
+      if (panel) {
+        out[contextPane(m)] = (
+          <div key={panel.generation} className="flex min-h-0 flex-1 flex-col overflow-auto">
+            {panel.content}
+          </div>
+        );
+      }
     }
     return out;
-  }, [companion, terminalAlive, terminalBody, visibleModules, panels]);
+  }, [companion, terminalAlive, terminalBody, visibleModules, allPanels]);
   // A pane that closes keeps its last content while its slot closes around it,
   // instead of sliding out as an empty card (workbench/slots/retain.ts).
   const reduceMotion = useReducedMotion() ?? false;
@@ -229,27 +239,34 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     wasOpen.current = new Set(visibleModules.filter((m) => m in panels));
   }, [panels, visibleModules, resolved, setWidthA, setWidthB]);
 
-  // A hidden companion stays in the card it was in (retain.restingStep):
-  // moving it costs WebKit a rebuild of the whole conversation. Only when
-  // another pane takes its slot, or it is shown somewhere else, does its host
-  // go to the park: in the document, at the size it had, out of sight and out
-  // of reach. Detached, its scroll boxes would be lost; display:none would do
-  // the same.
+  // A hidden pane — the companion, or a module pane closed without `discard`
+  // — stays in the card it was in (retain.restingStep): moving it costs
+  // WebKit a rebuild of its whole tree. Only when another pane takes its slot,
+  // or it is shown somewhere else, does its host go to the park: in the
+  // document, at the size it had, out of sight and out of reach. Detached,
+  // its scroll boxes would be lost; display:none would do the same.
   const companionHidden = companion?.hidden ?? false;
-  const resting = React.useMemo<ReadonlySet<PaneId>>(() => new Set(companionHidden ? ["agent"] : []), [companionHidden]);
+  const restingKey = [
+    ...(companionHidden ? ["agent"] : []),
+    ...visibleModules.filter((m) => allPanels[m]?.hidden).map(contextPane),
+  ].join("|");
+  const resting = React.useMemo<ReadonlySet<PaneId>>(() => new Set(restingKey ? restingKey.split("|") : []), [restingKey]);
+  const restingRef = React.useRef(resting);
+  restingRef.current = resting;
   const parkRef = React.useRef<HTMLDivElement>(null);
   const release = React.useCallback((pane: PaneId, host: HTMLDivElement, body: HTMLElement) => {
     // Only if it is still ours: when two panes swap, the other slot may
     // already have adopted it.
     if (host.parentNode !== body) return;
     const park = parkRef.current;
-    if (pane === "agent" && park) {
+    if (park && (pane === "agent" || restingRef.current.has(pane))) {
       // Focus cannot stay in an inert, invisible subtree.
       if (host.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur();
+      // Each parked host keeps its own size (SlotCard clears it on adoption).
       const r = body.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) {
-        park.style.width = `${r.width}px`;
-        park.style.height = `${r.height}px`;
+        host.style.width = `${r.width}px`;
+        host.style.height = `${r.height}px`;
       }
       moveHost(park, host);
       return;
@@ -257,17 +274,21 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     body.removeChild(host);
   }, []);
 
-  // A menu, popover or select the conversation opened is portalled to the
-  // body and would outlive the pane closing around it — a modal one with the
-  // whole app's pointer events off. Closed the way the person would: Escape,
-  // while the topmost open layer is one the companion owns. Focus cannot stay
-  // in the inert box it now rests in either.
+  // A menu, popover or select a pane opened is portalled to the body and
+  // would outlive the pane closing around it — a modal one with the whole
+  // app's pointer events off. Closed the way the person would: Escape, while
+  // the topmost open layer is one the pane owns. Focus cannot stay in the
+  // inert box it now rests in either. For each pane as it starts resting.
+  const wasResting = React.useRef<ReadonlySet<PaneId>>(new Set());
   React.useEffect(() => {
-    if (!companionHidden) return;
-    const host = hostFor("agent");
-    if (host.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur();
-    dismissOwnedLayers(host, document);
-  }, [companionHidden, hostFor]);
+    for (const pane of resting) {
+      if (wasResting.current.has(pane)) continue;
+      const host = hostFor(pane);
+      if (host.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur();
+      dismissOwnedLayers(host, document);
+    }
+    wasResting.current = resting;
+  }, [resting, hostFor]);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
   const docRef = React.useRef<HTMLDivElement | null>(null);
@@ -388,7 +409,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
         data-pane-park
         aria-hidden
         inert
-        className="pointer-events-none invisible fixed top-0 left-full flex flex-col contain-strict"
+        className="pointer-events-none invisible fixed top-0 left-full contain-strict"
       />
 
       {createPortal(
@@ -731,6 +752,9 @@ function SlotCard({
     // Moved, not just appended: a pane coming back from the park, or from
     // another slot, keeps where it was scrolled to (slots/hostMove.ts).
     moveHost(body, host);
+    // A size it was given in the park (PaneSlotsRow.release).
+    host.style.removeProperty("width");
+    host.style.removeProperty("height");
     return () => release(pane, host, body);
   }, [hostFor, release, pane]);
 

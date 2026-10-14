@@ -556,6 +556,9 @@ export function NoteEditor({ params }: NoteEditorProps) {
       />,
       { width: 460, onClose: () => setHistoryOpen(false) },
     );
+    // Discarded when it closes, not kept hidden like Metadata: its versions
+    // list and the body it would restore over must be read fresh each time.
+    return () => closePanel({ discard: true });
   }, [historyOpen, note?.id]);
 
   useEffect(() => {

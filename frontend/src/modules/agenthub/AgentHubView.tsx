@@ -438,7 +438,9 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       return;
     }
     if (!followedId) {
-      closePanel();
+      // Discarded, not kept hidden: both panels read the session's transcript
+      // from the store and would re-render on every streamed token while hidden.
+      closePanel({ discard: true });
       return;
     }
     openPanel(<AgentActivityPanel sessionId={followedId} title={followedTitle} onStop={toggleFollowing} />, {
