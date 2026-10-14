@@ -16,6 +16,11 @@ import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/mod
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 import { vendorInfo } from "../vendors";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
+import type { FileRef } from "../transcript/fileRef";
+import type { RefContext } from "../transcript/resolveFileRef";
+import { openFileRef } from "../transcript/openReference";
+import { RefPickerHost } from "../transcript/RefPicker";
+import type { Placement } from "@/workbench/intents";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
@@ -39,6 +44,11 @@ export type TranscriptStreamProps = {
   /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
   onEditPrompt?: (text: string) => void;
   onOpenFile?: (path: string, line?: number) => void;
+  /**
+   * The session file references in prose resolve against. Absent (or null for
+   * a draft), prose falls back to `onOpenFile`.
+   */
+  refContext?: RefContext | null;
   loading?: boolean;
   /** Older pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -207,6 +217,7 @@ export function TranscriptStream({
   onCopy,
   onEditPrompt,
   onOpenFile,
+  refContext,
   loading = false,
   hasMore = false,
   loadingOlder = false,
@@ -253,8 +264,28 @@ export function TranscriptStream({
     () => (onOpenFile ? (path: string, line?: number) => onOpenFileRef.current?.(path, line) : undefined),
     [Boolean(onOpenFile)],
   );
+  // By value, not identity: a caller's fresh object per render must not
+  // re-render every turn's prose through the context below.
+  const sessionId = refContext?.sessionId;
+  const workspaceId = refContext?.workspaceId;
+  const projectPath = refContext?.projectPath;
+  const stableRefContext = useMemo<RefContext | null>(
+    () => (sessionId === undefined ? null : { sessionId, workspaceId: workspaceId ?? "", projectPath: projectPath ?? "" }),
+    [sessionId, workspaceId, projectPath],
+  );
+  const openRef = useMemo(
+    () =>
+      stableRefContext
+        ? (ref: FileRef, anchor: HTMLElement | null, placement?: Placement) =>
+            void openFileRef(ref, stableRefContext, { placement, anchor })
+        : undefined,
+    [stableRefContext],
+  );
   // Prose deep inside a turn opens a file through this, not through props.
-  const transcriptActions = useMemo(() => ({ onOpenFile: stableOnOpenFile }), [stableOnOpenFile]);
+  const transcriptActions = useMemo(
+    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef }),
+    [stableOnOpenFile, stableRefContext, openRef],
+  );
   // Both callers pass this as an inline arrow. Handed to every AgentTurn as
   // it came, it was a new function per streamed token, so memo let no turn
   // skip — a long session re-rendered all of its history on every token.
@@ -712,6 +743,7 @@ export function TranscriptStream({
             <AgentJumpToLatest visible={showJump} onClick={scrollToBottom} />
           </div>
         </div>
+        <RefPickerHost />
       </div>
     </TranscriptActionsProvider>
   );

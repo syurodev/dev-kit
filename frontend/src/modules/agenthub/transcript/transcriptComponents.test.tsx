@@ -739,6 +739,29 @@ describe("AgentProse links and file refs", () => {
     expect(html).toContain(">auth/session.go:88<");
   });
 
+  it("a file ref is a button when references can open, with no chip handler", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ openRef: () => {} }}>
+        <AgentProse text="Look at `auth/session.go:88`" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+  });
+
+  it("a link says what it points at, and an unknown scheme carries no href", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ openRef: () => {} }}>
+        <AgentProse text="[web](https://a.dev/x) [file](src/a.ts#L3) [ftp](ftp://host/f)" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-link"/g)?.length).toBe(3);
+    expect(html).toContain('data-link="url"');
+    expect(html).toContain('data-link="file"');
+    expect(html).toContain('data-link="other"');
+    expect(html).not.toMatch(/ href="ftp:/);
+    expect(html).toContain('data-href="ftp://host/f"');
+  });
+
   it("without a file handler a ref stays plain code", () => {
     const html = renderToString(<AgentProse text="`auth/session.go:88`" />);
     expect(html).not.toContain("agent-file-ref");

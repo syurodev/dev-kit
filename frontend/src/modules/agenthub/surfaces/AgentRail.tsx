@@ -8,6 +8,7 @@ import type { EntityRef } from "@/workbench/intents";
 import type { AvailableCommand, ConfigOption, SessionFailure, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { refContextOf } from "../transcript/openReference";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
@@ -171,6 +172,9 @@ export function AgentRail({
   className,
 }: AgentRailProps) {
   const checkpoints = useSessionCheckpoints(activeSession?.id ?? "");
+  // References in the prose resolve in this session's workspace. A new object
+  // per render is fine: TranscriptStream keeps it by value.
+  const refContext = refContextOf(activeSession);
   // Which turn's files the confirmation is about, or "" for closed. The dialog
   // plans for itself, so opening it costs one call and nothing is planned for a
   // turn nobody asked about.
@@ -279,6 +283,7 @@ export function AgentRail({
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
               onOpenFile={onOpenFile}
+              refContext={refContext}
             />
           </div>
 

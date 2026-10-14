@@ -4,7 +4,7 @@ import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { openExternal } from "@/bridge/browser";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { fileRef } from "./fileRef";
+import { fileRef, linkTarget, type FileRef } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import {
@@ -84,15 +84,22 @@ export function Inline({ text }: { text: string }) {
 }
 
 function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
-  const { onOpenFile } = useTranscriptActions();
+  const { onOpenFile, openRef } = useTranscriptActions();
+  const canOpen = Boolean(openRef || onOpenFile);
+  // A reference resolves in the session's workspace when the transcript can;
+  // otherwise it goes to the chip handler as written.
+  const openFileRef = (ref: FileRef, anchor: HTMLElement | null) => {
+    if (openRef) openRef(ref, anchor);
+    else onOpenFile?.(ref.path, ref.line);
+  };
   return (
     <>
       {tokens.map((token, idx) => {
         switch (token.type) {
           case "code": {
-            const ref = onOpenFile ? fileRef(token.value) : null;
-            if (ref && onOpenFile) {
-              const open = () => onOpenFile(ref.path, ref.line);
+            const ref = canOpen ? fileRef(token.value) : null;
+            if (ref) {
+              const open = (event: React.SyntheticEvent<HTMLElement>) => openFileRef(ref, event.currentTarget);
               return (
                 // An inline <code>, not a <button>: a button is an atomic
                 // inline-block and would stop a long path wrapping like text.
@@ -105,7 +112,7 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      open();
+                      open(e);
                     }
                   }}
                   className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
@@ -137,20 +144,32 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
           }
           case "secret":
             return <MaskedSecret key={idx} value={token.value} />;
-          case "link":
+          case "link": {
+            const target = linkTarget(token.href);
+            const follow = (e: React.SyntheticEvent<HTMLElement>) => {
+              // The WebView does nothing with a plain navigation; the
+              // system browser gets it through the bridge instead.
+              e.preventDefault();
+              if (target.kind === "url") void openExternal(target.url);
+              else if (target.kind === "file") openFileRef(target.ref, e.currentTarget);
+            };
             return (
               <Tooltip key={idx}>
                 <TooltipTrigger asChild>
                   <a
-                    href={token.href}
+                    // Only the web keeps an href: a scheme DevKit will not open
+                    // (javascript:, ftp:, …) must not be one click from running.
+                    href={target.kind === "url" ? target.url : undefined}
                     rel="noreferrer"
                     data-testid="agent-link"
+                    data-link={target.kind}
                     data-href={token.href}
-                    onClick={(e) => {
-                      // The WebView does nothing with a plain navigation; the
-                      // system browser gets it through the bridge instead.
-                      e.preventDefault();
-                      void openExternal(token.href);
+                    // Without an href an anchor is not focusable; it still is.
+                    role={target.kind === "url" ? undefined : "link"}
+                    tabIndex={target.kind === "url" ? undefined : 0}
+                    onClick={follow}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && target.kind !== "url") follow(e);
                     }}
                     // A long URL is exactly the same unbroken-run case as inline
                     // code, and had no wrap protection of its own at all.
@@ -164,6 +183,7 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 </TooltipContent>
               </Tooltip>
             );
+          }
           case "strong":
             return (
               <strong key={idx} className="font-medium text-text-primary">

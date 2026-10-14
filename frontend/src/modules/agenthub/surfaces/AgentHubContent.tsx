@@ -18,6 +18,7 @@ import type {
 } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { refContextOf } from "../transcript/openReference";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
@@ -290,6 +291,9 @@ export function AgentHubContent({
   // component that tests render with fixed items, and a fetch inside it would
   // make every one of those hit the bridge.
   const checkpoints = useSessionCheckpoints(session?.id ?? "");
+  // References in the prose resolve in this session's workspace. A new object
+  // per render is fine: TranscriptStream keeps it by value.
+  const refContext = refContextOf(session);
   // A turn is a thing the human said. Counting them here beats threading
   // InvokeResult.turnCount through the view: this survives a reload, because
   // the transcript does. The composer's meter and the summary both read it.
@@ -462,6 +466,7 @@ export function AgentHubContent({
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
                 onOpenFile={onOpenFile}
+                refContext={refContext}
                 // 760 here (880 from 80rem); the rail keeps 720. On a wide conversation the
                 // scroller's right padding clears the docked summary, so the
                 // column centres in what is left rather than running under it.

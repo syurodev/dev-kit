@@ -15,13 +15,14 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
-import { dispatchIntent, type EntityRef } from "@/workbench/intents";
+import type { EntityRef } from "@/workbench/intents";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
 import { useFollowToasts, useFollowing } from "@/modules/agenthub/follow";
+import { openFileRef, refContextOf } from "@/modules/agenthub/transcript/openReference";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -178,15 +179,9 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   function openFile(path: string, line?: number) {
     if (!session) return;
     // The companion sits over whatever module is on screen; the file opens
-    // where you are working, as Code Graph decides.
-    void dispatchIntent("codegraph.reveal", {
-      module: "codegraph",
-      kind: "file",
-      id: path,
-      label: path.slice(path.lastIndexOf("/") + 1),
-      project: session.projectPath,
-      line,
-    });
+    // where you are working. Resolved in the session's workspace, so it opens
+    // in the folder that holds it.
+    void openFileRef(line !== undefined ? { path, line } : { path }, refContextOf(session), { placement: "replace" });
   }
 
   async function setMode(nextMode: string) {
