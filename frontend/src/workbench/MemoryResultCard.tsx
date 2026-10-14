@@ -51,6 +51,20 @@ function useClampOverflow(body: string, expanded: boolean) {
   return { ref, overflowing };
 }
 
+/**
+ * The folded body's paragraphs: split at blank lines (however many, and lines
+ * of only spaces count), each paragraph's trailing spaces gone, empty ones
+ * dropped. Folded, a blank line is a line to line-clamp like any other, and one
+ * at the cut left the ellipsis on a line of its own; paragraphs drawn as blocks
+ * with a gap between them keep the shape without spending a line on it.
+ */
+export function previewParagraphs(body: string): string[] {
+  return body
+    .split(/\r?\n(?:[ \t\r]*\n)+/)
+    .map((paragraph) => paragraph.replace(/^(?:[ \t\r]*\n)+/, "").trimEnd())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
 function updated(at: string, now: number): string {
   const age = shortAge(Date.parse(at), now);
   if (!age) return "";
@@ -110,7 +124,13 @@ export function MemoryEntryCard({ entry, heading, now }: { entry: MemoryEntry; h
               !expanded && "line-clamp-6",
             )}
           >
-            {entry.body}
+            {expanded
+              ? entry.body
+              : previewParagraphs(entry.body).map((paragraph, index) => (
+                  <p key={index} className={cn(index > 0 && "mt-(--space-micro)")}>
+                    {paragraph}
+                  </p>
+                ))}
           </div>
         ) : null}
       </FramedCardPreview>

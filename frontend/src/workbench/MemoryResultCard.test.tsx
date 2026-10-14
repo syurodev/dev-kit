@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { hasToolResultView, renderToolResult } from "./toolResultViews";
 import { parseMemoryEntry, parseMemoryPage } from "./memoryResultViews";
-import { MemoryEntryCard, MemoryListCard, overflowsClamp } from "./MemoryResultCard";
+import { MemoryEntryCard, MemoryListCard, overflowsClamp, previewParagraphs } from "./MemoryResultCard";
 
 // workspace.memory.* as internal/workspacememory answers (camelCase JSON).
 const ENTRY = {
@@ -61,6 +61,24 @@ describe("workspace.memory entry", () => {
     const controls = /aria-controls="([^"]+)"/.exec(html)?.[1];
     expect(controls).toBeTruthy();
     expect(html).toContain(`id="${controls}"`);
+  });
+
+  // A blank line is a line to line-clamp: one at the cut left "…" alone on it.
+  it("the folded body's paragraphs drop blank lines, so the cut lands on text", () => {
+    expect(previewParagraphs("A\n\nB\nC\n\n\n\nD\n\n  \n")).toEqual(["A", "B\nC", "D"]);
+    expect(previewParagraphs("\n\nA  \n \t\nB")).toEqual(["A", "B"]);
+    expect(previewParagraphs("only\nlines")).toEqual(["only\nlines"]);
+    expect(previewParagraphs("\n  indented\nnext\r\n\r\nlast")).toEqual(["  indented\nnext", "last"]);
+  });
+
+  it("folded, the body is its paragraphs with no blank line between them", () => {
+    const body = "Context.\n\nDecision.\nA refund.\n\n\nAfter.\n\n";
+    const folded = renderToString(<MemoryEntryCard entry={parseMemoryEntry({ ...ENTRY, body })!} now={NOW} />);
+    const box = folded.slice(folded.indexOf("line-clamp-6"));
+    expect(box).toContain(">Context.</p>");
+    expect(box).toContain(">Decision.\nA refund.</p>");
+    expect(box).toContain(">After.</p>");
+    expect(box).not.toContain("\n\n");
   });
 
   it("measures the clamp: overflowing only when the text runs past the box", () => {
