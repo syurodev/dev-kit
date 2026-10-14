@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { focusWhenInteractive } from "@/lib/focusWhenInteractive";
+import { frozenWhileHidden } from "@/lib/frozenWhileHidden";
+import { usePaneShown } from "@/components/ui/split-panel";
 import { Columns2, ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
@@ -52,12 +54,16 @@ export function NavigationPanel({ panel }: { panel: NavigationPanelState }) {
       ? `Peek · ${panel.identifier}`
       : `${panel.locations.length} reference${panel.locations.length === 1 ? "" : "s"} to ${panel.identifier}`;
   const rootRef = useRef<HTMLDivElement>(null);
+  // Kept mounted while its pane is closed (split-panel): shown again — the
+  // same lookup reopened included — it takes focus again.
+  const shown = usePaneShown();
 
-  // Once the pane can take it: it is still inert while it slides in.
+  // Once the pane can take it: it is still inert while it slides in. A pane
+  // closed again before it settled cancels the wait.
   useEffect(() => {
     const el = rootRef.current;
-    return el ? focusWhenInteractive(el) : undefined;
-  }, [panel.mode, panel.source.path, panel.source.line, panel.identifier]);
+    return el && shown ? focusWhenInteractive(el) : undefined;
+  }, [shown, panel.mode, panel.source.path, panel.source.line, panel.identifier]);
 
   const go = (loc: PanelLocation, beside: boolean) =>
     void openFile({ workspaceId, folderId: loc.folderId, path: loc.path }, loc.line, { preview: !beside, beside });
@@ -183,13 +189,19 @@ function PeekBody({ panel, onOpen }: { panel: NavigationPanelState; onOpen: (loc
   const label = useFolderLabel(loc?.folderId);
   const workspaceId = panel.source.workspaceId;
   const key = loc ? docKey(workspaceId, loc.folderId, loc.path) : "";
-  // The open buffer's text wins over the disk's: a peek shows what the editor shows.
-  const buffered = useCodeGraphStore((s) => (key ? s.buffers[key]?.content : undefined));
+  // The open buffer's text wins over the disk's: a peek shows what the editor
+  // shows. Not while the pane is closed and kept: no subscription to the
+  // buffer (every keystroke re-windowed up to 300 KB into a hidden editor),
+  // and no disk read when the buffer closes. Shown again, it reads current.
+  const shown = usePaneShown();
+  const live = useCodeGraphStore((s) => (shown ? (key ? s.buffers[key]?.content : undefined) : null));
+  const held = useRef<{ text: string | undefined } | null>(null);
+  const buffered = frozenWhileHidden(held, shown, { text: live ?? undefined }).text;
   const [disk, setDisk] = useState<{ key: string; text: string } | { key: string; error: string } | null>(null);
   const language = useLanguageExtension(languageForPath(loc?.path ?? ""));
 
   useEffect(() => {
-    if (!loc || buffered !== undefined) return;
+    if (!shown || !loc || buffered !== undefined) return;
     let live = true;
     readFolderFile(workspaceId, loc.folderId, loc.path).then(
       (r) => live && setDisk({ key, text: r.content }),
@@ -198,7 +210,7 @@ function PeekBody({ panel, onOpen }: { panel: NavigationPanelState; onOpen: (loc
     return () => {
       live = false;
     };
-  }, [loc, buffered, key, workspaceId]);
+  }, [shown, loc, buffered, key, workspaceId]);
 
   const text = buffered ?? (disk && disk.key === key && "text" in disk ? disk.text : null);
   const error = disk && disk.key === key && "error" in disk ? disk.error : "";

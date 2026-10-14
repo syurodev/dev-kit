@@ -84,6 +84,17 @@ export function useSplitPanelSnapshot(): () => SplitPanelState<React.ReactNode> 
   return useStore().getState;
 }
 
+/**
+ * Whether the pane this body is drawn in is open. A kept body (a module pane
+ * closed without `discard`, the hidden companion) stays mounted while its
+ * pane is closed; what it subscribes to or fetches should wait for this, so a
+ * hidden body does no work for what nobody sees (pane-slots.tsx provides it).
+ */
+export const PaneShownContext = React.createContext(true);
+
+export function usePaneShown(): boolean {
+  return React.useContext(PaneShownContext);
+}
 
 /**
  * What is open, for the few that draw or act on it (the slot layout, the

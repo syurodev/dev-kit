@@ -2,7 +2,12 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { Bot, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
-import { SHELL_PANEL_OWNER, useSplitPanelState, useSplitPanelStoreActions } from "@/components/ui/split-panel";
+import {
+  PaneShownContext,
+  SHELL_PANEL_OWNER,
+  useSplitPanelState,
+  useSplitPanelStoreActions,
+} from "@/components/ui/split-panel";
 import { shownPanels } from "@/components/ui/splitPanelModel";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -407,7 +412,10 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
         </div>
       </LazyMotion>
 
-      {Object.entries(bodies).map(([pane, body]) => createPortal(body, hostFor(pane), pane))}
+      {/* usePaneShown: a kept body waits while its pane is closed. */}
+      {Object.entries(bodies).map(([pane, body]) =>
+        createPortal(<PaneShownContext.Provider value={!resting.has(pane)}>{body}</PaneShownContext.Provider>, hostFor(pane), pane),
+      )}
 
       <div
         ref={parkRef}
