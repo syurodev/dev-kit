@@ -63,7 +63,7 @@ gọi tên được.
 | 3.5 | **Không animate `height: auto` bằng JS.** Mở/đóng theo chiều cao dùng grid `0fr → 1fr` (CSS), không đo rồi set số. | TreeView đã theo cách này (`.tree-branch`, `index.css`). |
 | 3.6 | **Font không đổi sau khi vẽ.** Font bundle qua fontsource, nạp đồng bộ trước render đầu. | Geist/Geist Mono/Inter đã bundle; cần xác nhận không có FOUT khi khởi động (`font-display`). |
 | 3.7 | **Icon/hình có kích thước khai sẵn.** `size-*` trên mọi svg; ảnh (avatar, screenshot note) có `width/height` hoặc `aspect-ratio`. | Icon đúng; ảnh trong note cần rà. |
-| 3.8 | **Resize panel: chỉ container chuyển động.** Nội dung bên trong ghim ở kích thước đích (`min-width` cố định trên inner) trong lúc transition; không reflow bảng/editor từng frame. | Sidebar/split/bottom slot đã animate container bằng framer; inner chưa ghim → bảng reflow theo. |
+| 3.8 | **Resize panel: chỉ container chuyển động.** Nội dung bên trong ghim ở kích thước đích (`min-width` cố định trên inner) trong lúc transition; không reflow bảng/editor từng frame. | Đã có cho sidebar, hai cột phải và hàng dưới (`sidebar-shell.tsx`, `pane-slots.tsx`): box ngoài animate kích thước và clip, box trong ghim ở kích thước mở, treo vào cạnh đang chuyển động. Document bên cạnh vẫn co giãn từng frame (CSS flex, rẻ); thứ đo lại theo resize (xterm fit + PTY resize, refit Flow, chọn split/unified của diff) chờ panel dừng rồi chạy một lần qua `lib/panelMotion`. Đo trên Chromium, pane 400 dòng: ResizeObserver của pane 15–16 → 1 lần mỗi lần mở, layout ~43 → ~8 ms; PTY resize mỗi lần mở 15–16 → 1, mỗi lần đóng 7–8 → 1. |
 | 3.9 | **Empty/error/loading cùng khung với nội dung.** Ba trạng thái này vẽ trong đúng vùng nội dung sẽ chiếm, cùng padding, không full-height làm header dịch. | Đã đưa 5 empty-state cũ (`py-16`/`p-8` tự vẽ ở History, Saved, hai chỗ trong LiveActivity, và bảng groups Kafka) về `EmptyState`. Lỗi peek Kafka cũng vào đúng chỗ bảng bằng `EmptyState tone="danger"` kèm Retry. |
 | 3.10 | **Tooltip/popover/menu không đẩy layout.** Luôn portal + absolute; không bao giờ inline. | Radix đúng. |
 
@@ -126,8 +126,8 @@ dung gốc, Headers/History không cần parse JSON body.
 ### 4.2 Chỉ animate thứ compositor làm được
 
 `transform` và `opacity`. Không animate `width/height/top/left/margin` của cây
-DOM lớn — ngoại lệ duy nhất là container panel (đã có) và grid track `fr`
-(CSS xử lý, không JS).
+DOM lớn — ngoại lệ duy nhất là container panel (đã có, nội dung bên trong ghim
+ở kích thước đích — 3.8) và grid track `fr` (CSS xử lý, không JS).
 
 ### 4.3 Mô hình shared-element
 
@@ -147,7 +147,7 @@ phẩm thiết kế (Figma Smart Animate ghép layer theo tên — đúng 1:1 v�
 | Tab module Workbench | Cùng slide, nhưng thứ trượt vào là skeleton đúng hình rồi crossfade sang nội dung | Chưa — chờ skeleton theo module (2.7) |
 | Row hover/select | `transition-colors` 120 ms; dòng chọn có vạch accent trượt vào | Đã có (`.row-accent`, `scale-y` + opacity 120 ms) trên row selected của TreeView và dòng peek đang inspect. Đo trên Chromium: tắt là opacity 0 / scale `1 0`, bật là opacity 1 / scale 1, transition 0.12 s cả hai thuộc tính |
 | List thêm/bớt | Dòng mới trượt xuống + fade; dòng xoá thu chiều cao rồi biến | Đã có (auto-animate 180 ms trên peek, groups, history, saved, notes list) |
-| Split panel / inspector | Slide từ phải 240 ms, nội dung fade sau 60 ms | Đã có: container mở `--motion-slow`, đóng `--motion-fast`; nội dung fade `--motion-base` trễ 60 ms. Số dùng chung qua `lib/motion.ts` |
+| Split panel / inspector | Slide từ phải 240 ms, nội dung fade sau 60 ms | Đã có, chung cho mọi panel của shell (cột phải, hàng dưới, sidebar): một đường cong `panelTransition` (`lib/panelMotion.ts`) — spring bounce 0, mở `--motion-slow`, đóng `--motion-fast`, bấm lại giữa chừng thì đảo chiều từ vị trí và vận tốc đang có. Mặt card đi theo panel; nội dung trên nó fade vào `--motion-base` trễ `CONTENT_FADE_DELAY` (60 ms) và fade ra cùng lúc đóng. Đóng thì trượt về phải và giữ nội dung cuối đến khi đóng xong (`--motion-fast`, hẹn giờ chứ không chờ animation-end; `workbench/slots/retain.ts`). Reduce Motion: bật/tắt tức thì, gỡ ngay |
 | Dialog | Scale 0.98→1 + fade 180 ms, overlay fade, đóng 120 ms | Đã có (`duration-(--motion-base)` vào, `duration-(--motion-fast)` ra qua `tw-animate-css`) |
 | Skeleton → nội dung | Crossfade 180 ms, không cắt | Đã có (`.module-enter` + `@starting-style`, mount cùng chunk nên chỉ chạy đúng lúc đổi). Đo trên Chromium: opacity 0.00 → 0.37 → 0.65 trong ba frame đầu, một transition 180 ms |
 | Chip trạng thái | Đổi màu có transition; số đổi nhấp một nhịp | Đã có: `transition-colors` `--motion-fast` trên `Chip`; lag của bảng groups nhấp một nhịp khi đổi giá trị (key theo giá trị). Không gắn ở peek: một lần peek thay cả 500 dòng |
@@ -190,7 +190,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 | 6.4 | **`content-visibility: auto` cho vùng ẩn dưới màn.** | Notes card, agent line và message scroller vẫn dùng hint này. Transcript Agent Hub dùng virtualization theo turn (5.000 turn → 11 section trong fixture), và module/companion ẩn không subscribe transcript snapshot; shell stream vẫn nhận token/permission. |
 | 6.5 | **Gõ phím không chờ render phụ.** Editor/ô search cập nhật ngay; filter/kết quả defer (`useDeferredValue`). | Notes search có debounce; các ô search rail filter đồng bộ (ổn khi < 1 000 dòng). |
 | 6.6 | **Phím tắt phản hồi trong frame đó.** ⌘↵, ⌘⇧E, ⌘K: state đổi ngay, việc nặng sau. | Đúng ở Kafka/Workbench; cần đo trên WKWebView. |
-| 6.7 | **Không thrash layout.** Đọc `getBoundingClientRect`/`offsetTop` rồi ghi style trong cùng frame là thrash; framer `layout` trên nhiều phần tử = nhiều lần đo. | `layout` chỉ ở TabStrip; giữ ở section-level. `useWindowWidth` set state mỗi resize — chấp nhận được, nhưng resize nên throttle bằng rAF. |
+| 6.7 | **Không thrash layout.** Đọc `getBoundingClientRect`/`offsetTop` rồi ghi style trong cùng frame là thrash; framer `layout` trên nhiều phần tử = nhiều lần đo. | `layout` chỉ ở TabStrip; giữ ở section-level. `useWindowWidth` set state mỗi resize — chấp nhận được, nhưng resize nên throttle bằng rAF. Thứ đo lại theo ResizeObserver mà đắt (terminal, Flow canvas, diff) đi qua `settledRunner` (`lib/panelMotion.ts`): trong lúc panel của shell đang chạy animation thì chỉ ghi nợ, chạy đúng một lần ở frame sau khi dừng; không có gì chạy animation (resize cửa sổ, kéo sash) thì chạy ngay như cũ. |
 
 ## 7. Compositor và GPU
 
@@ -207,7 +207,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 |---|---|---|
 | 8.1 | Vault gate → Workbench là **một** chuyển cảnh (fade/scale), không phải trang trắng rồi shell hiện dần từng phần. | Đã đo trên app đã build trong Chromium headless (transport Wails giả ghi lại mọi binding call): rail, dock và tab strip **vốn đã** hiện cùng một frame (frame 6 ở mọi lần chạy), nên phần "hiện dần từng phần" không tái hiện. Thứ thiếu là chính cú chuyển: trước đây là cắt thẳng. `.shell-enter` fade shell như một khối qua `@starting-style` (`--motion-base`), `display: contents` nên workbench vẫn là flex child cũ. |
 | 8.2 | Fetch khởi động gộp lại: một call lấy profile của mọi module thay vì mỗi module gọi khi mount. | Đã đo: trước khi gate mở có 4 call (hai `UIStateGet` rehydrate store, `PreferencesGetTheme`, `VaultStatus`); lúc gate bàn giao có thêm 9 (`VaultStatus`, `SyncConflicts`, `AgentHubListAgents`, `AgentHubPendingPermissions`, `InteractionPendingList`, `ListModules`, hai `UIStateGet`, `AgentHubListVendorTypes`) và tất cả rời đi trong khoảng ~50 ms của nhau — đã song song, không phải xếp hàng, nên không có gì để gộp. Không module nào fetch trước khi được mở: các call AgentHub và Sync thuộc bề mặt của shell (companion panel, status menu). Ghi nhận riêng: `InteractionPendingList` poll mỗi 500 ms suốt phiên. |
-| 8.3 | Cửa sổ resize: layout bằng CSS (flex/grid), không JS đo đạc; panel clamp theo `maxPanelWidth` khi render. | Đúng. |
+| 8.3 | Cửa sổ resize: layout bằng CSS (flex/grid), không JS đo đạc; panel clamp theo `maxPanelWidth` khi render. | Đúng. Panel bị clamp vì cửa sổ đổi kích thước thì đi theo tức thì (không transition), nên mép panel bám mép cửa sổ và terminal bên cạnh vẫn fit liên tục. |
 | 8.4 | Đổi theme: mọi màu là token → một frame; không có phần tử "đuổi theo" theme sau. | Còn rgba glass viết tay trong `components/` (ratchet 48 hex) → lệch ở light theme. |
 
 ## 9. Đo trước, sửa sau
@@ -268,7 +268,8 @@ DevKit tương ứng — nếu chưa có trong mục 2–8 thì đây là nơi n
   thấy rõ; **≥ 0.4 là quá tay cho UI**.
 - **Perceptual duration ≠ settling duration**: không chờ spring "tắt hẳn" để đổi
   UI; hành động kế tiếp chạy theo thời gian cảm nhận. Với DevKit: unmount panel
-  rời đi theo `--motion-*`, không chờ animation-end event.
+  rời đi theo `--motion-*`, không chờ animation-end event (đã làm cho panel của
+  shell: `workbench/slots/retain.ts`).
 - Khi bị ngắt, spring **giữ vận tốc** làm vận tốc đầu cho đích mới — lý do
   chọn spring thay vì CSS easing cho mọi thứ có thể bị bấm chồng.
 

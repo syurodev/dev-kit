@@ -358,7 +358,11 @@ thứ tự:
 5. Companion **không bao giờ** bị tự đóng.
 
 Chạy: `panelLayout.layoutPressure` (có test), đọc qua `useLayoutPressure` ở
-sidebar, các cột và document group.
+sidebar, các cột và document group. Số cột, trạng thái mở của sidebar và bề rộng
+các cột được publish trong layout effect (trước paint), nên một cột mở ra làm
+sidebar nhường chỗ thì hai cái bắt đầu chạy trong cùng một frame, mỗi cái về
+đúng kích thước cuối — cột không phải đổi đích giữa chừng khi sidebar nhả chỗ.
+Không xếp tuần tự (sidebar xong rồi mới tới cột): như vậy là thêm một nhịp trễ.
 
 Nới cửa sổ ra thì chạy ngược lại, trả về đúng layout đã lưu. Cửa sổ tối thiểu
 vẫn là 1080×700.
@@ -588,7 +592,25 @@ header cho cùng các đích, không cần kéo.
 
 **Không remount:** thân mỗi pane được render một lần vào một phần tử tách rời;
 card của vị trí "nhận nuôi" phần tử đó. Chuyển pane là chuyển phần tử DOM, nên
-xterm, canvas hay tin nhắn đang gõ dở không mount lại.
+xterm, canvas hay tin nhắn đang gõ dở không mount lại. Phần tử được chuyển bằng
+`Element.moveBefore` khi engine có, không thì đọc vị trí cuộn trước và ghi lại
+sau (`slots/hostMove.ts`), nên pane đổi chỗ không bị cuộn về đầu.
+
+**Mở/đóng:** cột, hàng dưới và sidebar chuyển động giống nhau (smoothness 3.8,
+4.4): box ngoài animate kích thước và clip, box trong ghim ở kích thước mở và
+treo vào cạnh đang chuyển động — cột trượt vào từ phải và trượt ra về phải, hàng
+dưới trượt lên, sidebar trượt từ trái. Mặt card đi theo panel, nội dung trên nó
+fade vào sau 60 ms. Đóng thì nội dung cuối ở lại tới khi panel đóng xong
+(`--motion-fast`), trừ pane đang hiện ở chỗ khác. Bề rộng module xin cho context
+pane được áp trước frame đầu, nên animation mở không đổi đích giữa chừng. Resize
+cửa sổ thì panel đi theo tức thì.
+
+**Agent đóng là ẩn, không gỡ:** sau lần mở đầu, companion Agent ở lại mounted
+khi pane đóng (và khi đang ở Agent Hub), `visible={false}` — đọc transcript
+store đang giữ mà không subscribe, không fetch, không toast. Phần tử của nó chờ
+trong một "bãi đỗ" trong document (fixed, ngoài màn hình, `invisible`, `inert`,
+cùng kích thước card vừa rời), nên mở lại là tức thì, đúng chỗ cuộn và composer
+như lúc đóng. Context pane của module vẫn gỡ khi đóng như cũ.
 
 Code: luật thuần ở `frontend/src/workbench/slots/slotModel.ts` (có test),
 kéo ở `paneDrag.ts`, vẽ ở `frontend/src/components/ui/pane-slots.tsx`, vị trí ở
