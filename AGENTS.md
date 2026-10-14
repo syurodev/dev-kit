@@ -176,8 +176,43 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - At `@6xl/agent-conversation` the session summary card (`summary/`: Plan, Changes, Sources,
     Subagents, Context) docks top-right and the column (`max-w-190`; the rail keeps `max-w-180`) moves
     left (`pr-80`). Below that size a corner button opens it. The data is derived once per view.
-  - Links are inline anchors that open via `bridge/browser.ts` `openExternal`; inline-code file refs
-    (`transcript/fileRef.ts`) open in CodeGraph.
+  - Web links open via `bridge/browser.ts` `openExternal`; file refs, symbols and commits: next bullet.
+  - The docked summary replaces the latest plan's card with one line (`Plan · 2 of 4 — in the summary`)
+    only in the Hub (`planDocked`; the rail has no dock). At `@7xl/agent-conversation` the column grows to
+    `max-w-220` (880px). A row's ask is `plainAsk` (ticks and word-wrapping `**` dropped, paths intact).
+- **References in agent prose resolve, preview and open** (spec
+  `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;
+  files under `frontend/src/modules/agenthub/transcript/`).
+  - Parsing is pure: `fileRef.ts` takes `a/b.go`, `./`, absolute, `:27`, `:27-30`, `:27:3`, `#L27(-L30)`
+    and an allow-list of known names (`Dockerfile`, `go.mod`, …), never URLs, versions or escaping `..`;
+    `linkTarget(href)` splits a markdown link into url (`http(s)`/`mailto`), file (no scheme / `file://`)
+    or other (plain text, href in a tooltip).
+  - `resolveFileRef.ts` resolves in the **session's** workspace (`RefContext` = session id, workspace id,
+    project path): absolute → project-relative → each folder root → by name (`agentHubListContextFiles`,
+    suffix match, ≤ 11 stats); first step with hits wins; found / ambiguous (≤ 10) / missing / unsupported
+    (scratch). Cached per **path** (`fileRefQuery`, key `["agenthub","fileRef",session,path]`, 30 s);
+    `withLine` puts the reference's own line back. Errors are thrown, never cached as "missing".
+  - `openReference.ts`: `openFileRef` dispatches `codegraph.reveal` with `workspaceId` + `folderId`
+    (`codegraph/revealFile.ts`; any workspace, sidebar → Files); ambiguous opens `RefPicker.tsx` anchored
+    at the reference (focus returns to it, Home/End); missing, a throw, or a reveal that answers
+    `"unavailable"` (an intent may return it instead of throwing) each toast; scratch falls back to
+    `project`. `refOpener` + `TranscriptActions.refPlacement`: the Hub opens beside, the rail in place.
+  - `ReferencePreview.tsx`: shadcn HoverCard 400/120 ms, opened by a resting pointer only (not focus,
+    a press or an open context menu), trigger wrapped in `ContextMenuTrigger` the ModuleSwitcher way. The
+    file body is always 9 rows (±4 around the line, else the first 9), cut from one highlight of the whole
+    file or ±200 lines past the highlight limit; reads (`readFolderFile`) start on open, `staleTime` 5 s /
+    `gcTime` 30 s. URL cards fetch nothing. Menus (`referenceMenu.ts`, rows built when a menu opens): Open
+    beside / Open here / Copy path / Copy path:line / Reveal in Files; Open in browser / Copy link; Go to
+    definition / Copy name; Open in Git / Copy SHA.
+  - Symbols and commits (`codeRefs.ts`, `useCodeRefs.ts`, `CodeReference.tsx`) only in **settled**
+    messages, never inside a link's text. Symbols: identifier shape, 3–80 chars, not a keyword, and
+    `worthLookingUp` (last segment ≥ 4, or qualified, a call or camelCase); ≤ 12 names per message,
+    `searchWorkspaceSymbols` on the last segment, 3 in flight app-wide (`createLimiter`, aborts drop
+    queued work), exactly one exact match or nothing; cached 5 min, 15 s while a folder is still
+    indexing. Commits (`[0-9a-f]{7,40}`, a digit and a letter) fetch nothing; a click pins Git to the
+    session's project folder and dispatches `git.reveal`. Dotted underline; file refs solid.
+  - The summary's Sources count only data-touching tools (`summaryModel.ts` `DATA_TOOLS`: queries,
+    schema reads, Kafka reads/publishes, `ssh.runCommand`) and say what was done ("2 queries").
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`

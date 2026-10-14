@@ -212,3 +212,105 @@ opens.
 - **Codegraph:** `codegraph.reveal` with ids calls `openFile` with those ids.
 - **Visual:** the dev page used in Phase 1 (scratch, not committed), plus a
   hover and a right-click screenshot.
+
+## Decisions while building
+
+What shipped differs from the sections above as follows (commits
+`9c3d8b70..be66ff49`).
+
+**Parsing (§1)**
+- `fileRef` also reads `:27-30` and `:27:3` (line 27), and drops a leading
+  `./`. Prose names like `Node.js` are never files. The known names include
+  `go.sum`, `tsconfig.json`, `Cargo.toml`, `pom.xml`, `build.gradle(.kts)` and
+  `.env*`.
+- `linkTarget` reads `file://localhost/…` as `/…`. A malformed escape is
+  `other`. A link DevKit will not open renders as plain text, with its href in
+  a tooltip.
+
+**Resolution (§2)**
+- **Path-only cache.** The resolver never puts a line on a target. The query
+  (`fileRefQuery`) is keyed and fetched on `ref.path` alone, and `withLine`
+  applies the reference's own line afterwards (`select` in the hook, and again
+  in `openFileRef`). One resolution serves `a.go:10` and `a.go:90`.
+- **Failures are not cached.** A failed folder lookup throws, so the query
+  retries and no wrong "missing" is stored. A stat that rejects counts as
+  "not here" for that candidate only.
+- **By name probes little.** Candidates are deduplicated and the collection
+  stops at one more than the ambiguous cap, so at most 11 stats, never 100.
+  A leading `../` is dropped for the suffix match. A path that climbs out of
+  a folder root is not tried against the roots.
+- `not_regular` is carried as `unreadable` alongside `binary` and `too_large`.
+
+**Opening (§3)**
+- **An intent may return `"unavailable"` instead of throwing.**
+  `dispatchIntent` passes it on. `codegraph.reveal` answers it when no folder
+  holds a project path (`revealFile.ts`, `revealFileRef`). Returning keeps the
+  many callers that `void` a dispatch free of unhandled rejections.
+  `openFileRef` toasts it as "Couldn't find …", and toasts a throw as
+  "Couldn't open …: <reason>".
+- Ambiguous with no transcript on screen to anchor a picker toasts "Several
+  files match …". The picker (`RefPicker.tsx`) anchors at a wrapped
+  reference's first line, is labelled by its heading, takes Home/End, and
+  returns focus to the reference (or the scroller if it re-rendered away).
+- **Placement per surface.** `TranscriptActions.refPlacement` is `beside` in
+  the Hub and `replace` in the companion rail, through `refOpener`. The card's
+  Open and a picked candidate use it. Only the menu's Open beside / Open here
+  name a place.
+
+**Preview (§4)**
+- **Pointer-only hover cards.** Only a resting pointer opens one: not focus,
+  not a press, not while its context menu is open. A click closes it.
+  Keyboard users open a reference with Enter (Space too on a code span) and
+  get its menu from the context-menu key or Shift+F10; the trigger announces
+  the menu (`aria-haspopup`).
+- **A fixed nine-row body.** Every state fills the same box (code, skeleton,
+  notes, the candidate list) above a footer that is always there, so the card
+  never resizes. The header shows the path as written until the resolved one
+  arrives. A line past the end raises the last line and says `line N of M`.
+  CRLF reads as LF, tabs are two wide.
+- **Highlighting** covers the whole file once, memoised, then the slice is
+  cut. Past the highlighter's size limit, it covers ±200 lines around the
+  target, so a comment or string opened above the slice keeps its colour.
+- **Reads** go stale after 5 s (not 30 s) and leave memory 30 s after the
+  card closes (`gcTime`). A preview of a file being edited stays current.
+- The footer is `Open here` and `Open`. An unsupported (scratch) ref offers
+  `Open in Code Graph`, the project fallback. The commit card's button says
+  which folder it switches Git to.
+- Menu rows are built only when a menu opens.
+
+**Symbols and commits (§6)**
+- **Cap 12, limiter 3.** At most 12 distinct names per message, not 20. The
+  three-at-a-time limit is one queue for the whole app (`createLimiter`), not
+  per message. A query whose message unmounts aborts and leaves the queue
+  before it runs.
+- **Short-name rule.** A bare name is looked up only if its last segment is
+  at least 4 characters, or it is qualified, a call (`()`), or camelCase
+  (`worthLookingUp`). `get` or `run` matches half a codebase and names none
+  of it. File refs and commit-shaped spans are never looked up as symbols.
+- **Not inside links.** Code in a link's text is the link's text: no file ref,
+  symbol or commit is made there, and it is not counted against the cap.
+- **While indexing.** A miss while any folder is `indexing`, `not-indexed` or
+  `failed` is kept 15 s, not 5 min, so the reference appears once the index
+  is ready.
+- An exact match ignores a label's parameter list (`invoke(String)`).
+  Workspace folders for the symbol header and the commit pin are one shared
+  query (30 s).
+- A commit becomes a reference only when the session has a project path to
+  pin Git to.
+
+**Summary sources**
+- The summary's Sources count only tools that touched a target's data. The
+  allow-list is `DATA_TOOLS`: `db.query`, `db.explain`, `db.schema.get`,
+  `db.listForeignKeys`, the Kafka reads and `publishMessage`, and
+  `ssh.runCommand`. Listing profiles, testing a connection or reading history
+  is not a source.
+- Each source says what was done: "2 queries", "read the schema",
+  "published 1", "peeked 2 topics", "ran 3 commands". Codex's untitled MCP
+  calls are read from their `devkit.<tool>` title.
+
+**Phase-1 fixes (§7)**
+- The ask cleaner (`plainAsk`) drops code ticks. It drops `**`/`__` only where
+  they wrap words, so a path or glob containing them stays intact.
+- The docked plan line appears only where the summary docks: the Hub, for a
+  non-draft session (`planDocked`). The rail has the container query but no
+  dock, so its plan stays whole. An empty plan keeps its card.
