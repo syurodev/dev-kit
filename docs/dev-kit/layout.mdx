@@ -600,12 +600,16 @@ sau (`slots/hostMove.ts`), nên pane đổi chỗ không bị cuộn về đầu
 4.4): box ngoài animate kích thước và clip, box trong ghim ở kích thước mở và
 treo vào cạnh đang chuyển động — cột trượt vào từ phải và trượt ra về phải, hàng
 dưới trượt lên, sidebar trượt từ trái. Mặt card đi theo panel, nội dung trên nó
-fade vào sau 60 ms. Đóng thì nội dung cuối ở lại tới khi panel đóng xong
+hiện ra sau 60 ms (một lớp phủ màu mặt card mờ dần, không phải `opacity` của nội
+dung — smoothness 3.8). Đóng thì nội dung cuối ở lại tới khi panel đóng xong
 (`--motion-fast`), trừ pane đang hiện ở chỗ khác. Bề rộng module xin cho context
 pane được áp trước frame đầu, nên animation mở không đổi đích giữa chừng. Resize
 cửa sổ, kéo bất kỳ sash nào, hay một thay đổi chỉ do clamp của panel bên cạnh thì
-panel đi theo tức thì. Card đang đóng (và sidebar đã đóng) là `inert`; một pane
-đã sang chỗ khác trong lúc chỗ cũ đang đóng thì chỗ cũ không vẽ lại nó.
+panel đi theo tức thì. Card đã đóng (và sidebar đã đóng) là `inert`, nhưng
+`inert` chỉ đổi khi panel đứng yên — đổi nó restyle cả cây bên dưới — nên panel
+vẫn `inert` suốt lúc mở và thành `inert` sau khi đóng xong; lúc đang đóng một
+tấm chắn nhận click. Một pane đã sang chỗ khác trong lúc chỗ cũ đang đóng thì chỗ
+cũ không vẽ lại nó.
 
 **Agent đóng là ẩn, không gỡ:** sau lần mở đầu, companion Agent ở lại mounted
 khi pane đóng (và khi đang ở Agent Hub), `visible={false}` — đọc transcript
@@ -613,10 +617,16 @@ store đang giữ mà không subscribe, không fetch, không toast, và **đóng
 lại element dựng lần cuối còn hiện, nên gõ prompt trong Agent Hub không làm rail ẩn
 render lại (mở lại thì render một lần với state mới). Lúc ẩn, menu/popover/select
 nó mở (portal ra body) được đóng bằng Escape khi lớp trên cùng là của nó, và focus
-trong nó bị blur. Phần tử của nó chờ
-trong một "bãi đỗ" trong document (fixed, ngoài màn hình, `invisible`, `inert`,
-cùng kích thước card vừa rời), nên mở lại là tức thì, đúng chỗ cuộn và composer
-như lúc đóng. Context pane của module vẫn gỡ khi đóng như cũ.
+trong nó bị blur. Card của nó **nằm yên tại chỗ** (`slots/retain.restingStep`):
+trong cột đã đóng như sidebar đóng giữ rail, hoặc — khi pane khác vẫn mở trong
+cùng cột — "cất" ra khỏi flow (`absolute`, `invisible`, `inert`, phủ cả cột) để
+pane kia lấy cả cột, và cất rồi thì giữ vậy tới khi Agent hiện lại. Chuyển phần
+tử sang chỗ khác là dựng lại cả cuộc hội thoại trên WebKit (không có
+`moveBefore`): 70–90 ms mỗi lần mở và mỗi lần đóng. Chỉ khi một pane khác chiếm
+đúng vị trí của nó, hay nó hiện ở chỗ khác, phần tử mới sang "bãi đỗ" trong
+document (fixed, ngoài màn hình, `invisible`, `inert`, cùng kích thước card vừa
+rời). Mở lại vẫn đúng chỗ cuộn và composer như lúc đóng. Context pane của module
+vẫn gỡ khi đóng như cũ.
 
 Code: luật thuần ở `frontend/src/workbench/slots/slotModel.ts` (có test),
 kéo ở `paneDrag.ts`, vẽ ở `frontend/src/components/ui/pane-slots.tsx`, vị trí ở
