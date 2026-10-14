@@ -79,7 +79,11 @@ export function ComposerContextBar({
           {direct.map((entry) => entry.kind === "item" ? (
             <TrayChip key={entry.key} testId={`tray-${entry.key}`} icon={entry.icon}
               count={Number(entry.detail ?? 0)} title={`${entry.label}: ${entry.detail ?? 0}`} active={entry.active}
-              priority onClick={entry.onSelect} />
+              priority onClick={entry.onSelect}
+              // A wide Hub docks the session summary, which lists the same
+              // subagents; the bar drops its chip then. The rail is never that
+              // wide, so it keeps it.
+              className={entry.key === "subagents" ? "@6xl/agent-conversation:hidden" : undefined} />
           ) : null)}
         </div>
         {overflow.length > 0 ? (

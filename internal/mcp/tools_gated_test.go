@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"devkit/internal/apperrors"
@@ -37,6 +39,9 @@ type fakeDB struct {
 	activeID string
 	queryOut database.QueryResult
 	queryErr error
+	// queriedID is the profile Query ran on; onQuery runs inside Query.
+	queriedID string
+	onQuery   func(f *fakeDB)
 }
 
 func (f *fakeDB) ListProfiles() ([]database.ProfileSummary, error) { return f.profiles, nil }
@@ -66,7 +71,11 @@ func (f *fakeDB) ListSavedQueries(string) ([]database.SavedQuery, error) {
 	return nil, nil
 }
 
-func (f *fakeDB) Query(context.Context, string, string, int) (database.QueryResult, error) {
+func (f *fakeDB) Query(_ context.Context, id string, _ string, _ int) (database.QueryResult, error) {
+	f.queriedID = id
+	if f.onQuery != nil {
+		f.onQuery(f)
+	}
 	return f.queryOut, f.queryErr
 }
 
@@ -291,6 +300,79 @@ func TestDBQueryGateDeny(t *testing.T) {
 }
 
 const prodDBID = "0123456789abcdef01234567"
+
+// A db.query result names the profile it ran on — the one the gate confirmed,
+// not the sticky target read again afterwards — so a transcript card can say
+// which connection answered and open its result there. The console's own
+// QueryResult (the bridge path) does not grow the field.
+func TestDBQueryResultNamesTheProfileItRanOn(t *testing.T) {
+	const otherID = "fedcba9876543210fedcba98"
+	cell := "1"
+	dbAPI := &fakeDB{
+		activeID: prodDBID,
+		profiles: []database.ProfileSummary{{ID: prodDBID, Env: "dev"}, {ID: otherID, Env: "dev"}},
+		queryOut: database.QueryResult{
+			Columns: []string{"n"}, Rows: [][]*string{{&cell}}, RowCount: 1, Truncated: true, RowsAffected: -1,
+		},
+		// The person picks another connection while the statement runs.
+		onQuery: func(f *fakeDB) { f.activeID = otherID },
+	}
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	caller := &fakeCaller{}
+	srv := NewServer(Deps{
+		Caller: caller,
+		Notes:  &fakeNotes{},
+		Vault:  &fakeVault{},
+		Search: &fakeSearch{},
+		Tools:  fakeTools{},
+		Envs:   &fakeEnvs{req: map[string]bool{"dev": false}},
+		SSH:    &fakeSSH{},
+		DB:     dbAPI,
+		Kafka:  &fakeKafka{},
+		Hub:    hub,
+	})
+
+	go func() {
+		waitForPending(t, hub)
+		_ = hub.Complete(hub.Pending().ID, "allow")
+	}()
+	_, out, err := srv.toolDBQuery(context.Background(), &sdk.CallToolRequest{}, dbQueryInput{SQL: "select 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dbAPI.queriedID != prodDBID {
+		t.Fatalf("ran on %q, want %q", dbAPI.queriedID, prodDBID)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["profile_id"] != prodDBID {
+		t.Fatalf("profile_id = %v, want %q (result %s)", got["profile_id"], prodDBID, raw)
+	}
+	for _, key := range []string{"columns", "rows", "row_count", "truncated", "rows_affected"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("result lost %q: %s", key, raw)
+		}
+	}
+	if got["row_count"] != float64(1) || got["truncated"] != true || got["rows_affected"] != float64(-1) {
+		t.Fatalf("result fields changed: %s", raw)
+	}
+	// Audit metadata keeps the id opaque, as before.
+	if caller.last.metadata["profile_id"] != recordID(prodDBID) || caller.last.scope != "profile:active" {
+		t.Fatalf("audit = %+v", caller.last)
+	}
+
+	// The console path's type is untouched: no profile_id on the bridge's result.
+	console, _ := json.Marshal(database.QueryResult{})
+	if strings.Contains(string(console), "profile_id") {
+		t.Fatalf("console QueryResult grew profile_id: %s", console)
+	}
+}
 
 func newDBGateServer(env string, req map[string]bool, hub *interaction.Hub) (*Server, *fakeCaller) {
 	caller := &fakeCaller{}

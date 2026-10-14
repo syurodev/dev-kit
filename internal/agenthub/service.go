@@ -1416,7 +1416,17 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		lastUpdate   json.RawMessage
 		permDenied   atomic.Bool
 		touched      touchedPaths
+		// The agent's last message this turn, for the session preview.
+		lastMsg lastAgentMessage
 	)
+	// writePreview records the session's one-line preview. Its error is
+	// ignored on purpose: a preview must never fail a turn.
+	writePreview := func(preview string) {
+		if preview == "" {
+			return
+		}
+		_ = s.store.UpdateSessionPreview(recordCtx, in.SessionID, preview, time.Now().UTC())
+	}
 	rt.SetHandlers(RuntimeHandlers{
 		// Replaces the handler attachUpdates installed rather than adding to
 		// it, so the turn's updates are still emitted and recorded once.
@@ -1438,6 +1448,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
 			parsed := s.handleUpdate(recordCtx, in.SessionID, update)
+			lastMsg.observe(parsed)
 			// Where a tool call says it worked. This is the only evidence a
 			// changed file was the agent's doing rather than a Bash script's,
 			// short of the vendor's report.
@@ -1533,6 +1544,12 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		if finalStatus == SessionStatusError {
 			log.Printf("agenthub: invoke %s session %s: %v", sess.AgentType, in.SessionID, promptErr)
 		}
+		// A cancelled turn keeps the previous preview: stopping it was the
+		// person's own doing, and what the last finished turn said still holds.
+		// So does a busy refusal, which ran nothing.
+		if !errors.Is(promptErr, ErrCancelled) && !errors.Is(promptErr, ErrSessionBusy) {
+			writePreview(PreviewFromError(promptErr))
+		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
 	}
@@ -1543,6 +1560,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 
 	usage, err := adapter.NormalizeUsage(outcome.Meta)
 	if err != nil {
+		writePreview(PreviewFromError(err))
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1551,6 +1569,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	lastUpdateMu.Unlock()
 	files, summary, err := adapter.NormalizeToolSummary(outcome.Meta, updateCopy)
 	if err != nil {
+		writePreview(PreviewFromError(err))
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1560,6 +1579,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 
 	usageJSON, err := json.Marshal(usage)
 	if err != nil {
+		writePreview(PreviewFromError(err))
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1574,15 +1594,19 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		CreatedAt:       time.Now().UTC(),
 	}
 	if err := s.store.InsertTurn(recordCtx, turn); err != nil {
+		writePreview(PreviewFromError(err))
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 
 	turns, err := s.store.ListTurns(recordCtx, in.SessionID)
 	if err != nil {
+		writePreview(PreviewFromError(err))
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
+
+	writePreview(PreviewFromMessage(lastMsg.String()))
 
 	if err := s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle); err != nil {
 		return InvokeResult{Status: "error"}, err

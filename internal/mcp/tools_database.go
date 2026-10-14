@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"devkit/internal/database"
 	"devkit/internal/interaction"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -134,6 +135,15 @@ type dbQueryInput struct {
 	SQL string `json:"sql"`
 }
 
+// dbQueryResult is db.query's answer: the console's QueryResult plus the
+// profile it ran on — the id the gate confirmed — so a transcript card can say
+// which connection answered and open its result there. MCP only: the bridge's
+// console keeps database.QueryResult as it is.
+type dbQueryResult struct {
+	database.QueryResult
+	ProfileID string `json:"profile_id"`
+}
+
 func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQueryInput) (*sdk.CallToolResult, any, error) {
 	target := s.databaseTarget()
 	// Execute against the exact profile the confirmation covered — re-reading
@@ -151,7 +161,11 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 		defer cancel()
 		// 0: the service default. An MCP client reads a result, it does not
 		// page a grid, so there is no page size to honour here.
-		return s.deps.DB.Query(callCtx, id, in.SQL, 0)
+		res, err := s.deps.DB.Query(callCtx, id, in.SQL, 0)
+		if err != nil {
+			return nil, err
+		}
+		return dbQueryResult{QueryResult: res, ProfileID: id}, nil
 	})
 	if err != nil {
 		return nil, nil, err

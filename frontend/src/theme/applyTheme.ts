@@ -1,19 +1,22 @@
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
-import type { ThemePalette } from "./families";
+import type { ResolvedPalette } from "./families";
 
-/** The one element the whole palette lives in. */
+type Palettes = { dark: Partial<ResolvedPalette>; light: Partial<ResolvedPalette> };
+
+/** The one element the Color palette's tokens live in. */
 const STYLE_ID = "devkit-theme";
 
 /** Styled in index.css; kills transitions for the duration of the swap. */
 const SWITCHING_CLASS = "theme-switching";
 
 /**
- * The selector a family's tokens are written under.
+ * The selector a Color palette's tokens are written under.
  *
  * Two attributes, and the count is the point. index.css declares the base at
  * `:root` — specificity (0,1,0) — and light mode at `:root[data-theme="light"]`
- * — (0,2,0). A family written at plain `:root` would lose to light mode and
- * apply in dark only, silently. Pinning both attributes puts it at (0,3,0),
+ * — (0,2,0). A palette written at plain `:root` would lose to light mode and
+ * apply in dark only, silently. Light mode restates the hues today, so this is
+ * not hypothetical. Pinning both attributes puts it at (0,3,0),
  * above everything in the stylesheet, without an `!important` anywhere.
  *
  * It also means the rule only matches while the document actually carries that
@@ -24,7 +27,7 @@ export function themeSelector(family: ThemeFamilyPreference, mode: "light" | "da
 }
 
 /**
- * The stylesheet for one family, both modes.
+ * The stylesheet for one Color palette, both modes.
  *
  * Both, not just the active one: the mode can change without the family
  * changing (the system flipping at sunset), and re-authoring CSS on a mode
@@ -34,7 +37,7 @@ export function themeSelector(family: ThemeFamilyPreference, mode: "light" | "da
  */
 export function themeCss(
   family: ThemeFamilyPreference,
-  palettes: { dark: ThemePalette; light: ThemePalette },
+  palettes: Palettes,
 ): string {
   const blocks: string[] = [];
   for (const mode of ["dark", "light"] as const) {
@@ -49,12 +52,13 @@ export function themeCss(
 }
 
 /**
- * Puts a family's palette on the document.
+ * Puts a Color palette on the document — hues, syntax and ANSI, resolved. Never a
+ * chrome token: the chrome is Mono and lives in index.css.
  *
  * One `textContent` write, not one `setProperty` per token. The tokens are a
- * single state — half of a palette is not a palette — and forty-odd separate
- * writes are forty chances for a style recalc to land between them. The
- * smoothness doc's rule for theming (§8.4) is that every colour is a token so
+ * single state — half of a palette is not a palette — and two dozen separate
+ * writes per mode are two dozen chances for a style recalc to land between
+ * them. The smoothness doc's rule for theming (§8.4) is that every colour is a token so
  * a switch is ONE frame; that only holds if the write is one thing too.
  *
  * The <style> is created once and reused. Replacing the element would detach
@@ -68,7 +72,7 @@ export function themeCss(
  */
 export function applyThemeFamily(
   family: ThemeFamilyPreference,
-  palettes: { dark: ThemePalette; light: ThemePalette },
+  palettes: Palettes,
 ): void {
   if (typeof document === "undefined") {
     return;

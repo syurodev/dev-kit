@@ -24,7 +24,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
-import { consoleStatus } from "../consoleStatus";
+import { agentResultNote, consoleStatus } from "../consoleStatus";
 import { dialectOf, splitStatements, statementAt, statementName } from "../sql/statements";
 import { statementStatusGutter } from "../sql/statementGutter";
 import { RunGroup } from "./RunGroup";
@@ -720,11 +720,21 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                       </TabsList>
                     </Tabs>
                   )}
-                  {queryResult.truncated && (
+                  {/* An agent's rows, shown by Open in Database without
+                      running anything here: say whose they are until a run
+                      of this console replaces them. The note carries the
+                      cut, so the cap chip is not said twice. */}
+                  {slice.results[slice.activeResult]?.origin === "agent" ? (
+                    <span className="flex min-h-7 min-w-0 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
+                      {agentResultNote(queryResult, {
+                        connectionUnknown: slice.results[slice.activeResult]?.connectionUnknown,
+                      })}
+                    </span>
+                  ) : queryResult.truncated ? (
                     <span className="flex min-h-7 min-w-0 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
                       row cap reached — add LIMIT/OFFSET to page further
                     </span>
-                  )}
+                  ) : null}
                   <span className="flex-1" />
                   <ActionTooltip label="Close the result">
                     <Button

@@ -4,4 +4,4 @@ export const CONTROL_SURFACE =
 
 /** Focus adds a ring without changing the control's dimensions. */
 export const CONTROL_FOCUS =
-  "focus-visible:border-status-info focus-visible:ring-2 focus-visible:ring-status-info/20 focus-visible:outline-none aria-invalid:border-status-danger aria-invalid:ring-status-danger/15"
+  "focus-visible:border-border-focus focus-visible:ring-2 focus-visible:ring-border-focus/50 focus-visible:outline-none aria-invalid:border-status-danger aria-invalid:ring-status-danger/15"

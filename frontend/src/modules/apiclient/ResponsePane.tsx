@@ -49,7 +49,7 @@ export function ResponsePane({
             type="button"
             onClick={onCloseCurl}
             aria-label="Close the cURL command"
-            className="absolute top-1.5 right-1.5 rounded p-0.5 text-text-tertiary transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20"
+            className="absolute top-1.5 right-1.5 rounded p-0.5 text-text-tertiary transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50"
           >
             <X className="size-(--icon-12)" />
           </button>

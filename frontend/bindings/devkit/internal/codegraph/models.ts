@@ -147,6 +147,9 @@ export interface Edge {
  * message and a scheduled job are entry points too, and Kind says which.
  */
 export interface EntryPoint {
+    /**
+     * Camel route templates retain source expressions; these are not evaluated configuration.
+     */
     "routeId"?: string;
     "topic"?: string;
     "consumerGroup"?: string;

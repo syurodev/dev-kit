@@ -545,7 +545,7 @@ export function TrayTaskList({
             {others.length > 0 ? (
               session ? (
                 <details className="group/workspace mt-2 border-t border-border-subtle pt-2">
-                  <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-2 text-caption-11-medium text-text-secondary transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30 [&::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-2 text-caption-11-medium text-text-secondary transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50 [&::-webkit-details-marker]:hidden">
                     <ChevronDown className="size-3.5 -rotate-90 transition-transform duration-(--motion-base) group-open/workspace:rotate-0 motion-reduce:transition-none" />
                     Open in the workspace
                     <AnimatedNumber
@@ -595,7 +595,7 @@ function TrayTaskRows({
                   { placement: "beside" },
                 )
               }
-              className="group/task flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="group/task flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
             >
               <span
                 role="img"
@@ -610,7 +610,7 @@ function TrayTaskRows({
                     done
                       ? "text-status-success"
                       : active
-                        ? "text-status-info"
+                        ? "text-(--status-running)"
                         : "text-text-tertiary",
                   )}
                 />
@@ -690,7 +690,7 @@ export function TrayRepoList({
                   { placement: "beside" },
                 )
               }
-              className="flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-status-info/30"
+              className="flex h-11 @min-lg:h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
             >
               <Folder
                 className="size-4 shrink-0 text-text-tertiary"

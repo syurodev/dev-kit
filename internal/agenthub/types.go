@@ -37,7 +37,12 @@ type AgentSession struct {
 	ParentSessionID *string
 	Depth           int
 	Title           *string
-	ACPSessionID    string
+	// Preview is where the session got to, one line: the first sentence of
+	// the agent's last message, or why the turn failed. Written when a turn
+	// ends. Agent output, stored like the transcript; MCP results blank it
+	// (internal/mcp/tools_agenthub.go), the UI shows it under the title.
+	Preview      string `json:"Preview,omitempty"`
+	ACPSessionID string
 	// ExtraReadWritePaths is the jail widening CreateSession was given (a
 	// workspace's other services — see CreateInput). Stored with the session
 	// because the jail is rebuilt from scratch on every resume and rewind,

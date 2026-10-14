@@ -26,11 +26,11 @@ const MARK: Record<MarkKind, { letter: string; className: string }> = {
   },
   untracked: {
     letter: "U",
-    className: "bg-status-info text-action-primary-foreground",
+    className: "bg-(--hue-blue) text-action-primary-foreground",
   },
   renamed: {
     letter: "R",
-    className: "bg-status-recovery text-action-primary-foreground",
+    className: "bg-(--hue-violet) text-action-primary-foreground",
   },
   // Outlined rather than filled: a conflict is the one mark that asks for
   // something, and a solid red block down a rail reads as an error.

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  * Tag / Chip (Figma 378:2674) — 74×20, r=6, label Caption/11 Medium.
  *
  * A glass chip, not a solid block: white at 6% over whatever is behind, with a
- * candy-blue 8% hairline. An opaque `surface/raised` fill looks plausible on one
+ * neutral 8% hairline (--border-subtle). An opaque `surface/raised` fill looks plausible on one
  * background and disappears on another, which is why the design uses a
  * translucent tier here.
  *

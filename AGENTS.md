@@ -27,6 +27,16 @@ and gate document dialogs with `useModuleVisibility`. The shared sidebar has no
 fill/border/shadow of its own; controls keep their theme colors. SSH's manifest,
 sidebar and `documents.ts` are the current reference implementation.
 
+### Theme: Mono chrome + Color palette
+The chrome is one monochrome design (`frontend/src/index.css`, light and dark); nothing
+the person picks changes it. The theme family (`theme_family`, Settings → "Color palette")
+supplies only `--hue-*` (8 per mode), `--syntax-*` and `--ansi-*`: `theme/families.ts`
+declares hues (+ optional syntax) and `resolvePalette` derives the rest; `applyThemeFamily`
+writes only palette tokens. Status (`--status-*`) belongs to the chrome — use it for how
+safe something is; use `--hue-*` for which kind it is. `bun test src/theme` floors every
+palette colour at 4.5:1 on every Mono ground. Design:
+`docs/superpowers/specs/2026-10-13-mono-chrome-color-palettes-design.md`.
+
 ### Toolchain (preinstalled in the environment)
 - Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; needs >= 1.25).
 - `bun` (frontend package manager — `bun.lock` is the lockfile; the `Taskfile` default
@@ -150,6 +160,108 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   the recent set, never counted against it. Order is `AgentSession.updatedAt` (bridge: the row time, not
   touched by transcript chunks) then id. "Waiting" reads `pendingQueue`/`elicitationQueue` as well as
   `status`. `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
+- **The rail and the main view are a quiet list and a column with a summary card**
+  (spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`, its last section lists
+  what Phase 1 changed from it).
+  - Rows are 50px: the vendor face (`sidebar/SessionAvatar.tsx`) with its state on it (running arc,
+    waiting/error dot), title and age, then a second line: the pending ask (the first permission wins),
+    else `AgentSession.preview`, which Go writes at turn end (migration 41, `agenthub/preview.go`). MCP
+    blanks the preview. Subagents are in the row menu.
+  - "Needs you" lists waiting/failed sessions across workspaces (`needsYou`, through `groupSessions`'
+    keep filter, so a child stays with its parent's group).
+  - The title-bar workspace comes first and open; other groups fold to one line with a running count
+    (`agentPins.expanded`), except one holding the selected session.
+  - A turn this window did not send refreshes only `preview` + `updatedAt`
+    (`AgentSessionsSubscriber`, latest-read guard).
+  - At `@6xl/agent-conversation` the session summary card (`summary/`: Plan, Changes, Sources,
+    Subagents, Context) docks top-right and the column (`max-w-190`; the rail keeps `max-w-180`) moves
+    left (`pr-80`). Below that size a corner button opens it. The data is derived once per view.
+  - Web links open via `bridge/browser.ts` `openExternal`; file refs, symbols and commits: next bullet.
+  - The docked summary replaces the latest plan's card with one line (`Plan · 2 of 4 — in the summary`)
+    only in the Hub (`planDocked`; the rail has no dock). At `@7xl/agent-conversation` the column grows to
+    `max-w-220` (880px). A row's ask is `plainAsk` (ticks and word-wrapping `**` dropped, paths intact).
+- **References in agent prose resolve, preview and open** (spec
+  `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;
+  files under `frontend/src/modules/agenthub/transcript/`).
+  - Parsing is pure: `fileRef.ts` takes `a/b.go`, `./`, absolute, `:27`, `:27-30`, `:27:3`, `#L27(-L30)`
+    and an allow-list of known names (`Dockerfile`, `go.mod`, …), never URLs, versions or escaping `..`;
+    `linkTarget(href)` splits a markdown link into url (`http(s)`/`mailto`), file (no scheme / `file://`)
+    or other (plain text, href in a tooltip).
+  - `resolveFileRef.ts` resolves in the **session's** workspace (`RefContext` = session id, workspace id,
+    project path): absolute → project-relative → each folder root → by name (`agentHubListContextFiles`,
+    suffix match, ≤ 11 stats); first step with hits wins; found / ambiguous (≤ 10) / missing / unsupported
+    (scratch). Cached per **path** (`fileRefQuery`, key `["agenthub","fileRef",session,path]`, 30 s);
+    `withLine` puts the reference's own line back. Errors are thrown, never cached as "missing".
+  - `openReference.ts`: `openFileRef` dispatches `codegraph.reveal` with `workspaceId` + `folderId`
+    (`codegraph/revealFile.ts`; any workspace, sidebar → Files); ambiguous opens `RefPicker.tsx` anchored
+    at the reference (focus returns to it, Home/End); missing, a throw, or a reveal that answers
+    `"unavailable"` (an intent may return it instead of throwing) each toast; scratch falls back to
+    `project`. `refOpener` + `TranscriptActions.refPlacement`: the Hub opens beside, the rail in place.
+  - `ReferencePreview.tsx`: shadcn HoverCard 400/120 ms, opened by a resting pointer only (not focus,
+    a press or an open context menu), trigger wrapped in `ContextMenuTrigger` the ModuleSwitcher way. The
+    file body is always 9 rows (±4 around the line, else the first 9), cut from one highlight of the whole
+    file or ±200 lines past the highlight limit; reads (`readFolderFile`) start on open, `staleTime` 5 s /
+    `gcTime` 30 s. URL cards fetch nothing. Menus (`referenceMenu.ts`, rows built when a menu opens): Open
+    beside / Open here / Copy path / Copy path:line / Reveal in Files; Open in browser / Copy link; Go to
+    definition / Copy name; Open in Git / Copy SHA.
+  - Symbols and commits (`codeRefs.ts`, `useCodeRefs.ts`, `CodeReference.tsx`) only in **settled**
+    messages, never inside a link's text. Symbols: identifier shape, 3–80 chars, not a keyword, and
+    `worthLookingUp` (last segment ≥ 4, or qualified, a call or camelCase); ≤ 12 names per message,
+    `searchWorkspaceSymbols` on the last segment, 3 in flight app-wide (`createLimiter`, aborts drop
+    queued work), exactly one exact match or nothing; cached 5 min, 15 s while a folder is still
+    indexing. Commits (`[0-9a-f]{7,40}`, a digit and a letter) fetch nothing; a click pins Git to the
+    session's project folder and dispatches `git.reveal`. Dotted underline; file refs solid.
+  - The summary's Sources count only data-touching tools (`summaryModel.ts` `DATA_TOOLS`: queries,
+    schema reads, Kafka reads/publishes, `ssh.runCommand`) and say what was done ("2 queries").
+- **Tool results read as themselves** (Phase 2; spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`
+  §5–§7 and its "Phase 2 decisions"; `docs/dev-kit/tool-result-view.mdx`).
+  - One payload whatever the vendor sends (`workbench/toolPayload.ts`): `toolPayloadOf` → `{payload}` /
+    `{error}` / null, `toolNameOf` (a Codex call has no name, only the title `devkit.<tool>`), `isDevkitTool`.
+    Claude's answer is `content[].content.text` (no `rawOutput`); Codex's is `rawOutput`
+    `{content, structuredContent}` (structuredContent wins), `{error}`, or a 64 KiB stub `{truncated, bytes}` →
+    null. A fenced `code: message` is an error only for a DevKit tool (a shell may print one). An 8 KiB cut
+    preview that does not parse is null and the full row is loaded (`transcript/toolCallDetail.ts`, one TanStack
+    query per call, shared with "Show full output"); the stored page-image marker (`transcript_slim.go`) is not
+    an answer. Views get only successful payloads; a failed row stays the failed row.
+  - The tool's owner registers its view: `db.*` in `modules/database/toolViews`, `kafka.*` in
+    `modules/kafka/toolViews`, `ssh.runCommand` in `modules/ssh/toolViews`, `pdf.*` in `agenthub/toolViews`
+    (a PDF belongs to the session), `workspace.memory.*` in `workbench/registerViews.ts` (no module owns it).
+  - Cards stand after the run's fold (`transcript/ToolResultCard.tsx`): `resultCandidate` takes only
+    completed, non-activity calls whose view will draw (or a cut preview waiting on its row), 3 per turn in
+    call order; the rest are counted in a "+N more" button that opens the fold at the first hidden step.
+    A card shown after the fold stays a one-line row inside it. Views render inside an error boundary: a
+    card that throws, or a lazy chunk that fails, falls back to the row / generic content, not a blank app.
+  - Every table is `components/ui/data-table/DataTable` (markdown tables in prose too): column resize by
+    drag, arrows or double-click auto-fit, widths in component state only; a clickable row opens through a
+    button in its first cell (the row keeps its role); windowed past 100 rows.
+  - `database.reveal` (`{kind:"table", id:"schema.table", profileId?}`, a schema with a dot in SQL double
+    quotes, opened on `profileId` through the normal selection path, "unavailable" for an unknown profile; or
+    `{kind:"console"}`) and `kafka.reveal` (`{kind:"topic"}`: shows Kafka first, refreshes from Go, gives up
+    after 12 s) are how agenthub opens them. Open in Database never runs SQL, is not offered for writes,
+    titles the console "Agent query", and never writes over a saved console (`database/consoleHydration.ts`
+    reads the console files once per window, shared with the rail). `db.query` results carry `profile_id`
+    (the id the gate confirmed; MCP-only `dbQueryResult`, the console's `QueryResult` is unchanged): the card
+    names the connection, and Open in Database (query, and `db.explain` by its input's `profileId`) selects it
+    first through `selectProfileById` (shared with `database.reveal`; not on this device → toast, nothing opens;
+    the reload before it does not auto-select). A switch that would end an open transaction or stop a running
+    console query asks first (`workbench/confirmRequest` → `ConfirmHost`, the shared `ConfirmDialog`; no host →
+    no); Cancel opens nothing, without a toast. A query's rows show as the console's result without running
+    (`showAgentResult`, `ResultTab.origin: "agent"`, in memory only, "Agent's result · N rows — run to
+    refresh"), only into a console holding that statement with nothing of the person's (no result, error or
+    run; earlier agent rows refresh); a run replaces them. Writes get no Open, by shape or by statement
+    (`isWriteStatement`: RETURNING, a data-modifying CTE). An older transcript's query (no `profile_id`) opens
+    on the selected connection with a notice, rows labelled "connection unknown".
+  - Tables and topics the session's own results named are references (`transcript/entityRefs.ts`): from
+    `db.schema.get`, `db.listForeignKeys`, `kafka.listTopics` and the topic of an answered peek / describe /
+    publish. Settled messages only, never inside a link. Order: entity (unless the span has a `/` and reads
+    as a path) → file → commit → symbol. A bare table only when one schema has it; a name that is both a
+    table and a topic, or two tables spelling one qualified name, links nothing. Up to 4 cut answers per
+    session are loaded in full to read their names. A table reference carries the `profileId` its
+    `db.schema.get` / `db.listForeignKeys` input named (`EntityRef.profileId`), so it opens on the agent's
+    connection, as `db.query`'s card does by its result's `profile_id`; Open in Kafka uses the connection
+    selected here (its picker already connects the shared one).
+  - Go: the bridge keeps the message of only the listed `pdf.*` / `memory.*` codes (`bridge/errors.go`
+    `keptCodes`; anything else is `internal_error`). PDF engine text reaches only the log.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`

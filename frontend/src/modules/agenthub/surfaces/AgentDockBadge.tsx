@@ -31,7 +31,7 @@ export function AgentDockBadge({ state, count = 1, className }: AgentDockBadgePr
         data-state="running"
         title="Agent swarm running"
         className={cn(
-          "absolute -top-0.5 -right-0.5 size-2 rounded-full border-2 border-bg-app bg-status-info select-none",
+          "absolute -top-0.5 -right-0.5 size-2 rounded-full border-2 border-bg-app bg-(--status-running) select-none",
           className,
         )}
       />

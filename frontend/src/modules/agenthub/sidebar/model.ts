@@ -12,9 +12,6 @@ import { projectLabel, sessionGroup, type SidebarWorkspace } from "./grouping";
 /** Ordinary recent sessions a group shows before the rest fold into its stack. */
 export const RECENT_LIMIT = 5;
 
-/** A rail narrower than this drops the time and one avatar (see useRailWidth). */
-export const NARROW_RAIL_WIDTH = 240;
-
 // ---------------------------------------------------------------------------
 // Attention
 
@@ -84,6 +81,33 @@ export type SidebarGroup = {
   sessions: AgentSession[];
 };
 
+/** The top of a session's lineage among `byId`: itself when its parent is not there. */
+export function lineageRoot(session: AgentSession, byId: ReadonlyMap<string, AgentSession>): AgentSession {
+  const seen = new Set<string>([session.id]);
+  let at = session;
+  for (;;) {
+    const parent = at.parentSessionId ? byId.get(at.parentSessionId) : undefined;
+    if (!parent || seen.has(parent.id)) return at;
+    seen.add(parent.id);
+    at = parent;
+  }
+}
+
+/**
+ * The folder label a row shows before its second line: only when the
+ * workspace the session is filed in (by groupSessions' rule, through its
+ * lineage) has more than one folder. Null otherwise.
+ */
+export function rowFolder(
+  session: AgentSession,
+  byId: ReadonlyMap<string, AgentSession>,
+  scratchRoot: string,
+  workspaces: SidebarWorkspace[],
+): string | null {
+  const { workspace } = sessionGroup(lineageRoot(session, byId), scratchRoot, workspaces);
+  return workspace && workspace.paths.length > 1 ? projectLabel(session.projectPath) : null;
+}
+
 /**
  * Sessions by workspace / folder.
  *
@@ -109,16 +133,7 @@ export function groupSessions(
   keep?: (session: AgentSession) => boolean,
 ): SidebarGroup[] {
   const byId = new Map(sessions.map((s) => [s.id, s]));
-  const rootOf = (session: AgentSession): AgentSession => {
-    const seen = new Set<string>([session.id]);
-    let at = session;
-    for (;;) {
-      const parent = at.parentSessionId ? byId.get(at.parentSessionId) : undefined;
-      if (!parent || seen.has(parent.id)) return at;
-      seen.add(parent.id);
-      at = parent;
-    }
-  };
+  const rootOf = (session: AgentSession) => lineageRoot(session, byId);
 
   const groups = new Map<string, { workspace?: SidebarWorkspace; sessions: AgentSession[] }>();
   for (const session of sessions) {
@@ -184,6 +199,83 @@ export function compareRecent(a: AgentSession, b: AgentSession): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * The sessions that wait on the person, across every workspace: a pending
+ * permission or question, or a failed turn. Newest first. They are drawn
+ * once, here, and left out of their own group.
+ */
+export function needsYou(sessions: readonly AgentSession[], attention: Record<string, Attention>): AgentSession[] {
+  return sessions
+    .filter((x) => x.status !== "closed" && (x.status === "error" || attentionKind(x, attention[x.id]) !== null))
+    .sort(compareRecent);
+}
+
+/**
+ * An ask as plain words for a one-line row: no code ticks, no bold or
+ * underscore emphasis wrapping words (never inside a path), whitespace folded. `Run \`rm -rf build\`?` reads
+ * `Run rm -rf build?`.
+ */
+export function plainAsk(text: string): string {
+  // Emphasis is stripped only where it wraps a run of words at boundaries; a
+  // `**` or `__` inside a path, glob or identifier is part of the name.
+  return text
+    .replace(/`/g, "")
+    .replace(/(^|\s)(\*\*|__)(?=\S)(.+?)(?<=\S)\2(?=\s|[.,;:!?)]|$)/g, "$1$3")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The first thing each session asks: a permission's title wins over a question's message. */
+export function askBySession(
+  permissions: readonly Pick<PendingPermission, "sessionId" | "title">[],
+  questions: readonly Pick<PendingElicitation, "sessionId" | "message">[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const q of questions) if (q.message && !out[q.sessionId]) out[q.sessionId] = plainAsk(q.message);
+  // The first permission of a session, over any question: walked newest-first
+  // so the oldest one is written last.
+  for (let i = permissions.length - 1; i >= 0; i--) {
+    const p = permissions[i];
+    if (p.title) out[p.sessionId] = plainAsk(p.title);
+  }
+  return out;
+}
+
+export type SecondLine = { text: string; tone: "plain" | "warning" | "danger"; folder: string | null };
+
+/** What a row says under its title: a pending ask, else the preview (danger on error). */
+export function secondLine(input: {
+  session: Pick<AgentSession, "status" | "preview">;
+  ask: string | null;
+  folder: string | null;
+}): SecondLine {
+  const { session, ask, folder } = input;
+  if (ask) return { text: ask, tone: "warning", folder };
+  const text = session.preview ?? "";
+  if (session.status === "error") return { text, tone: "danger", folder };
+  return { text, tone: "plain", folder };
+}
+
+/**
+ * Whether a group is folded. The workspace chosen in the title bar opens by
+ * default; every other group folds by default, so the rail is about the
+ * work in front of you. With no current workspace, nothing folds by default.
+ */
+export function groupCollapsed(
+  key: string,
+  currentWorkspaceId: string | null,
+  collapsed: ReadonlySet<string>,
+  expanded: ReadonlySet<string>,
+): boolean {
+  if (!currentWorkspaceId || key === `workspace:${currentWorkspaceId}`) return collapsed.has(key);
+  return !expanded.has(key);
+}
+
+/** ", 3 sessions": the superscript count, as a screen reader says it. */
+export function sessionCount(n: number): string {
+  return `, ${n} ${n === 1 ? "session" : "sessions"}`;
+}
+
 export type PartitionOptions = {
   activeId?: string;
   /** Pinned ids, in pin order. */
@@ -245,37 +337,11 @@ export function nextWaiting(waitingIds: string[], activeSessionId?: string): str
   return waitingIds[(at + 1) % waitingIds.length];
 }
 
-/** How many sessions in the group are waiting on the person. */
-export function waitingCount(
-  sessions: readonly AgentSession[],
-  attention: Record<string, Attention>,
-): number {
-  let n = 0;
-  for (const s of sessions) if (attentionKind(s, attention[s.id])) n++;
-  return n;
-}
-
 // ---------------------------------------------------------------------------
 // Labels
 
-/**
- * "now", "10m", "2h", "3d", "2w", "5mo", "1y": the shortest honest age. Empty
- * when the time is unknown, so a card shows nothing rather than "0m".
- */
-export function shortAge(at: number | undefined, now: number): string {
-  if (!at) return "";
-  const seconds = Math.max(0, Math.floor((now - at) / 1000));
-  if (seconds < 60) return "now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  if (days < 30) return `${Math.floor(days / 7)}w`;
-  if (days < 365) return `${Math.floor(days / 30)}mo`;
-  return `${Math.floor(days / 365)}y`;
-}
+// The rail's ages; shared with other cards, so it lives in lib.
+export { shortAge } from "@/lib/time";
 
 export type SubagentState = "running" | "done" | "failed";
 
@@ -317,20 +383,7 @@ export function orderSubagents(agents: readonly Subagent[]): Subagent[] {
     .map(({ agent }) => agent);
 }
 
-/**
- * Capitals from a name — the first letter of its first `count` words — or an
- * empty string when there is nothing to take them from.
- */
-export function initials(name: string | undefined, count = 2): string {
-  const words = (name ?? "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  return words
-    .slice(0, count)
-    .map((word) => Array.from(word)[0] ?? "")
-    .join("")
-    .toLocaleUpperCase();
-}
-
-/** The avatar group's accessible name: every subagent, not only the ones that fit. */
+/** Every subagent of a session, in one sentence: the card's description says them all. */
 export function subagentsLabel(agents: readonly Subagent[]): string {
   if (agents.length === 0) return "";
   return `${agents.length} subagent${agents.length === 1 ? "" : "s"}: ${orderSubagents(agents).map(subagentLabel).join("; ")}`;

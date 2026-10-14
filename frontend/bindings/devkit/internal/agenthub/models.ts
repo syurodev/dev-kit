@@ -22,6 +22,14 @@ export interface AgentSession {
     "ParentSessionID": string | null;
     "Depth": number;
     "Title": string | null;
+
+    /**
+     * Preview is where the session got to, one line: the first sentence of
+     * the agent's last message, or why the turn failed. Written when a turn
+     * ends. Agent output, stored like the transcript; MCP results blank it
+     * (internal/mcp/tools_agenthub.go), the UI shows it under the title.
+     */
+    "Preview"?: string;
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;
@@ -304,6 +312,39 @@ export interface CreateInput {
      * InitialConfig is applied before the first turn and recorded by attachUpdates.
      */
     "InitialConfig": { [_ in string]?: string } | null;
+}
+
+/**
+ * Document is a PDF attached to a session.
+ */
+export interface Document {
+    /**
+     * ID is the session's own handle for it ("doc1"): short enough for a model to
+     * copy exactly, unique only within the session, never reused.
+     */
+    "id": string;
+    "sessionId": string;
+
+    /**
+     * "pdf"
+     */
+    "kind": string;
+
+    /**
+     * the file's own name, as attached
+     */
+    "name": string;
+    "mimeType": string;
+    "size": number;
+    "sha256": string;
+    "pages": number;
+
+    /**
+     * full, partial or none, as found when attached
+     */
+    "textLayer": string;
+    "chrome"?: string;
+    "createdAt": string;
 }
 
 /**

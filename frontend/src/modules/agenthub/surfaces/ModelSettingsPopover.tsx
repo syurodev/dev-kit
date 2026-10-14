@@ -79,11 +79,11 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
           <div role="group" aria-label="Select model">
             <div className="mb-2 flex items-center justify-between text-body-13 text-text-tertiary">
               <Button ref={backButton} type="button" variant="ghost" size="xs" onClick={() => setModelsOpen(false)} aria-label="Back to agent settings" className="-ml-1 gap-1 text-text-secondary"><ArrowLeft aria-hidden className="size-3" />Select model</Button>
-              {onRefresh && <button type="button" aria-label="Refresh models" disabled={loading} onClick={onRefresh} className="rounded p-1 transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20">
+              {onRefresh && <button type="button" aria-label="Refresh models" disabled={loading} onClick={onRefresh} className="rounded p-1 transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50">
                 <RotateCcw className={cn("size-3.5", loading && "animate-spin motion-reduce:animate-none")} />
               </button>}
             </div>
-            {model?.defaultValue && <button type="button" className="mb-1 w-full rounded-lg px-2 py-1.5 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 hover:bg-surface-hover"
+            {model?.defaultValue && <button type="button" className="mb-1 w-full rounded-lg px-2 py-1.5 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:bg-surface-hover"
               onClick={() => { void onSelect(model.id, model.defaultValue!); setModelsOpen(false); }}>
               <div className="text-body-13 text-text-primary">Default</div>
               <div className="text-caption-11 text-text-tertiary">Recommended model</div>
@@ -92,7 +92,7 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
               {model?.options?.map((choice) => <button key={choice.value} type="button" data-testid="composer-config-option"
                 aria-pressed={choice.value === model.currentValue}
                 onClick={() => { void onSelect(model.id, choice.value); setModelsOpen(false); }}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-body-13 text-text-primary transition-control aria-pressed:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 hover:bg-surface-hover">
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-body-13 text-text-primary transition-control aria-pressed:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:bg-surface-hover">
                 <span className="truncate">{choice.name ?? choice.value}</span>
                 {choice.value === model.currentValue && <Check aria-hidden className="size-4 shrink-0 text-text-secondary" />}
               </button>)}
@@ -105,13 +105,13 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
               <div className="min-w-0 flex-1 text-center">
                 {efforts.length > 0 && <div className="text-body-14 font-medium text-primary">{reasoningLabel(activeEffort?.name ?? activeEffort?.value ?? "")}</div>}
                 <button ref={modelButton} type="button" disabled={!model?.options?.length} onClick={() => setModelsOpen(true)}
-                  aria-label="Select model" className="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-body-13 text-text-secondary transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 hover:text-text-primary">
+                  aria-label="Select model" className="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-body-13 text-text-secondary transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:text-text-primary">
                   <span className="truncate">{selected?.name ?? selected?.value ?? (loading ? "Loading models…" : "Select model")}</span>
                   <ChevronRight aria-hidden className="size-3 shrink-0" />
                 </button>
               </div>
               <button type="button" aria-label="Reset model and effort" onClick={() => void reset()}
-                disabled={resetting || (!model?.defaultValue && !effort?.defaultValue)} className="rounded p-1 text-text-tertiary transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 hover:text-text-primary disabled:opacity-40">
+                disabled={resetting || (!model?.defaultValue && !effort?.defaultValue)} className="rounded p-1 text-text-tertiary transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:text-text-primary disabled:opacity-40">
                 <RotateCcw aria-hidden className={cn("size-4", resetting && "animate-spin motion-reduce:animate-none")} />
               </button>
             </div>

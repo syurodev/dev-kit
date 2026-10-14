@@ -1,6 +1,8 @@
 import { getModule, viewIcon } from "@/modules/registry";
 import { perfLog } from "@/lib/perfLog";
 import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { listConsoles, type QueryResult, type StoredConsole } from "@/bridge/database";
+import { consolesHydrationStarted, ensureConsolesHydrated } from "./consoleHydration";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
 /**
@@ -12,7 +14,7 @@ import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
  * a second click on something else replaces it, so browsing the rail does not
  * leave a trail of tabs behind.
  */
-function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true) {
+function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true, beside = false) {
   // Start the chunk before React needs it: the tab appears in the same frame
   // either way, but the view lands sooner.
   const preload = getModule("database")?.views.find((v) => v.id === viewId)?.preload;
@@ -36,14 +38,15 @@ function open(viewId: string, title: string, params?: Record<string, unknown>, p
     icon: viewIcon("database", viewId),
     params,
     preview,
+    beside,
   });
 }
 
-export function openTableTab(schema: string, table: string, preview = false): void {
+export function openTableTab(schema: string, table: string, preview = false, options: { beside?: boolean } = {}): void {
   const state=useDatabaseStore.getState();
   const profile=state.profiles.find(p=>p.id===state.selectedProfileId);
   const params={schema,table,...(profile?.parentProfileId || profile?.engine==="postgres" || !profile?.engine ? state.selectedProfileId ? {profileId:state.selectedProfileId} : {} : {})};
-  open("database.table", profile?.parentProfileId ? `${table} · ${profile.database}` : table, params, preview);
+  open("database.table", profile?.parentProfileId ? `${table} · ${profile.database}` : table, params, preview, options.beside);
 }
 
 /**
@@ -63,8 +66,8 @@ export function consoleIdFor(seed: string): string {
   return `console-${slug || "untitled"}`;
 }
 
-export function openConsoleTab(consoleId: string, title = "Console"): void {
-  open("database.console", title, { consoleId }, false);
+export function openConsoleTab(consoleId: string, title = "Console", options: { beside?: boolean } = {}): void {
+  open("database.console", title, { consoleId }, false, options.beside);
 }
 
 /**
@@ -111,6 +114,73 @@ export function openSavedQuery(entry: { id: string; name: string; sql: string })
   const consoleId = consoleIdFor(`saved-${entry.id}`);
   useDatabaseStore.getState().setSql(consoleId, entry.sql);
   openConsoleTab(consoleId, entry.name || "Console");
+}
+
+/** The console a statement from outside opens in — keyed by the SQL itself. */
+export function sqlConsoleId(sql: string): string {
+  return consoleIdFor(`sql-${hashText(sql)}`);
+}
+
+/**
+ * A console holding a statement that came from outside the module — an
+ * agent's query in the transcript, a reference to one. Keyed by the SQL
+ * itself (a hash: two statements that start alike are still two consoles),
+ * so opening the same one twice focuses the console it already has. Nothing
+ * is run.
+ *
+ * The SQL is written only into a console that is empty on disk as well as in
+ * memory: once the person has typed in it, it is theirs. So the files are
+ * read first — the rail may not have mounted yet after a relaunch — and a
+ * console closed since (its slice dropped, its file kept) is read back
+ * before it is judged empty.
+ */
+export async function openSqlConsole(
+  sql: string,
+  title = "Console",
+  options: {
+    beside?: boolean;
+    load?: () => Promise<StoredConsole[]>;
+    /**
+     * Rows an agent already has for this statement (db.query), shown as the
+     * console's result without running anything — only while the console
+     * holds this statement and nothing of the person's is there: no result
+     * of a run (earlier agent rows are replaced), no error of a failed run,
+     * no run in progress. In memory only: results are never written to the
+     * file.
+     */
+    result?: QueryResult;
+    /** The agent's call named no connection (an older transcript); the console says so. */
+    connectionUnknown?: boolean;
+  } = {},
+): Promise<void> {
+  const consoleId = sqlConsoleId(sql);
+  const load = options.load ?? listConsoles;
+  const readNow = !consolesHydrationStarted();
+  await ensureConsolesHydrated(load);
+  if (!readNow && useDatabaseStore.getState().consoleState(consoleId).sql === "") {
+    await useDatabaseStore
+      .getState()
+      .hydrateConsoles(async () => (await load()).filter((file) => file.id === consoleId));
+  }
+  const state = useDatabaseStore.getState();
+  if (state.consoleState(consoleId).sql === "") state.setSql(consoleId, sql);
+  const current = useDatabaseStore.getState().consoleState(consoleId);
+  const nothingOfTheirs =
+    current.results.every((tab) => tab.origin === "agent") && !current.queryError && !current.runningQuery;
+  if (options.result && current.sql === sql && nothingOfTheirs) {
+    state.showAgentResult(consoleId, sql, options.result, { connectionUnknown: options.connectionUnknown });
+  }
+  openConsoleTab(consoleId, title, { beside: options.beside });
+}
+
+/** FNV-1a, base 36: short, stable, and only ever used to name a console. */
+function hashText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function openErdTab(): void {

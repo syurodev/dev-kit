@@ -1,7 +1,16 @@
-import { lazy } from "react";
+import { createElement, lazy } from "react";
 import { Workflow } from "lucide-react";
 import { INFRA_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { registerIntent } from "@/workbench/intents";
+import { registerToolResultView } from "@/workbench/toolResultViews";
+import {
+  parseConsumerGroups,
+  parsePeekMessages,
+  parsePublishResult,
+  parseTopicDetail,
+  parseTopicList,
+} from "./toolViews/parse";
 
 export const kafkaModule: ModuleManifest = {
   id: "kafka",
@@ -37,3 +46,56 @@ export const kafkaModule: ModuleManifest = {
     search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
   },
 };
+
+/**
+ * `kafka.reveal` — a topic named elsewhere (a tool result card, a reference in
+ * agent prose) opened in the explorer, the way the palette opens one
+ * (reveal.ts says how). Kafka has one view and no documents, so placement has
+ * nothing to choose between.
+ */
+registerIntent("kafka.reveal", async (ref) => {
+  if (ref.kind !== "topic" || !ref.id) return "unavailable";
+  const [{ useKafkaStore }, { showModuleHome }, { revealTopic }] = await Promise.all([
+    import("./kafkaStore"),
+    import("@/workbench/showModule"),
+    import("./reveal"),
+  ]);
+  return revealTopic(useKafkaStore, ref.id, () => showModuleHome("kafka"));
+});
+
+/**
+ * ToolResultViews for the kafka.* tools (docs/dev-kit/tool-result-view.mdx).
+ * Each shape is checked synchronously before the cards' chunk loads; one that
+ * does not parse falls back to the generic block.
+ */
+const cards = () => import("./toolViews/KafkaResultCards");
+const LazyPeekResultCard = lazy(() => cards().then(({ PeekResultCard }) => ({ default: PeekResultCard })));
+const LazyTopicsResultCard = lazy(() => cards().then(({ TopicsResultCard }) => ({ default: TopicsResultCard })));
+const LazyTopicDetailResultCard = lazy(() =>
+  cards().then(({ TopicDetailResultCard }) => ({ default: TopicDetailResultCard })),
+);
+const LazyConsumerGroupsResultCard = lazy(() =>
+  cards().then(({ ConsumerGroupsResultCard }) => ({ default: ConsumerGroupsResultCard })),
+);
+const LazyPublishResultCard = lazy(() => cards().then(({ PublishResultCard }) => ({ default: PublishResultCard })));
+
+registerToolResultView("kafka.peekMessages", ({ rawInput, rawOutput }) => {
+  const peek = parsePeekMessages(rawInput, rawOutput);
+  return peek ? createElement(LazyPeekResultCard, { peek }) : null;
+});
+registerToolResultView("kafka.listTopics", ({ rawOutput }) => {
+  const topics = parseTopicList(rawOutput);
+  return topics ? createElement(LazyTopicsResultCard, { topics }) : null;
+});
+registerToolResultView("kafka.describeTopic", ({ rawOutput }) => {
+  const detail = parseTopicDetail(rawOutput);
+  return detail ? createElement(LazyTopicDetailResultCard, { detail }) : null;
+});
+registerToolResultView("kafka.listConsumerGroups", ({ rawOutput }) => {
+  const groups = parseConsumerGroups(rawOutput);
+  return groups ? createElement(LazyConsumerGroupsResultCard, { groups }) : null;
+});
+registerToolResultView("kafka.publishMessage", ({ rawInput, rawOutput }) => {
+  const result = parsePublishResult(rawInput, rawOutput);
+  return result ? createElement(LazyPublishResultCard, { result }) : null;
+});

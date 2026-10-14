@@ -24,16 +24,16 @@ describe("themeSelector", () => {
 
 describe("themeCss", () => {
   const palettes = {
-    dark: { "--surface-base": "#1e1e2e", "--text-primary": "#cdd6f4" },
-    light: { "--surface-base": "#eff1f5" },
+    dark: { "--hue-red": "#1e1e2e", "--hue-blue": "#cdd6f4" },
+    light: { "--hue-red": "#eff1f5" },
   } as const;
 
   test("writes one block per mode, both at once", () => {
     const css = themeCss("catppuccin", palettes);
     expect(css).toContain(':root[data-theme-family="catppuccin"][data-theme="dark"]');
     expect(css).toContain(':root[data-theme-family="catppuccin"][data-theme="light"]');
-    expect(css).toContain("--surface-base:#1e1e2e");
-    expect(css).toContain("--surface-base:#eff1f5");
+    expect(css).toContain("--hue-red:#1e1e2e");
+    expect(css).toContain("--hue-red:#eff1f5");
   });
 
   // Both modes are authored together because the mode can change without the
@@ -44,15 +44,13 @@ describe("themeCss", () => {
     expect(css.match(/data-theme="(dark|light)"/g)).toHaveLength(2);
   });
 
-  // devkit is the absence of an override, not a copy of index.css. An empty
-  // palette must produce no rule at all, or it would pin the base values at
-  // (0,3,0) and any later override would need more specificity still.
+  // An empty palette must produce no rule at all, or it would pin nothing at (0,3,0) for no reason.
   test("an empty palette writes nothing", () => {
     expect(themeCss("devkit", { dark: {}, light: {} })).toBe("");
   });
 
   test("a palette with only one mode writes only that mode", () => {
-    const css = themeCss("github", { dark: { "--surface-base": "#0d1117" }, light: {} });
+    const css = themeCss("github", { dark: { "--hue-red": "#0d1117" }, light: {} });
     expect(css).toContain('[data-theme="dark"]');
     expect(css).not.toContain('[data-theme="light"]');
   });
@@ -114,5 +112,19 @@ describe("resolving colours for canvas consumers", () => {
   test("colours are resolved by using them, not by reading the property", () => {
     expect(source).toContain("element.style.color = expression");
     expect(source).not.toContain("getPropertyValue");
+  });
+});
+
+describe("a palette never reaches the chrome", () => {
+  test("the CSS for every family names only palette tokens", async () => {
+    const { FAMILIES, resolvedPalettes } = await import("./families");
+    const { PALETTE_TOKENS } = await import("./tokens");
+    const allowed = new Set<string>(PALETTE_TOKENS);
+    for (const id of Object.keys(FAMILIES) as (keyof typeof FAMILIES)[]) {
+      const css = themeCss(id, resolvedPalettes(id));
+      const names = [...css.matchAll(/(--[\w-]+):/g)].map((m) => m[1]);
+      expect(names.filter((n) => !allowed.has(n)), id).toEqual([]);
+      expect(names.length).toBe(PALETTE_TOKENS.length * 2);
+    }
   });
 });

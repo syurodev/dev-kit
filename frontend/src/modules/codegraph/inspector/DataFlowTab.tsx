@@ -271,7 +271,7 @@ function UserSection({
                                 key={i}
                                 className={cn(
                                   "bg-transparent font-semibold",
-                                  tone === "write" ? "text-status-warning" : "text-status-info",
+                                  tone === "write" ? "text-status-warning" : "text-(--hue-blue)",
                                 )}
                               >
                                 {p.text}

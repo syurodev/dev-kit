@@ -58,9 +58,9 @@ describe("Step 1 Shared Components Reconciliation", () => {
     });
 
     it("renders dot indicator when dotColor is provided", () => {
-      const html = renderToString(<Tag dotColor="#c6ff34">Active</Tag>);
+      const html = renderToString(<Tag dotColor="#123456">Active</Tag>);
       expect(html).toContain('data-slot="tag-dot"');
-      expect(html).toContain("background-color:#c6ff34");
+      expect(html).toContain("background-color:#123456");
       expect(html).toContain("size-1.5");
       expect(html).toContain("rounded-full");
     });
@@ -88,7 +88,7 @@ describe("Step 1 Shared Components Reconciliation", () => {
       expect(html).toContain("rounded-md");
       expect(html).toContain("border-border-subtle");
       expect(html).toContain("bg-surface-well");
-        expect(html).toContain("focus-within:border-status-info");
+        expect(html).toContain("focus-within:border-border-focus");
       expect(html).toContain("react");
       expect(html).toContain("tailwind");
     });

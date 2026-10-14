@@ -1,12 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import type * as React from "react";
 import { renderToString } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgentSession, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentComposer } from "./AgentComposer";
 import { AgentHubContent } from "./AgentHubContent";
 import { AgentRail } from "./AgentRail";
 import { TrayStatusOverride, type TrayStatus } from "./composer/useTrayStatus";
+import type { TranscriptItem } from "../types";
 
 /**
  * The composer is one cluster in its own region of the layout. This renders the
@@ -76,14 +78,26 @@ const status: TrayStatus = {
   others: [],
 };
 
+const planItem = {
+  id: "p",
+  kind: "plan",
+  plan: [
+    { content: "Read the code", status: "completed" },
+    { content: "Write the fix", status: "in_progress" },
+  ],
+} as TranscriptItem;
+
 const noop = () => {};
 const base = { promptValue: "", onPromptChange: noop, onSend: noop, onCancel: noop };
 
 function render(node: React.ReactNode, withStatus = true): string {
+  // The session summary reads the session's documents through TanStack Query.
   return renderToString(
-    <TooltipProvider>
-      <TrayStatusOverride.Provider value={withStatus ? status : null}>{node}</TrayStatusOverride.Provider>
-    </TooltipProvider>,
+    <QueryClientProvider client={new QueryClient()}>
+      <TooltipProvider>
+        <TrayStatusOverride.Provider value={withStatus ? status : null}>{node}</TrayStatusOverride.Provider>
+      </TooltipProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -116,7 +130,59 @@ describe("the composer is in the layout, below the transcript", () => {
     const html = hub();
     const region = html.slice(html.indexOf('data-testid="agent-composer-region"'));
     expect(region.slice(0, 400)).toContain("px-6");
-    expect(region.slice(0, 400)).toContain("max-w-180");
+    expect(region.slice(0, 400)).toContain("max-w-190");
+    expect(region.slice(0, 400)).toContain("@6xl/agent-conversation:pr-80");
+    // The transcript's column is the same width and makes the same room.
+    expect(html).toMatch(/data-testid="transcript-viewport"[^>]*@6xl\/agent-conversation:pr-80/);
+    expect(html).toMatch(/relative mx-auto w-full max-w-190/);
+  });
+
+  it("grows both columns to 880px on very wide conversations, in the Hub only", () => {
+    const html = hub();
+    const region = html.slice(html.indexOf('data-testid="agent-composer-region"'));
+    expect(region.slice(0, 500)).toContain("@7xl/agent-conversation:max-w-220");
+    expect(html).toMatch(/relative mx-auto w-full max-w-190 @7xl\/agent-conversation:max-w-220/);
+    const rail = render(<AgentRail activeSession={session} items={[]} {...base} />);
+    expect(rail).not.toContain("max-w-220");
+  });
+
+  it("docks the summary on wide conversations and folds it to a button on narrow ones", () => {
+    const html = hub({ items: [planItem] });
+    expect(html).toMatch(/data-testid="session-summary-dock"[^>]*hidden[^>]*@6xl\/agent-conversation:block/);
+    expect(html).toMatch(/data-testid="session-summary-corner"[^>]*@6xl\/agent-conversation:hidden/);
+    // Both trees are drawn; CSS picks one. Each is inside the conversation box.
+    expect(html).toContain('data-testid="session-summary-card"');
+    expect(html).toContain('data-testid="session-summary-button"');
+    // A draft has no session to summarise.
+    const draft = hub({ session: null, draft: { projectPath: "/work/api" }, items: [planItem] });
+    expect(draft).not.toContain("session-summary-dock");
+    expect(draft).not.toContain("session-summary-corner");
+  });
+
+  it("collapses the latest plan to a line only where the summary docks", () => {
+    const prompt = { id: "u", kind: "user_message_chunk", text: "go" } as TranscriptItem;
+    const items = [prompt, planItem];
+    expect(hub({ items })).toContain('data-testid="turn-plan-docked"');
+    // The rail has the container but no summary dock: its plan stays whole.
+    const rail = render(<AgentRail activeSession={session} items={items} {...base} />);
+    expect(rail).toContain('data-testid="agent-plan"');
+    expect(rail).not.toContain("turn-plan-docked");
+    // A draft has no summary either.
+    const draft = hub({ session: null, draft: { projectPath: "/work/api" }, items });
+    expect(draft).not.toContain("turn-plan-docked");
+  });
+
+  it("drops the subagents chip from the bar while the summary is docked", () => {
+    const html = hub();
+    expect(html).toMatch(/<span[^>]*@6xl\/agent-conversation:hidden[^>]*><button[^>]*data-testid="tray-subagents"/);
+    expect(html).not.toMatch(/<span[^>]*@6xl\/agent-conversation:hidden[^>]*><button[^>]*data-testid="tray-tasks"/);
+  });
+
+  it("keeps the 720 column in the rail", () => {
+    const html = render(<AgentRail activeSession={session} items={[]} {...base} />);
+    expect(html).toContain("max-w-180");
+    expect(html).not.toContain("max-w-190");
+    expect(html).not.toContain("session-summary-dock");
   });
 
   it("is the same region in the rail, which always flowed", () => {

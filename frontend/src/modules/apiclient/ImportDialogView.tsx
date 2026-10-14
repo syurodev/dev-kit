@@ -158,7 +158,7 @@ export function ImportDialogView({
                     <button
                       type="button"
                       onClick={() => input.current?.click()}
-                      className="group flex w-full items-center gap-4 rounded-xl border border-dashed border-border bg-surface-well p-5 text-left transition-control hover:border-status-info/50 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/30 disabled:pointer-events-none"
+                      className="group flex w-full items-center gap-4 rounded-xl border border-dashed border-border bg-surface-well p-5 text-left transition-control hover:border-status-info/50 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 disabled:pointer-events-none"
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-base text-status-info">
                         {fileName ? (
@@ -229,7 +229,7 @@ export function ImportDialogView({
                     as cURL”. You can review and edit it before sending.
                   </p>
                 )}
-                <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-well focus-within:border-status-info/50 focus-within:ring-2 focus-within:ring-inset focus-within:ring-status-info/20">
+                <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-well focus-within:border-border-focus/50 focus-within:ring-2 focus-within:ring-inset focus-within:ring-border-focus/50">
                   <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2.5">
                     <label
                       htmlFor={textId}

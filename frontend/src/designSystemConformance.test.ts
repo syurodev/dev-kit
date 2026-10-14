@@ -44,7 +44,8 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   "modules/git": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
-  // max-w-180 on the spacing scale.
+  // max-w-180 on the spacing scale. (Agent Hub's conversation is max-w-190,
+  // 760, and its rail keeps max-w-180.)
   "modules/notes": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-09 against Figma 11 Settings. The 9 remaining rawPx are
   // the modal's own frame (620×940, a 220 nav, 656 content columns) and the

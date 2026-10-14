@@ -1,13 +1,13 @@
 import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, File, FileText, ImageIcon } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
-import type { TranscriptItem } from "../types";
+import type { PromptAttachment, TranscriptItem } from "../types";
 import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { activityOf, stepCount, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
@@ -17,12 +17,12 @@ import {
   AgentThinking,
   AgentToolCall,
 } from "../transcript/index";
+import { NO_RESULTS, surfaceResults, ToolResultCard, type StepResults } from "../transcript/ToolResultCard";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { AgentTurnChanges } from "./AgentTurnChanges";
-import { AgentFileChip } from "../transcript/AgentFileChip";
 
 export type AgentTurnProps = {
   turn: Turn;
@@ -35,6 +35,12 @@ export type AgentTurnProps = {
    */
   latest?: boolean;
   vendor?: string;
+  /**
+   * This turn holds the session's newest plan, the one the docked summary
+   * card shows in full. Then its card gives way to a single quiet line while
+   * the summary is docked; older turns' plans are untouched.
+   */
+  latestPlan?: boolean;
   /**
    * What this turn changed on disk, if it was checkpointed. Absent for a turn
    * that was not — which is not the same as a turn that changed nothing, so the
@@ -90,6 +96,7 @@ export const AgentTurn = React.memo(function AgentTurn({
   turn,
   live = false,
   latest = false,
+  latestPlan = false,
   vendor,
   checkpoint,
   loadFileDiff,
@@ -112,6 +119,13 @@ export const AgentTurn = React.memo(function AgentTurn({
   // Always computed, never gated behind a fold of its own — see the module
   // doc: only the "steps" segments inside this fold themselves (StepGroup).
   const segments = React.useMemo(() => workSegments(turn.work), [turn.work]);
+  // Which results stand outside the folds: a few per turn, in call order,
+  // shared out among its runs of steps.
+  const stepResults = React.useMemo(() => {
+    const runs = segments.filter((segment) => segment.kind === "steps");
+    const shares = surfaceResults(runs.map((run) => run.items));
+    return new Map(runs.map((run, index) => [run.id, shares[index]]));
+  }, [segments]);
   // Reduce Motion keeps the fade and drops the travel and scale — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
@@ -156,14 +170,27 @@ export const AgentTurn = React.memo(function AgentTurn({
               {/* What the prompt carried besides words, by name: an image-only
                   prompt is still a turn, and the bubble says what it was. */}
               {turn.prompt.attachments?.length ? (
-                <div data-testid="turn-prompt-attachments" className="flex max-w-full flex-wrap justify-end gap-1">
+                <div data-testid="turn-prompt-attachments" className="flex max-w-full flex-wrap justify-end gap-2">
                   {turn.prompt.attachments.map((attachment, index) => (
-                    <AgentFileChip
+                    <div
                       key={`${attachment.kind}:${attachment.name}:${index}`}
-                      path={attachment.name}
-                      kind={attachment.kind === "image" ? "image" : attachment.kind === "document" ? "document" : "file"}
-                      detail={attachment.kind === "document" && attachment.pages ? `${attachment.pages} page${attachment.pages === 1 ? "" : "s"}` : undefined}
-                    />
+                      data-testid="turn-attachment-card"
+                      className="flex max-w-full items-center gap-2.5 rounded-xl bg-surface-tinted py-2 pr-3.5 pl-2"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-base">
+                        {attachment.kind === "document" ? (
+                          <FileText className="size-4 text-status-danger" aria-hidden="true" />
+                        ) : attachment.kind === "image" ? (
+                          <ImageIcon className="size-4 text-text-secondary" aria-hidden="true" />
+                        ) : (
+                          <File className="size-4 text-text-secondary" aria-hidden="true" />
+                        )}
+                      </span>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="max-w-60 truncate text-body-13 text-text-primary">{attachment.name}</span>
+                        <span className="text-body-12 text-text-tertiary">{attachmentDetail(attachment)}</span>
+                      </span>
+                    </div>
                   ))}
                 </div>
               ) : null}
@@ -190,18 +217,33 @@ export const AgentTurn = React.memo(function AgentTurn({
 
       {turn.work.length > 0 ? (
         <div data-testid="turn-work" className="flex w-full flex-col gap-3">
-          <div className="w-full border-b border-border-subtle pb-2 text-body-13 text-text-tertiary">
+          <div className="flex w-full items-center gap-1 border-b border-border-subtle pb-2 text-body-13 text-text-tertiary">
             <SwapText text={worked} animate={latest} reduce={reduce} active={false} />
+            <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
           </div>
           {segments.map((segment) => {
             if (segment.kind === "text") {
               // What the agent said between steps was said to you, not to
               // itself: it stands on its own ground like the answer, never
               // behind the steps' fold.
-              return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
+              return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} settled={!live} />;
             }
             if (segment.kind === "plan") {
-              return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
+              const entries = segment.item.plan ?? [];
+              // An empty plan has nothing to say in the summary: keep its card.
+              if (!latestPlan || entries.length === 0) return <AgentPlan key={segment.item.id} entries={entries} />;
+              const done = entries.filter((e) => e.status === "completed").length;
+              return (
+                <React.Fragment key={segment.item.id}>
+                  <AgentPlan entries={entries} className="@6xl/agent-conversation:hidden" />
+                  <p
+                    data-testid="turn-plan-docked"
+                    className="hidden w-full items-center gap-2 text-caption-11 text-text-tertiary @6xl/agent-conversation:flex"
+                  >
+                    {`Plan · ${done} of ${entries.length} — in the summary`}
+                  </p>
+                </React.Fragment>
+              );
             }
             return (
               <StepGroup
@@ -209,6 +251,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                 items={segment.items}
                 subagents={turn.subagents}
                 onOpenFile={onOpenFile}
+                results={stepResults.get(segment.id) ?? NO_RESULTS}
               />
             );
           })}
@@ -228,6 +271,8 @@ export const AgentTurn = React.memo(function AgentTurn({
           <div className="w-full">
             <AgentProse
               text={item.text ?? ""}
+              // Symbols and commit hashes become references once the turn is over.
+              settled={!live}
               // Only while the turn is live, and only on mount: a block of the
               // answer arrives once, and the text streaming into it afterwards is
               // already motion enough. A loaded history renders standing still.
@@ -284,11 +329,46 @@ export const AgentTurn = React.memo(function AgentTurn({
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
 
+/**
+ * Which of a run's fixed slots draw — head (its row alone, or the summary
+ * line), fold, results, activities — always in that order, so the results
+ * slot is the same element whether the run has one step or more: a lone
+ * card stays mounted when a second step joins it.
+ */
+export function stepRunLayout({
+  items,
+  shown,
+  hidden,
+  activities,
+  commands,
+}: {
+  items: readonly TranscriptItem[];
+  shown: readonly TranscriptItem[];
+  hidden: readonly TranscriptItem[];
+  activities: number;
+  commands: number;
+}): { lone: boolean; head: "none" | "row" | "summary"; fold: boolean; results: boolean; activities: boolean } {
+  // One step needs no summary: "Thought" over a row reading "Thought" says the
+  // same thing twice, and a fold around a single line hides nothing. Unless it
+  // is a card: then the line is the way to its raw call. A lone result is its
+  // card, no row.
+  const lone = items.length === 1 && activities === 0 && commands === 0;
+  return {
+    lone,
+    head: lone ? (shown.length === 1 ? "none" : "row") : "summary",
+    fold: !lone,
+    // Results left in the fold are still said, even when the turn's cards are spent.
+    results: shown.length > 0 || hidden.length > 0,
+    activities: activities > 0 || commands > 0,
+  };
+}
+
 export function StepGroup({
   items,
   subagents,
   onOpenFile,
   defaultOpen = false,
+  results: given,
 }: {
   items: TranscriptItem[];
   /** What each subagent in `items` did, by id — see Turn.subagents. */
@@ -296,44 +376,126 @@ export function StepGroup({
   onOpenFile?: (path: string, line?: number) => void;
   /** Lets a caller (a unit test, mainly) start it expanded. */
   defaultOpen?: boolean;
+  /**
+   * This run's share of the turn's results (surfaceResults: the cap is per
+   * turn). Left out, the run is taken as a turn of its own. NO_RESULTS inside
+   * a subagent: its work is its detail, and the lead agent reports what
+   * matters from it.
+   */
+  results?: StepResults;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  // The step the "+N more" line points at, focused once the fold opens on it;
+  // `n` counts the clicks, so asking again focuses it again.
+  const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
+  const runRef = React.useRef<HTMLDivElement>(null);
   const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
   // A shell command still running: it gets a card with its clock while it
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
   // behind the fold.
   const commands = React.useMemo(() => items.filter(isRunningCommand), [items]);
-  // One step needs no summary: "Thought" over a row reading "Thought" says the
-  // same thing twice, and a fold around a single line hides nothing. Unless it
-  // is a card: then the line is the way to its raw call.
-  if (items.length === 1 && activities.length === 0 && commands.length === 0) {
-    return <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />;
-  }
+  // A result the owning module draws (a query's rows, a plan, a message) is
+  // what the person asked for, not the account of getting it: it stands after
+  // the fold, in call order (ToolResultCard.tsx).
+  const own = React.useMemo(() => (given ? null : surfaceResults([items])[0]), [given, items]);
+  const { shown, hidden } = given ?? own ?? NO_RESULTS;
+  // Steps whose view already stands after the fold, as a result or activity
+  // card: inside the fold they stay one-line rows (their raw output, not the card again).
+  const outside = React.useMemo(
+    () => new Set([...shown, ...activities].map((item) => item.id)),
+    [shown, activities],
+  );
+
+  React.useEffect(() => {
+    if (!open || !focus) return;
+    // Compared, not put in a selector: an id is the vendor's string.
+    const rows = runRef.current?.querySelectorAll<HTMLElement>("[data-step-id]") ?? [];
+    const row = Array.from(rows).find((element) => element.dataset.stepId === focus.id);
+    row
+      ?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])')
+      ?.focus({ preventScroll: true });
+  }, [open, focus]);
+
+  const layout = stepRunLayout({ items, shown, hidden, activities: activities.length, commands: commands.length });
+  const { lone } = layout;
+  const loneCard = lone && layout.head === "none";
+  // One wrapper and fixed slots (stepRunLayout). Hidden when the only thing in
+  // it is a step that draws nothing — a subagent or task with nothing to show.
   return (
-    <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
-      >
-        <span className="min-w-0 truncate">{stepSummary(items)}</span>
-        <ChevronRight
-          aria-hidden="true"
-          className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
-        />
-      </button>
-      <AnimatedCollapse open={open} className="pt-2">
-        <div className="flex w-full flex-col gap-2">
-          {items.map((item) => (
-            <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+    <div
+      ref={runRef}
+      data-step-run=""
+      data-testid={lone ? undefined : "step-group"}
+      data-state={lone ? undefined : open ? "expanded" : "collapsed"}
+      className="flex w-full min-w-0 flex-col empty:hidden"
+    >
+      {layout.head === "none" ? null : layout.head === "row" ? (
+        <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
+        >
+          <span className="min-w-0 truncate">{stepSummary(items)}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
+          />
+        </button>
+      )}
+      {layout.fold ? (
+        <AnimatedCollapse open={open} className="pt-2">
+          <div className="flex w-full flex-col gap-2">
+            {items.map((item) => (
+              <StepRow
+                key={item.id}
+                item={item}
+                subagents={subagents}
+                onOpenFile={onOpenFile}
+                resultOutside={outside.has(item.id)}
+              />
+            ))}
+          </div>
+        </AnimatedCollapse>
+      ) : null}
+      {layout.results ? (
+        <div
+          data-testid="step-results"
+          className={cn("flex w-full min-w-0 flex-col gap-2 empty:hidden", !lone && "pt-2")}
+        >
+          {shown.map((item) => (
+            <ToolResultCard
+              key={item.id}
+              call={item.toolCall!}
+              sessionId={item.sessionId}
+              asRow={loneCard}
+              onOpenFile={onOpenFile}
+            />
           ))}
+          {hidden.length > 0 ? (
+            <button
+              type="button"
+              data-testid="step-results-more"
+              onClick={() => {
+                setOpen(true);
+                setFocus((last) => ({ id: hidden[0].id, n: (last?.n ?? 0) + 1 }));
+              }}
+              className={cn(
+                "self-start cursor-pointer text-caption-11 text-text-tertiary underline decoration-border-subtle hover:text-text-secondary",
+                "focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+              )}
+            >
+              {`+${hidden.length} more result${hidden.length === 1 ? "" : "s"} in the work above`}
+            </button>
+          ) : null}
         </div>
-      </AnimatedCollapse>
-      {activities.length > 0 || commands.length > 0 ? (
+      ) : null}
+      {layout.activities ? (
         <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
-            <AgentToolActivity key={item.id} call={item.toolCall!} />
+            <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
           ))}
           {commands.map((item) => (
             <AgentRunningCommand key={item.id} item={item} />
@@ -349,10 +511,13 @@ function StepRow({
   item,
   subagents,
   onOpenFile,
+  resultOutside,
 }: {
   item: TranscriptItem;
   subagents?: ActivityById;
   onOpenFile?: (path: string, line?: number) => void;
+  /** Its result already stands as a card after the fold (AgentToolCall.resultOutside). */
+  resultOutside?: boolean;
 }) {
   switch (String(item.kind)) {
     case "agent_thought_chunk": {
@@ -383,6 +548,8 @@ function StepRow({
         <AgentToolCall
           variant="row"
           sessionId={item.sessionId}
+          stepId={item.id}
+          resultOutside={resultOutside}
           onOpenFile={onOpenFile}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
         />
@@ -478,7 +645,15 @@ export function SubagentActivity({
             </div>
           );
         }
-        return <StepGroup key={segment.id} items={segment.items} subagents={subagents} onOpenFile={onOpenFile} />;
+        return (
+          <StepGroup
+            key={segment.id}
+            items={segment.items}
+            subagents={subagents}
+            onOpenFile={onOpenFile}
+            results={NO_RESULTS}
+          />
+        );
       })}
     </div>
   );
@@ -516,6 +691,13 @@ function SubagentBrief({ text }: { text: string }) {
       ) : null}
     </div>
   );
+}
+
+/** The second line of an attachment card: what it is, and its pages when it is a PDF. */
+function attachmentDetail(a: PromptAttachment): string {
+  if (a.kind === "document") return a.pages ? `PDF · ${a.pages} page${a.pages === 1 ? "" : "s"}` : "PDF";
+  if (a.kind === "image") return "Image";
+  return a.name.includes(".") ? a.name.slice(a.name.lastIndexOf(".") + 1).toUpperCase() : "File";
 }
 
 /**

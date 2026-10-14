@@ -34,10 +34,13 @@ function toStatus(state: string | undefined): AgentStatus {
  * otherwise as likely stale as running.
  */
 export function sessionRunningSubagents(
-  items: TranscriptItem[],
+  items: readonly TranscriptItem[],
   tracked: readonly Subagent[] | undefined,
   live: boolean,
 ): LiveSubagent[] {
+  // Nothing tracked and no turn running: the transcript alone is trusted for
+  // nothing, so there is no reason to walk it.
+  if (!live && !tracked?.length) return [];
   const { running, activity } = runningSubagents(items);
   const out = new Map<string, LiveSubagent>();
   const ended = new Set<string>();

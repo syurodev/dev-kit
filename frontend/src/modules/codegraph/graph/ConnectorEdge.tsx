@@ -84,7 +84,7 @@ export function EdgeLabelPill({
   title?: string;
   children: string;
 }) {
-  const info = "var(--status-info)";
+  const blue = "var(--hue-blue)";
   return (
     <span
       title={title}
@@ -92,9 +92,9 @@ export function EdgeLabelPill({
       style={
         kind === "di"
           ? {
-              backgroundColor: `color-mix(in srgb, ${info} 20%, var(--surface-raised))`,
-              borderColor: `color-mix(in srgb, ${info} 55%, transparent)`,
-              color: info,
+              backgroundColor: `color-mix(in srgb, ${blue} 12%, var(--surface-raised))`,
+              borderColor: `color-mix(in srgb, ${blue} 55%, transparent)`,
+              color: "var(--text-primary)",
             }
           : {
               backgroundColor: "var(--surface-raised)",

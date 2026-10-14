@@ -13,10 +13,12 @@ Hạ tầng (`frontend/src/workbench/toolResultViews.ts`, card dùng chung
 renderer cho mọi tool ở bảng "Ví dụ cụ thể" bên dưới — bao gồm 3 intent thêm
 mới cho vòng này: `notes.reveal`, `git.reveal`, `api.reveal`. Hình họa theo
 contract của Framed card — xem mục "Nhất quán với cái đã có". Mục **"Theo dõi real-time"** ở
-cuối trang vẫn chưa thiết kế, cố tình treo lại để thảo luận riêng sau. Kết
-quả dạng bảng lớn (`db.query`, `kafka.peekMessages`,
-`codegraph.getBlastRadius`) cố tình chưa làm — dữ liệu lớn dễ vướng
-`ToolRawPreviewLimit` và có thể nhạy cảm, cần bàn phạm vi riêng.
+cuối trang vẫn chưa thiết kế, cố tình treo lại để thảo luận riêng sau.
+Phase 2 (spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`
+§5–§7, mục "Phase 2 decisions") thêm card cho `db.*`, `kafka.*`,
+`ssh.runCommand`, `pdf.*`, `workspace.memory.*`, một cách đọc payload chung cho
+mọi vendor (mục "Payload" bên dưới) và hai intent `database.reveal` /
+`kafka.reveal`. `codegraph.getBlastRadius` vẫn chưa có card.
 </Callout>
 
 ## Mục đích sinh ra
@@ -101,7 +103,14 @@ trong `frontend/src/workbench/intents.ts` — sống ở
 // Không phải ToolCall của Agent Hub (frontend/src/modules/agenthub/types.ts):
 // một kiểu trung lập riêng, chỉ ba trường renderer được phép đọc (rule 2) —
 // để module sở hữu tool không phải import type từ module Agent Hub.
-type ToolResultInput = { name: string; rawInput: unknown; rawOutput: unknown };
+type ToolResultInput = {
+  name: string;               // toolNameOf: dạng dây của Claude, hoặc tên Go (Codex)
+  rawInput: unknown;
+  rawOutput: unknown;         // payload đã bóc của toolPayloadOf — xem mục "Payload"
+  content?: ToolContentBlock[]; // khối nội dung của call: ảnh nằm ở đây
+  status?: string;
+  heading?: string;           // động từ của activity khi card đứng riêng
+};
 type ToolResultRenderer = (input: ToolResultInput) => React.ReactNode | null;
 
 registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => {
@@ -118,6 +127,39 @@ riêng của vendor, hoặc một preview bị cắt được `previewRaw`
 (`internal/agenthub/service.go`) mã hoá lại thành chuỗi). Trả `null` khi
 không parse được — kể cả khi bị cắt giữa chừng bởi `ToolRawPreviewLimit`
 (8KB) — để renderer rơi về JSON thay vì hiện một tài liệu nửa vời.
+
+### Payload: một cách đọc cho mọi vendor
+
+Cùng một kết quả tool DevKit đến transcript theo ba dạng: Claude để trống
+`rawOutput` và đặt kết quả ở `content[].content.text` (lỗi là AppError bọc
+trong ```` ``` ````); Codex đặt nguyên MCP result vào `rawOutput`
+(`{content, structuredContent}`, lỗi `{error}`, quá 64 KiB thành stub
+`{truncated, bytes}`) và không có `name`, chỉ có title `devkit.<tool>`; vendor
+khác để payload ở `rawOutput`. `frontend/src/workbench/toolPayload.ts` đọc cả
+ba một lần, để không view nào phải biết mình đang nhìn vendor nào:
+
+- **`rawOutput` view nhận là payload đã bóc** của `toolPayloadOf` —
+  object/array đã parse, envelope `{"result": …}` đã gỡ. Payload không phải
+  JSON (vd `pdf.readText`) **vẫn là chuỗi**: đọc nó như chuỗi, vì
+  `parseToolOutput` sẽ trả `null` cho nó.
+- **Không bao giờ là lỗi.** Call thất bại (status `failed`, `{error}` của
+  Codex, `isError`, hay AppError bọc fence — fence chỉ tính với tool DevKit
+  (`isDevkitTool`), vì output của shell cũng có thể trông y vậy) giữ hàng
+  failed của transcript; view chỉ thấy payload thành công.
+- **Preview bị cắt (8 KiB) không parse được → không có payload**: transcript
+  tải nguyên hàng (`transcript/toolCallDetail.ts`, một query TanStack mỗi call,
+  dùng chung với "Show full output") rồi hỏi view lại. Stub 64 KiB của Codex
+  cũng không có payload. Marker ảnh trang của hàng đã lưu
+  (`transcript_slim.go`) không phải câu trả lời — câu trả lời nằm ở `content`.
+- **Ảnh đọc từ `ToolResultInput.content`**, không từ payload (`pdf.viewPages`).
+- **Kiểm shape đồng bộ trước khi chunk lazy tải**: renderer parse rồi mới
+  `createElement(LazyCard, …)`, nên một node khác `null` là một card chắc chắn
+  vẽ được. Transcript dựa vào đó để chọn card nào được đứng ngoài phần gập
+  (`ToolResultCard.tsx` `resultCandidate`, tối đa 3 mỗi turn): view trả `null`
+  thì không chiếm chỗ, call rơi về khối generic.
+- **Card nằm trong error boundary.** Card ném lỗi khi render, hay chunk lazy
+  tải hỏng, rơi về hàng / khối generic thay vì làm sập transcript. Card đã
+  đứng sau phần gập thì trong phần gập call vẫn chỉ là một hàng.
 
 - **Đăng ký ở module sở hữu tool**, trong file `manifest.ts` của module đó —
   giống hệt vị trí `agent.attach` được đăng ký trong `agenthub/manifest.ts`.
@@ -224,6 +266,11 @@ tự mở, giống mọi hàng khác trong transcript. Nếu `call.truncated` v�
 rơi về JSON vì `rawOutput` bị cắt, bấm "Show full output" tải nguyên hàng rồi
 tự nâng cấp lên card mà không cần refresh.
 
+Từ Phase 2, call xong có card còn **đứng sau phần gập** của run
+(`transcript/ToolResultCard.tsx`): tối đa 3 mỗi turn theo thứ tự gọi, chỉ những
+call mà view thật sự vẽ; phần còn lại là nút "+N more results in the work
+above" mở phần gập ở bước ẩn đầu tiên. Trong phần gập, call vẫn là một hàng.
+
 **Ví dụ cụ thể (đã triển khai):**
 
 | Tool | Card | Hành động trên card |
@@ -237,12 +284,36 @@ tự nâng cấp lên card mà không cần refresh.
 | `notes.create` / `notes.update` | Chỉ tiêu đề — không hiện `preview`/`body`, dữ liệu đã giải mã của note (ít lộ hơn cả JSON thô hôm nay, vốn đang hiện nguyên) | "Open" (`notes.reveal`) |
 | `git.commit` | Short SHA + subject | "View diff" (`git.reveal`, kind `commit`, bằng SHA đầy đủ) |
 | `git.diff` | Tên file đổi + số dòng (không phải toàn bộ diff — đã có `AgentToolDiff` cho điều đó) | "View diff" — chỉ hiện khi `rawInput.rev` khác rỗng; diff work tree không có view riêng để mở lại đúng những gì tool đã thấy (xem `git.reveal` trong `manifest.ts`) |
+| `db.query` | SQL (dòng đầu) + `DataTable` 20 dòng đầu, "Show all"; lệnh ghi: "N rows affected" / "Done". Không có profile — kết quả không mang nó | "Copy CSV"; "Open in Database" (console "Agent query", không bao giờ chạy, không có với lệnh ghi) |
+| `db.explain` | `PlanDiagram` khung cố định | "Open in Database" (nói khi console không cùng connection với agent) |
+| `db.schema.get` / `db.listForeignKeys` | Schema → bảng (số cột), mở ra thấy cột; FK `table.column → ref.column`; gập ở 40 | — |
+| `kafka.peekMessages` | `DataTable` Offset/Key/Value (≤ 120 ký tự)/Time; bấm dòng → giá trị đầy đủ dưới bảng | "Open in Kafka" (`kafka.reveal`) |
+| `kafka.listTopics` / `describeTopic` / `listConsumerGroups` / `publishMessage` | Bảng gọn / dòng định nghĩa; publish: partition · offset · time | listTopics: bấm dòng mở topic; describe/publish: "Open in Kafka"; groups: không |
+| `ssh.runCommand` | `$ command` + output mono, 20 dòng, "Show all"; bỏ escape ANSI khi hiện. Không có exit code (tool không trả) | "Copy" (byte gốc) |
+| `pdf.viewPages` / `search` / `readText` / `info` / `list` | Ảnh trang (từ `content`; hàng đã tải lại: khung giữ tỉ lệ + ghi chú); hit có `<mark>`; text theo trang; dòng định nghĩa | Bấm ảnh → full size |
+| `workspace.memory.*` | Card entry (kind, title, summary, body 6 dòng, revision) hoặc danh sách `[kind] title — summary` | — |
+
+Card `db.*`/`kafka.*`/`ssh.*` do module đó đăng ký (`modules/<module>/toolViews`),
+`pdf.*` do Agent Hub (`agenthub/toolViews` — PDF thuộc về session),
+`workspace.memory.*` do workbench (`workbench/registerViews.ts` — không module
+nào sở hữu workspace memory).
+
+**Hai intent mới cho Phase 2** (để Agent Hub mở bảng/topic mà không import
+module kia):
+
+- `database.reveal` — `{kind:"table", id:"schema.table", profileId?}` mở bảng
+  trên `profileId` (qua đường chọn connection bình thường; profile lạ →
+  `"unavailable"`; không có thì connection đang chọn). Schema có dấu chấm viết
+  trong ngoặc kép SQL: `"sales.eu".orders`; thiếu schema → `"unavailable"`. Hoặc
+  `{kind:"console", id: sql, label?}` mở console chứa câu lệnh, không chạy.
+- `kafka.reveal` — `{kind:"topic", id}`: đưa Kafka lên màn hình trước, làm mới
+  store từ Go, chờ tối đa 12 s rồi chọn topic; không có connection hay topic →
+  `"unavailable"`.
 
 **Cố tình chưa làm — dữ liệu lớn hoặc nhạy cảm, cần bàn phạm vi riêng:**
-`db.query`, `kafka.peekMessages`, `codegraph.getBlastRadius` (kết quả dạng
-bảng, dễ vướng `ToolRawPreviewLimit`); `vault.*`, `accounts.*` (nhạy cảm);
-tool ghi/phá hủy như `notes.delete`, `git.push`, `kafka.publishMessage` (giữ
-JSON thô để thấy đúng agent đã làm gì, không tô vẽ).
+`codegraph.getBlastRadius`; `vault.*`, `accounts.*` (nhạy cảm); tool ghi/phá
+hủy như `notes.delete`, `git.push` (giữ JSON thô để thấy đúng agent đã làm gì,
+không tô vẽ).
 
 **Nhất quán với cái đã có:** mọi card là một
 [Framed card](/dev-kit/framed-card) — header (icon, tên, một sự kiện ngắn,

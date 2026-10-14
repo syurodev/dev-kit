@@ -1,8 +1,10 @@
-import { lazy } from "react";
+import { createElement, lazy } from "react";
 import { useSSHStore } from "./sshStore";
 import { Terminal } from "lucide-react";
 import { INFRA_GROUP } from "../groups";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { registerToolResultView } from "@/workbench/toolResultViews";
+import { parseRunCommand } from "./toolViews/parse";
 
 export const sshModule: ModuleManifest = {
   id: "ssh",
@@ -33,3 +35,16 @@ export const sshModule: ModuleManifest = {
     },
   ],
 };
+
+/**
+ * ToolResultView for `ssh.runCommand` (docs/dev-kit/tool-result-view.mdx): the
+ * shape is checked synchronously before the card's chunk loads; anything but
+ * `{output}` falls back to the generic block.
+ */
+const LazyCommandResultCard = lazy(() =>
+  import("./toolViews/CommandResultCard").then(({ CommandResultCard }) => ({ default: CommandResultCard })),
+);
+registerToolResultView("ssh.runCommand", ({ rawInput, rawOutput }) => {
+  const result = parseRunCommand(rawInput, rawOutput);
+  return result ? createElement(LazyCommandResultCard, { result }) : null;
+});

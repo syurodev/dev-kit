@@ -20,6 +20,7 @@ import {
 } from "./index";
 import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { TranscriptActionsProvider } from "./transcriptActions";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 
 // The provider is mounted once in App.tsx; these leaves carry tooltips of
@@ -475,6 +476,103 @@ describe("Agent Hub Transcript Leaves", () => {
       }
     });
 
+    it("a row whose card stands outside the fold shows the call's own output, not the view again", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => <div data-testid="fake-flow-card">card</div>);
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            variant="row"
+            resultOutside
+            call={{
+              id: "c-flow-outside",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: '{"endpointId":"e9","steps":[]}' } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain("fake-flow-card");
+        expect(html).not.toContain('data-testid="tool-call-result-view"');
+        expect(html).toContain('data-result="outside"');
+        expect(html).toContain("e9");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("renders the view for Claude's result, which rides in the content text", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
+        <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-claude",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: '{"endpointId":"e2","steps":[]}' } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).toContain("flow for e2");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("renders the view for a Codex call, named only by its devkit.<tool> title", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
+        <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-codex",
+              title: "devkit.codegraph.getApiFlow",
+              status: "completed",
+              rawOutput: {
+                content: [{ type: "text", text: '{"endpointId":"e3"}' }],
+                structuredContent: { endpointId: "e3", steps: [] },
+              },
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).toContain("flow for e3");
+      } finally {
+        unregister();
+      }
+    });
+
+    it("keeps the failed row for a Claude error: views see only successful payloads", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => (
+        <div data-testid="fake-flow-card">should not appear</div>
+      ));
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            call={{
+              id: "c-flow-failed",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "failed",
+              content: [{ type: "content", content: { type: "text", text: "```\nnot_found: no endpoint\n```" } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain("fake-flow-card");
+      } finally {
+        unregister();
+      }
+    });
+
     it("falls back to the JSON block when the registered renderer declines", () => {
       const unregister = registerToolResultView("codegraph.getApiFlow", () => null);
       try {
@@ -714,5 +812,55 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(model.items[0].asyncTask).toMatchObject({ id: "t1", name: "Lint", state: "failed" });
       expect(model.items[1].subagent).toEqual({ id: "s1", name: "Explore", task: "Map the repo", state: "completed" });
     });
+  });
+});
+
+describe("AgentProse links and file refs", () => {
+  it("links stay inline anchors that carry their URL", () => {
+    const html = renderToString(<AgentProse text="See [dash](https://grafana.local/d/auth) now" />);
+    expect(html).toContain('data-testid="agent-link"');
+    expect(html).toContain('data-href="https://grafana.local/d/auth"');
+    expect(html).toContain("<a ");
+    expect(html).not.toContain("title=");
+    expect(html).not.toContain('target="_blank"');
+  });
+
+  it("a file ref in inline code is a button when files can open", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ onOpenFile: () => {} }}>
+        <AgentProse text="Look at `auth/session.go:88` and `SessionTTL`" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+    expect(html).toContain('role="button"');
+    expect(html).toContain(">auth/session.go:88<");
+  });
+
+  it("a file ref is a button when references can open, with no chip handler", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ openRef: () => {} }}>
+        <AgentProse text="Look at `auth/session.go:88`" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
+  });
+
+  it("a link says what it points at, and an unknown scheme carries no href", () => {
+    const html = renderToString(
+      <TranscriptActionsProvider value={{ openRef: () => {} }}>
+        <AgentProse text="[web](https://a.dev/x) [file](src/a.ts#L3) [ftp](ftp://host/f)" />
+      </TranscriptActionsProvider>,
+    );
+    expect(html.match(/data-testid="agent-link"/g)?.length).toBe(3);
+    expect(html).toContain('data-link="url"');
+    expect(html).toContain('data-link="file"');
+    expect(html).toContain('data-link="other"');
+    expect(html).not.toMatch(/ href="ftp:/);
+    expect(html).toContain('data-href="ftp://host/f"');
+  });
+
+  it("without a file handler a ref stays plain code", () => {
+    const html = renderToString(<AgentProse text="`auth/session.go:88`" />);
+    expect(html).not.toContain("agent-file-ref");
   });
 });

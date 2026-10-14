@@ -1,13 +1,15 @@
 import { Shimmer } from "@/components/ui/shimmer";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQueries } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query";
 import { useReducedMotion } from "framer-motion";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { scheduleTranscriptFrame } from "../transcript";
 import type { TranscriptItem } from "../types";
-import { groupTurns, type Turn } from "../turns";
+import { groupTurns, newestPlanTurnIndex, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
@@ -15,6 +17,14 @@ import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 import { vendorInfo } from "../vendors";
+import { TranscriptActionsProvider } from "../transcript/transcriptActions";
+import type { RefContext } from "../transcript/resolveFileRef";
+import { refOpener } from "../transcript/openReference";
+import { callsToLoad, sessionEntities, type SessionEntities } from "../transcript/entityRefs";
+import { toolCallDetailQuery } from "../transcript/toolCallDetail";
+import type { ToolCall } from "../types";
+import { RefPickerHost } from "../transcript/RefPicker";
+import type { Placement } from "@/workbench/intents";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
@@ -38,6 +48,22 @@ export type TranscriptStreamProps = {
   /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
   onEditPrompt?: (text: string) => void;
   onOpenFile?: (path: string, line?: number) => void;
+  /**
+   * The session file references in prose resolve against. Absent (or null for
+   * a draft), prose falls back to `onOpenFile`.
+   */
+  refContext?: RefContext | null;
+  /**
+   * Where a reference in prose opens: beside (the Hub's default, so the session
+   * stays on screen) or in place (the rail, which sits beside the work already).
+   */
+  refPlacement?: Placement;
+  /**
+   * The Hub docks a summary card beside the conversation, which shows the
+   * latest plan. Only then does that plan's card in the turn step back to one
+   * line. The rail shares this stream and has no dock, so it stays false.
+   */
+  planDocked?: boolean;
   loading?: boolean;
   /** Older pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -45,6 +71,16 @@ export type TranscriptStreamProps = {
   loadingOlder?: boolean;
   /** Walks one page further back. The stream anchors the scroll around it. */
   onLoadOlder?: () => void;
+  /**
+   * The reading column's width. The rail keeps the default 720 (max-w-180);
+   * the Hub passes its wider one.
+   */
+  columnClassName?: string;
+  /**
+   * Added to the scroller's own padding — the Hub uses it to make room for the
+   * docked session summary, so the column centres in what is left of the pane.
+   */
+  viewportClassName?: string;
   className?: string;
 };
 
@@ -180,9 +216,10 @@ export function estimateTurnSize(turn: Turn | undefined): number {
  * column. Owns the scroll position, the floating AgentJumpToLatest button and
  * the meta inspector.
  *
- * The column is max-w-180, the 720 the notes editor writes in. At the full
- * width of a wide window an answer ran to 200 characters a line, and a bubble
- * pinned to the far right edge sat a whole window away from the reply under it.
+ * The column is max-w-180 by default (the rail), the 720 the notes editor
+ * writes in; the Hub passes a wider one (max-w-190). At the full width of a
+ * wide window an answer ran to 200 characters a line, and a bubble pinned to
+ * the far right edge sat a whole window away from the reply under it.
  */
 export function TranscriptStream({
   items,
@@ -195,10 +232,15 @@ export function TranscriptStream({
   onCopy,
   onEditPrompt,
   onOpenFile,
+  refContext,
+  refPlacement = "beside",
+  planDocked = false,
   loading = false,
   hasMore = false,
   loadingOlder = false,
   onLoadOlder,
+  columnClassName = "max-w-180",
+  viewportClassName,
   className,
 }: TranscriptStreamProps) {
   const previousTurnsRef = useRef<Turn[]>([]);
@@ -210,6 +252,9 @@ export function TranscriptStream({
     if (previous.length === 0) previousTicksRef.current = [];
     return groupTurns(items, previous);
   }, [items, streamKey]);
+  // Once per grouping, not per turn render: the turn the docked summary's plan
+  // belongs to, whose own plan card steps back to a line when docked.
+  const planTurnIndex = useMemo(() => newestPlanTurnIndex(turns), [turns]);
   const ticks = useMemo(() => {
     const next = ticksOf(turns, previousTurnsRef.current, previousTicksRef.current);
     previousTurnsRef.current = turns;
@@ -235,6 +280,53 @@ export function TranscriptStream({
   const stableOnOpenFile = useMemo(
     () => (onOpenFile ? (path: string, line?: number) => onOpenFileRef.current?.(path, line) : undefined),
     [Boolean(onOpenFile)],
+  );
+  // By value, not identity: a caller's fresh object per render must not
+  // re-render every turn's prose through the context below.
+  const sessionId = refContext?.sessionId;
+  const workspaceId = refContext?.workspaceId;
+  const projectPath = refContext?.projectPath;
+  const stableRefContext = useMemo<RefContext | null>(
+    () => (sessionId === undefined ? null : { sessionId, workspaceId: workspaceId ?? "", projectPath: projectPath ?? "" }),
+    [sessionId, workspaceId, projectPath],
+  );
+  const openRef = useMemo(
+    () => (stableRefContext ? refOpener(stableRefContext, refPlacement) : undefined),
+    [stableRefContext, refPlacement],
+  );
+  // The tables and topics this session's results named. Each call is read
+  // once and the last answer comes back while what they name is unchanged, so
+  // a streamed token neither re-reads payloads nor re-renders prose through
+  // the context. A schema read or topic list the page read cut is loaded whole
+  // (the four most recent, through the query result cards share).
+  const toLoad = useMemo(() => callsToLoad(items, sessionId), [items, sessionId]);
+  const combineLoaded = useCallback(
+    (results: { data?: ToolCall }[]) => {
+      const map = new Map<string, ToolCall>();
+      results.forEach((result, index) => {
+        if (result.data) map.set(toLoad[index].callId, result.data);
+      });
+      return map;
+    },
+    [toLoad],
+  );
+  const loaded = useQueries(
+    {
+      queries: toLoad.map(({ sessionId: owner, callId }) => toolCallDetailQuery(owner, callId)),
+      combine: combineLoaded,
+    },
+    queryClient,
+  );
+  const entitiesRef = useRef<SessionEntities | undefined>(undefined);
+  const entities = useMemo(() => sessionEntities(items, entitiesRef.current, loaded), [items, loaded]);
+  // Remembered once committed, not while rendering.
+  useEffect(() => {
+    entitiesRef.current = entities;
+  }, [entities]);
+  // Prose deep inside a turn opens a file through this, not through props.
+  const transcriptActions = useMemo(
+    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef, refPlacement, entities }),
+    [stableOnOpenFile, stableRefContext, openRef, refPlacement, entities],
   );
   // Both callers pass this as an inline arrow. Handed to every AgentTurn as
   // it came, it was a new function per streamed token, so memo let no turn
@@ -527,6 +619,7 @@ export function TranscriptStream({
         key={turn.id}
         turn={turn}
         latest={latest}
+        latestPlan={planDocked && index === planTurnIndex}
         live={latest && streaming}
         vendor={vendor}
         checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
@@ -559,139 +652,145 @@ export function TranscriptStream({
   }
 
   return (
-    <div
-      className={cn("relative flex size-full min-h-0 flex-col overflow-hidden", className)}
-      data-testid="transcript-stream"
-    >
-      {/* An overlay scrollbar (Radix ScrollArea) rather than the native one.
-          A native scrollbar takes width whenever the OS shows it permanently —
-          macOS "Show scroll bars: Always", a mouse plugged in, Windows, most
-          Linux themes — and CSS cannot turn that off: the column lost that
-          width and slid off-centre from the composer, which is centred in the
-          whole pane. This one floats over the content's right edge and takes
-          none, on every platform, and shows while scrolling or hovered. */}
-      <ScrollAreaPrimitive.Root type="hover" className="size-full min-h-0">
-      <ScrollAreaPrimitive.Viewport
-        ref={scrollRef}
-        onScroll={handleScroll}
-        onWheel={markUserScroll}
-        onTouchMove={markUserScroll}
-        onKeyDown={markUserScroll}
-        data-testid="transcript-viewport"
-        // Radix wraps the content in a display:table div so it can scroll
-        // sideways too; as a table it widens to fit a long code line and drags
-        // the column past the pane. Block keeps it to the viewport's width.
-        className="size-full px-6 [&>div]:block!"
-        // Clear of the glass header above (it floats over this scroller, and
-        // sets --header-inset). The composer is not an overlay: it sits below
-        // this whole stream in the layout, so the foot needs only its own air.
-        style={{
-          paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
-          paddingBottom: "var(--space-section)",
-        }}
-      >
-        <div
-          className={cn("relative mx-auto w-full max-w-180", !virtualized && "flex flex-col gap-6")}
-          style={virtualized ? { height: rowVirtualizer.getTotalSize() } : undefined}
-        >
-          {/* History is still above and the transcript says so — a silently
-              truncated conversation reads as complete and lies about what
-              the agent said. Reachable by scrolling; the pill is for the
-              first discovery and for when the preload has not fired. */}
-          {virtualized && hasMore && items.length > 0 ? (
-            <button
-              type="button"
-              onClick={requestOlder}
-              disabled={loadingOlder || !onLoadOlder}
-              data-testid="transcript-load-older"
-              className={cn(
-                "absolute top-0 left-1/2 z-10 -translate-x-1/2 inline-flex items-center gap-2 rounded-full",
-                "border border-border-subtle bg-surface-base",
-                "px-4 py-1 text-caption-11 text-text-tertiary",
-                "cursor-pointer select-none",
-                "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
-                "disabled:cursor-default disabled:opacity-70",
-              )}
-            >
-              <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
-            </button>
-          ) : null}
-
-          {!virtualized && hasMore && items.length > 0 ? (
-            <button
-              type="button"
-              onClick={requestOlder}
-              disabled={loadingOlder || !onLoadOlder}
-              data-testid="transcript-load-older"
-              className={cn(
-                "mx-auto inline-flex items-center gap-2 rounded-full",
-                "border border-border-subtle bg-surface-base",
-                "px-4 py-1 text-caption-11 text-text-tertiary",
-                "cursor-pointer select-none",
-                "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
-                "disabled:cursor-default disabled:opacity-70",
-              )}
-            >
-              <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
-            </button>
-          ) : null}
-
-          {items.length === 0 && !loading ? (
-            <div className="flex h-48 flex-col items-center justify-center text-center">
-              <p className="text-body-13 text-text-secondary">No messages yet</p>
-              <p className="text-caption-11 text-text-tertiary">
-                Send a prompt below to start interacting with the agent.
-              </p>
-            </div>
-          ) : null}
-
-          {virtualized ? virtualItems.map(renderVirtualTurn) : turns.map(renderTurn)}
-        </div>
-      </ScrollAreaPrimitive.Viewport>
-      {/* Clear of the header, which floats over the top. Top rather than a
-          margin: Radix positions the bar absolutely and the class gives it
-          full height, so a margin only slid it down. The foot is the
-          viewport's own edge. */}
-      <ScrollBar
-        // Radix captures the pointer on the bar while its thumb is dragged.
-        onPointerMove={(event) => {
-          if (event.buttons) markUserScroll();
-        }}
-        style={{ top: "var(--header-inset, 0px)", height: "auto" }}
-      />
-      </ScrollAreaPrimitive.Root>
-
-      <TranscriptTicks
-        ticks={ticks}
-        active={activeTick}
-        onJump={jumpTo}
-        className="absolute top-1/2 left-2 z-20 -translate-y-1/2"
-      />
-
-      <AgentMetaInspector
-        open={Boolean(inspecting)}
-        onOpenChange={(next) => {
-          if (!next) setInspecting(null);
-        }}
-        agentName={vendorInfo(vendor).name}
-        stopReason={metaField(inspecting, "stopReason")}
-        cost={metaNumber(inspecting, "cost")}
-        inputTokens={metaNumber(inspecting, "inputTokens")}
-        outputTokens={metaNumber(inspecting, "outputTokens")}
-        meta={inspecting?.raw}
-      />
-
-      {/* Floating Jump to Latest Button: over the foot of THIS viewport, so it
-          rides above the composer's edge without knowing how tall it is. */}
+    <TranscriptActionsProvider value={transcriptActions}>
       <div
-        className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
-        style={{ bottom: "var(--space-control)" }}
+        className={cn("relative flex size-full min-h-0 flex-col overflow-hidden", className)}
+        data-testid="transcript-stream"
       >
-        <div className="pointer-events-auto">
-          <AgentJumpToLatest visible={showJump} onClick={scrollToBottom} />
+        {/* An overlay scrollbar (Radix ScrollArea) rather than the native one.
+            A native scrollbar takes width whenever the OS shows it permanently —
+            macOS "Show scroll bars: Always", a mouse plugged in, Windows, most
+            Linux themes — and CSS cannot turn that off: the column lost that
+            width and slid off-centre from the composer, which is centred in the
+            whole pane. This one floats over the content's right edge and takes
+            none, on every platform, and shows while scrolling or hovered. */}
+        <ScrollAreaPrimitive.Root type="hover" className="size-full min-h-0">
+        <ScrollAreaPrimitive.Viewport
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onWheel={markUserScroll}
+          onTouchMove={markUserScroll}
+          onKeyDown={markUserScroll}
+          data-testid="transcript-viewport"
+          // Focusable from code only: the reference picker gives focus back
+          // here when the reference it opened from has re-rendered away.
+          tabIndex={-1}
+          // Radix wraps the content in a display:table div so it can scroll
+          // sideways too; as a table it widens to fit a long code line and drags
+          // the column past the pane. Block keeps it to the viewport's width.
+          className={cn("size-full px-6 outline-none [&>div]:block!", viewportClassName)}
+          // Clear of the glass header above (it floats over this scroller, and
+          // sets --header-inset). The composer is not an overlay: it sits below
+          // this whole stream in the layout, so the foot needs only its own air.
+          style={{
+            paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
+            paddingBottom: "var(--space-section)",
+          }}
+        >
+          <div
+            className={cn("relative mx-auto w-full", columnClassName, !virtualized && "flex flex-col gap-6")}
+            style={virtualized ? { height: rowVirtualizer.getTotalSize() } : undefined}
+          >
+            {/* History is still above and the transcript says so — a silently
+                truncated conversation reads as complete and lies about what
+                the agent said. Reachable by scrolling; the pill is for the
+                first discovery and for when the preload has not fired. */}
+            {virtualized && hasMore && items.length > 0 ? (
+              <button
+                type="button"
+                onClick={requestOlder}
+                disabled={loadingOlder || !onLoadOlder}
+                data-testid="transcript-load-older"
+                className={cn(
+                  "absolute top-0 left-1/2 z-10 -translate-x-1/2 inline-flex items-center gap-2 rounded-full",
+                  "border border-border-subtle bg-surface-base",
+                  "px-4 py-1 text-caption-11 text-text-tertiary",
+                  "cursor-pointer select-none",
+                  "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+                  "disabled:cursor-default disabled:opacity-70",
+                )}
+              >
+                <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
+              </button>
+            ) : null}
+
+            {!virtualized && hasMore && items.length > 0 ? (
+              <button
+                type="button"
+                onClick={requestOlder}
+                disabled={loadingOlder || !onLoadOlder}
+                data-testid="transcript-load-older"
+                className={cn(
+                  "mx-auto inline-flex items-center gap-2 rounded-full",
+                  "border border-border-subtle bg-surface-base",
+                  "px-4 py-1 text-caption-11 text-text-tertiary",
+                  "cursor-pointer select-none",
+                  "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+                  "disabled:cursor-default disabled:opacity-70",
+                )}
+              >
+                <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
+              </button>
+            ) : null}
+
+            {items.length === 0 && !loading ? (
+              <div className="flex h-48 flex-col items-center justify-center text-center">
+                <p className="text-body-13 text-text-secondary">No messages yet</p>
+                <p className="text-caption-11 text-text-tertiary">
+                  Send a prompt below to start interacting with the agent.
+                </p>
+              </div>
+            ) : null}
+
+            {virtualized ? virtualItems.map(renderVirtualTurn) : turns.map(renderTurn)}
+          </div>
+        </ScrollAreaPrimitive.Viewport>
+        {/* Clear of the header, which floats over the top. Top rather than a
+            margin: Radix positions the bar absolutely and the class gives it
+            full height, so a margin only slid it down. The foot is the
+            viewport's own edge. */}
+        <ScrollBar
+          // Radix captures the pointer on the bar while its thumb is dragged.
+          onPointerMove={(event) => {
+            if (event.buttons) markUserScroll();
+          }}
+          style={{ top: "var(--header-inset, 0px)", height: "auto" }}
+        />
+        </ScrollAreaPrimitive.Root>
+
+        <TranscriptTicks
+          ticks={ticks}
+          active={activeTick}
+          onJump={jumpTo}
+          className="absolute top-1/2 left-2 z-20 -translate-y-1/2"
+        />
+
+        <AgentMetaInspector
+          open={Boolean(inspecting)}
+          onOpenChange={(next) => {
+            if (!next) setInspecting(null);
+          }}
+          agentName={vendorInfo(vendor).name}
+          stopReason={metaField(inspecting, "stopReason")}
+          cost={metaNumber(inspecting, "cost")}
+          inputTokens={metaNumber(inspecting, "inputTokens")}
+          outputTokens={metaNumber(inspecting, "outputTokens")}
+          meta={inspecting?.raw}
+        />
+
+        {/* Floating Jump to Latest Button: over the foot of THIS viewport, so it
+            rides above the composer's edge without knowing how tall it is. */}
+        <div
+          className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+          style={{ bottom: "var(--space-control)" }}
+        >
+          <div className="pointer-events-auto">
+            <AgentJumpToLatest visible={showJump} onClick={scrollToBottom} />
+          </div>
         </div>
+        <RefPickerHost />
       </div>
-    </div>
+    </TranscriptActionsProvider>
   );
 }
 

@@ -1,35 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { DEVKIT_FAMILY, FAMILIES } from "./families";
-import { CONTRACT, MIX_TOKENS, SYNTAX_TOKENS, THEME_TOKENS, TINT_TOKENS } from "./tokens";
+import { parseBlock, readIndexCss, resolveVar, themeBlocks } from "./cssTokens";
+import { DEVKIT_FAMILY } from "./families";
+import {
+  CONTRACT,
+  HUE_TOKENS,
+  MIX_TOKENS,
+  PALETTE_TOKENS,
+  SYNTAX_STYLE_TOKENS,
+  SYNTAX_TOKENS,
+  TERMINAL_TOKENS,
+  THEME_TOKENS,
+  TINT_TOKENS,
+} from "./tokens";
 
-// Comments stripped first: index.css documents tokens in prose that starts
-// with the token's own name ("--brand-text is the accent for text/icons…"),
-// and a parser that reads those as declarations invents tokens that do not
-// exist. Measured the hard way — this exact line showed up as an orphan.
-const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
-  "",
-);
-
-/** The declarations inside one `{ … }` block, as name → value. */
-function block(selector: RegExp): Map<string, string> {
-  const match = css.match(new RegExp(selector.source + String.raw`\s*\{([\s\S]*?)\n\}`));
-  if (!match) throw new Error(`no block for ${selector}`);
-  const out = new Map<string, string>();
-  for (const line of match[1].split("\n")) {
-    const declaration = line.trim();
-    if (!declaration.startsWith("--")) continue;
-    const colon = declaration.indexOf(":");
-    if (colon === -1) continue;
-    out.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).split(";")[0].trim());
-  }
-  return out;
-}
-
-const dark = block(/\n:root/);
-const light = block(/:root\[data-theme="light"\]/);
+const { dark, light } = themeBlocks();
 
 describe("the base theme implements the contract", () => {
   // :root is the dark theme. It has to answer for every token, because
@@ -50,8 +34,7 @@ describe("the base theme implements the contract", () => {
   // every family's grounds — theme-invariant is not the same as unchecked.
   test("no colour token exists outside the contract without being derived", () => {
     const derived = (value: string) => value.startsWith("var(") || value.startsWith("color-mix(");
-    const shape = (name: string) =>
-      /blur|saturate|radius|motion|ease|font|spring/.test(name) || name.startsWith("--palette-");
+    const shape = (name: string) => /blur|saturate|radius|motion|ease|font|spring/.test(name);
     const brand = (name: string) => name.startsWith("--vendor-");
     const orphans = [...dark]
       .filter(
@@ -66,7 +49,7 @@ describe("the base theme implements the contract", () => {
 describe("light is a working second implementation", () => {
   // Light is the proof that the contract is implementable by something other
   // than the values it was extracted from. It may inherit a token whose value
-  // genuinely does not change (the lime fill), so this is a floor, not an
+  // genuinely does not change (a derived token such as --icon-secondary), so this is a floor, not an
   // equality — but it must carry the tints, or every alpha layer in the app
   // would still be built from dark's white.
   test("light redefines the tint sources", () => {
@@ -125,75 +108,70 @@ describe("the contract's own shape", () => {
   });
 
   test("the tiers do not overlap", () => {
-    const tint = new Set<string>(TINT_TOKENS);
-    const mix = new Set<string>(MIX_TOKENS);
-    const syntax = new Set<string>(SYNTAX_TOKENS);
-    expect(THEME_TOKENS.filter((t) => tint.has(t) || mix.has(t) || syntax.has(t))).toEqual([]);
+    const lists = [TINT_TOKENS, THEME_TOKENS, MIX_TOKENS, HUE_TOKENS, SYNTAX_TOKENS, SYNTAX_STYLE_TOKENS, TERMINAL_TOKENS];
+    const all = lists.flatMap((list) => [...list]);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 
-describe("code colours follow the ramp unless a family says otherwise", () => {
-  // A family is not required to set these (families.ts sets them for Xcode
-  // alone), which only works if the base derives every one: a literal here
-  // would paint the same code colour into all thirteen families.
-  test("index.css derives every syntax token from a ramp token", () => {
-    for (const token of SYNTAX_TOKENS) {
-      expect(dark.get(token), `${token} is not derived`).toMatch(/^var\(--(brand-text|status-|text-)/);
-      expect(light.has(token), `light restates ${token}; it follows the ramp already`).toBe(false);
-    }
-  });
 
-  // Half a syntax palette would mix the family's editor colours with the
-  // ramp's — Xcode strings next to DevKit keywords.
-  test("a family sets all of them or none", () => {
-    for (const family of Object.values(FAMILIES)) {
-      for (const mode of ["dark", "light"] as const) {
-        const set = SYNTAX_TOKENS.filter((token) => token in family[mode]);
-        expect([0, SYNTAX_TOKENS.length], `${family.label} ${mode} sets ${set.join(", ")}`).toContain(set.length);
-      }
-    }
-  });
-});
-
-describe("the devkit family mirrors the stylesheet", () => {
-  /** One level of `var(--x)`, which is all index.css uses for these. */
-  function effective(token: string, mode: "dark" | "light"): string | undefined {
-    const source = mode === "light" ? light : dark;
-    let value = source.get(token) ?? dark.get(token);
-    for (let hop = 0; hop < 4 && value?.startsWith("var("); hop += 1) {
-      const name = value.slice(4, value.indexOf(")"));
-      value = source.get(name) ?? dark.get(name);
-    }
-    return value;
-  }
-
-  // DEVKIT_FAMILY is a copy of index.css, which it has to be for the Settings
-  // swatch to paint itself — an element the `:root` rule does not match cannot
-  // fall back to values only `:root` declares. A copy is a second place to
-  // change a colour, so this is the price: every value pinned, both ways.
+describe("the base palette in index.css is devkit", () => {
+  // DEVKIT_FAMILY is a copy of index.css's palette values: the stylesheet
+  // needs them for the first paint, families.ts for the Settings swatch and
+  // for applyThemeFamily. A copy is a second place to change a colour, so
+  // every value is pinned, both ways.
   for (const mode of ["dark", "light"] as const) {
-    test(`${mode} matches what index.css resolves to`, () => {
+    test(`${mode} hues and syntax match`, () => {
+      const block = mode === "dark" ? dark : light;
       const drift: string[] = [];
       for (const [token, value] of Object.entries(DEVKIT_FAMILY[mode])) {
-        const fromCss = effective(token, mode);
-        if (fromCss !== value) {
-          drift.push(`${token}: family has ${value}, index.css resolves ${fromCss}`);
-        }
+        const fromCss = block.get(token) ?? dark.get(token);
+        if (fromCss !== value) drift.push(`${token}: family has ${value}, index.css has ${fromCss}`);
       }
       expect(drift, drift.join("\n")).toEqual([]);
     });
   }
 
-  // Every family has to cover the same ground, or switching to one leaves
-  // tokens behind from whichever was applied before it.
-  test("every family declares the same tokens as the base", () => {
-    const expected = Object.keys(DEVKIT_FAMILY.dark).sort();
-    for (const family of Object.values(FAMILIES)) {
-      for (const mode of ["dark", "light"] as const) {
-        const got = Object.keys(family[mode]).sort();
-        const missing = expected.filter((token) => !got.includes(token));
-        expect(missing, `${family.label} ${mode} is missing ${missing.join(", ")}`).toEqual([]);
-      }
+  test("light restates only the hues", () => {
+    const restated = [...PALETTE_TOKENS].filter((t) => light.has(t));
+    expect(restated.sort()).toEqual([...HUE_TOKENS].sort());
+  });
+
+  test("ANSI derives from hues", () => {
+    expect(dark.get("--ansi-red")).toBe("var(--hue-red)");
+    expect(dark.get("--ansi-green")).toBe("var(--hue-green)");
+    expect(dark.get("--ansi-yellow")).toBe("var(--hue-yellow)");
+    expect(dark.get("--ansi-blue")).toBe("var(--hue-blue)");
+    expect(dark.get("--ansi-magenta")).toBe("var(--hue-violet)");
+    expect(dark.get("--ansi-cyan")).toBe("var(--hue-teal)");
+  });
+
+  test("note-folder colours are the hues", () => {
+    for (const hue of ["red", "orange", "yellow", "green", "teal", "blue", "violet", "pink"]) {
+      expect(dark.get(`--note-folder-${hue}`)).toBe(`var(--hue-${hue})`);
+      expect(light.has(`--note-folder-${hue}`)).toBe(false);
     }
+  });
+});
+
+describe("focus rings use the focus token", () => {
+  // shadcn's `ring-ring` and the global `outline-ring/50` read --ring; it
+  // used to be --status-info, which is grey in Mono and so a ring nobody sees.
+  const shadcnDark = parseBlock(readIndexCss(), /\n\.dark/);
+  for (const [label, block] of [["root", dark], [".dark", shadcnDark]] as const) {
+    for (const token of ["--ring", "--sidebar-ring"]) {
+      const declared = block.get(token);
+      if (declared === undefined) continue;
+      test(`${label} ${token} is --border-focus`, () => {
+        expect(resolveVar(token, block, dark)).toBe(resolveVar("--border-focus", dark, dark));
+      });
+    }
+  }
+  test("root declares both rings", () => {
+    expect(dark.has("--ring")).toBe(true);
+    expect(dark.has("--sidebar-ring")).toBe(true);
+  });
+  test(".dark declares --ring", () => {
+    expect(shadcnDark.has("--ring")).toBe(true);
   });
 });

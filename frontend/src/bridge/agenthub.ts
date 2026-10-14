@@ -55,6 +55,8 @@ export type AgentSession = {
   depth: number;
   title: string | null;
   acpSessionId: string;
+  /** Where the session got to — written when a turn ends. Empty until one has. */
+  preview?: string;
   /**
    * When the backend last wrote the session row, in epoch milliseconds: a
    * status change (a turn starting or ending, a permission wait), a rename or
@@ -230,6 +232,7 @@ function toSession(raw: RawSession): AgentSession {
     depth: raw.Depth ?? 0,
     title: raw.Title ?? null,
     acpSessionId: raw.ACPSessionID ?? "",
+    preview: raw.Preview ?? "",
     updatedAt: toEpoch(raw.UpdatedAt),
   };
 }
@@ -780,6 +783,17 @@ export function agentHubListCheckpoints(sessionId: string): Promise<CheckpointSu
   return callBridge(async () => {
     const records = await AppService.AgentHubListCheckpoints(sessionId);
     return (records ?? []) as CheckpointSummary[];
+  });
+}
+
+/** A PDF attached to a session: what the summary card lists. */
+export type AgentDocument = { id: string; name: string; pages: number; size: number };
+
+/** The session's PDFs, oldest first. Metadata only — no bytes, no text. */
+export function agentHubListDocuments(sessionId: string): Promise<AgentDocument[]> {
+  return callBridge(async () => {
+    const raw = (await AppService.AgentHubListDocuments(sessionId)) ?? [];
+    return raw.map((d) => ({ id: d.id, name: d.name, pages: d.pages ?? 0, size: d.size ?? 0 }));
   });
 }
 

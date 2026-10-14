@@ -14,11 +14,12 @@ import { consoleFiles } from "./consoleFiles";
 // Spread first: a replacement that lists only what it needs deletes every
 // other export from everyone else's view.
 const bridge = await import("../../bridge/database");
+let listedProfiles: unknown[] = [];
 
 mock.module("../../bridge/database", () => ({
   ...bridge,
   runQuery: async () => ({ columns: ["n"], rows: [["1"]], rowCount: 1, truncated: false }),
-  listProfiles: async () => [],
+  listProfiles: async () => listedProfiles,
   listConsoles: async () => [],
   listColumns: async () => [],
   getSchemaCache: async () => null,
@@ -30,6 +31,14 @@ mock.module("../../bridge/database", () => ({
   rollbackTransaction: async () => {},
   transactionState: async () => ({ manual: false, open: false }),
 }));
+
+// fetchProfiles reads the env tags and SSH profiles beside the connections;
+// their bridges answer empty here so the list itself can load. Spread first,
+// as above.
+const environments = await import("../../bridge/environments");
+mock.module("../../bridge/environments", () => ({ ...environments, listEnvTags: async () => [] }));
+const ssh = await import("../../bridge/ssh");
+mock.module("../../bridge/ssh", () => ({ ...ssh, listSSHProfiles: async () => [] }));
 
 const { useDatabaseStore, visibleResult } = await import("./databaseStore");
 
@@ -246,6 +255,87 @@ describe("one statement at a time", () => {
     await useDatabaseStore.getState().executeQuery("c2");
 
     expect(useDatabaseStore.getState().consoleState("c2").lastStatement).toBe("SELECT 9");
+  });
+});
+
+/**
+ * An agent's answer, shown in a console without running anything: Open in
+ * Database from a db.query card puts the rows the card holds into the
+ * console's result panel. It is the console's result until the person runs
+ * something, and it is never written to the console's file.
+ */
+describe("an agent's result in a console", () => {
+  const agent = { columns: ["id"], rows: [["7"]], rowCount: 1, truncated: true, rowsAffected: -1 };
+
+  beforeEach(() => {
+    useDatabaseStore.setState({
+      consoles: {},
+      profiles: [
+        { id: "p1", name: "prod", host: "", port: 0, database: "shop", username: "", sslMode: "", env: "", readOnly: false },
+      ],
+      selectedProfileId: "p1",
+    });
+  });
+
+  test("shows as the console's result, marked as the agent's, with no run behind it", () => {
+    useDatabaseStore.getState().setSql("c1", "SELECT id FROM t");
+    useDatabaseStore.getState().showAgentResult("c1", "SELECT id FROM t", agent);
+
+    const console = useDatabaseStore.getState().consoleState("c1");
+    expect(visibleResult(console)).toEqual(agent);
+    expect(console.results).toEqual([{ statement: "SELECT id FROM t", result: agent, origin: "agent" }]);
+    expect(console.activeResult).toBe(0);
+    expect(console.queryDurationMs, "the pill has no run to report").toBeNull();
+    expect(console.statementRuns, "no gutter mark: nothing ran here").toEqual({});
+    expect(console.sql).toBe("SELECT id FROM t");
+  });
+
+  test("is never written to the console's file", () => {
+    const schedule = consoleFiles.schedule;
+    const writes: unknown[] = [];
+    consoleFiles.schedule = (file) => void writes.push(file);
+    try {
+      useDatabaseStore.getState().showAgentResult("c1", "SELECT 1", agent);
+    } finally {
+      consoleFiles.schedule = schedule;
+    }
+    expect(writes).toEqual([]);
+  });
+
+  test("running the console replaces it", async () => {
+    useDatabaseStore.getState().showAgentResult("c1", "SELECT 1", agent);
+    await useDatabaseStore.getState().executeQuery("c1", "SELECT 1");
+
+    const console = useDatabaseStore.getState().consoleState("c1");
+    expect(console.results).toHaveLength(1);
+    expect(console.results[0].origin).toBeUndefined();
+    expect(visibleResult(console)?.rows).toEqual([["1"]]);
+  });
+});
+
+describe("loading the connection list", () => {
+  const p = (id: string) => ({ id, name: id, host: "", port: 0, database: "", username: "", sslMode: "", env: "", readOnly: false });
+
+  afterEach(() => {
+    listedProfiles = [];
+    useDatabaseStore.setState({ profiles: [], selectedProfileId: "" });
+  });
+
+  test("with nothing selected it selects the first", async () => {
+    listedProfiles = [p("prod"), p("staging")];
+    useDatabaseStore.setState({ selectedProfileId: "" });
+    await useDatabaseStore.getState().fetchProfiles();
+    expect(useDatabaseStore.getState().selectedProfileId).toBe("prod");
+  });
+
+  // An agent's connection is about to be selected: the first one must not be
+  // picked, and connected to, on the way there.
+  test("asked not to, it selects nothing", async () => {
+    listedProfiles = [p("prod"), p("staging")];
+    useDatabaseStore.setState({ selectedProfileId: "" });
+    await useDatabaseStore.getState().fetchProfiles({ autoSelect: false });
+    expect(useDatabaseStore.getState().profiles.map((x) => x.id)).toEqual(["prod", "staging"]);
+    expect(useDatabaseStore.getState().selectedProfileId).toBe("");
   });
 });
 

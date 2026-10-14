@@ -121,7 +121,7 @@ export function FileDiffPane({
 
   const counts = (
     <>
-      {added > 0 ? <span className="text-(--brand-text)">{`+${added}`}</span> : null}
+      {added > 0 ? <span className="text-(--status-success)">{`+${added}`}</span> : null}
       {removed > 0 ? <span className="text-status-danger">{`−${removed}`}</span> : null}
     </>
   );

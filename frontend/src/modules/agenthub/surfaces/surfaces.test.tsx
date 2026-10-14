@@ -1,6 +1,7 @@
 import { TREE_ROW_HEIGHT } from "@/components/tree-view";
 import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentComposer,
   AgentJumpToLatest,
@@ -30,9 +31,15 @@ import type { AgentSession, PendingElicitation } from "@/bridge/agenthub";
 import type { TranscriptItem } from "../types";
 
 // Surfaces use the app's tooltips (the composer's icon-only actions, the
-// rail's rows), which want the provider App.tsx mounts once around the window.
-// Every render here gets one, the way every render in the app does.
-const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
+// rail's rows) and the session summary reads through TanStack Query; both want
+// the providers App.tsx mounts once around the window. Every render here gets
+// them, the way every render in the app does.
+const renderToString = (node: React.ReactNode) =>
+  renderRaw(
+    <QueryClientProvider client={new QueryClient()}>
+      <TooltipProvider>{node}</TooltipProvider>
+    </QueryClientProvider>,
+  );
 
 describe("Agent Hub Phase 3 Surfaces", () => {
   it("leaves status announcements to the shell's one live region", () => {
@@ -1815,7 +1822,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
         expect(html).toContain('data-testid="agent-dock-badge-running"');
         expect(html).toContain('data-state="running"');
-        expect(html).toContain("bg-status-info");
+        expect(html).toContain("bg-(--status-running)");
         // Figma: "Running is a dot and needs nothing." An animation that never
         // stops is the one thing on the dock you cannot ignore.
         expect(html).not.toContain("animate-ping");

@@ -106,7 +106,7 @@ function TagInputGalleryDemo() {
       onChange={setTags}
       placeholder="Type and press Enter..."
       tagDotColor={(tag) =>
-        tag === "design" ? "#c6ff34" : tag === "tokens" ? "#99e1d9" : undefined
+        tag === "design" ? "var(--hue-green)" : tag === "tokens" ? "var(--hue-teal)" : undefined
       }
     />
   );
@@ -221,9 +221,9 @@ export default function ComponentGallery() {
         <Spec node="378:2674" label="Tag / Chip — 74×20, r=6, text-caption-11-medium">
           <div className="flex flex-wrap items-center gap-3">
             <Tag>backend</Tag>
-            <Tag dotColor="#c6ff34">With dot</Tag>
+            <Tag dotColor="var(--hue-green)">With dot</Tag>
             <Tag onRemove={() => {}}>Dismissible</Tag>
-            <Tag dotColor="#99e1d9" onRemove={() => {}}>Full chip</Tag>
+            <Tag dotColor="var(--hue-teal)" onRemove={() => {}}>Full chip</Tag>
           </div>
         </Spec>
 
@@ -270,7 +270,7 @@ export default function ComponentGallery() {
           </div>
         </Spec>
 
-        <Spec node="570:59" label="Switch — 32×18, r=full; Off bg-white/6, On #c6ff34">
+        <Spec node="570:59" label="Switch — 32×18, r=full; Off bg-white/6, On action-primary">
           <div className="flex items-center gap-6">
             <Switch id="measure-switch-off" aria-label="Toggle off" />
             <Switch id="measure-switch-on" defaultChecked aria-label="Toggle on" />

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type * as React from "react";
 import { renderToString } from "react-dom/server";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -9,8 +11,10 @@ import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { activeAgentHubSessionId, closeAgentSessionTabs, openAgentSession } from "../documents";
 import { useSubagentPanel } from "../subagents";
 import type { Subagent } from "../types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionActionsContext, SessionMenuItems, subagentMenuEntries, type MenuKit, type SessionActions } from "./actions";
+import { AgentSessionCard, type AgentSessionCardProps } from "./AgentSessionCard";
 import { AgentSessionSidebar, type AgentSessionSidebarProps } from "./AgentSessionSidebar";
-import { AgentSubagentAvatars } from "./AgentSubagentAvatars";
 import { attentionBySession } from "./model";
 import { showSubagent } from "./openSubagent";
 
@@ -44,13 +48,53 @@ function render(over: Partial<AgentSessionSidebarProps> = {}): string {
   return renderToString(node);
 }
 
+const NO_ACTIONS: SessionActions = {
+  open: noop,
+  openSubagent: noop,
+  descendantCount: () => 0,
+  hold: noop,
+  release: noop,
+};
+
+/** One row on its own, for what the rail does not pass yet (an ask, a folder). */
+function renderCard(over: Partial<AgentSessionCardProps> & Pick<AgentSessionCardProps, "session">): string {
+  return renderToString(
+    <TooltipProvider>
+      <SessionActionsContext.Provider value={NO_ACTIONS}>
+        <AgentSessionCard selected={false} pinned={false} subagents={[]} ask={null} folder={null} now={Date.now()} {...over} />
+      </SessionActionsContext.Provider>
+    </TooltipProvider>,
+  );
+}
+
+/** A session in workspace `wsId`, and that workspace (folder `/ws/<id>`). */
+const inWs = (id: string, wsId: string, over: Partial<AgentSession> = {}) =>
+  session(id, { projectPath: `/ws/${wsId}`, workspaceId: wsId, ...over });
+const ws = (id: string) => ({ id, name: `Workspace ${id}`, paths: [`/ws/${id}`] });
+
 const cards = (html: string) => html.match(/data-testid="agent-session-card"/g)?.length ?? 0;
+const cardIdsIn = (html: string) => [...html.matchAll(/data-testid="agent-session-card" data-session-id="([^"]+)"/g)].map((m) => m[1]);
 const cardIds = (html: string) => [...html.matchAll(/data-testid="agent-session-card" data-session-id="([^"]+)"/g)].map((m) => m[1]);
 const cardHtml = (html: string, id: string) => {
   const at = html.indexOf(`data-session-id="${id}"`);
   // Up to where the next card's element opens, so one card's classes are not another's.
   const next = html.indexOf('<div role="listitem"', at);
   return html.slice(at, next === -1 ? undefined : next);
+};
+/** The class list of a card's own element (not its children's). */
+const rootClass = (html: string, id: string) => cardHtml(html, id).match(/^[^>]*class="([^"]*)"/)?.[1] ?? "";
+
+/** The opening tag of the element carrying `testid` (attributes in any order). */
+const tagOf = (html: string, testid: string) => {
+  const at = html.indexOf(`data-testid="${testid}"`);
+  return at === -1 ? "" : html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
+};
+
+/** A group's header: from its section to the end of its toggle button. */
+const header = (html: string, key: string) => {
+  const at = html.indexOf(`data-group-key="${key}"`);
+  const toggle = html.indexOf('data-testid="agent-group-toggle"', at);
+  return html.slice(html.lastIndexOf("<button", toggle), html.indexOf("</button>", toggle));
 };
 
 /** The deepest a <button> sits inside another <button>: 1 means none nest. */
@@ -74,6 +118,70 @@ describe("groups", () => {
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>2</);
   });
 
+  it("the header is one quiet row: chevron, name, and the count on the right — not a superscript", () => {
+    const html = render({ sessions: aged(3) });
+    const toggle = header(html, "project:/work/api");
+    const cls = (toggle.match(/^<button[^>]*class="([^"]*)"/)?.[1] ?? "").split(" ");
+    for (const c of ["h-8", "px-2", "rounded-md", "hover:bg-state-soft", "focus-visible:ring-2"]) expect(cls).toContain(c);
+    expect(html).toMatch(/data-testid="agent-group-name" class="[^"]*text-body-13 font-medium text-text-secondary/);
+    expect(html).not.toContain("<sup");
+    expect(html).toMatch(/data-testid="agent-group-count" aria-hidden="true" class="[^"]*text-caption-11 tabular-nums text-text-tertiary[^"]*">3</);
+    expect(html).toContain("3 sessions");
+    // The label of the group on screen reads a step stronger.
+    const active = render({ sessions: aged(3), activeSessionId: "s1" });
+    expect(active).toMatch(/data-testid="agent-group-name" class="[^"]*text-text-primary/);
+  });
+
+  it("the chevron is always there, and turns when the group is open", () => {
+    const chevron = (html: string) => html.match(/<svg[^>]*data-testid="agent-group-chevron"[^>]*>/)?.[0] ?? "";
+    const open = chevron(render({ sessions: aged(2) }));
+    expect(open).toContain("rotate-90");
+    expect(open).not.toContain("opacity-0");
+    expect(open).toContain("motion-reduce:transition-none");
+    const shut = chevron(render({ sessions: aged(2), collapsedKeys: ["project:/work/api"] }));
+    expect(shut).not.toContain("rotate-90");
+    expect(shut).not.toContain("opacity-0");
+  });
+
+  it("the group is a Collapsible: Radix wires the header to its body, and the body animates", () => {
+    const html = render({ sessions: aged(2) });
+    expect(html).toMatch(/data-testid="agent-session-group"[^>]*data-state="open"/);
+    const id = header(html, "project:/work/api").match(/aria-controls="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    const body = html.match(new RegExp(`<div[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+    expect(body).toContain('data-slot="collapsible-content"');
+    expect(body).toContain("data-open:animate-collapsible-down");
+    // Folded, the body draws nothing: an empty, hidden element and no cards.
+    const shut = render({ sessions: aged(2), collapsedKeys: ["project:/work/api"] });
+    expect(shut).toMatch(/<div data-state="closed" id="[^"]+" hidden="" data-slot="collapsible-content"[^>]*><\/div>/);
+    expect(cards(shut)).toBe(0);
+  });
+
+  it("the + takes the count's place on hover, so nothing beside it moves", () => {
+    const html = render({ sessions: aged(3), onNewSessionIn: noop });
+    // The count's slot is at least as wide as the + and gives way to it.
+    const slot = header(html, "project:/work/api").match(/<span aria-hidden="true" class="([^"]*)"><span data-testid="agent-group-count"/)?.[1] ?? "";
+    expect(slot).toContain("min-w-(--control-height-xs)");
+    expect(slot).toContain("group-hover/header:opacity-0");
+    expect(slot).toContain("group-focus-within/header:opacity-0");
+    expect(html).toMatch(/data-testid="agent-tree-project-new"[^>]*class="[^"]*\babsolute\b/);
+    // Without a + there is nothing to make room for.
+    expect(header(render({ sessions: aged(3) }), "project:/work/api")).not.toContain("group-hover/header:opacity-0");
+  });
+
+  it("a workspace of several folders says each row's folder; of one, it does not", () => {
+    const several = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
+    });
+    expect(cardHtml(several, "a")).toMatch(/opacity-70">web · <\/span>Done\./);
+    const one = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/web"] }],
+    });
+    expect(cardHtml(one, "a")).not.toContain("opacity-70");
+  });
+
   it("names the workspace, and puts no-project last", () => {
     const html = render({
       sessions: [session("a", { projectPath: "/cfg/s/1" }), session("b", { projectPath: "/work/api", workspaceId: "ws1" })],
@@ -84,25 +192,23 @@ describe("groups", () => {
     expect(html).toContain('data-group-key="workspace:ws1"');
   });
 
-  it("a group folded shut draws no cards, says it is collapsed, and keeps the waiting badge", () => {
+  it("a group folded shut draws no cards of its own; the ones waiting are still drawn, above it", () => {
     const sessions = [session("a", { status: "awaiting_permission" }), session("b"), session("c")];
     const html = render({
       sessions,
       collapsedKeys: ["project:/work/api"],
       attention: attentionBySession([{ sessionId: "a" }], [{ sessionId: "b" }]),
     });
-    expect(cards(html)).toBe(0);
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('data-collapsed="true"');
-    // Two sessions need the person; the number and the words both say so.
-    expect(html).toMatch(/data-testid="agent-group-waiting"[^>]*><span[^>]*>2<\/span>/);
-    expect(html).toContain("2 sessions need your response");
+    // Two sessions need the person: drawn once, in Needs you, whatever their group does.
+    expect(cardIds(html).sort()).toEqual(["a", "b"]);
+    expect(html.indexOf('data-testid="agent-needs-you"')).toBeLessThan(html.indexOf('data-testid="agent-session-group"'));
   });
 
-  it("an open group's header is aria-expanded and has no badge when nothing waits", () => {
+  it("an open group's header is aria-expanded", () => {
     const html = render({ sessions: aged(2) });
     expect(html).toContain('aria-expanded="true"');
-    expect(html).not.toContain('data-testid="agent-group-waiting"');
   });
 
   it("the + of a group is there to be tabbed to, and so is the one in the header", () => {
@@ -129,14 +235,18 @@ describe("five recent and the stack", () => {
     expect(cardIds(html)).toEqual(["s0", "s1", "s2", "s3", "s4"]);
     expect(html).toContain("3 older sessions");
     expect(html).toContain('data-testid="agent-stack-toggle"');
-    expect(html).toMatch(/data-testid="agent-stack-toggle"[^>]*aria-expanded="false"/);
+    expect(tagOf(html, "agent-stack-toggle")).toContain('aria-expanded="false"');
   });
 
   it("opening the stack draws the rest below, with a way back, and the count of the group is unchanged", () => {
     const html = render({ sessions: aged(8), olderOpenKeys: ["project:/work/api"] });
     expect(cardIds(html)).toEqual(["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"]);
     expect(html).toContain("Hide older sessions");
-    expect(html).toMatch(/data-testid="agent-stack-toggle"[^>]*aria-expanded="true"/);
+    expect(tagOf(html, "agent-stack-toggle")).toContain('aria-expanded="true"');
+    // A Collapsible of its own: Radix points the row at the list it opens.
+    const id = tagOf(html, "agent-stack-toggle").match(/aria-controls="([^"]+)"/)?.[1];
+    const list = html.match(new RegExp(`<div[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+    expect(list).toContain('data-slot="collapsible-content"');
     expect(html).toMatch(/data-testid="agent-group-count"[^>]*>8</);
   });
 
@@ -146,6 +256,15 @@ describe("five recent and the stack", () => {
     expect(cardHtml(closed, "s1")).toContain('aria-current="true"');
     expect(cardHtml(open, "s1")).toContain('aria-current="true"');
     expect(open.match(/aria-current="true"/g)).toHaveLength(1);
+  });
+
+  it("the stack is a line of text and a hairline, not layered cards", () => {
+    const html = render({ sessions: aged(22) });
+    const toggle = html.slice(html.indexOf('data-testid="agent-stack-toggle"'));
+    const row = toggle.slice(0, toggle.indexOf("</button>"));
+    expect(row).toContain(">17 older sessions<");
+    expect(row).toContain('data-testid="agent-stack-rule"');
+    expect(html).not.toContain("bg-surface-raised/50");
   });
 
   it("no stack row at five", () => {
@@ -196,8 +315,9 @@ describe("five recent and the stack", () => {
     const html = render({ sessions: aged(8), pinnedIds: ["s6"] });
     expect(cardIds(html)[0]).toBe("s6");
     expect(cardIds(html)).toHaveLength(6);
-    expect(cardHtml(html, "s6")).toContain('data-testid="agent-row-pin"');
-    expect(cardHtml(html, "s0")).not.toContain('data-testid="agent-row-pin"');
+    // Said in the card's description, not drawn as a glyph in the row.
+    expect(cardHtml(html, "s6")).toMatch(/data-testid="agent-card-description"[^>]*>[^<]*Pinned/);
+    expect(cardHtml(html, "s0")).not.toContain("Pinned");
   });
 
   it("an exception drawn from the stack is not drawn twice when the stack opens", () => {
@@ -226,26 +346,53 @@ describe("five recent and the stack", () => {
 });
 
 describe("a card", () => {
-  it("is two lines: the title, then metadata, with the title larger", () => {
+  it("is two lines: the title, then the second line, with the title larger", () => {
     const html = render({ sessions: [session("a", { title: "Fix the flaky retry test" })] });
     expect(html).toContain("Fix the flaky retry test");
     expect(html).toMatch(/data-testid="agent-card-title" class="[^"]*text-body-13/);
-    expect(html).toMatch(/data-testid="agent-card-meta" class="[^"]*text-caption-11/);
     // One line, cut with an ellipsis rather than shrunk.
     expect(html).toMatch(/data-testid="agent-card-title" class="[^"]*\btruncate\b/);
   });
 
-  it("draws nothing for idle: no state glyph, no dot, no turn count", () => {
+  it("a row is two fixed lines: title + age, then the second line", () => {
+    const html = render({ sessions: [session("a", { status: "idle", preview: "Done." })] });
+    const card = cardHtml(html, "a");
+    expect(card).toContain("h-12.5");
+    expect(card).toContain('data-testid="agent-card-title"');
+    expect(card).toContain('data-testid="agent-card-line"');
+    expect(card).toContain(">Done.<");
+    expect(card).toContain('data-slot="session-avatar"');
+  });
+
+  it("an empty second line still holds its place", () => {
+    const card = cardHtml(render({ sessions: [session("a")] }), "a");
+    expect(card).toMatch(/data-testid="agent-card-line"[^>]*>\u00a0</);
+  });
+
+  it("a waiting row says what it waits for, in the warning tone", () => {
+    const html = renderCard({
+      session: session("a", { status: "awaiting_permission" }),
+      attention: { permissions: 1, questions: 0 },
+      ask: "Allow migrate up?",
+    });
+    expect(cardHtml(html, "a")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow migrate up\?/);
+  });
+
+  it("a failed row says where it stopped, in the danger tone, and a folder goes first", () => {
+    const html = renderCard({ session: session("a", { status: "error", preview: "Build broke." }), folder: "web" });
+    expect(html).toMatch(/agent-card-line[^>]*text-status-danger/);
+    expect(html).toMatch(/opacity-70">web · <\/span>Build broke\./);
+  });
+
+  it("draws nothing for idle: no state on the face, no turn count", () => {
     const html = cardHtml(render({ sessions: [session("a")] }), "a");
-    for (const label of ["Running", "Waiting for permission", "Stopped with an error", "Has a question for you"]) {
-      expect(html).not.toContain(`data-meta="${label}"`);
-    }
+    expect(html).toContain('data-state="idle"');
     expect(html).not.toContain('data-slot="agent-state"');
     expect(html).not.toMatch(/\bturns?\b/);
     expect(html).not.toContain("data-waiting");
   });
 
-  it("marks running, error, permission and question with their own glyph", () => {
+  it("marks running, error, permission and question on the face", () => {
     const html = render({
       sessions: [
         session("run", { status: "running", updatedAt: 5 }),
@@ -255,19 +402,17 @@ describe("a card", () => {
       ],
       attention: attentionBySession([], [{ sessionId: "ask" }]),
     });
-    expect(cardHtml(html, "run")).toContain('data-meta="Running"');
-    expect(cardHtml(html, "err")).toContain('data-meta="Stopped with an error"');
-    expect(cardHtml(html, "perm")).toContain('data-meta="Waiting for permission"');
-    expect(cardHtml(html, "ask")).toContain('data-meta="Has a question for you"');
-    expect(cardHtml(html, "ask")).not.toContain('data-meta="Running"');
+    expect(cardHtml(html, "run")).toContain('data-state="running"');
+    expect(cardHtml(html, "err")).toContain('data-state="error"');
+    expect(cardHtml(html, "perm")).toContain('data-state="waiting"');
+    expect(cardHtml(html, "ask")).toContain('data-state="waiting"');
   });
 
-  it("only running motion is continuous, and it stops under reduced motion", () => {
+  it("the face's motion is its own; the one-off beat does not play on first paint", () => {
     const run = cardHtml(render({ sessions: [session("a", { status: "running" })] }), "a");
-    expect(run).toContain("animate-spin motion-reduce:animate-none");
+    expect(run).toContain("agent-avatar-spin");
     const wait = cardHtml(render({ sessions: [session("a", { status: "awaiting_permission" })] }), "a");
-    // A waiting card draws no infinite animation on first paint: the beat is a
-    // one-off played by the component when waiting begins, not by markup.
+    expect(wait).toContain("agent-avatar-breathe");
     expect(wait).not.toContain("animate-pulse");
     expect(wait).not.toContain("animate-spin");
     expect(wait).not.toContain("agent-attention-pulse");
@@ -275,22 +420,22 @@ describe("a card", () => {
     expect(wait).not.toContain("shimmer");
   });
 
-  it("a card waiting on the person has the bar and the glyph as its standing signal", () => {
+  it("a card waiting on the person says so on the card", () => {
     const html = cardHtml(render({ sessions: [session("a", { status: "awaiting_permission" })] }), "a");
-    expect(html).toContain('data-testid="agent-card-bar"');
     expect(html).toContain('data-waiting="true"');
   });
 
-  it("selection is a ring, a heavier title and aria-current, not only a colour", () => {
+  it("selected is a raised ground, no ring, and aria-current", () => {
     const html = render({ sessions: aged(2), activeSessionId: "s1" });
     const selected = cardHtml(html, "s1");
     expect(selected).toContain('data-selected="true"');
     expect(selected).toContain('aria-current="true"');
-    expect(selected).toContain("ring-border ring-inset");
-    expect(selected).toContain("text-body-13-medium");
+    expect(rootClass(html, "s1")).toContain("bg-surface-raised");
+    // The face keeps its own hairline; the row draws no ring.
+    expect(rootClass(html, "s1")).not.toContain("ring");
     const other = cardHtml(html, "s0");
     expect(other).not.toContain("aria-current");
-    expect(other).not.toContain("ring-border ring-inset");
+    expect(rootClass(html, "s0")).not.toContain("bg-surface-raised");
   });
 
   it("names the card in words for a screen reader and for a keyboard's tooltip", () => {
@@ -307,12 +452,12 @@ describe("a card", () => {
     expect(html).toMatch(/data-testid="agent-card-open"[^>]*aria-describedby=/);
   });
 
-  it("says a child's parent in its metadata and draws it as a card of its own", () => {
+  it("says a child's parent in its description and draws it as a card of its own", () => {
     const html = render({
       sessions: [session("root", { updatedAt: 9 }), session("kid", { parentSessionId: "root", depth: 1, updatedAt: 8 })],
     });
     expect(cardIds(html)).toEqual(["root", "kid"]);
-    expect(cardHtml(html, "kid")).toContain('data-meta="Child of Title root"');
+    expect(cardHtml(html, "kid")).toMatch(/data-testid="agent-card-description"[^>]*>[^<]*Child of Title root/);
     expect(cardHtml(html, "root")).not.toContain("Child of");
     // Flat: no tree role, no indentation.
     expect(html).not.toContain('role="tree"');
@@ -339,7 +484,7 @@ describe("a card", () => {
     expect(html).toContain("focus-visible:after:ring-2");
   });
 
-  it("never nests one button in another, with avatars, stack, menu and groups on screen", () => {
+  it("never nests one button in another, with stack, menu and groups on screen", () => {
     const html = render({
       sessions: aged(9),
       subagents: { s0: [1, 2, 3, 4, 5].map((n) => ({ id: `a${n}`, name: `Agent ${n}` })) },
@@ -347,62 +492,7 @@ describe("a card", () => {
       onNewSessionIn: noop,
       onToggleHideClosed: noop,
     });
-    expect(html).toContain("agent-subagent-avatar");
     expect(buttonDepth(html)).toBe(1);
-  });
-});
-
-describe("subagent avatars", () => {
-  const five: Subagent[] = [1, 2, 3, 4, 5].map((n) => ({ id: `a${n}`, name: `Agent ${n}`, state: n === 3 ? "failed" : n === 5 ? "completed" : undefined }));
-  const avatars = (max: number, list = five) =>
-    renderToString(
-      <TooltipProvider>
-        <AgentSubagentAvatars subagents={list} max={max} onOpen={noop} />
-      </TooltipProvider>,
-    );
-
-  it("shows up to three avatars and the rest as +N", () => {
-    const html = avatars(3);
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(3);
-    expect(html).toContain("+2");
-    expect(html).toContain('aria-label="5 subagents, show all"');
-  });
-
-  it("two when the rail is narrow", () => {
-    const html = avatars(2);
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(2);
-    expect(html).toContain("+3");
-  });
-
-  it("no +N when they all fit", () => {
-    const html = avatars(3, five.slice(0, 3));
-    expect(html.match(/data-testid="agent-subagent-avatar"/g)).toHaveLength(3);
-    expect(html).not.toContain("agent-subagent-more");
-  });
-
-  it("the group is named in full, with every state, and sits at 16px", () => {
-    const html = avatars(3);
-    expect(html).toContain('role="group"');
-    expect(html).toContain("5 subagents: Agent 1, running; Agent 2, running; Agent 4, running; Agent 3, failed; Agent 5, done");
-    expect(html).toContain("size-4");
-  });
-
-  it("running ones come first, so the avatars that fit are the ones worth a glance", () => {
-    const html = avatars(3);
-    const shown = [...html.matchAll(/aria-label="Open ([^"]+)"/g)].map((m) => m[1]);
-    expect(shown).toEqual(["Agent 1, running", "Agent 2, running", "Agent 4, running"]);
-  });
-
-  it("uses the subagent's own initials, and a bot glyph when it never gave a name", () => {
-    const html = avatars(3, [{ id: "abcdef123", name: "Review whitelist" }, { id: "zzzzzz999" }]);
-    expect(html).toContain(">R<");
-    expect(html).toContain("lucide-bot");
-    // No picture is invented for either.
-    expect(html).not.toContain("<img");
-  });
-
-  it("renders nothing for no subagents", () => {
-    expect(avatars(3, [])).toBe("");
   });
 });
 
@@ -413,7 +503,7 @@ describe("tabs, selection and resources", () => {
     useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes" });
     useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], activeSessionId: "", chatOpen: false });
     useSubagentPanel.setState({ open: null });
-    useAgentPinsStore.setState({ olderOpen: [], collapsed: [] });
+    useAgentPinsStore.setState({ olderOpen: [], collapsed: [], expanded: [] });
   });
 
   it("choosing a subagent opens its session's tab and that subagent's panel", () => {
@@ -472,5 +562,236 @@ describe("tabs, selection and resources", () => {
     });
     // api open (8 cards), web folded (5): the key is the group's, not global.
     expect(cards(html)).toBe(13);
+  });
+
+  it("expanded keys toggle and persist like collapsed", () => {
+    const { toggleExpanded } = useAgentPinsStore.getState();
+    toggleExpanded("workspace:2");
+    expect(useAgentPinsStore.getState().expanded).toEqual(["workspace:2"]);
+    toggleExpanded("workspace:2");
+    expect(useAgentPinsStore.getState().expanded).toEqual([]);
+  });
+});
+
+describe("needs you, and the workspace in front of you", () => {
+  it("sessions that need you are drawn once, on top", () => {
+    const sessions = [
+      inWs("a", "1", { status: "idle", updatedAt: 1 }),
+      inWs("b", "1", { status: "error", updatedAt: 3 }),
+      inWs("c", "1", { status: "running", updatedAt: 2 }),
+    ];
+    const html = render({
+      sessions,
+      workspaces: [ws("1")],
+      attention: { c: { permissions: 1, questions: 0 } },
+      asks: { c: "Allow?" },
+      currentWorkspaceId: "1",
+    });
+    expect(html).toContain('data-testid="agent-needs-you"');
+    const needs = html.slice(html.indexOf('data-testid="agent-needs-you"'), html.indexOf('data-testid="agent-session-group"'));
+    expect(cardIdsIn(needs)).toEqual(["b", "c"]);
+    expect(cardIds(html).filter((id) => id === "c").length).toBe(1);
+    expect(cardHtml(html, "c")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow\?/);
+    // Its label is the same row as a group's header: no superscript count.
+    expect(needs).not.toContain("<sup");
+    expect(needs).toMatch(/text-caption-11 tabular-nums text-text-tertiary">2</);
+    // The group keeps only what does not wait, and counts only that.
+    expect(html).toMatch(/data-testid="agent-group-count"[^>]*>1</);
+  });
+
+  it("the current workspace's group comes first, whatever its name", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [
+        { id: "1", name: "Alpha", paths: ["/ws/1"] },
+        { id: "2", name: "Zeta", paths: ["/ws/2"] },
+      ],
+      currentWorkspaceId: "2",
+    });
+    expect(html.indexOf('data-group-key="workspace:2"')).toBeLessThan(html.indexOf('data-group-key="workspace:1"'));
+    // With none chosen, the names decide.
+    const none = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [
+        { id: "1", name: "Alpha", paths: ["/ws/1"] },
+        { id: "2", name: "Zeta", paths: ["/ws/2"] },
+      ],
+    });
+    expect(none.indexOf('data-group-key="workspace:1"')).toBeLessThan(none.indexOf('data-group-key="workspace:2"'));
+  });
+
+  it("needs-you sits inside a collapse, so it eases in and out rather than popping", () => {
+    const html = render({ sessions: [session("a", { status: "error" })] });
+    const before = html.slice(html.indexOf('data-testid="agent-session-viewport"'), html.indexOf('data-testid="agent-needs-you"'));
+    expect(before).toContain('data-slot="animated-collapse"');
+  });
+
+  it("no needs-you section when nothing waits", () => {
+    expect(render({ sessions: [session("a", { status: "idle" })] })).not.toContain("agent-needs-you");
+  });
+
+  it("a waiting parent leaves its group, and its child stays in that group", () => {
+    const html = render({
+      sessions: [
+        inWs("p", "1", { status: "awaiting_permission", updatedAt: 2 }),
+        session("kid", { parentSessionId: "p", depth: 1, projectPath: "/elsewhere", updatedAt: 1 }),
+      ],
+      workspaces: [ws("1")],
+    });
+    expect(html).toContain('data-group-key="workspace:1"');
+    expect(html).not.toContain('data-group-key="project:/elsewhere"');
+  });
+
+  it("other workspaces fold by default", () => {
+    const html = render({ sessions: [inWs("x", "2")], workspaces: [ws("1"), ws("2")], currentWorkspaceId: "1" });
+    expect(html).toMatch(/data-group-key="workspace:2"[^>]*data-collapsed="true"/);
+    expect(cards(html)).toBe(0);
+  });
+
+  it("the current workspace opens by default, and another opens when expanded", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      expandedKeys: ["workspace:2"],
+    });
+    expect(cardIds(html).sort()).toEqual(["x", "y"]);
+  });
+
+  it("every header is the same row, folded or open: no big jump above the open one", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+    });
+    for (const key of ["workspace:1", "workspace:2"]) {
+      expect(header(html, key)).toMatch(/class="[^"]*\bh-8\b/);
+      expect(html.slice(html.indexOf(`data-group-key="${key}"`))).not.toMatch(/^[^>]*pt-4/);
+    }
+    expect(html).not.toContain("pt-4 pb-1.5");
+  });
+
+  it("a folded workspace says how many of its sessions run", () => {
+    const html = render({
+      sessions: [inWs("x", "2", { status: "running" }), inWs("y", "2", { status: "running" }), inWs("z", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+    });
+    expect(html).toContain('data-testid="agent-group-running"');
+    expect(html).toMatch(/data-testid="agent-group-running"[^>]*>.*?2 running</);
+    // Running says more than the total, so it stands in the count's place.
+    const folded = html.slice(html.indexOf('data-group-key="workspace:2"'));
+    expect(folded.slice(0, folded.indexOf("</section>"))).not.toContain('data-testid="agent-group-count"');
+    // Open, the rows say it themselves.
+    const open = render({
+      sessions: [inWs("x", "2", { status: "running" })],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      expandedKeys: ["workspace:2"],
+    });
+    expect(open).not.toContain('data-testid="agent-group-running"');
+  });
+
+  it("the rail is titled Agents, with New beside it", () => {
+    const html = render({ sessions: [session("a")], onToggleHideClosed: noop });
+    expect(html).toMatch(/<h2[^>]*>Agents<\/h2>/);
+    expect(html).toMatch(/data-testid="agent-tree-new"[^>]*>.*?New<\/button>/);
+    expect(html).toContain('data-testid="agent-tree-toggle-closed"');
+  });
+});
+
+describe("subagents in a row's menu", () => {
+  const agents: Subagent[] = [
+    { id: "a1", name: "Docs", state: "completed" },
+    { id: "a2", name: "Review" },
+  ];
+
+  it("one entry per subagent, running first, with its name and state", () => {
+    expect(subagentMenuEntries(agents).map(({ label, detail }) => ({ label, detail }))).toEqual([
+      { label: "Review", detail: "running" },
+      { label: "Docs", detail: "done" },
+    ]);
+    expect(subagentMenuEntries([{ id: "abcdef123" }])[0].label).toBe("Subagent abcdef");
+    expect(subagentMenuEntries([])).toEqual([]);
+  });
+
+  const kit: MenuKit = {
+    Item: ({ children, detail }) => (
+      <button type="button" data-detail={typeof detail === "string" ? detail : undefined}>
+        {children}
+      </button>
+    ),
+    Separator: () => <hr />,
+    Label: ({ children }) => <p data-label="">{children}</p>,
+  };
+  const menu = (subagents: readonly Subagent[]) =>
+    renderToString(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionActionsContext.Provider value={NO_ACTIONS}>
+          <SessionMenuItems kit={kit} session={session("s")} pinned={false} subagents={subagents} />
+        </SessionActionsContext.Provider>
+      </QueryClientProvider>,
+    );
+
+  it("a labelled Subagents group, one item each", () => {
+    const html = menu(agents);
+    expect(html).toContain("<p data-label=\"\">Subagents</p>");
+    expect(html).toContain('data-detail="running">Review</button>');
+    expect(html).toContain('data-detail="done">Docs</button>');
+  });
+
+  it("no group for a session with none", () => {
+    expect(menu([])).not.toContain("Subagents");
+  });
+});
+
+describe("after needs-you", () => {
+  it("a folder with nothing after it has no dangling dot", () => {
+    const html = renderCard({ session: session("a"), folder: "web" });
+    expect(html).toContain('opacity-70">web</span>');
+    expect(html).not.toContain("web · ");
+  });
+
+  it("a waiting row in a workspace of several folders says its folder too", () => {
+    const html = render({
+      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", status: "error", preview: "Broke." })],
+      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
+    });
+    expect(html).toContain('data-testid="agent-needs-you"');
+    expect(cardHtml(html, "a")).toMatch(/opacity-70">web · <\/span>Broke\./);
+  });
+
+  it("the face's ring colour is the stylesheet's, not an inline style", () => {
+    const html = render({ sessions: aged(2), activeSessionId: "s1" });
+    expect(html).not.toContain("--avatar-ground");
+  });
+
+  it("the session on screen is drawn though its workspace is folded", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      activeSessionId: "y",
+    });
+    expect(cardIds(html)).toContain("y");
+    expect(html).not.toMatch(/data-group-key="workspace:2"[^>]*data-collapsed="true"/);
+  });
+
+  it("counts are said in words to a screen reader, and Needs you is named by its label", () => {
+    const html = render({ sessions: [...aged(3), session("w", { status: "error" })] });
+    expect(html).toContain('<span class="sr-only">, 3 sessions</span>');
+    expect(html).toContain('<span class="sr-only">, 1 session</span>');
+    const id = html.match(/data-testid="agent-needs-you" aria-labelledby="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`id="${id}"`);
+    expect(html).not.toContain('aria-label="Needs you"');
+  });
+
+  it("the rail draws its focus rings with the focus token", () => {
+    const dir = import.meta.dir;
+    const offenders = readdirSync(dir)
+      .filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))
+      .filter((name) => readFileSync(join(dir, name), "utf8").includes("ring-status-info"));
+    expect(offenders).toEqual([]);
   });
 });

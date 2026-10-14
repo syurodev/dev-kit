@@ -9,9 +9,9 @@ import type { SyntaxSegment } from "@/components/code/highlight";
  *
  * Diff / Line: Kind = Context / Added / Removed, the tint full-bleed across
  * the pane so a run of changed lines reads as one block. Additions are
- * --brand-text and removals --status-danger, both at 10%: lime, not green,
- * because a diff has no opinion about which change is good (see
- * AgentToolDiff).
+ * --status-success (tint --feedback-success-soft) and removals
+ * --status-danger at 10%: added is success, like every other diff in the app
+ * (code blocks, the terminal's git diff; see AgentToolDiff).
  */
 /**
  * Row height in the two-pane view. Fixed, because the ribbon between the panes
@@ -66,9 +66,9 @@ export function DiffLineRow({
       className={cn(
         "flex min-w-max items-center pr-3 pl-3 text-code-12",
         fixed ? "h-6 py-0" : "py-0.75",
-        row.kind === "added" && "bg-(--brand-text)/10",
+        row.kind === "added" && "bg-(--feedback-success-soft)",
         row.kind === "removed" && "bg-status-danger/10",
-        row.kind === "added" && !segments?.length && "text-(--brand-text)",
+        row.kind === "added" && !segments?.length && "text-(--status-success)",
         row.kind === "removed" && !segments?.length && "text-status-danger",
         row.kind === "same" && "text-text-secondary",
       )}
@@ -79,7 +79,7 @@ export function DiffLineRow({
         className={cn(
           "shrink-0 whitespace-pre select-none",
           row.kind === "same" && "text-text-tertiary",
-          row.kind === "added" && "text-(--brand-text)",
+          row.kind === "added" && "text-(--status-success)",
           row.kind === "removed" && "text-status-danger",
         )}
       >
@@ -181,7 +181,7 @@ function DiffRibbon({ runs, rows }: { runs: DiffRun[]; rows: number }) {
       <defs>
         <linearGradient id="diff-ribbon-modified" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="var(--status-danger)" stopOpacity="0.1" />
-          <stop offset="100%" stopColor="var(--brand-text)" stopOpacity="0.1" />
+          <stop offset="100%" stopColor="var(--status-success)" stopOpacity="0.1" />
         </linearGradient>
       </defs>
       {runs.map((run) => {
@@ -191,7 +191,7 @@ function DiffRibbon({ runs, rows }: { runs: DiffRun[]; rows: number }) {
           run.kind === "modified"
             ? "url(#diff-ribbon-modified)"
             : run.kind === "added"
-              ? "var(--brand-text)"
+              ? "var(--status-success)"
               : "var(--status-danger)";
         return (
           <rect

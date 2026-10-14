@@ -24,6 +24,7 @@ type Store interface {
 	UpdateSession(ctx context.Context, s AgentSession) error
 	UpdateSessionStatus(ctx context.Context, id string, status SessionStatus, at time.Time) error
 	UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error
+	UpdateSessionPreview(ctx context.Context, id, preview string, at time.Time) error
 	// UpdateSessionACPID points a session at another vendor session — the
 	// fork a rewind made. Its own writer, like status and title.
 	UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error
@@ -77,7 +78,7 @@ func nullableWorkspaceID(id string) sql.NullString {
 	return sql.NullString{String: id, Valid: id != ""}
 }
 
-const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at`
+const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, preview, created_at, updated_at`
 
 func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var s AgentSession
@@ -85,7 +86,7 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var createdAt, updatedAt string
 	var agentType, status, extraRW string
 	if err := scan(
-		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &createdAt, &updatedAt,
+		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &s.Preview, &createdAt, &updatedAt,
 	); err != nil {
 		return AgentSession{}, err
 	}
@@ -175,6 +176,11 @@ func (st *SQLStore) UpdateSessionStatus(ctx context.Context, id string, status S
 // UpdateSessionTitle writes the title alone, for the same reason.
 func (st *SQLStore) UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error {
 	return st.updateSessionColumn(ctx, `title = ?`, id, title, at)
+}
+
+// UpdateSessionPreview writes the preview line alone, for the same reason.
+func (st *SQLStore) UpdateSessionPreview(ctx context.Context, id, preview string, at time.Time) error {
+	return st.updateSessionColumn(ctx, `preview = ?`, id, preview, at)
 }
 
 // UpdateSessionACPID writes the vendor session id alone, for the same reason.

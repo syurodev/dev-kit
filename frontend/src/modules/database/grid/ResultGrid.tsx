@@ -1214,7 +1214,7 @@ function HeaderCell({
         <Glyph
           className={cn(
             "size-3 shrink-0",
-            isKey ? "text-status-info" : "text-text-tertiary",
+            isKey ? "text-(--hue-yellow)" : "text-text-tertiary",
           )}
           aria-hidden
         />

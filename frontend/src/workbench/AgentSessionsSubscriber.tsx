@@ -74,6 +74,9 @@ export function turnFinishedAnnouncement(
   return worked.startsWith("Worked for") ? `Answer ready. ${worked}` : "Answer ready.";
 }
 
+/** The latest preview read per session; an older read that answers late is ignored. */
+const previewReads = new Map<string, number>();
+
 /**
  * What a finished turn changes outside the turn itself: the session row, the
  * tab dot, the unread badge and the queue. Go emits the event from Invoke's
@@ -91,6 +94,26 @@ export function handleAgentTurnFinished(
   const nextStatus = status === "error" ? "error" : status === "closed" ? "closed" : "idle";
   if (session && !ours && session.status !== nextStatus) {
     state.upsertSession({ ...session, status: nextStatus });
+  }
+  if (session && !ours) {
+    // The preview is written with the status; a turn from elsewhere (MCP,
+    // another agent) only told us the status, so read the row once. Only the
+    // preview and its time are taken from it: the next queued turn may already be running
+    // here by the time the read answers, and its status must not go back.
+    const getStatus = bridge?.getStatus ?? agentHubGetStatus;
+    const read = (previewReads.get(sessionId) ?? 0) + 1;
+    previewReads.set(sessionId, read);
+    void getStatus(sessionId)
+      .then((fresh) => {
+        if (previewReads.get(sessionId) !== read) return;
+        const current = useAgentSessionsStore.getState().sessionsById[sessionId];
+        if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt)) {
+          useAgentSessionsStore
+            .getState()
+            .upsertSession({ ...current, preview: fresh.preview, updatedAt: fresh.updatedAt });
+        }
+      })
+      .catch(() => {});
   }
 
   // The turn is over, so the dot stops saying anything is happening. Whether

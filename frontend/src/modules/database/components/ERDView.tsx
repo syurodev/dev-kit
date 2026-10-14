@@ -128,7 +128,7 @@ function TableNode({ data }: { data: TableNodeData }) {
         </div>
         {data.isJunction && (
           <span
-            className="text-caption-11 text-status-info border border-status-info/40 px-1.5 rounded shrink-0"
+            className="text-caption-11 text-(--hue-blue) border border-(--hue-blue)/40 px-1.5 rounded shrink-0"
             title="Primary key is exactly this table's reference columns — it joins two tables many-to-many"
           >
             N–N
@@ -166,9 +166,9 @@ function TableNode({ data }: { data: TableNodeData }) {
 
               <div className="flex items-center gap-1.5 truncate">
                 {isPK ? (
-                  <Key className="w-3 h-3 text-status-warning shrink-0" />
+                  <Key className="w-3 h-3 text-(--hue-yellow) shrink-0" />
                 ) : isDeclaredFK ? (
-                  <LinkIcon className="w-3 h-3 text-status-info shrink-0" />
+                  <LinkIcon className="w-3 h-3 text-(--hue-blue) shrink-0" />
                 ) : isInferredFK ? (
                   <LinkIcon className="w-3 h-3 text-text-tertiary shrink-0" />
                 ) : (
@@ -177,9 +177,9 @@ function TableNode({ data }: { data: TableNodeData }) {
                 <span
                   className={`truncate ${
                     isPK
-                      ? "text-status-warning font-semibold"
+                      ? "text-(--hue-yellow) font-semibold"
                       : isDeclaredFK
-                      ? "text-status-info font-medium"
+                      ? "text-(--hue-blue) font-medium"
                       : "text-text-primary"
                   }`}
                 >
@@ -192,9 +192,9 @@ function TableNode({ data }: { data: TableNodeData }) {
                   {data.columnTypes[col] ?? ""}
                 </span>
                 {isPK ? (
-                  <span className="text-caption-11 text-status-warning border border-status-warning/40 px-1 rounded">PK</span>
+                  <span className="text-caption-11 text-(--hue-yellow) border border-(--hue-yellow)/40 px-1 rounded">PK</span>
                 ) : isDeclaredFK ? (
-                  <span className="text-caption-11 text-status-info border border-status-info/40 px-1 rounded">FK</span>
+                  <span className="text-caption-11 text-(--hue-blue) border border-(--hue-blue)/40 px-1 rounded">FK</span>
                 ) : isInferredFK ? (
                   <span className="text-caption-11 text-text-tertiary bg-surface-base px-1 rounded">
                     inf
@@ -238,7 +238,7 @@ const ANIMATED_NODE_LIMIT = 30;
 const MAX_NODE_BODY = 320;
 
 const EDGE_VARIANTS = [
-  { id: "declared", color: "var(--status-info)" },
+  { id: "declared", color: "var(--hue-blue)" },
   { id: "inferred", color: "var(--text-tertiary)" },
 ] as const;
 
@@ -894,7 +894,7 @@ export function ERDView() {
           // the firmer of the two next to the inferred 4/4 — and once the
           // motion is off it can go back to being properly solid.
           style: {
-            stroke: "var(--status-info)",
+            stroke: "var(--hue-blue)",
             strokeWidth: 1.5,
             strokeDasharray: animated ? "14 4" : undefined,
           },
@@ -1109,7 +1109,7 @@ export function ERDView() {
 
         <div className="flex items-center gap-3 text-caption-11 text-text-secondary">
           <span className="flex items-center gap-1.5" title="Foreign keys the database actually enforces">
-            <span className="w-4 h-px bg-status-info" />
+            <span className="w-4 h-px bg-(--hue-blue)" />
             {declaredFKs.length} declared
           </span>
           <span className="flex items-center gap-1.5" title="Guessed from column names and types — not enforced by the database">

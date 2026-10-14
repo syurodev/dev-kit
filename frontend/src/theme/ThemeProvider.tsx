@@ -19,7 +19,7 @@ import {
   type ThemePreference,
 } from "../bridge/preferences";
 import { applyThemeFamily } from "./applyTheme";
-import { familyOf } from "./families";
+import { resolvedPalettes } from "./families";
 
 export type ResolvedTheme = "light" | "dark";
 
@@ -27,7 +27,7 @@ type ThemeContextValue = {
   theme: ThemePreference;
   resolvedTheme: ResolvedTheme;
   setTheme: (theme: ThemePreference) => Promise<void>;
-  /** Which palette. Orthogonal to the mode — see preferences.ThemeFamily. */
+  /** Which Color palette (hues, code, terminal). Orthogonal to the mode and to the Mono chrome. */
   family: ThemeFamilyPreference;
   setFamily: (family: ThemeFamilyPreference) => Promise<void>;
 };
@@ -110,8 +110,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (!family) {
       return;
     }
-    const definition = familyOf(family);
-    applyThemeFamily(family, { dark: definition.dark, light: definition.light });
+    applyThemeFamily(family, resolvedPalettes(family));
   }, [family]);
 
   useLayoutEffect(() => {
@@ -170,10 +169,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [family, resolvedTheme, setFamily, setTheme, theme],
   );
 
-  // Avoid painting the default CSS palette before the persisted preference is
+  // Avoid painting the default CSS before the persisted preference is
   // known. The native window already has the correct appearance from Go. The
-  // family is part of that gate now: a frame of DevKit lime before Dracula
-  // arrives is the "phần tử đuổi theo theme" smoothness §8.4 rules out.
+  // family is part of that gate now: a frame of Mono code before Dracula's
+  // colours arrive is the "phần tử đuổi theo theme" smoothness §8.4 rules out.
   if (!value) {
     return null;
   }

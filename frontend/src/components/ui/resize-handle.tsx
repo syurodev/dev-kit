@@ -19,9 +19,9 @@ export type ShellResizeHandleProps = React.HTMLAttributes<HTMLDivElement> & {
  * "Invisible at rest so it is never mistaken for a divider."
  *
  * - Vertical: 8 wide (e.g. 8×120 or 8×full), Horizontal: 8 tall (120×8 or full×8)
- * - Hover hairline: 1px --border-default rgba(178,213,229,0.16), spans full length, centred
+ * - Hover hairline: 1px --border-default (tint-border at 16% dark / 12% light), spans full length, centred
  * - Hover grip: 3×32 (V) / 32×3 (H), --text-tertiary, rounded-full, centred
- * - Focus ring: 2px --border-focus #b2d5e5, deliberately overflows the 8px gutter
+ * - Focus ring: 2px --border-focus (Mono: the primary text colour), deliberately overflows the 8px gutter
  */
 export function ShellResizeHandle({
   orientation = 'vertical',
@@ -95,7 +95,7 @@ export function ShellResizeHandle({
         )}
       />
 
-      {/* Focus ring: 2px --border-focus #b2d5e5, deliberately overflows 8px gutter */}
+      {/* Focus ring: 2px --border-focus, deliberately overflows 8px gutter */}
       <div
         data-slot="resize-focus-ring"
         className={cn(

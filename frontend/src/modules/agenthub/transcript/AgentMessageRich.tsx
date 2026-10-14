@@ -2,7 +2,17 @@ import * as React from "react";
 import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { openExternal } from "@/bridge/browser";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
+import { fileRef, linkTarget } from "./fileRef";
+import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
+import { FileReference, UrlReference } from "./ReferencePreview";
+import { CommitReference, EntityReference, entityLabel, openCommitRef, openEntity, openSymbol, SymbolReference } from "./CodeReference";
+import { codeSpans, commitCandidate, type SymbolHit } from "./codeRefs";
+import { useCodeRefs } from "./useCodeRefs";
+import { entityOf } from "./entityRefs";
 import {
   parseInline,
   parseMarkdownIncremental,
@@ -39,6 +49,59 @@ function MaskedSecret({ value }: { value: string }) {
       <Icon aria-hidden="true" className="size-3 shrink-0 translate-y-0.5 text-text-tertiary" />
       {revealed ? value : "•".repeat(Math.min(value.length, MASK_VISIBLE_CAP))}
     </button>
+  );
+}
+
+/**
+ * What the code spans of one message can be besides code: symbols resolve
+ * and commit hashes link only once the message has settled, so nothing jumps
+ * while it streams.
+ */
+type CodeRefs = { settled: boolean; symbols: ReadonlyMap<string, SymbolHit> };
+const NO_CODE_REFS: CodeRefs = { settled: false, symbols: new Map() };
+const CodeRefsContext = React.createContext<CodeRefs>(NO_CODE_REFS);
+
+const REF_CODE =
+  "cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary";
+
+/**
+ * Inline code that opens something. An inline <code>, not a <button>: a
+ * button is an atomic inline-block and would stop a long path wrapping like
+ * text. A file is underlined solid; a symbol, commit, table or topic, found by
+ * lookup, by shape or in the session's results rather than written as a path,
+ * dotted. `kind` says which of the last two an entity reference is.
+ */
+function refCode(
+  testId: string,
+  value: string,
+  label: string,
+  open?: (event: React.SyntheticEvent<HTMLElement>) => void,
+  dotted = false,
+  kind?: string,
+) {
+  return (
+    <code
+      role="button"
+      tabIndex={0}
+      data-testid={testId}
+      data-kind={kind}
+      // What it is and where it goes; the code alone says neither to a screen reader.
+      aria-label={label}
+      // Without `open` the wrapper opens it (FileReference), so nothing here can go stale.
+      onClick={open}
+      onKeyDown={
+        open &&
+        ((e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open(e);
+          }
+        })
+      }
+      className={cn(REF_CODE, dotted && "decoration-dotted")}
+    >
+      {value}
+    </code>
   );
 }
 
@@ -79,12 +142,66 @@ export function Inline({ text }: { text: string }) {
   return <InlineNodes tokens={parseInline(text)} />;
 }
 
-function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
+/**
+ * `inLink`: these tokens are a link's text. Code there stays plain code, so a
+ * click opens what the link points at, once, rather than a reference nested
+ * inside it as well.
+ */
+function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink?: boolean }) {
+  const { onOpenFile, openRef, refContext, refPlacement, entities } = useTranscriptActions();
+  const { settled, symbols } = React.useContext(CodeRefsContext);
+  const canOpen = Boolean(openRef || onOpenFile);
   return (
     <>
       {tokens.map((token, idx) => {
         switch (token.type) {
-          case "code":
+          case "code": {
+            const placement = refPlacement ?? "beside";
+            // A table or topic this session's own results named, ahead of
+            // everything: a topic the session listed as `audit.json` or
+            // `deadbeef1` is that topic, not a file or a commit that only
+            // reads like one. A span with a slash that reads as a path stays
+            // a file. AgentProse does not look these names up as symbols.
+            const entity = settled && !inLink ? entityOf(entities, token.value) : null;
+            if (entity && !(token.value.includes("/") && fileRef(token.value))) {
+              const what = entity.kind === "table" ? `Table ${entityLabel(entity)}, opens in Database` : `Topic ${entity.name}, opens in Kafka`;
+              return (
+                <EntityReference key={idx} hit={entity} name={token.value}>
+                  {refCode("agent-entity-ref", token.value, what, () => void openEntity(entity, placement), true, entity.kind)}
+                </EntityReference>
+              );
+            }
+            const ref = canOpen && !inLink ? fileRef(token.value) : null;
+            if (ref) {
+              return (
+                <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
+                  {refCode("agent-file-ref", token.value, `File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`)}
+                </FileReference>
+              );
+            }
+            // A commit needs a repository to open in: the session's project.
+            if (settled && !inLink && refContext?.projectPath && commitCandidate(token.value)) {
+              const sha = token.value;
+              return (
+                <CommitReference key={idx} sha={sha} refContext={refContext}>
+                  {refCode(
+                    "agent-commit-ref",
+                    sha,
+                    `Commit ${sha.slice(0, 7)}, opens in Git`,
+                    () => void openCommitRef(sha, refContext, placement),
+                    true,
+                  )}
+                </CommitReference>
+              );
+            }
+            const hit = settled && !inLink ? symbols.get(token.value) : undefined;
+            if (hit) {
+              return (
+                <SymbolReference key={idx} hit={hit} name={token.value}>
+                  {refCode("agent-symbol-ref", token.value, `Symbol ${token.value}, opens definition`, () => void openSymbol(hit, placement), true)}
+                </SymbolReference>
+              );
+            }
             return (
               // The notes editor's inline code, class for class. It sat on
               // surface/base, which is the transcript's own ground since the
@@ -105,38 +222,82 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 {token.value}
               </code>
             );
+          }
           case "secret":
             return <MaskedSecret key={idx} value={token.value} />;
-          case "link":
-            return (
+          case "link": {
+            const target = linkTarget(token.href);
+            if (target.kind === "other") {
+              // A scheme DevKit will not open (javascript:, ftp:, …) or text
+              // that is not a path: the words stay, with nothing to click.
+              return (
+                <Tooltip key={idx}>
+                  <TooltipTrigger asChild>
+                    <span data-testid="agent-link" data-link="other" data-href={token.href} className="wrap-anywhere">
+                      <InlineNodes tokens={token.children} inLink />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-96 break-all">
+                    {token.href}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
+            // The WebView does nothing with a plain navigation; the system
+            // browser gets a URL through the bridge instead. A file link is
+            // opened by its FileReference, on click and on Enter.
+            const follow = (e: React.SyntheticEvent<HTMLElement>) => {
+              e.preventDefault();
+              if (target.kind === "url") void openExternal(target.url);
+            };
+            // What the memo compares: the link's tokens, which the element is rebuilt from on every render.
+            const content = JSON.stringify(token.children);
+            const anchor = (
               <a
-                key={idx}
-                href={token.href}
-                target="_blank"
+                // Only the web keeps an href.
+                href={target.kind === "url" ? target.url : undefined}
                 rel="noreferrer"
+                data-testid="agent-link"
+                data-link={target.kind}
+                data-href={token.href}
+                // Without an href an anchor is not focusable; a file link still is.
+                role={target.kind === "file" ? "link" : undefined}
+                tabIndex={target.kind === "file" ? 0 : undefined}
+                onClick={follow}
                 // A long URL is exactly the same unbroken-run case as inline
                 // code, and had no wrap protection of its own at all.
-                className="wrap-anywhere text-status-info underline"
+                className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
               >
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink />
               </a>
             );
+            // The hover card says where it goes, so the link needs no tooltip of its own.
+            return target.kind === "url" ? (
+              <UrlReference key={idx} url={target.url} content={content}>
+                {anchor}
+              </UrlReference>
+            ) : (
+              <FileReference key={idx} path={target.ref.path} line={target.ref.line} content={content} link>
+                {anchor}
+              </FileReference>
+            );
+          }
           case "strong":
             return (
               <strong key={idx} className="font-medium text-text-primary">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </strong>
             );
           case "em":
             return (
               <em key={idx} className="italic">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </em>
             );
           case "del":
             return (
               <del key={idx} className="text-text-tertiary">
-                <InlineNodes tokens={token.children} />
+                <InlineNodes tokens={token.children} inLink={inLink} />
               </del>
             );
           case "break":
@@ -149,7 +310,65 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
   );
 }
 
-const ALIGN = { left: "text-left", center: "text-center", right: "text-right" } as const;
+/** A cell's words, for sizing its column; formatting does not take room. */
+function inlineText(tokens: InlineToken[]): string {
+  return tokens
+    .map((token) =>
+      token.type === "break"
+        ? " "
+        : "children" in token
+          ? inlineText(token.children)
+          : token.type === "secret"
+            ? token.value.slice(0, MASK_VISIBLE_CAP)
+            : token.value,
+    )
+    .join("");
+}
+
+/**
+ * A markdown table, drawn by the shared resizable DataTable.
+ *
+ * A table is scanned along its rows and down its first column, and both need
+ * drawing. The first column holds the row's name — "root (src/)", "gateway/" —
+ * and does not wrap: wrapped, a name broke into a word and a code chip on
+ * separate lines while the long column beside it had room. Cells sit on their
+ * top line so a two-line cell does not float its neighbours to its middle, and
+ * a column the markdown aligned (`:---:`, `---:`) is aligned — right-aligned
+ * columns are numbers, so their digits line up. Columns start at the width
+ * their words need and the reader can drag them from there.
+ */
+function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table" }> }) {
+  const columns = React.useMemo<DataTableColumn[]>(
+    () =>
+      block.head.map((cell, idx) => ({
+        key: String(idx),
+        header: <InlineNodes tokens={cell} />,
+        label: inlineText(cell),
+        align: block.align[idx] ?? "left",
+        nowrap: idx === 0,
+      })),
+    [block.head, block.align],
+  );
+  const rows = React.useMemo(
+    () => block.rows.map((row) => row.map((cell, idx) => <InlineNodes key={idx} tokens={cell} />)),
+    [block.rows],
+  );
+  // Text is for sizing the columns, which reads the first 50 rows, and for the
+  // hover title of the first column's cut names there; the rest is not walked.
+  const cellText = React.useMemo(
+    () => block.rows.slice(0, 50).map((row) => row.map(inlineText)),
+    [block.rows],
+  );
+  return (
+    <DataTable
+      data-testid="agent-table"
+      className="rounded-control border border-border-subtle"
+      columns={columns}
+      rows={rows}
+      cellText={cellText}
+    />
+  );
+}
 
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.type) {
@@ -212,60 +431,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       return <AgentCodeBlock code={block.code} language={block.language} wrap={!block.code.includes("\n")} />;
 
     case "table":
-      // A table is scanned along its rows and down its first column, and both
-      // need drawing. The first column holds the row's name — "root (src/)",
-      // "gateway/" — and does not wrap: wrapped, a name broke into a word and a
-      // code chip on separate lines while the long column beside it had room.
-      // Rows are divided by hairlines and light up under the pointer, cells sit
-      // on their top line so a two-line cell does not float its neighbours to
-      // its middle, and a column the markdown aligned (`:---:`, `---:`) is
-      // aligned — right-aligned columns are numbers, so their digits line up.
-      return (
-        <div
-          data-testid="agent-table"
-          className="w-full overflow-x-auto rounded-control border border-border-subtle"
-        >
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-border-subtle bg-(--state-soft)">
-                {block.head.map((cell, idx) => (
-                  <th
-                    key={idx}
-                    className={cn(
-                      "px-3 py-2 align-bottom text-body-13-medium whitespace-nowrap text-text-secondary",
-                      ALIGN[block.align[idx] ?? "left"],
-                    )}
-                  >
-                    <InlineNodes tokens={cell} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, rowIdx) => (
-                <tr
-                  key={rowIdx}
-                  className="border-t border-border-subtle transition-colors duration-(--motion-fast) first:border-t-0 hover:bg-(--state-soft)"
-                >
-                  {row.map((cell, idx) => (
-                    <td
-                      key={idx}
-                      className={cn(
-                        "px-3 py-2 align-top text-body-14 text-text-primary",
-                        idx === 0 && "whitespace-nowrap",
-                        ALIGN[block.align[idx] ?? "left"],
-                        block.align[idx] === "right" && "tabular-nums",
-                      )}
-                    >
-                      <InlineNodes tokens={cell} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <MarkdownTable block={block} />;
 
     default:
       return (
@@ -318,7 +484,15 @@ export type AgentProseProps = {
    */
   wrapBlock?: (block: React.ReactNode, index: number) => React.ReactNode;
   className?: string;
+  /**
+   * The message has finished: its code spans may become symbol and commit
+   * references. Off while it streams, and for text that is not the agent's
+   * message (a brief, tool output).
+   */
+  settled?: boolean;
 };
+
+const NO_SPANS: readonly string[] = [];
 
 /**
  * The agent's words on the page's own ground: no bubble, no author line.
@@ -328,7 +502,7 @@ export type AgentProseProps = {
  * and the agent's answer is a document — headings, lists, code — that a rounded
  * card squeezes into looking like a chat line.
  */
-export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
+export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, className, settled = false }: AgentProseProps) {
   const markdownRef = React.useRef<IncrementalMarkdownState | undefined>(undefined);
   const markdown = React.useMemo(() => {
     const next = parseMarkdownIncremental(text, markdownRef.current);
@@ -336,15 +510,26 @@ export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, clas
     return next;
   }, [text]);
   const { blocks, blockKeys } = markdown;
+  const { refContext, lookupSymbol, entities } = useTranscriptActions();
+  // A table or topic the session named is that, not a symbol: it is never
+  // looked up, and leaves its place under the per-message cap to a real name.
+  const spans = React.useMemo(
+    () => (settled ? codeSpans(blocks).filter((span) => !entityOf(entities, span)) : NO_SPANS),
+    [settled, blocks, entities],
+  );
+  const symbols = useCodeRefs(spans, refContext ?? null, settled, lookupSymbol);
+  const codeRefs = React.useMemo<CodeRefs>(() => (settled ? { settled, symbols } : NO_CODE_REFS), [settled, symbols]);
   return (
-    <div
-      data-testid="agent-prose"
-      className={cn("flex w-full flex-col gap-4 select-text", className)}
-    >
-      {blocks.map((block, idx) => {
-        const node = <Block block={block} />;
-        return <React.Fragment key={blockKeys[idx]}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
-      })}
-    </div>
+    <CodeRefsContext.Provider value={codeRefs}>
+      <div
+        data-testid="agent-prose"
+        className={cn("flex w-full flex-col gap-4 select-text", className)}
+      >
+        {blocks.map((block, idx) => {
+          const node = <Block block={block} />;
+          return <React.Fragment key={blockKeys[idx]}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
+        })}
+      </div>
+    </CodeRefsContext.Provider>
   );
 });

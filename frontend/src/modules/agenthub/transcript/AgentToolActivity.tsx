@@ -4,17 +4,35 @@ import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Shimmer } from "@/components/ui/shimmer";
 import { Spinner } from "@/components/ui/spinner";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { getModule } from "@/modules/registry";
 import { dispatchIntent } from "@/workbench/intents";
-import { renderToolResult } from "@/workbench/toolResultViews";
+import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
+import { successPayloadOf, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolActivityTarget } from "@/workbench/toolActivity";
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
+import { resultCallOf, useFullToolCall } from "./toolCallDetail";
 
 /** Whether a call is one of the DevKit tools that change something. */
 export function isToolActivity(call: ToolCall | undefined): boolean {
-  return Boolean(toolActivityOf(call?.name));
+  // Codex names no call; its title is `devkit.<tool>` (toolNameOf).
+  return Boolean(call && toolActivityOf(toolNameOf(call)));
+}
+
+/**
+ * What an activity acts on, read from the call's input while it runs and from
+ * its answer — wherever the vendor put it (workbench/toolPayload.ts) — once
+ * done. Shared with the follow panel, so both name the same thing.
+ */
+export function activityTargetOf(activity: ToolActivity, call: ToolCall, state: ToolActivityState): ToolActivityTarget | null {
+  return activity.target({
+    name: toolNameOf(call),
+    rawInput: call.rawInput,
+    rawOutput: state === "done" ? successPayloadOf(call) : undefined,
+    state,
+  });
 }
 
 /** The intent that opens a target: `<module>.reveal`, but API client's is `api.`. */
@@ -39,18 +57,32 @@ function revealIntent(module: string): string {
  * the transcript is virtualised, so a row remounts on every scroll — renders
  * standing still.
  */
-export const AgentToolActivity = React.memo(function AgentToolActivity({ call }: { call: ToolCall }) {
-  const activity = toolActivityOf(call.name);
+export const AgentToolActivity = React.memo(function AgentToolActivity({
+  call,
+  sessionId,
+}: {
+  call: ToolCall;
+  /** Whose transcript this is: a cut answer is read from its full row. */
+  sessionId?: string;
+}) {
+  const name = toolNameOf(call);
+  const activity = toolActivityOf(name);
   const state = toolActivityState(call.status);
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running").current;
 
+  // A done call's answer on the page may be a cut preview: the full row is
+  // read then, shared with the call's row and any result card.
+  const previewCut = React.useMemo(
+    () => state === "done" && Boolean(activity) && Boolean(call.truncated) && toolPayloadOf(call) === null,
+    [state, activity, call],
+  );
+  const { fullCall } = useFullToolCall(call, sessionId, previewCut);
+  const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
+
   const target = React.useMemo(
-    () =>
-      activity
-        ? activity.target({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, state })
-        : null,
-    [activity, call.name, call.rawInput, call.rawOutput, state],
+    () => (activity ? activityTargetOf(activity, resultCall, state) : null),
+    [activity, resultCall, state],
   );
 
   // The result card's code, fetched while the call is still running.
@@ -58,13 +90,14 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({ call }:
     if (state === "running") void activity?.preload?.().catch(() => undefined);
   }, [activity, state]);
 
-  const result = React.useMemo(
-    () =>
-      state === "done" && activity
-        ? renderToolResult({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, heading: activity.done })
-        : null,
-    [activity, state, call.name, call.rawInput, call.rawOutput],
-  );
+  const result = React.useMemo(() => {
+    // Only a tool with a view is worth reading the answer for.
+    if (state !== "done" || !activity || !hasToolResultView(name)) return null;
+    // Wherever the vendor put the result (workbench/toolPayload.ts); an error
+    // has no input and keeps this card's own failed state.
+    const input = toolResultInputOf(resultCall, activity.done);
+    return input ? renderToolResult(input) : null;
+  }, [activity, state, name, resultCall]);
 
   if (!activity) return null;
   const card = <ActivityCard activity={activity} state={state} target={target} />;
@@ -72,17 +105,21 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({ call }:
     <div
       data-testid="tool-activity"
       data-state={state}
-      data-tool={call.name}
+      data-tool={name}
       className={cn("w-full min-w-0", bornLive && "activity-enter")}
     >
       {result ? (
-        <React.Suspense fallback={card}>
-          {/* Keyed apart from the running card so the arrival is its own
-              element: it fades in over the frame the running card held. */}
-          <div key="result" className={cn("w-full min-w-0", bornLive && "activity-enter")}>
-            {result}
-          </div>
-        </React.Suspense>
+        // A result card that throws, or whose chunk is gone after an update,
+        // leaves this card standing instead of taking the page with it.
+        <ErrorBoundary label={`${name || "tool"} result card`} fallback={card} resetKey={call}>
+          <React.Suspense fallback={card}>
+            {/* Keyed apart from the running card so the arrival is its own
+                element: it fades in over the frame the running card held. */}
+            <div key="result" className={cn("w-full min-w-0", bornLive && "activity-enter")}>
+              {result}
+            </div>
+          </React.Suspense>
+        </ErrorBoundary>
       ) : (
         card
       )}

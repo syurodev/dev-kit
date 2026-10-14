@@ -11,13 +11,13 @@ import { CONTROL_SURFACE, CONTROL_FOCUS } from "./control-styles"
  * - rest: theme surface-well and subtle border
  * - focus: semantic ring; border width stays fixed
  * - error: border-status-danger (1px)
- * - disabled: text dims to text-text-tertiary (#8b8e8a)
+ * - disabled: text dims to text-text-tertiary
  *
- * Typography:
- * - Label: text-label-12 text-text-secondary (#c6c8c2)
- * - Helper: text-caption-11 text-text-tertiary (#8b8e8a), on error turns text-status-danger (#d87886)
- * - Value: text-body-14 text-text-primary (#f0f1eb)
- * - Placeholder: text-text-tertiary (#8b8e8a)
+ * Typography (Mono dark values; light has its own greys):
+ * - Label: text-label-12 text-text-secondary (#a3a3a3)
+ * - Helper: text-caption-11 text-text-tertiary (#8f8f8f), on error turns text-status-danger (#e07b7f)
+ * - Value: text-body-14 text-text-primary (#fafafa)
+ * - Placeholder: text-text-tertiary (#8f8f8f)
  *
  * Type=Password includes a built-in Visibility action (16×16 eye toggle) inside the field.
  */

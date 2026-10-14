@@ -39,10 +39,11 @@ import {
   type AgentImageAttachment,
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
-import { dispatchIntent, type EntityRef } from "@/workbench/intents";
+import type { EntityRef } from "@/workbench/intents";
 import { copyText } from "../../bridge/clipboard";
 import { errorMessage, toAppError } from "../../bridge/errors";
 import { useAgentTranscript } from "./transcript";
+import { openFileRef, refContextOf } from "./transcript/openReference";
 import { toast } from "sonner";
 import { pendingForSession, useResolvePermission } from "./permissions";
 import { elicitationForSession, useRespondElicitation } from "./elicitations";
@@ -765,19 +766,10 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
 
   function handleOpenFile(path: string, line?: number) {
     if (!activeSession) return;
-    // Beside: the session stays on screen next to the file it talks about.
-    void dispatchIntent(
-      "codegraph.reveal",
-      {
-        module: "codegraph",
-        kind: "file",
-        id: path,
-        label: path.slice(path.lastIndexOf("/") + 1),
-        project: activeSession.projectPath,
-        line,
-      },
-      { placement: "beside" },
-    );
+    // Resolved in the session's workspace, so a path opens in the folder that
+    // holds it whichever workspace the title bar shows. Beside: the session
+    // stays on screen next to the file it talks about.
+    void openFileRef(line !== undefined ? { path, line } : { path }, refContextOf(activeSession), { placement: "beside" });
   }
 
   function handleSelectCommand(name: string) {

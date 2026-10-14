@@ -3,20 +3,23 @@ import type { AgentSession } from "@/bridge/agenthub";
 import type { SidebarWorkspace } from "./grouping";
 import {
   RECENT_LIMIT,
+  askBySession,
   attentionBySession,
   attentionKind,
   cardIndicator,
   cardSummary,
   compareRecent,
   groupSessions,
-  initials,
   nextWaiting,
   orderSubagents,
   partitionGroup,
   shortAge,
   subagentsLabel,
-  waitingCount,
   drawnWhenHidingClosed,
+  groupCollapsed,
+  needsYou,
+  plainAsk,
+  secondLine,
 } from "./model";
 
 const session = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
@@ -296,11 +299,6 @@ describe("what needs the person", () => {
     expect(cardIndicator(session("a", { status: "error" }), { permissions: 0, questions: 1 })).toBe("question");
   });
 
-  it("counts the sessions waiting, once each", () => {
-    const list = [session("p", { status: "awaiting_permission" }), session("q"), session("n")];
-    expect(waitingCount(list, { p: { permissions: 1, questions: 1 }, q: { permissions: 0, questions: 1 } })).toBe(2);
-  });
-
   it("walks on to the next waiting session, wrapping", () => {
     expect(nextWaiting(["a", "b", "c"], "b")).toBe("c");
     expect(nextWaiting(["a", "b", "c"], "c")).toBe("a");
@@ -338,15 +336,6 @@ describe("subagents", () => {
 
   it("puts running first, then failed, then done, each in the order it came", () => {
     expect(orderSubagents(agents).map((a) => a.id)).toEqual(["b", "d", "c", "a"]);
-  });
-
-  it("takes initials from the name it has, and none when it has none", () => {
-    expect(initials("Review whitelist")).toBe("RW");
-    expect(initials("explore")).toBe("E");
-    expect(initials("  ")).toBe("");
-    expect(initials(undefined)).toBe("");
-    expect(initials("Éclair-fix")).toBe("ÉF");
-    expect(initials("Review whitelist", 1)).toBe("R");
   });
 
   it("names every subagent and its state, not only the ones that fit", () => {
@@ -387,5 +376,121 @@ describe("the card's sentence", () => {
     expect(
       cardSummary({ vendorName: "Codex", session: session("a", { status: "closed" }), subagents: [], pinned: false, age: "now" }),
     ).toEqual(["Codex", "Closed", "Active just now"]);
+  });
+});
+
+describe("needsYou", () => {
+  it("waiting or failed sessions, newest first", () => {
+    const list = [
+      session("a", { status: "idle", updatedAt: 1 }),
+      session("b", { status: "error", updatedAt: 3 }),
+      session("c", { status: "running", updatedAt: 2 }),
+      session("d", { status: "idle", updatedAt: 4 }),
+    ];
+    const attention = { c: { permissions: 1, questions: 0 } };
+    expect(needsYou(list, attention).map((x) => x.id)).toEqual(["b", "c"]);
+  });
+
+  it("closed sessions never need you", () => {
+    expect(needsYou([session("a", { status: "closed" })], { a: { permissions: 1, questions: 0 } })).toEqual([]);
+  });
+});
+
+describe("secondLine", () => {
+  it("a pending ask wins and is a warning", () => {
+    expect(secondLine({ session: session("a", { status: "running", preview: "old" }), ask: "Allow migrate up?", folder: null })).toEqual({
+      text: "Allow migrate up?",
+      tone: "warning",
+      folder: null,
+    });
+  });
+
+  it("an error shows the preview as danger", () => {
+    expect(secondLine({ session: session("a", { status: "error", preview: "Usage limit." }), ask: null, folder: "api" })).toEqual({
+      text: "Usage limit.",
+      tone: "danger",
+      folder: "api",
+    });
+  });
+
+  it("otherwise the preview, plain", () => {
+    expect(secondLine({ session: session("a", { preview: "Done." }), ask: null, folder: null })).toEqual({
+      text: "Done.",
+      tone: "plain",
+      folder: null,
+    });
+  });
+
+  it("nothing to say", () => {
+    expect(secondLine({ session: session("a"), ask: null, folder: null })).toEqual({ text: "", tone: "plain", folder: null });
+  });
+});
+
+describe("groupCollapsed", () => {
+  it("the current workspace is open unless collapsed", () => {
+    expect(groupCollapsed("workspace:1", "1", new Set(), new Set())).toBe(false);
+    expect(groupCollapsed("workspace:1", "1", new Set(["workspace:1"]), new Set())).toBe(true);
+  });
+
+  it("other groups are collapsed unless expanded", () => {
+    expect(groupCollapsed("workspace:2", "1", new Set(), new Set())).toBe(true);
+    expect(groupCollapsed("workspace:2", "1", new Set(), new Set(["workspace:2"]))).toBe(false);
+    expect(groupCollapsed("project:/x", "1", new Set(), new Set())).toBe(true);
+  });
+
+  it("with no current workspace every group follows the collapsed list", () => {
+    expect(groupCollapsed("workspace:2", null, new Set(), new Set())).toBe(false);
+  });
+});
+
+describe("askBySession", () => {
+  it("a permission's title wins over a question's message", () => {
+    expect(askBySession([{ sessionId: "a", title: "Allow?" }], [{ sessionId: "a", message: "Which?" }])).toEqual({ a: "Allow?" });
+  });
+
+  it("a question alone gives its message", () => {
+    expect(askBySession([], [{ sessionId: "a", message: "Which?" }])).toEqual({ a: "Which?" });
+  });
+
+  it("the first permission of a session is the one said", () => {
+    expect(
+      askBySession(
+        [
+          { sessionId: "a", title: "First?" },
+          { sessionId: "a", title: "Second?" },
+        ],
+        [],
+      ),
+    ).toEqual({ a: "First?" });
+  });
+
+  it("the first question of a session is the one said", () => {
+    expect(
+      askBySession([], [
+        { sessionId: "a", message: "First?" },
+        { sessionId: "a", message: "Second?" },
+      ]),
+    ).toEqual({ a: "First?" });
+  });
+});
+
+describe("plainAsk", () => {
+  it("strips code ticks, bold and underscores emphasis, and folds whitespace", () => {
+    expect(plainAsk("Run `rm -rf build`?")).toBe("Run rm -rf build?");
+    expect(plainAsk("Allow **write** to  __a.ts__\n  now?")).toBe("Allow write to a.ts now?");
+    expect(plainAsk("  plain  ")).toBe("plain");
+  });
+
+  it("leaves emphasis markers inside paths, globs and identifiers alone", () => {
+    expect(plainAsk("Edit src/__init__.py")).toBe("Edit src/__init__.py");
+    expect(plainAsk("rm -rf **/node_modules")).toBe("rm -rf **/node_modules");
+    expect(plainAsk("src/**/*.ts")).toBe("src/**/*.ts");
+    expect(plainAsk("**Allow** this?")).toBe("Allow this?");
+    expect(plainAsk("Run __this__, now")).toBe("Run this, now");
+  });
+
+  it("is applied where asks are built", () => {
+    expect(askBySession([{ sessionId: "a", title: "Run `rm -rf build`?" }], [])).toEqual({ a: "Run rm -rf build?" });
+    expect(askBySession([], [{ sessionId: "a", message: "Use **npm** or `bun`?" }])).toEqual({ a: "Use npm or bun?" });
   });
 });

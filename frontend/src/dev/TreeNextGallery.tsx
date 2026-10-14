@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { useTheme } from "@/theme/ThemeProvider";
-import { FAMILIES } from "@/theme/families";
+import { FAMILIES, resolvedPalettes } from "@/theme/families";
 import { applyThemeFamily } from "@/theme/applyTheme";
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
 
@@ -299,7 +299,9 @@ type ContrastRow = { palette: string; border: number; label: number; guide: numb
 /**
  * Every palette in both modes: the selection border against the rail (a mark,
  * 3:1), the selected label against its tint (text, 4.5:1), and the guide
- * against the rail (decoration — reported, not required).
+ * against the rail (decoration — reported, not required). The chrome is Mono,
+ * so rows differ only by mode; the loop stays so a palette that ever reaches
+ * the chrome would show up here.
  */
 function ContrastTable() {
   const { family } = useTheme();
@@ -314,8 +316,8 @@ function ContrastTable() {
     const savedDark = root.classList.contains("dark");
     const savedScheme = root.style.colorScheme;
     const out: ContrastRow[] = [];
-    for (const [id, definition] of Object.entries(FAMILIES)) {
-      applyThemeFamily(id as ThemeFamilyPreference, { dark: definition.dark, light: definition.light });
+    for (const id of Object.keys(FAMILIES)) {
+      applyThemeFamily(id as ThemeFamilyPreference, resolvedPalettes(id as ThemeFamilyPreference));
       for (const mode of ["dark", "light"] as const) {
         // All three, as ThemeProvider sets them: tokens written with
         // light-dark() follow color-scheme, not the attribute or the class.
@@ -335,7 +337,7 @@ function ContrastTable() {
       }
     }
     const current = family ?? "devkit";
-    applyThemeFamily(current, { dark: FAMILIES[current].dark, light: FAMILIES[current].light });
+    applyThemeFamily(current, resolvedPalettes(current));
     if (savedTheme) root.dataset.theme = savedTheme;
     root.classList.toggle("dark", savedDark);
     root.style.colorScheme = savedScheme;

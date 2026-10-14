@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -268,5 +269,39 @@ func TestHubSessionID(t *testing.T) {
 	}
 	if got := hubSessionID("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"); got != "invalid" {
 		t.Fatalf("uppercase should be invalid, got %q", got)
+	}
+}
+
+// Preview is the agent's own words for the person's sidebar; no MCP tool
+// that returns a session may carry it.
+func TestAgentHubToolsDoNotLeakPreview(t *testing.T) {
+	const secret = "secret-ish"
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	leaky := agenthub.AgentSession{ID: id, AgentType: agenthub.AgentTypeMock, Status: agenthub.SessionStatusIdle, Preview: secret}
+	hub := &fakeAgentHub{list: []agenthub.AgentSession{leaky}, created: leaky, status: leaky}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+
+	_, listed, err := srv.toolAgentHubListAgents(ctx, req, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, created, err := srv.toolAgentHubCreateAgentSession(ctx, req, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/proj"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := srv.toolAgentHubGetSessionStatus(ctx, req, agentHubSessionIDInput{SessionID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]any{"listAgents": listed, "createAgentSession": created, "getSessionStatus": status} {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("%s leaked the preview: %s", name, raw)
+		}
 	}
 }

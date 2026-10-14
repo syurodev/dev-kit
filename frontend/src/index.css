@@ -252,6 +252,28 @@
 
     --ease-in-strong: cubic-bezier(0.7, 0, 0.84, 0);
     --animate-spin-slow: spin 3s linear infinite;
+    /* tw-animate's collapsible-down/up move only height. These replace them
+       with the same height keyframes plus a fade, in one animation so one
+       class (and one animationend, which Radix waits for) drives both.
+       Duration and easing still come from duration-* / ease-* utilities, and
+       default to the motion tokens. Opacity is compositor work; the height is
+       the part that costs, and it was already moving. */
+    --animate-collapsible-down:
+      collapsible-down var(--tw-duration, var(--motion-slow)) var(--tw-ease, var(--ease-out-strong)),
+      collapsible-fade-in var(--tw-duration, var(--motion-slow)) var(--tw-ease, var(--ease-out-strong));
+    --animate-collapsible-up:
+      collapsible-up var(--tw-duration, var(--motion-base)) var(--tw-ease, var(--ease-out-strong)),
+      collapsible-fade-out var(--tw-duration, var(--motion-base)) var(--tw-ease, var(--ease-out-strong));
+    @keyframes collapsible-fade-in {
+      from {
+        opacity: 0;
+      }
+    }
+    @keyframes collapsible-fade-out {
+      to {
+        opacity: 0;
+      }
+    }
     --transition-property-color-shadow: color, box-shadow;
     --transition-property-border-bg: border-color, background-color;
     --transition-property-transform-fade: translate, scale, opacity;
@@ -296,20 +318,6 @@
 
 
 :root {
-    /* 01 Foundations: Palette Anchors (Figma "01 Foundations", v2 glass) */
-    --palette-onyx: #020202;
-    --palette-carbon: #171717;
-    --palette-jet-black: #1d1d1d;
-    --palette-cosmic: #23212c;
-    --palette-wine-ash: #32292f;
-    --palette-violet: #36255c;
-    --palette-lavender: #d2c3f6;
-    --palette-orchid: #e5bddf;
-    --palette-candy-blue: #b2d5e5;
-    --palette-turquoise: #99e1d9;
-    --palette-vanilla: #f1fec8;
-    --palette-lime: #c6ff34;
-
     /* Tint sources — the colour an alpha layer is made OF, named so a theme
        can move it. Three, because they answer three different questions:
        veil is what a state layer lifts or recesses with, border is what a
@@ -320,7 +328,7 @@
        Tailwind's Vite plugin, whose targets neither build.cssTarget nor a
        browserslist entry reaches — both were tried and changed nothing) emits
        `--x: var(--source)` guarded by @supports for every one of these. That
-       fallback has no alpha: a solid candy-blue hairline, a solid white sheet
+       fallback has no alpha: a solid white hairline, a solid white sheet
        for --state-soft. It is accepted rather than worked around because it
        is unreachable — it fires only where color-mix is missing (Safari
        < 16.2), and this file already uses @starting-style in six places,
@@ -329,42 +337,47 @@
        an rgba literal beside each color-mix as a real fallback, puts back
        exactly the hand-typed channels this pass exists to remove. */
     --tint-veil: #ffffff;
-    --tint-border: var(--palette-candy-blue);
+    --tint-border: #ffffff;
     --tint-specular: #ffffff;
 
-    /* Semantic Tokens (dark-first; light overrides under [data-theme="light"]) */
-    --background-app: var(--palette-onyx);
-    --background-canvas: var(--palette-carbon);
-    --surface-base: var(--palette-jet-black);
-    --surface-raised: var(--palette-cosmic);
+    /* Semantic Tokens — Mono chrome (dark-first; light overrides under
+       [data-theme="light"]). Grey steps separate surfaces; nothing in the
+       chrome carries a hue except status. The person's Color palette
+       (theme/families.ts) never reaches these. */
+    --background-app: #000000;
+    --background-canvas: #0a0a0a;
+    --surface-base: #141414;
+    --surface-raised: #1c1c1c;
     --surface-glass-floating: color-mix(in srgb, var(--surface-base) 72%, transparent);
     --surface-glass-modal: color-mix(in srgb, var(--surface-base) 85%, transparent);
-    --surface-tinted: var(--palette-wine-ash);
+    --surface-tinted: #262626;
 
-    --text-primary: #f0f1eb;
-    --text-secondary: #c6c8c2;
-    --text-tertiary: #90938f;
-    --icon-secondary: #c6c8c2;
+    --text-primary: #fafafa;
+    --text-secondary: #a3a3a3;
+    --text-tertiary: #8f8f8f;
+    --icon-secondary: var(--text-secondary);
 
-    --action-primary: var(--palette-lime);
-    --action-primary-foreground: var(--palette-onyx);
-    /* Figma: derived/lime-hover, derived/lime-pressed */
-    --action-primary-hover: #d2ff64;
-    --action-primary-pressed: #add92e;
+    /* The one solid action: white on dark, black on light. Hover and press
+       move toward the page so the fill stays the strongest thing on it. */
+    --action-primary: #fafafa;
+    --action-primary-foreground: #0a0a0a;
+    --action-primary-hover: color-mix(in srgb, var(--action-primary) 88%, #000000);
+    --action-primary-pressed: color-mix(in srgb, var(--action-primary) 78%, #000000);
 
-    --status-info: var(--palette-candy-blue);
-    --status-success: var(--palette-turquoise);
-    --status-warning: var(--palette-vanilla);
-    --status-recovery: var(--palette-orchid);
-    --status-danger: #d87886;
+    /* Status keeps its hue, desaturated, and is NOT part of a palette: an
+       error looks like an error whichever palette is chosen. Info is not a
+       danger level, so it is grey. */
+    --status-info: var(--text-secondary);
+    --status-success: #7cc59a;
+    --status-warning: #d9b25c;
+    --status-recovery: #c39bd0;
+    --status-danger: #e07b7f;
 
-    /* Agent/session states + brand, consumed by app.css.
-       --brand-text is the accent for text/icons: lime in dark, the darker
-       light-pair in light (lime text on white is illegible). */
+    /* Agent/session states + brand, consumed by app.css. --brand-text is the accent for text/icons; in Mono it is the primary text. */
     --brand: var(--action-primary);
-    --brand-text: var(--action-primary);
+    --brand-text: var(--text-primary);
     --status-idle: var(--text-tertiary);
-    --status-running: var(--status-info);
+    --status-running: var(--text-primary);
     --status-error: var(--status-danger);
     --status-permission: var(--status-warning);
     --status-permission-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);
@@ -382,26 +395,43 @@
 
     --border-default: color-mix(in srgb, var(--tint-border) 16%, transparent);
     --border-subtle: color-mix(in srgb, var(--tint-border) 8%, transparent);
-    --border-focus: var(--palette-candy-blue);
+    --border-focus: var(--text-primary);
 
-    /* Syntax colours (components/code-editor/devkitSyntax.ts), for every
-       surface that colours code: editors, read-only blocks, Notes.
-       Derived from the ramp, so a family that says nothing about code gets
-       code in its own status colours, already contrast-checked. A family whose
-       editor has a palette of its own (Xcode's pink keywords and red strings)
-       sets these in theme/families.ts. Declared here, on :root, so the var()s
-       resolve against the family's ramp on the same element. */
-    --syntax-keyword: var(--brand-text);
-    --syntax-string: var(--status-success);
-    --syntax-number: var(--status-warning);
-    --syntax-type: var(--status-recovery);
-    --syntax-function: var(--status-info);
+    /* The base Color palette (devkit = Mono), for the first paint and as the
+       values theme/families.ts mirrors. applyThemeFamily writes every one of
+       these again, resolved, for whichever palette is chosen — so nothing
+       below may be read as "the" colour of anything but devkit. */
+    --hue-red: #e07b7f;
+    --hue-orange: #e0945e;
+    --hue-yellow: #d9b25c;
+    --hue-green: #7cc59a;
+    --hue-teal: #6cc1bb;
+    --hue-blue: #8aaee6;
+    --hue-violet: #b29ce6;
+    --hue-pink: #de8fb8;
+
+    /* Mono code: structure by weight and the text ramp, not by hue. */
+    --syntax-keyword: var(--text-primary);
+    --syntax-keyword-weight: 600;
+    --syntax-string: var(--text-secondary);
+    --syntax-number: var(--text-secondary);
+    --syntax-type: var(--text-primary);
+    --syntax-function: var(--text-primary);
     --syntax-definition: var(--text-primary);
     --syntax-comment: var(--text-tertiary);
     --syntax-meta: var(--text-tertiary);
 
+    /* Terminal colours keep their hues even in Mono: a red line in git diff
+       is information. */
+    --ansi-red: var(--hue-red);
+    --ansi-green: var(--hue-green);
+    --ansi-yellow: var(--hue-yellow);
+    --ansi-blue: var(--hue-blue);
+    --ansi-magenta: var(--hue-violet);
+    --ansi-cyan: var(--hue-teal);
+
     /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
-       (same hue as the background, Apple-style — the lavender/orchid ambience
+       (same hue as the background, Apple-style — any ambience
        comes from the vibrancy blobs BEHIND the glass, not from the tint);
        three opacities; depth is encoded by opacity and blur, never new color.
        - rail:  sidebar/titlebar/window chrome — fully transparent, the native
@@ -457,22 +487,19 @@
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     /* The added-line wash in a code block. Derived at the same 14% as its
        danger twin, so a diff reads as one pair in every theme. */
-    /* The tint on a selected grid cell. Derived from the same accent the focus
-       ring uses, so a rectangle of selected cells and the one cell inside it
-       that holds the focus read as one gesture rather than two colours. */
+    /* The tint on a selected grid cell. Derived from --status-info (grey in
+       Mono), so a rectangle of selected cells and the one cell inside it that
+       holds the focus read as one gesture rather than two colours. */
     --feedback-selected: color-mix(in srgb, var(--status-info) 18%, transparent);
     /* Selected TEXT: the same wash, at the strength each mode can carry.
        A tint moves the ground the syntax sits on, so every token's contrast
        is spent on it.
 
-       Measured on the editor's own ground here at 18%: keywords 12.04:1 →
-       7.71, operators 8.44 → 5.40, literals 13.40 → 8.58 — all clear of the
-       4.5:1 floor. COMMENTS are not: 4.58:1 → 2.93, and no visible band can
-       save them. A comment is dim on purpose, which leaves it half a point
-       of headroom, and the arithmetic says a band light enough to keep it at
-       4.5 would be 0.0013 of luminance away from the ground — a selection
-       nobody can see. Every editor with dim comments makes the same trade;
-       this one at least knows the number. */
+       Measured under the previous palette — theme/themeContrast.test.ts
+       floors the text colours; re-measure the band when changing it. The
+       reasoning holds: dim comments have little headroom, and a band light
+       enough to keep them at 4.5:1 would be a selection nobody can see.
+       Every editor with dim comments makes the same trade. */
     --editor-selection: var(--feedback-selected);
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
@@ -490,18 +517,17 @@
        an agent's usage limit warning borders with this. */
     --border-warning: color-mix(in srgb, var(--status-warning) 40%, transparent);
 
-    /* Note/folder 9-color palette (Figma "Note Palette" collection).
-       Consumed by modules/notes via var(--note-folder-<name>) — these were
-       referenced but never defined before this block. */
-    --note-folder-red: #e57373;
-    --note-folder-orange: #f0a468;
-    --note-folder-yellow: #e8d477;
-    --note-folder-green: #8fd68a;
-    --note-folder-teal: #6fcfbf;
-    --note-folder-blue: #7fb5e8;
-    --note-folder-violet: #a98fe8;
-    --note-folder-pink: #e394c9;
-    --note-folder-gray: #9a9da3;
+    /* Note/folder colours (modules/notes) are the palette's hues: a saved
+       note keeps its colour NAME, the value follows the chosen palette. */
+    --note-folder-red: var(--hue-red);
+    --note-folder-orange: var(--hue-orange);
+    --note-folder-yellow: var(--hue-yellow);
+    --note-folder-green: var(--hue-green);
+    --note-folder-teal: var(--hue-teal);
+    --note-folder-blue: var(--hue-blue);
+    --note-folder-violet: var(--hue-violet);
+    --note-folder-pink: var(--hue-pink);
+    --note-folder-gray: var(--text-tertiary);
 
     /* Mapped UI Tokens */
     --background: var(--background-app);
@@ -521,7 +547,7 @@
     --destructive: var(--status-danger);
     --border: var(--border-default);
     --input: var(--border-default);
-    --ring: var(--status-info);
+    --ring: var(--border-focus);
     --radius: var(--radius-control);
 
     /* Scrollbar. Not a Foundations token — Figma draws no scrollbar — so it
@@ -539,39 +565,39 @@
     --sidebar-accent: var(--surface-raised);
     --sidebar-accent-foreground: var(--text-primary);
     --sidebar-border: var(--border-subtle);
-    --sidebar-ring: var(--status-info);
+    --sidebar-ring: var(--border-focus);
 }
 
 /* Light mode. ThemeProvider stamps data-theme on <html>; dark stays the
    :root default so the pre-hydration paint matches the dark-first product.
-   Accents follow the Figma "Light mode accent pairs": same hue, darker. */
+   Mono chrome in light is near-black on white; status and the base palette's
+   hues are darker pairs of the same hue. */
 :root[data-theme="light"] {
-    --background-app: #e9eaee;
-    --background-canvas: #f4f5f7;
+    --background-app: #f7f7f7;
+    --background-canvas: #fafafa;
     --surface-base: #ffffff;
-    --surface-raised: #f4f5f7;
+    --surface-raised: #efefef;
     /* --surface-glass-floating is not here: dark already says "surface-base at
        72%", and --surface-base is overridden below, so the dark declaration
        re-resolves to white glass on its own. Only the tokens whose PERCENTAGE
        differs between modes need an override — that is the whole point of
        naming the source. */
     --surface-glass-modal: color-mix(in srgb, var(--surface-base) 90%, transparent);
-    --surface-tinted: #e8e9ec;
+    --surface-tinted: #ebebeb;
 
-    --text-primary: #1d1d1f;
-    --text-secondary: #55565b;
-    --text-tertiary: #68696f;
-    --icon-secondary: #55565b;
+    --text-primary: #0a0a0a;
+    --text-secondary: #525252;
+    --text-tertiary: #666666;
 
-    /* --action-primary stays lime: button fills keep the brand (onyx text on
-       lime passes in both modes). Only text/icon accents flip via the pairs. */
-    --brand-text: #567300;
+    --action-primary: #0a0a0a;
+    --action-primary-foreground: #ffffff;
+    --action-primary-hover: color-mix(in srgb, var(--action-primary) 85%, #ffffff);
+    --action-primary-pressed: color-mix(in srgb, var(--action-primary) 75%, #ffffff);
 
-    --status-info: #0a719a;
-    --status-success: #1d766b;
-    --status-warning: #915f00;
-    --status-recovery: #9b4e8e;
-    --status-danger: #b3374a;
+    --status-success: #2b7350;
+    --status-warning: #8a6100;
+    --status-recovery: #86508a;
+    --status-danger: #b3363f;
 
     /* Claude's coral, darkened in its own hue until it clears 3:1 on a light
        ground — the brand value itself lands on 2.36:1 against Catppuccin
@@ -579,14 +605,13 @@
        status colours above get in this block, and the same reason. */
     --vendor-claude: #b4552f;
 
-    /* Ink, not the accent: a hairline on white recesses, and candy-blue at 12%
-       on white is a blue smudge. The percentages are higher than dark's for
-       the same reason. */
-    --tint-veil: #1d1d1f;
-    --tint-border: #1d1d1f;
+    /* Ink, not white: a white hairline vanishes on a white surface, so light
+       tints with near-black. The percentages are higher than dark's for the
+       same reason. */
+    --tint-veil: #0a0a0a;
+    --tint-border: #0a0a0a;
     --border-default: color-mix(in srgb, var(--tint-border) 12%, transparent);
     --border-subtle: color-mix(in srgb, var(--tint-border) 6%, transparent);
-    --border-focus: #4b8cb8;
 
     --glass-panel-bg: color-mix(in srgb, var(--surface-base) 60%, transparent);
     /* --glass-float-bg: same 62%... no — light wants 72%, so it stays. */
@@ -607,29 +632,25 @@
        page. The dark pair lifts instead; see the note where they are set. */
     --segment-track: color-mix(in srgb, var(--tint-veil) 7%, transparent);
     --segment-chip: var(--surface-base);
-    /* 8%, not the 18% dark gets. Measured on the editor's own ground: the
-       SQL keyword is 5.05:1 there, so a tint of 12% takes it to 4.29 and
-       18% to 3.93 — under the floor, in the control where selecting is how
-       you choose what to run. 8% leaves 4.53:1 and is the most band this
-       palette can carry. A darker light-mode keyword would buy more; that
-       is a palette change, not a selection one. */
+    /* 8%, not the 18% dark gets: a tint moves the ground the syntax sits on,
+       and light, where selected text has less headroom, takes a lighter band.
+       Re-measure when changing it. */
     --editor-selection: color-mix(in srgb, var(--status-info) 8%, transparent);
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
-       light's own --status-danger is #b3374a. Light has been drawing salmon
+       light's own --status-danger is #b3363f. Light has been drawing salmon
        feedback under a deep-red status colour. Derived from --status-danger,
        each mode now gets its own. */
 
-    /* Note palette light pairs — same hue, deeper for white surfaces */
-    --note-folder-red: #b84a4a;
-    --note-folder-orange: #b06a2a;
-    --note-folder-yellow: #9a7d1a;
-    --note-folder-green: #3f8f3a;
-    --note-folder-teal: #1e8578;
-    --note-folder-blue: #2a6fb0;
-    --note-folder-violet: #6a4fc0;
-    --note-folder-pink: #b04a8f;
-    --note-folder-gray: #6e7075;
+    /* The base palette's light hues (theme/families.ts DEVKIT_FAMILY.light). */
+    --hue-red: #b3363f;
+    --hue-orange: #a14f1a;
+    --hue-yellow: #8a6100;
+    --hue-green: #2b7350;
+    --hue-teal: #1f7470;
+    --hue-blue: #3a62a8;
+    --hue-violet: #6e55a8;
+    --hue-pink: #a4467a;
 
     /* Was rgba(0,0,0,…); now the same ink the state layers use, which moves
        the thumb by 6/255 and makes it follow a theme. */
@@ -656,7 +677,7 @@
     --destructive: var(--status-danger);
     --border: var(--border-default);
     --input: var(--border-default);
-    --ring: var(--status-info);
+    --ring: var(--border-focus);
 }
 
 @layer base {
@@ -810,15 +831,15 @@
   --shell-radius: max(var(--radius-lg), calc(var(--window-radius) - var(--shell-gap)));
   /* Shell chrome has its own neutral backdrop. Palette background tokens
      remain intact for editors, terminals and module-owned components. */
-  --shell-backdrop: #101114;
-  --shell-backdrop-top: #1b1d21;
+  --shell-backdrop: #050505;
+  --shell-backdrop-top: #0f0f0f;
   --shell-shadow: 0 2px 6px rgb(0 0 0 / 0.16);
 }
 
 :root[data-theme="light"] {
-  --shell-backdrop: #eef0f3;
-  --shell-backdrop-top: #f7f8fa;
-  --shell-shadow: 0 2px 6px rgb(24 32 48 / 0.06);
+  --shell-backdrop: #eeeeee;
+  --shell-backdrop-top: #f7f7f7;
+  --shell-shadow: 0 2px 6px rgb(0 0 0 / 0.06);
 }
 
 .app-shell {
@@ -1854,10 +1875,10 @@
     max-height: max(3.5rem, calc(78cqh - 8.5rem));
 }
 
-/* Agent Hub rail: a session (or a group's badge) has just started waiting on the
-   person. Played once by the component that sees the rising edge — never on
-   mount, selection or rerender — and it ends: the left bar and the icon are the
-   standing signal. No fill-mode, so the card's own background returns. */
+/* Agent Hub composer tray: a permission or question has just arrived. Played
+   once by the component that sees the rising edge (useRisingEdge) — never on
+   mount, selection or rerender — and it ends: the tray's chip is the standing
+   signal. No fill-mode, so the element's own background returns. */
 .agent-attention-flash {
     animation: agent-attention-flash 1400ms var(--ease-out-strong) 1;
 }
@@ -1868,12 +1889,54 @@
 .agent-attention-pulse {
     animation: agent-attention-pulse 640ms var(--ease-out-strong) 3;
 }
-/* A card that joins a group already on screen: a short rise, not a layout animation. */
-.agent-card-enter {
-    animation: agent-card-enter var(--motion-base) var(--ease-out-strong) 1;
+/* The summary card arrives once with its session view (it stays mounted across tab switches). */
+.session-summary-enter {
+    transition:
+        opacity var(--motion-base) var(--ease-out-strong),
+        translate var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+        opacity: 0;
+        translate: 0 8px;
+    }
 }
-@keyframes agent-card-enter {
-    from { opacity: 0; translate: 0 -4px; }
+/* A plan step not yet done in the summary card: a 1.5px ring in the text
+   colour, so the step's colour change animates with transition-colors. */
+.summary-step-ring {
+    box-shadow: inset 0 0 0 1.5px currentColor;
+}
+/* Session avatar (sidebar/SessionAvatar.tsx). The arc is a half-ring turning
+   slowly; the badge rings itself in the row's ground (--avatar-ground, set
+   below from the row's state: the app ground at rest, state-soft over it when
+   hovered or focused, raised when selected). Only transform/opacity move. */
+[data-slot="agent-session-card"] {
+    --avatar-ground: var(--background-app);
+}
+/* What bg-state-soft draws over the app ground, as one opaque colour. */
+[data-slot="agent-session-card"]:hover,
+[data-slot="agent-session-card"]:focus-within {
+    --avatar-ground: color-mix(in srgb, var(--tint-veil) 6%, var(--background-app));
+}
+/* After hover so a selected row keeps its raised ground under the pointer. */
+[data-slot="agent-session-card"][data-selected] {
+    --avatar-ground: var(--surface-raised);
+}
+.agent-avatar-spin {
+    border: 1.5px solid transparent;
+    border-top-color: var(--text-primary);
+    border-right-color: var(--text-primary);
+    animation: agent-avatar-spin 1.4s linear infinite;
+}
+@keyframes agent-avatar-spin {
+    to { transform: rotate(360deg); }
+}
+.agent-avatar-badge {
+    box-shadow: 0 0 0 2px var(--avatar-ground, var(--background-app));
+}
+.agent-avatar-breathe {
+    animation: agent-avatar-breathe 2.4s ease-in-out infinite;
+}
+@keyframes agent-avatar-breathe {
+    50% { opacity: 0.4; }
 }
 @keyframes agent-attention-pulse {
     40% { transform: scale(1.4); }
@@ -1915,7 +1978,11 @@
     }
     .agent-attention-flash,
     .agent-attention-pulse,
-    .agent-card-enter {
+    .agent-avatar-spin,
+    .agent-avatar-breathe {
         animation: none;
+    }
+    .session-summary-enter {
+        transition: none;
     }
 }

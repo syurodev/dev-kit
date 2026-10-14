@@ -142,7 +142,7 @@ function isEmptyToolRow(item: TranscriptItem): boolean {
  * A row whose origin names no subagent in view (its spawn is on an older page
  * not loaded yet) stays in the flow rather than disappearing.
  */
-function splitFlow(items: TranscriptItem[]): {
+function splitFlow(items: readonly TranscriptItem[]): {
   main: TranscriptItem[];
   activity: Map<string, TranscriptItem[]>;
 } {
@@ -203,7 +203,7 @@ export type LiveSubagent = { subagent: Subagent; activity: TranscriptItem[] };
  * the state update that ends it says otherwise. Callers ask only while the
  * session is live, since a subagent cut off with its session never gets one.
  */
-export function runningSubagents(items: TranscriptItem[]): {
+export function runningSubagents(items: readonly TranscriptItem[]): {
   running: LiveSubagent[];
   activity: Readonly<Record<string, TranscriptItem[]>>;
 } {
@@ -450,6 +450,18 @@ export function workSegments(work: TranscriptItem[]): WorkSegment[] {
     else out.push({ kind: "steps", id: item.id, items: [item] });
   }
   return out;
+}
+
+/**
+ * The index of the newest turn that holds a plan of the session's own: the
+ * one whose plan the summary card shows. A subagent's plan is its own. -1
+ * when no turn has one. One backwards pass, run once per grouping.
+ */
+export function newestPlanTurnIndex(turns: readonly Turn[]): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i].work.some((item) => String(item.kind) === "plan" && !item.origin)) return i;
+  }
+  return -1;
 }
 
 const STEP_PHRASES: Record<string, string> = {

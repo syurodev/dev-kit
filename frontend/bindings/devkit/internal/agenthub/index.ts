@@ -23,6 +23,7 @@ export type {
     ConfigSelectOption,
     ContextFile,
     CreateInput,
+    Document,
     FileDiff,
     ImageAttachment,
     InvokeInput,

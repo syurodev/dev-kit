@@ -22,6 +22,19 @@ export type EntityRef = {
   project?: string;
   /** A line inside a file ref. */
   line?: number;
+  /**
+   * Set (with `folderId`) when the caller already resolved the file to a
+   * workspace folder; `id` is then folder-relative and project resolution is
+   * bypassed.
+   */
+  workspaceId?: string;
+  /** The workspace folder (`workspace_services.id`) a resolved file ref lives in. */
+  folderId?: string;
+  /**
+   * The database connection a table ref was read on: `database.reveal` opens
+   * it there rather than on whichever connection is selected.
+   */
+  profileId?: string;
 };
 
 /**
@@ -32,7 +45,15 @@ export type Placement = "replace" | "beside";
 
 export type IntentOptions = { placement?: Placement };
 
-type Handler = (ref: EntityRef, options: Required<IntentOptions>) => void | Promise<void>;
+/**
+ * A handler that found nothing to show (a file in no folder of the workspace)
+ * returns "unavailable", so the caller can say so instead of doing nothing.
+ * It returns rather than throws: most callers `void` the dispatch.
+ */
+type Handler = (
+  ref: EntityRef,
+  options: Required<IntentOptions>,
+) => void | "ok" | "unavailable" | Promise<void | "ok" | "unavailable">;
 
 const handlers = new Map<string, { handler: Handler; placement: Placement }>();
 
@@ -60,8 +81,8 @@ export async function dispatchIntent(
 ): Promise<"ok" | "unavailable"> {
   const entry = handlers.get(name);
   if (!entry) return "unavailable";
-  await entry.handler(ref, { placement: options.placement ?? entry.placement });
-  return "ok";
+  const result = await entry.handler(ref, { placement: options.placement ?? entry.placement });
+  return result === "unavailable" ? "unavailable" : "ok";
 }
 
 /**

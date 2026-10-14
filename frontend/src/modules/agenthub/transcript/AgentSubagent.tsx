@@ -36,7 +36,7 @@ export type AgentSubagentProps = {
  * carries only the id and the new state.
  */
 const STATE_DOT: Record<string, string> = {
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   completed: "bg-status-success",
   failed: "bg-status-danger",
   cancelled: "bg-text-tertiary",

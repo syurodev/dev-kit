@@ -12,17 +12,16 @@ import { tagHighlighter, tags as t } from "@lezer/highlight";
  * work without CodeMirror injecting a stylesheet, and `var(--token)` still
  * re-resolves the instant the palette changes.
  *
- * Tags map onto --syntax-* tokens, and those default to the status ramp
- * (index.css), because a palette that has to name a syntax colour is a
- * palette most families do not publish — and the ramp is already
- * contrast-checked against the surfaces. A family that does publish one
- * (Xcode) sets the tokens; themeContrast.test.ts floors them like the ramp.
+ * Tags map onto --syntax-* tokens, which the Color palette supplies
+ * (theme/families.ts resolves them from its hues unless the family names its
+ * own). Mono (devkit) draws code in the text ramp and tells keywords apart by
+ * --syntax-keyword-weight.
  */
 export const devkitSyntax = tagHighlighter([
   // Keywords and control flow. By default the accent the theme reserves for
   // "this is the structure"; a family with an editor palette of its own sets
   // --syntax-keyword (index.css declares the defaults, families.ts the rest).
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword], class: "text-(--syntax-keyword)" },
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword], class: "text-(--syntax-keyword) font-(--syntax-keyword-weight)" },
   { tag: [t.operator, t.operatorKeyword, t.punctuation], class: "text-(--text-secondary)" },
 
   // Names. A reference is primary text, a definition may be marked (Xcode
@@ -46,6 +45,6 @@ export const devkitSyntax = tagHighlighter([
   { tag: t.strong, class: "font-semibold" },
   { tag: t.emphasis, class: "italic" },
   { tag: t.strikethrough, class: "line-through" },
-  { tag: t.link, class: "text-(--status-info) underline" },
-  { tag: t.url, class: "text-(--status-info)" },
+  { tag: t.link, class: "text-(--hue-blue) underline" },
+  { tag: t.url, class: "text-(--hue-blue)" },
 ]);

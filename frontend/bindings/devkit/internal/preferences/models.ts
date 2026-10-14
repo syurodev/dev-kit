@@ -107,11 +107,11 @@ export enum Theme {
 };
 
 /**
- * ThemeFamily is which palette the UI is painted with. It is deliberately a
- * second preference rather than more values on Theme: Theme is the MODE, and
- * the mode is what the native window appearance is set from — a titlebar can
- * be light or dark and nothing else. A family supplies both modes, so the two
- * are orthogonal and "Dracula, following the system" is expressible.
+ * ThemeFamily is the person's Color palette: the hues, code syntax colours
+ * and terminal colours. The chrome is one Mono design and no family changes
+ * it. It is a second preference rather than more values on Theme: Theme is
+ * the MODE, which the native window appearance is set from, and a palette
+ * supplies both modes, so "Dracula, following the system" is expressible.
  */
 export enum ThemeFamily {
     /**
@@ -120,8 +120,8 @@ export enum ThemeFamily {
     $zero = "",
 
     /**
-     * ThemeFamilyDevKit is the palette in index.css. It is the absence of an
-     * override rather than a set of values, which is why it is the default.
+     * ThemeFamilyDevKit is the Mono palette in index.css: muted hues, code in
+     * the text ramp. It is the default.
      */
     ThemeFamilyDevKit = "devkit",
     ThemeFamilyCatppuccin = "catppuccin",

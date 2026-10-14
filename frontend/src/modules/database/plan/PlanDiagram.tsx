@@ -34,12 +34,12 @@ import { planStepKind, type PlanStepKind } from "./planGraph";
  */
 const ROWS_OFF_LOUDLY = 10;
 
-/** The code graph's layer hues, by the same logic: storage is warning, flow is info. */
+/** The code graph's layer hues, by the same logic: storage is yellow, flow is blue. */
 const STEPS: Record<PlanStepKind, { cssVar: string; icon: LucideIcon; label: string }> = {
-  scan: { cssVar: "--status-warning", icon: Table2, label: "SCAN" },
-  join: { cssVar: "--status-info", icon: GitMerge, label: "JOIN" },
-  sort: { cssVar: "--status-success", icon: ArrowDownUp, label: "SORT" },
-  aggregate: { cssVar: "--status-success", icon: Sigma, label: "AGGREGATE" },
+  scan: { cssVar: "--hue-yellow", icon: Table2, label: "SCAN" },
+  join: { cssVar: "--hue-blue", icon: GitMerge, label: "JOIN" },
+  sort: { cssVar: "--hue-green", icon: ArrowDownUp, label: "SORT" },
+  aggregate: { cssVar: "--hue-green", icon: Sigma, label: "AGGREGATE" },
   other: { cssVar: "--text-tertiary", icon: Box, label: "STEP" },
 };
 
@@ -96,7 +96,7 @@ function PlanCard({ data }: NodeProps & { data: PlanCardData }) {
         <div className="flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-state-soft">
             <div
-              className={cn("h-full rounded-full", node.hottest ? "bg-status-danger" : "bg-status-info")}
+              className={cn("h-full rounded-full", node.hottest ? "bg-status-danger" : "bg-(--hue-blue)")}
               // A node that took 0.2% of the time took some; an empty track says none.
               style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0)}%` }}
             />
@@ -144,7 +144,16 @@ function toCanvasNode(node: GraphNode): CodeGraphNode {
   };
 }
 
-export function PlanDiagram({ graph }: { graph: GraphSpec }) {
+export function PlanDiagram({
+  graph,
+  compact = false,
+  onGraphSize,
+}: {
+  graph: GraphSpec;
+  /** The card's glance: see FlowCanvas's `compact`. The console's Explain keeps the full canvas. */
+  compact?: boolean;
+  onGraphSize?: (size: { width: number; height: number }) => void;
+}) {
   const canvas = useMemo(() => {
     const byId = new Map(graph.nodes.map((node) => [node.id, node]));
     const nodes = graph.nodes.map(toCanvasNode);
@@ -194,6 +203,11 @@ export function PlanDiagram({ graph }: { graph: GraphSpec }) {
       nodeTypes={nodeTypes}
       legend={false}
       buildData={buildData}
+      compact={compact}
+      onGraphSize={onGraphSize}
+      // React Flow's badge sat bottom-right as a pale box nobody could read on
+      // the dark ground, in the card and in the console's Explain alike.
+      attribution={false}
     />
   );
 }

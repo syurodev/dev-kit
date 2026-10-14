@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 40 {
-		t.Fatalf("migration version = %d, want 40", version)
+	if version != 41 {
+		t.Fatalf("migration version = %d, want 41", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -858,5 +858,33 @@ func TestRemoteChoicesMigrationKeepsAnswersAsHTTPS(t *testing.T) {
 	// The same owner can now have an answer per transport.
 	if _, err = db.ExecContext(ctx, `INSERT INTO account_remote_choices VALUES ('github.com', 'acme-corp', 'ssh', 'acct-key', '2026-10-01T00:00:00Z')`); err != nil {
 		t.Fatalf("a second transport for the same owner was refused: %v", err)
+	}
+}
+
+func TestMigration41AddsSessionPreview(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	rows, err := db.Query(`SELECT name, dflt_value, "notnull" FROM pragma_table_info('agent_sessions') WHERE name = 'preview'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("agent_sessions.preview missing")
+	}
+	var name string
+	var dflt sql.NullString
+	var notNull int
+	if err := rows.Scan(&name, &dflt, &notNull); err != nil {
+		t.Fatal(err)
+	}
+	if notNull != 1 || dflt.String != "''" {
+		t.Fatalf("preview: notnull=%d default=%q", notNull, dflt.String)
 	}
 }

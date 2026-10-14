@@ -1,0 +1,126 @@
+import { useMemo, useState } from "react";
+import { Copy, Table2 } from "lucide-react";
+import { toast } from "sonner";
+import { copyText } from "@/bridge/clipboard";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
+import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
+import { useDatabaseStore } from "../databaseStore";
+import { connectionPhrase, openAgentSql } from "./openAgentSql";
+import { isWriteStatement, toCsv, writeSummary, type ParsedQueryResult } from "./parse";
+
+/** Rows the card shows before Show all: enough to read, not a page. */
+const PREVIEW_ROWS = 20;
+
+/**
+ * `db.query` — what the statement returned, as a table the reader can resize.
+ * The cells are the strings the driver gave (F4: no column types), NULL for
+ * SQL NULL. The header names the connection that ran it when this window
+ * knows it. A write has no columns and says what it changed instead, and
+ * offers nothing to open: a console holding an agent's write is one keystroke
+ * from running it again. A write that returned rows (RETURNING, a CTE) shows
+ * them and offers nothing to open either (isWriteStatement).
+ *
+ * Open in Database switches to the agent's connection and shows these rows as
+ * the console's result, without running anything (openAgentSql).
+ */
+export function QueryResultCard({
+  result,
+  sql,
+  heading,
+}: {
+  result: ParsedQueryResult;
+  sql: string;
+  heading?: string;
+}) {
+  const [all, setAll] = useState(false);
+  const write = result.columns.length === 0;
+  // A write that returned rows (RETURNING, a data-modifying CTE) is still a
+  // write: its rows are shown, but it is not put in a console.
+  const openable = !write && !isWriteStatement(sql);
+  const count = result.rows.length;
+  const connection = useDatabaseStore((s) => connectionPhrase(result.profileId, s.profiles));
+  const summary = write
+    ? writeSummary(result.rowsAffected, sql)
+    : `${count} ${count === 1 ? "row" : "rows"}${result.truncated ? " · truncated" : ""}`;
+  const meta = connection ? `${summary} · ${connection}` : summary;
+  const firstLine = sql.split("\n")[0] ?? "";
+  const columns = useMemo<DataTableColumn[]>(
+    () => result.columns.map((name, index) => ({ key: String(index), header: name, label: name, mono: true, nowrap: true })),
+    [result.columns],
+  );
+  const rows = useMemo(() => (all ? result.rows : result.rows.slice(0, PREVIEW_ROWS)), [all, result.rows]);
+
+  const copyCsv = () =>
+    void copyText(toCsv(result.columns, result.rows))
+      .then(() => toast.success("CSV copied"))
+      .catch(() => toast.error("Could not copy CSV"));
+
+  return (
+    <FramedCard data-testid="tool-result-card">
+      <FramedCardHeader
+        icon={Table2}
+        title={heading ?? "Query"}
+        meta={meta}
+        action={
+          write ? null : (
+            <>
+              <FramedCardAction opens={false} onClick={copyCsv}>
+                <Copy aria-hidden="true" />
+                Copy CSV
+              </FramedCardAction>
+              {sql && openable ? (
+                <FramedCardAction
+                  onClick={() =>
+                    void openAgentSql(sql, result.profileId, {
+                      result: {
+                        columns: result.columns,
+                        rows: result.rows,
+                        rowCount: result.rowCount,
+                        truncated: result.truncated,
+                        rowsAffected: result.rowsAffected,
+                      },
+                    })
+                  }
+                >
+                  Open in Database
+                </FramedCardAction>
+              ) : null}
+            </>
+          )
+        }
+      />
+      <FramedCardPreview>
+        {firstLine ? (
+          <span title={sql} className="block min-w-0 truncate text-code-12 text-text-secondary">
+            {firstLine}
+          </span>
+        ) : null}
+        {write ? null : (
+          <>
+            {/* Measured from every returned row (DataTable reads a sample of
+                them), not from the twenty on screen, so the sample — and the
+                widths — are the same folded and opened: Show all adds rows
+                without moving a column. */}
+            <DataTable
+              columns={columns}
+              rows={rows}
+              cellText={result.rows}
+              dense
+              maxHeight={all ? "max-h-120" : undefined}
+              data-testid="query-result-table"
+            />
+            {count > PREVIEW_ROWS ? (
+              <button
+                type="button"
+                onClick={() => setAll((open) => !open)}
+                className="self-start rounded-sm px-(--space-micro) text-caption-11 text-text-tertiary transition-colors duration-(--motion-fast) hover:text-text-primary focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                {all ? `Show first ${PREVIEW_ROWS}` : `Show all ${count}`}
+              </button>
+            ) : null}
+          </>
+        )}
+      </FramedCardPreview>
+    </FramedCard>
+  );
+}

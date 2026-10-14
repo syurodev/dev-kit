@@ -303,7 +303,7 @@ function TabItem({
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
-        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-status-info",
+        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-border-focus",
         // The same two marks the selected row in a tree carries — a
         // --status-info hairline and a fill. The hairline carries it (floored
         // at 3:1 in themeContrast.test); an inactive tab keeps a quiet

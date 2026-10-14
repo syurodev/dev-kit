@@ -15,6 +15,14 @@ import (
 
 func newBridgeWithAgentHub(t *testing.T) *AppService {
 	t.Helper()
+	svc, _ := newBridgeWithAgentHubStore(t)
+	return svc
+}
+
+// newBridgeWithAgentHubStore is newBridgeWithAgentHub that also hands back the
+// session store, for a test that needs rows the bridge has no method to write.
+func newBridgeWithAgentHubStore(t *testing.T) (*AppService, *agenthub.SQLStore) {
+	t.Helper()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -28,7 +36,8 @@ func newBridgeWithAgentHub(t *testing.T) *AppService {
 	reg := agenthub.NewRegistry()
 	reg.Register(agenthub.NewMockAdapter())
 	waiter := agenthub.NewPermissionWaiter(nil)
-	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, nil)
 	svc.ResolvePermission = waiter.Resolve
 	questions := agenthub.NewElicitationWaiter(nil, nil)
 	svc.ResolveElicitation = questions.Resolve
@@ -36,7 +45,7 @@ func newBridgeWithAgentHub(t *testing.T) *AppService {
 	container.AgentHub = svc
 	container.AgentHubPermissions = waiter
 	container.AgentHubElicitations = questions
-	return NewAppService(container)
+	return NewAppService(container), store
 }
 
 func TestAgentHubListEmpty(t *testing.T) {
@@ -309,5 +318,44 @@ func TestAgentHubNewScratchDirectoryMakesAFreshFolderUnderTheRoot(t *testing.T) 
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			t.Fatalf("%q was not created: %v", dir, err)
 		}
+	}
+}
+
+func TestAgentHubListDocumentsReadsTheSessionsDocuments(t *testing.T) {
+	svc, store := newBridgeWithAgentHubStore(t)
+	svc.container.AgentHub.Documents = agenthub.NewDocumentLibrary(store, t.TempDir(), nil)
+	sess, err := svc.AgentHubCreateSession(agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertDocument(context.Background(), agenthub.Document{
+		ID: "doc1", SessionID: sess.ID, Kind: "pdf", Name: "spec.pdf", MIME: "application/pdf",
+		Size: 2048, SHA256: "abc", Pages: 12, TextLayer: "full", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	docs, err := svc.AgentHubListDocuments(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || docs[0].Name != "spec.pdf" || docs[0].Pages != 12 {
+		t.Fatalf("documents = %+v, want spec.pdf with 12 pages", docs)
+	}
+}
+
+func TestAgentHubListDocumentsWithoutALibraryIsAnEmptyList(t *testing.T) {
+	// Server mode wires no library; the summary card still expects a list.
+	svc := newBridgeWithAgentHub(t)
+	sess, err := svc.AgentHubCreateSession(agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := svc.AgentHubListDocuments(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if docs == nil || len(docs) != 0 {
+		t.Fatalf("documents = %#v, want an empty, non-nil list", docs)
 	}
 }

@@ -151,14 +151,14 @@ export function referencedVars(request: RequestInput): string[] {
 export function methodTone(method: string): string {
   switch (method.toUpperCase()) {
     case "GET":
-      return "text-status-success";
+      return "text-(--hue-green)";
     case "POST":
-      return "text-status-warning";
+      return "text-(--hue-yellow)";
     case "PUT":
     case "PATCH":
-      return "text-status-info";
+      return "text-(--hue-blue)";
     case "DELETE":
-      return "text-status-danger";
+      return "text-(--hue-red)";
     default:
       return "text-text-secondary";
   }

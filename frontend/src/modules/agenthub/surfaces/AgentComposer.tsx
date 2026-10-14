@@ -951,7 +951,7 @@ export function AgentComposer({
           </div>
         </div>
       ) : null}
-      <FramedCardPreview flush data-testid="composer-surface" className="min-h-0 shrink-0 py-0 ring-1 ring-inset ring-border-subtle transition-colors duration-(--motion-fast) focus-within:ring-status-info/30">
+      <FramedCardPreview flush data-testid="composer-surface" className="min-h-0 shrink-0 py-0 ring-1 ring-inset ring-border-subtle transition-colors duration-(--motion-fast) focus-within:ring-border-focus/50">
       <div
         role="region"
         aria-label="Agent prompt composer"

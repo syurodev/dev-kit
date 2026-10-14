@@ -102,7 +102,7 @@ const TagInput = React.forwardRef<HTMLDivElement, TagInputProps>(
         onClick={() => inputRef.current?.focus()}
         className={cn(
           "flex min-h-(--control-height-md) w-full max-w-80 flex-wrap items-center gap-1.5 rounded-md border border-border-subtle bg-surface-well px-2 py-1 transition-control",
-          "focus-within:border-status-info focus-within:ring-2 focus-within:ring-status-info/20",
+          "focus-within:border-border-focus focus-within:ring-2 focus-within:ring-border-focus/50",
           disabled && "pointer-events-none opacity-38",
           className,
         )}

@@ -70,13 +70,13 @@ export function AgentTurnChanges({ checkpoint, loadDiff, commitTurn, className }
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20 items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
+        className="flex w-full min-w-0 cursor-pointer transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
       >
         <FileDiff aria-hidden="true" className="size-(--icon-12) shrink-0" />
         <span className="min-w-0 truncate">{summary.label}</span>
         {/* The same pairing AgentToolDiff uses: lime for what arrived, warning
             for what was lost. A diff has no opinion about which is good. */}
-        <span className="shrink-0 text-caption-11 text-brand-lime">{`+${summary.added}`}</span>
+        <span className="shrink-0 text-caption-11 text-status-success">{`+${summary.added}`}</span>
         <span className="shrink-0 text-caption-11 text-status-warning">{`−${summary.removed}`}</span>
         <ChevronRight
           aria-hidden="true"
@@ -149,18 +149,21 @@ export function ChangedFileRow({
   file,
   overlap,
   loadDiff,
+  defaultOpen,
 }: {
   checkpointId: string;
   file: ChangedFile;
   overlap: string | null;
   loadDiff?: (checkpointId: string, path: string) => Promise<CheckpointFileDiff>;
+  /** Starts open, its diff loading on mount: for a caller that shows this one file. */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const canOpen = Boolean(loadDiff) && !file.binary;
+  const [open, setOpen] = React.useState(Boolean(defaultOpen) && canOpen);
   const [diff, setDiff] = React.useState<CheckpointFileDiff | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const source = sourceLabel(file);
   const counts = changeCounts(file);
-  const canOpen = Boolean(loadDiff) && !file.binary;
 
   React.useEffect(() => {
     if (!open || diff || !loadDiff) return;
@@ -187,7 +190,7 @@ export function ChangedFileRow({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={canOpen ? open : undefined}
         className={cn(
-          "flex h-(--control-height-sm) w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info/20",
+          "flex h-(--control-height-sm) w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50",
           canOpen ? "cursor-pointer hover:bg-surface-tinted" : "cursor-default",
         )}
       >

@@ -19,11 +19,8 @@ export type AgentToolDiffProps = {
  *
  * It used to be its own renderer: a header, a full unfolded diff, and no
  * colours beyond the row tints. What it kept is the vocabulary — additions are
- * brand/lime rather than status/success, deliberately, because green would
- * pair added with success and removed with danger, which reads as good-change
- * and bad-change, and a diff has no opinion. Lime is DevKit's accent for "the
- * new thing"; only deletion carries a warning colour, because deletion is the
- * half you can lose.
+ * status/success and removals status/danger, the same as every other diff in
+ * the app (code blocks, the terminal's git diff).
  */
 export function AgentToolDiff({
   path,

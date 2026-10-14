@@ -4,8 +4,8 @@ import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Shrink, Terminal,
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
-import { agentHubToolCallDetail } from "../../../bridge/agenthub";
-import { parsePayload } from "../transcript";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { resultCallOf, useFullToolCall } from "./toolCallDetail";
 import type { ToolCall } from "../types";
 import { commandDescription, isCompaction, stepLabel, toolCommand } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
@@ -14,7 +14,8 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { renderToolResult } from "@/workbench/toolResultViews";
+import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
+import { isDevkitTool, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -38,6 +39,14 @@ export type AgentToolCallProps = {
    * row on demand.
    */
   sessionId?: string;
+  /** The transcript item this row draws, as `data-step-id` — how a run's "+N more" line finds it. */
+  stepId?: string;
+  /**
+   * The call's result view already stands as a card after the work fold
+   * (StepGroup): inside the fold the row is a plain row, its own output and
+   * "Show full output" — a second copy of the card would hide both.
+   */
+  resultOutside?: boolean;
   onOpenFile?: (path: string, line?: number) => void;
   className?: string;
 };
@@ -59,7 +68,7 @@ export type AgentToolCallProps = {
  * Failed is the only state that changes the ground (feedback/danger-soft) and
  * the only one that adds a second line — the reason.
  *
- * Dots, from the exported SVGs: running status/info, done
+ * Dots, from the exported SVGs: running --status-running (text/primary), done
  * text/tertiary, failed status/danger. Done is deliberately grey: a
  * finished tool call is not good news, it is just finished.
  */
@@ -110,7 +119,7 @@ export function toolActivityState(status?: string): "running" | "done" | "failed
 
 const DOT: Record<ToolState, string> = {
   pending: "border border-text-tertiary",
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   awaiting: "bg-status-warning",
   done: "bg-text-tertiary",
   failed: "bg-status-danger",
@@ -139,15 +148,7 @@ function isOneLineStatus(raw: string): boolean {
   return !text.startsWith("{") && !text.startsWith("[");
 }
 
-/**
- * The whole tool call out of an agentHubToolCallDetail row. Payload is a Go
- * json.RawMessage, so the bridge hands it over already decoded — an object,
- * not a string. Parsing `String(payload)` parsed "[object Object]", threw,
- * and "Show full output" always showed nothing.
- */
-export function toolCallFromDetail(payload: unknown): ToolCall | null {
-  return parsePayload(payload).toolCall ?? null;
-}
+export { toolCallFromDetail } from "./toolCallDetail";
 
 /** rawOutput as text: vendor JSON of any shape, strings kept as they are. */
 export function toolOutputText(raw: unknown): string {
@@ -213,6 +214,8 @@ export function AgentToolCall({
   defaultExpanded = false,
   variant = "card",
   sessionId,
+  stepId,
+  resultOutside = false,
   onOpenFile,
   className,
 }: AgentToolCallProps) {
@@ -220,23 +223,9 @@ export function AgentToolCall({
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
-  // The whole call behind a truncated preview, fetched on ask. Pages carry
-  // bounded previews — raw fields, text content, diffs — so one huge terminal
-  // dump cannot make every page load heavy; the full row is one click away,
-  // and once loaded it replaces the preview's content too.
-  const [fullCall, setFullCall] = React.useState<ToolCall | null>(null);
-  const [loadingFull, setLoadingFull] = React.useState(false);
-  const canLoadFull = call.truncated && Boolean(sessionId);
-  const loadFull = canLoadFull
-    ? () => {
-        if (loadingFull || fullCall !== null) return;
-        setLoadingFull(true);
-        agentHubToolCallDetail(sessionId!, call.id)
-          .then((entry) => setFullCall(toolCallFromDetail(entry?.Payload) ?? { id: call.id }))
-          .catch(() => setFullCall(null))
-          .finally(() => setLoadingFull(false));
-      }
-    : undefined;
+  // The whole call behind a truncated preview, fetched on ask; once loaded it
+  // replaces the preview's content too.
+  const { fullCall, loading: loadingFull, canLoad: canLoadFull, load: loadFull } = useFullToolCall(call, sessionId);
   const fullOutput = fullCall ? toolOutputText(fullCall.rawOutput) : null;
 
   const locations = call.locations ?? [];
@@ -256,14 +245,19 @@ export function AgentToolCall({
   // so a card that bailed on a truncated preview (rawOutput cut mid-document
   // by ToolRawPreviewLimit) upgrades once the whole row is in. Only once the
   // call is actually done — a running call has no rawOutput yet to render.
-  const toolResultNode =
-    state === "done"
-      ? renderToolResult({
-          name: call.name ?? "",
-          rawInput: (fullCall ?? call).rawInput,
-          rawOutput: (fullCall ?? call).rawOutput,
-        })
-      : null;
+  // toolResultInputOf reads the result wherever the vendor put it (Claude's
+  // content text, Codex's MCP result in rawOutput) and names a Codex call by
+  // its title; an error gives no input, so the failed row stays as it is.
+  // The full row answers for the output; the call on screen for who and how.
+  // Read only for a tool with a view: a turn has dozens of done rows, and the
+  // answer is up to a preview's 8 KiB of JSON — or the whole row once loaded.
+  const name = toolNameOf(call);
+  const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
+  const toolResultNode = React.useMemo(() => {
+    if (resultOutside || state !== "done" || !hasToolResultView(name)) return null;
+    const input = toolResultInputOf(resultCall);
+    return input ? renderToolResult(input) : null;
+  }, [resultOutside, state, name, resultCall]);
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
   const hasBody =
@@ -279,7 +273,15 @@ export function AgentToolCall({
   // scrolls inside itself.
   const summary = isOneLineStatus(raw) ? raw : "";
   const result = state === "failed" ? FALLBACK.failed : summary || FALLBACK[state];
-  const reason = state === "failed" ? raw : "";
+  // Why it failed: the text a vendor put in rawOutput, or — for a DevKit tool —
+  // the error wherever its vendor put it (Claude's fenced AppError in content,
+  // Codex's `{error}`). A bare "failed" says nothing the slot does not.
+  const reason = React.useMemo(() => {
+    if (state !== "failed") return "";
+    if (raw || !isDevkitTool(call)) return raw;
+    const read = toolPayloadOf(resultCall);
+    return read && "error" in read && read.error !== FALLBACK.failed ? read.error : "";
+  }, [state, raw, call, resultCall]);
 
   // The whole row is the toggle when there is output to show, and a plain row
   // when there is not — a button that opens nothing is a lie about what the
@@ -310,6 +312,37 @@ export function AgentToolCall({
       )}
     />
   ) : null;
+
+  // The call's own output: what a tool without a view shows, and what a view
+  // that failed to draw falls back to.
+  const genericBody = (
+    <>
+      {content.map((item, idx) => {
+        if (item.type === "diff") {
+          return (
+            <AgentToolDiff
+              key={idx}
+              path={item.path}
+              oldText={item.oldText}
+              newText={item.newText}
+              truncated={item.truncated}
+            />
+          );
+        }
+        if (item.type === "terminal") {
+          return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
+        }
+        if (item.content?.text) {
+          return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
+        }
+        return null;
+      })}
+
+      {fullOutput ? (
+        <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
+      ) : null}
+    </>
+  );
 
   const body = (
     <>
@@ -346,37 +379,16 @@ export function AgentToolCall({
 
       {toolResultNode ? (
         // The card may load lazily (registerToolResultView); this boundary
-        // keeps a suspending card to itself rather than the whole transcript.
+        // keeps a suspending card to itself rather than the whole transcript,
+        // and the error boundary a throwing one (or a chunk gone after an
+        // update): the call's own output is drawn instead.
         <div data-testid="tool-call-result-view">
-          <React.Suspense fallback={null}>{toolResultNode}</React.Suspense>
+          <ErrorBoundary label={`${name || "tool"} result view`} fallback={genericBody} resetKey={call}>
+            <React.Suspense fallback={null}>{toolResultNode}</React.Suspense>
+          </ErrorBoundary>
         </div>
       ) : (
-        <>
-          {content.map((item, idx) => {
-            if (item.type === "diff") {
-              return (
-                <AgentToolDiff
-                  key={idx}
-                  path={item.path}
-                  oldText={item.oldText}
-                  newText={item.newText}
-                  truncated={item.truncated}
-                />
-              );
-            }
-            if (item.type === "terminal") {
-              return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
-            }
-            if (item.content?.text) {
-              return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
-            }
-            return null;
-          })}
-
-          {fullOutput ? (
-            <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
-          ) : null}
-        </>
+        genericBody
       )}
       {fullCall === null && canLoadFull ? (
         <button
@@ -404,6 +416,8 @@ export function AgentToolCall({
       <div
         data-testid="agent-tool-call"
         data-variant="row"
+        data-step-id={stepId}
+        data-result={resultOutside ? "outside" : undefined}
         data-status={call.status ?? "completed"}
         data-state={state}
         className={cn("flex w-full min-w-0 flex-col", className)}

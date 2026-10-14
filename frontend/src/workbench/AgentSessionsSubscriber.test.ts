@@ -78,6 +78,64 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(tabStatus()).toBe("running");
   });
 
+  it("reads the preview of a turn it did not send, without moving the status back", async () => {
+    const bridge: TurnBridge = {
+      invoke: () => new Promise(() => {}),
+      // A row read just before the next queued turn reached the backend.
+      getStatus: async (id) => ({ ...useAgentSessionsStore.getState().sessionsById[id], status: "idle", preview: "Fixed the flaky test." }),
+    };
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    useAgentSessionsStore.getState().upsertSession({ ...useAgentSessionsStore.getState().sessionsById.s1, status: "running" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const row = useAgentSessionsStore.getState().sessionsById.s1;
+    expect(row.preview).toBe("Fixed the flaky test.");
+    expect(row.status).toBe("running");
+  });
+
+  it("keeps the newest preview when two reads answer out of order", async () => {
+    const replies: Array<(preview: string, updatedAt: number) => void> = [];
+    const bridge: TurnBridge = {
+      invoke: () => new Promise(() => {}),
+      getStatus: (id) =>
+        new Promise((resolve) => {
+          replies.push((preview, updatedAt) =>
+            resolve({ ...useAgentSessionsStore.getState().sessionsById[id], preview, updatedAt }),
+          );
+        }),
+    };
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    expect(replies.length).toBe(2);
+    replies[1]("Second answer.", 2000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    replies[0]("First answer.", 1000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const row = useAgentSessionsStore.getState().sessionsById.s1;
+    expect(row.preview).toBe("Second answer.");
+    expect(row.updatedAt).toBe(2000);
+  });
+
+  it("does not read the row for a turn of its own", async () => {
+    let reads = 0;
+    const bridge: TurnBridge = {
+      invoke: () => new Promise(() => {}),
+      getStatus: async (id) => {
+        reads += 1;
+        return useAgentSessionsStore.getState().sessionsById[id];
+      },
+    };
+    useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(reads).toBe(0);
+  });
+
   it("goes back to idle when our turn's reply comes after its turnFinished", async () => {
     let finish!: (result: InvokeResult) => void;
     const bridge: TurnBridge = {

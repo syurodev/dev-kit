@@ -239,7 +239,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	var existing *apperrors.AppError
 	if errors.As(err, &existing) {
-		return publicErrorForCode(subject, err, existing.Code)
+		return publicErrorForCode(subject, err, existing)
 	}
 	if subject == "builtin.sync" {
 		switch {
@@ -570,7 +570,8 @@ func codeGraphNotFoundMessage(err error) string {
 	return "CodeGraph file or directory not found."
 }
 
-func publicErrorForCode(subject string, err error, code string) *apperrors.AppError {
+func publicErrorForCode(subject string, err error, existing *apperrors.AppError) *apperrors.AppError {
+	code := existing.Code
 	switch code {
 	case codeValidationFailed:
 		return apperrors.New(codeValidationFailed, "Validation failed.", true)
@@ -578,9 +579,54 @@ func publicErrorForCode(subject string, err error, code string) *apperrors.AppEr
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	case codeConnectionFailed:
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
-	default:
-		return unexpectedError(subject, err)
+	case codePDFFailed:
+		// Carries the store's or engine's own text (paths, wazero detail).
+		logPDFCause(subject, existing)
+		return apperrors.New(codePDFFailed, "Could not read the document.", existing.Recoverable)
+	case codePDFUnavailable:
+		logPDFCause(subject, existing)
+		return apperrors.New(codePDFUnavailable, "DevKit's PDF reader is not available.", existing.Recoverable)
 	}
+	if keptCodes[code] {
+		logPDFCause(subject, existing)
+		return apperrors.New(code, existing.Message, existing.Recoverable)
+	}
+	return unexpectedError(subject, err)
+}
+
+const (
+	codePDFFailed      = "pdf.failed"
+	codePDFUnavailable = "pdf.unavailable"
+)
+
+// logPDFCause logs what PDFium, wazero or the document store said behind a
+// pdf.* error (internal/mcp pdfFailure): the published message is a fixed
+// sentence, so this is the only place that text is not simply gone.
+func logPDFCause(subject string, existing *apperrors.AppError) {
+	if !strings.HasPrefix(existing.Code, "pdf.") {
+		return
+	}
+	if cause := existing.Unwrap(); cause != nil {
+		log.Printf("bridge: %s: %s: %v", subject, existing.Code, cause)
+	}
+}
+
+// keptCodes are AppError codes published with their own message. Each is
+// raised inside Caller.Call with a sentence written for the reader — fixed,
+// or built only from numbers and limits — never from an underlying error's
+// text: internal/mcp/tools_pdf.go (pdfScope, pdfProblem, parsePageSpec),
+// tools_workspace_memory.go and workspace_memory.go here. It is a list, not
+// a prefix: a new code is redacted to internal_error until someone has read
+// where its message comes from and added it.
+var keptCodes = map[string]bool{
+	"pdf.notFound":            true,
+	"pdf.sessionDenied":       true,
+	"pdf.pageRange":           true,
+	"pdf.timeout":             true,
+	"pdf.unreadable":          true,
+	"memory.notFound":         true,
+	"memory.revisionConflict": true,
+	"memory.workspaceDenied":  true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that

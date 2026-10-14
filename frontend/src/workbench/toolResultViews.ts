@@ -10,20 +10,38 @@
  */
 
 import type * as React from "react";
+import type { ToolContentBlock } from "./toolPayload";
 
 /**
  * What a renderer is allowed to read — rule 2 of the doc: rawInput/rawOutput
  * already on the ToolCall, nothing fetched fresh. A dedicated type rather
  * than the transcript's own `ToolCall` (frontend/src/modules/agenthub/types.ts)
  * so a renderer owned by another module never has to import Agent Hub's
- * types to be written — it reads exactly these three fields and nothing else
+ * types to be written — it reads exactly these fields and nothing else
  * Agent Hub carries on a tool call.
  */
 export type ToolResultInput = {
-  /** ToolCall.name as the vendor reports it — see wireNameOf below. */
+  /**
+   * The tool's name: Claude's wire form or the Go name itself — see
+   * wireForm below. Built by ./toolPayload.ts: toolNameOf, which also names
+   * a Codex call (no `name`, title `devkit.<tool>`).
+   */
   name: string;
   rawInput: unknown;
+  /**
+   * The tool's result, whichever vendor carried it and however
+   * (./toolPayload.ts: toolPayloadOf) — an object or array already parsed,
+   * or text that is not JSON. Already unwrapped: a `{"result": …}` envelope
+   * is gone. Never an error: a failed call keeps the transcript's own failed
+   * row. A JSON payload may still be read through parseToolOutput, which
+   * passes a parsed value through; a text payload stays a string — read it
+   * as one, since parseToolOutput would answer null for it.
+   */
   rawOutput: unknown;
+  /** The call's content blocks (text, images) — where a result's pictures ride. */
+  content?: ToolContentBlock[];
+  /** ToolCall.status as the vendor reports it ("completed"). */
+  status?: string;
   /**
    * What the transcript calls this call when it draws the card on its own —
    * the activity's verb, "Created task" (./toolActivity.ts). A card puts it
@@ -34,7 +52,8 @@ export type ToolResultInput = {
 
 export type ToolResultRenderer = (input: ToolResultInput) => React.ReactNode | null;
 
-const WIRE_PREFIX = "mcp__devkit__";
+/** How Claude names a DevKit tool: this, then the Go name with every "." as "_" (wireForm). */
+export const DEVKIT_WIRE_PREFIX = "mcp__devkit__";
 
 /**
  * The wire-mangled form of a Go tool name, as Claude reports it in
@@ -47,7 +66,7 @@ const WIRE_PREFIX = "mcp__devkit__";
  * on: no two Go tool names may mangle to the same wire form.
  */
 function wireForm(name: string): string {
-  return WIRE_PREFIX + name.split(".").join("_");
+  return DEVKIT_WIRE_PREFIX + name.split(".").join("_");
 }
 
 /**
@@ -126,6 +145,11 @@ export function renderToolResult(input: ToolResultInput): React.ReactNode | null
  * Returns null when the value isn't parseable JSON at all — including a
  * rawOutput cut short by ToolRawPreviewLimit — so a renderer can fall back
  * to the generic view instead of showing a half-parsed document.
+ *
+ * A view is handed toolPayloadOf's payload (./toolPayload.ts), which is
+ * already parsed and unwrapped: this passes it through. A payload that is
+ * text (pdf.readText) is not JSON and answers null here — such a view reads
+ * `rawOutput` as the string it is.
  */
 export function parseToolOutput(rawOutput: unknown): unknown | null {
   let value: unknown = rawOutput;

@@ -26,6 +26,9 @@ describe("tool activities", () => {
     expect(toolActivityOf("mcp__devkit__tasks_list")).toBeUndefined();
     expect(isToolActivity({ id: "x", name: "mcp__devkit__git_push" })).toBe(true);
     expect(isToolActivity({ id: "x", name: "Read" })).toBe(false);
+    // Codex names no call: the title is `devkit.<tool>`.
+    expect(isToolActivity({ id: "x", title: "devkit.git.push" })).toBe(true);
+    expect(isToolActivity({ id: "x", title: "devkit.tasks.list" })).toBe(false);
   });
 
   it("name their target from the input while running and from the answer once done", () => {
@@ -61,6 +64,15 @@ describe("tool activities", () => {
 });
 
 describe("AgentToolActivity", () => {
+  it("draws a Codex call, which has no name, from its title", () => {
+    const html = renderToString(
+      <AgentToolActivity call={{ id: "x", kind: "other", title: "devkit.tasks.board.create", status: "in_progress", rawInput: boardInput }} />,
+    );
+    expect(html).toContain('data-testid="tool-activity"');
+    expect(html).toContain('data-tool="tasks.board.create"');
+    expect(html).toContain("Creating board…");
+  });
+
   it("says what is happening, to what, while the call runs", () => {
     const html = renderToString(<AgentToolActivity call={call("mcp__devkit__tasks_board_create", "in_progress", boardInput)} />);
     expect(html).toContain('data-state="running"');

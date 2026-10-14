@@ -19,6 +19,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
+import { ConfirmHost } from "./ConfirmHost";
 import { onSettingsRequested, requestSettings } from "./settingsRequest";
 import {
   compareModuleParity,
@@ -42,6 +43,8 @@ import { accountsModule } from "../modules/accounts/manifest";
 import { tasksModule } from "../modules/tasks/manifest";
 import { gitModule } from "../modules/git/manifest";
 import { apiclientModule } from "../modules/apiclient/manifest";
+// The workbench's own tools' result views (workspace memory).
+import "./registerViews";
 
 import type { SettingsTab } from "@/modules/settings/SettingsView";
 
@@ -715,6 +718,7 @@ export function Workbench() {
           </Suspense>
           <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
           <InteractionHost />
+          <ConfirmHost />
           <Suspense fallback={null}>
             <LazyAgentPermissionToastHost activeModuleId={activeModule?.id ?? null} />
           </Suspense>

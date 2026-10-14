@@ -9,8 +9,10 @@ import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { hasEntityPreview, renderEntityPreview, toolActivityOf } from "@/workbench/toolActivity";
-import type { TranscriptItem } from "./types";
-import { AgentToolActivity } from "./transcript/AgentToolActivity";
+import type { ToolCall, TranscriptItem } from "./types";
+import { AgentToolActivity, activityTargetOf, isToolActivity } from "./transcript/AgentToolActivity";
+import { toolNameOf } from "@/workbench/toolPayload";
+import { cachedFullToolCall, resultCallOf } from "./transcript/toolCallDetail";
 import { AgentRunningCommand, isRunningCommand } from "./transcript/AgentRunningCommand";
 import { toolActivityState } from "./transcript/AgentToolCall";
 
@@ -31,9 +33,14 @@ export function activityFeed(items: readonly TranscriptItem[]): TranscriptItem[]
   const out: TranscriptItem[] = [];
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
-    if (toolActivityOf(item.toolCall?.name) || isRunningCommand(item)) out.push(item);
+    if (isToolActivity(item.toolCall) || isRunningCommand(item)) out.push(item);
   }
   return out;
+}
+
+/** The call, answered by its full row when that is already loaded: a page row's answer may be a cut preview. */
+function withCachedFullRow(call: ToolCall, sessionId: string | undefined): ToolCall {
+  return resultCallOf(call, cachedFullToolCall(call, sessionId));
 }
 
 /**
@@ -47,9 +54,9 @@ export function latestTarget(
 ): { ref: EntityRef; label: string } | null {
   for (const item of feed) {
     const call = item.toolCall;
-    const activity = toolActivityOf(call?.name);
+    const activity = call ? toolActivityOf(toolNameOf(call)) : undefined;
     if (!call || !activity || toolActivityState(call.status) !== "done") continue;
-    const target = activity.target({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, state: "done" });
+    const target = activityTargetOf(activity, withCachedFullRow(call, item.sessionId), "done");
     if (target?.ref && accept(target.ref)) return { ref: target.ref, label: target.detail || target.label };
   }
   return null;
@@ -125,7 +132,7 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
               isRunningCommand(item) ? (
                 <AgentRunningCommand key={item.id} item={item} />
               ) : (
-                <AgentToolActivity key={item.id} call={item.toolCall!} />
+                <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId ?? sessionId} />
               ),
             )}
             {hidden > 0 ? (
@@ -167,7 +174,7 @@ export function useFollowToasts(sessionId: string, items: readonly TranscriptIte
     if (!enabled || !sessionId) return;
     const done = items.filter((item) => {
       const call = item.toolCall;
-      return call && toolActivityOf(call.name) && toolActivityState(call.status) === "done";
+      return isToolActivity(call) && toolActivityState(call!.status) === "done";
     });
     if (!seen.current) {
       seen.current = new Set(done.map((item) => item.id));
@@ -177,8 +184,8 @@ export function useFollowToasts(sessionId: string, items: readonly TranscriptIte
       if (seen.current.has(item.id)) continue;
       seen.current.add(item.id);
       const call = item.toolCall!;
-      const activity = toolActivityOf(call.name)!;
-      const target = activity.target({ name: call.name ?? "", rawInput: call.rawInput, rawOutput: call.rawOutput, state: "done" });
+      const activity = toolActivityOf(toolNameOf(call))!;
+      const target = activityTargetOf(activity, withCachedFullRow(call, item.sessionId ?? sessionId), "done");
       const ref = target?.ref;
       toast(target?.label ? `${activity.done} · ${target.label}` : activity.done, {
         id: `follow:${item.id}`,

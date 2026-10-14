@@ -67,12 +67,31 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 	}, s.toolAgentHubCancelAgent)
 }
 
+// forAgent is a session as an MCP caller sees it. Preview is the agent's own
+// words for the person's sidebar; agents read the transcript, not this.
+func forAgent(s agenthub.AgentSession) agenthub.AgentSession {
+	s.Preview = ""
+	return s
+}
+
+func forAgents(list []agenthub.AgentSession) []agenthub.AgentSession {
+	out := make([]agenthub.AgentSession, len(list))
+	for i, s := range list {
+		out[i] = forAgent(s)
+	}
+	return out
+}
+
 func (s *Server) toolAgentHubListAgents(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
 	if err := s.requireAgentHub(); err != nil {
 		return nil, nil, err
 	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:list", meta("list_agents", nil), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.ListSessions(callCtx)
+		list, err := s.deps.AgentHub.ListSessions(callCtx)
+		if err != nil {
+			return nil, err
+		}
+		return forAgents(list), nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -95,13 +114,17 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", map[string]any{
 		"agent_type": in.AgentType,
 	}), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.CreateSession(callCtx, agenthub.CreateInput{
+		sess, err := s.deps.AgentHub.CreateSession(callCtx, agenthub.CreateInput{
 			AgentType:       agenthub.AgentType(in.AgentType),
 			Cwd:             in.Cwd,
 			WorkspaceID:     in.WorkspaceID,
 			ParentSessionID: in.CallerSessionID,
 			Title:           in.Title,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return forAgent(sess), nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -147,7 +170,11 @@ func (s *Server) toolAgentHubGetSessionStatus(ctx context.Context, _ *sdk.CallTo
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:"+opaqueID, meta("get_status", map[string]any{
 		"session_id": opaqueID,
 	}), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.GetStatus(callCtx, in.SessionID)
+		sess, err := s.deps.AgentHub.GetStatus(callCtx, in.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		return forAgent(sess), nil
 	})
 	if err != nil {
 		return nil, nil, err

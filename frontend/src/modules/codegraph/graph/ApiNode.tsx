@@ -15,11 +15,11 @@ export type ApiNodeData = {
  * Figma `API Node` (162:183): 268 wide, radius 14, padding 12, a 30px icon
  * ring, the layer name in caps over the title, and a state-soft detail well.
  *
- * State uses a neutral border ramp (subtle -> tertiary -> white 2px) rather
- * than the layer colour. `--border-focus` in the design system resolves to the
- * same hex as `--status-info`, so a focus-coloured ring is invisible on a
- * Controller node; and any layer-coloured ring would make "selected" and "which
- * layer" say the same thing. Layer meaning lives in the icon and label only.
+ * State uses a neutral border ramp (subtle -> tertiary -> primary 2px) rather
+ * than the layer colour. The focus ring is --text-primary, and a layer-coloured
+ * ring would make "selected" and "which layer" say the same thing. Layer
+ * meaning lives in the icon and label only (controller = --hue-blue, service =
+ * --hue-green, repository = --hue-yellow).
  *
  * Keyboard: the React Flow wrapper around this card is the focusable element
  * (a named role="button", see FlowCanvas), so the ring is drawn from its

@@ -28,7 +28,7 @@ export type AgentAsyncTaskProps = {
  * it is worth waiting for.
  */
 const STATE_DOT: Record<string, string> = {
-  running: "bg-status-info",
+  running: "bg-(--status-running)",
   pending: "bg-text-tertiary",
   completed: "bg-status-success",
   failed: "bg-status-danger",

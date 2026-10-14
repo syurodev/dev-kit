@@ -112,6 +112,14 @@ export type ResultTab = {
   /** Names the tab, and says which of four grids you are looking at. */
   statement: string;
   result: QueryResult;
+  /**
+   * "agent": rows an agent's db.query returned, shown by Open in Database
+   * without running anything here (`showAgentResult`). The console says so
+   * until a run of its own replaces them. Absent for a run's own result.
+   */
+  origin?: "agent";
+  /** An agent's rows whose call did not name its connection (an older transcript). */
+  connectionUnknown?: true;
 };
 
 export type ConsoleState = {
@@ -503,7 +511,12 @@ export type DatabaseStoreState = {
   exportFilename: string;
 
   // Actions
-  fetchProfiles: () => Promise<void>;
+  /**
+   * Loads the connection list. With nothing selected it selects the first,
+   * unless `autoSelect` is false — a caller about to select a particular one
+   * (an agent's connection) must not connect to the first on the way.
+   */
+  fetchProfiles: (options?: { autoSelect?: boolean }) => Promise<void>;
   setSelectedProfileId: (id: string) => void;
   setSql: (consoleId: string, sql: string) => void;
   setInspectedCell: (cell: { columnName: string; value: string | null } | null) => void;
@@ -545,6 +558,17 @@ export type DatabaseStoreState = {
   runScript: (consoleId: string, statements: readonly string[]) => Promise<void>;
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
+  /**
+   * Shows rows an agent already has as the console's result — nothing runs,
+   * nothing is written to the console's file (results never are). The next
+   * run replaces them like any result.
+   */
+  showAgentResult: (
+    consoleId: string,
+    statement: string,
+    result: QueryResult,
+    options?: { connectionUnknown?: boolean },
+  ) => void;
   clearQueryError: (consoleId: string) => void;
   /** Reports a failure into one console — Explain and friends, which run
    * outside executeQuery but land in the same error slot. */
@@ -563,7 +587,8 @@ export type DatabaseStoreState = {
   deleteConsoleFile: (consoleId: string) => void;
   setSidebarPane: (pane: SidebarPane) => void;
   /** Reads the console files back from disk into consoles nobody has typed in
-   * yet. Called once when the module's rail mounts. The loader is a parameter
+   * yet. Called once per window through consoleHydration.ts, which the rail
+   * and Open in Database share. The loader is a parameter
    * so the rule below — never land on top of typed text — can be tested
    * without a bridge. */
   hydrateConsoles: (load?: () => Promise<StoredConsole[]>) => Promise<void>;
@@ -795,7 +820,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   exportResult: null,
   exportFilename: DEFAULT_EXPORT_FILENAME,
 
-  fetchProfiles: async () => {
+  fetchProfiles: async (options) => {
     set({ loadingProfiles: true, profileError: "" });
     try {
       const [profiles, envTags, sshProfiles] = await Promise.all([
@@ -805,7 +830,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       ]);
       set({ profiles, envTags, sshProfiles, loadingProfiles: false });
       const currentSelected = get().selectedProfileId;
-      if (!currentSelected && profiles.length > 0) {
+      if (!currentSelected && profiles.length > 0 && options?.autoSelect !== false) {
         get().setSelectedProfileId(profiles[0].id);
       }
     } catch (e) {
@@ -1680,6 +1705,19 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchConsole(set, consoleId, {
       results: [],
       activeResult: 0,
+      queryStatus: "",
+      queryDurationMs: null,
+    }),
+
+  showAgentResult: (consoleId, statement, result, options) =>
+    patchConsole(set, consoleId, {
+      results: [
+        options?.connectionUnknown
+          ? { statement, result, origin: "agent", connectionUnknown: true }
+          : { statement, result, origin: "agent" },
+      ],
+      activeResult: 0,
+      queryError: "",
       queryStatus: "",
       queryDurationMs: null,
     }),
