@@ -2,6 +2,7 @@ import * as React from "react";
 import type { Placement } from "@/workbench/intents";
 import type { FileRef } from "./fileRef";
 import type { RefContext } from "./resolveFileRef";
+import type { SymbolHit } from "./codeRefs";
 
 export type TranscriptActions = {
   /** Opens an absolute location (tool-call chips); the fallback for prose when `openRef` is absent. */
@@ -10,6 +11,10 @@ export type TranscriptActions = {
   refContext?: RefContext | null;
   /** Opens a reference written in prose, resolved in the session's workspace. */
   openRef?: (ref: FileRef, anchor: HTMLElement | null, placement?: Placement) => void;
+  /** Where a reference opens when no placement is named: beside in the Hub, in place in the rail. */
+  refPlacement?: Placement;
+  /** Replaces the workspace symbol lookup of finished messages (tests, the dev gallery). */
+  lookupSymbol?: (name: string) => SymbolHit | null | undefined;
 };
 
 const Ctx = React.createContext<TranscriptActions>({});

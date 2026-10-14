@@ -8,6 +8,9 @@ import { fileRef, linkTarget, type FileRef } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { FileReference, UrlReference } from "./ReferencePreview";
+import { CommitReference, openCommitRef, openSymbol, SymbolReference } from "./CodeReference";
+import { codeSpans, commitCandidate, type SymbolHit } from "./codeRefs";
+import { useCodeRefs } from "./useCodeRefs";
 import {
   parseInline,
   parseMarkdownIncremental,
@@ -44,6 +47,44 @@ function MaskedSecret({ value }: { value: string }) {
       <Icon aria-hidden="true" className="size-3 shrink-0 translate-y-0.5 text-text-tertiary" />
       {revealed ? value : "•".repeat(Math.min(value.length, MASK_VISIBLE_CAP))}
     </button>
+  );
+}
+
+/**
+ * What the code spans of one message can be besides code: symbols resolve
+ * and commit hashes link only once the message has settled, so nothing jumps
+ * while it streams.
+ */
+type CodeRefs = { settled: boolean; symbols: ReadonlyMap<string, SymbolHit> };
+const NO_CODE_REFS: CodeRefs = { settled: false, symbols: new Map() };
+const CodeRefsContext = React.createContext<CodeRefs>(NO_CODE_REFS);
+
+const REF_CODE =
+  "cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary";
+
+/**
+ * Inline code that opens something. An inline <code>, not a <button>: a
+ * button is an atomic inline-block and would stop a long path wrapping like
+ * text. A file is underlined solid; a symbol or commit, found by lookup or by
+ * shape rather than written as a path, dotted.
+ */
+function refCode(testId: string, value: string, open: (event: React.SyntheticEvent<HTMLElement>) => void, dotted = false) {
+  return (
+    <code
+      role="button"
+      tabIndex={0}
+      data-testid={testId}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open(e);
+        }
+      }}
+      className={cn(REF_CODE, dotted && "decoration-dotted")}
+    >
+      {value}
+    </code>
   );
 }
 
@@ -85,7 +126,8 @@ export function Inline({ text }: { text: string }) {
 }
 
 function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
-  const { onOpenFile, openRef } = useTranscriptActions();
+  const { onOpenFile, openRef, refContext, refPlacement } = useTranscriptActions();
+  const { settled, symbols } = React.useContext(CodeRefsContext);
   const canOpen = Boolean(openRef || onOpenFile);
   // A reference resolves in the session's workspace when the transcript can;
   // otherwise it goes to the chip handler as written.
@@ -100,27 +142,28 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
           case "code": {
             const ref = canOpen ? fileRef(token.value) : null;
             if (ref) {
-              const open = (event: React.SyntheticEvent<HTMLElement>) => openFileRef(ref, event.currentTarget);
               return (
-                // An inline <code>, not a <button>: a button is an atomic
-                // inline-block and would stop a long path wrapping like text.
                 <FileReference key={idx} fileRef={ref}>
-                  <code
-                    role="button"
-                    tabIndex={0}
-                    data-testid="agent-file-ref"
-                    onClick={open}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        open(e);
-                      }
-                    }}
-                    className="cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary"
-                  >
-                    {token.value}
-                  </code>
+                  {refCode("agent-file-ref", token.value, (event) => openFileRef(ref, event.currentTarget))}
                 </FileReference>
+              );
+            }
+            const placement = refPlacement ?? "beside";
+            // A commit needs a repository to open in: the session's project.
+            if (settled && refContext?.projectPath && commitCandidate(token.value)) {
+              const sha = token.value;
+              return (
+                <CommitReference key={idx} sha={sha} refContext={refContext}>
+                  {refCode("agent-commit-ref", sha, () => void openCommitRef(sha, refContext, placement), true)}
+                </CommitReference>
+              );
+            }
+            const hit = settled ? symbols.get(token.value) : undefined;
+            if (hit) {
+              return (
+                <SymbolReference key={idx} hit={hit} name={token.value}>
+                  {refCode("agent-symbol-ref", token.value, () => void openSymbol(hit, placement), true)}
+                </SymbolReference>
               );
             }
             return (
@@ -401,7 +444,15 @@ export type AgentProseProps = {
    */
   wrapBlock?: (block: React.ReactNode, index: number) => React.ReactNode;
   className?: string;
+  /**
+   * The message has finished: its code spans may become symbol and commit
+   * references. Off while it streams, and for text that is not the agent's
+   * message (a brief, tool output).
+   */
+  settled?: boolean;
 };
+
+const NO_SPANS: readonly string[] = [];
 
 /**
  * The agent's words on the page's own ground: no bubble, no author line.
@@ -411,7 +462,7 @@ export type AgentProseProps = {
  * and the agent's answer is a document — headings, lists, code — that a rounded
  * card squeezes into looking like a chat line.
  */
-export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
+export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, className, settled = false }: AgentProseProps) {
   const markdownRef = React.useRef<IncrementalMarkdownState | undefined>(undefined);
   const markdown = React.useMemo(() => {
     const next = parseMarkdownIncremental(text, markdownRef.current);
@@ -419,15 +470,21 @@ export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, clas
     return next;
   }, [text]);
   const { blocks, blockKeys } = markdown;
+  const { refContext, lookupSymbol } = useTranscriptActions();
+  const spans = React.useMemo(() => (settled ? codeSpans(blocks) : NO_SPANS), [settled, blocks]);
+  const symbols = useCodeRefs(spans, refContext ?? null, settled, lookupSymbol);
+  const codeRefs = React.useMemo<CodeRefs>(() => (settled ? { settled, symbols } : NO_CODE_REFS), [settled, symbols]);
   return (
-    <div
-      data-testid="agent-prose"
-      className={cn("flex w-full flex-col gap-4 select-text", className)}
-    >
-      {blocks.map((block, idx) => {
-        const node = <Block block={block} />;
-        return <React.Fragment key={blockKeys[idx]}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
-      })}
-    </div>
+    <CodeRefsContext.Provider value={codeRefs}>
+      <div
+        data-testid="agent-prose"
+        className={cn("flex w-full flex-col gap-4 select-text", className)}
+      >
+        {blocks.map((block, idx) => {
+          const node = <Block block={block} />;
+          return <React.Fragment key={blockKeys[idx]}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
+        })}
+      </div>
+    </CodeRefsContext.Provider>
   );
 });

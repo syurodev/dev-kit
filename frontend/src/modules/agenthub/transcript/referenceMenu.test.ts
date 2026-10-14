@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { copiedPath, fileMenuItems, urlMenuItems } from "./referenceMenu";
+import { commitMenuItems, copiedPath, fileMenuItems, symbolMenuItems, urlMenuItems } from "./referenceMenu";
 
 describe("fileMenuItems", () => {
   test("a reference with a line offers every action", () => {
@@ -40,5 +40,21 @@ describe("copiedPath", () => {
   test("unresolved, the path as written", () => {
     expect(copiedPath({ path: "src/a.ts", line: 9 }, undefined, true)).toBe("src/a.ts:9");
     expect(copiedPath({ path: "src/a.ts" }, undefined, true)).toBe("src/a.ts");
+  });
+});
+
+describe("symbolMenuItems and commitMenuItems", () => {
+  test("a symbol: go to its definition, or copy its name", () => {
+    expect(symbolMenuItems()).toEqual([
+      { id: "definition", label: "Go to definition" },
+      { id: "copy", label: "Copy name" },
+    ]);
+  });
+
+  test("a commit: open it in Git, or copy the SHA", () => {
+    expect(commitMenuItems()).toEqual([
+      { id: "open", label: "Open in Git" },
+      { id: "copy", label: "Copy SHA" },
+    ]);
   });
 });

@@ -291,8 +291,8 @@ export function TranscriptStream({
   );
   // Prose deep inside a turn opens a file through this, not through props.
   const transcriptActions = useMemo(
-    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef }),
-    [stableOnOpenFile, stableRefContext, openRef],
+    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef, refPlacement }),
+    [stableOnOpenFile, stableRefContext, openRef, refPlacement],
   );
   // Both callers pass this as an inline arrow. Handed to every AgentTurn as
   // it came, it was a new function per streamed token, so memo let no turn

@@ -218,7 +218,7 @@ export const AgentTurn = React.memo(function AgentTurn({
               // What the agent said between steps was said to you, not to
               // itself: it stands on its own ground like the answer, never
               // behind the steps' fold.
-              return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
+              return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} settled={!live} />;
             }
             if (segment.kind === "plan") {
               const entries = segment.item.plan ?? [];
@@ -262,6 +262,8 @@ export const AgentTurn = React.memo(function AgentTurn({
           <div className="w-full">
             <AgentProse
               text={item.text ?? ""}
+              // Symbols and commit hashes become references once the turn is over.
+              settled={!live}
               // Only while the turn is live, and only on mount: a block of the
               // answer arrives once, and the text streaming into it afterwards is
               // already motion enough. A loaded history renders standing still.

@@ -5,6 +5,7 @@ import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
 import { AgentTurn, StepGroup } from "./AgentTurn";
 import { AgentFileChip } from "../transcript/AgentFileChip";
+import { TranscriptActionsProvider } from "../transcript/transcriptActions";
 
 const items: TranscriptItem[] = [
   { id: "u", kind: "user_message_chunk", text: "explain the repo", createdAt: "2026-09-14T10:00:00Z" },
@@ -20,6 +21,36 @@ const items: TranscriptItem[] = [
 ];
 
 describe("AgentTurn", () => {
+  it("links symbols and commits in what the agent said only once the turn is over", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "where?", createdAt: "2026-09-14T10:00:00Z" },
+      { id: "n", kind: "agent_message_chunk", text: "Looking at `Service.Invoke`." },
+      {
+        id: "t",
+        kind: "tool_call",
+        toolCall: { id: "c", kind: "read", title: "read", status: "completed" },
+        createdAt: "2026-09-14T10:00:01Z",
+      },
+      { id: "a", kind: "agent_message_chunk", text: "It is `Service.Invoke`, since `a1b2c3d`." },
+    ]);
+    const hit = { workspaceId: "ws", folderId: "api", folderName: "api", filePath: "service.go", line: 3, kind: "method", label: "Service.Invoke" };
+    const render = (live: boolean) =>
+      renderToString(
+        <TranscriptActionsProvider
+          value={{ refContext: { sessionId: "s", workspaceId: "ws", projectPath: "/repo" }, lookupSymbol: () => hit, openRef: () => {} }}
+        >
+          <AgentTurn turn={turn} live={live} />
+        </TranscriptActionsProvider>,
+      );
+    const done = render(false);
+    // The words between steps and the answer both.
+    expect(done.match(/data-testid="agent-symbol-ref"/g)?.length).toBe(2);
+    expect(done).toContain('data-testid="agent-commit-ref"');
+    const live = render(true);
+    expect(live).not.toContain("agent-symbol-ref");
+    expect(live).not.toContain("agent-commit-ref");
+  });
+
   it("draws the question, the account of the work, then the answer", () => {
     const [turn] = groupTurns(items);
     const html = renderToString(<AgentTurn turn={turn} />);

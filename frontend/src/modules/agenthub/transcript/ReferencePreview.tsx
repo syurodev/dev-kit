@@ -158,7 +158,7 @@ export function filePreviewState(
 }
 
 /** The path as a header: folder dim and cut from the left, file name bold, the folder's name on the right. */
-function PreviewHeader({ path, line, folderName }: { path: string; line?: number; folderName?: string }) {
+function PreviewHeader({ path, line, folderName, kind }: { path: string; line?: number; folderName?: string; kind?: string }) {
   const { name, dir } = splitRel(path);
   return (
     <div className="flex min-w-0 items-baseline gap-2 border-b border-border-subtle p-2.5">
@@ -172,7 +172,9 @@ function PreviewHeader({ path, line, folderName }: { path: string; line?: number
         <span className="shrink-0 font-medium text-text-primary">{name}</span>
         {line !== undefined ? <span className="shrink-0 text-text-tertiary">:{line}</span> : null}
       </span>
-      {folderName ? <span className="shrink-0 text-caption-11 text-text-tertiary">{folderName}</span> : null}
+      {kind || folderName ? (
+        <span className="shrink-0 text-caption-11 text-text-tertiary">{[kind, folderName].filter(Boolean).join(" · ")}</span>
+      ) : null}
     </div>
   );
 }
@@ -217,7 +219,7 @@ function PreviewNote({ children }: { children: React.ReactNode }) {
   return <p className="p-2.5 text-body-13 text-text-secondary">{children}</p>;
 }
 
-function PreviewFooter({ children }: { children: React.ReactNode }) {
+export function PreviewFooter({ children }: { children: React.ReactNode }) {
   return <div className="flex justify-end gap-1.5 border-t border-border-subtle p-2.5">{children}</div>;
 }
 
@@ -227,15 +229,18 @@ export function FilePreviewView({
   state,
   onOpen,
   onPick,
+  kind,
 }: {
   fileRef: FileRef;
   state: FilePreviewState;
+  /** What the reference names, for a symbol: class, method. */
+  kind?: string;
   onOpen: (placement: Placement) => void;
   onPick: (target: RefTarget) => void;
 }) {
   const target = "target" in state ? state.target : undefined;
   const header = target ? (
-    <PreviewHeader path={target.rel} line={fileRef.line} folderName={target.folderName} />
+    <PreviewHeader path={target.rel} line={fileRef.line} folderName={target.folderName} kind={kind} />
   ) : (
     <PreviewHeader path={fileRef.path} line={fileRef.line} />
   );
@@ -304,6 +309,16 @@ export function FilePreviewView({
   );
 }
 
+/** Reads a resolved file for its preview; nothing until there is a target. */
+export function useRefTargetRead(found: RefTarget | null) {
+  return useQuery({
+    queryKey: ["agenthub", "fileRefRead", found?.workspaceId ?? "", found?.folderId ?? "", found?.rel ?? ""] as const,
+    queryFn: () => readFolderFile(found!.workspaceId, found!.folderId, found!.rel),
+    enabled: found !== null && !found.unreadable,
+    staleTime: 30_000,
+  });
+}
+
 /** Resolves and reads the reference — mounted only while the card is open. */
 function FileRefPreview({
   fileRef,
@@ -318,12 +333,7 @@ function FileRefPreview({
 }) {
   const resolution = useFileRefResolution(fileRef, refContext, true);
   const found = resolution.data?.kind === "found" ? resolution.data.target : null;
-  const read = useQuery({
-    queryKey: ["agenthub", "fileRefRead", found?.workspaceId ?? "", found?.folderId ?? "", found?.rel ?? ""] as const,
-    queryFn: () => readFolderFile(found!.workspaceId, found!.folderId, found!.rel),
-    enabled: found !== null && !found.unreadable,
-    staleTime: 30_000,
-  });
+  const read = useRefTargetRead(found);
   return <FilePreviewView fileRef={fileRef} state={filePreviewState(refContext, resolution, read)} onOpen={onOpen} onPick={onPick} />;
 }
 
@@ -336,7 +346,7 @@ function hostOf(url: string): string {
   }
 }
 
-async function copyWithNotice(text: string, notice: string) {
+export async function copyWithNotice(text: string, notice: string) {
   try {
     await copyText(text);
     toast.success(notice);
@@ -389,7 +399,7 @@ const FILE_ICONS: Record<FileMenuId, React.ReactNode> = {
 };
 const URL_ICONS: Record<UrlMenuId, React.ReactNode> = { open: <ExternalLink />, copy: <Link2 /> };
 
-function ReferenceMenu<Id extends string>({
+export function ReferenceMenu<Id extends string>({
   items,
   icons,
   onSelect,
