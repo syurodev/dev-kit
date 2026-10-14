@@ -239,7 +239,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	var existing *apperrors.AppError
 	if errors.As(err, &existing) {
-		return publicErrorForCode(subject, err, existing.Code)
+		return publicErrorForCode(subject, err, existing)
 	}
 	if subject == "builtin.sync" {
 		switch {
@@ -570,7 +570,8 @@ func codeGraphNotFoundMessage(err error) string {
 	return "CodeGraph file or directory not found."
 }
 
-func publicErrorForCode(subject string, err error, code string) *apperrors.AppError {
+func publicErrorForCode(subject string, err error, existing *apperrors.AppError) *apperrors.AppError {
+	code := existing.Code
 	switch code {
 	case codeValidationFailed:
 		return apperrors.New(codeValidationFailed, "Validation failed.", true)
@@ -578,10 +579,26 @@ func publicErrorForCode(subject string, err error, code string) *apperrors.AppEr
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	case codeConnectionFailed:
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
-	default:
-		return unexpectedError(subject, err)
+	case codePDFFailed:
+		// Carries the store's or engine's own text (paths, wazero detail).
+		return apperrors.New(codePDFFailed, "Could not read the document.", existing.Recoverable)
+	case codePDFUnavailable:
+		return apperrors.New(codePDFUnavailable, "DevKit's PDF reader is not available.", existing.Recoverable)
 	}
+	// pdf.* and memory.* are raised by the MCP tools inside Caller.Call with
+	// messages written for the reader (internal/mcp/tools_pdf.go pdfProblem,
+	// tools_workspace_memory.go memoryError): the reason is the point, so the
+	// code and message survive instead of becoming internal_error.
+	if strings.HasPrefix(code, "pdf.") || strings.HasPrefix(code, "memory.") {
+		return apperrors.New(code, existing.Message, existing.Recoverable)
+	}
+	return unexpectedError(subject, err)
 }
+
+const (
+	codePDFFailed      = "pdf.failed"
+	codePDFUnavailable = "pdf.unavailable"
+)
 
 // unexpectedError is the bottom of publicError's funnel: every cause that
 // reaches it is about to be redacted into "An unexpected error occurred.",

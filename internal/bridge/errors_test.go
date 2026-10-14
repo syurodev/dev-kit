@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"devkit/internal/app"
+	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/notes"
 	"devkit/internal/syncclient"
@@ -118,5 +119,52 @@ func TestPublicErrorMapsTaskStatusChanged(t *testing.T) {
 	}
 	if got := publicError("builtin.tasks", tasks.ErrParentHasParent); got == nil || got.Code != codeValidationFailed {
 		t.Fatalf("parent-has-parent = %v", got)
+	}
+}
+
+// pdf.* and memory.* AppErrors are raised inside Caller.Call by tools whose
+// messages are written for the reader. They used to be redacted to
+// internal_error, hiding the one thing an agent or a result view can act on.
+func TestPublicErrorKeepsPDFAndMemoryErrors(t *testing.T) {
+	for _, tc := range []struct{ subject, code, message string }{
+		{"builtin.agenthub", "pdf.notFound", "No such document."},
+		{"builtin.agenthub", "pdf.pageRange", "page out of range: page 9 of a 3-page document"},
+		{"builtin.workspace-memory", "memory.revisionConflict", "Workspace memory changed. Refetch the current entry or history before editing."},
+		{"builtin.workspace-memory", "memory.workspaceDenied", "Select a workspace for this session; terminal callers must supply workspaceId."},
+	} {
+		got := publicError(tc.subject, apperrors.New(tc.code, tc.message, true))
+		if got == nil || got.Code != tc.code || got.Message != tc.message || !got.Recoverable {
+			t.Errorf("publicError(%s) = %+v, want the code and message kept", tc.code, got)
+		}
+	}
+	// A wrapped AppError is found the same way.
+	wrapped := fmt.Errorf("call: %w", apperrors.New("pdf.timeout", "Reading the document took too long; ask for fewer pages.", true))
+	if got := publicError("builtin.agenthub", wrapped); got == nil || got.Code != "pdf.timeout" {
+		t.Errorf("wrapped pdf.timeout = %+v", got)
+	}
+}
+
+// pdf.failed and pdf.unavailable carry the engine's or store's own error text
+// (file paths, wazero and driver detail), so they keep their code and lose
+// that text.
+func TestPublicErrorRedactsPDFDetail(t *testing.T) {
+	for _, code := range []string{"pdf.failed", "pdf.unavailable"} {
+		raw := "Could not read the document: open /home/u/.local/share/dev-kit/agent-documents/s1/doc1.pdf: permission denied"
+		got := publicError("builtin.agenthub", apperrors.New(code, raw, true))
+		if got == nil || got.Code != code {
+			t.Fatalf("%s = %+v, want the code kept", code, got)
+		}
+		if strings.Contains(got.Message, "/home") || strings.Contains(got.Message, "permission denied") || got.Message == "" {
+			t.Errorf("%s message = %q, want a generic one", code, got.Message)
+		}
+	}
+}
+
+func TestPublicErrorStillRedactsUnknownCodes(t *testing.T) {
+	for _, code := range []string{"pdfx.notFound", "memoryish", "storage.boom"} {
+		got := publicError("builtin.agenthub", apperrors.New(code, "secret detail", true))
+		if got == nil || got.Code != codeInternalError || strings.Contains(got.Message, "secret") {
+			t.Errorf("%s = %+v, want internal_error", code, got)
+		}
 	}
 }
