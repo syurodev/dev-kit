@@ -89,6 +89,12 @@ func pdfError(code, message string) error { return apperrors.New(code, message, 
 
 // pdfProblem turns what the store or the engine said into an error the agent
 // can act on. Nothing here ever answers as though the document had been read.
+//
+// The messages are fixed sentences: pdfdoc wraps PDFium's and wazero's own
+// text with %v (a trap, a wasm stack) and the store's errors name files, and
+// the bridge publishes a kept pdf.* message as written. That text rides as the
+// cause (pdfFailure), which the bridge logs. The one message built from the
+// error is pdf.pageRange, whose text pdfdoc writes from numbers and limits.
 func pdfProblem(err error) error {
 	switch {
 	case err == nil:
@@ -99,18 +105,37 @@ func pdfProblem(err error) error {
 		return pdfError("pdf.unavailable", "PDF documents are not available in this DevKit.")
 	case errors.Is(err, pdfdoc.ErrPasswordRequired):
 		return pdfError("pdf.unreadable", "The PDF is password-protected and cannot be read.")
-	case errors.Is(err, pdfdoc.ErrCorrupt), errors.Is(err, pdfdoc.ErrNotPDF):
-		return pdfError("pdf.unreadable", "The PDF is damaged and cannot be read: "+strings.TrimPrefix(err.Error(), "pdfdoc: "))
+	case errors.Is(err, pdfdoc.ErrNotPDF):
+		return pdfFailure("pdf.unreadable", "The file is not a PDF and cannot be read.", err)
+	case errors.Is(err, pdfdoc.ErrCorrupt):
+		return pdfFailure("pdf.unreadable", "The PDF is damaged and cannot be read.", err)
 	case errors.Is(err, pdfdoc.ErrPageRange):
-		return pdfError("pdf.pageRange", strings.TrimPrefix(err.Error(), "pdfdoc: "))
+		return pdfError("pdf.pageRange", pageRangeMessage(err))
 	case errors.Is(err, pdfdoc.ErrUnavailable):
-		return pdfError("pdf.unavailable", "DevKit's PDF reader could not start: "+strings.TrimPrefix(err.Error(), "pdfdoc: "))
+		return pdfFailure("pdf.unavailable", "DevKit's PDF reader could not start on this machine.", err)
 	case errors.Is(err, context.DeadlineExceeded):
 		return pdfError("pdf.timeout", "Reading the document took too long; ask for fewer pages.")
 	case errors.Is(err, context.Canceled):
 		return err
 	}
-	return pdfError("pdf.failed", "Could not read the document: "+err.Error())
+	return pdfFailure("pdf.failed", "Could not read the document.", err)
+}
+
+// pdfFailure keeps what the engine or store said as the error's cause, for the
+// bridge's log, and out of the message.
+func pdfFailure(code, message string, cause error) error {
+	return apperrors.Wrap(code, message, true, cause)
+}
+
+// pageRangeMessage is pdfdoc's page-range sentence and nothing that wrapped it
+// on the way up: every ErrPageRange is "%w: <numbers and limits>", so the text
+// from ErrPageRange on is DevKit's own.
+func pageRangeMessage(err error) string {
+	msg := err.Error()
+	if i := strings.Index(msg, pdfdoc.ErrPageRange.Error()); i >= 0 {
+		msg = msg[i:]
+	}
+	return strings.TrimPrefix(msg, "pdfdoc: ")
 }
 
 // pdfCall runs one read under the capability gateway, scoped to the caller's

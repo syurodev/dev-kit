@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/apperrors"
 	"devkit/internal/identity"
 	"devkit/internal/pdfdoc"
 	"devkit/internal/storage"
@@ -481,7 +482,8 @@ func TestPDFToolsRefuseWhatTheyCannotDoOutLoud(t *testing.T) {
 	if err == nil && !res.IsError {
 		t.Fatal("a changed stored copy was read")
 	}
-	if msg := errText(err, res); !strings.Contains(msg, "no longer matches") {
+	// Refused out loud, without the store's own words (file names, paths).
+	if msg := errText(err, res); !strings.Contains(msg, "pdf.failed") || !strings.Contains(msg, "Could not read the document.") || strings.Contains(msg, "no longer matches") {
 		t.Fatalf("tampered: %q", msg)
 	}
 }
@@ -567,5 +569,56 @@ func TestAnErrorFromTheEngineIsNeverAnEmptyAnswer(t *testing.T) {
 		if got == nil || !strings.Contains(got.Error(), want) {
 			t.Errorf("%v → %v, want %q", err, got, want)
 		}
+	}
+}
+
+// What PDFium or wazero says is never part of what the agent or the UI reads:
+// the engine wraps its own text (a wasm trap, a stack) with %v, and the bridge
+// publishes a kept pdf.* message as written. The message is a fixed sentence;
+// it also used to stutter ("damaged and cannot be read: the PDF is damaged…").
+func TestPDFProblemNeverQuotesTheEngine(t *testing.T) {
+	engine := errors.New("wasm error: unreachable\nwasm stack trace:\n\tpdfium.wasm.FPDF_LoadMemDocument64(i32,i64,i32) i32")
+	for _, tc := range []struct {
+		err  error
+		code string
+		want string
+	}{
+		{fmt.Errorf("%w: %v", pdfdoc.ErrCorrupt, engine), "pdf.unreadable", "The PDF is damaged and cannot be read."},
+		{fmt.Errorf("%w: page 3 could not be drawn: %v", pdfdoc.ErrCorrupt, engine), "pdf.unreadable", "The PDF is damaged and cannot be read."},
+		{fmt.Errorf("%w: %v", pdfdoc.ErrNotPDF, engine), "pdf.unreadable", "The file is not a PDF and cannot be read."},
+		{fmt.Errorf("%w: %v", pdfdoc.ErrUnavailable, engine), "pdf.unavailable", "DevKit's PDF reader could not start on this machine."},
+		{fmt.Errorf("the stored copy of doc1 (a.pdf) is missing: %w", engine), "pdf.failed", "Could not read the document."},
+	} {
+		got := pdfProblem(tc.err)
+		var app *apperrors.AppError
+		if !errors.As(got, &app) {
+			t.Fatalf("%v → %T, want an AppError", tc.err, got)
+		}
+		if app.Code != tc.code || app.Message != tc.want {
+			t.Errorf("%v → %s %q, want %s %q", tc.err, app.Code, app.Message, tc.code, tc.want)
+		}
+		for _, leak := range []string{"wasm", "stack", "FPDF", "a.pdf", "pdfdoc:"} {
+			if strings.Contains(app.Message, leak) || strings.Contains(got.Error(), leak) {
+				t.Errorf("%s message %q quotes %q", app.Code, app.Message, leak)
+			}
+		}
+		// The engine's words stay reachable for the bridge's log.
+		if !errors.Is(got, tc.err) {
+			t.Errorf("%s lost its cause", app.Code)
+		}
+	}
+}
+
+// A page-range message is built from numbers and DevKit's own words; whatever
+// wrapped the range error on the way up is not part of it.
+func TestPDFPageRangeMessageIsTheRangeOnly(t *testing.T) {
+	inner := fmt.Errorf("%w: page 9 of a 3-page document", pdfdoc.ErrPageRange)
+	got := pdfProblem(fmt.Errorf("render /home/u/.local/share/dev-kit/agent-documents/s1/doc1.pdf: %w", inner))
+	var app *apperrors.AppError
+	if !errors.As(got, &app) || app.Code != "pdf.pageRange" {
+		t.Fatalf("got %v, want pdf.pageRange", got)
+	}
+	if app.Message != "page out of range: page 9 of a 3-page document" {
+		t.Errorf("message = %q", app.Message)
 	}
 }

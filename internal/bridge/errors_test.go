@@ -128,7 +128,11 @@ func TestPublicErrorMapsTaskStatusChanged(t *testing.T) {
 func TestPublicErrorKeepsPDFAndMemoryErrors(t *testing.T) {
 	for _, tc := range []struct{ subject, code, message string }{
 		{"builtin.agenthub", "pdf.notFound", "No such document."},
+		{"builtin.agenthub", "pdf.sessionDenied", "From a terminal, pass sessionId: the Agent Hub session whose documents to read."},
 		{"builtin.agenthub", "pdf.pageRange", "page out of range: page 9 of a 3-page document"},
+		{"builtin.agenthub", "pdf.timeout", "Reading the document took too long; ask for fewer pages."},
+		{"builtin.agenthub", "pdf.unreadable", "The PDF is damaged and cannot be read."},
+		{"builtin.workspace-memory", "memory.notFound", "Workspace memory was not found."},
 		{"builtin.workspace-memory", "memory.revisionConflict", "Workspace memory changed. Refetch the current entry or history before editing."},
 		{"builtin.workspace-memory", "memory.workspaceDenied", "Select a workspace for this session; terminal callers must supply workspaceId."},
 	} {
@@ -161,10 +165,32 @@ func TestPublicErrorRedactsPDFDetail(t *testing.T) {
 }
 
 func TestPublicErrorStillRedactsUnknownCodes(t *testing.T) {
-	for _, code := range []string{"pdfx.notFound", "memoryish", "storage.boom"} {
+	// The kept codes are a list, not a prefix: a pdf.* or memory.* code
+	// nobody vetted may carry an underlying error's text in its message.
+	for _, code := range []string{"pdfx.notFound", "memoryish", "storage.boom", "pdf.somethingNew", "memory.somethingNew", "pdf."} {
 		got := publicError("builtin.agenthub", apperrors.New(code, "secret detail", true))
 		if got == nil || got.Code != codeInternalError || strings.Contains(got.Message, "secret") {
 			t.Errorf("%s = %+v, want internal_error", code, got)
+		}
+	}
+}
+
+// The engine's own text rides as an AppError's cause (internal/mcp
+// pdfFailure): logged here, never published, whatever the code.
+func TestPublicErrorNeverPublishesAPDFCause(t *testing.T) {
+	engine := errors.New("wasm error: unreachable\nwasm stack trace:\n\tpdfium.wasm.FPDF_LoadMemDocument64(i32,i64,i32) i32")
+	for _, tc := range []struct{ code, message string }{
+		{"pdf.unreadable", "The PDF is damaged and cannot be read."},
+		{"pdf.unavailable", "DevKit's PDF reader is not available."},
+		{"pdf.failed", "Could not read the document."},
+	} {
+		got := publicError("builtin.agenthub", fmt.Errorf("call: %w", apperrors.Wrap(tc.code, tc.message, true, fmt.Errorf("pdfdoc: the PDF is damaged and cannot be read: %w", engine))))
+		if got == nil || got.Code != tc.code || got.Message != tc.message {
+			t.Errorf("%s = %+v, want %q", tc.code, got, tc.message)
+			continue
+		}
+		if got.Unwrap() != nil || strings.Contains(got.Error(), "wasm") {
+			t.Errorf("%s published its cause: %+v", tc.code, got)
 		}
 	}
 }
