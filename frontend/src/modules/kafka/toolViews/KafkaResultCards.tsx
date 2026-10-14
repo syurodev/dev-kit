@@ -5,6 +5,7 @@ import { detectLanguage } from "@/components/code/languages";
 import { Chip } from "@/components/ui/chip";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
+import { notify } from "@/lib/notify";
 import { dispatchIntent } from "@/workbench/intents";
 import { formatClock, formatOffset, prettyValue } from "../kafkaForm";
 import {
@@ -29,8 +30,25 @@ function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
+/**
+ * Opens a topic through `kafka.reveal` and, when it could not be selected,
+ * says so: Kafka still comes on screen, and without a word the person would
+ * be looking at some other topic. One sentence covers both reasons the intent
+ * gives up — nothing connected, or a cluster without that topic.
+ */
+export async function openTopic(
+  topic: string,
+  dispatch: typeof dispatchIntent = dispatchIntent,
+  toast: typeof notify = notify,
+): Promise<void> {
+  const answer = await dispatch("kafka.reveal", { module: "kafka", kind: "topic", id: topic, label: topic });
+  if (answer === "unavailable") {
+    toast({ id: `kafka:reveal:${topic}`, tone: "error", title: `“${topic}” isn't on a connected Kafka cluster` });
+  }
+}
+
 function revealTopic(topic: string) {
-  void dispatchIntent("kafka.reveal", { module: "kafka", kind: "topic", id: topic, label: topic }, { placement: "beside" });
+  void openTopic(topic);
 }
 
 function OpenInKafka({ topic }: { topic: string }) {
@@ -88,7 +106,16 @@ export function PeekResultCard({ peek }: { peek: PeekResult }) {
     [peek.messages],
   );
   const onRowClick = React.useCallback((index: number) => setOpen((current) => toggleRow(current, index)), []);
+  const rowAriaLabel = React.useCallback(
+    (_row: unknown, index: number) => `Show message at offset ${peek.messages[index].offset}`,
+    [peek.messages],
+  );
   const opened = open === null ? undefined : peek.messages[open];
+  // The value opens under the table's scroller, which may be below the fold.
+  const openedRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (open !== null) openedRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [open]);
   const title = ["Messages", peek.topic, `partition ${peek.partition}`].filter(Boolean).join(" · ");
 
   return (
@@ -103,9 +130,17 @@ export function PeekResultCard({ peek }: { peek: PeekResult }) {
         <EmptyLine>No messages</EmptyLine>
       ) : (
         <FramedCardPreview flush className="py-0">
-          <DataTable columns={MESSAGE_COLUMNS} rows={rows} dense maxHeight="max-h-80" onRowClick={onRowClick} />
+          <DataTable
+            columns={MESSAGE_COLUMNS}
+            rows={rows}
+            dense
+            maxHeight="max-h-80"
+            onRowClick={onRowClick}
+            rowAriaLabel={rowAriaLabel}
+            expandedRow={open}
+          />
           {opened ? (
-            <div className="border-t border-border-subtle p-(--space-inline)">
+            <div ref={openedRef} className="border-t border-border-subtle p-(--space-inline)">
               <MessageValue message={opened} />
             </div>
           ) : null}
@@ -121,6 +156,7 @@ const TOPIC_COLUMNS: DataTableColumn[] = [{ key: "topic", header: "Topic", mono:
 export function TopicsResultCard({ topics }: { topics: string[] }) {
   const rows = React.useMemo(() => topics.map((name) => [name]), [topics]);
   const onRowClick = React.useCallback((index: number) => revealTopic(topics[index]), [topics]);
+  const rowAriaLabel = React.useCallback((_row: unknown, index: number) => `Open ${topics[index]} in Kafka`, [topics]);
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader icon={Workflow} title="Topics" meta={plural(topics.length, "topic")} />
@@ -128,7 +164,14 @@ export function TopicsResultCard({ topics }: { topics: string[] }) {
         <EmptyLine>No topics</EmptyLine>
       ) : (
         <FramedCardPreview flush className="py-0">
-          <DataTable columns={TOPIC_COLUMNS} rows={rows} dense maxHeight="max-h-80" onRowClick={onRowClick} />
+          <DataTable
+            columns={TOPIC_COLUMNS}
+            rows={rows}
+            dense
+            maxHeight="max-h-80"
+            onRowClick={onRowClick}
+            rowAriaLabel={rowAriaLabel}
+          />
         </FramedCardPreview>
       )}
     </FramedCard>

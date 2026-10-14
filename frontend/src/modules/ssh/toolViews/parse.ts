@@ -42,3 +42,28 @@ export function clipLines(text: string, max: number): { shown: string; hidden: n
   const all = lines(text);
   return { shown: all.slice(0, max).join("\n"), hidden: Math.max(0, all.length - max) };
 }
+
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
+/**
+ * The output as a terminal would have left it on screen, for display only
+ * (Copy keeps the raw bytes): colour and cursor escapes dropped, and a line a
+ * progress bar redrew with `\r` reduced to what it last said.
+ */
+export function displayOutput(output: string): string {
+  return output
+    .replace(ANSI, "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.slice(line.lastIndexOf("\r") + 1))
+    .join("\n");
+}
+
+export type CommandDisplay = { count: number; shown: string; hidden: number };
+
+/** What the card draws of an output: its display lines, counted and clipped unless `all`. */
+export function commandDisplay(output: string, all: boolean): CommandDisplay {
+  const text = displayOutput(output);
+  const clip = clipLines(text, all ? Number.POSITIVE_INFINITY : SHOWN_LINES);
+  return { count: lineCount(text), shown: clip.shown, hidden: clip.hidden };
+}

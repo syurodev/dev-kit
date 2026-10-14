@@ -49,24 +49,18 @@ export const kafkaModule: ModuleManifest = {
 
 /**
  * `kafka.reveal` — a topic named elsewhere (a tool result card, a reference in
- * agent prose) opened in the explorer, the way the palette opens one. Kafka has
- * one view and no documents, so `placement` has nothing to choose between. A
- * topic is selected only on a live connection: its topics are that cluster's,
- * and selecting one with nothing connected would only fail to describe it.
+ * agent prose) opened in the explorer, the way the palette opens one
+ * (reveal.ts says how). Kafka has one view and no documents, so placement has
+ * nothing to choose between.
  */
 registerIntent("kafka.reveal", async (ref) => {
   if (ref.kind !== "topic" || !ref.id) return "unavailable";
-  const [{ useKafkaStore }, { showModuleHome }] = await Promise.all([
+  const [{ useKafkaStore }, { showModuleHome }, { revealTopic }] = await Promise.all([
     import("./kafkaStore"),
     import("@/workbench/showModule"),
+    import("./reveal"),
   ]);
-  const store = useKafkaStore.getState();
-  if (store.connection.connected) {
-    void store.selectTopic(ref.id);
-    store.setActiveTab("topics");
-  }
-  showModuleHome("kafka");
-  return "ok";
+  return revealTopic(useKafkaStore, ref.id, () => showModuleHome("kafka"));
 });
 
 /**

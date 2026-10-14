@@ -4,6 +4,7 @@ import { formatClock } from "../kafkaForm";
 import {
   ConsumerGroupsResultCard,
   MessageValue,
+  openTopic,
   PeekResultCard,
   PublishResultCard,
   TopicDetailResultCard,
@@ -46,9 +47,24 @@ describe("PeekResultCard", () => {
     expect(firstCell).toContain("text-code-12");
   });
 
+  test("an absent key reads as a dash, not NULL", () => {
+    const html = text(renderToString(<PeekResultCard peek={peek} />));
+    const secondRow = html.split("<tbody")[1].split("<tr")[2];
+    expect(secondRow.split("<td")[2]).toContain(">—<");
+    expect(html).not.toContain("NULL");
+  });
+
   test("rows can be opened — they are focusable click targets", () => {
     const html = renderToString(<PeekResultCard peek={peek} />);
     expect(html.split("<tbody")[1].match(/<tr tabindex="0"/g)?.length).toBe(2);
+  });
+
+  test("rows are named by their offset and say they are closed until opened", () => {
+    const html = renderToString(<PeekResultCard peek={peek} />);
+    expect(html).toContain('aria-label="Show message at offset 41"');
+    expect(html).toContain('aria-label="Show message at offset 42"');
+    expect(html.match(/aria-expanded="false"/g)?.length).toBe(2);
+    expect(html).not.toContain("data-expanded");
   });
 
   test("offers Open in Kafka", () => {
@@ -87,6 +103,14 @@ describe("TopicsResultCard", () => {
     expect(html).toContain("orders");
     expect(html).toContain("payments");
     expect(html).toContain("table-fixed");
+  });
+
+  test("each row says it opens that topic in Kafka", () => {
+    const html = renderToString(<TopicsResultCard topics={["orders", "payments"]} />);
+    expect(html).toContain('aria-label="Open orders in Kafka"');
+    expect(html).toContain('aria-label="Open payments in Kafka"');
+    expect(html).toContain('role="button"');
+    expect(html).not.toContain("aria-expanded");
   });
 
   test("an empty cluster says so", () => {
@@ -133,5 +157,31 @@ describe("PublishResultCard", () => {
   test("leaves the time out when the broker gave none", () => {
     const html = text(renderToString(<PublishResultCard result={{ topic: "orders", partition: 0, offset: 5 }} />));
     expect(html).toContain("partition 0 · offset 5<");
+  });
+});
+
+describe("openTopic", () => {
+  test("asks kafka.reveal for the topic and stays quiet when it opened", async () => {
+    const asked: unknown[] = [];
+    const toasts: unknown[] = [];
+    await openTopic(
+      "orders",
+      async (name, ref) => {
+        asked.push([name, ref.kind, ref.id]);
+        return "ok";
+      },
+      (toast) => toasts.push(toast),
+    );
+    expect(asked).toEqual([["kafka.reveal", "topic", "orders"]]);
+    expect(toasts).toEqual([]);
+  });
+
+  test("says so when the topic could not be opened", async () => {
+    const toasts: { title: string; tone?: string }[] = [];
+    await openTopic("orders", async () => "unavailable", (toast) => toasts.push(toast));
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].tone).toBe("error");
+    expect(toasts[0].title).toContain("orders");
+    expect(toasts[0].title).toContain("connected");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clipLines, lineCount, parseRunCommand } from "./parse";
+import { clipLines, displayOutput, lineCount, parseRunCommand } from "./parse";
 
 describe("ssh.runCommand", () => {
   test("reads the command from the input and the output from the result", () => {
@@ -43,5 +43,19 @@ describe("clipLines", () => {
 
   test("output that fits is left alone, its trailing newline dropped", () => {
     expect(clipLines("a\nb\n", 20)).toEqual({ shown: "a\nb", hidden: 0 });
+  });
+});
+
+describe("displayOutput", () => {
+  test("drops ANSI colour and cursor escapes", () => {
+    expect(displayOutput("\x1b[1;32mok\x1b[0m done\x1b[?25h")).toBe("ok done");
+  });
+
+  test("a line redrawn with \\r shows only its last state", () => {
+    expect(displayOutput("start\n 10%\r 50%\r100%\nend\n")).toBe("start\n100%\nend\n");
+  });
+
+  test("CRLF line ends are plain line ends", () => {
+    expect(displayOutput("a\r\nb\r\n")).toBe("a\nb\n");
   });
 });

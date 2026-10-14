@@ -66,10 +66,18 @@ export function parsePeekMessages(rawInput: unknown, rawOutput: unknown): PeekRe
   };
 }
 
-/** A value as one line of at most VALUE_PREVIEW_CHARS: whitespace folded, the rest cut with "…". */
+/**
+ * A value as one line of at most VALUE_PREVIEW_CHARS: whitespace folded, the
+ * rest cut with "…". Only the head is read — a peek can carry 500 values of a
+ * megabyte each, and folding all of one to show 120 characters is waste.
+ */
 export function valuePreview(value: string): string {
-  const line = value.replace(/\s+/g, " ").trim();
-  return line.length > VALUE_PREVIEW_CHARS ? `${line.slice(0, VALUE_PREVIEW_CHARS - 1)}…` : line;
+  const head = VALUE_PREVIEW_CHARS * 4;
+  const line = value.slice(0, head).replace(/\s+/g, " ").trim();
+  // Past the head there is more, even when the head folded short.
+  return line.length > VALUE_PREVIEW_CHARS || value.length > head
+    ? `${line.slice(0, VALUE_PREVIEW_CHARS - 1)}…`
+    : line;
 }
 
 /** The open row after a click on `index`: a second click on the open one closes it. */

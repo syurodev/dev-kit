@@ -57,6 +57,17 @@ describe("valuePreview", () => {
     expect(preview.endsWith("…")).toBe(true);
     expect(valuePreview("y".repeat(120))).toBe("y".repeat(120));
   });
+
+  test("reads only the head of a huge value", () => {
+    const huge = `{"id":1,${"\n  ".repeat(10)}"blob":"${"q".repeat(2_000_000)}"}`;
+    const preview = valuePreview(huge);
+    expect(preview.startsWith('{"id":1, "blob":"qqq')).toBe(true);
+    expect(preview.length).toBe(120);
+  });
+
+  test("a head of mostly whitespace still says there is more", () => {
+    expect(valuePreview(`a${" ".repeat(600)}b`)).toBe("a…");
+  });
 });
 
 describe("toggleRow", () => {
