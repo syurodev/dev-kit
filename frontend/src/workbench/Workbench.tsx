@@ -19,6 +19,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
+import { ConfirmHost } from "./ConfirmHost";
 import { onSettingsRequested, requestSettings } from "./settingsRequest";
 import {
   compareModuleParity,
@@ -717,6 +718,7 @@ export function Workbench() {
           </Suspense>
           <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
           <InteractionHost />
+          <ConfirmHost />
           <Suspense fallback={null}>
             <LazyAgentPermissionToastHost activeModuleId={activeModule?.id ?? null} />
           </Suspense>

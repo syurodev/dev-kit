@@ -14,11 +14,12 @@ import { consoleFiles } from "./consoleFiles";
 // Spread first: a replacement that lists only what it needs deletes every
 // other export from everyone else's view.
 const bridge = await import("../../bridge/database");
+let listedProfiles: unknown[] = [];
 
 mock.module("../../bridge/database", () => ({
   ...bridge,
   runQuery: async () => ({ columns: ["n"], rows: [["1"]], rowCount: 1, truncated: false }),
-  listProfiles: async () => [],
+  listProfiles: async () => listedProfiles,
   listConsoles: async () => [],
   listColumns: async () => [],
   getSchemaCache: async () => null,
@@ -30,6 +31,14 @@ mock.module("../../bridge/database", () => ({
   rollbackTransaction: async () => {},
   transactionState: async () => ({ manual: false, open: false }),
 }));
+
+// fetchProfiles reads the env tags and SSH profiles beside the connections;
+// their bridges answer empty here so the list itself can load. Spread first,
+// as above.
+const environments = await import("../../bridge/environments");
+mock.module("../../bridge/environments", () => ({ ...environments, listEnvTags: async () => [] }));
+const ssh = await import("../../bridge/ssh");
+mock.module("../../bridge/ssh", () => ({ ...ssh, listSSHProfiles: async () => [] }));
 
 const { useDatabaseStore, visibleResult } = await import("./databaseStore");
 
@@ -301,6 +310,32 @@ describe("an agent's result in a console", () => {
     expect(console.results).toHaveLength(1);
     expect(console.results[0].origin).toBeUndefined();
     expect(visibleResult(console)?.rows).toEqual([["1"]]);
+  });
+});
+
+describe("loading the connection list", () => {
+  const p = (id: string) => ({ id, name: id, host: "", port: 0, database: "", username: "", sslMode: "", env: "", readOnly: false });
+
+  afterEach(() => {
+    listedProfiles = [];
+    useDatabaseStore.setState({ profiles: [], selectedProfileId: "" });
+  });
+
+  test("with nothing selected it selects the first", async () => {
+    listedProfiles = [p("prod"), p("staging")];
+    useDatabaseStore.setState({ selectedProfileId: "" });
+    await useDatabaseStore.getState().fetchProfiles();
+    expect(useDatabaseStore.getState().selectedProfileId).toBe("prod");
+  });
+
+  // An agent's connection is about to be selected: the first one must not be
+  // picked, and connected to, on the way there.
+  test("asked not to, it selects nothing", async () => {
+    listedProfiles = [p("prod"), p("staging")];
+    useDatabaseStore.setState({ selectedProfileId: "" });
+    await useDatabaseStore.getState().fetchProfiles({ autoSelect: false });
+    expect(useDatabaseStore.getState().profiles.map((x) => x.id)).toEqual(["prod", "staging"]);
+    expect(useDatabaseStore.getState().selectedProfileId).toBe("");
   });
 });
 

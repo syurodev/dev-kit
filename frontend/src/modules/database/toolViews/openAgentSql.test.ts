@@ -7,6 +7,7 @@ import { openSqlConsole } from "../documents";
 import { agentResultNote } from "../consoleStatus";
 import { AGENT_QUERY_TITLE, agentSqlNotice, connectionPhrase, openAgentSql } from "./openAgentSql";
 import type { ProfileSelection } from "./reveal";
+import { liveProfileSelection } from "./liveProfiles";
 
 const profile = (id: string, name: string) => ({ id, name }) as ConnectionProfile;
 
@@ -75,6 +76,8 @@ describe("on the agent's connection", () => {
         log.push(`select ${id}`);
         current = id;
       },
+      switchCost: () => null,
+      confirm: async () => (log.push("ask"), true),
     };
     const open = async (sql: string, _title?: string, options?: { result?: unknown }) => {
       log.push(`open ${sql} on ${current}${options?.result ? " with rows" : ""}`);
@@ -114,6 +117,14 @@ describe("on the agent's connection", () => {
     profiles.selectProfile = (id) => void log.push(`select ${id} (refused)`);
     expect((await openAgentSql("select 1", "p2", { profiles, open })).opened).toBe(false);
     expect(log).toEqual(["select p2 (refused)"]);
+  });
+
+  test("asked before losing a transaction, Cancel opens nothing and says nothing more", async () => {
+    const { profiles, open, log } = fake(["p1", "p2"], "p1");
+    profiles.switchCost = () => ({ from: "staging", to: "prod", transaction: true, runningQueries: 0 });
+    profiles.confirm = async () => (log.push("ask"), false);
+    expect(await openAgentSql("select 1", "p2", { profiles, open, result: rows })).toEqual({ opened: false, notice: null });
+    expect(log).toEqual(["ask"]);
   });
 
   test("a result that names none opens on the selected connection, says so, and still brings its rows", async () => {
@@ -202,5 +213,31 @@ describe("the connection a query card names", () => {
   test("nothing when the result names none, or the list is not loaded", () => {
     expect(connectionPhrase(undefined, profiles)).toBeNull();
     expect(connectionPhrase("p1", [])).toBeNull();
+  });
+});
+
+describe("what a switch here would lose", () => {
+  test("nothing, when no transaction is open and nothing runs", () => {
+    expect(liveProfileSelection.switchCost("p2")).toBeNull();
+  });
+
+  test("the open transaction and the consoles still running, by connection name", () => {
+    useDatabaseStore.setState({
+      txOpen: true,
+      consoles: {
+        a: { ...useDatabaseStore.getState().consoleState("a"), runningQuery: true },
+        b: { ...useDatabaseStore.getState().consoleState("b"), runningQuery: false },
+      },
+    });
+    try {
+      expect(liveProfileSelection.switchCost("p2")).toEqual({
+        from: "staging",
+        to: "prod",
+        transaction: true,
+        runningQueries: 1,
+      });
+    } finally {
+      useDatabaseStore.setState({ txOpen: false, consoles: {} });
+    }
   });
 });

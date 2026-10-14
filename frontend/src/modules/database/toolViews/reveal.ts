@@ -71,22 +71,54 @@ export type ProfileSelection = {
   refreshProfiles: () => Promise<void>;
   /** The store's own selection — the rail's click — so whatever a switch does, it does here too. */
   selectProfile: (id: string) => void;
+  /** What switching to `id` would lose here, or null when nothing. */
+  switchCost: (id: string) => SwitchCost | null;
+  /** Asks the person; true to go ahead. */
+  confirm: (message: string) => Promise<boolean>;
 };
+
+/**
+ * What the rail's switch throws away: it gives the old connection's session
+ * back (ending an open transaction) and stops every console run in flight.
+ */
+export type SwitchCost = { from: string; to: string; transaction: boolean; runningQueries: number };
+
+/** The question asked before a switch that loses something, naming what. */
+export function switchLossMessage(cost: SwitchCost): string {
+  const parts: string[] = [];
+  if (cost.transaction) parts.push(`rolls back the open transaction on ${cost.from}`);
+  if (cost.runningQueries > 0) {
+    const n = cost.runningQueries;
+    parts.push(`stops ${n} running ${n === 1 ? "query" : "queries"}${cost.transaction ? "" : ` on ${cost.from}`}`);
+  }
+  return `Switching to ${cost.to} ${parts.join(" and ")}. Switch?`;
+}
 
 /**
  * Selects the connection an agent's call ran on, as a click in the rail
  * would. A connection this machine does not have (asked for once more, in
- * case the list was not loaded) is false, as is a selection that did not
- * take — the caller then opens nothing rather than open on whichever
+ * case the list was not loaded) is "unavailable", as is a selection that did
+ * not take — the caller then opens nothing rather than open on whichever
  * connection happened to be selected, which may be prod.
+ *
+ * A switch that loses nothing happens without a word. One that would end an
+ * open transaction or stop a running query asks first (`switchLossMessage`);
+ * "cancelled" when the person says no, and the caller opens nothing.
  */
-export async function selectProfileById(profileId: string, deps: ProfileSelection): Promise<boolean> {
+export async function selectProfileById(
+  profileId: string,
+  deps: ProfileSelection,
+): Promise<"selected" | "unavailable" | "cancelled"> {
   if (!deps.profileIds().includes(profileId)) {
     await deps.refreshProfiles();
-    if (!deps.profileIds().includes(profileId)) return false;
+    if (!deps.profileIds().includes(profileId)) return "unavailable";
   }
-  if (deps.selectedProfileId() !== profileId) deps.selectProfile(profileId);
-  return deps.selectedProfileId() === profileId;
+  if (deps.selectedProfileId() !== profileId) {
+    const cost = deps.switchCost(profileId);
+    if (cost && !(await deps.confirm(switchLossMessage(cost)))) return "cancelled";
+    deps.selectProfile(profileId);
+  }
+  return deps.selectedProfileId() === profileId ? "selected" : "unavailable";
 }
 
 /** What `reveal` needs from the store and the workbench; the manifest wires the live ones. */
@@ -99,7 +131,8 @@ export type RevealDeps = ProfileSelection & {
 /**
  * Runs a `database.reveal`. A table that names its connection opens on that
  * connection: it is selected first (`selectProfileById`) and only then
- * opened; one that cannot be selected is "unavailable". Without one, the
+ * opened; one that cannot be selected is "unavailable", and a switch the
+ * person declined opens nothing and is "ok" (there is nothing to report). Without one, the
  * table opens on the selected connection, as it always has.
  */
 export async function reveal(ref: EntityRef, placement: Placement, deps: RevealDeps): Promise<"ok" | "unavailable"> {
@@ -110,7 +143,12 @@ export async function reveal(ref: EntityRef, placement: Placement, deps: RevealD
     await deps.openConsole(target.sql, target.title, beside);
     return "ok";
   }
-  if (target.profileId && !(await selectProfileById(target.profileId, deps))) return "unavailable";
+  if (target.profileId) {
+    const selection = await selectProfileById(target.profileId, deps);
+    // Cancelled is the person's answer, not a failure: nothing to report.
+    if (selection === "cancelled") return "ok";
+    if (selection === "unavailable") return "unavailable";
+  }
   deps.openTable(target.schema, target.table, beside);
   return "ok";
 }

@@ -509,7 +509,12 @@ export type DatabaseStoreState = {
   exportFilename: string;
 
   // Actions
-  fetchProfiles: () => Promise<void>;
+  /**
+   * Loads the connection list. With nothing selected it selects the first,
+   * unless `autoSelect` is false — a caller about to select a particular one
+   * (an agent's connection) must not connect to the first on the way.
+   */
+  fetchProfiles: (options?: { autoSelect?: boolean }) => Promise<void>;
   setSelectedProfileId: (id: string) => void;
   setSql: (consoleId: string, sql: string) => void;
   setInspectedCell: (cell: { columnName: string; value: string | null } | null) => void;
@@ -808,7 +813,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   exportResult: null,
   exportFilename: DEFAULT_EXPORT_FILENAME,
 
-  fetchProfiles: async () => {
+  fetchProfiles: async (options) => {
     set({ loadingProfiles: true, profileError: "" });
     try {
       const [profiles, envTags, sshProfiles] = await Promise.all([
@@ -818,7 +823,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       ]);
       set({ profiles, envTags, sshProfiles, loadingProfiles: false });
       const currentSelected = get().selectedProfileId;
-      if (!currentSelected && profiles.length > 0) {
+      if (!currentSelected && profiles.length > 0 && options?.autoSelect !== false) {
         get().setSelectedProfileId(profiles[0].id);
       }
     } catch (e) {

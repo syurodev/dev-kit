@@ -55,7 +55,8 @@ export type OpenAgentSqlOptions = {
  *
  * A call that names its connection is opened on it: selected first, the way
  * the rail selects it, and one not on this device (or a selection that did
- * not take) opens nothing and says why. One that names none opens on the
+ * not take) opens nothing and says why. A switch that would end an open
+ * transaction or stop a running query asks first; Cancel opens nothing. One that names none opens on the
  * selected connection with a notice. A db.query's rows come along and show
  * as the console's result (`openSqlConsole`'s `result`), labelled as the
  * agent's, until the person runs it.
@@ -66,9 +67,13 @@ export async function openAgentSql(
   options: OpenAgentSqlOptions = {},
 ): Promise<{ opened: boolean; notice: string | null }> {
   const open = options.open ?? openSqlConsole;
-  if (agentProfileId !== undefined && !(await selectProfileById(agentProfileId, options.profiles ?? liveProfileSelection))) {
-    toast.error("Couldn't open in Database: its connection isn't on this device");
-    return { opened: false, notice: null };
+  if (agentProfileId !== undefined) {
+    const selection = await selectProfileById(agentProfileId, options.profiles ?? liveProfileSelection);
+    if (selection === "cancelled") return { opened: false, notice: null };
+    if (selection === "unavailable") {
+      toast.error("Couldn't open in Database: its connection isn't on this device");
+      return { opened: false, notice: null };
+    }
   }
   await open(sql, AGENT_QUERY_TITLE, options.result ? { beside: true, result: options.result } : { beside: true });
   // Selected above when named, so only a result that names none has

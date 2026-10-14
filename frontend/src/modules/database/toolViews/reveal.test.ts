@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reveal, revealTarget, type RevealDeps } from "./reveal";
+import { reveal, revealTarget, switchLossMessage, type RevealDeps, type SwitchCost } from "./reveal";
 
 const ref = (kind: string, id: string, label = "") => ({ module: "database", kind, id, label });
 
@@ -71,6 +71,11 @@ describe("a table read on a connection opens on that connection", () => {
         log.push("refresh");
         known = later;
       },
+      switchCost: () => null,
+      confirm: async (message) => {
+        log.push(`ask ${message}`);
+        return true;
+      },
       selectProfile: (id) => {
         log.push(`select ${id}`);
         current = id;
@@ -127,5 +132,53 @@ describe("a table read on a connection opens on that connection", () => {
     expect(await reveal(ref("table", "orders"), "replace", deps)).toBe("unavailable");
     expect(await reveal(ref("console", "select 1"), "replace", deps)).toBe("ok");
     expect(log).toEqual(["console select 1 on p1"]);
+  });
+
+  /*
+   * Switching is the rail's own switch: it stops runs in flight and gives the
+   * old connection's session back, which ends an open transaction. Nothing to
+   * lose, it switches without a word; something to lose, it asks first.
+   */
+  const cost: SwitchCost = { from: "prod", to: "staging", transaction: true, runningQueries: 1 };
+
+  test("nothing to lose: it switches without asking", async () => {
+    const { deps, log } = fake(["p1", "p2"], "p1");
+    await reveal({ ...ref("table", "public.orders"), profileId: "p2" }, "replace", deps);
+    expect(log).toEqual(["select p2", "open public.orders on p2"]);
+  });
+
+  test("an open transaction or a running query: it asks, and Switch switches", async () => {
+    const { deps, log } = fake(["p1", "p2"], "p1");
+    deps.switchCost = (id) => (id === "p2" ? cost : null);
+    expect(await reveal({ ...ref("table", "public.orders"), profileId: "p2" }, "replace", deps)).toBe("ok");
+    expect(log).toEqual([`ask ${switchLossMessage(cost)}`, "select p2", "open public.orders on p2"]);
+  });
+
+  test("Cancel keeps the connection and opens nothing, and is not an error", async () => {
+    const { deps, log } = fake(["p1", "p2"], "p1");
+    deps.switchCost = () => cost;
+    deps.confirm = async (message) => (log.push(`ask ${message}`), false);
+    // "ok": the person answered; there is nothing for the caller to report.
+    expect(await reveal({ ...ref("table", "public.orders"), profileId: "p2" }, "replace", deps)).toBe("ok");
+    expect(log).toEqual([`ask ${switchLossMessage(cost)}`]);
+  });
+
+  test("already on it, nothing is asked", async () => {
+    const { deps, log } = fake(["p1", "p2"], "p2");
+    deps.switchCost = () => cost;
+    await reveal({ ...ref("table", "public.orders"), profileId: "p2" }, "replace", deps);
+    expect(log).toEqual(["open public.orders on p2"]);
+  });
+
+  test("the question names what will be lost", () => {
+    expect(switchLossMessage(cost)).toBe(
+      "Switching to staging rolls back the open transaction on prod and stops 1 running query. Switch?",
+    );
+    expect(switchLossMessage({ ...cost, transaction: false, runningQueries: 2 })).toBe(
+      "Switching to staging stops 2 running queries on prod. Switch?",
+    );
+    expect(switchLossMessage({ ...cost, runningQueries: 0 })).toBe(
+      "Switching to staging rolls back the open transaction on prod. Switch?",
+    );
   });
 });
