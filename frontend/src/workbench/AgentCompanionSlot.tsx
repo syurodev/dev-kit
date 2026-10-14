@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 
@@ -51,7 +51,7 @@ export function AgentCompanionSlot() {
   const chatOpen = useAgentSessionsStore((s) => s.chatOpen);
   const inAgentHub = useWorkbenchTabsStore((s) => !agentPanelAllowed(s.activeModuleId));
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
-  const { openCompanion, closeCompanion } = useSplitPanel();
+  const { openCompanion, closeCompanion } = useSplitPanelActions();
   const [wasMounted, setMounted] = useState(false);
   const { mounted, push } = companionPush({ chatOpen, inAgentHub, mounted: wasMounted });
   if (mounted && !wasMounted) setMounted(true);

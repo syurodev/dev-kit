@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AppShell } from "@/workbench/AppShell";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 
 /**
@@ -10,7 +10,7 @@ import { useBottomSlotStore } from "@/stores/bottomSlot";
  * `?shell-harness&workbench` renders the real Workbench instead (App.tsx).
  */
 function OpenSlots() {
-  const { openPanel, openCompanion } = useSplitPanel();
+  const { openPanel, openCompanion } = useSplitPanelActions();
   const setBottom = useBottomSlotStore((s) => s.setOpen);
   useEffect(() => {
     openPanel(<div className="p-4 text-body-13 text-text-secondary">Module panel content</div>, { width: 420, onClose: () => undefined });

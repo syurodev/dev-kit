@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -295,7 +295,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
   const noteRef = useRef<Note | null>(null);
   const orgInFlight = useRef(false);
 
-  const { openPanel, closePanel } = useSplitPanel();
+  const { openPanel, closePanel } = useSplitPanelActions();
 
   const editor = usePlateEditor({
     plugins: NotesEditorKit,

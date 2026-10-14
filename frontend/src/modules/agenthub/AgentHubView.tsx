@@ -65,7 +65,7 @@ import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
 import { EmptyState } from "@/components/ui/empty-state";
 import { closeAgentSessionTabs, closeNewSessionTab, openAgentSession, openNewAgentSession, sessionTitle, useAgentDraftRequests } from "./documents";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { AgentActivityPanel, useFollowing } from "./follow";
 import { SubagentPanel, useSubagentPanel } from "./subagents";
 import { draftConfigOptions, initialModelConfig } from "./modelSettings";
@@ -418,7 +418,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // drives it, so switching tabs moves the pane to that session — or closes
   // it, if that one is not followed. The panel reads the transcript itself,
   // so it is handed one element per session, not one per streamed token.
-  const { openPanel, closePanel } = useSplitPanel();
+  const { openPanel, closePanel } = useSplitPanelActions();
   const [following, toggleFollowing] = useFollowing(activeSession?.id);
   const followedId = following ? activeSession?.id ?? "" : "";
   const followedTitle = activeSession ? sessionTitle(activeSession) : "";

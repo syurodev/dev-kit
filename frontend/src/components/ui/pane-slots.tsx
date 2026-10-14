@@ -2,7 +2,8 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { Bot, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
-import { SHELL_PANEL_OWNER, useSplitPanel } from "@/components/ui/split-panel";
+import { SHELL_PANEL_OWNER, useSplitPanelState } from "@/components/ui/split-panel";
+import { shownPanels } from "@/components/ui/splitPanelModel";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
@@ -130,7 +131,9 @@ const rectOf = (el: Element | null): Rect | undefined => {
  * terminal's xterm, a canvas or a half-written message never remount.
  */
 export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: string | null; children: React.ReactNode }) {
-  const { panels, companion } = useSplitPanel();
+  const { panels: allPanels, companion } = useSplitPanelState();
+  // A closed module pane is hidden in the store, not removed (splitPanelModel).
+  const panels = React.useMemo(() => shownPanels(allPanels), [allPanels]);
   const bottomOpen = useBottomSlotStore((s) => s.open);
   const setBottomOpen = useBottomSlotStore((s) => s.setOpen);
   const moduleContent = useBottomContentStore((s) => (activeModuleId ? s.content[activeModuleId] : undefined));

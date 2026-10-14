@@ -13,7 +13,7 @@ import { Field as SharedField, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { FeedbackBanner, InlineFeedback, PendingStatus } from "@/components/ui/feedback";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { shortcut } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
@@ -82,7 +82,7 @@ export function KafkaView() {
   const inspect = useKafkaStore((s) => s.inspect);
   const setShowNewCluster = useKafkaStore((s) => s.setShowNewCluster);
 
-  const { openPanel, closePanel } = useSplitPanel();
+  const { openPanel, closePanel } = useSplitPanelActions();
   useEffect(() => {
     if (!inspected) {
       closePanel();

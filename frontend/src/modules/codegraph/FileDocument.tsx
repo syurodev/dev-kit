@@ -9,7 +9,7 @@ import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { detectPlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { createCodeGraphIntelProvider } from "./codegraphIntelProvider";
@@ -304,7 +304,7 @@ function ReloadedMark({ at }: { at: number }) {
  */
 function useNavigationPane(front: boolean) {
   const panel = useCodeGraphStore((s) => s.panel);
-  const { openPanel, closePanel: closePane } = useSplitPanel();
+  const { openPanel, closePanel: closePane } = useSplitPanelActions();
   useEffect(() => {
     if (!front || !panel) return;
     openPanel(<NavigationPanel panel={panel} />, { width: 480, onClose: closePanel });

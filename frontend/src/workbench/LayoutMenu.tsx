@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { useSplitPanelState } from "@/components/ui/split-panel";
 import { modKey } from "@/lib/shortcut";
 import { agentPanelAllowed } from "./AgentCompanionSlot";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
@@ -36,7 +36,7 @@ const presetShortcut = (key: string) => (modKey() === "⌘" ? `⌃⇧${key}` : `
  * preset may close the focused module's pane.
  */
 export function LayoutMenu({ moduleId }: { moduleId: string | null }) {
-  const { panels } = useSplitPanel();
+  const { panels } = useSplitPanelState();
   // What is on screen: the Agent panel is never shown in Agent Hub, whatever
   // chatOpen says, so a layout saved there does not record it.
   const agentOpen = useAgentSessionsStore((s) => s.chatOpen) && agentPanelAllowed(moduleId);
@@ -67,7 +67,7 @@ export function LayoutMenu({ moduleId }: { moduleId: string | null }) {
       applyPlacement(plan.placement);
       setAgentOpen(plan.agentOpen);
       setTerminalOpen(plan.terminalOpen);
-      if (plan.closeContext && moduleId) panels[moduleId]?.onClose();
+      if (plan.closeContext && moduleId && !panels[moduleId]?.hidden) panels[moduleId]?.onClose();
     },
     [applyPlacement, setAgentOpen, setTerminalOpen, panels, moduleId],
   );
