@@ -38,6 +38,8 @@ export type AgentToolCallProps = {
    * row on demand.
    */
   sessionId?: string;
+  /** The transcript item this row draws, as `data-step-id` — how a run's "+N more" line finds it. */
+  stepId?: string;
   onOpenFile?: (path: string, line?: number) => void;
   className?: string;
 };
@@ -205,6 +207,7 @@ export function AgentToolCall({
   defaultExpanded = false,
   variant = "card",
   sessionId,
+  stepId,
   onOpenFile,
   className,
 }: AgentToolCallProps) {
@@ -395,6 +398,7 @@ export function AgentToolCall({
       <div
         data-testid="agent-tool-call"
         data-variant="row"
+        data-step-id={stepId}
         data-status={call.status ?? "completed"}
         data-state={state}
         className={cn("flex w-full min-w-0 flex-col", className)}

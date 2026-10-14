@@ -329,6 +329,40 @@ export const AgentTurn = React.memo(function AgentTurn({
 
 export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
 
+/**
+ * Which of a run's fixed slots draw — head (its row alone, or the summary
+ * line), fold, results, activities — always in that order, so the results
+ * slot is the same element whether the run has one step or more: a lone
+ * card stays mounted when a second step joins it.
+ */
+export function stepRunLayout({
+  items,
+  shown,
+  hidden,
+  activities,
+  commands,
+}: {
+  items: readonly TranscriptItem[];
+  shown: readonly TranscriptItem[];
+  hidden: readonly TranscriptItem[];
+  activities: number;
+  commands: number;
+}): { lone: boolean; head: "none" | "row" | "summary"; fold: boolean; results: boolean; activities: boolean } {
+  // One step needs no summary: "Thought" over a row reading "Thought" says the
+  // same thing twice, and a fold around a single line hides nothing. Unless it
+  // is a card: then the line is the way to its raw call. A lone result is its
+  // card, no row.
+  const lone = items.length === 1 && activities === 0 && commands === 0;
+  return {
+    lone,
+    head: lone ? (shown.length === 1 ? "none" : "row") : "summary",
+    fold: !lone,
+    // Results left in the fold are still said, even when the turn's cards are spent.
+    results: shown.length > 0 || hidden.length > 0,
+    activities: activities > 0 || commands > 0,
+  };
+}
+
 export function StepGroup({
   items,
   subagents,
@@ -351,9 +385,10 @@ export function StepGroup({
   results?: StepResults;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
-  // The step the "+N more" line points at, focused once the fold opens on it.
-  const [focusId, setFocusId] = React.useState<string | null>(null);
-  const focusRef = React.useRef<HTMLDivElement>(null);
+  // The step the "+N more" line points at, focused once the fold opens on it;
+  // `n` counts the clicks, so asking again focuses it again.
+  const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
+  const runRef = React.useRef<HTMLDivElement>(null);
   const activities = React.useMemo(() => items.filter((item) => isToolActivity(item.toolCall)), [items]);
   // A shell command still running: it gets a card with its clock while it
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
@@ -366,29 +401,30 @@ export function StepGroup({
   const { shown, hidden } = given ?? own ?? NO_RESULTS;
 
   React.useEffect(() => {
-    if (!open || !focusId) return;
-    focusRef.current?.querySelector<HTMLElement>("button, [href], [tabindex]")?.focus();
-  }, [open, focusId]);
+    if (!open || !focus) return;
+    // Compared, not put in a selector: an id is the vendor's string.
+    const rows = runRef.current?.querySelectorAll<HTMLElement>("[data-step-id]") ?? [];
+    const row = Array.from(rows).find((element) => element.dataset.stepId === focus.id);
+    row
+      ?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])')
+      ?.focus({ preventScroll: true });
+  }, [open, focus]);
 
-  // One step needs no summary: "Thought" over a row reading "Thought" says the
-  // same thing twice, and a fold around a single line hides nothing. Unless it
-  // is a card: then the line is the way to its raw call. A lone result is its
-  // card, no row.
-  const lone = items.length === 1 && activities.length === 0 && commands.length === 0;
-  const loneCard = lone && shown.length === 1;
-  // One wrapper and fixed slots — header, fold, results, activities — so a
-  // lone card is the same element when the run grows to two steps.
+  const layout = stepRunLayout({ items, shown, hidden, activities: activities.length, commands: commands.length });
+  const { lone } = layout;
+  const loneCard = lone && layout.head === "none";
+  // One wrapper and fixed slots (stepRunLayout). Hidden when the only thing in
+  // it is a step that draws nothing — a subagent or task with nothing to show.
   return (
     <div
+      ref={runRef}
       data-step-run=""
       data-testid={lone ? undefined : "step-group"}
       data-state={lone ? undefined : open ? "expanded" : "collapsed"}
-      className="flex w-full min-w-0 flex-col"
+      className="flex w-full min-w-0 flex-col empty:hidden"
     >
-      {lone ? (
-        loneCard ? null : (
-          <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />
-        )
+      {layout.head === "none" ? null : layout.head === "row" ? (
+        <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />
       ) : (
         <button
           type="button"
@@ -403,22 +439,16 @@ export function StepGroup({
           />
         </button>
       )}
-      {lone ? null : (
+      {layout.fold ? (
         <AnimatedCollapse open={open} className="pt-2">
           <div className="flex w-full flex-col gap-2">
-            {items.map((item) =>
-              item.id === focusId ? (
-                <div key={item.id} ref={focusRef} className="contents">
-                  <StepRow item={item} subagents={subagents} onOpenFile={onOpenFile} />
-                </div>
-              ) : (
-                <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
-              ),
-            )}
+            {items.map((item) => (
+              <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+            ))}
           </div>
         </AnimatedCollapse>
-      )}
-      {shown.length > 0 ? (
+      ) : null}
+      {layout.results ? (
         <div
           data-testid="step-results"
           className={cn("flex w-full min-w-0 flex-col gap-2 empty:hidden", !lone && "pt-2")}
@@ -438,7 +468,7 @@ export function StepGroup({
               data-testid="step-results-more"
               onClick={() => {
                 setOpen(true);
-                setFocusId(hidden[0].id);
+                setFocus((last) => ({ id: hidden[0].id, n: (last?.n ?? 0) + 1 }));
               }}
               className={cn(
                 "self-start cursor-pointer text-caption-11 text-text-tertiary underline decoration-border-subtle hover:text-text-secondary",
@@ -450,7 +480,7 @@ export function StepGroup({
           ) : null}
         </div>
       ) : null}
-      {activities.length > 0 || commands.length > 0 ? (
+      {layout.activities ? (
         <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
             <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
@@ -503,6 +533,7 @@ function StepRow({
         <AgentToolCall
           variant="row"
           sessionId={item.sessionId}
+          stepId={item.id}
           onOpenFile={onOpenFile}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
         />

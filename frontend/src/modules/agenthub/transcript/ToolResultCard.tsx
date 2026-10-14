@@ -30,6 +30,9 @@ export type ResultCandidate = { kind: "ready"; node: React.ReactNode } | { kind:
 
 // Per call object: the transcript hands the same object back until the call
 // changes, so a publish costs a lookup, not a parse and a render of the view.
+// It answers against the view registry as it stood on the first read: a view
+// registered later applies to calls not yet seen, not to these. Views are
+// registered by module manifests at start-up, before any transcript draws.
 const candidates = new WeakMap<ToolCall, ResultCandidate>();
 
 export function resultCandidate(call: ToolCall | undefined): ResultCandidate {
@@ -64,6 +67,11 @@ export const NO_RESULTS: StepResults = { shown: [], hidden: [] };
  * Splits a turn's results between its runs of steps, in call order, `cap` in
  * all. A lone step that has a result is that card, so it spends a slot too;
  * over the cap it is simply its row, with no fold to point into.
+ *
+ * Call order, not finishing order: when parallel calls land out of order, an
+ * earlier call finishing later takes its slot back, and a card already on
+ * screen can move into "+N more". Accepted — the order stays the one the
+ * agent made the calls in, which is how the fold lists them too.
  */
 export function surfaceResults(
   runs: readonly (readonly TranscriptItem[])[],
@@ -90,7 +98,9 @@ export function surfaceResults(
  *
  * When the view turns the full row down, or it cannot be loaded, there is no
  * card: `asRow` draws the call's row instead (a lone step has no fold holding
- * it), otherwise nothing — the fold has the row.
+ * it), otherwise nothing — the fold has the row. Such a card still holds its
+ * slot in the turn's count: which calls get a slot is decided before the full
+ * row is read, and re-deciding after a fetch would move the other cards.
  */
 export const ToolResultCard = React.memo(function ToolResultCard({
   call,

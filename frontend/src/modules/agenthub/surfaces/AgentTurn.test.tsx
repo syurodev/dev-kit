@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 
 import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
-import { AgentTurn, StepGroup, SubagentActivity } from "./AgentTurn";
+import { AgentTurn, StepGroup, stepRunLayout, SubagentActivity } from "./AgentTurn";
 import { registerToolResultView } from "@/workbench/toolResultViews";
 import { registerToolActivity } from "@/workbench/toolActivity";
 import { AgentFileChip } from "../transcript/AgentFileChip";
@@ -495,15 +495,39 @@ describe("results outside the fold", () => {
   });
 
   it("keeps a lone card where it was when a second step joins the run", () => {
-    // The card sits in the same slot of the same wrapper either way, so React
-    // keeps it mounted when the run grows from one step to two.
-    const shape = (html: string) => {
-      const wrapper = html.match(/^<div[^>]*data-step-run[^>]*>/)?.[0];
-      const results = html.indexOf('data-testid="step-results"');
-      return { wrapper: Boolean(wrapper), results: results > -1 };
-    };
-    expect(shape(renderToString(<StepGroup items={[viewed("a", 7)]} />))).toEqual({ wrapper: true, results: true });
-    expect(shape(renderToString(<StepGroup items={[viewed("a", 7), other]} />))).toEqual({ wrapper: true, results: true });
+    // Fixed slots in a fixed order, so the results slot is the same element
+    // whether the run has one step or two, and React keeps the card mounted.
+    const a = viewed("a", 7);
+    expect(stepRunLayout({ items: [a], shown: [a], hidden: [], activities: 0, commands: 0 })).toEqual({
+      lone: true,
+      head: "none",
+      fold: false,
+      results: true,
+      activities: false,
+    });
+    expect(stepRunLayout({ items: [a, other], shown: [a], hidden: [], activities: 0, commands: 0 })).toEqual({
+      lone: false,
+      head: "summary",
+      fold: true,
+      results: true,
+      activities: false,
+    });
+    // A lone step without a card is its row.
+    expect(stepRunLayout({ items: [other], shown: [], hidden: [], activities: 0, commands: 0 }).head).toBe("row");
+    // Results left in the fold still get their line.
+    expect(stepRunLayout({ items: [a, other], shown: [], hidden: [a], activities: 0, commands: 0 }).results).toBe(true);
+  });
+
+  it("marks each row of the fold with its step, for the line that points into it", () => {
+    const html = renderToString(<StepGroup defaultOpen items={[viewed("a", 1), other]} />);
+    expect(html).toContain('data-step-id="a"');
+    expect(html).toContain('data-step-id="o"');
+    expect(html).not.toContain('class="contents"');
+  });
+
+  it("hides a run whose only step draws nothing", () => {
+    const html = renderToString(<StepGroup items={[{ id: "s", kind: "subagent_spawned" }]} />);
+    expect(html).toMatch(/^<div[^>]*data-step-run[^>]*class="[^"]*empty:hidden/);
   });
 
   it("draws no result wrapper for a view that declines, and keeps a lone call's row", () => {
@@ -537,6 +561,23 @@ describe("results outside the fold", () => {
     expect(html).toContain("value 3");
     expect(html).not.toContain("value 4");
     expect(html).toContain("+1 more result in the work above");
+  });
+
+  it("mentions a run's results even when the turn's cards are spent", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "go" },
+      viewed("a", 1),
+      viewed("b", 2),
+      viewed("c", 3),
+      { id: "n1", kind: "agent_message_chunk", text: "Now the rest.", messageId: "m1" },
+      viewed("d", 4),
+      other,
+      viewed("e", 5),
+      { id: "n2", kind: "agent_message_chunk", text: "Done.", messageId: "m2" },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(count(html, 'data-testid="turn-result-card"')).toBe(3);
+    expect(html).toContain("+2 more results in the work above");
   });
 
   it("draws a card while the full row of a cut preview loads", () => {

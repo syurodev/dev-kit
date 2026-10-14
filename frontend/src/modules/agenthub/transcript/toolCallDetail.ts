@@ -25,12 +25,31 @@ export function toolCallFromDetail(payload: unknown): ToolCall | null {
  */
 export function toolCallDetailQuery(sessionId: string, callId: string) {
   return queryOptions({
-    queryKey: ["agenthub", "toolCallDetail", sessionId, callId] as const,
+    queryKey: ["agenthub", "toolCallDetail", sessionId, callId] as readonly string[],
     queryFn: async (): Promise<ToolCall> =>
       toolCallFromDetail((await agentHubToolCallDetail(sessionId, callId))?.Payload) ?? { id: callId },
     staleTime: Infinity,
     gcTime: 2 * 60_000,
   });
+}
+
+// The key every row that cannot load shares: whole, or with no session to ask.
+const NOTHING_TO_LOAD = ["agenthub", "toolCallDetail", "none"] as const;
+
+/**
+ * What useFullToolCall observes: the call's full row when it is cut and has a
+ * session to load it from, enabled once `asked`; otherwise one shared,
+ * disabled key, so a transcript of whole rows adds no cache entry per row.
+ */
+export function fullToolCallQuery(call: Pick<ToolCall, "id" | "truncated">, sessionId: string | undefined, asked: boolean) {
+  if (!call.truncated || !sessionId) {
+    return queryOptions({
+      queryKey: NOTHING_TO_LOAD as readonly string[],
+      queryFn: async (): Promise<ToolCall> => ({ id: call.id }),
+      enabled: false,
+    });
+  }
+  return { ...toolCallDetailQuery(sessionId, call.id), enabled: asked };
 }
 
 /**
@@ -45,7 +64,7 @@ export function useFullToolCall(call: Pick<ToolCall, "id" | "truncated">, sessio
   const canLoad = Boolean(call.truncated && sessionId);
   const [asked, setAsked] = React.useState(false);
   const query = useQuery(
-    { ...toolCallDetailQuery(sessionId ?? "", call.id), enabled: canLoad && (auto || asked) },
+    fullToolCallQuery(call, sessionId, auto || asked),
     // Passed, not read from context: rows render in tests and previews with no provider.
     queryClient,
   );
