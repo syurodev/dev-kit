@@ -12,7 +12,7 @@ mock.module("../../../bridge/agenthub", () => ({
   },
 }));
 
-const { fullToolCallQuery, toolCallDetailQuery } = await import("./toolCallDetail");
+const { fullToolCallQuery, resultCallOf, toolCallDetailQuery } = await import("./toolCallDetail");
 const { queryClient } = await import("@/lib/query");
 
 afterAll(() => {
@@ -51,5 +51,21 @@ describe("the full row of a cut tool call", () => {
     expect(orphan.enabled).toBe(false);
     expect(whole.queryKey).toEqual(orphan.queryKey);
     expect(whole.queryKey).not.toContain("c3");
+  });
+});
+
+describe("resultCallOf", () => {
+  test("the full row answers, the call on screen names it, and the answer is whole", () => {
+    const call = { id: "c", name: "mcp__devkit__db_query", title: "Query", status: "completed", truncated: true, rawOutput: '"{\\"col' };
+    const full = { id: "c", status: "in_progress", truncated: true, rawOutput: { columns: [] } };
+    expect(resultCallOf(call, full)).toEqual({
+      id: "c",
+      name: "mcp__devkit__db_query",
+      title: "Query",
+      status: "completed",
+      truncated: false,
+      rawOutput: { columns: [] },
+    });
+    expect(resultCallOf(call, null)).toBe(call);
   });
 });

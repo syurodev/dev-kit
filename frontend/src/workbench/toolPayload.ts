@@ -25,7 +25,7 @@
  * these as it is.
  */
 
-import { parseToolOutput, type ToolResultInput } from "./toolResultViews";
+import { DEVKIT_WIRE_PREFIX, parseToolOutput, type ToolResultInput } from "./toolResultViews";
 
 /** One ACP content block — the fields a result view may read. */
 export type ToolContentBlock = {
@@ -61,7 +61,6 @@ export type ToolCallLike = {
 export type ToolPayload = { payload: unknown } | { error: string };
 
 const CODEX_SERVER_PREFIX = "devkit.";
-const CLAUDE_WIRE_PREFIX = "mcp__devkit__";
 /**
  * What a stored row's rawOutput becomes once its page images are dropped
  * (internal/agenthub/transcript_slim.go: pageImageMarker — keep in step). It
@@ -96,7 +95,7 @@ export function toolNameOf(call: Pick<ToolCallLike, "name" | "title">): string {
  * so a name alone is not enough.
  */
 export function isDevkitTool(call: Pick<ToolCallLike, "name" | "title">): boolean {
-  if (call.name) return call.name.startsWith(CLAUDE_WIRE_PREFIX) || call.name.includes(".");
+  if (call.name) return call.name.startsWith(DEVKIT_WIRE_PREFIX) || call.name.includes(".");
   return toolNameOf(call) !== "";
 }
 

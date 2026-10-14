@@ -1,6 +1,7 @@
 import { toolNameOf, toolPayloadOf, type ToolCallLike } from "@/workbench/toolPayload";
 import { createToolRegistry } from "@/workbench/toolResultViews";
 import type { ToolCall, TranscriptItem } from "../types";
+import { resultCallOf } from "./toolCallDetail";
 
 /**
  * A database table or Kafka topic this session's own tool results named,
@@ -221,11 +222,11 @@ function readOf(call: ToolCallLike): Read {
 
 const fullReads = new WeakMap<object, Read>();
 
-/** The full row read as the call on screen: its name, title and status, the row's answer. */
-function fullReadOf(call: ToolCallLike, full: ToolCallLike): Read {
+/** The full row read as the call on screen (resultCallOf): its name, title and status, the row's answer. */
+function fullReadOf(call: ToolCall, full: ToolCall): Read {
   let read = fullReads.get(full);
   if (!read) {
-    read = readCall({ ...full, name: call.name ?? full.name, title: call.title ?? full.title, status: call.status, truncated: false });
+    read = readCall(resultCallOf(call, full));
     fullReads.set(full, read);
   }
   return read;

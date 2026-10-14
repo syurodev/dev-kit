@@ -52,7 +52,8 @@ export type ToolResultInput = {
 
 export type ToolResultRenderer = (input: ToolResultInput) => React.ReactNode | null;
 
-const WIRE_PREFIX = "mcp__devkit__";
+/** How Claude names a DevKit tool: this, then the Go name with every "." as "_" (wireForm). */
+export const DEVKIT_WIRE_PREFIX = "mcp__devkit__";
 
 /**
  * The wire-mangled form of a Go tool name, as Claude reports it in
@@ -65,7 +66,7 @@ const WIRE_PREFIX = "mcp__devkit__";
  * on: no two Go tool names may mangle to the same wire form.
  */
 function wireForm(name: string): string {
-  return WIRE_PREFIX + name.split(".").join("_");
+  return DEVKIT_WIRE_PREFIX + name.split(".").join("_");
 }
 
 /**

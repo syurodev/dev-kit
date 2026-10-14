@@ -1,4 +1,5 @@
 import { toolNameOf } from "@/workbench/toolPayload";
+import { createToolRegistry, DEVKIT_WIRE_PREFIX } from "@/workbench/toolResultViews";
 import type { CheckpointIndex } from "../checkpoints";
 import type { PlanEntry, TranscriptItem } from "../types";
 import { CheckpointStatus } from "../../../../bindings/devkit/internal/agenthub/models";
@@ -45,14 +46,14 @@ export function sessionChanges(index: CheckpointIndex): SessionChange[] {
 }
 
 const DATA_MODULES: Record<string, string> = { db: "Database", kafka: "Kafka", ssh: "SSH" };
-const WIRE = "mcp__devkit__";
 
 /**
  * Only tools that touch a target's data make a module a source. Listing the
  * saved profiles, the active one, a connection test or history says nothing
  * was read from or run on the target, so none of them are here.
  */
-const DATA_TOOLS: ReadonlySet<string> = new Set([
+const DATA_TOOLS = createToolRegistry<string>();
+for (const name of [
   "db.query",
   "db.explain",
   "db.schema.get",
@@ -63,22 +64,25 @@ const DATA_TOOLS: ReadonlySet<string> = new Set([
   "kafka.listConsumerGroups",
   "kafka.publishMessage",
   "ssh.runCommand",
-]);
+]) {
+  DATA_TOOLS.register(name, name);
+}
 
 /**
- * The DevKit tool a call names, as `module.tool`, or null for anything else.
- * The wire form (`mcp__devkit__db_schema_get`) swaps every "." for "_", and no
- * DevKit tool name has a real underscore, so the whole name is normalised.
+ * The DevKit data tool a call names, as its Go name `module.tool`, or null
+ * for anything else. Looked up forward, the way result views are
+ * (createToolRegistry): the Go name or Claude's wire form
+ * (`mcp__devkit__db_schema_get`), never by turning "_" back into "." — a Go
+ * name may hold an underscore, and a vendor's own `db_query` is not ours.
  * Codex's MCP calls carry no name: the title is `server.tool`
- * (codex_translate.go), so a DevKit one reads `devkit.db.query`.
+ * (codex_translate.go), so a DevKit one reads `devkit.db.query`; its tail
+ * may also come with underscores (`devkit.db_schema_get`), read as the wire form.
  */
 function devkitTool(call: NonNullable<TranscriptItem["toolCall"]>): string | null {
   // The name, else the tail of Codex's title (toolNameOf); "" for neither.
-  let name = toolNameOf(call);
+  const name = toolNameOf(call);
   if (!name) return null;
-  if (name.startsWith(WIRE)) name = name.slice(WIRE.length);
-  name = name.replace(/_/g, ".");
-  return DATA_TOOLS.has(name) ? name : null;
+  return DATA_TOOLS.lookup(name) ?? (call.name ? undefined : DATA_TOOLS.lookup(DEVKIT_WIRE_PREFIX + name)) ?? null;
 }
 
 export type ToolSource = { module: string; label: string; count: number; detail: string };

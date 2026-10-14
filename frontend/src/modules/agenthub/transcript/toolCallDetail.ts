@@ -82,10 +82,14 @@ export function useFullToolCall(call: Pick<ToolCall, "id" | "truncated">, sessio
   };
 }
 
-/** The call a result view reads: the full row answers for the output, the call on screen for who and how. */
+/**
+ * The call a result view reads: the full row answers for the output, the call
+ * on screen for who and how. The full row is the whole answer, so it is never
+ * read as a cut one.
+ */
 export function resultCallOf(call: ToolCall, fullCall: ToolCall | null): ToolCall {
   return fullCall
-    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status }
+    ? { ...fullCall, name: call.name ?? fullCall.name, title: call.title ?? fullCall.title, status: call.status, truncated: false }
     : call;
 }
 

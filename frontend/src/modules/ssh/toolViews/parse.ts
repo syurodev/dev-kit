@@ -47,7 +47,8 @@ export function clipLines(text: string, max: number): { shown: string; hidden: n
  * Terminal escapes, all of ECMA-48's shapes: CSI with private (`<=>?`) and
  * intermediate bytes; OSC ended by BEL or ST (titles, OSC 8 hyperlinks); DCS,
  * SOS, PM and APC strings; charset designators (`ESC ( B`); and the
- * two-character escapes (`ESC M`, `ESC 7`, `ESC =`).
+ * two-character escapes (`ESC M`, `ESC 7`, `ESC =`). In that last class,
+ * `\\-_` is a range, backslash to underscore: it covers `\ ] ^ _`.
  */
 const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[()][0-9A-Za-z]|[0-9@-Z\\-_=>])/g;
 

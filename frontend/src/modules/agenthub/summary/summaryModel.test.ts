@@ -92,6 +92,12 @@ describe("toolSources", () => {
     ).toEqual([]);
   });
 
+  test("a tool of another's that looks like ours once underscores turn to dots is not ours", () => {
+    // A vendor's own `db_query` is not DevKit's db.query: names are matched
+    // forward, from the Go names, never by guessing dots back into one.
+    expect(toolSources([call("db_query"), call("ssh_runCommand"), call("kafka_listTopics")])).toEqual([]);
+  });
+
   test("ssh.runCommand says how many commands ran", () => {
     expect(toolSources([call("ssh.runCommand"), call("ssh.listProfiles"), call("ssh.runCommand")])).toEqual([
       { module: "ssh", label: "SSH", count: 2, detail: "ran 2 commands" },
