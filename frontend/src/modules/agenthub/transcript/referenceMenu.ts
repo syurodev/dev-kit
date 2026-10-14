@@ -1,3 +1,4 @@
+import type { EntityHit } from "./entityRefs";
 import type { FileRef } from "./fileRef";
 
 export type MenuItem<Id extends string> = { id: Id; label: string };
@@ -5,6 +6,7 @@ export type FileMenuId = "open-beside" | "open-here" | "copy-path" | "copy-path-
 export type UrlMenuId = "open" | "copy";
 export type SymbolMenuId = "definition" | "copy";
 export type CommitMenuId = "open" | "copy";
+export type EntityMenuId = "open" | "copy";
 
 /** A file reference's context menu; Copy path:line only when the reference names a line. */
 export function fileMenuItems(ref: FileRef): MenuItem<FileMenuId>[] {
@@ -40,6 +42,14 @@ export function commitMenuItems(): MenuItem<CommitMenuId>[] {
   return [
     { id: "open", label: "Open in Git" },
     { id: "copy", label: "Copy SHA" },
+  ];
+}
+
+/** A table's or topic's context menu: open it in the module that owns it, or copy the name. */
+export function entityMenuItems(hit: EntityHit): MenuItem<EntityMenuId>[] {
+  return [
+    { id: "open", label: hit.kind === "table" ? "Open in Database" : "Open in Kafka" },
+    { id: "copy", label: "Copy name" },
   ];
 }
 

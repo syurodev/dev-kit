@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Copy, GitCommitHorizontal, SquareArrowOutUpRight } from "lucide-react";
+import { Copy, GitCommitHorizontal, SquareArrowOutUpRight, Table2, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { errorMessage } from "@/bridge/errors";
@@ -7,6 +7,7 @@ import { pinWorkFolder } from "@/bridge/workfolder";
 import { Button } from "@/components/ui/button";
 import { dispatchIntent, type Placement } from "@/workbench/intents";
 import { projectFolderPath, type SymbolHit } from "./codeRefs";
+import type { EntityHit } from "./entityRefs";
 import { openRefTarget } from "./openReference";
 import {
   copyWithNotice,
@@ -17,7 +18,14 @@ import {
   ReferencePreview,
   useRefTargetRead,
 } from "./ReferencePreview";
-import { commitMenuItems, symbolMenuItems, type CommitMenuId, type SymbolMenuId } from "./referenceMenu";
+import {
+  commitMenuItems,
+  entityMenuItems,
+  symbolMenuItems,
+  type CommitMenuId,
+  type EntityMenuId,
+  type SymbolMenuId,
+} from "./referenceMenu";
 import type { RefContext, RefTarget } from "./resolveFileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { workspaceFolders } from "./useCodeRefs";
@@ -163,6 +171,96 @@ export function CommitReference({ sha, refContext, children }: { sha: string; re
           onSelect={(id) => {
             if (id === "open") void openCommitRef(sha, refContext, placement);
             else void copyWithNotice(sha, "SHA copied");
+          }}
+        />
+      )}
+    >
+      {children}
+    </ReferencePreview>
+  );
+}
+
+export type EntityOpenDeps = {
+  dispatch: typeof dispatchIntent;
+  toastError: (message: string) => void;
+};
+
+const liveEntityDeps: EntityOpenDeps = {
+  dispatch: dispatchIntent,
+  toastError: (message) => {
+    toast.error(message);
+  },
+};
+
+/** The qualified name a table is shown and reported by; a topic's name as it is. */
+export function entityLabel(hit: EntityHit): string {
+  return hit.kind === "table" ? `${hit.schema}.${hit.table}` : hit.name;
+}
+
+/**
+ * Opens a table in Database or a topic in Kafka through their reveal
+ * intents (agenthub may not import either module), and says so when it could
+ * not: Database has no table to open, or no connected cluster has the topic.
+ */
+export async function openEntity(hit: EntityHit, placement: Placement, deps: EntityOpenDeps = liveEntityDeps): Promise<void> {
+  const label = entityLabel(hit);
+  try {
+    const outcome =
+      hit.kind === "table"
+        ? await deps.dispatch("database.reveal", { module: "database", kind: "table", id: hit.id, label: hit.name }, { placement })
+        : await deps.dispatch("kafka.reveal", { module: "kafka", kind: "topic", id: hit.id, label: hit.name }, { placement });
+    if (outcome === "unavailable") {
+      deps.toastError(
+        hit.kind === "table" ? `Couldn't open ${label}: Database isn't available` : `Couldn't open ${label}: it isn't on a connected Kafka cluster`,
+      );
+    }
+  } catch (error) {
+    deps.toastError(`Couldn't open ${label}: ${errorMessage(error)}`);
+  }
+}
+
+/** A table's or topic's hover card: what the session's results said, nothing fetched. */
+export function EntityPreview({ hit, onOpen }: { hit: EntityHit; onOpen: () => void }) {
+  return (
+    <div data-testid="ref-preview-entity" className="flex flex-col">
+      <div className="flex min-w-0 items-baseline gap-2 p-2.5">
+        <span className="min-w-0 truncate text-code-12 font-medium text-text-primary">{hit.name}</span>
+        <span className="shrink-0 text-caption-11 text-text-tertiary">{hit.kind === "table" ? `Table · ${hit.schema}` : "Topic"}</span>
+      </div>
+      <PreviewFooter>
+        <Button size="xs" variant="secondary" onClick={onOpen}>
+          {hit.kind === "table" ? "Open in Database" : "Open in Kafka"}
+        </Button>
+      </PreviewFooter>
+    </div>
+  );
+}
+
+const TABLE_ICONS: Record<EntityMenuId, React.ReactNode> = { open: <Table2 />, copy: <Copy /> };
+const TOPIC_ICONS: Record<EntityMenuId, React.ReactNode> = { open: <Workflow />, copy: <Copy /> };
+
+/** A table or topic in a finished message, with its card and menu. Copy name copies it as written. */
+export function EntityReference({ hit, name, children }: { hit: EntityHit; name: string; children: React.ReactElement }) {
+  const { refPlacement } = useTranscriptActions();
+  const placement = refPlacement ?? "beside";
+  return (
+    <ReferencePreview
+      preview={({ close }) => (
+        <EntityPreview
+          hit={hit}
+          onOpen={() => {
+            close();
+            void openEntity(hit, placement);
+          }}
+        />
+      )}
+      menu={() => (
+        <ReferenceMenu
+          items={() => entityMenuItems(hit)}
+          icons={hit.kind === "table" ? TABLE_ICONS : TOPIC_ICONS}
+          onSelect={(id) => {
+            if (id === "open") void openEntity(hit, placement);
+            else void copyWithNotice(name, "Name copied");
           }}
         />
       )}

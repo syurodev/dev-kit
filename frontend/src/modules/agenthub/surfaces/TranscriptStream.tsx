@@ -18,6 +18,7 @@ import { vendorInfo } from "../vendors";
 import { TranscriptActionsProvider } from "../transcript/transcriptActions";
 import type { RefContext } from "../transcript/resolveFileRef";
 import { refOpener } from "../transcript/openReference";
+import { sessionEntities, type SessionEntities } from "../transcript/entityRefs";
 import { RefPickerHost } from "../transcript/RefPicker";
 import type { Placement } from "@/workbench/intents";
 
@@ -289,10 +290,19 @@ export function TranscriptStream({
     () => (stableRefContext ? refOpener(stableRefContext, refPlacement) : undefined),
     [stableRefContext, refPlacement],
   );
+  // The tables and topics this session's results named. Each call is read
+  // once and the last answer comes back while no call changed, so a streamed
+  // token neither re-reads payloads nor re-renders prose through the context.
+  const entitiesRef = useRef<SessionEntities | undefined>(undefined);
+  const entities = useMemo(() => {
+    const next = sessionEntities(items, entitiesRef.current);
+    entitiesRef.current = next;
+    return next;
+  }, [items]);
   // Prose deep inside a turn opens a file through this, not through props.
   const transcriptActions = useMemo(
-    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef, refPlacement }),
-    [stableOnOpenFile, stableRefContext, openRef, refPlacement],
+    () => ({ onOpenFile: stableOnOpenFile, refContext: stableRefContext, openRef, refPlacement, entities }),
+    [stableOnOpenFile, stableRefContext, openRef, refPlacement, entities],
   );
   // Both callers pass this as an inline arrow. Handed to every AgentTurn as
   // it came, it was a new function per streamed token, so memo let no turn

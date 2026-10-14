@@ -9,9 +9,10 @@ import { fileRef, linkTarget } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { FileReference, UrlReference } from "./ReferencePreview";
-import { CommitReference, openCommitRef, openSymbol, SymbolReference } from "./CodeReference";
+import { CommitReference, EntityReference, entityLabel, openCommitRef, openEntity, openSymbol, SymbolReference } from "./CodeReference";
 import { codeSpans, commitCandidate, type SymbolHit } from "./codeRefs";
 import { useCodeRefs } from "./useCodeRefs";
+import { entityOf } from "./entityRefs";
 import {
   parseInline,
   parseMarkdownIncremental,
@@ -66,8 +67,9 @@ const REF_CODE =
 /**
  * Inline code that opens something. An inline <code>, not a <button>: a
  * button is an atomic inline-block and would stop a long path wrapping like
- * text. A file is underlined solid; a symbol or commit, found by lookup or by
- * shape rather than written as a path, dotted.
+ * text. A file is underlined solid; a symbol, commit, table or topic, found by
+ * lookup, by shape or in the session's results rather than written as a path,
+ * dotted. `kind` says which of the last two an entity reference is.
  */
 function refCode(
   testId: string,
@@ -75,12 +77,14 @@ function refCode(
   label: string,
   open?: (event: React.SyntheticEvent<HTMLElement>) => void,
   dotted = false,
+  kind?: string,
 ) {
   return (
     <code
       role="button"
       tabIndex={0}
       data-testid={testId}
+      data-kind={kind}
       // What it is and where it goes; the code alone says neither to a screen reader.
       aria-label={label}
       // Without `open` the wrapper opens it (FileReference), so nothing here can go stale.
@@ -144,7 +148,7 @@ export function Inline({ text }: { text: string }) {
  * inside it as well.
  */
 function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink?: boolean }) {
-  const { onOpenFile, openRef, refContext, refPlacement } = useTranscriptActions();
+  const { onOpenFile, openRef, refContext, refPlacement, entities } = useTranscriptActions();
   const { settled, symbols } = React.useContext(CodeRefsContext);
   const canOpen = Boolean(openRef || onOpenFile);
   return (
@@ -174,6 +178,17 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
                     true,
                   )}
                 </CommitReference>
+              );
+            }
+            // A table or topic this session's own results named: before the
+            // symbol lookup, which AgentProse does not ask about these names.
+            const entity = settled && !inLink ? entityOf(entities, token.value) : null;
+            if (entity) {
+              const what = entity.kind === "table" ? `Table ${entityLabel(entity)}, opens in Database` : `Topic ${entity.name}, opens in Kafka`;
+              return (
+                <EntityReference key={idx} hit={entity} name={token.value}>
+                  {refCode("agent-entity-ref", token.value, what, () => void openEntity(entity, placement), true, entity.kind)}
+                </EntityReference>
               );
             }
             const hit = settled && !inLink ? symbols.get(token.value) : undefined;
@@ -492,8 +507,13 @@ export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, clas
     return next;
   }, [text]);
   const { blocks, blockKeys } = markdown;
-  const { refContext, lookupSymbol } = useTranscriptActions();
-  const spans = React.useMemo(() => (settled ? codeSpans(blocks) : NO_SPANS), [settled, blocks]);
+  const { refContext, lookupSymbol, entities } = useTranscriptActions();
+  // A table or topic the session named is that, not a symbol: it is never
+  // looked up, and leaves its place under the per-message cap to a real name.
+  const spans = React.useMemo(
+    () => (settled ? codeSpans(blocks).filter((span) => !entityOf(entities, span)) : NO_SPANS),
+    [settled, blocks, entities],
+  );
   const symbols = useCodeRefs(spans, refContext ?? null, settled, lookupSymbol);
   const codeRefs = React.useMemo<CodeRefs>(() => (settled ? { settled, symbols } : NO_CODE_REFS), [settled, symbols]);
   return (

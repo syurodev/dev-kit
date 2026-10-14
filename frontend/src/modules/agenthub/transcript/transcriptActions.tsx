@@ -3,6 +3,7 @@ import type { Placement } from "@/workbench/intents";
 import type { FileRef } from "./fileRef";
 import type { RefContext } from "./resolveFileRef";
 import type { SymbolHit } from "./codeRefs";
+import type { SessionEntities } from "./entityRefs";
 
 export type TranscriptActions = {
   /** Opens an absolute location (tool-call chips); the fallback for prose when `openRef` is absent. */
@@ -15,6 +16,8 @@ export type TranscriptActions = {
   refPlacement?: Placement;
   /** Replaces the workspace symbol lookup of finished messages (tests, the dev gallery). */
   lookupSymbol?: (name: string) => SymbolHit | null | undefined;
+  /** The tables and topics this session's tool results named; finished messages link them. */
+  entities?: SessionEntities;
 };
 
 const Ctx = React.createContext<TranscriptActions>({});
