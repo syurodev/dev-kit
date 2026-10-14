@@ -189,6 +189,21 @@ export function keyboardResize(
 }
 
 /**
+ * Starting widths grown to fill `available` px, each column by its share of the
+ * total, so a table in prose or a card spans the column it sits in rather than
+ * stopping short with empty room beside it. Whole pixels; the rounding lands on
+ * the last column, so the sum is exactly the room. A table already as wide as
+ * the room, or wider (`fitWidths` handles that), is left alone.
+ */
+export function fillWidths(widths: readonly number[], available: number): number[] {
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  if (!(available > 0) || total <= 0 || total >= available) return [...widths];
+  const next = widths.map((width) => Math.floor((width * available) / total));
+  next[next.length - 1] += available - next.reduce((sum, width) => sum + width, 0);
+  return next;
+}
+
+/**
  * Starting widths shrunk to fit `available` px, so a table whose content asks
  * for more than the room does not push its last column past the edge — a
  * measured 640px value would otherwise leave a timestamp after it cut in half.

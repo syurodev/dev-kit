@@ -4,6 +4,7 @@ import {
   MAX_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
   dragWidths,
+  fillWidths,
   fitWidths,
   keyboardResize,
   tableColumnWidth,
@@ -107,6 +108,29 @@ describe("dragWidths", () => {
   test("stops at the maximum", () => {
     expect(dragWidths([100], 0, 0, 100_000)).toEqual([MAX_COLUMN_WIDTH_PX]);
     expect(nextWidths([100], 0, 100_000)).toEqual([MAX_COLUMN_WIDTH_PX]);
+  });
+});
+
+describe("fillWidths", () => {
+  test("a table narrower than the room grows to fill it, each column by its share", () => {
+    const filled = fillWidths([100, 300], 800);
+    expect(filled.reduce((a, b) => a + b, 0)).toBe(800);
+    expect(filled).toEqual([200, 600]);
+  });
+
+  test("rounding lands on the last column, so the sum is exact", () => {
+    const filled = fillWidths([100, 100, 100], 1000);
+    expect(filled.reduce((a, b) => a + b, 0)).toBe(1000);
+    expect(filled.every(Number.isInteger)).toBe(true);
+  });
+
+  test("a table that already fills or overflows the room is left alone", () => {
+    expect(fillWidths([400, 500], 800)).toEqual([400, 500]);
+    expect(fillWidths([400, 400], 800)).toEqual([400, 400]);
+  });
+
+  test("no room, no change", () => {
+    expect(fillWidths([100, 200], 0)).toEqual([100, 200]);
   });
 });
 

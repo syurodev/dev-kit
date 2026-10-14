@@ -7,6 +7,7 @@ import {
   MAX_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
   dragWidths,
+  fillWidths,
   fitWidths,
   keyboardResize,
   tableColumnWidth,
@@ -45,6 +46,9 @@ export type DataTableProps = {
   /** The clickable row whose detail is open: it reads as expanded and stays
    *  highlighted. Leave unset when a click opens nothing in place. */
   expandedRow?: number | null;
+  /** Until somebody resizes, a table narrower than the room grows its columns
+   *  to span it (`fillWidths`). Off, it is as wide as its content. */
+  fill?: boolean;
   className?: string;
   "data-testid"?: string;
 };
@@ -95,7 +99,7 @@ function stringRows(rows: DataTableProps["rows"]): (string | null)[][] | undefin
  * Widths are this component's state: they survive re-renders and are not
  * persisted. Until somebody resizes, they follow the content, so a table that
  * streams in is measured on what it has rather than on its first row, and they
- * are fitted to the room (`fitWidths`), so the last column is never cut at the
+ * are fitted to the room (`fitWidths`, `fillWidths`), so the last column is never cut at the
  * edge because an earlier one measured wide. A drag or auto-fit ends both.
  */
 export function DataTable({
@@ -109,6 +113,7 @@ export function DataTable({
   onRowClick,
   rowAriaLabel,
   expandedRow,
+  fill = true,
   className,
   "data-testid": testId,
 }: DataTableProps) {
@@ -130,16 +135,18 @@ export function DataTable({
   const rowHeight = dense ? DENSE_ROW_HEIGHT_PX : ROW_HEIGHT_PX;
   const virtual = useVirtualRows(rows.length, rowHeight);
   const room = useRoom(virtual.scrollRef);
-  // Until somebody resizes, the content's widths are fitted to the room, so a
-  // wide column cannot push the last one past the edge; after, theirs win.
+  // Until somebody resizes, the content's widths are fitted to the room: a wide
+  // column cannot push the last one past the edge, and a narrow table grows to
+  // span it. After a resize, theirs win.
   const fitted = React.useMemo(() => {
     const start = columns.map((_, index) => measured?.[index] ?? DEFAULT_COLUMN_WIDTH_PX);
     if (room === null) return start;
-    return fitWidths(start, room, {
+    const fit = fitWidths(start, room, {
       min: columns.map((column) => tableColumnWidth(labelOf(column), [], {})),
       wraps: columns.map((column) => !column.nowrap && !virtual.virtualized),
     });
-  }, [columns, measured, room, virtual.virtualized]);
+    return fill ? fillWidths(fit, room) : fit;
+  }, [columns, measured, room, virtual.virtualized, fill]);
   const widths = columns.map((_, index) => dragged?.[index] ?? fitted[index]);
   const total = widths.reduce((sum, width) => sum + width, 0);
 
