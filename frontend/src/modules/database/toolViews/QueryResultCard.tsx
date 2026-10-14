@@ -6,7 +6,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table/Data
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { useDatabaseStore } from "../databaseStore";
 import { connectionPhrase, openAgentSql } from "./openAgentSql";
-import { toCsv, writeSummary, type ParsedQueryResult } from "./parse";
+import { isWriteStatement, toCsv, writeSummary, type ParsedQueryResult } from "./parse";
 
 /** Rows the card shows before Show all: enough to read, not a page. */
 const PREVIEW_ROWS = 20;
@@ -17,7 +17,8 @@ const PREVIEW_ROWS = 20;
  * SQL NULL. The header names the connection that ran it when this window
  * knows it. A write has no columns and says what it changed instead, and
  * offers nothing to open: a console holding an agent's write is one keystroke
- * from running it again.
+ * from running it again. A write that returned rows (RETURNING, a CTE) shows
+ * them and offers nothing to open either (isWriteStatement).
  *
  * Open in Database switches to the agent's connection and shows these rows as
  * the console's result, without running anything (openAgentSql).
@@ -33,6 +34,9 @@ export function QueryResultCard({
 }) {
   const [all, setAll] = useState(false);
   const write = result.columns.length === 0;
+  // A write that returned rows (RETURNING, a data-modifying CTE) is still a
+  // write: its rows are shown, but it is not put in a console.
+  const openable = !write && !isWriteStatement(sql);
   const count = result.rows.length;
   const connection = useDatabaseStore((s) => connectionPhrase(result.profileId, s.profiles));
   const summary = write
@@ -64,7 +68,7 @@ export function QueryResultCard({
                 <Copy aria-hidden="true" />
                 Copy CSV
               </FramedCardAction>
-              {sql ? (
+              {sql && openable ? (
                 <FramedCardAction
                   onClick={() =>
                     void openAgentSql(sql, result.profileId, {

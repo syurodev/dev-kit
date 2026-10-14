@@ -74,6 +74,17 @@ describe("QueryResultCard", () => {
     expect(html).not.toContain("Open in Database");
   });
 
+  // RETURNING and data-modifying CTEs answer with columns: the shape alone
+  // would offer to put the write into a console, one keystroke from again.
+  test("a write that returns rows shows them but offers nothing to open", () => {
+    for (const sql of ["update users set x = 1 returning id", "with t as (delete from a returning *) select * from t"]) {
+      const html = renderToString(<QueryResultCard result={read(2)} sql={sql} />);
+      expect(html).toContain("<table");
+      expect(html).toContain("Copy CSV");
+      expect(html).not.toContain("Open in Database");
+    }
+  });
+
   test("one row affected is one row", () => {
     const write = { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 1 };
     expect(renderToString(<QueryResultCard result={write} sql="delete from t where id = 1" />)).toContain(

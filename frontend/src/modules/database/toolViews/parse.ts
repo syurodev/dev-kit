@@ -262,6 +262,30 @@ function firstKeyword(sql: string): string {
  * which read as "0 rows affected" looks like a failure. A 0 from a statement
  * that writes rows is real — it matched none — and stays.
  */
+/** Comments, string literals and quoted identifiers, gone — what is left is keywords and names. */
+function codeOnly(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, " ")
+    .replace(/#[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:[^']|'')*'/g, " ")
+    .replace(/"(?:[^"]|"")*"/g, " ")
+    .replace(/`[^`]*`/g, " ");
+}
+
+/**
+ * Whether a statement writes, read from its text rather than its answer:
+ * `INSERT … RETURNING` and a data-modifying CTE come back with columns, and
+ * the result's shape alone would offer to put them in a console. A `WITH`
+ * counts when an INSERT/UPDATE/DELETE/MERGE appears in its code (not in a
+ * comment or string); a read CTE does not. `SELECT … FOR UPDATE` is a read.
+ */
+export function isWriteStatement(sql: string): boolean {
+  const first = firstKeyword(sql);
+  if (first === "WITH") return /\b(?:insert|update|delete|merge)\b/i.test(codeOnly(sql));
+  return ROW_WRITES.has(first);
+}
+
 export function writeSummary(rowsAffected: number, sql: string): string {
   if (rowsAffected < 0) return "Done";
   if (rowsAffected === 0 && !ROW_WRITES.has(firstKeyword(sql))) return "Done";

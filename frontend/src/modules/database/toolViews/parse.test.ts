@@ -4,6 +4,7 @@ import {
   parsePlanResult,
   parseQueryResult,
   parseSchemaResult,
+  isWriteStatement,
   profileIdOf,
   sqlOf,
   toCsv,
@@ -246,5 +247,27 @@ describe("writeSummary", () => {
     expect(writeSummary(0, "upsert into t values (1)")).toBe("0 rows affected");
     expect(writeSummary(0, "copy t from stdin")).toBe("0 rows affected");
     expect(writeSummary(0, "# mysql comment\nUPDATE t SET x = 1")).toBe("0 rows affected");
+  });
+});
+
+describe("isWriteStatement", () => {
+  test("a statement that writes rows, RETURNING or not", () => {
+    expect(isWriteStatement("insert into t (a) values (1) returning id")).toBe(true);
+    expect(isWriteStatement("UPDATE users SET x = 1 RETURNING *")).toBe(true);
+    expect(isWriteStatement("-- tidy up\n  delete from t where id = 1 returning id")).toBe(true);
+    expect(isWriteStatement("merge into t using s on t.id = s.id when matched then delete")).toBe(true);
+  });
+
+  test("a data-modifying CTE is a write", () => {
+    expect(isWriteStatement("with t as (update x set y = 1 returning id) select * from t")).toBe(true);
+    expect(isWriteStatement("WITH moved AS (DELETE FROM a RETURNING *) INSERT INTO b SELECT * FROM moved")).toBe(true);
+  });
+
+  test("a read is not, even when it mentions a write word in text or a lock", () => {
+    expect(isWriteStatement("select * from t")).toBe(false);
+    expect(isWriteStatement("select * from t for update")).toBe(false);
+    expect(isWriteStatement("with t as (select 1 as n) select * from t")).toBe(false);
+    expect(isWriteStatement("with t as (select 'delete' as word) select * from t -- update later")).toBe(false);
+    expect(isWriteStatement("")).toBe(false);
   });
 });
