@@ -14,8 +14,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useHighlight, type Highlight } from "@/components/code/CodeBlock";
+import { HIGHLIGHT_LIMIT } from "@/components/code/highlight";
 import { languageForPath } from "@/components/code/languages";
-import type { Placement } from "@/workbench/intents";
+import { dispatchIntent, type Placement } from "@/workbench/intents";
 import type { FileRef } from "./fileRef";
 import { fileRefQuery, useFileRefResolution, type RefContext, type RefResolution, type RefTarget } from "./resolveFileRef";
 import { openRefTarget } from "./openReference";
@@ -25,28 +26,62 @@ import { useTranscriptActions } from "./transcriptActions";
 
 /** Lines shown either side of the target line. */
 const CONTEXT_LINES = 4;
+/** Rows in a preview's body, in every state: the slice's full height. */
+const PREVIEW_ROWS = CONTEXT_LINES * 2 + 1;
+/** Past the highlight limit, the text around the target that is coloured: enough that a comment or string opened above is still read as one. */
+const HIGHLIGHT_WINDOW = 200;
+
+const LINE_BREAK = /\r?\n/;
+
+/** A file's lines; a trailing newline is not a line. */
+function fileLines(content: string): string[] {
+  const all = content.split(LINE_BREAK);
+  if (all.length > 1 && all[all.length - 1] === "") all.pop();
+  return all;
+}
 
 /**
  * The lines a preview shows: four either side of `line`, clamped to the file,
- * or the first nine when there is no line. A trailing newline is not a line.
+ * or the first nine when there is no line.
  */
 export function previewSlice(content: string, line: number | undefined): { startLine: number; lines: string[] } {
-  const all = content.split("\n");
-  if (all.length > 1 && all[all.length - 1] === "") all.pop();
-  if (line === undefined) return { startLine: 1, lines: all.slice(0, CONTEXT_LINES * 2 + 1) };
+  const all = fileLines(content);
+  if (line === undefined) return { startLine: 1, lines: all.slice(0, PREVIEW_ROWS) };
   const at = Math.min(Math.max(line, 1), all.length);
   const start = Math.max(1, at - CONTEXT_LINES);
   const end = Math.min(all.length, at + CONTEXT_LINES);
   return { startLine: start, lines: all.slice(start - 1, end) };
 }
 
+/**
+ * What a preview highlights and which lines of it it shows. A file the
+ * highlighter takes is highlighted whole, so a comment or string opened above
+ * the slice still colours it; a larger one is highlighted in a window of two
+ * hundred lines either side of the target. Lines are 1-based and inclusive;
+ * `target` is the line raised, clamped to the file.
+ */
+export type PreviewWindow = { code: string; codeStart: number; startLine: number; endLine: number; target?: number; total: number };
+
+export function previewWindow(content: string, line: number | undefined): PreviewWindow {
+  const all = fileLines(content);
+  const total = all.length;
+  const target = line === undefined ? undefined : Math.min(Math.max(line, 1), total);
+  const startLine = target === undefined ? 1 : Math.max(1, target - CONTEXT_LINES);
+  const endLine = target === undefined ? Math.min(total, PREVIEW_ROWS) : Math.min(total, target + CONTEXT_LINES);
+  if (content.length <= HIGHLIGHT_LIMIT) return { code: all.join("\n"), codeStart: 1, startLine, endLine, target, total };
+  const around = target ?? 1;
+  const codeStart = Math.max(1, around - HIGHLIGHT_WINDOW);
+  const codeEnd = Math.min(total, around + HIGHLIGHT_WINDOW);
+  return { code: all.slice(codeStart - 1, codeEnd).join("\n"), codeStart, startLine, endLine, target, total };
+}
+
 /** The code split into lines, each with its colours; a syntax run that spans lines is cut at each newline. */
 export function highlightedLines(code: string, highlight: Pick<Highlight, "code" | "segments"> | null): React.ReactNode[] {
-  if (!highlight || highlight.code !== code) return code.split("\n");
+  if (!highlight || highlight.code !== code) return code.split(LINE_BREAK);
   const lines: React.ReactNode[][] = [[]];
   let key = 0;
   for (const segment of highlight.segments) {
-    segment.text.split("\n").forEach((part, index) => {
+    segment.text.split(LINE_BREAK).forEach((part, index) => {
       if (index > 0) lines.push([]);
       if (part === "") return;
       lines[lines.length - 1].push(
@@ -63,6 +98,16 @@ export function highlightedLines(code: string, highlight: Pick<Highlight, "code"
   return lines.map((nodes) => (nodes.length === 1 && typeof nodes[0] === "string" ? nodes[0] : nodes.length === 0 ? "" : nodes));
 }
 
+/** The rows a preview shows, cut from the highlighted window. */
+export function previewRows(window: PreviewWindow, highlight: Pick<Highlight, "code" | "segments"> | null): React.ReactNode[] {
+  return highlightedLines(window.code, highlight).slice(window.startLine - window.codeStart, window.endLine - window.codeStart + 1);
+}
+
+/** Whether a hover card may open now: a pointer resting on it, not just pressed, and no context menu over it. */
+export function hoverMayOpen(state: { pointerInside: boolean; pressed: boolean; menuOpen: boolean }): boolean {
+  return state.pointerInside && !state.pressed && !state.menuOpen;
+}
+
 type Controls = {
   /** Closes the hover card, before an action moves the person elsewhere. */
   close: () => void;
@@ -75,26 +120,70 @@ type Controls = {
  * ModuleSwitcher composition: the hover card's trigger is the context menu's
  * trigger, and the card gives way when the menu opens. The preview is only
  * mounted while the card is open, so nothing is read before someone hovers.
+ *
+ * Only a pointer opens the card. Focus alone does not: a keyboard user opens
+ * the reference with Enter (`onActivate`) and reaches the rest through the
+ * context menu, which the trigger announces. A click closes the card, which
+ * stays shut until the pointer leaves and comes back.
  */
 export function ReferencePreview({
   preview,
   menu,
+  onActivate,
+  activateKeys,
   children,
 }: {
   preview: (controls: Controls) => React.ReactNode;
   menu: ((controls: Controls) => React.ReactNode) | null;
+  /** Opens the reference on click, and on `activateKeys`; attached here so the child needs no handler of its own. */
+  onActivate?: (event: React.SyntheticEvent<HTMLElement>) => void;
+  activateKeys?: readonly string[];
   children: React.ReactElement;
 }) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLElement | null>(null);
+  const pointer = React.useRef({ pointerInside: false, pressed: false, menuOpen: false });
   const controls: Controls = { close: () => setOpen(false), anchor: () => triggerRef.current };
   return (
-    <HoverCard open={open} onOpenChange={setOpen} openDelay={400} closeDelay={120}>
-      <ContextMenu onOpenChange={(menuOpen) => menuOpen && setOpen(false)}>
+    <HoverCard
+      open={open}
+      onOpenChange={(next) => {
+        if (next && !hoverMayOpen(pointer.current)) return;
+        setOpen(next);
+      }}
+      openDelay={400}
+      closeDelay={120}
+    >
+      <ContextMenu
+        onOpenChange={(menuOpen) => {
+          pointer.current.menuOpen = menuOpen;
+          if (menuOpen) setOpen(false);
+        }}
+      >
         <HoverCardTrigger
           asChild
           ref={(node: HTMLElement | null) => {
             triggerRef.current = node;
+          }}
+          aria-haspopup="menu"
+          onPointerEnter={() => {
+            pointer.current.pointerInside = true;
+          }}
+          onPointerLeave={() => {
+            pointer.current.pointerInside = false;
+            pointer.current.pressed = false;
+          }}
+          onPointerDown={() => {
+            pointer.current.pressed = true;
+          }}
+          onClick={(event: React.MouseEvent<HTMLElement>) => {
+            setOpen(false);
+            onActivate?.(event);
+          }}
+          onKeyDown={(event: React.KeyboardEvent<HTMLElement>) => {
+            if (!onActivate || !activateKeys?.includes(event.key)) return;
+            event.preventDefault();
+            onActivate(event);
           }}
         >
           {/* select-text: the reference is part of a sentence someone may select. */}
@@ -158,8 +247,22 @@ export function filePreviewState(
 }
 
 /** The path as a header: folder dim and cut from the left, file name bold, the folder's name on the right. */
-function PreviewHeader({ path, line, folderName, kind }: { path: string; line?: number; folderName?: string; kind?: string }) {
+function PreviewHeader({
+  path,
+  line,
+  total,
+  folderName,
+  kind,
+}: {
+  path: string;
+  line?: number;
+  /** The file's length, when known: a line past it is said so rather than shown as found. */
+  total?: number;
+  folderName?: string;
+  kind?: string;
+}) {
   const { name, dir } = splitRel(path);
+  const pastEnd = line !== undefined && total !== undefined && line > total;
   return (
     <div className="flex min-w-0 items-baseline gap-2 border-b border-border-subtle p-2.5">
       <span className="flex min-w-0 flex-1 items-baseline text-code-12" title={path}>
@@ -169,9 +272,10 @@ function PreviewHeader({ path, line, folderName, kind }: { path: string; line?: 
             <bdi dir="ltr">{dir}</bdi>
           </span>
         ) : null}
-        <span className="shrink-0 font-medium text-text-primary">{name}</span>
-        {line !== undefined ? <span className="shrink-0 text-text-tertiary">:{line}</span> : null}
+        <span className="min-w-0 truncate font-medium text-text-primary">{name}</span>
+        {line !== undefined && !pastEnd ? <span className="shrink-0 text-text-tertiary">:{line}</span> : null}
       </span>
+      {pastEnd ? <span className="shrink-0 text-caption-11 text-text-tertiary">{`line ${line} of ${total}`}</span> : null}
       {kind || folderName ? (
         <span className="shrink-0 text-caption-11 text-text-tertiary">{[kind, folderName].filter(Boolean).join(" · ")}</span>
       ) : null}
@@ -179,26 +283,25 @@ function PreviewHeader({ path, line, folderName, kind }: { path: string; line?: 
   );
 }
 
-function PreviewLines({ target, content }: { target: RefTarget; content: string }) {
-  const slice = previewSlice(content, target.line);
-  const code = slice.lines.join("\n");
-  const highlight = useHighlight(code, languageForPath(target.rel) ?? "text");
-  const lines = highlightedLines(code, highlight);
-  const numbers = lines.map((_, index) => slice.startLine + index);
+function PreviewLines({ window, language }: { window: PreviewWindow; language: string }) {
+  const highlight = useHighlight(window.code, language);
+  // Split once per highlight, not per render: the window can be a whole file.
+  const rows = React.useMemo(() => previewRows(window, highlight), [window, highlight]);
+  const numbers = rows.map((_, index) => window.startLine + index);
   // Two columns rather than a table: every cell is one line high (h-lh, so an
   // empty line keeps its height), and the target row is raised in both.
   return (
-    <div className="flex overflow-hidden py-2.5 text-code-12">
+    <div className="flex py-2.5">
       <div aria-hidden="true" className="flex shrink-0 flex-col text-right text-text-tertiary tabular-nums select-none">
         {numbers.map((number) => (
-          <span key={number} className={cn("h-lh pr-3 pl-2.5", number === target.line && "bg-state-soft")}>
+          <span key={number} className={cn("h-lh pr-3 pl-2.5", number === window.target && "bg-state-soft")}>
             {number}
           </span>
         ))}
       </div>
-      <div className="flex min-w-0 flex-1 flex-col text-text-primary">
-        {lines.map((node, index) => {
-          const isTarget = numbers[index] === target.line;
+      <div className="flex min-w-0 flex-1 flex-col text-text-primary tab-size-2">
+        {rows.map((node, index) => {
+          const isTarget = numbers[index] === window.target;
           return (
             <span
               key={numbers[index]}
@@ -215,12 +318,36 @@ function PreviewLines({ target, content }: { target: RefTarget; content: string 
   );
 }
 
+const SKELETON_WIDTHS = ["w-3/4", "w-1/2", "w-2/3", "w-5/6", "w-2/5", "w-3/5", "w-3/4", "w-1/2", "w-2/3"];
+
+/**
+ * The body's box: nine invisible rows give it the slice's height in every
+ * state, so the card does not change size as a file loads, and whatever fills
+ * it scrolls inside.
+ */
+function PreviewBody({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-testid="ref-preview-body" className="relative text-code-12">
+      <div data-testid="ref-preview-sizer" aria-hidden="true" className="invisible flex flex-col py-2.5">
+        {SKELETON_WIDTHS.map((_, index) => (
+          <span key={index} className="h-lh" />
+        ))}
+      </div>
+      <div className="absolute inset-0 overflow-y-auto">{children}</div>
+    </div>
+  );
+}
+
 function PreviewNote({ children }: { children: React.ReactNode }) {
   return <p className="p-2.5 text-body-13 text-text-secondary">{children}</p>;
 }
 
 export function PreviewFooter({ children }: { children: React.ReactNode }) {
-  return <div className="flex justify-end gap-1.5 border-t border-border-subtle p-2.5">{children}</div>;
+  return (
+    <div data-testid="ref-preview-footer" className="flex justify-end gap-1.5 border-t border-border-subtle p-2.5">
+      {children}
+    </div>
+  );
 }
 
 /** The file preview for a given state; the hooks live in FileRefPreview. */
@@ -235,46 +362,40 @@ export function FilePreviewView({
   state: FilePreviewState;
   /** What the reference names, for a symbol: class, method. */
   kind?: string;
-  onOpen: (placement: Placement) => void;
+  /** No placement: the surface's own (beside in the Hub, in place in the rail). */
+  onOpen: (placement?: Placement) => void;
   onPick: (target: RefTarget) => void;
 }) {
+  const content = state.kind === "text" ? state.content : null;
+  const line = fileRef.line;
+  const window = React.useMemo(() => (content === null ? null : previewWindow(content, line)), [content, line]);
   const target = "target" in state ? state.target : undefined;
+  // The path as written until the resolved one arrives.
   const header = target ? (
-    <PreviewHeader path={target.rel} line={fileRef.line} folderName={target.folderName} kind={kind} />
+    <PreviewHeader path={target.rel} line={line} total={window?.total} folderName={target.folderName} kind={kind} />
   ) : (
-    <PreviewHeader path={fileRef.path} line={fileRef.line} />
+    <PreviewHeader path={fileRef.path} line={line} />
   );
-  const openButtons = (
-    <PreviewFooter>
-      <Button size="xs" variant="ghost" onClick={() => onOpen("replace")}>
-        Open here
-      </Button>
-      <Button size="xs" variant="secondary" onClick={() => onOpen("beside")}>
-        Open
-      </Button>
-    </PreviewFooter>
-  );
+  const canOpen = state.kind === "loading" || state.kind === "text" || state.kind === "unreadable";
 
   let body: React.ReactNode;
-  let footer: React.ReactNode = null;
   switch (state.kind) {
     case "loading":
       body = (
-        <div className="flex flex-col gap-1.5 p-2.5 text-code-12">
-          <Skeleton className="h-lh w-3/4" />
-          <Skeleton className="h-lh w-1/2" />
-          <Skeleton className="h-lh w-2/3" />
+        <div className="flex flex-col py-2.5 pr-2.5 pl-2.5">
+          {SKELETON_WIDTHS.map((width, index) => (
+            <span key={index} className="flex h-lh items-center">
+              <Skeleton className={cn("h-3", width)} />
+            </span>
+          ))}
         </div>
       );
-      footer = openButtons;
       break;
     case "text":
-      body = <PreviewLines target={state.target} content={state.content} />;
-      footer = openButtons;
+      body = window ? <PreviewLines window={window} language={languageForPath(state.target.rel) ?? "text"} /> : null;
       break;
     case "unreadable":
       body = <PreviewNote>{UNREADABLE[state.reason]}</PreviewNote>;
-      footer = openButtons;
       break;
     case "missing":
       body = <PreviewNote>Not found in this workspace</PreviewNote>;
@@ -288,13 +409,7 @@ export function FilePreviewView({
       );
       break;
     case "unsupported":
-      footer = (
-        <PreviewFooter>
-          <Button size="xs" variant="secondary" onClick={() => onOpen("beside")}>
-            Open in Code Graph
-          </Button>
-        </PreviewFooter>
-      );
+      body = <PreviewNote>No workspace to resolve this in.</PreviewNote>;
       break;
     case "error":
       body = <PreviewNote>{state.message}</PreviewNote>;
@@ -303,8 +418,23 @@ export function FilePreviewView({
   return (
     <div data-testid="ref-preview-file" className="flex flex-col">
       {header}
-      {body}
-      {footer}
+      <PreviewBody>{body}</PreviewBody>
+      <PreviewFooter>
+        {state.kind === "unsupported" ? (
+          <Button size="xs" variant="secondary" onClick={() => onOpen()}>
+            Open in Code Graph
+          </Button>
+        ) : (
+          <>
+            <Button size="xs" variant="ghost" disabled={!canOpen} onClick={() => onOpen("replace")}>
+              Open here
+            </Button>
+            <Button size="xs" variant="secondary" disabled={!canOpen} onClick={() => onOpen()}>
+              Open
+            </Button>
+          </>
+        )}
+      </PreviewFooter>
     </div>
   );
 }
@@ -315,7 +445,9 @@ export function useRefTargetRead(found: RefTarget | null) {
     queryKey: ["agenthub", "fileRefRead", found?.workspaceId ?? "", found?.folderId ?? "", found?.rel ?? ""] as const,
     queryFn: () => readFolderFile(found!.workspaceId, found!.folderId, found!.rel),
     enabled: found !== null && !found.unreadable,
-    staleTime: 30_000,
+    // A file the agent is editing should not show old lines for long, nor stay in memory once the card is gone.
+    staleTime: 5_000,
+    gcTime: 30_000,
   });
 }
 
@@ -328,7 +460,7 @@ function FileRefPreview({
 }: {
   fileRef: FileRef;
   refContext: RefContext | null;
-  onOpen: (placement: Placement) => void;
+  onOpen: (placement?: Placement) => void;
   onPick: (target: RefTarget) => void;
 }) {
   const resolution = useFileRefResolution(fileRef, refContext, true);
@@ -399,22 +531,27 @@ const FILE_ICONS: Record<FileMenuId, React.ReactNode> = {
 };
 const URL_ICONS: Record<UrlMenuId, React.ReactNode> = { open: <ExternalLink />, copy: <Link2 /> };
 
-export function ReferenceMenu<Id extends string>({
-  items,
-  icons,
-  onSelect,
-}: {
-  items: MenuItem<Id>[];
+type MenuProps<Id extends string> = {
+  /** A function is called only when the menu opens: a streaming message never builds the menus of its references. */
+  items: MenuItem<Id>[] | (() => MenuItem<Id>[]);
   icons: Record<Id, React.ReactNode>;
   onSelect: (id: Id) => void;
-}) {
+};
+
+function MenuRows<Id extends string>({ items, icons, onSelect }: MenuProps<Id>) {
+  const rows = typeof items === "function" ? items() : items;
+  return rows.map((item) => (
+    <ContextMenuItem key={item.id} icon={icons[item.id]} onSelect={() => onSelect(item.id)}>
+      {item.label}
+    </ContextMenuItem>
+  ));
+}
+
+export function ReferenceMenu<Id extends string>(props: MenuProps<Id>) {
+  // The rows are a component of their own, mounted by the content only while the menu is open.
   return (
     <ContextMenuContent>
-      {items.map((item) => (
-        <ContextMenuItem key={item.id} icon={icons[item.id]} onSelect={() => onSelect(item.id)}>
-          {item.label}
-        </ContextMenuItem>
-      ))}
+      <MenuRows {...props} />
     </ContextMenuContent>
   );
 }
@@ -427,83 +564,129 @@ function cachedRel(fileRef: FileRef, ctx: RefContext | null): string | undefined
 }
 
 /** Opens a candidate picked in the preview, and says so when it cannot. */
-async function openPicked(target: RefTarget, line: number | undefined) {
+async function openPicked(target: RefTarget, line: number | undefined, placement: Placement, dispatch: typeof dispatchIntent) {
   try {
-    if ((await openRefTarget(target, line)) === "unavailable") toast.error(`Couldn't find ${target.rel} in this workspace`);
+    if ((await openRefTarget(target, line, placement, dispatch)) === "unavailable") toast.error(`Couldn't find ${target.rel} in this workspace`);
   } catch (error) {
     toast.error(`Couldn't open ${target.rel}: ${errorMessage(error)}`);
   }
 }
 
-/** A file reference in prose (inline code or a link), with its preview and menu. */
-export function FileReference({ fileRef, children }: { fileRef: FileRef; children: React.ReactElement }) {
-  const { refContext, openRef, onOpenFile } = useTranscriptActions();
-  const ctx = refContext ?? null;
-  const open = (anchor: HTMLElement | null, placement: Placement) => {
-    if (openRef) openRef(fileRef, anchor, placement);
-    else onOpenFile?.(fileRef.path, fileRef.line);
+/**
+ * How a file reference opens. With no placement it opens where the surface
+ * opens things (beside in the Hub, in place in the rail); a candidate picked
+ * in the card does the same.
+ */
+export function useFileRefOpener(fileRef: FileRef, dispatch: typeof dispatchIntent = dispatchIntent) {
+  const { openRef, onOpenFile, refPlacement } = useTranscriptActions();
+  return {
+    open: (anchor: HTMLElement | null, placement?: Placement) => {
+      if (openRef) openRef(fileRef, anchor, placement);
+      else onOpenFile?.(fileRef.path, fileRef.line);
+    },
+    pick: (target: RefTarget) => openPicked(target, fileRef.line, refPlacement ?? "beside", dispatch),
   };
-  return (
-    <ReferencePreview
-      preview={({ close, anchor }) => (
-        <FileRefPreview
-          fileRef={fileRef}
-          refContext={ctx}
-          onOpen={(placement) => {
-            close();
-            open(anchor(), placement);
-          }}
-          onPick={(target) => {
-            close();
-            void openPicked(target, fileRef.line);
-          }}
-        />
-      )}
-      menu={({ anchor }) => (
-        <ReferenceMenu
-          items={fileMenuItems(fileRef)}
-          icons={FILE_ICONS}
-          onSelect={(id) => {
-            switch (id) {
-              case "open-beside":
-                open(anchor(), "beside");
-                return;
-              // Opening here by ids also switches Code Graph's sidebar to Files.
-              case "open-here":
-              case "reveal":
-                open(anchor(), "replace");
-                return;
-              case "copy-path":
-              case "copy-path-line":
-                void copyWithNotice(copiedPath(fileRef, cachedRel(fileRef, ctx), id === "copy-path-line"), "Path copied");
-                return;
-            }
-          }}
-        />
-      )}
-    >
-      {children}
-    </ReferencePreview>
-  );
 }
 
-/** A web link in prose, with its preview and menu. */
-export function UrlReference({ url, children }: { url: string; children: React.ReactElement }) {
-  return (
-    <ReferencePreview
-      preview={({ close }) => <UrlPreview url={url} onDone={close} />}
-      menu={() => (
-        <ReferenceMenu
-          items={urlMenuItems(url)}
-          icons={URL_ICONS}
-          onSelect={(id) => {
-            if (id === "open") void openExternal(url);
-            else void copyWithNotice(url, "Link copied");
-          }}
-        />
-      )}
-    >
-      {children}
-    </ReferencePreview>
-  );
-}
+const CODE_KEYS = ["Enter", " "] as const;
+const LINK_KEYS = ["Enter"] as const;
+
+type FileReferenceProps = {
+  path: string;
+  line?: number;
+  /** What the child shows, as a string. The memo compares it instead of the element, which is new on every render. */
+  content: string;
+  /** A link opens on Enter; inline code, like a button, on Enter and Space. */
+  link?: boolean;
+  children: React.ReactElement;
+};
+
+/**
+ * A file reference in prose (inline code or a link), with its preview and
+ * menu. It opens the file itself, so the child carries no handler that could
+ * go stale while the memo keeps an earlier element.
+ */
+export const FileReference = React.memo(
+  function FileReference({ path, line, link, children }: FileReferenceProps) {
+    const fileRef = React.useMemo<FileRef>(() => (line === undefined ? { path } : { path, line }), [path, line]);
+    const { refContext } = useTranscriptActions();
+    const ctx = refContext ?? null;
+    const opener = useFileRefOpener(fileRef);
+    return (
+      <ReferencePreview
+        onActivate={(event) => opener.open(event.currentTarget)}
+        activateKeys={link ? LINK_KEYS : CODE_KEYS}
+        preview={({ close, anchor }) => (
+          <FileRefPreview
+            fileRef={fileRef}
+            refContext={ctx}
+            onOpen={(placement) => {
+              close();
+              opener.open(anchor(), placement);
+            }}
+            onPick={(target) => {
+              close();
+              void opener.pick(target);
+            }}
+          />
+        )}
+        menu={({ anchor }) => (
+          <ReferenceMenu
+            items={() => fileMenuItems(fileRef)}
+            icons={FILE_ICONS}
+            onSelect={(id) => {
+              switch (id) {
+                case "open-beside":
+                  opener.open(anchor(), "beside");
+                  return;
+                // Opening here by ids also switches Code Graph's sidebar to Files.
+                case "open-here":
+                case "reveal":
+                  opener.open(anchor(), "replace");
+                  return;
+                case "copy-path":
+                case "copy-path-line":
+                  void copyWithNotice(copiedPath(fileRef, cachedRel(fileRef, ctx), id === "copy-path-line"), "Path copied");
+                  return;
+              }
+            }}
+          />
+        )}
+      >
+        {children}
+      </ReferencePreview>
+    );
+  },
+  (a, b) => a.path === b.path && a.line === b.line && a.content === b.content && a.link === b.link,
+);
+
+type UrlReferenceProps = {
+  url: string;
+  /** What the child shows, as a string; compared by the memo instead of the element. */
+  content: string;
+  children: React.ReactElement;
+};
+
+/** A web link in prose, with its preview and menu. The child's own handler needs only the URL. */
+export const UrlReference = React.memo(
+  function UrlReference({ url, children }: UrlReferenceProps) {
+    return (
+      <ReferencePreview
+        preview={({ close }) => <UrlPreview url={url} onDone={close} />}
+        menu={() => (
+          <ReferenceMenu
+            items={() => urlMenuItems(url)}
+            icons={URL_ICONS}
+            onSelect={(id) => {
+              if (id === "open") void openExternal(url);
+              else void copyWithNotice(url, "Link copied");
+            }}
+          />
+        )}
+      >
+        {children}
+      </ReferencePreview>
+    );
+  },
+  (a, b) => a.url === b.url && a.content === b.content,
+);

@@ -4,7 +4,22 @@ import { renderToString as renderRaw } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentProse } from "./AgentMessageRich";
 import { TranscriptActionsProvider } from "./transcriptActions";
-import { FilePreviewView, highlightedLines, previewSlice, ReferencePreview, UrlPreview } from "./ReferencePreview";
+import { HIGHLIGHT_LIMIT } from "@/components/code/highlight";
+import type { EntityRef, IntentOptions } from "@/workbench/intents";
+import type { FileRef } from "./fileRef";
+import {
+  FilePreviewView,
+  FileReference,
+  highlightedLines,
+  hoverMayOpen,
+  previewRows,
+  previewSlice,
+  previewWindow,
+  ReferencePreview,
+  UrlPreview,
+  UrlReference,
+  useFileRefOpener,
+} from "./ReferencePreview";
 import type { RefTarget } from "./resolveFileRef";
 
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
@@ -39,6 +54,59 @@ describe("previewSlice", () => {
     expect(slice.lines).toHaveLength(9);
     expect(slice.lines[0]).toBe("line 1");
     expect(previewSlice("a\nb", undefined)).toEqual({ startLine: 1, lines: ["a", "b"] });
+  });
+});
+
+describe("previewSlice line endings", () => {
+  test("CRLF files split into the same lines", () => {
+    expect(previewSlice("a\r\nb\r\n", 1)).toEqual({ startLine: 1, lines: ["a", "b"] });
+  });
+});
+
+describe("previewWindow", () => {
+  test("a file the highlighter takes is highlighted whole, once", () => {
+    const w = previewWindow(FILE, 12);
+    expect(w.codeStart).toBe(1);
+    expect(w.code).toBe(FILE.replace(/\n$/, ""));
+    expect([w.startLine, w.endLine, w.target, w.total]).toEqual([8, 16, 12, 20]);
+  });
+
+  test("a line past the end is the last line", () => {
+    const w = previewWindow(FILE, 99);
+    expect([w.startLine, w.endLine, w.target, w.total]).toEqual([16, 20, 20, 20]);
+  });
+
+  test("CRLF is read as LF", () => {
+    expect(previewWindow("a\r\nb", 1).code).toBe("a\nb");
+  });
+
+  test("past the highlight limit, two hundred lines either side of the target", () => {
+    const big = Array.from({ length: 4000 }, (_, i) => `const value${i} = ${i}; // padding`).join("\n");
+    expect(big.length).toBeGreaterThan(HIGHLIGHT_LIMIT);
+    const w = previewWindow(big, 2000);
+    expect(w.codeStart).toBe(1800);
+    expect(w.code.split("\n")).toHaveLength(401);
+    expect(w.code.startsWith("const value1799 ")).toBe(true);
+  });
+});
+
+describe("previewRows", () => {
+  test("a target inside a block comment that opens above the slice keeps the comment's colour", () => {
+    const lines = ["package a", "/*", ...Array.from({ length: 22 }, (_, i) => `comment ${i + 3}`), "*/", "func b() {}"];
+    const content = lines.join("\n");
+    const w = previewWindow(content, 20);
+    const open = content.indexOf("/*");
+    const close = content.indexOf("*/") + 2;
+    const rows = previewRows(w, {
+      code: w.code,
+      segments: [
+        { text: content.slice(0, open), className: "" },
+        { text: content.slice(open, close), className: "tok-comment" },
+        { text: content.slice(close), className: "" },
+      ],
+    });
+    expect(rows).toHaveLength(9);
+    expect(renderRaw(<>{rows[4]}</>)).toBe('<span class="tok-comment">comment 20</span>');
   });
 });
 
@@ -79,8 +147,45 @@ describe("FilePreviewView", () => {
     expect(html).toContain(">Open here<");
   });
 
-  test("loading draws three placeholder lines", () => {
-    expect(view({ kind: "loading" }).match(/data-slot="skeleton"/g)?.length).toBe(3);
+  test("loading draws the final nine rows, under the path as written", () => {
+    const html = view({ kind: "loading" });
+    expect(html.match(/data-slot="skeleton"/g)?.length).toBe(9);
+    expect(html).toContain(">session.go<");
+    expect(html).toContain("auth/");
+  });
+
+  test("every state keeps the same body box and the footer row", () => {
+    const B = { ...T, folderId: "gw", folderName: "gateway" };
+    const states: React.ComponentProps<typeof FilePreviewView>["state"][] = [
+      { kind: "loading" },
+      { kind: "text", target: T, content: FILE },
+      { kind: "unreadable", target: T, reason: "binary" },
+      { kind: "missing" },
+      { kind: "ambiguous", targets: [T, B] },
+      { kind: "unsupported" },
+      { kind: "error", message: "boom" },
+    ];
+    for (const state of states) {
+      const html = view(state);
+      expect(html.match(/data-testid="ref-preview-body"/g)?.length).toBe(1);
+      // The box is sized by nine invisible rows, whatever fills it.
+      expect(html.match(/data-testid="ref-preview-sizer"/g)?.length).toBe(1);
+      expect(html.match(/data-testid="ref-preview-footer"/g)?.length).toBe(1);
+    }
+  });
+
+  test("a line past the end raises the last line and says how long the file is", () => {
+    const html = renderToString(
+      <FilePreviewView fileRef={{ path: "a.go", line: 99 }} state={{ kind: "text", target: { ...T, line: 99 }, content: FILE }} onOpen={noop} onPick={noop} />,
+    );
+    expect(html).toContain("line 99 of 20");
+    expect(html).toMatch(/data-target="true"[^>]*>line 20</);
+  });
+
+  test("the code keeps tabs narrow and a long file name truncates", () => {
+    const html = view({ kind: "text", target: T, content: FILE });
+    expect(html).toContain("tab-size-2");
+    expect(html).toMatch(/class="[^"]*min-w-0[^"]*truncate[^"]*"[^>]*>session\.go</);
   });
 
   test("unreadable says why", () => {
@@ -99,6 +204,7 @@ describe("FilePreviewView", () => {
 
   test("unsupported offers Code Graph only", () => {
     const html = view({ kind: "unsupported" });
+    expect(html).toContain("No workspace to resolve this in.");
     expect(html).toContain("Open in Code Graph");
     expect(html).not.toContain(">Open here<");
   });
@@ -115,7 +221,58 @@ describe("UrlPreview", () => {
   });
 });
 
+describe("hoverMayOpen", () => {
+  test("only a pointer resting on the reference opens it", () => {
+    expect(hoverMayOpen({ pointerInside: true, pressed: false, menuOpen: false })).toBe(true);
+    // Keyboard focus alone: Enter opens, the context menu offers the rest.
+    expect(hoverMayOpen({ pointerInside: false, pressed: false, menuOpen: false })).toBe(false);
+    // A click opened the file; the card stays shut until the pointer leaves.
+    expect(hoverMayOpen({ pointerInside: true, pressed: true, menuOpen: false })).toBe(false);
+    expect(hoverMayOpen({ pointerInside: true, pressed: false, menuOpen: true })).toBe(false);
+  });
+});
+
+describe("useFileRefOpener", () => {
+  test("the card's Open and a picked candidate use the surface's placement", async () => {
+    const opened: { ref: FileRef; placement?: string }[] = [];
+    const dispatched: { ref: EntityRef; options: IntentOptions }[] = [];
+    let opener: ReturnType<typeof useFileRefOpener> | null = null;
+    function Probe() {
+      opener = useFileRefOpener({ path: "a.go", line: 3 }, async (_name, ref, options = {}) => {
+        dispatched.push({ ref, options });
+        return "ok";
+      });
+      return null;
+    }
+    renderRaw(
+      <TranscriptActionsProvider value={{ refPlacement: "replace", openRef: (ref, _anchor, placement) => opened.push({ ref, placement }) }}>
+        <Probe />
+      </TranscriptActionsProvider>,
+    );
+    opener!.open(null);
+    expect(opened).toEqual([{ ref: { path: "a.go", line: 3 }, placement: undefined }]);
+    await opener!.pick(T);
+    expect(dispatched[0].options.placement).toBe("replace");
+    expect(dispatched[0].ref.line).toBe(3);
+  });
+});
+
 describe("ReferencePreview", () => {
+  test("the trigger says it has a menu", () => {
+    const html = renderToString(
+      <ReferencePreview preview={() => null} menu={null}>
+        <span>trigger</span>
+      </ReferencePreview>,
+    );
+    expect(html).toContain('aria-haspopup="menu"');
+  });
+
+  test("file and URL references are memoised on their props, not the element", () => {
+    const memo = Symbol.for("react.memo");
+    expect((FileReference as unknown as { $$typeof: symbol }).$$typeof).toBe(memo);
+    expect((UrlReference as unknown as { $$typeof: symbol }).$$typeof).toBe(memo);
+  });
+
   test("closed, the body is not rendered", () => {
     const html = renderToString(
       <ReferencePreview preview={() => <p data-testid="body">body</p>} menu={null}>

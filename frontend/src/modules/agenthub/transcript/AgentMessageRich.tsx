@@ -4,7 +4,7 @@ import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { openExternal } from "@/bridge/browser";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { fileRef, linkTarget, type FileRef } from "./fileRef";
+import { fileRef, linkTarget } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { FileReference, UrlReference } from "./ReferencePreview";
@@ -68,19 +68,23 @@ const REF_CODE =
  * text. A file is underlined solid; a symbol or commit, found by lookup or by
  * shape rather than written as a path, dotted.
  */
-function refCode(testId: string, value: string, open: (event: React.SyntheticEvent<HTMLElement>) => void, dotted = false) {
+function refCode(testId: string, value: string, open?: (event: React.SyntheticEvent<HTMLElement>) => void, dotted = false) {
   return (
     <code
       role="button"
       tabIndex={0}
       data-testid={testId}
+      // Without `open` the wrapper opens it (FileReference), so nothing here can go stale.
       onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open(e);
-        }
-      }}
+      onKeyDown={
+        open &&
+        ((e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open(e);
+          }
+        })
+      }
       className={cn(REF_CODE, dotted && "decoration-dotted")}
     >
       {value}
@@ -129,12 +133,6 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
   const { onOpenFile, openRef, refContext, refPlacement } = useTranscriptActions();
   const { settled, symbols } = React.useContext(CodeRefsContext);
   const canOpen = Boolean(openRef || onOpenFile);
-  // A reference resolves in the session's workspace when the transcript can;
-  // otherwise it goes to the chip handler as written.
-  const openFileRef = (ref: FileRef, anchor: HTMLElement | null) => {
-    if (openRef) openRef(ref, anchor);
-    else onOpenFile?.(ref.path, ref.line);
-  };
   return (
     <>
       {tokens.map((token, idx) => {
@@ -143,8 +141,8 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
             const ref = canOpen ? fileRef(token.value) : null;
             if (ref) {
               return (
-                <FileReference key={idx} fileRef={ref}>
-                  {refCode("agent-file-ref", token.value, (event) => openFileRef(ref, event.currentTarget))}
+                <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
+                  {refCode("agent-file-ref", token.value)}
                 </FileReference>
               );
             }
@@ -207,13 +205,15 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 </Tooltip>
               );
             }
+            // The WebView does nothing with a plain navigation; the system
+            // browser gets a URL through the bridge instead. A file link is
+            // opened by its FileReference, on click and on Enter.
             const follow = (e: React.SyntheticEvent<HTMLElement>) => {
-              // The WebView does nothing with a plain navigation; the
-              // system browser gets it through the bridge instead.
               e.preventDefault();
               if (target.kind === "url") void openExternal(target.url);
-              else openFileRef(target.ref, e.currentTarget);
             };
+            // What the memo compares: the link's tokens, which the element is rebuilt from on every render.
+            const content = JSON.stringify(token.children);
             const anchor = (
               <a
                 // Only the web keeps an href.
@@ -226,9 +226,6 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
                 role={target.kind === "file" ? "link" : undefined}
                 tabIndex={target.kind === "file" ? 0 : undefined}
                 onClick={follow}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && target.kind === "file") follow(e);
-                }}
                 // A long URL is exactly the same unbroken-run case as inline
                 // code, and had no wrap protection of its own at all.
                 className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
@@ -238,11 +235,11 @@ function InlineNodes({ tokens }: { tokens: InlineToken[] }) {
             );
             // The hover card says where it goes, so the link needs no tooltip of its own.
             return target.kind === "url" ? (
-              <UrlReference key={idx} url={target.url}>
+              <UrlReference key={idx} url={target.url} content={content}>
                 {anchor}
               </UrlReference>
             ) : (
-              <FileReference key={idx} fileRef={target.ref}>
+              <FileReference key={idx} path={target.ref.path} line={target.ref.line} content={content} link>
                 {anchor}
               </FileReference>
             );

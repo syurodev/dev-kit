@@ -41,7 +41,7 @@ export async function openSymbol(hit: SymbolHit, placement: Placement) {
 }
 
 /** The file preview at the definition line; reads only while the card is open. */
-function SymbolPreview({ hit, onOpen }: { hit: SymbolHit; onOpen: (placement: Placement) => void }) {
+function SymbolPreview({ hit, onOpen }: { hit: SymbolHit; onOpen: (placement?: Placement) => void }) {
   const target = symbolTarget(hit);
   const read = useRefTargetRead(target);
   // The symbol is already found: the preview is a file preview with nothing left to resolve.
@@ -63,7 +63,8 @@ export function SymbolReference({ hit, name, children }: { hit: SymbolHit; name:
           hit={hit}
           onOpen={(chosen) => {
             close();
-            void openSymbol(hit, chosen);
+            // No placement named: where this surface opens things.
+            void openSymbol(hit, chosen ?? placement);
           }}
         />
       )}
