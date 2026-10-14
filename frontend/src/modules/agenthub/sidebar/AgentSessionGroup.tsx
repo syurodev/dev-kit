@@ -29,6 +29,11 @@ const NO_SUBAGENTS: readonly Subagent[] = [];
 export type AgentSessionGroupProps = {
   group: SidebarGroup;
   collapsed: boolean;
+  /**
+   * The workspace chosen in the title bar (or there is none). Any other group
+   * says, while folded, how many of its sessions are running.
+   */
+  current: boolean;
   olderOpen: boolean;
   activeId?: string;
   pinnedIds: readonly string[];
@@ -103,6 +108,7 @@ function StackRow({ count, open, onToggle, controlsId }: { count: number; open: 
 function AgentSessionGroupView({
   group,
   collapsed,
+  current,
   olderOpen,
   activeId,
   pinnedIds,
@@ -153,6 +159,7 @@ function AgentSessionGroupView({
     placed.current = next;
   });
   const waiting = React.useMemo(() => waitingCount(group.sessions, attention), [group.sessions, attention]);
+  const running = React.useMemo(() => group.sessions.filter((s) => s.status === "running").length, [group.sessions]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
 
   // Rows that come and go — pulled out of the stack, a new session, one that
@@ -234,6 +241,15 @@ function AgentSessionGroupView({
                 )}
               />
               <WaitingBadge count={waiting} />
+              {collapsed && !current && running > 0 ? (
+                <span
+                  data-testid="agent-group-running"
+                  className="ml-auto flex shrink-0 items-center gap-1 text-caption-11 text-text-tertiary"
+                >
+                  <span aria-hidden="true" className="size-1.5 rounded-full bg-text-primary" />
+                  {`${running} running`}
+                </span>
+              ) : null}
             </button>
             {onNewSession ? (
               <ActionTooltip label={newLabel}>

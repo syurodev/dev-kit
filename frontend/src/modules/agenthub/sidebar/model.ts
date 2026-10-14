@@ -195,6 +195,22 @@ export function needsYou(sessions: readonly AgentSession[], attention: Record<st
     .sort(compareRecent);
 }
 
+/** The first thing each session asks: a permission's title wins over a question's message. */
+export function askBySession(
+  permissions: readonly Pick<PendingPermission, "sessionId" | "title">[],
+  questions: readonly Pick<PendingElicitation, "sessionId" | "message">[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const q of questions) if (q.message && !out[q.sessionId]) out[q.sessionId] = q.message;
+  // The first permission of a session, over any question: walked newest-first
+  // so the oldest one is written last.
+  for (let i = permissions.length - 1; i >= 0; i--) {
+    const p = permissions[i];
+    if (p.title) out[p.sessionId] = p.title;
+  }
+  return out;
+}
+
 export type SecondLine = { text: string; tone: "plain" | "warning" | "danger"; folder: string | null };
 
 /** What a row says under its title: a pending ask, else the preview (danger on error). */

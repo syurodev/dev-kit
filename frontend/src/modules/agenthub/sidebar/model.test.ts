@@ -3,6 +3,7 @@ import type { AgentSession } from "@/bridge/agenthub";
 import type { SidebarWorkspace } from "./grouping";
 import {
   RECENT_LIMIT,
+  askBySession,
   attentionBySession,
   attentionKind,
   cardIndicator,
@@ -454,5 +455,36 @@ describe("groupCollapsed", () => {
 
   it("with no current workspace every group follows the collapsed list", () => {
     expect(groupCollapsed("workspace:2", null, new Set(), new Set())).toBe(false);
+  });
+});
+
+describe("askBySession", () => {
+  it("a permission's title wins over a question's message", () => {
+    expect(askBySession([{ sessionId: "a", title: "Allow?" }], [{ sessionId: "a", message: "Which?" }])).toEqual({ a: "Allow?" });
+  });
+
+  it("a question alone gives its message", () => {
+    expect(askBySession([], [{ sessionId: "a", message: "Which?" }])).toEqual({ a: "Which?" });
+  });
+
+  it("the first permission of a session is the one said", () => {
+    expect(
+      askBySession(
+        [
+          { sessionId: "a", title: "First?" },
+          { sessionId: "a", title: "Second?" },
+        ],
+        [],
+      ),
+    ).toEqual({ a: "First?" });
+  });
+
+  it("the first question of a session is the one said", () => {
+    expect(
+      askBySession([], [
+        { sessionId: "a", message: "First?" },
+        { sessionId: "a", message: "Second?" },
+      ]),
+    ).toEqual({ a: "First?" });
   });
 });

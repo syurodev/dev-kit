@@ -65,7 +65,13 @@ function renderCard(over: Partial<AgentSessionCardProps> & Pick<AgentSessionCard
   );
 }
 
+/** A session in workspace `wsId`, and that workspace (folder `/ws/<id>`). */
+const inWs = (id: string, wsId: string, over: Partial<AgentSession> = {}) =>
+  session(id, { projectPath: `/ws/${wsId}`, workspaceId: wsId, ...over });
+const ws = (id: string) => ({ id, name: `Workspace ${id}`, paths: [`/ws/${id}`] });
+
 const cards = (html: string) => html.match(/data-testid="agent-session-card"/g)?.length ?? 0;
+const cardIdsIn = (html: string) => [...html.matchAll(/data-testid="agent-session-card" data-session-id="([^"]+)"/g)].map((m) => m[1]);
 const cardIds = (html: string) => [...html.matchAll(/data-testid="agent-session-card" data-session-id="([^"]+)"/g)].map((m) => m[1]);
 const cardHtml = (html: string, id: string) => {
   const at = html.indexOf(`data-session-id="${id}"`);
@@ -129,19 +135,18 @@ describe("groups", () => {
     expect(html).toContain('data-group-key="workspace:ws1"');
   });
 
-  it("a group folded shut draws no cards, says it is collapsed, and keeps the waiting badge", () => {
+  it("a group folded shut draws no cards of its own; the ones waiting are still drawn, above it", () => {
     const sessions = [session("a", { status: "awaiting_permission" }), session("b"), session("c")];
     const html = render({
       sessions,
       collapsedKeys: ["project:/work/api"],
       attention: attentionBySession([{ sessionId: "a" }], [{ sessionId: "b" }]),
     });
-    expect(cards(html)).toBe(0);
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('data-collapsed="true"');
-    // Two sessions need the person; the number and the words both say so.
-    expect(html).toMatch(/data-testid="agent-group-waiting"[^>]*><span[^>]*>2<\/span>/);
-    expect(html).toContain("2 sessions need your response");
+    // Two sessions need the person: drawn once, in Needs you, whatever their group does.
+    expect(cardIds(html).sort()).toEqual(["a", "b"]);
+    expect(html.indexOf('data-testid="agent-needs-you"')).toBeLessThan(html.indexOf('data-testid="agent-session-group"'));
   });
 
   it("an open group's header is aria-expanded and has no badge when nothing waits", () => {
@@ -559,5 +564,86 @@ describe("tabs, selection and resources", () => {
     expect(useAgentPinsStore.getState().expanded).toEqual(["workspace:2"]);
     toggleExpanded("workspace:2");
     expect(useAgentPinsStore.getState().expanded).toEqual([]);
+  });
+});
+
+describe("needs you, and the workspace in front of you", () => {
+  it("sessions that need you are drawn once, on top", () => {
+    const sessions = [
+      inWs("a", "1", { status: "idle", updatedAt: 1 }),
+      inWs("b", "1", { status: "error", updatedAt: 3 }),
+      inWs("c", "1", { status: "running", updatedAt: 2 }),
+    ];
+    const html = render({
+      sessions,
+      workspaces: [ws("1")],
+      attention: { c: { permissions: 1, questions: 0 } },
+      asks: { c: "Allow?" },
+      currentWorkspaceId: "1",
+    });
+    expect(html).toContain('data-testid="agent-needs-you"');
+    const needs = html.slice(html.indexOf('data-testid="agent-needs-you"'), html.indexOf('data-testid="agent-session-group"'));
+    expect(cardIdsIn(needs)).toEqual(["b", "c"]);
+    expect(cardIds(html).filter((id) => id === "c").length).toBe(1);
+    expect(cardHtml(html, "c")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow\?/);
+    // The group keeps only what does not wait, and counts only that.
+    expect(html).toMatch(/data-testid="agent-group-count"[^>]*>1</);
+  });
+
+  it("no needs-you section when nothing waits", () => {
+    expect(render({ sessions: [session("a", { status: "idle" })] })).not.toContain("agent-needs-you");
+  });
+
+  it("a waiting parent leaves its group, and its child stays in that group", () => {
+    const html = render({
+      sessions: [
+        inWs("p", "1", { status: "awaiting_permission", updatedAt: 2 }),
+        session("kid", { parentSessionId: "p", depth: 1, projectPath: "/elsewhere", updatedAt: 1 }),
+      ],
+      workspaces: [ws("1")],
+    });
+    expect(html).toContain('data-group-key="workspace:1"');
+    expect(html).not.toContain('data-group-key="project:/elsewhere"');
+  });
+
+  it("other workspaces fold by default", () => {
+    const html = render({ sessions: [inWs("x", "2")], workspaces: [ws("1"), ws("2")], currentWorkspaceId: "1" });
+    expect(html).toMatch(/data-group-key="workspace:2"[^>]*data-collapsed="true"/);
+    expect(cards(html)).toBe(0);
+  });
+
+  it("the current workspace opens by default, and another opens when expanded", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      expandedKeys: ["workspace:2"],
+    });
+    expect(cardIds(html).sort()).toEqual(["x", "y"]);
+  });
+
+  it("a folded workspace says how many of its sessions run", () => {
+    const html = render({
+      sessions: [inWs("x", "2", { status: "running" }), inWs("y", "2", { status: "running" }), inWs("z", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+    });
+    expect(html).toContain('data-testid="agent-group-running"');
+    expect(html).toMatch(/data-testid="agent-group-running"[^>]*>.*?2 running</);
+    // Open, the rows say it themselves.
+    const open = render({
+      sessions: [inWs("x", "2", { status: "running" })],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+      expandedKeys: ["workspace:2"],
+    });
+    expect(open).not.toContain('data-testid="agent-group-running"');
+  });
+
+  it("the rail is titled Agents, with New beside it", () => {
+    const html = render({ sessions: [session("a")], onToggleHideClosed: noop });
+    expect(html).toMatch(/<h2[^>]*>Agents<\/h2>/);
+    expect(html).toMatch(/data-testid="agent-tree-new"[^>]*>.*?New<\/button>/);
+    expect(html).toContain('data-testid="agent-tree-toggle-closed"');
   });
 });

@@ -24,8 +24,9 @@ import {
 import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { AgentSessionSidebar } from "./sidebar/AgentSessionSidebar";
-import { attentionBySession } from "./sidebar/model";
+import { askBySession, attentionBySession } from "./sidebar/model";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { showSubagent } from "./sidebar/openSubagent";
 import { useSidebarWorkspaces } from "./sidebarWorkspaces";
@@ -89,6 +90,10 @@ export function AgentHubSidebar() {
   const unpin = useAgentPinsStore((state) => state.unpin);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
   const toggleCollapsed = useAgentPinsStore((state) => state.toggleCollapsed);
+  const expanded = useAgentPinsStore((state) => state.expanded);
+  const toggleExpanded = useAgentPinsStore((state) => state.toggleExpanded);
+  // The workspace chosen in the title bar: its group opens, the others fold.
+  const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
   const olderOpen = useAgentPinsStore((state) => state.olderOpen);
   const toggleOlderOpen = useAgentPinsStore((state) => state.toggleOlderOpen);
   const hideClosed = useAgentPinsStore((state) => state.hideClosed);
@@ -113,6 +118,8 @@ export function AgentHubSidebar() {
   // alike, since either one stops the agent until someone answers. Kept apart
   // so a card can say which.
   const attention = useMemo(() => attentionBySession(pendingQueue, elicitationQueue), [pendingQueue, elicitationQueue]);
+  // And what it asks, in its own words: the row's second line while it waits.
+  const asks = useMemo(() => askBySession(pendingQueue, elicitationQueue), [pendingQueue, elicitationQueue]);
 
   async function cancelTurn(session: AgentSession) {
     try {
@@ -185,11 +192,15 @@ export function AgentHubSidebar() {
         scratchRoot={scratchRoot}
         activeSessionId={activeSessionId}
         attention={attention}
+        asks={asks}
+        currentWorkspaceId={currentWorkspaceId}
         subagents={subagents}
         pinnedIds={pinned}
         onTogglePin={togglePin}
         collapsedKeys={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        expandedKeys={expanded}
+        onToggleExpanded={toggleExpanded}
         olderOpenKeys={olderOpen}
         onToggleOlder={toggleOlderOpen}
         hideClosed={hideClosed}
