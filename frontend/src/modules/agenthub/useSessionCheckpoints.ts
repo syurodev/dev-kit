@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { agentHubCheckpointFileDiff, agentHubListCheckpoints, onAgentHubCheckpoint } from "@/bridge/agenthub";
-import type { FileDiff } from "../../../bindings/devkit/internal/agenthub/models";
+import {
+  agentHubCheckpointFileDiff,
+  agentHubListCheckpoints,
+  onAgentHubCheckpoint,
+  onAgentHubSessionRewound,
+} from "@/bridge/agenthub";
+import type { CheckpointSummary, FileDiff } from "../../../bindings/devkit/internal/agenthub/models";
 import { applyCheckpoint, EMPTY_CHECKPOINTS, indexCheckpoints, type CheckpointIndex } from "./checkpoints";
 
 /**
@@ -22,31 +27,65 @@ export function useSessionCheckpoints(sessionId: string, options: { enabled?: bo
       setIndex(EMPTY_CHECKPOINTS);
       return;
     }
-    let cancelled = false;
     // Reset first: the previous session's checkpoints must not show under this
     // one's turns for the time the load takes.
     setIndex(EMPTY_CHECKPOINTS);
-    agentHubListCheckpoints(sessionId)
+    return followSessionCheckpoints(sessionId, LIVE, setIndex);
+  }, [enabled, sessionId]);
+
+  return index;
+}
+
+type CheckpointSources = {
+  list: (sessionId: string) => Promise<CheckpointSummary[] | null | undefined>;
+  onCheckpoint: (handler: (sessionId: string, record: CheckpointSummary | null | undefined) => void) => () => void;
+  onRewound: (handler: (sessionId: string) => void) => () => void;
+};
+
+const LIVE: CheckpointSources = {
+  list: agentHubListCheckpoints,
+  onCheckpoint: onAgentHubCheckpoint,
+  onRewound: onAgentHubSessionRewound,
+};
+
+/**
+ * Lists a session's checkpoints, applies each live one, and lists them again
+ * after a rewind: a rewind deletes the turns after the point it went back to,
+ * and no checkpoint event says so. Returns the unsubscribe.
+ */
+export function followSessionCheckpoints(
+  sessionId: string,
+  sources: CheckpointSources,
+  setIndex: (next: CheckpointIndex | ((previous: CheckpointIndex) => CheckpointIndex)) => void,
+): () => void {
+  let cancelled = false;
+  let generation = 0;
+  const load = () => {
+    const mine = ++generation;
+    sources
+      .list(sessionId)
       .then((records) => {
-        if (!cancelled) setIndex(indexCheckpoints(records));
+        if (!cancelled && mine === generation) setIndex(indexCheckpoints(records));
       })
       .catch(() => {
         // Checkpoints are an extra; a session whose list cannot be read still
         // shows its transcript, just without the counts.
-        if (!cancelled) setIndex(EMPTY_CHECKPOINTS);
+        if (!cancelled && mine === generation) setIndex(EMPTY_CHECKPOINTS);
       });
-
-    const off = onAgentHubCheckpoint((eventSessionId, record) => {
-      if (cancelled || eventSessionId !== sessionId) return;
-      setIndex((previous) => applyCheckpoint(previous, record));
-    });
-    return () => {
-      cancelled = true;
-      off();
-    };
-  }, [enabled, sessionId]);
-
-  return index;
+  };
+  load();
+  const offCheckpoint = sources.onCheckpoint((eventSessionId, record) => {
+    if (cancelled || eventSessionId !== sessionId) return;
+    setIndex((previous) => applyCheckpoint(previous, record));
+  });
+  const offRewound = sources.onRewound((eventSessionId) => {
+    if (!cancelled && eventSessionId === sessionId) load();
+  });
+  return () => {
+    cancelled = true;
+    offCheckpoint();
+    offRewound();
+  };
 }
 
 /** One changed file's two versions, for the drawer under it. */

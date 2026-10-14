@@ -142,7 +142,7 @@ function isEmptyToolRow(item: TranscriptItem): boolean {
  * A row whose origin names no subagent in view (its spawn is on an older page
  * not loaded yet) stays in the flow rather than disappearing.
  */
-function splitFlow(items: TranscriptItem[]): {
+function splitFlow(items: readonly TranscriptItem[]): {
   main: TranscriptItem[];
   activity: Map<string, TranscriptItem[]>;
 } {
@@ -203,7 +203,7 @@ export type LiveSubagent = { subagent: Subagent; activity: TranscriptItem[] };
  * the state update that ends it says otherwise. Callers ask only while the
  * session is live, since a subagent cut off with its session never gets one.
  */
-export function runningSubagents(items: TranscriptItem[]): {
+export function runningSubagents(items: readonly TranscriptItem[]): {
   running: LiveSubagent[];
   activity: Readonly<Record<string, TranscriptItem[]>>;
 } {
