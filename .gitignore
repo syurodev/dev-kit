@@ -58,6 +58,7 @@ coverage.out
 .superpowers/.worktrees/
 .worktrees/
 .superpowers/
+.serena/
 .claude/
 # Shared Claude Code config is tracked; everything else under .claude/ (local
 # settings, caches, worktrees) stays ignored as before.
