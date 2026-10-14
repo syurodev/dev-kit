@@ -46,6 +46,16 @@ export type TranscriptStreamProps = {
   loadingOlder?: boolean;
   /** Walks one page further back. The stream anchors the scroll around it. */
   onLoadOlder?: () => void;
+  /**
+   * The reading column's width. The rail keeps the default 720 (max-w-180);
+   * the Hub passes its wider one.
+   */
+  columnClassName?: string;
+  /**
+   * Added to the scroller's own padding — the Hub uses it to make room for the
+   * docked session summary, so the column centres in what is left of the pane.
+   */
+  viewportClassName?: string;
   className?: string;
 };
 
@@ -181,9 +191,10 @@ export function estimateTurnSize(turn: Turn | undefined): number {
  * column. Owns the scroll position, the floating AgentJumpToLatest button and
  * the meta inspector.
  *
- * The column is max-w-180, the 720 the notes editor writes in. At the full
- * width of a wide window an answer ran to 200 characters a line, and a bubble
- * pinned to the far right edge sat a whole window away from the reply under it.
+ * The column is max-w-180 by default (the rail), the 720 the notes editor
+ * writes in; the Hub passes a wider one (max-w-190). At the full width of a
+ * wide window an answer ran to 200 characters a line, and a bubble pinned to
+ * the far right edge sat a whole window away from the reply under it.
  */
 export function TranscriptStream({
   items,
@@ -200,6 +211,8 @@ export function TranscriptStream({
   hasMore = false,
   loadingOlder = false,
   onLoadOlder,
+  columnClassName = "max-w-180",
+  viewportClassName,
   className,
 }: TranscriptStreamProps) {
   const previousTurnsRef = useRef<Turn[]>([]);
@@ -585,7 +598,7 @@ export function TranscriptStream({
           // Radix wraps the content in a display:table div so it can scroll
           // sideways too; as a table it widens to fit a long code line and drags
           // the column past the pane. Block keeps it to the viewport's width.
-          className="size-full px-6 [&>div]:block!"
+          className={cn("size-full px-6 [&>div]:block!", viewportClassName)}
           // Clear of the glass header above (it floats over this scroller, and
           // sets --header-inset). The composer is not an overlay: it sits below
           // this whole stream in the layout, so the foot needs only its own air.
@@ -595,7 +608,7 @@ export function TranscriptStream({
           }}
         >
           <div
-            className={cn("relative mx-auto w-full max-w-180", !virtualized && "flex flex-col gap-6")}
+            className={cn("relative mx-auto w-full", columnClassName, !virtualized && "flex flex-col gap-6")}
             style={virtualized ? { height: rowVirtualizer.getTotalSize() } : undefined}
           >
             {/* History is still above and the transcript says so — a silently

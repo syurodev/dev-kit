@@ -26,6 +26,7 @@ import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
+import { SessionSummaryButton, SessionSummaryCard } from "../summary/SessionSummary";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -289,6 +290,16 @@ export function AgentHubContent({
   // component that tests render with fixed items, and a fetch inside it would
   // make every one of those hit the bridge.
   const checkpoints = useSessionCheckpoints(session?.id ?? "");
+  // A turn is a thing the human said. Counting them here beats threading
+  // InvokeResult.turnCount through the view: this survives a reload, because
+  // the transcript does. The composer's meter and the summary both read it.
+  const turnCount = React.useMemo(
+    () =>
+      items.filter(
+        (item) => item.kind === "user_message_chunk" || item.kind === UpdateKind.UpdateUserMessageChunk,
+      ).length,
+    [items],
+  );
   // The composer tray: where this work is, what runs under it, and — one at a
   // time, in the tray's panel — the permission or question the agent is
   // waiting on. They used to stack above the composer as separate cards.
@@ -443,20 +454,26 @@ export function AgentHubContent({
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
                 onOpenFile={onOpenFile}
+                // 760 here; the rail keeps 720. On a wide conversation the
+                // scroller's right padding clears the docked summary, so the
+                // column centres in what is left rather than running under it.
+                columnClassName="max-w-190"
+                viewportClassName="@6xl/agent-conversation:pr-80"
               />
             )}
           </div>
 
           {/* The composer region: the same reading column as the transcript
-              (max-w-180, px-6), a small inset at the foot, and its own height.
+              (max-w-190, px-6, and the same room for a docked summary), a small
+              inset at the foot, and its own height.
               `shrink` + the cap: on a short pane it gives way before the
               transcript does, and what does not fit scrolls inside it rather
               than pushing Send out of the pane. */}
           <div
             data-testid="agent-composer-region"
-            className="composer-region-cap flex min-h-0 w-full shrink-0 flex-col px-6 pb-3"
+            className="composer-region-cap flex min-h-0 w-full shrink-0 flex-col px-6 pb-3 @6xl/agent-conversation:pr-80"
           >
-            <div className="mx-auto flex min-h-0 w-full max-w-180 flex-col gap-2">
+            <div className="mx-auto flex min-h-0 w-full max-w-190 flex-col gap-2">
               {/* A failed session keeps its composer. The card used to replace it,
                   which left Retry as the only way forward: the same prompt again,
                   or nothing. A turn that failed is often one you want to answer
@@ -507,16 +524,7 @@ export function AgentHubContent({
                 usage={usage}
                 goal={draft ? null : goal}
                 onSetGoal={draft ? undefined : onSetGoal}
-                turnCount={
-                  // A turn is a thing the human said. Counting them here beats
-                  // threading InvokeResult.turnCount through the view: this
-                  // survives a reload, because the transcript does.
-                  items.filter(
-                    (item) =>
-                      item.kind === "user_message_chunk" ||
-                      item.kind === UpdateKind.UpdateUserMessageChunk,
-                  ).length
-                }
+                turnCount={turnCount}
                 vendor={vendor}
                 // A draft is not named yet; its placeholder addresses the agent
                 // that will answer — "Ask Claude…", not "Ask New session…".
@@ -563,6 +571,45 @@ export function AgentHubContent({
               />
             </div>
           </div>
+
+          {/* The session summary. Docked at the top-right when the conversation
+              is at least @6xl (72rem) wide — a container query on this box, not
+              the window — and a round corner button with the same content as a
+              popover below that. Both are drawn and CSS picks one: no measuring.
+              The dock lets clicks through its empty height; the card itself
+              takes them, and scrolls inside itself past the box's height. */}
+          {session && !draft ? (
+            <>
+              <div
+                data-testid="session-summary-dock"
+                className="pointer-events-none absolute top-4 right-4 bottom-4 z-10 hidden @6xl/agent-conversation:block"
+              >
+                <SessionSummaryCard
+                  sessionId={session.id}
+                  items={items}
+                  checkpoints={checkpoints}
+                  usage={usage}
+                  turnCount={turnCount}
+                  live={streaming}
+                  onOpenFile={onOpenFile}
+                />
+              </div>
+              <div
+                data-testid="session-summary-corner"
+                className="absolute top-3 right-3 z-10 @6xl/agent-conversation:hidden"
+              >
+                <SessionSummaryButton
+                  sessionId={session.id}
+                  items={items}
+                  checkpoints={checkpoints}
+                  usage={usage}
+                  turnCount={turnCount}
+                  live={streaming}
+                  onOpenFile={onOpenFile}
+                />
+              </div>
+            </>
+          ) : null}
         </div>
       )}
       {/* Mounted beside the session dialogs rather than inside the turn: the

@@ -203,6 +203,7 @@ export function TrayChip({
   keepLabel = false,
   onClick,
   testId,
+  className,
 }: {
   icon: React.ReactNode;
   label?: React.ReactNode;
@@ -216,6 +217,8 @@ export function TrayChip({
   keepLabel?: boolean;
   onClick?: () => void;
   testId?: string;
+  /** On the chip's outer box, so hiding it takes its slot in the bar with it. */
+  className?: string;
 }) {
   const compact = React.useContext(TrayCompactContext);
   const reduce = useReducedMotion() ?? false;
@@ -305,7 +308,7 @@ export function TrayChip({
     // No `layout` here: a FLIP measure per chip is the per-element layout
     // §6.7 warns against; the bar's neighbours step over, which at 24px is
     // not a jump anyone reads as one.
-    <motion.span {...(reduce ? {} : CHIP_MOTION)} className={cn("flex min-w-0", priority ? "shrink-0" : "shrink")}>
+    <motion.span {...(reduce ? {} : CHIP_MOTION)} className={cn("flex min-w-0", priority ? "shrink-0" : "shrink", className)}>
       {compact && name && onClick ? <ActionTooltip label={name}>{chip}</ActionTooltip> : chip}
     </motion.span>
   );
