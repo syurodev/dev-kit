@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { LazyMotion, domAnimation, m } from "framer-motion";
+import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { Bot, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
 import { SHELL_PANEL_OWNER, useSplitPanel } from "@/components/ui/split-panel";
 import { useShallow } from "zustand/react/shallow";
@@ -30,8 +30,8 @@ import {
   move,
   dropTarget,
   menuTargets,
+  requestedWidths,
   resolve,
-  slotOf,
   type ColumnId,
   type Geometry,
   type OpenPanes,
@@ -52,7 +52,8 @@ import { useTerminalTabsStore } from "@/stores/terminalTabs";
 import { useBottomContentStore } from "@/stores/bottomContent";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
-import { EASE_OUT_STRONG, MOTION_FAST, MOTION_SLOW } from "@/lib/motion";
+import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
+import { useRetainedRecord, useRetainedWhileClosing } from "@/workbench/slots/retain";
 import "@/workbench/slots/slots.css";
 
 const MIN_COLUMN_WIDTH = 320;
@@ -77,6 +78,13 @@ type SlotsCtx = {
 };
 const Ctx = React.createContext<SlotsCtx | null>(null);
 const useSlots = () => React.useContext(Ctx)!;
+
+/**
+ * Whether the panel a card sits in is opening or closing, for the card's
+ * content fade: the card itself — the surface — travels with its panel, and
+ * what is on it trails in after (pane-slots.tsx, above BottomRow).
+ */
+const PanelFade = React.createContext<{ open: boolean; instant: boolean }>({ open: true, instant: true });
 
 /** A companion's glyph, or the module's own for its context pane. */
 function iconFor(pane: PaneId): typeof Bot {
@@ -165,38 +173,42 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
 
   // Keep terminals alive in their detached host when the panel is hidden.
   const hasTerminalTabs = useTerminalTabsStore((s) => s.tabs.length > 0);
-  const bodies: [PaneId, React.ReactNode][] = [
-    ["agent", companion ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div> : null],
-    [
-      "terminal",
-      bottomOpen || hasTerminalTabs ? (
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <TerminalWorkspace moduleContent={moduleContent ?? undefined} />
-        </div>
-      ) : null,
-    ],
-    ...visibleModules.map((m): [PaneId, React.ReactNode] => [
-      contextPane(m),
-      panels[m] ? <div className="flex min-h-0 flex-1 flex-col overflow-auto">{panels[m].content}</div> : null,
-    ]),
-  ];
+  const terminalBody = React.useMemo(
+    () => (
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <TerminalWorkspace moduleContent={moduleContent ?? undefined} />
+      </div>
+    ),
+    [moduleContent],
+  );
+  const terminalAlive = bottomOpen || hasTerminalTabs;
+  // What each pane renders, by identity: the content the module (or the
+  // companion) pushed, so a re-render of this row is not a change.
+  const liveBodies = React.useMemo(() => {
+    const out: Record<PaneId, React.ReactNode> = {};
+    if (companion) out.agent = <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div>;
+    if (terminalAlive) out.terminal = terminalBody;
+    for (const m of visibleModules) {
+      const panel = panels[m];
+      if (panel) out[contextPane(m)] = <div className="flex min-h-0 flex-1 flex-col overflow-auto">{panel.content}</div>;
+    }
+    return out;
+  }, [companion, terminalAlive, terminalBody, visibleModules, panels]);
+  // A pane that closes keeps its last content while its slot closes around it,
+  // instead of sliding out as an empty card (workbench/slots/retain.ts).
+  const reduceMotion = useReducedMotion() ?? false;
+  const bodies = useRetainedRecord(liveBodies, panelCloseMs(reduceMotion));
 
-  // A module asks for a width when it opens its panel — honoured for the
-  // column the panel lands in, as the split panel always did, and only on the
-  // closed → open edge, so re-pushed content (NoteEditor does it on every
-  // edit) never undoes a drag. Not in the bottom row: that has no width.
+  // A module asks for a width when it opens its panel (slotModel.requestedWidths).
+  // In a layout effect: written before the first frame, so the column's open
+  // animation starts toward the width it ends at instead of re-targeting.
   const setWidthA = usePanelWidthsStore((s) => s.setSplitPanelWidth);
   const setWidthB = usePaneSlotsStore((s) => s.setColumnBWidth);
   const wasOpen = React.useRef(new Set<string>());
-  React.useEffect(() => {
-    for (const m of visibleModules) {
-      const panel = panels[m];
-      if (panel && !wasOpen.current.has(m)) {
-        const slot = slotOf(resolved, contextPane(m));
-        const col = slot && slot !== "bottom" ? (slot[0] as ColumnId) : null;
-        if (col) (col === "a" ? setWidthA : setWidthB)(panel.width);
-      }
-    }
+  React.useLayoutEffect(() => {
+    const widths = requestedWidths({ modules: visibleModules, panels, wasOpen: wasOpen.current, resolved });
+    if (widths.a !== undefined) setWidthA(widths.a);
+    if (widths.b !== undefined) setWidthB(widths.b);
     wasOpen.current = new Set(visibleModules.filter((m) => m in panels));
   }, [panels, visibleModules, resolved, setWidthA, setWidthB]);
 
@@ -261,7 +273,11 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // surface shares — published from here because only here is it known.
   const visibleColumns = (["a", "b"] as const).filter((c) => columnVisible(resolved, c)).length;
   const setVisibleColumns = usePanelWidthsStore((s) => s.setVisibleColumns);
-  React.useEffect(() => setVisibleColumns(visibleColumns), [visibleColumns, setVisibleColumns]);
+  // Before paint: the sidebar reads pressure from it, so a column opening on a
+  // narrow window and the sidebar giving way for it start in the same frame,
+  // each toward its final size, rather than the column re-targeting a frame
+  // later when the sidebar's yield frees room.
+  React.useLayoutEffect(() => setVisibleColumns(visibleColumns), [visibleColumns, setVisibleColumns]);
   const pressure = useLayoutPressure();
 
   const ctx = React.useMemo<SlotsCtx>(
@@ -303,7 +319,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
         </div>
       </LazyMotion>
 
-      {bodies.map(([pane, body]) => (body ? createPortal(body, hostFor(pane), pane) : null))}
+      {Object.entries(bodies).map(([pane, body]) => createPortal(body, hostFor(pane), pane))}
 
       {createPortal(
         <div ref={hintRef} data-show="false" className="pane-drop-hint" aria-hidden>
@@ -315,11 +331,31 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   );
 }
 
+/**
+ * How a shell panel moves (smoothness §3.8, §4.4), the same for the bottom
+ * row, the columns and the sidebar (sidebar-shell.tsx):
+ *
+ *   - the outer box animates its size and clips;
+ *   - an inner box is pinned at the size the panel ends at, anchored to the
+ *     edge that moves, so the content lays out once and slides in with that
+ *     edge instead of reflowing on every frame;
+ *   - the content fades in CONTENT_FADE_DELAY after the box starts, and out
+ *     with it;
+ *   - closing keeps the last content until the box is shut (panelCloseMs);
+ *   - the move is reported to lib/panelMotion, so what re-measures on resize
+ *     beside it waits for the end.
+ *
+ * The document beside it still re-lays out each frame — that is CSS flex and
+ * cheap; what was not cheap is what listens to it.
+ */
+
 /** The bottom row, under the document. Height is useBottomSlotStore's. */
 function BottomRow({ pane }: { pane: PaneId | null }) {
+  const { resolved } = useSlots();
   const height = useBottomSlotStore((s) => s.height);
   const setHeight = useBottomSlotStore((s) => s.setHeight);
   const windowHeight = useWindowHeight();
+  const reduceMotion = useReducedMotion() ?? false;
   const open = pane !== null;
 
   const max = maxBottomHeight({ windowHeight, min: MIN_BOTTOM_HEIGHT, hardMax: MAX_BOTTOM_HEIGHT });
@@ -333,31 +369,50 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
     sign: -1,
   });
 
+  const drawn = open ? Math.min(height, max) + GAP_WIDTH : 0;
+  const [lastDrawn, setLastDrawn] = React.useState(drawn);
+  if (open && drawn !== lastDrawn) setLastDrawn(drawn);
+  const motion = usePanelMotionReport({ id: "bottom", target: drawn, open, instant: isResizing || reduceMotion, windowSize: windowHeight });
+  const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
+
+  // While it closes, what it showed — unless that pane is on screen elsewhere
+  // now (moved to a column), where it already is.
+  const kept = useRetainedWhileClosing(pane, panelCloseMs(reduceMotion));
+  const shown = pane ?? (kept !== null && !Object.values(resolved).includes(kept) ? kept : null);
+
   return (
-    <m.div
-      initial={false}
-      // Clamped at render, not only while dragging: the ceiling moves with the
-      // window, the stored height does not, and a stale one would crush the
-      // document above it. One line: step4bComponents.test.tsx looks for it.
-      animate={{ height: open ? Math.min(height, max) + GAP_WIDTH : 0 }}
-      transition={isResizing ? { duration: 0 } : { duration: open ? MOTION_SLOW : MOTION_FAST, ease: EASE_OUT_STRONG }}
-      className="flex min-w-0 shrink-0 flex-col overflow-hidden"
-    >
-      {open ? (
-        <>
-          <ShellResizeHandle
-            orientation="horizontal"
-            aria-label="Resize bottom row"
-            onPointerDown={onPointerDown}
-            isResizing={isResizing}
-            style={{ height: GAP_WIDTH }}
-          />
-          <SlotCard slot="bottom" pane={pane} className="flex-1" />
-        </>
-      ) : null}
-    </m.div>
+    <PanelFade.Provider value={fade}>
+      <m.div
+        initial={false}
+        // Clamped at render, not only while dragging: the ceiling moves with the
+        // window, the stored height does not, and a stale one would crush the
+        // document above it. One line: step4bComponents.test.tsx looks for it.
+        animate={{ height: open ? Math.min(height, max) + GAP_WIDTH : 0 }}
+        transition={panelTransition(open, motion.instant)}
+        onAnimationComplete={motion.onAnimationComplete}
+        className="relative min-w-0 shrink-0 overflow-hidden"
+      >
+        {/* Pinned to the open height and hung from the top edge, the one that
+            moves: the row slides up into view rather than growing. */}
+        <div className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
+          {shown ? (
+            <ShellResizeHandle
+              orientation="horizontal"
+              aria-label="Resize bottom row"
+              onPointerDown={onPointerDown}
+              isResizing={isResizing}
+              style={{ height: GAP_WIDTH }}
+            />
+          ) : null}
+          {shown ? <SlotCard slot="bottom" pane={shown} className="flex-1" /> : null}
+        </div>
+      </m.div>
+    </PanelFade.Provider>
   );
 }
+
+/** What a column shows: its own two slots, and column B's while it is stacked in. */
+type ColumnPanes = { top: PaneId | null; bottom: PaneId | null; bTop: PaneId | null; bBottom: PaneId | null };
 
 /**
  * One column on the right. Drawn only while it holds an open pane; a single
@@ -370,11 +425,9 @@ function SlotColumn({ column }: { column: ColumnId }) {
   // Under pressure the second column stacks into the first rather than take a
   // column of its own; its panes keep their slots, so they go back on widening.
   const merged = pressure.mergeColumns;
-  const extras: [SlotId, PaneId][] =
-    merged && column === "a"
-      ? (["b.top", "b.bottom"] as const).flatMap((s) => (resolved[s] ? [[s, resolved[s]!] as [SlotId, PaneId]] : []))
-      : [];
-  const open = merged && column === "b" ? false : columnVisible(resolved, column) || extras.length > 0;
+  const bTop = merged && column === "a" ? (resolved["b.top"] ?? null) : null;
+  const bBottom = merged && column === "a" ? (resolved["b.bottom"] ?? null) : null;
+  const open = merged && column === "b" ? false : columnVisible(resolved, column) || bTop !== null || bBottom !== null;
   const other: ColumnId = column === "a" ? "b" : "a";
   const otherOpen = merged ? false : columnVisible(resolved, other);
 
@@ -392,6 +445,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const sidebarOpen = usePanelWidthsStore((s) => s.sidebarOpen);
   const windowWidth = useWindowWidth();
+  const reduceMotion = useReducedMotion() ?? false;
 
   // Clamped against the sidebar and the other column: with everything open on
   // a narrow window a flat ceiling would crush the document through its floor.
@@ -404,9 +458,10 @@ function SlotColumn({ column }: { column: ColumnId }) {
   });
   const drawn = open ? Math.min(width, max) + GAP_WIDTH : 0;
 
-  // Publish the columns' occupancy so SidebarSurface can clamp against it.
+  // Publish the columns' occupancy so SidebarSurface can clamp against it —
+  // before paint, so both clamp against the same frame.
   const setColumnWidth = usePanelWidthsStore((s) => s.setColumnWidth);
-  React.useEffect(() => setColumnWidth(column, drawn), [column, drawn, setColumnWidth]);
+  React.useLayoutEffect(() => setColumnWidth(column, drawn), [column, drawn, setColumnWidth]);
 
   const { isResizing, onPointerDown } = useResizableSize({
     size: width,
@@ -416,6 +471,37 @@ function SlotColumn({ column }: { column: ColumnId }) {
     axis: "x",
     sign: -1,
   });
+  const motion = usePanelMotionReport({
+    id: `column-${column}`,
+    target: drawn,
+    open,
+    instant: isResizing || reduceMotion,
+    windowSize: windowWidth,
+  });
+  const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
+
+  // The width the content is laid out at: the open width, held through the close.
+  const [lastDrawn, setLastDrawn] = React.useState(drawn);
+  if (open && drawn !== lastDrawn) setLastDrawn(drawn);
+
+  // While it closes, the panes it last showed — less any now drawn elsewhere
+  // (moved to another slot, or stacked into column A), which are already there.
+  const live = React.useMemo<ColumnPanes | null>(
+    () => (open ? { top, bottom, bTop, bBottom } : null),
+    [open, top, bottom, bTop, bBottom],
+  );
+  const kept = useRetainedWhileClosing(live, panelCloseMs(reduceMotion));
+  const onScreen = new Set(Object.values(resolved));
+  const leaving = (pane: PaneId | null) => (pane !== null && !onScreen.has(pane) ? pane : null);
+  const shown: ColumnPanes | null =
+    live ?? (kept ? { top: leaving(kept.top), bottom: leaving(kept.bottom), bTop: leaving(kept.bTop), bBottom: leaving(kept.bBottom) } : null);
+  const extras: [SlotId, PaneId][] = shown
+    ? ([["b.top", shown.bTop], ["b.bottom", shown.bBottom]] as [SlotId, PaneId | null][]).filter(
+        (e): e is [SlotId, PaneId] => e[1] !== null,
+      )
+    : [];
+  const shownTop = shown?.top ?? null;
+  const shownBottom = shown?.bottom ?? null;
 
   // Measured, not derived: the column's height is the row's, and re-deriving
   // that here would drift the moment the title bar or gutter changes.
@@ -430,8 +516,8 @@ function SlotColumn({ column }: { column: ColumnId }) {
     return () => observer.disconnect();
   }, []);
 
-  const both = top !== null && bottom !== null;
-  const sizes = splitColumn({ columnHeight, topOpen: top !== null, bottomOpen: bottom !== null, topHeight });
+  const both = shownTop !== null && shownBottom !== null;
+  const sizes = splitColumn({ columnHeight, topOpen: shownTop !== null, bottomOpen: shownBottom !== null, topHeight });
   // sign +1: the handle sits under the top slot, so dragging down grows it.
   const split = useResizableSize({
     size: topHeight,
@@ -443,62 +529,74 @@ function SlotColumn({ column }: { column: ColumnId }) {
   });
 
   return (
-    <m.div
-      initial={false}
-      // Clamped at render for the same reason as the sidebar and the bottom
-      // row. One line: step4bComponents.test.tsx looks for it.
-      animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
-      transition={isResizing ? { duration: 0 } : { duration: open ? MOTION_SLOW : MOTION_FAST, ease: EASE_OUT_STRONG }}
-      className="flex min-h-0 shrink-0 overflow-hidden"
-    >
-      {open ? (
-        <ShellResizeHandle
-          orientation="vertical"
-          aria-label={`Resize column ${column.toUpperCase()}`}
-          onPointerDown={onPointerDown}
-          isResizing={isResizing}
-          style={{ width: GAP_WIDTH }}
-        />
-      ) : null}
-      <div ref={columnRef} data-slot-column={column} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {extras.length > 0 ? (
-          // Stacked: every pane an equal share, no split to drag — this is a
-          // temporary arrangement that the window's width will undo.
-          <div className="flex min-h-0 flex-1 flex-col" style={{ gap: GAP_WIDTH }}>
-            {([...(top ? [[`${column}.top`, top]] : []), ...(bottom ? [[`${column}.bottom`, bottom]] : []), ...extras] as [SlotId, PaneId][]).map(
-              ([slot, pane]) => (
-                <SlotCard key={slot} slot={slot} pane={pane} className="flex-1" />
-              ),
-            )}
+    <PanelFade.Provider value={fade}>
+      <m.div
+        initial={false}
+        // Clamped at render for the same reason as the sidebar and the bottom
+        // row. One line: step4bComponents.test.tsx looks for it.
+        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
+        transition={panelTransition(open, motion.instant)}
+        onAnimationComplete={motion.onAnimationComplete}
+        // On the clipping box: what a drag measures is what is on screen.
+        data-slot-column={column}
+        className="relative flex min-h-0 shrink-0 overflow-hidden"
+      >
+        {/* Pinned to the open width and hung from the left edge, the one that
+            moves: the column slides in from the right and back out to it. */}
+        <div className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+          {open ? (
+            <ShellResizeHandle
+              orientation="vertical"
+              aria-label={`Resize column ${column.toUpperCase()}`}
+              onPointerDown={onPointerDown}
+              isResizing={isResizing}
+              style={{ width: GAP_WIDTH }}
+            />
+          ) : (
+            // The sash's place, so the closing content does not shift into it.
+            <div aria-hidden className="shrink-0" style={{ width: GAP_WIDTH }} />
+          )}
+          <div ref={columnRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {extras.length > 0 ? (
+              // Stacked: every pane an equal share, no split to drag — this is a
+              // temporary arrangement that the window's width will undo.
+              <div className="flex min-h-0 flex-1 flex-col" style={{ gap: GAP_WIDTH }}>
+                {([...(shownTop ? [[`${column}.top`, shownTop]] : []), ...(shownBottom ? [[`${column}.bottom`, shownBottom]] : []), ...extras] as [SlotId, PaneId][]).map(
+                  ([slot, pane]) => (
+                    <SlotCard key={slot} slot={slot} pane={pane} className="flex-1" />
+                  ),
+                )}
+              </div>
+            ) : null}
+            {extras.length === 0 && shownTop ? (
+              <SlotCard
+                slot={`${column}.top`}
+                pane={shownTop}
+                className={both ? "shrink-0" : "flex-1"}
+                style={both ? { height: sizes.top } : undefined}
+              />
+            ) : null}
+            {extras.length === 0 && both ? (
+              <ShellResizeHandle
+                orientation="horizontal"
+                aria-label={`Resize column ${column.toUpperCase()} split`}
+                onPointerDown={split.onPointerDown}
+                isResizing={split.isResizing}
+                style={{ height: GAP_WIDTH }}
+              />
+            ) : null}
+            {extras.length === 0 && shownBottom ? (
+              <SlotCard
+                slot={`${column}.bottom`}
+                pane={shownBottom}
+                className={both ? "shrink-0" : "flex-1"}
+                style={both ? { height: sizes.bottom } : undefined}
+              />
+            ) : null}
           </div>
-        ) : null}
-        {extras.length === 0 && top ? (
-          <SlotCard
-            slot={`${column}.top`}
-            pane={top}
-            className={both ? "shrink-0" : "flex-1"}
-            style={both ? { height: sizes.top } : undefined}
-          />
-        ) : null}
-        {extras.length === 0 && both ? (
-          <ShellResizeHandle
-            orientation="horizontal"
-            aria-label={`Resize column ${column.toUpperCase()} split`}
-            onPointerDown={split.onPointerDown}
-            isResizing={split.isResizing}
-            style={{ height: GAP_WIDTH }}
-          />
-        ) : null}
-        {extras.length === 0 && bottom ? (
-          <SlotCard
-            slot={`${column}.bottom`}
-            pane={bottom}
-            className={both ? "shrink-0" : "flex-1"}
-            style={both ? { height: sizes.bottom } : undefined}
-          />
-        ) : null}
-      </div>
-    </m.div>
+        </div>
+      </m.div>
+    </PanelFade.Provider>
   );
 }
 
@@ -518,6 +616,7 @@ function SlotCard({
   style?: React.CSSProperties;
 }) {
   const { hostFor } = useSlots();
+  const fade = React.useContext(PanelFade);
   const originRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLDivElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
@@ -542,8 +641,17 @@ function SlotCard({
   return (
     <div ref={originRef} data-slot-card={slot} className={cn("pane-slot relative flex min-h-0 min-w-0 flex-col", className)} style={style}>
       <div ref={setCard} className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
-        <PaneHeader pane={pane} cardRef={cardRef} originRef={originRef} />
-        <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col" />
+        {/* The surface moves with the panel; what is on it fades in after it
+            and out with it. From 0 when the card arrives with its panel. */}
+        <m.div
+          initial={fade.instant ? false : { opacity: 0 }}
+          animate={{ opacity: fade.open ? 1 : 0 }}
+          transition={panelContentFade(fade.open, fade.instant)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <PaneHeader pane={pane} cardRef={cardRef} originRef={originRef} />
+          <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col" />
+        </m.div>
       </div>
     </div>
   );

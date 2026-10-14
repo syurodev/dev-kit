@@ -5,6 +5,7 @@ import {
   dropTarget,
   menuTargets,
   move,
+  requestedWidths,
   resolve,
   type Geometry,
   type Placement,
@@ -124,5 +125,30 @@ describe("menuTargets", () => {
       "Right column · bottom · swap with Agent",
       "New column",
     ]);
+  });
+});
+
+describe("requestedWidths", () => {
+  const resolved = { "a.top": "context:notes", "b.top": "context:codegraph", bottom: "context:git" };
+
+  it("takes a width only from a panel on its closed → open edge", () => {
+    const panels = { notes: { width: 480 } };
+    expect(requestedWidths({ modules: ["notes"], panels, wasOpen: new Set(), resolved })).toEqual({ a: 480 });
+    expect(requestedWidths({ modules: ["notes"], panels, wasOpen: new Set(["notes"]), resolved })).toEqual({});
+  });
+
+  it("sizes the column the panel landed in, and never the bottom row", () => {
+    const panels = { codegraph: { width: 520 }, git: { width: 600 } };
+    expect(requestedWidths({ modules: ["codegraph", "git"], panels, wasOpen: new Set(), resolved })).toEqual({ b: 520 });
+  });
+
+  it("gives a contested column to the first listed module (the focused one)", () => {
+    const both = { "a.top": "context:notes", "a.bottom": "context:tasks" };
+    const panels = { notes: { width: 480 }, tasks: { width: 400 } };
+    expect(requestedWidths({ modules: ["tasks", "notes"], panels, wasOpen: new Set(), resolved: both })).toEqual({ a: 400 });
+  });
+
+  it("ignores a panel that is not on screen", () => {
+    expect(requestedWidths({ modules: ["kafka"], panels: { kafka: { width: 500 } }, wasOpen: new Set(), resolved })).toEqual({});
   });
 });
