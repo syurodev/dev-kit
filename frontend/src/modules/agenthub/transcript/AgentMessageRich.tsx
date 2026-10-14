@@ -4,6 +4,7 @@ import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { openExternal } from "@/bridge/browser";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
 import { fileRef, linkTarget } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
@@ -291,7 +292,63 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
   );
 }
 
-const ALIGN = { left: "text-left", center: "text-center", right: "text-right" } as const;
+/** A cell's words, for sizing its column; formatting does not take room. */
+function inlineText(tokens: InlineToken[]): string {
+  return tokens
+    .map((token) =>
+      token.type === "break"
+        ? " "
+        : "children" in token
+          ? inlineText(token.children)
+          : token.type === "secret"
+            ? token.value.slice(0, MASK_VISIBLE_CAP)
+            : token.value,
+    )
+    .join("");
+}
+
+/**
+ * A markdown table, drawn by the shared resizable DataTable.
+ *
+ * A table is scanned along its rows and down its first column, and both need
+ * drawing. The first column holds the row's name — "root (src/)", "gateway/" —
+ * and does not wrap: wrapped, a name broke into a word and a code chip on
+ * separate lines while the long column beside it had room. Cells sit on their
+ * top line so a two-line cell does not float its neighbours to its middle, and
+ * a column the markdown aligned (`:---:`, `---:`) is aligned — right-aligned
+ * columns are numbers, so their digits line up. Columns start at the width
+ * their words need and the reader can drag them from there.
+ */
+function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table" }> }) {
+  const columns = React.useMemo<DataTableColumn[]>(
+    () =>
+      block.head.map((cell, idx) => ({
+        key: String(idx),
+        header: <InlineNodes tokens={cell} />,
+        label: inlineText(cell),
+        align: block.align[idx] ?? "left",
+        nowrap: idx === 0,
+      })),
+    [block.head, block.align],
+  );
+  const rows = React.useMemo(
+    () => block.rows.map((row) => row.map((cell, idx) => <InlineNodes key={idx} tokens={cell} />)),
+    [block.rows],
+  );
+  const cellText = React.useMemo(
+    () => block.rows.map((row) => row.map(inlineText)),
+    [block.rows],
+  );
+  return (
+    <DataTable
+      data-testid="agent-table"
+      className="rounded-control border border-border-subtle"
+      columns={columns}
+      rows={rows}
+      cellText={cellText}
+    />
+  );
+}
 
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.type) {
@@ -354,60 +411,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       return <AgentCodeBlock code={block.code} language={block.language} wrap={!block.code.includes("\n")} />;
 
     case "table":
-      // A table is scanned along its rows and down its first column, and both
-      // need drawing. The first column holds the row's name — "root (src/)",
-      // "gateway/" — and does not wrap: wrapped, a name broke into a word and a
-      // code chip on separate lines while the long column beside it had room.
-      // Rows are divided by hairlines and light up under the pointer, cells sit
-      // on their top line so a two-line cell does not float its neighbours to
-      // its middle, and a column the markdown aligned (`:---:`, `---:`) is
-      // aligned — right-aligned columns are numbers, so their digits line up.
-      return (
-        <div
-          data-testid="agent-table"
-          className="w-full overflow-x-auto rounded-control border border-border-subtle"
-        >
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-border-subtle bg-(--state-soft)">
-                {block.head.map((cell, idx) => (
-                  <th
-                    key={idx}
-                    className={cn(
-                      "px-3 py-2 align-bottom text-body-13-medium whitespace-nowrap text-text-secondary",
-                      ALIGN[block.align[idx] ?? "left"],
-                    )}
-                  >
-                    <InlineNodes tokens={cell} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, rowIdx) => (
-                <tr
-                  key={rowIdx}
-                  className="border-t border-border-subtle transition-colors duration-(--motion-fast) first:border-t-0 hover:bg-(--state-soft)"
-                >
-                  {row.map((cell, idx) => (
-                    <td
-                      key={idx}
-                      className={cn(
-                        "px-3 py-2 align-top text-body-14 text-text-primary",
-                        idx === 0 && "whitespace-nowrap",
-                        ALIGN[block.align[idx] ?? "left"],
-                        block.align[idx] === "right" && "tabular-nums",
-                      )}
-                    >
-                      <InlineNodes tokens={cell} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <MarkdownTable block={block} />;
 
     default:
       return (

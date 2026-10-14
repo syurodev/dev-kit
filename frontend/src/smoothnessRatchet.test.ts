@@ -155,7 +155,9 @@ function untokenisedAnimateIn(): number {
 // something; it must never go up.
 const BASELINE = {
   emptyListState: 6,
-  unvirtualizedTables: 2,
+  // 2 → 1: markdown tables in Agent Hub draw through the shared DataTable,
+  // which windows past 100 rows.
+  unvirtualizedTables: 1,
   // 48 → 44 with the glass button already in it: four of the old 48 were
   // `backdrop-filter: none` opt-outs that the exclusion above never actually
   // excluded. 44 → 42: the plan inspector and Save Query drew their own
