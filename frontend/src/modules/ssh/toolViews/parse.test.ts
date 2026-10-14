@@ -51,8 +51,31 @@ describe("displayOutput", () => {
     expect(displayOutput("\x1b[1;32mok\x1b[0m done\x1b[?25h")).toBe("ok done");
   });
 
+  test("drops CSI with private and intermediate parameters", () => {
+    expect(displayOutput("a\x1b[>4;2mb\x1b[=1uc\x1b[1 qd\x1b[<0;10;5Me")).toBe("abcde");
+  });
+
+  test("drops OSC strings, hyperlinks included, ended by BEL or ST", () => {
+    expect(displayOutput("\x1b]0;window title\x07ok")).toBe("ok");
+    expect(displayOutput("\x1b]8;;https://example.test/a\x1b\\link\x1b]8;;\x1b\\ done")).toBe("link done");
+  });
+
+  test("drops DCS, SOS, PM and APC strings", () => {
+    expect(displayOutput("a\x1bPq#0;2;0;0;0\x1b\\b\x1bXsos\x1b\\c\x1b^pm\x1b\\d\x1b_apc\x1b\\e")).toBe("abcde");
+  });
+
+  test("drops charset designators and two-character escapes", () => {
+    expect(displayOutput("\x1b(Bplain\x1b)0 \x1b=keypad\x1b> \x1bMup\x1b7save\x1b8")).toBe("plain keypad upsave");
+  });
+
   test("a line redrawn with \\r shows only its last state", () => {
     expect(displayOutput("start\n 10%\r 50%\r100%\nend\n")).toBe("start\n100%\nend\n");
+  });
+
+  test("a line that ends in \\r keeps what it said", () => {
+    expect(displayOutput("progress 100%\r")).toBe("progress 100%");
+    expect(displayOutput("x\r\r\ny")).toBe("x\ny");
+    expect(displayOutput(" 10%\r 50%\r100%\r\ndone")).toBe("100%\ndone");
   });
 
   test("CRLF line ends are plain line ends", () => {

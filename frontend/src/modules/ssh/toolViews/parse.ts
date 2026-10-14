@@ -43,19 +43,28 @@ export function clipLines(text: string, max: number): { shown: string; hidden: n
   return { shown: all.slice(0, max).join("\n"), hidden: Math.max(0, all.length - max) };
 }
 
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+/**
+ * Terminal escapes, all of ECMA-48's shapes: CSI with private (`<=>?`) and
+ * intermediate bytes; OSC ended by BEL or ST (titles, OSC 8 hyperlinks); DCS,
+ * SOS, PM and APC strings; charset designators (`ESC ( B`); and the
+ * two-character escapes (`ESC M`, `ESC 7`, `ESC =`).
+ */
+const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[()][0-9A-Za-z]|[0-9@-Z\\-_=>])/g;
 
 /**
  * The output as a terminal would have left it on screen, for display only
- * (Copy keeps the raw bytes): colour and cursor escapes dropped, and a line a
- * progress bar redrew with `\r` reduced to what it last said.
+ * (Copy keeps the raw bytes): escapes dropped, and a line a progress bar
+ * redrew with `\r` reduced to what it last said. A `\r` that ends a line
+ * returns the cursor and draws nothing, so it erases nothing.
  */
 export function displayOutput(output: string): string {
   return output
     .replace(ANSI, "")
-    .replace(/\r\n/g, "\n")
     .split("\n")
-    .map((line) => line.slice(line.lastIndexOf("\r") + 1))
+    .map((line) => {
+      const drawn = line.replace(/\r+$/, "");
+      return drawn.slice(drawn.lastIndexOf("\r") + 1);
+    })
     .join("\n");
 }
 

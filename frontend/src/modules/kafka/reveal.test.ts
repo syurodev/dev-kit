@@ -42,6 +42,27 @@ function goSide({ connected = true, topics = ["orders", "payments"] }: { connect
   };
 }
 
+/** The store as revealTopic sees it, counting the subscriptions it leaves open. */
+function counted(store: ReturnType<typeof createKafkaStore>) {
+  let open = 0;
+  return {
+    view: {
+      getState: store.getState,
+      subscribe: (listener: Parameters<typeof store.subscribe>[0]) => {
+        open++;
+        const stop = store.subscribe(listener);
+        let stopped = false;
+        return () => {
+          if (!stopped) open--;
+          stopped = true;
+          stop();
+        };
+      },
+    },
+    open: () => open,
+  };
+}
+
 function shown() {
   const calls: number[] = [];
   return { show: () => calls.push(1), calls };
@@ -103,5 +124,61 @@ describe("revealTopic (kafka.reveal)", () => {
     expect(await revealTopic(store, "missing", show)).toBe("unavailable");
     expect(store.getState().selectedTopic).not.toBe("missing");
     expect(calls).toHaveLength(1);
+  });
+
+  it("shows Kafka before asking Go anything", async () => {
+    const { store, holdStatus } = goSide();
+    let release!: () => void;
+    holdStatus(() => new Promise((resolve) => (release = () => resolve({ connected: true, profileId: "a" }))));
+    const { show, calls } = shown();
+    const reveal = revealTopic(store, "payments", show);
+    expect(calls).toHaveLength(1);
+    release();
+    expect(await reveal).toBe("ok");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("gives up as unavailable when Go never answers, and leaves no subscription behind", async () => {
+    const { store, holdStatus } = goSide();
+    let release!: () => void;
+    holdStatus(() => new Promise((resolve) => (release = () => resolve({ connected: true, profileId: "a" }))));
+    const { view, open } = counted(store);
+    expect(await revealTopic(view, "payments", () => {}, 20)).toBe("unavailable");
+    expect(open()).toBe(0);
+    expect(store.getState().selectedTopic).not.toBe("payments");
+    // Go answering late neither selects the topic nor subscribes again.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(open()).toBe(0);
+    expect(store.getState().selectedTopic).not.toBe("payments");
+  });
+
+  it("gives up when a refresh someone else started never settles", async () => {
+    const { store, holdStatus } = goSide();
+    holdStatus(() => new Promise(() => {}));
+    void store.getState().refreshProfiles();
+    const { view, open } = counted(store);
+    expect(await revealTopic(view, "payments", () => {}, 20)).toBe("unavailable");
+    expect(open()).toBe(0);
+  });
+
+  it("selects nothing when the connection moved to another cluster on the way", async () => {
+    const { store, state } = goSide({ topics: ["orders"] });
+    await store.getState().refreshProfiles();
+    // Looking for "fresh" lists again — and that listing lands after a reconnect to cluster b.
+    const list = store.getState().loadClusterData;
+    let listed = 0;
+    store.setState({
+      loadClusterData: async () => {
+        listed++;
+        state.topics = ["orders", "fresh"];
+        store.setState({ connection: { connected: true, profileId: "b" } });
+        await list();
+      },
+    });
+    expect(await revealTopic(store, "fresh", () => {})).toBe("unavailable");
+    expect(listed).toBe(1);
+    expect(store.getState().topics.map((t) => t.name)).toContain("fresh");
+    expect(store.getState().selectedTopic).not.toBe("fresh");
   });
 });
