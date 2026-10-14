@@ -41,6 +41,12 @@ export type AgentToolCallProps = {
   sessionId?: string;
   /** The transcript item this row draws, as `data-step-id` — how a run's "+N more" line finds it. */
   stepId?: string;
+  /**
+   * The call's result view already stands as a card after the work fold
+   * (StepGroup): inside the fold the row is a plain row, its own output and
+   * "Show full output" — a second copy of the card would hide both.
+   */
+  resultOutside?: boolean;
   onOpenFile?: (path: string, line?: number) => void;
   className?: string;
 };
@@ -209,6 +215,7 @@ export function AgentToolCall({
   variant = "card",
   sessionId,
   stepId,
+  resultOutside = false,
   onOpenFile,
   className,
 }: AgentToolCallProps) {
@@ -247,10 +254,10 @@ export function AgentToolCall({
   const name = toolNameOf(call);
   const resultCall = React.useMemo(() => resultCallOf(call, fullCall), [call, fullCall]);
   const toolResultNode = React.useMemo(() => {
-    if (state !== "done" || !hasToolResultView(name)) return null;
+    if (resultOutside || state !== "done" || !hasToolResultView(name)) return null;
     const input = toolResultInputOf(resultCall);
     return input ? renderToolResult(input) : null;
-  }, [state, name, resultCall]);
+  }, [resultOutside, state, name, resultCall]);
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
   const hasBody =
@@ -410,6 +417,7 @@ export function AgentToolCall({
         data-testid="agent-tool-call"
         data-variant="row"
         data-step-id={stepId}
+        data-result={resultOutside ? "outside" : undefined}
         data-status={call.status ?? "completed"}
         data-state={state}
         className={cn("flex w-full min-w-0 flex-col", className)}

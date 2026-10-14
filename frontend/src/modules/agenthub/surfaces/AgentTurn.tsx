@@ -399,6 +399,12 @@ export function StepGroup({
   // the fold, in call order (ToolResultCard.tsx).
   const own = React.useMemo(() => (given ? null : surfaceResults([items])[0]), [given, items]);
   const { shown, hidden } = given ?? own ?? NO_RESULTS;
+  // Steps whose view already stands after the fold, as a result or activity
+  // card: inside the fold they stay one-line rows (their raw output, not the card again).
+  const outside = React.useMemo(
+    () => new Set([...shown, ...activities].map((item) => item.id)),
+    [shown, activities],
+  );
 
   React.useEffect(() => {
     if (!open || !focus) return;
@@ -443,7 +449,13 @@ export function StepGroup({
         <AnimatedCollapse open={open} className="pt-2">
           <div className="flex w-full flex-col gap-2">
             {items.map((item) => (
-              <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+              <StepRow
+                key={item.id}
+                item={item}
+                subagents={subagents}
+                onOpenFile={onOpenFile}
+                resultOutside={outside.has(item.id)}
+              />
             ))}
           </div>
         </AnimatedCollapse>
@@ -499,10 +511,13 @@ function StepRow({
   item,
   subagents,
   onOpenFile,
+  resultOutside,
 }: {
   item: TranscriptItem;
   subagents?: ActivityById;
   onOpenFile?: (path: string, line?: number) => void;
+  /** Its result already stands as a card after the fold (AgentToolCall.resultOutside). */
+  resultOutside?: boolean;
 }) {
   switch (String(item.kind)) {
     case "agent_thought_chunk": {
@@ -534,6 +549,7 @@ function StepRow({
           variant="row"
           sessionId={item.sessionId}
           stepId={item.id}
+          resultOutside={resultOutside}
           onOpenFile={onOpenFile}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
         />

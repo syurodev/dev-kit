@@ -476,6 +476,32 @@ describe("Agent Hub Transcript Leaves", () => {
       }
     });
 
+    it("a row whose card stands outside the fold shows the call's own output, not the view again", () => {
+      const unregister = registerToolResultView("codegraph.getApiFlow", () => <div data-testid="fake-flow-card">card</div>);
+      try {
+        const html = renderToString(
+          <AgentToolCall
+            variant="row"
+            resultOutside
+            call={{
+              id: "c-flow-outside",
+              title: "mcp__devkit__codegraph_getApiFlow",
+              name: "mcp__devkit__codegraph_getApiFlow",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: '{"endpointId":"e9","steps":[]}' } }],
+            }}
+            defaultExpanded
+          />,
+        );
+        expect(html).not.toContain("fake-flow-card");
+        expect(html).not.toContain('data-testid="tool-call-result-view"');
+        expect(html).toContain('data-result="outside"');
+        expect(html).toContain("e9");
+      } finally {
+        unregister();
+      }
+    });
+
     it("renders the view for Claude's result, which rides in the content text", () => {
       const unregister = registerToolResultView("codegraph.getApiFlow", ({ rawOutput }) => (
         <div data-testid="fake-flow-card">{`flow for ${(rawOutput as { endpointId: string }).endpointId}`}</div>

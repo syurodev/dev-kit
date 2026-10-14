@@ -434,6 +434,27 @@ describe("results outside the fold", () => {
     expect(html).toContain("other.go");
   });
 
+  it("a step whose card stands after the fold is a plain row inside it; the rest keep their view", () => {
+    const html = renderToString(
+      <StepGroup defaultOpen items={[viewed("a", 1), other, viewed("b", 2), viewed("c", 3), viewed("d", 4)]} />,
+    );
+    const outside = (id: string) => new RegExp(`data-step-id="${id}"[^>]*data-result="outside"`).test(html);
+    expect(["a", "b", "c"].every(outside)).toBe(true);
+    // Past the cap: its view is only in the fold, so it keeps it there.
+    expect(outside("d")).toBe(false);
+    expect(outside("o")).toBe(false);
+  });
+
+  it("an activity's row in the fold is plain too: its card is after the fold", () => {
+    const act: TranscriptItem = {
+      id: "q",
+      kind: "tool_call",
+      toolCall: { id: "q", name: "x.act", kind: "other", title: "act", status: "completed", rawOutput: { ok: true } },
+    };
+    const html = renderToString(<StepGroup defaultOpen items={[act, other]} />);
+    expect(html).toMatch(/data-step-id="q"[^>]*data-result="outside"/);
+  });
+
   it("puts the cards before the run's activity cards", () => {
     const build: TranscriptItem = {
       id: "p",
