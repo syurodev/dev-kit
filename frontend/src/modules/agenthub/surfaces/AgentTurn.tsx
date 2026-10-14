@@ -1,13 +1,13 @@
 import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, File, FileText, ImageIcon } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
-import type { TranscriptItem } from "../types";
+import type { PromptAttachment, TranscriptItem } from "../types";
 import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { activityOf, stepCount, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
@@ -22,7 +22,6 @@ import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunnin
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { AgentTurnChanges } from "./AgentTurnChanges";
-import { AgentFileChip } from "../transcript/AgentFileChip";
 
 export type AgentTurnProps = {
   turn: Turn;
@@ -156,14 +155,27 @@ export const AgentTurn = React.memo(function AgentTurn({
               {/* What the prompt carried besides words, by name: an image-only
                   prompt is still a turn, and the bubble says what it was. */}
               {turn.prompt.attachments?.length ? (
-                <div data-testid="turn-prompt-attachments" className="flex max-w-full flex-wrap justify-end gap-1">
+                <div data-testid="turn-prompt-attachments" className="flex max-w-full flex-wrap justify-end gap-2">
                   {turn.prompt.attachments.map((attachment, index) => (
-                    <AgentFileChip
+                    <div
                       key={`${attachment.kind}:${attachment.name}:${index}`}
-                      path={attachment.name}
-                      kind={attachment.kind === "image" ? "image" : attachment.kind === "document" ? "document" : "file"}
-                      detail={attachment.kind === "document" && attachment.pages ? `${attachment.pages} page${attachment.pages === 1 ? "" : "s"}` : undefined}
-                    />
+                      data-testid="turn-attachment-card"
+                      className="flex max-w-full items-center gap-2.5 rounded-xl bg-surface-tinted py-2 pr-3.5 pl-2"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-base">
+                        {attachment.kind === "document" ? (
+                          <FileText className="size-4 text-status-danger" aria-hidden="true" />
+                        ) : attachment.kind === "image" ? (
+                          <ImageIcon className="size-4 text-text-secondary" aria-hidden="true" />
+                        ) : (
+                          <File className="size-4 text-text-secondary" aria-hidden="true" />
+                        )}
+                      </span>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="max-w-60 truncate text-body-13 text-text-primary">{attachment.name}</span>
+                        <span className="text-body-12 text-text-tertiary">{attachmentDetail(attachment)}</span>
+                      </span>
+                    </div>
                   ))}
                 </div>
               ) : null}
@@ -190,8 +202,9 @@ export const AgentTurn = React.memo(function AgentTurn({
 
       {turn.work.length > 0 ? (
         <div data-testid="turn-work" className="flex w-full flex-col gap-3">
-          <div className="w-full border-b border-border-subtle pb-2 text-body-13 text-text-tertiary">
+          <div className="flex w-full items-center gap-1 border-b border-border-subtle pb-2 text-body-13 text-text-tertiary">
             <SwapText text={worked} animate={latest} reduce={reduce} active={false} />
+            <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
           </div>
           {segments.map((segment) => {
             if (segment.kind === "text") {
@@ -516,6 +529,13 @@ function SubagentBrief({ text }: { text: string }) {
       ) : null}
     </div>
   );
+}
+
+/** The second line of an attachment card: what it is, and its pages when it is a PDF. */
+function attachmentDetail(a: PromptAttachment): string {
+  if (a.kind === "document") return a.pages ? `PDF · ${a.pages} page${a.pages === 1 ? "" : "s"}` : "PDF";
+  if (a.kind === "image") return "Image";
+  return a.name.includes(".") ? a.name.slice(a.name.lastIndexOf(".") + 1).toUpperCase() : "File";
 }
 
 /**

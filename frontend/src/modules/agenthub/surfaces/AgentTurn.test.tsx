@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
 import { AgentTurn, StepGroup } from "./AgentTurn";
+import { AgentFileChip } from "../transcript/AgentFileChip";
 
 const items: TranscriptItem[] = [
   { id: "u", kind: "user_message_chunk", text: "explain the repo", createdAt: "2026-09-14T10:00:00Z" },
@@ -228,5 +229,52 @@ describe("a PDF a prompt carried", () => {
     expect(html).toContain("45 pages");
     expect(html).toContain("1 page<");
     expect(html).not.toContain("1 pages");
+  });
+});
+
+describe("transcript details", () => {
+  it("attachments are cards above the prompt", () => {
+    const turns = groupTurns([
+      {
+        id: "u1",
+        kind: "user_message_chunk",
+        text: "read this",
+        messageId: "p1",
+        attachments: [
+          { name: "spec-auth-v3.pdf", kind: "document", documentId: "doc1", pages: 12 },
+          { name: "screen.png", kind: "image" },
+          { name: "notes.md", kind: "file" },
+        ],
+      },
+    ]);
+    const html = renderToString(<AgentTurn turn={turns[0]} onCopy={() => {}} />);
+    expect(html).toContain('data-testid="turn-attachment-card"');
+    expect(html).toContain(">spec-auth-v3.pdf<");
+    expect(html).toContain(">PDF · 12 pages<");
+    expect(html).toContain(">Image<");
+    expect(html).toContain(">MD<");
+    // The cards come before the bubble.
+    expect(html.indexOf("turn-attachment-card")).toBeLessThan(html.indexOf('data-testid="turn-prompt"'));
+  });
+
+  it("a single page is not '1 pages'", () => {
+    const turns = groupTurns([
+      { id: "u1", kind: "user_message_chunk", text: "", messageId: "p1", attachments: [{ name: "one.pdf", kind: "document", pages: 1 }] },
+    ]);
+    const html = renderToString(<AgentTurn turn={turns[0]} onCopy={() => {}} />);
+    expect(html).toContain(">PDF · 1 page<");
+  });
+
+  it("the work line keeps 'Worked for' with a hairline and a chevron", () => {
+    const [turn] = groupTurns(items);
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(html).toMatch(/data-testid="turn-work"[\s\S]*border-b border-border-subtle[\s\S]*Worked for 4m 7s[\s\S]*lucide-chevron-right/);
+  });
+});
+
+describe("AgentFileChip", () => {
+  it("shows its detail when it is a button too", () => {
+    const html = renderToString(<AgentFileChip path="a.pdf" detail="6 pages" onClick={() => {}} />);
+    expect(html).toContain("6 pages");
   });
 });

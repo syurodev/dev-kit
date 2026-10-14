@@ -57,6 +57,7 @@ export function AgentFileChip({
       {typeof line === "number" && (
         <span className="shrink-0 text-code-12 text-text-tertiary">{`:${line}`}</span>
       )}
+      {detail ? <span className="shrink-0 text-code-12 text-text-tertiary">{detail}</span> : null}
     </button>
   );
 }
