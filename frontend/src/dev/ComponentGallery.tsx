@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
 import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
+import { AgentEnvironmentPreview } from "./AgentEnvironmentPreview";
 import { AgentSessionSidebarSection } from "./AgentSessionSidebarSection";
 import { AgentComposerLayoutSection } from "./AgentComposerLayoutSection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
@@ -1062,6 +1063,7 @@ export default function ComponentGallery() {
         <Step4bMeasurementsInspector />
       </Section>
 
+      <AgentEnvironmentPreview />
       <AgentHubTranscriptSection />
       <AgentSessionSidebarSection />
       <AgentComposerLayoutSection />

@@ -51,6 +51,7 @@ import {
   type Requirement,
   compareVersions,
 } from "@/bridge/agentRuntime";
+import { AgentEnvironmentSetting } from "@/modules/agenthub/environment/AgentEnvironment";
 import { ClaudeSignInSection } from "@/modules/agenthub/ClaudeSignIn";
 import { CodexAccountSection } from "@/modules/agenthub/CodexAccountSection";
 import { CLAUDE_INFO, vendorInfo, type VendorInfo } from "@/modules/agenthub/vendors";
@@ -155,6 +156,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
 
   return (
     <div className="flex flex-col gap-6">
+      <AgentEnvironmentSetting vendor={info.id} />
       <div className="flex flex-col gap-3 rounded-control border border-border-subtle bg-surface-raised p-3.5">
         <div className="flex items-start gap-2.5">
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">

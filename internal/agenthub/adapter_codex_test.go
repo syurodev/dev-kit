@@ -418,8 +418,8 @@ func (u *updateLog) joined() string {
 
 // The jail and the command line a session gets (spec §4.3): DevKit's own
 // CODEX_HOME, read-write except the policy files; the user's ~/.codex
-// hidden; the data directory hidden but for this home; hooks, plugins, apps
-// and computer use off; the session's MCP server on the command line.
+// hidden in a private session; data hidden but for this home; native features
+// left available; the session's MCP server on the command line.
 func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	f := newCodexFixture(t, "turn")
 	data := filepath.Dir(filepath.Dir(f.home))
@@ -448,7 +448,7 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	if !slices.Contains(pol.ReadWritePaths, f.home) {
 		t.Errorf("the home must be writable: %v", pol.ReadWritePaths)
 	}
-	for _, name := range []string{"config.toml", "rules", "AGENTS.md", "AGENTS.override.md", "skills"} {
+	for _, name := range []string{"config.toml", "rules", "AGENTS.md", "AGENTS.override.md"} {
 		if !slices.Contains(pol.DenyWritePaths, filepath.Join(f.home, name)) {
 			t.Errorf("%s must be deny-write: %v", name, pol.DenyWritePaths)
 		}
@@ -479,7 +479,6 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 		"app-server",
 		`-c cli_auth_credentials_store="file"`,
 		"-c check_for_update_on_startup=false",
-		"--disable hooks --disable plugins --disable apps --disable computer_use",
 		`-c mcp_servers.devkit.command="` + proxy + `"`,
 		`-c mcp_servers.devkit.args=["--socket","/tmp/s.sock"]`,
 	} {
@@ -505,7 +504,7 @@ func TestCodexOpenJailsTheAppServer(t *testing.T) {
 	}
 	var ts codexapp.ThreadStartParams
 	_ = json.Unmarshal(start[0], &ts)
-	if ts.ApprovalPolicy != "untrusted" || ts.ApprovalsReviewer != "user" || ts.Cwd != f.cwd {
+	if ts.ApprovalPolicy != "on-request" || ts.ApprovalsReviewer != "user" || ts.Cwd != f.cwd {
 		t.Errorf("thread/start = %+v", ts)
 	}
 	if ts.DeveloperInstructions != devkitPrompt(codexNaming, "") {
@@ -580,7 +579,7 @@ func TestCodexPromptRunsATurn(t *testing.T) {
 
 	var ts codexapp.TurnStartParams
 	_ = json.Unmarshal(f.runner.sent(t, "turn/start")[0], &ts)
-	if ts.ThreadID != "th-new" || ts.ApprovalPolicy != "untrusted" || ts.ApprovalsReviewer != "user" {
+	if ts.ThreadID != "th-new" || ts.ApprovalPolicy != "on-request" || ts.ApprovalsReviewer != "user" {
 		t.Errorf("turn/start = %+v", ts)
 	}
 	if ts.SandboxPolicy == nil || ts.SandboxPolicy.Type != "externalSandbox" || ts.SandboxPolicy.NetworkAccess != "enabled" {
@@ -602,7 +601,7 @@ func TestCodexModesSetTheNextTurnsPolicy(t *testing.T) {
 	f := newCodexFixture(t, "turn")
 	rt := f.open(t)
 	withModes := rt.(RuntimeModes)
-	if m := withModes.Modes(); m.CurrentModeID != "ask" || len(m.AvailableModes) != 3 || m.AvailableModes[2].ID != "bypassPermissions" {
+	if m := withModes.Modes(); m.CurrentModeID != "auto" || len(m.AvailableModes) != 3 || m.AvailableModes[2].ID != "bypassPermissions" {
 		t.Fatalf("Modes = %+v", m)
 	}
 	var log updateLog
@@ -970,7 +969,7 @@ func TestCodexLoadResumesTheThread(t *testing.T) {
 	}
 	var p codexapp.ThreadResumeParams
 	_ = json.Unmarshal(resume[0], &p)
-	if p.ThreadID != "th-old" || p.ApprovalPolicy != "untrusted" || p.ApprovalsReviewer != "user" {
+	if p.ThreadID != "th-old" || p.ApprovalPolicy != "on-request" || p.ApprovalsReviewer != "user" {
 		t.Fatalf("thread/resume = %+v", p)
 	}
 	if p.DeveloperInstructions != devkitPrompt(codexNaming, "") {

@@ -31,6 +31,53 @@ func codexForReal(t *testing.T, home string) *CodexAdapter {
 	return NewCodexAdapter(CodexOptions{Command: bin, Home: home, Version: "test"})
 }
 
+// Skill discovery needs no signed-in account or model call. Exercise the
+// actual runtime and jail so linking a skill is not mistaken for loading it.
+func TestCodexRealBinaryDiscoversInheritedSkills(t *testing.T) {
+	host := t.TempDir()
+	t.Setenv("HOME", host)
+	skill := filepath.Join(host, ".codex", "skills", "devkit-test-skill")
+	if err := os.MkdirAll(skill, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("---\nname: devkit-test-skill\ndescription: A test skill inherited from the user environment\n---\nUse the test workflow.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := codexForReal(t, filepath.Join(t.TempDir(), "managed"))
+	l, err := a.resolveCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := false
+	cwd := t.TempDir()
+	p, err := a.start(cwd, l, OpenSpec{PrivateHome: &shared}, codexStoreFile, codexNoHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := a.initialize(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	var result json.RawMessage
+	if err := p.conn.Call(ctx, "skills/list", map[string]any{"cwds": []string{cwd}}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result), `"name":"devkit-test-skill"`) {
+		t.Fatal("runtime did not discover the inherited user skill")
+	}
+	rt := &codexRuntime{conn: p.conn, environment: p.environment}
+	report, err := rt.reportEnvironment(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry := findEnvironment(t, report, "skills", "devkit-test-skill"); entry.Status != "loaded" {
+		t.Fatalf("live skill status = %s", entry.Status)
+	}
+
+}
+
 // The real binary in the real jail, signed out: the install verifies, the
 // status reads, and a session is refused as a sign-in to offer — not as a
 // crash. Uses no quota and no network beyond what codex does on start.
@@ -67,9 +114,7 @@ func TestCodexRealBinaryInTheJail(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(home, "config.toml")); string(got) != codexConfigHeader {
 		t.Errorf("config.toml = %q", got)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(home, "skills")); len(entries) != 0 {
-		t.Errorf("skills/ was written: %v", entries)
-	}
+	// The runtime may install bundled system skills in its writable skills/.
 }
 
 // Reloading configuration must work inside the jail, even when signed out:

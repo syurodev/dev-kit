@@ -1,6 +1,6 @@
 import { SessionRemoteControlItem } from "./SessionRemoteControlItem";
 import * as React from "react";
-import { Ban, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
+import { Ban, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2, Wrench } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
@@ -18,6 +18,7 @@ export type SessionActions = {
   openSubagent: (session: AgentSession, subagent: Subagent) => void;
   newChild?: (parent: AgentSession) => void;
   togglePin?: (sessionId: string) => void;
+  environment?: (session: AgentSession) => void;
   rename?: (session: AgentSession) => void;
   copyTranscript?: (session: AgentSession) => void;
   copy?: (text: string) => void;
@@ -109,6 +110,7 @@ export function SessionMenuItems({
           {pinned ? "Unpin" : "Pin to top"}
         </Item>
       ) : null}
+      {a.environment ? <Item icon={<Wrench />} onSelect={() => a.hold(() => a.environment?.(session))}>Session environment…</Item> : null}
       <SessionRemoteControlItem session={session} Item={Item} />
       {a.newChild ? (
         <Item icon={<Plus />} onSelect={() => a.newChild?.(session)}>

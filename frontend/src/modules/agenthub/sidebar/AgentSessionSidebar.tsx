@@ -78,6 +78,7 @@ export type AgentSessionSidebarProps = {
   onNewChildSession?: (parent: AgentSession) => void;
   onCancelTurn?: (session: AgentSession) => void;
   onCloseSession?: (session: AgentSession) => void;
+  onEnvironment?: (session: AgentSession) => void;
   onRenameSession?: (session: AgentSession) => void;
   onCopyTranscript?: (session: AgentSession) => void;
   onDeleteSession?: (session: AgentSession, descendants: number) => void;
@@ -144,6 +145,7 @@ export function AgentSessionSidebar({
   const has = {
     newChild: Boolean(handlers.onNewChildSession),
     pin: Boolean(handlers.onTogglePin),
+    environment: Boolean(handlers.onEnvironment),
     rename: Boolean(handlers.onRenameSession),
     transcript: Boolean(handlers.onCopyTranscript),
     copy: Boolean(handlers.onCopy),
@@ -161,6 +163,7 @@ export function AgentSessionSidebar({
           : latest.current.onSelectSession(session.id),
       newChild: has.newChild ? (parent) => latest.current.onNewChildSession?.(parent) : undefined,
       togglePin: has.pin ? (id) => latest.current.onTogglePin?.(id) : undefined,
+      environment: has.environment ? (session) => latest.current.onEnvironment?.(session) : undefined,
       rename: has.rename ? (session) => latest.current.onRenameSession?.(session) : undefined,
       copyTranscript: has.transcript ? (session) => latest.current.onCopyTranscript?.(session) : undefined,
       copy: has.copy ? (text) => latest.current.onCopy?.(text) : undefined,
@@ -171,7 +174,7 @@ export function AgentSessionSidebar({
       hold: held.hold,
       release: held.release,
     }),
-    [held, has.newChild, has.pin, has.rename, has.transcript, has.copy, has.cancel, has.close, has.del],
+    [held, has.environment, has.newChild, has.pin, has.rename, has.transcript, has.copy, has.cancel, has.close, has.del],
   );
 
   // What waits on the person, from every workspace, is drawn once, on top.

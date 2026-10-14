@@ -415,6 +415,15 @@ export function AgentHubDismissInterruptedRewind(checkpointID: string): $Cancell
     return $Call.ByID(1236878807, checkpointID);
 }
 
+/**
+ * AgentHubEnvironment reads a process snapshot or the next-session setup.
+ * Audit metadata contains only the vendor/session identity, never configuration
+ * values, credential environment variables or the report's filesystem paths.
+ */
+export function AgentHubEnvironment(agent: string, sessionID: string): $CancellablePromise<agenthub$0.EnvironmentReport> {
+    return $Call.ByID(2029621563, agent, sessionID);
+}
+
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(2289470436, id);
 }

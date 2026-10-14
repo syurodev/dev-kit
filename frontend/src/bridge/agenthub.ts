@@ -333,6 +333,26 @@ export function agentHubConfigCatalog(agent: string): Promise<ConfigOption[]> {
   return callBridge(async () => (await AppService.AgentHubConfigCatalog(agent) ?? []) as ConfigOption[]);
 }
 
+export type EnvironmentEntry = {
+  name: string;
+  kind: string;
+  status: string;
+  source?: string;
+  detail: string;
+  action?: string;
+};
+
+export type EnvironmentReport = {
+  agent: string;
+  scope: "session" | "next";
+  entries: EnvironmentEntry[];
+  checkedAt: number;
+};
+
+export function agentHubEnvironment(agent: string, sessionId = ""): Promise<EnvironmentReport> {
+  return callBridge(async () => (await AppService.AgentHubEnvironment(agent, sessionId)) as EnvironmentReport);
+}
+
 export function agentHubPrepareSession(sessionId: string): Promise<void> {
   return callBridge(() => AppService.AgentHubPrepareSession(sessionId));
 }

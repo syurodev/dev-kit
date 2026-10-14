@@ -27,6 +27,7 @@ import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { AgentSessionSidebar } from "./sidebar/AgentSessionSidebar";
 import { askBySession, attentionBySession } from "./sidebar/model";
+import { AgentEnvironmentDialog } from "./environment/AgentEnvironment";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { showSubagent } from "./sidebar/openSubagent";
 import { useSidebarWorkspaces } from "./sidebarWorkspaces";
@@ -111,6 +112,7 @@ export function AgentHubSidebar() {
 
   // The row the sidebar asked to rename, and the one awaiting a delete
   // confirmation with how many go with it.
+  const [environmentSession, setEnvironmentSession] = useState<AgentSession | null>(null);
   const [pendingRename, setPendingRename] = useState<AgentSession | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ session: AgentSession; descendants: number } | null>(null);
 
@@ -229,12 +231,14 @@ export function AgentHubSidebar() {
         }
         onCancelTurn={(session) => void cancelTurn(session)}
         onCloseSession={(session) => void closeSession(session)}
+        onEnvironment={setEnvironmentSession}
         onRenameSession={setPendingRename}
         onCopyTranscript={(session) => void copyTranscript(session)}
         onDeleteSession={(session, descendants) => setPendingDelete({ session, descendants })}
         onCopy={(text) => void copyText(text)}
       />
 
+      {environmentSession ? <AgentEnvironmentDialog vendor={environmentSession.agentType} sessionId={environmentSession.id} open={visible} onClose={() => setEnvironmentSession(null)} /> : null}
       <RenameSessionDialog
         initialTitle={visible && pendingRename ? sessionTitle(pendingRename) : null}
         // Not caught: the dialog shows the reason and stays open.

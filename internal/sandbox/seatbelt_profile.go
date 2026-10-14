@@ -170,6 +170,10 @@ func buildSeatbeltProfile(p Policy) string {
 	for _, sock := range p.AllowUnixSockets {
 		b.WriteString("(allow network-outbound (literal \"" + escapeSBPL(resolveDenyPath(sock)) + "\"))\n")
 	}
+	if p.AllowLoopbackListeners {
+		b.WriteString("(allow network-bind (local ip \"localhost:*\"))\n")
+		b.WriteString("(allow network-inbound (local ip \"localhost:*\"))\n")
+	}
 	// Loopback listeners, one port each. Both rules are needed: bind alone
 	// still fails at listen() (measured), and neither opens any other port.
 	for _, port := range p.ListenLoopbackPorts {

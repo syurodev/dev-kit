@@ -55,6 +55,11 @@ type Policy struct {
 	// NetworkHost jail shares the host's loopback, and a NetworkNone one has
 	// no loopback the browser could reach anyway.
 	ListenLoopbackPorts []int
+	// AllowLoopbackListeners lets development servers bind any loopback port.
+	// Agent Hub needs this for running apps and browser-based verification.
+	// This is not a loopback-only isolation boundary: host networking on Linux
+	// permits wildcard binds, and Seatbelt may also accept wildcard binds.
+	AllowLoopbackListeners bool
 	// ReadPreferenceDomains grants read-only access to named macOS preference
 	// domains through cfprefsd. It never grants preference writes.
 	ReadPreferenceDomains []string
@@ -82,6 +87,9 @@ func (p Policy) Validate() error {
 		return ErrInvalidPolicy
 	}
 	if !validNetworkMode(p.Network) {
+		return ErrInvalidPolicy
+	}
+	if p.AllowLoopbackListeners && p.Network != NetworkHost {
 		return ErrInvalidPolicy
 	}
 	for _, sock := range p.AllowUnixSockets {

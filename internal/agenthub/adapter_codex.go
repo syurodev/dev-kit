@@ -51,12 +51,6 @@ const codexModelOption = "model"
 
 const codexEffortOption = "reasoning_effort"
 
-// codexDisabledFeatures keep outside code out of a session: hooks could
-// approve a request before it reaches DevKit (a project's .codex/config.toml
-// can declare them), and plugins, apps and computer use pull in tools, MCP
-// servers and hooks DevKit never sees (spec §7.3).
-var codexDisabledFeatures = []string{"hooks", "plugins", "apps", "computer_use"}
-
 const (
 	// codexModelPages bounds model/list paging.
 	codexModelPages = 5
@@ -196,12 +190,17 @@ func codexEnv(l launch, spec OpenSpec, home string) map[string]string {
 		path = "/usr/local/bin:/usr/bin:/bin"
 	}
 	env["PATH"] = path
+	inheritToolEnvironment(env, spec)
+	// DevKit selects Codex's provider credentials separately from shell tools.
+	delete(env, "OPENAI_API_KEY")
+	delete(env, "CODEX_API_KEY")
 	for key, value := range l.env {
 		env[key] = value
 	}
 	for key, value := range spec.ExtraEnv {
 		env[key] = value
 	}
+	completeToolPath(env, spec)
 	env["CODEX_HOME"] = home
 	return env
 }
@@ -220,21 +219,53 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	// DevKit's data directory is hidden from every session; this vendor's own
 	// home inside it is carved back out for this vendor's sessions only.
 	denyRead := carveOut(spec.DenyReadPaths, home)
-	// The user's own Codex — its sign-in, config and rules — is not this
-	// session's. Hidden even under a shared home.
+	// Shared-home sessions inherit the user's skills, plugin assets and portable
+	// MCP/settings, while keeping DevKit's sign-in and transcript state separate.
+	var customizationPaths []string
 	if host, err := os.UserHomeDir(); err == nil {
-		denyRead = append(denyRead, filepath.Join(host, ".codex"))
+		userHome := filepath.Join(host, ".codex")
+		denyRead = append(denyRead, userHome)
+		if spec.PrivateHome != nil && !*spec.PrivateHome {
+			customizationPaths, err = inheritCodexCustomization(home, userHome)
+			if err != nil {
+				return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: Codex customization: %w", ErrProcessFailed, err)
+			}
+			// Carve all roots at once: successive carveOut calls would leave
+			// the other admitted roots among the first root's hidden siblings.
+			var withoutUserHome []string
+			for _, path := range denyRead {
+				if path != userHome {
+					withoutUserHome = append(withoutUserHome, path)
+				}
+			}
+			denyRead = carveOut(withoutUserHome, userHome)
+			denyRead = append(denyRead, codexPrivatePaths(userHome, customizationPaths)...)
+			// ReadOnlyPaths is a read grant in Seatbelt, so explicitly take
+			// writes back out of the shared-home grant as well.
+			for _, path := range customizationPaths {
+				real, err := filepath.EvalSymlinks(path)
+				if err != nil {
+					return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: resolve customization path: %w", ErrProcessFailed, err)
+				}
+				denyWrite = append(denyWrite, real)
+			}
+		}
 	}
+
 	pol := sandbox.Policy{
-		WorkDir:             workDir,
-		Network:             sandbox.NetworkHost,
-		Env:                 codexEnv(l, spec, home),
-		ReadOnlyPaths:       uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths:      uniqueAbsPaths(append([]string{home}, spec.ExtraReadWritePaths...)...),
-		DenyReadPaths:       denyRead,
-		DenyWritePaths:      denyWrite,
-		AllowUnixSockets:    append([]string(nil), spec.AllowUnixSockets...),
-		ListenLoopbackPorts: append([]int(nil), listen...),
+		WorkDir:                workDir,
+		Network:                sandbox.NetworkHost,
+		AllowLoopbackListeners: true,
+		Env:                    codexEnv(l, spec, home),
+		ReadOnlyPaths:          uniqueAbsPaths(append(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...), customizationPaths...)...),
+		ReadWritePaths:         uniqueAbsPaths(append([]string{home}, spec.ExtraReadWritePaths...)...),
+		DenyReadPaths:          denyRead,
+		DenyWritePaths:         denyWrite,
+		AllowUnixSockets:       append([]string(nil), spec.AllowUnixSockets...),
+		ListenLoopbackPorts:    append([]int(nil), listen...),
+		// gh/glab and other CLIs may keep their login in the macOS keychain.
+		// ShareHome opts into the user's CLI environment, just as for Claude.
+		AllowKeychain: spec.PrivateHome != nil && !*spec.PrivateHome,
 		// 0.160.1 reloads macOS managed preferences during account/read.
 		// Grant only Codex's domain; do not bypass administrator requirements.
 		ReadPreferenceDomains: []string{"com.openai.codex"},
@@ -271,9 +302,6 @@ func codexArgs(store string, servers []acp.McpServerStdio) []string {
 			args = append(args, "-c", key+".env="+tomlEnv(srv.Env))
 		}
 	}
-	for _, feature := range codexDisabledFeatures {
-		args = append(args, "--disable", feature)
-	}
 	return args
 }
 
@@ -309,6 +337,7 @@ func tomlEnv(env []acp.EnvVariable) string {
 
 // codexProcess is one app-server under the jail and the connection to it.
 type codexProcess struct {
+	environment *environmentSnapshot
 	proc        *sandbox.Proc
 	conn        *codexapp.Conn
 	cancelServe context.CancelFunc
@@ -346,7 +375,8 @@ func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store stri
 		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
 	owned = false
-	p := &codexProcess{proc: proc, serveDone: make(chan struct{})}
+	spec.Cwd = workDir
+	p := &codexProcess{proc: proc, serveDone: make(chan struct{}), environment: captureEnvironment(AgentTypeCodex, spec, pol.Env, cmd.Path, a.opts.Home)}
 	p.conn = codexapp.NewConn(&stdioPipe{r: stdout, w: stdin}, h)
 	var serveCtx context.Context
 	serveCtx, p.cancelServe = context.WithCancel(context.Background())
@@ -500,11 +530,12 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		store = codexStoreEphemeral
 	}
 
-	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAsk, network: true, gateOwnedMCP: spec.GateOwnedMCP, preApprovedMCP: spec.PreApprovedMCP}
+	rt := &codexRuntime{tr: newCodexTranslator(), mode: codexModeAuto, network: true, gateOwnedMCP: spec.GateOwnedMCP, preApprovedMCP: spec.PreApprovedMCP}
 	p, err := a.start(workDir, l, spec, store, &codexConnHandler{rt: rt})
 	if err != nil {
 		return nil, err
 	}
+	rt.environment = p.environment
 	rt.proc, rt.conn, rt.cancelServe, rt.serveDone = p.proc, p.conn, p.cancelServe, p.serveDone
 	go func() {
 		<-p.serveDone
@@ -543,7 +574,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		if err := p.conn.Call(hsCtx, codexapp.MethodThreadResume, codexapp.ThreadResumeParams{
 			ThreadID:              resume,
 			Cwd:                   workDir,
-			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
+			ApprovalPolicy:        codexApprovalPolicy(codexModeAuto),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
 			DeveloperInstructions: devkitPrompt(codexNaming, spec.Brief),
 		}, &thread); err != nil {
@@ -559,7 +590,7 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 		// No sandbox field: externalSandbox exists only per turn (spec §4.3).
 		if err := p.conn.Call(hsCtx, codexapp.MethodThreadStart, codexapp.ThreadStartParams{
 			Cwd:                   workDir,
-			ApprovalPolicy:        codexApprovalPolicy(codexModeAsk),
+			ApprovalPolicy:        codexApprovalPolicy(codexModeAuto),
 			ApprovalsReviewer:     codexapp.ReviewerUser,
 			DeveloperInstructions: devkitPrompt(codexNaming, spec.Brief),
 		}, &thread); err != nil {
@@ -702,6 +733,7 @@ func (codexNoHandler) Request(_ context.Context, method string, _ json.RawMessag
 
 // codexRuntime is one Codex thread in one app-server process.
 type codexRuntime struct {
+	environment  *environmentSnapshot
 	gateOwnedMCP map[string][]string
 	// preApprovedMCP: read-only session-scoped tools answered without asking.
 	preApprovedMCP map[string][]string
