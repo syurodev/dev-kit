@@ -15,7 +15,7 @@ import { wireFileEvents, openFile } from "./fileActions";
 import { wireWorkspaceEvents } from "./workspaceSync";
 import { docKey } from "./workspace/identity";
 import { Within } from "./workspace/paths";
-import type { RevealFileArgs } from "./revealFile";
+import type { ProjectOpen, RevealFileArgs } from "./revealFile";
 
 /**
  * The entry point of Code Graph's actions: what starts the module, and the
@@ -95,9 +95,9 @@ export function ensureStarted() {
  * the workspace folder that contains it. `root` is the project the pointer was
  * made in; the folder is whichever one of the workspace holds the file — the
  * deepest, when folders nest. A path in no folder of the workspace opens nothing
- * rather than guessing.
+ * rather than guessing, and answers "not-found" so the caller can say so.
  */
-export async function openFileInProject(root: string, path: string, line?: number, placement: Placement = "replace"): Promise<boolean> {
+export async function openFileInProject(root: string, path: string, line?: number, placement: Placement = "replace"): Promise<ProjectOpen> {
   const folders = snapshot().folders;
   const normalized = path.split("\\").join("/");
   const absolute = normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized);
@@ -112,12 +112,13 @@ export async function openFileInProject(root: string, path: string, line?: numbe
   }
   // A relative path with no usable root: the one folder that is open, if only one.
   if (!best && !absolute && root === "" && folders.length === 1) best = { folder: folders[0], rel: normalized };
-  if (!best) return false;
+  if (!best) return "not-found";
   set({ activeTab: "files" });
-  return openFile({ workspaceId: snapshot().workspaceId, folderId: best.folder.id, path: best.rel }, line ?? null, {
+  const ok = await openFile({ workspaceId: snapshot().workspaceId, folderId: best.folder.id, path: best.rel }, line ?? null, {
     preview: false,
     beside: placement === "beside",
   });
+  return ok ? "opened" : "failed";
 }
 
 /**

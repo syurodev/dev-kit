@@ -40,7 +40,15 @@ export type Placement = "replace" | "beside";
 
 export type IntentOptions = { placement?: Placement };
 
-type Handler = (ref: EntityRef, options: Required<IntentOptions>) => void | Promise<void>;
+/**
+ * A handler that found nothing to show (a file in no folder of the workspace)
+ * returns "unavailable", so the caller can say so instead of doing nothing.
+ * It returns rather than throws: most callers `void` the dispatch.
+ */
+type Handler = (
+  ref: EntityRef,
+  options: Required<IntentOptions>,
+) => void | "ok" | "unavailable" | Promise<void | "ok" | "unavailable">;
 
 const handlers = new Map<string, { handler: Handler; placement: Placement }>();
 
@@ -68,8 +76,8 @@ export async function dispatchIntent(
 ): Promise<"ok" | "unavailable"> {
   const entry = handlers.get(name);
   if (!entry) return "unavailable";
-  await entry.handler(ref, { placement: options.placement ?? entry.placement });
-  return "ok";
+  const result = await entry.handler(ref, { placement: options.placement ?? entry.placement });
+  return result === "unavailable" ? "unavailable" : "ok";
 }
 
 /**

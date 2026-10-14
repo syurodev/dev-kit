@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dispatchAttachIntent, hasAttachIntent, registerAttachIntent } from "./intents";
+import { dispatchAttachIntent, dispatchIntent, hasAttachIntent, registerAttachIntent, registerIntent } from "./intents";
 import type { EntityRef } from "./intents";
 
 const ref: EntityRef = { module: "codegraph", kind: "endpoint", id: "POST /x", label: "POST /x" };
@@ -36,4 +36,16 @@ test("registering the same name twice replaces the handler", async () => {
   await dispatchAttachIntent("agent.attach.replace-test", [ref]);
   expect(calls).toEqual(["second"]);
   unregisterSecond();
+});
+
+test("a handler with nothing to show makes the dispatch unavailable", async () => {
+  const unregister = registerIntent("test.reveal-nothing", () => "unavailable");
+  const unregisterOk = registerIntent("test.reveal-something", () => {});
+  try {
+    expect(await dispatchIntent("test.reveal-nothing", ref)).toBe("unavailable");
+    expect(await dispatchIntent("test.reveal-something", ref)).toBe("ok");
+  } finally {
+    unregister();
+    unregisterOk();
+  }
 });
