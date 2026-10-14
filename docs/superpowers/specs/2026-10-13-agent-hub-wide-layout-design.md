@@ -435,10 +435,14 @@ Where it departs from the sections above, this list wins.
   Only a text entry marked cut makes content text a preview: the call's
   `truncated` flag may stand for a cut `rawInput` or an emptied page image. The
   stored page-image marker (`transcript_slim.go`) is not the answer; `content` is.
-- **F4. Results carry no profile or env.** No card shows a profile, an env chip
-  or a duration. Where an *input* names one it is used: `db.explain`'s
-  `profileId` for the connection notice, and `db.schema.get` /
-  `db.listForeignKeys`'s for table references (`EntityRef.profileId`). `ssh.runCommand` has no exit code, so its card has no status
+- **F4. Results carry no profile or env.** No card shows an env chip or a
+  duration. Where an *input* names a profile it is used: `db.explain`'s
+  `profileId` for Open in Database, and `db.schema.get` /
+  `db.listForeignKeys`'s for table references (`EntityRef.profileId`).
+  Follow-up: `db.query` results now carry `profile_id`, the id the gate
+  confirmed and the statement ran on (MCP-only result type; the console's
+  `QueryResult` is unchanged), and its card names the connection when this
+  window knows it. `ssh.runCommand` has no exit code, so its card has no status
   chip. Query cells are strings.
 - **F5. No `database.*` / `kafka.*` intents existed.** Added `database.reveal`
   (`{kind:"table", id:"schema.table", profileId?}`, a schema holding a dot
@@ -488,9 +492,15 @@ Where it departs from the sections above, this list wins.
   row). Copy CSV is the console's `serializeCSV`. A write shows "N rows affected",
   or "Done" (DDL's 0 too), and offers no Open in Database.
 - **Open in Database never runs.** It opens the statement in a console titled
-  "Agent query", beside the transcript. It says when the console's connection is
-  not the agent's: `db.explain` names its profile; `db.query` does not, and the
-  notice says so. `openSqlConsole` writes only into an empty console, after
+  "Agent query", beside the transcript, on the agent's connection: `db.query`'s
+  `profile_id` or `db.explain`'s input `profileId` is selected first, the way
+  `database.reveal` selects a table's (reload once, verify; otherwise "its
+  connection isn't on this device" and nothing opens). A query's rows come
+  along as the console's result, labelled "Agent's result · N rows — run to
+  refresh" and held in memory only; a run replaces them. They go only into a
+  console that holds the statement and has no result or run of its own. A
+  query from an older transcript, naming no profile, opens on the selected
+  connection with a notice, rows included. `openSqlConsole` writes only into an empty console, after
   reading the console files once per window (`database/consoleHydration.ts`,
   shared with the rail). The rail no longer re-reads them on every remount, and
   an open right after a relaunch keeps the person's saved edit.
@@ -511,9 +521,11 @@ Where it departs from the sections above, this list wins.
 
 **Known gaps**
 
-- `db.query` and the Kafka tools name no profile (F4). Open in Database from a
-  query card and Open in Kafka use the connection selected or active here; for
-  `db.*` the UI says so. Table references do carry the agent's profile.
+- The Kafka tools name no profile (F4). Open in Kafka uses the connection
+  active here; unchanged, since its picker already connects the shared
+  connection. `db.query` and table references do carry the agent's profile.
+- Switching to the agent's connection is the rail's own switch: it clears
+  every console's result and stops runs in flight, as a click in the rail does.
 - `ssh.runCommand` has no exit code.
 - Result-view chunks are not prefetched. A card's first draw waits on its lazy
   chunk (only activities preload).

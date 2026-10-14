@@ -239,7 +239,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `{kind:"console"}`) and `kafka.reveal` (`{kind:"topic"}`: shows Kafka first, refreshes from Go, gives up
     after 12 s) are how agenthub opens them. Open in Database never runs SQL, is not offered for writes,
     titles the console "Agent query", and never writes over a saved console (`database/consoleHydration.ts`
-    reads the console files once per window, shared with the rail).
+    reads the console files once per window, shared with the rail). `db.query` results carry `profile_id`
+    (the id the gate confirmed; MCP-only `dbQueryResult`, the console's `QueryResult` is unchanged): the card
+    names the connection, and Open in Database (query, and `db.explain` by its input's `profileId`) selects it
+    first through `selectProfileById` (shared with `database.reveal`; not on this device → toast, nothing opens).
+    A query's rows show as the console's result without running (`showAgentResult`, `ResultTab.origin:
+    "agent"`, in memory only, "Agent's result · N rows — run to refresh"), only into a console holding that
+    statement with no result or run of its own; a run replaces them. An older transcript's query (no
+    `profile_id`) opens on the selected connection with a notice, rows included.
   - Tables and topics the session's own results named are references (`transcript/entityRefs.ts`): from
     `db.schema.get`, `db.listForeignKeys`, `kafka.listTopics` and the topic of an answered peek / describe /
     publish. Settled messages only, never inside a link. Order: entity (unless the span has a `/` and reads
@@ -247,7 +254,8 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     table and a topic, or two tables spelling one qualified name, links nothing. Up to 4 cut answers per
     session are loaded in full to read their names. A table reference carries the `profileId` its
     `db.schema.get` / `db.listForeignKeys` input named (`EntityRef.profileId`), so it opens on the agent's
-    connection; `db.query` names none, so Open in Database (and Kafka) use the connection selected here.
+    connection, as `db.query`'s card does by its result's `profile_id`; Open in Kafka uses the connection
+    selected here (its picker already connects the shared one).
   - Go: the bridge keeps the message of only the listed `pdf.*` / `memory.*` codes (`bridge/errors.go`
     `keptCodes`; anything else is `internal_error`). PDF engine text reaches only the log.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
