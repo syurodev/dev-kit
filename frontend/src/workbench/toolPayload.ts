@@ -170,13 +170,25 @@ function fromRawOutput(raw: unknown, isError: boolean, truncated: boolean): Tool
 export function toolPayloadOf(call: ToolCallLike): ToolPayload | null {
   const isError = failed(call.status);
   const content = call.content ?? [];
-  const truncated = Boolean(call.truncated) || content.some((item) => item.truncated);
   if (call.rawOutput !== undefined && call.rawOutput !== null) {
+    const truncated = Boolean(call.truncated) || content.some((item) => item.truncated);
     return fromRawOutput(call.rawOutput, isError, truncated);
   }
   const text = textOf(content.filter((item) => item.type === "content").map((item) => item.content));
-  if (text !== "") return fromText(text, isError, truncated);
+  if (text !== "") return fromText(text, isError, textWasCut(call, content));
   return isError ? { error: "failed" } : null;
+}
+
+/**
+ * Whether the text read from `content` is a preview. A text entry says so
+ * itself. The call's own flag counts only when no entry names what was cut:
+ * a page image emptied from a stored row (transcript_slim.go, then the page
+ * read) marks its entry and the call, yet the caption beside it is whole.
+ */
+function textWasCut(call: ToolCallLike, content: ToolCallContentLike[]): boolean {
+  const cut = content.filter((item) => item.truncated);
+  if (cut.some((item) => item.content?.type === "text")) return true;
+  return Boolean(call.truncated) && cut.length === 0;
 }
 
 /** The content blocks a call carries — images ride here, not in the payload. */

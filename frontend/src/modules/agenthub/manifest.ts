@@ -5,6 +5,7 @@ import { AgentHubBadge, AgentHubPeek } from "./AgentHubSwitcher";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { registerAttachIntent } from "@/workbench/intents";
 import { openNewAgentSession } from "./documents";
+import { registerPdfViews } from "./toolViews/registerPdfViews";
 
 function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
   useAgentSessionsStore.getState().requestAgentHubCommand(command);
@@ -83,3 +84,7 @@ export const agenthubModule: ModuleManifest = {
 registerAttachIntent("agent.attach", (refs, prompt) => {
   useAgentSessionsStore.getState().requestAgentAttach(refs, prompt);
 });
+
+// pdf.* results read as pages, hits and text: a PDF is a document of the
+// session that attached it, so its tools' views are this module's.
+registerPdfViews();

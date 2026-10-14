@@ -209,3 +209,19 @@ test("a Codex call reaches the view registered under its Go name", () => {
     unregister();
   }
 });
+
+test("a page image dropped from the stored row does not make the caption a preview", () => {
+  // internal/agenthub: transcript_slim.go empties a stored page image and marks
+  // its entry truncated; the page read then marks the call. The caption itself
+  // is whole, so it is still the payload — what pdf.viewPages' view reads.
+  const call = {
+    name: "mcp__devkit__pdf_viewPages",
+    status: "completed",
+    truncated: true,
+    content: [
+      ...claudeText("Document doc1\n[]"),
+      { type: "content", truncated: true, content: { type: "image", mimeType: "image/png", data: "" } },
+    ],
+  };
+  expect(toolPayloadOf(call)).toEqual({ payload: "Document doc1\n[]" });
+});
