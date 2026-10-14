@@ -66,3 +66,23 @@
 .doc-group[data-tab-drop="split"]::before {
   left: 70%;
 }
+
+/* A column or the bottom row while it is inert — closed, or still sliding
+   open (panelMotion.useClosedInert): the scroll boxes on it stop being
+   scroll boxes. WebKit drops a scroller's layer while its panel is clipped
+   shut and rebuilds it in the frames that reveal it, 35-45 ms each on
+   WebKitGTK for a kept inspector; held off until the panel is still, the
+   rebuild lands in the frame that lifts `inert`, after the motion. Offsets
+   are kept: an overflow:hidden box keeps its scroll position. Best effort,
+   by the classes and the Radix viewport the app scrolls with. */
+.shell-panel-inner[inert]
+  :is(
+    .overflow-auto,
+    .overflow-y-auto,
+    .overflow-x-auto,
+    .overflow-scroll,
+    .overflow-y-scroll,
+    [data-radix-scroll-area-viewport]
+  ) {
+  overflow: hidden !important;
+}

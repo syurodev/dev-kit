@@ -496,7 +496,7 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
         {/* Pinned to the open height and hung from the top edge, the one that
             moves: the row slides up into view rather than growing. Inert once
             closed, a shield while it closes (panelMotion.useClosedInert). */}
-        <div inert={inert} className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
+        <div inert={inert} className="shell-panel-inner absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
           {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
           {shown ? (
             <ShellResizeHandle
@@ -652,7 +652,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
         {/* Pinned to the open width and hung from the left edge, the one that
             moves: the column slides in from the right and back out to it.
             Inert once closed, a shield while it closes (useClosedInert). */}
-        <div inert={inert} className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+        <div inert={inert} className="shell-panel-inner absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
           {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
           {open ? (
             <ShellResizeHandle
