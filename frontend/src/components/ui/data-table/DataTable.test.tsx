@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { DataTable, type DataTableColumn } from "./DataTable";
+import { DataTable, resizeLineClass, type DataTableColumn } from "./DataTable";
 
 const columns: DataTableColumn[] = [
   { key: "id", header: "id", align: "right", mono: true },
@@ -98,6 +98,19 @@ describe("DataTable", () => {
     expect(wrapper).toContain("w-fit");
     expect(wrapper).toContain("max-w-full");
     expect(wrapper).toContain("overflow-auto");
+  });
+
+  // The handle was a faint 4px wash on hover only, and nothing at all once the
+  // pointer left it mid-drag: the person dragged an edge they could not see.
+  test("a resize handle draws a line on hover, on focus and for the whole drag", () => {
+    const html = renderToString(<DataTable columns={columns} rows={rows(3)} />);
+    const handle = html.slice(html.indexOf('role="separator"'));
+    expect(handle).toContain('data-slot="resize-line"');
+    expect(resizeLineClass(false)).toContain("group-hover/resize:bg-text-tertiary");
+    expect(resizeLineClass(false)).toContain("group-focus-visible/resize:bg-border-focus");
+    expect(resizeLineClass(false)).not.toMatch(/(^| )bg-ring/);
+    expect(resizeLineClass(true)).toMatch(/(^| )bg-ring/);
+    expect(resizeLineClass(true)).not.toContain("group-hover");
   });
 
   test("a resize handle states its range in pixels", () => {

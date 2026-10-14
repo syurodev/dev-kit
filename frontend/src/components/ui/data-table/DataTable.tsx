@@ -295,6 +295,20 @@ function useRoom(ref: React.RefObject<HTMLDivElement | null>): number | null {
   return room;
 }
 
+/**
+ * The 2px line at a column's edge: the text colour (the focus ring's) for the
+ * whole of a drag, whether or not the pointer is still over the handle, and a
+ * quieter one on hover; the focus colour when the keyboard is on it.
+ */
+export function resizeLineClass(dragging: boolean): string {
+  return cn(
+    "pointer-events-none h-full w-0.5 transition-colors duration-(--motion-fast)",
+    dragging
+      ? "bg-ring"
+      : "bg-transparent group-hover/resize:bg-text-tertiary group-focus-visible/resize:bg-border-focus",
+  );
+}
+
 function ResizeHandle({
   label,
   width,
@@ -311,6 +325,11 @@ function ResizeHandle({
   onAutoFit(table: HTMLTableElement | null): void;
 }) {
   const drag = React.useRef<{ startX: number; from: number[] } | null>(null);
+  const [dragging, setDragging] = React.useState(false);
+  const endDrag = () => {
+    drag.current = null;
+    setDragging(false);
+  };
   const rounded = Math.round(width);
   return (
     <span
@@ -322,12 +341,14 @@ function ResizeHandle({
       aria-valuemin={MIN_COLUMN_WIDTH_PX}
       aria-valuemax={MAX_COLUMN_WIDTH_PX}
       aria-valuetext={`${rounded} pixels`}
-      className="absolute inset-y-0 right-0 w-1 cursor-col-resize touch-none outline-none hover:bg-border-default focus-visible:bg-border-focus"
+      data-resizing={dragging || undefined}
+      className="group/resize absolute inset-y-0 right-0 flex w-1.5 cursor-col-resize touch-none justify-end outline-none"
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
         drag.current = { startX: event.clientX, from: widths };
+        setDragging(true);
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
@@ -336,14 +357,13 @@ function ResizeHandle({
         onDrag(start.from, start.startX, event.clientX);
       }}
       onPointerUp={(event) => {
-        drag.current = null;
+        endDrag();
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
       }}
-      onPointerCancel={() => {
-        drag.current = null;
-      }}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
       onDoubleClick={(event) => {
         event.stopPropagation();
         onAutoFit(event.currentTarget.closest("table"));
@@ -354,7 +374,9 @@ function ResizeHandle({
           event.stopPropagation();
         }
       }}
-    />
+    >
+      <span data-slot="resize-line" aria-hidden className={resizeLineClass(dragging)} />
+    </span>
   );
 }
 
