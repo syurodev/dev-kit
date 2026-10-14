@@ -27,6 +27,8 @@ export type PanelMotionSignal = {
   moving: () => boolean;
   /** Whether this one panel is moving. */
   isMoving: (id: string) => boolean;
+  /** How many times every panel has come to rest: changes on the moving → still edge only. */
+  settles: () => number;
   /** Called on the edges only: still → moving and moving → still. */
   subscribe: (listener: () => void) => () => void;
 };
@@ -49,6 +51,7 @@ const realTimers: Timers = {
 export function createPanelMotion(timers: Timers = realTimers): PanelMotionSignal {
   const active = new Map<string, unknown>();
   const listeners = new Set<() => void>();
+  let settles = 0;
   const notify = () => {
     for (const fn of [...listeners]) fn();
   };
@@ -56,7 +59,10 @@ export function createPanelMotion(timers: Timers = realTimers): PanelMotionSigna
     if (!active.has(id)) return;
     timers.clearTimer(active.get(id));
     active.delete(id);
-    if (active.size === 0) notify();
+    if (active.size === 0) {
+      settles++;
+      notify();
+    }
   };
   return {
     start(id, watchdogMs) {
@@ -68,6 +74,7 @@ export function createPanelMotion(timers: Timers = realTimers): PanelMotionSigna
     end,
     moving: () => active.size > 0,
     isMoving: (id) => active.has(id),
+    settles: () => settles,
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -250,6 +257,38 @@ export function panelMotionStep(
   return { instant, action: !changed ? "none" : instant ? "end" : "start" };
 }
 
+/**
+ * A value that changes only while the panel is still: `next` once nothing
+ * moves, else the value it held. For what costs the engine a pass over the
+ * whole panel whenever it changes: `inert` on a panel's content restyles
+ * every element under it, which on WebKitGTK took 25-30 ms of a column's
+ * first frame with a conversation in it (smoothness §3.8). Changed when the
+ * panel is still, it costs one frame nobody watches.
+ */
+export function whenStill<T>(held: T, next: T, still: boolean): T {
+  return still ? next : held;
+}
+
+/** whenStill across renders; `still` comes from usePanelMotionReport. */
+export function useWhenStill<T>(next: T, still: boolean): T {
+  // Derived during render: idempotent per input, so a StrictMode double render agrees.
+  const held = React.useRef(next);
+  held.current = whenStill(held.current, next, still);
+  return held.current;
+}
+
+/**
+ * A closed shell panel's content is inert — not focusable, not clickable —
+ * but the attribute is set and lifted only while the panel is still: it
+ * stays inert through an open and becomes inert after a close. While it
+ * closes, `shielded` asks for a cover over it to take the clicks instead: one
+ * element with nothing under it to restyle.
+ */
+export function useClosedInert(open: boolean, still: boolean): { inert: boolean; shielded: boolean } {
+  const inert = useWhenStill(!open, still);
+  return { inert, shielded: !open && !inert };
+}
+
 /** What to remember across an unmount: a motion cut short is replayed on a remount (StrictMode). */
 export function afterUnmount(last: PanelMotionLast, wasMoving: boolean): PanelMotionLast {
   return wasMoving ? { ...last, target: null } : last;
@@ -277,10 +316,13 @@ export function usePanelMotionReport(opts: {
   windowSize: number;
   /** The size the panel animates from on mount, when it does (the sidebar). */
   from?: number;
-}): { instant: boolean; onAnimationComplete: () => void } {
+}): { instant: boolean; still: boolean; onAnimationComplete: () => void } {
   const { target, open, stored, windowSize } = opts;
   const id = `${opts.id}:${React.useId()}`;
   const dragging = useShellDragging();
+  // Re-rendered when every panel comes to rest — and only then, not as one
+  // starts — so `still` turns true on that edge.
+  React.useSyncExternalStore(panelMotion.subscribe, panelMotion.settles, () => 0);
   const last = React.useRef<PanelMotionLast>({
     window: windowSize,
     open: opts.from !== undefined ? false : open,
@@ -288,7 +330,10 @@ export function usePanelMotionReport(opts: {
     target: opts.from ?? target,
   });
   const next = { window: windowSize, open, stored, target, requestedInstant: opts.instant, dragging };
-  const { instant } = panelMotionStep(last.current, next, panelMotion.isMoving(id));
+  const { instant, action } = panelMotionStep(last.current, next, panelMotion.isMoving(id));
+  // Not moving, and this render does not start a motion either (the start
+  // itself is raised in the layout effect below, after this render).
+  const still = action !== "start" && !panelMotion.isMoving(id);
 
   // Before the effect below, so on StrictMode's rehearsal its cleanup has
   // run when that effect runs again.
@@ -312,5 +357,5 @@ export function usePanelMotionReport(opts: {
   }, [id, target, open, stored, windowSize, opts.instant, dragging]);
 
   const onAnimationComplete = React.useCallback(() => panelMotion.end(id), [id]);
-  return { instant, onAnimationComplete };
+  return { instant, still, onAnimationComplete };
 }

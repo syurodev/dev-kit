@@ -52,7 +52,7 @@ import { useTerminalTabsStore } from "@/stores/terminalTabs";
 import { useBottomContentStore } from "@/stores/bottomContent";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
-import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
+import { panelCloseMs, panelContentFade, panelTransition, useClosedInert, usePanelMotionReport } from "@/lib/panelMotion";
 import {
   useResting,
   useRetainedRecord,
@@ -448,6 +448,7 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
     windowSize: windowHeight,
   });
   const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
+  const { inert, shielded } = useClosedInert(open, motion.still);
 
   // While it closes, what it showed — unless that pane is on screen elsewhere
   // now (moved to a column), where it already is — and after, a hidden
@@ -469,9 +470,10 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
         className="relative min-w-0 shrink-0 overflow-hidden"
       >
         {/* Pinned to the open height and hung from the top edge, the one that
-            moves: the row slides up into view rather than growing. */}
-        {/* inert while closing or closed: a card on its way out is not a target. */}
-        <div inert={!open} className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
+            moves: the row slides up into view rather than growing. Inert once
+            closed, a shield while it closes (panelMotion.useClosedInert). */}
+        <div inert={inert} className="absolute inset-x-0 top-0 flex flex-col" style={{ height: open ? drawn : lastDrawn }}>
+          {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
           {shown ? (
             <ShellResizeHandle
               orientation="horizontal"
@@ -557,6 +559,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
     windowSize: windowWidth,
   });
   const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
+  const { inert, shielded } = useClosedInert(open, motion.still);
 
   // The width the content is laid out at: the open width, held through the close.
   const [lastDrawn, setLastDrawn] = React.useState(drawn);
@@ -623,8 +626,10 @@ function SlotColumn({ column }: { column: ColumnId }) {
         className="relative flex min-h-0 shrink-0 overflow-hidden"
       >
         {/* Pinned to the open width and hung from the left edge, the one that
-            moves: the column slides in from the right and back out to it. */}
-        <div inert={!open} className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+            moves: the column slides in from the right and back out to it.
+            Inert once closed, a shield while it closes (useClosedInert). */}
+        <div inert={inert} className="absolute inset-y-0 left-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+          {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
           {open ? (
             <ShellResizeHandle
               orientation="vertical"

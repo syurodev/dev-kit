@@ -17,7 +17,7 @@ import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 import { armBeside } from "@/stores/workbenchTabs";
-import { panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
+import { panelContentFade, panelTransition, useClosedInert, usePanelMotionReport } from "@/lib/panelMotion";
 import { AnimatedNumber } from "./animated-number";
 
 /**
@@ -376,6 +376,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     windowSize: windowWidth,
     from: 0,
   });
+  const { inert, shielded } = useClosedInert(open, motion.still);
 
   return (
     <LazyMotion features={domAnimation}>
@@ -393,8 +394,9 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         onAnimationComplete={motion.onAnimationComplete}
         className="relative flex min-h-0 shrink-0 overflow-hidden"
       >
-        {/* inert while closing or closed: a hidden rail is not a target. */}
-        <div inert={!open} className="absolute inset-y-0 right-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+        {/* Inert once closed, changed only while still (useClosedInert). */}
+        <div inert={inert} className="absolute inset-y-0 right-0 flex" style={{ width: open ? drawn : lastDrawn }}>
+          {shielded ? <div aria-hidden className="absolute inset-0 z-50" /> : null}
           {/* The rail shares the app shell backdrop without its own fill or
               outline. Module controls keep their palette. */}
           {/* The shell owns width, material and clipping, not content padding.

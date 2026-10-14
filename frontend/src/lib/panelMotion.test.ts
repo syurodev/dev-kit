@@ -8,6 +8,7 @@ import {
   panelMotionStep,
   panelTransition,
   settledRunner,
+  whenStill,
   type PanelMotionLast,
 } from "./panelMotion";
 import { MOTION_BASE, MOTION_FAST, MOTION_SLOW, CONTENT_FADE_DELAY, noMotion } from "./motion";
@@ -129,6 +130,40 @@ describe("panel motion signal", () => {
     off();
     motion.start("a", 100);
     expect(seen).toEqual([true, false]);
+  });
+});
+
+describe("settles: a count of the moments every panel came to rest", () => {
+  test("goes up once each time the last moving panel stops, and at no other edge", () => {
+    const motion = createPanelMotion(fakeTimers());
+    expect(motion.settles()).toBe(0);
+    motion.start("a", 100);
+    motion.start("b", 100);
+    expect(motion.settles()).toBe(0);
+    motion.end("a");
+    expect(motion.settles()).toBe(0);
+    motion.end("b");
+    expect(motion.settles()).toBe(1);
+    motion.end("b");
+    expect(motion.settles()).toBe(1);
+  });
+
+  test("a watchdog that ends the last panel counts too", () => {
+    const t = fakeTimers();
+    const motion = createPanelMotion(t);
+    motion.start("bottom", 300);
+    t.advance(300);
+    expect(motion.settles()).toBe(1);
+  });
+});
+
+describe("whenStill: what changes only while the panel is still", () => {
+  test("holds the old value while the panel moves, takes the new one once it is still", () => {
+    // inert on a panel's content: lifting or setting it restyles everything
+    // under it, so it changes after the open or the close, not in its first frame.
+    expect(whenStill(true, false, false)).toBe(true);
+    expect(whenStill(true, false, true)).toBe(false);
+    expect(whenStill(false, true, false)).toBe(false);
   });
 });
 
