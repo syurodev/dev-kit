@@ -213,6 +213,38 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     session's project folder and dispatches `git.reveal`. Dotted underline; file refs solid.
   - The summary's Sources count only data-touching tools (`summaryModel.ts` `DATA_TOOLS`: queries,
     schema reads, Kafka reads/publishes, `ssh.runCommand`) and say what was done ("2 queries").
+- **Tool results read as themselves** (Phase 2; spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`
+  §5–§7 and its "Phase 2 decisions"; `docs/dev-kit/tool-result-view.mdx`).
+  - One payload whatever the vendor sends (`workbench/toolPayload.ts`): `toolPayloadOf` → `{payload}` /
+    `{error}` / null, `toolNameOf` (a Codex call has no name, only the title `devkit.<tool>`), `isDevkitTool`.
+    Claude's answer is `content[].content.text` (no `rawOutput`); Codex's is `rawOutput`
+    `{content, structuredContent}` (structuredContent wins), `{error}`, or a 64 KiB stub `{truncated, bytes}` →
+    null. A fenced `code: message` is an error only for a DevKit tool (a shell may print one). An 8 KiB cut
+    preview that does not parse is null and the full row is loaded (`transcript/toolCallDetail.ts`, one TanStack
+    query per call, shared with "Show full output"); the stored page-image marker (`transcript_slim.go`) is not
+    an answer. Views get only successful payloads; a failed row stays the failed row.
+  - The tool's owner registers its view: `db.*` in `modules/database/toolViews`, `kafka.*` in
+    `modules/kafka/toolViews`, `ssh.runCommand` in `modules/ssh/toolViews`, `pdf.*` in `agenthub/toolViews`
+    (a PDF belongs to the session), `workspace.memory.*` in `workbench/registerViews.ts` (no module owns it).
+  - Cards stand after the run's fold (`transcript/ToolResultCard.tsx`): `resultCandidate` takes only
+    completed, non-activity calls whose view will draw (or a cut preview waiting on its row), 3 per turn in
+    call order; the rest are counted in a "+N more" button that opens the fold at the first hidden step.
+  - Every table is `components/ui/data-table/DataTable` (markdown tables in prose too): column resize by
+    drag, arrows or double-click auto-fit, widths in component state only; a clickable row opens through a
+    button in its first cell (the row keeps its role); windowed past 100 rows.
+  - `database.reveal` (`{kind:"table", id:"schema.table"}`, a schema with a dot in SQL double quotes; or
+    `{kind:"console"}`) and `kafka.reveal` (`{kind:"topic"}`: shows Kafka first, refreshes from Go, gives up
+    after 12 s) are how agenthub opens them. Open in Database never runs SQL, is not offered for writes,
+    titles the console "Agent query", and never writes over a saved console (`database/consoleHydration.ts`
+    reads the console files once per window, shared with the rail).
+  - Tables and topics the session's own results named are references (`transcript/entityRefs.ts`): from
+    `db.schema.get`, `db.listForeignKeys`, `kafka.listTopics` and the topic of an answered peek / describe /
+    publish. Settled messages only, never inside a link. Order: entity (unless the span has a `/` and reads
+    as a path) → file → commit → symbol. A bare table only when one schema has it; a name that is both a
+    table and a topic, or two tables spelling one qualified name, links nothing. Up to 4 cut answers per
+    session are loaded in full to read their names.
+  - Go: the bridge keeps the message of only the listed `pdf.*` / `memory.*` codes (`bridge/errors.go`
+    `keptCodes`; anything else is `internal_error`). PDF engine text reaches only the log.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`

@@ -412,3 +412,106 @@ Phase 1 shipped §1–§4. Where it departs from the sections above, this list w
 - PDF and attachment cards above the prompt are display-only: they say what was
   attached; reading a PDF stays the agent's `pdf.*` tools.
 - UI copy stays English.
+
+## Phase 2 decisions
+
+Phase 2 shipped §5–§7 and the table/topic references deferred from the
+references spec (plan `docs/superpowers/plans/2026-10-14-agent-hub-rich-results.md`).
+Where it departs from the sections above, this list wins.
+
+**Found while planning, and how each was resolved**
+
+- **F1. Claude's answer is in `content`, not `rawOutput`.** claude-agent-acp
+  leaves `rawOutput` out when there is content, so every existing view was blank
+  for Claude. Codex sends `{content, structuredContent}`, `{error}`, or a 64 KiB
+  stub `{truncated, bytes}`. Resolved by one reader, `workbench/toolPayload.ts`
+  `toolPayloadOf`; views read only its payload. A fenced `code: message` counts
+  as an error only for a DevKit tool (`isDevkitTool`): a shell's own output can
+  look the same.
+- **F2. Codex calls have no `name`.** `toolNameOf` reads the `devkit.<tool>`
+  title. The summary's Sources and the entity collector use it too.
+- **F3. Cut previews.** A preview past 8 KiB that does not parse is null, and the
+  full row is loaded through one shared query (`transcript/toolCallDetail.ts`).
+  Only a text entry marked cut makes content text a preview: the call's
+  `truncated` flag may stand for a cut `rawInput` or an emptied page image. The
+  stored page-image marker (`transcript_slim.go`) is not the answer; `content` is.
+- **F4. Results carry no profile or env.** No card shows a profile, an env chip
+  or a duration. `ssh.runCommand` has no exit code, so its card has no status
+  chip. Query cells are strings.
+- **F5. No `database.*` / `kafka.*` intents existed.** Added `database.reveal`
+  (`{kind:"table", id:"schema.table"}`, a schema holding a dot written in SQL
+  double quotes; `{kind:"console", id: sql}`) and `kafka.reveal`
+  (`{kind:"topic", id}`). agenthub opens tables and topics only through them.
+- **F6. `pdf.*` / `memory.*` AppErrors became `internal_error`.** The bridge keeps
+  an explicit list (`keptCodes`), not a prefix: a prefix published
+  `pdf.unreadable`'s wrapped PDFium/wazero text. Engine and store errors are now
+  the AppError's cause, logged and never published.
+
+**What changed from the plan and the sections above**
+
+- **Cascade order.** In a settled code span, a table or topic comes first, unless
+  the span has a `/` and reads as a path. Then file → commit → symbol (the plan
+  put entities after symbols). Entity names are left out of symbol lookups. A
+  topic the session listed as `audit.json` is that topic, not a file.
+- **Collisions link nothing.** A name that is both a table and a topic, or two
+  tables spelling one qualified name (`a` + `b.c`, `a.b` + `c`), is plain. A bare
+  table name links only when one schema has it.
+- **Cut answers still name things.** Up to 4 cut schema reads, foreign-key lists
+  and topic lists per session (most recent) are loaded in full to read their
+  names. A peek, describe or publish names its topic once it answered without an
+  error, cut or not.
+- **Labels are English:** "Open in Database", "Open in Kafka", "+N more results in
+  the work above" (not "Mở trong Database" / "Mở rộng").
+- **Memory views live in the workbench** (`workbench/registerViews.ts` →
+  `memoryResultViews.ts`), not in agenthub: no module owns workspace memory. PDF
+  views stay in `agenthub/toolViews` (a PDF belongs to the session).
+- **The cap is chosen by what will draw.** `resultCandidate` takes a call only
+  when it completed, is not an activity, and its view returns a node (or its cut
+  preview waits on the full row). A declined view takes no slot and leaves no
+  empty wrapper. The 3 slots are shared by the whole turn in call order, and a
+  lone step's card spends one. "+N more" is a button that opens the fold at the
+  first hidden step. A run whose results all fall past the cap still says so.
+- **One table, `DataTable`** (not `ResizableTable`). The box ends at its last
+  column. Widths are component state and do not survive a remount. Windowed rows
+  stay one line so the height estimate holds. A clickable row opens through a
+  real button in its first cell; `role="button"` on the `<tr>` took the row's
+  role away from its cells.
+- **Query card.** It shows the first 20 rows, then "Show all" (every returned
+  row). Copy CSV is the console's `serializeCSV`. A write shows "N rows affected",
+  or "Done" (DDL's 0 too), and offers no Open in Database.
+- **Open in Database never runs.** It opens the statement in a console titled
+  "Agent query", beside the transcript. It says when the console's connection is
+  not the agent's: `db.explain` names its profile; `db.query` does not, and the
+  notice says so. `openSqlConsole` writes only into an empty console, after
+  reading the console files once per window (`database/consoleHydration.ts`,
+  shared with the rail). The rail no longer re-reads them on every remount, and
+  an open right after a relaunch keeps the person's saved edit.
+- **Peek value under the table.** Clicking a message row opens its whole value
+  (`prettyValue`, json/raw tag) under the table's scroller, scrolled into view.
+  It does not open inside the row. Value previews are 120 characters, read from
+  the head only.
+- **Kafka reveal** first brings Kafka on screen, then asks Go. It refreshes the
+  store (an agent's tools connect a connection the store has not heard of), waits
+  for a refresh already in flight, and re-lists once for a topic just made. It
+  gives up after 12 s, leaving no subscription. It selects nothing if the
+  connection moved to another cluster meanwhile. "unavailable" toasts.
+- **SSH output** drops ANSI/OSC/DCS escapes and overdrawn progress for display.
+  Copy keeps the raw bytes.
+- **PDF search** shows a structured line instead of Go's notes, which are written
+  for the agent: hits, pages searched, "Stopped at page N", "No matches so far",
+  and the pages with no text layer.
+
+**Known gaps**
+
+- Results carry no profile (F4). Open in Database, Open in Kafka and table
+  references use the connection selected now. For `db.*` the UI says so.
+- `ssh.runCommand` has no exit code.
+- Result-view chunks are not prefetched. A card's first draw waits on its lazy
+  chunk (only activities preload).
+- The PDF search highlight folds text differently from Go for Korean syllables
+  and lone combining marks. This affects display only: the hit is right, but the
+  mark can be off.
+- If reading the console files fails, an agent's SQL can still land in an empty
+  console that held a saved edit. The next open tries the read again.
+- Column widths do not persist across remounts. Scrolling a virtualized turn out
+  and back resets them.
