@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronRight, FileSearch, FileText, Files, Images, Info } from "lucide-react";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -38,8 +38,8 @@ function Notes({ notes }: { notes: readonly string[] }) {
   if (notes.length === 0) return null;
   return (
     <div className="flex flex-col gap-(--space-micro) px-(--space-inline) pt-(--space-micro)">
-      {notes.map((note) => (
-        <p key={note} className="text-caption-11 text-text-tertiary">
+      {notes.map((note, i) => (
+        <p key={i} className="text-caption-11 text-text-tertiary">
           {note}
         </p>
       ))}
@@ -63,7 +63,15 @@ export function PdfPageZoom({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent portal={portal} className="max-h-screen-85 overflow-auto sm:max-w-3xl">
+      {/* As wide as the window allows, not a form's width: the page keeps
+          its own pixels and scrolls inside when it is larger still. The
+          `!` beats DialogContent's own sm:max-w-sm, which cn cannot see as
+          the same property as this named width. */}
+      <DialogContent
+        portal={portal}
+        aria-describedby={undefined}
+        className="max-h-screen-85 w-auto max-w-screen-gutter! overflow-auto"
+      >
         <DialogTitle className="text-label-12 text-text-secondary">
           {`Page ${page.page}${page.region ? " · region" : ""}`}
         </DialogTitle>
@@ -73,7 +81,7 @@ export function PdfPageZoom({
             alt={`Page ${page.page}`}
             width={page.widthPx}
             height={page.heightPx}
-            className="h-auto max-w-full rounded-control"
+            className="h-auto max-w-none rounded-control"
           />
         ) : null}
       </DialogContent>
@@ -123,7 +131,6 @@ function PageThumb({ page }: { page: PdfPage }) {
 
 /** `pdf.viewPages` — the pages the agent looked at, as it saw them while the turn was live. */
 export function PdfPagesCard({ pages, heading }: { pages: PdfPages; heading?: string }) {
-  const missing = pages.pages.some((page) => !page.src);
   return (
     <FramedCard data-testid="tool-result-card">
       <FramedCardHeader
@@ -140,7 +147,7 @@ export function PdfPagesCard({ pages, heading }: { pages: PdfPages; heading?: st
             <PageThumb key={`${page.page}-${i}`} page={page} />
           ))}
         </div>
-        {missing ? (
+        {pages.imagesDropped ? (
           <p className="text-caption-11 text-text-tertiary">Page images aren't kept after the session reloads</p>
         ) : null}
       </FramedCardPreview>
@@ -182,6 +189,9 @@ export function PdfSearchCard({ search, heading }: { search: PdfSearch; heading?
         meta={`${plural(search.hits.length, "hit")} · ${plural(search.pagesSearched, "page")} searched`}
       />
       <FramedCardPreview flush>
+        {shown.length === 0 ? (
+          <p className="px-(--space-inline) py-(--space-micro) text-caption-11 text-text-tertiary">No matches</p>
+        ) : null}
         {shown.map((hit, i) => (
           <FramedCardRow
             key={`${hit.page}-${i}`}
@@ -200,6 +210,7 @@ export function PdfSearchCard({ search, heading }: { search: PdfSearch; heading?
             {[stopped, search.truncated ? "More matches than were returned" : ""].filter(Boolean).join(" · ")}
           </p>
         ) : null}
+        <Notes notes={search.notes} />
       </FramedCardPreview>
     </FramedCard>
   );
@@ -209,11 +220,13 @@ export function PdfSearchCard({ search, heading }: { search: PdfSearch; heading?
 
 function PageSection({ page, text, defaultOpen }: { page: number; text: string; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
   return (
     <div className="flex flex-col">
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={bodyId}
         onClick={() => setOpen((value) => !value)}
         className="flex h-(--control-height-xs) w-full min-w-0 cursor-pointer items-center gap-(--space-micro) rounded-sm px-(--space-micro) text-left text-label-12 text-text-secondary transition-colors duration-(--motion-fast) hover:bg-(--state-soft) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
       >
@@ -227,7 +240,7 @@ function PageSection({ page, text, defaultOpen }: { page: number; text: string; 
         {`Page ${page}`}
       </button>
       <AnimatedCollapse open={open} className="pt-(--space-micro)">
-        <div className="max-h-64 overflow-auto px-(--space-micro) text-code-12 break-words whitespace-pre-wrap text-text-primary">
+        <div id={bodyId} className="max-h-64 overflow-auto px-(--space-micro) text-code-12 break-words whitespace-pre-wrap text-text-primary">
           {text}
         </div>
       </AnimatedCollapse>
@@ -247,8 +260,8 @@ export function PdfTextCard({ text, heading }: { text: PdfText; heading?: string
         {text.pages.map((page, i) => (
           <PageSection key={`${page.page}-${i}`} page={page.page} text={page.text} defaultOpen={i === 0} />
         ))}
-        {text.footer.map((line) => (
-          <p key={line} className="text-caption-11 text-text-tertiary">
+        {text.footer.map((line, i) => (
+          <p key={i} className="text-caption-11 text-text-tertiary">
             {line}
           </p>
         ))}

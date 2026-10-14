@@ -42,6 +42,8 @@ import { accountsModule } from "../modules/accounts/manifest";
 import { tasksModule } from "../modules/tasks/manifest";
 import { gitModule } from "../modules/git/manifest";
 import { apiclientModule } from "../modules/apiclient/manifest";
+// The workbench's own tools' result views (workspace memory).
+import "./registerViews";
 
 import type { SettingsTab } from "@/modules/settings/SettingsView";
 

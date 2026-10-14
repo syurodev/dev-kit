@@ -12,6 +12,8 @@ import {
 } from "./pdfResult";
 import { PdfInfoCard, PdfListCard, PdfPageZoom, PdfPagesCard, PdfSearchCard, PdfTextCard } from "./pdf";
 import "../manifest";
+import { resultCandidate } from "../transcript/ToolResultCard";
+import type { ToolCall } from "../types";
 
 // What internal/mcp/tools_pdf.go answers, byte for byte where it matters.
 
@@ -94,6 +96,40 @@ describe("pdf.viewPages", () => {
     expect(parsed?.pages.map((p) => p.src)).toEqual([undefined, undefined]);
   });
 
+  it("an image count that does not match the pages pairs nothing", () => {
+    const parsed = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image("iVBORw0KGgo=")]);
+    expect(parsed?.pages.map((p) => p.src)).toEqual([undefined, undefined]);
+    expect(parsed?.imagesDropped).toBe(false);
+  });
+
+  it("only an emptied image block means the pictures were not kept", () => {
+    const dropped = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image(""), image("")])!;
+    expect(dropped.imagesDropped).toBe(true);
+    const rejected = parsePdfPages(VIEW_TEXT, [
+      { type: "text", text: VIEW_TEXT },
+      image("PHN2Zz48L3N2Zz4=", "image/svg+xml"),
+      image("PHN2Zz48L3N2Zz4=", "image/svg+xml"),
+    ])!;
+    expect(rejected.imagesDropped).toBe(false);
+    expect(renderToString(<PdfPagesCard pages={rejected} />)).not.toContain("aren&#x27;t kept");
+  });
+
+  it("the same image block gives the same data URL string, and bad base64 none", () => {
+    const block = image("iVBORw0KGgo=");
+    const a = parsePdfPages(VIEW_TEXT, [block, block])!.pages[0].src;
+    const b = parsePdfPages(VIEW_TEXT, [block, block])!.pages[0].src;
+    expect(a).toBe("data:image/png;base64,iVBORw0KGgo=");
+    expect(Object.is(a, b)).toBe(true);
+    expect(parsePdfPages(VIEW_TEXT, [image("abc"), image("abc")])!.pages[0].src).toBeUndefined();
+    expect(parsePdfPages(VIEW_TEXT, [image("ab\"<cdef"), image("ab\"<cdef")])!.pages[0].src).toBeUndefined();
+  });
+
+  it("the caption ends where Go's quoted name ends, whatever the name holds", () => {
+    const name = 'Document doc1 · "a · 3 pages. b\\"c" · 12 pages.';
+    const parsed = parsePdfPages(`${name} image 1 = page 3. Pages are shown as images.\n${JSON.stringify([SHOWN[0]])}`, []);
+    expect(parsed?.caption).toBe(name);
+  });
+
   it("declines text without a page list, and Codex's stored marker", () => {
     expect(parsePdfPages(CAPTION, [])).toBeNull();
     expect(
@@ -112,7 +148,7 @@ describe("pdf.viewPages", () => {
   });
 
   it("reloaded: a placeholder in the page's own proportions, labelled, with the note", () => {
-    const parsed = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image("")])!;
+    const parsed = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image(""), image("")])!;
     const html = renderToString(<PdfPagesCard pages={parsed} />);
     expect(html).not.toContain("<img");
     expect(html).toContain("aspect-ratio:1100 / 1556");
@@ -123,12 +159,42 @@ describe("pdf.viewPages", () => {
   });
 
   it("the zoom dialog shows the page at full size", () => {
-    const parsed = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image("iVBORw0KGgo=")])!;
+    const parsed = parsePdfPages(VIEW_TEXT, [{ type: "text", text: VIEW_TEXT }, image("iVBORw0KGgo="), image("/9j/4AAQ")])!;
     const html = renderToString(<PdfPageZoom page={parsed.pages[0]} open onOpenChange={() => {}} portal={false} />);
     expect(html).toContain('data-slot="dialog-content"');
     expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
     expect(html).toContain('width="1100"');
     expect(html).toContain("Page 3");
+    // Nearly the window, and the page at its own width inside the scroll.
+    expect(html).toContain("max-w-screen-gutter!");
+    expect(html).toContain("w-auto");
+    expect(html).toContain("max-w-none");
+    expect(html).not.toContain("sm:max-w-3xl");
+    expect(html).not.toContain("aria-describedby");
+  });
+
+  it("a stored Claude row (cut call, emptied image) is a ready card of placeholders", () => {
+    const call = {
+      id: "t1",
+      name: "mcp__devkit__pdf_viewPages",
+      title: "pdf.viewPages",
+      kind: "other",
+      status: "completed",
+      truncated: true,
+      content: [
+        { type: "content", content: { type: "text", text: VIEW_TEXT } },
+        { type: "content", truncated: true, content: { type: "image", mimeType: "image/png", data: "" } },
+        { type: "content", truncated: true, content: { type: "image", mimeType: "image/jpeg", data: "" } },
+      ],
+    } as unknown as ToolCall;
+    const candidate = resultCandidate(call);
+    expect(candidate?.kind).toBe("ready");
+    const props = (candidate as { node: { props: { pages: ReturnType<typeof parsePdfPages> } } }).node.props;
+    expect(props.pages?.pages.map((p) => p.src)).toEqual([undefined, undefined]);
+    expect(props.pages?.imagesDropped).toBe(true);
+    const html = renderToString(<PdfPagesCard pages={props.pages!} />);
+    expect(html).toContain('data-testid="pdf-page-placeholder"');
+    expect(html).toContain("Page images aren&#x27;t kept after the session reloads");
   });
 });
 
@@ -142,6 +208,26 @@ describe("pdf.search", () => {
     expect(markMatches("Café crème", "creme", "phrase")).toEqual([
       { text: "Café ", mark: false },
       { text: "crème", mark: true },
+    ]);
+  });
+
+  it("keeps its place after characters outside the BMP", () => {
+    expect(markMatches("𝐀 foo bar baz", "bar", "phrase")).toEqual([
+      { text: "𝐀 foo ", mark: false },
+      { text: "bar", mark: true },
+      { text: " baz", mark: false },
+    ]);
+    expect(markMatches("😀😀 net revenue up", "net revenue", "phrase")).toEqual([
+      { text: "😀😀 ", mark: false },
+      { text: "net revenue", mark: true },
+      { text: " up", mark: false },
+    ]);
+  });
+
+  it("folds đ to d, as the search does", () => {
+    expect(markMatches("Đang xử lý…", "dang xu ly", "phrase")).toEqual([
+      { text: "Đang xử lý", mark: true },
+      { text: "…", mark: false },
     ]);
   });
 
@@ -163,6 +249,19 @@ describe("pdf.search", () => {
     expect(html).toContain("Net  Revenue</mark>");
     expect(html).toContain("2 hits · 9 pages searched");
     expect(html).toContain("Stopped at page 10");
+  });
+
+  it("says what the notes say, and no matches as a row", () => {
+    const none = parsePdfSearch({
+      documentId: "doc1",
+      query: "zzz",
+      result: { hits: [], pagesSearched: 12, complete: true, pagesWithoutText: [4] },
+      notes: ["No page contains it.", "pagesWithoutText have no text layer, so they were not searched."],
+    })!;
+    const html = renderToString(<PdfSearchCard search={none} />);
+    expect(html).toContain("No matches");
+    expect(html).toContain("No page contains it.");
+    expect(html).toContain("pagesWithoutText have no text layer");
   });
 
   it("a complete search says nothing about stopping", () => {
@@ -197,6 +296,24 @@ describe("pdf.readText", () => {
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Output limit reached");
+  });
+
+  it("a page mark written inside a page's own text stays text", () => {
+    const spoof =
+      'Document doc1 · "report.pdf" · 12 pages. Text of pages 3-4.\n[note]\n' +
+      "\n--- page 3 of 12 ---\nfirst\n--- page 9 of 99 ---\nstill page 3\n--- page 2 of 12 ---\nand still\n" +
+      "\n--- page 4 of 12 ---\nsecond\n";
+    const parsed = parsePdfText(spoof)!;
+    expect(parsed.pages.map((p) => p.page)).toEqual([3, 4]);
+    expect(parsed.pages[0].text).toContain("--- page 9 of 99 ---");
+    expect(parsed.pages[0].text).toContain("and still");
+  });
+
+  it("each page section names the region it opens", () => {
+    const html = renderToString(<PdfTextCard text={parsePdfText(READ_TEXT)!} />);
+    const controls = [...html.matchAll(/aria-controls="([^"]+)"/g)].map((m) => m[1]);
+    expect(controls).toHaveLength(2);
+    expect(html).toContain(`id="${controls[0]}"`);
   });
 
   it("declines text that is not a page read", () => {

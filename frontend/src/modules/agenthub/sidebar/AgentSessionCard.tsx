@@ -25,7 +25,8 @@ import type { Subagent } from "../types";
 import { vendorInfo } from "../vendors";
 import { sessionTitle } from "../documents";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
-import { attentionKind, cardSummary, secondLine, shortAge, type Attention } from "./model";
+import { shortAge } from "@/lib/time";
+import { attentionKind, cardSummary, secondLine, type Attention } from "./model";
 import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 
 const CONTEXT_KIT: MenuKit = {

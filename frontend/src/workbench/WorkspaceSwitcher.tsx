@@ -31,12 +31,7 @@ import {
 } from "./workspaceIdentity";
 import { WorkspaceDialog } from "./WorkspaceDialog";
 import { onNewWorkspaceRequested } from "./workspaceDialogRequest";
-import { registerMemoryResultViews } from "./memoryResultViews";
 const WorkspaceMemoryDialog = lazy(() => import("./WorkspaceMemoryDialog"));
-
-// workspace.memory.* results read as entries, registered beside the menu that
-// opens the memory manager: workspace memory has no module of its own.
-registerMemoryResultViews();
 
 /**
  * The trigger's identity chip: initials on a note-palette color — see

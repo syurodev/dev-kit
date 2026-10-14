@@ -154,10 +154,12 @@ export function parsePdfSearch(rawOutput: unknown): PdfSearch | null {
 export type MarkedSpan = { text: string; mark: boolean };
 
 /**
- * One character folded the way the search folds (internal/pdfdoc): case and
- * diacritics ignored. Whitespace is handled by the caller.
+ * One character folded the way the search folds (internal/pdfdoc/search.go
+ * foldRune): case and diacritics ignored, đ/Đ mapped by hand since it has no
+ * decomposition. Whitespace is handled by the caller.
  */
 function foldChar(ch: string): string {
+  if (ch === "đ" || ch === "Đ") return "d";
   return ch.normalize("NFD").toLowerCase().replace(/\p{M}/gu, "");
 }
 
@@ -168,14 +170,21 @@ function foldChar(ch: string): string {
  * case and accents aside, any run of spaces as one.
  */
 export function markMatches(snippet: string, query: string, match: string): MarkedSpan[] {
-  // Folded haystack with, for each folded character, the original span it came from.
+  // The folded haystack, and for each of its UTF-16 code units (what indexOf
+  // counts) the span of the original snippet it came from.
   let hay = "";
   const from: number[] = [];
   const to: number[] = [];
-  const chars = Array.from(snippet);
+  const push = (text: string, start: number, end: number) => {
+    hay += text;
+    for (let i = 0; i < text.length; i++) {
+      from.push(start);
+      to.push(end);
+    }
+  };
   let offset = 0;
   let lastWasSpace = false;
-  for (const ch of chars) {
+  for (const ch of snippet) {
     const start = offset;
     offset += ch.length;
     if (/\s/u.test(ch)) {
@@ -184,20 +193,14 @@ export function markMatches(snippet: string, query: string, match: string): Mark
         continue;
       }
       lastWasSpace = true;
-      hay += " ";
-      from.push(start);
-      to.push(offset);
+      push(" ", start, offset);
       continue;
     }
     lastWasSpace = false;
-    const foldedChars = Array.from(foldChar(ch));
+    const folded = foldChar(ch);
     // A lone combining mark folds to nothing: it belongs to the letter before it.
-    if (foldedChars.length === 0 && to.length > 0) to[to.length - 1] = offset;
-    for (const folded of foldedChars) {
-      hay += folded;
-      from.push(start);
-      to.push(offset);
-    }
+    if (folded === "" && to.length > 0) to[to.length - 1] = offset;
+    push(folded, start, offset);
   }
   const foldText = (text: string) =>
     Array.from(text.trim().replace(/\s+/gu, " "))
@@ -205,7 +208,7 @@ export function markMatches(snippet: string, query: string, match: string): Mark
       .join("");
   const needles = (match === "words" ? query.trim().split(/\s+/u) : [query]).map(foldText).filter((n) => n !== "");
 
-  // Ranges in the original snippet, found left to right, longest needle first at a tie.
+  // Ranges in the original snippet, left to right, the longer first at a tie.
   const ranges: [number, number][] = [];
   for (const needle of needles) {
     let at = hay.indexOf(needle);
@@ -237,15 +240,47 @@ export type PdfText = {
   footer: string[];
 };
 
-const PAGE_MARK = /\n--- page (\d+) of \d+ ---\n/g;
+const PAGE_MARK = /\n--- page (\d+) of (\d+) ---\n/g;
 const FOOTER_LINE = /^\[Output limit reached\b.*\]$/;
+/** Go's `Document %s · %q · %d pages.` — the name is quoted, so it may hold anything but an unescaped quote. */
+const DOCUMENT_HEAD = /^Document \S+ · "(?:[^"\\]|\\.)*" · (\d+) pages\./;
+const PAGE_LIST = /Text of pages? ([\d,-]+)(?: \(column layout\))?\.$/;
 
-/** `pdf.readText` → its text: a header, then `--- page N of M ---` per page, then footer notes. */
+/** "3-4,7" → [3, 4, 7]: the pages a read was asked for, as Go's spanOf wrote them. */
+function pageSpan(spec: string): number[] {
+  const out: number[] = [];
+  for (const part of spec.split(",")) {
+    const [lo, hi] = part.split("-").map(Number);
+    if (!Number.isInteger(lo)) return [];
+    const last = Number.isInteger(hi) ? hi : lo;
+    for (let n = lo; n <= last && out.length < 3000; n++) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * `pdf.readText` → its text: a header, then `--- page N of M ---` per page,
+ * then footer notes. Document text can hold a line that looks like a mark, so
+ * a mark counts only when M is the header's page count and N is the next of
+ * the pages the header lists; anything else is the page's own text.
+ */
 export function parsePdfText(rawOutput: unknown): PdfText | null {
-  if (typeof rawOutput !== "string" || !rawOutput.startsWith("Document ")) return null;
-  const marks = [...rawOutput.matchAll(PAGE_MARK)];
+  if (typeof rawOutput !== "string") return null;
+  const header = rawOutput.split("\n")[0].trim();
+  const head = DOCUMENT_HEAD.exec(header);
+  if (!head) return null;
+  const total = head[1];
+  const expected = pageSpan(PAGE_LIST.exec(header)?.[1] ?? "");
+  let next = 0;
+  const marks: RegExpMatchArray[] = [];
+  for (const mark of rawOutput.matchAll(PAGE_MARK)) {
+    if (mark[2] !== total) continue;
+    const at = expected.indexOf(Number(mark[1]), next);
+    if (at === -1) continue;
+    marks.push(mark);
+    next = at + 1;
+  }
   if (marks.length === 0) return null;
-  const header = rawOutput.slice(0, marks[0].index).split("\n")[0].trim();
   const pages = marks.map((mark, i) => {
     const start = mark.index! + mark[0].length;
     const end = i + 1 < marks.length ? marks[i + 1].index! : rawOutput.length;
@@ -280,7 +315,7 @@ export type PdfPage = {
   mimeType: string;
   /** A zoomed part of the page rather than all of it. */
   region: boolean;
-  /** A data URL built from the result's own image block; unset when the row no longer carries it. */
+  /** A data URL built from the result's own image block; unset when there is no picture to draw. */
   src?: string;
 };
 
@@ -288,25 +323,46 @@ export type PdfPages = {
   /** "Document doc1 · "name.pdf" · 12 pages." */
   caption: string;
   pages: PdfPage[];
+  /** The result had page images and this row no longer carries them (a stored row). */
+  imagesDropped: boolean;
 };
 
 const IMAGE_MIME = /^image\/(png|jpeg|webp|gif)$/;
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const CAPTION_HEAD = /^Document .*? · \d+ pages?\./;
+const BASE64_SAMPLE = /^[A-Za-z0-9+/]*={0,2}$/;
+const SAMPLE = 64;
+const CAPTION_HEAD = /^Document \S+ · "(?:[^"\\]|\\.)*" · \d+ pages\./;
 
-/** The image block's picture as a data URL — a raster type and base64 only, nothing fetched. */
-function dataUrl(block: ToolContentBlock | undefined): string | undefined {
-  if (!block || typeof block.data !== "string" || block.data === "") return undefined;
+// Per image block: the transcript keeps handing back the same block object,
+// and a page picture is megabytes, so its data URL is built once.
+const dataUrls = new WeakMap<ToolContentBlock, string | null>();
+
+/**
+ * The image block's picture as a data URL — a raster type and base64 only,
+ * nothing fetched. Checked cheaply (length and a sample at each end) rather
+ * than with a pattern over megabytes; a bad picture fails to decode, nothing more.
+ */
+function dataUrl(block: ToolContentBlock): string | undefined {
+  const known = dataUrls.get(block);
+  if (known !== undefined) return known ?? undefined;
+  const data = typeof block.data === "string" ? block.data : "";
   const mime = block.mimeType ?? "";
-  if (!IMAGE_MIME.test(mime) || !BASE64.test(block.data)) return undefined;
-  return `data:${mime};base64,${block.data}`;
+  const ok =
+    data.length > 0 &&
+    data.length % 4 === 0 &&
+    IMAGE_MIME.test(mime) &&
+    BASE64_SAMPLE.test(data.slice(0, SAMPLE).replace(/=+$/, "")) &&
+    BASE64_SAMPLE.test(data.slice(-SAMPLE));
+  const url = ok ? `data:${mime};base64,${data}` : null;
+  dataUrls.set(block, url);
+  return url ?? undefined;
 }
 
 /**
  * `pdf.viewPages` → a caption line, then on the next a JSON array of
  * `{page, widthPx, heightPx, dpi, mimeType, region?}`; image blocks follow in
- * the same order. A stored row has the caption and an emptied image (or, from
- * Codex, a sentence in place of all of it).
+ * the same order. A stored row has the caption and emptied images (or, from
+ * Codex, a sentence in place of all of it). When the images and the pages do
+ * not pair one to one, no page is given a picture: a wrong page is worse.
  */
 export function parsePdfPages(rawOutput: unknown, content: readonly ToolContentBlock[] = []): PdfPages | null {
   if (typeof rawOutput !== "string") return null;
@@ -320,6 +376,7 @@ export function parsePdfPages(rawOutput: unknown, content: readonly ToolContentB
   }
   if (!Array.isArray(shown) || shown.length === 0) return null;
   const images = content.filter((block) => block.type === "image");
+  const paired = images.length === shown.length;
   const pages: PdfPage[] = [];
   for (const [i, item] of shown.entries()) {
     if (!isRecord(item) || !isNumber(item.page) || !isNumber(item.widthPx) || !isNumber(item.heightPx)) return null;
@@ -331,10 +388,11 @@ export function parsePdfPages(rawOutput: unknown, content: readonly ToolContentB
       dpi: isNumber(item.dpi) ? item.dpi : 0,
       mimeType: typeof item.mimeType === "string" ? item.mimeType : "",
       region: isRecord(item.region),
-      src: dataUrl(images[i]),
+      src: paired ? dataUrl(images[i]) : undefined,
     });
   }
   const text = rawOutput.slice(0, split);
   const caption = CAPTION_HEAD.exec(text)?.[0] ?? text.split("\n")[0];
-  return { caption, pages };
+  const imagesDropped = images.some((block) => !block.data);
+  return { caption, pages, imagesDropped };
 }

@@ -6,9 +6,9 @@ import { parseToolOutput, registerToolResultView } from "./toolResultViews";
  * ToolResultViews for `workspace.memory.*` (docs/dev-kit/tool-result-view.mdx).
  * Workspace memory is the workbench's, not a module's: no module in
  * internal/app/app.go owns it, and its manager is ./WorkspaceMemoryDialog.tsx,
- * opened from the title bar's workspace menu. So the views are registered
- * from there (./WorkspaceSwitcher.tsx), the way a module registers its own
- * from its manifest. Shapes are checked here, synchronously, before the card
+ * opened from the title bar's workspace menu. So the workbench registers
+ * them (./registerViews.ts, imported by ./Workbench.tsx beside the module
+ * manifests), the way a module registers its own from its manifest. Shapes are checked here, synchronously, before the card
  * chunk loads; anything else falls back to the generic block.
  */
 
@@ -65,19 +65,36 @@ const cards = () => import("./MemoryResultCard");
 const LazyMemoryEntryCard = lazy(() => cards().then(({ MemoryEntryCard }) => ({ default: MemoryEntryCard })));
 const LazyMemoryListCard = lazy(() => cards().then(({ MemoryListCard }) => ({ default: MemoryListCard })));
 
-export function registerMemoryResultViews(): void {
-  for (const tool of ["workspace.memory.get", "workspace.memory.create", "workspace.memory.update"]) {
-    registerToolResultView(tool, ({ rawOutput, heading }) => {
-      const entry = parseMemoryEntry(rawOutput);
-      return entry ? createElement(LazyMemoryEntryCard, { entry, heading }) : null;
-    });
+/** The tools answering one Entry: reads and every write, a soft delete and a restore included. */
+const ENTRY_TOOLS = [
+  "workspace.memory.get",
+  "workspace.memory.create",
+  "workspace.memory.update",
+  "workspace.memory.delete",
+  "workspace.memory.restore",
+];
+const PAGE_TOOLS = ["workspace.memory.list", "workspace.memory.search"];
+
+/** Registers every memory view; returns what undoes each registration. */
+export function registerMemoryResultViews(): (() => void)[] {
+  const disposers: (() => void)[] = [];
+  for (const tool of ENTRY_TOOLS) {
+    disposers.push(
+      registerToolResultView(tool, ({ rawOutput, heading }) => {
+        const entry = parseMemoryEntry(rawOutput);
+        return entry ? createElement(LazyMemoryEntryCard, { entry, heading }) : null;
+      }),
+    );
   }
-  for (const tool of ["workspace.memory.list", "workspace.memory.search"]) {
-    registerToolResultView(tool, ({ rawInput, rawOutput, heading }) => {
-      const page = parseMemoryPage(rawOutput);
-      if (!page) return null;
-      const query = isRecord(rawInput) && typeof rawInput.query === "string" ? rawInput.query : "";
-      return createElement(LazyMemoryListCard, { page, query, heading });
-    });
+  for (const tool of PAGE_TOOLS) {
+    disposers.push(
+      registerToolResultView(tool, ({ rawInput, rawOutput, heading }) => {
+        const page = parseMemoryPage(rawOutput);
+        if (!page) return null;
+        const query = isRecord(rawInput) && typeof rawInput.query === "string" ? rawInput.query : "";
+        return createElement(LazyMemoryListCard, { page, query, heading });
+      }),
+    );
   }
+  return disposers;
 }
