@@ -13,6 +13,19 @@ export function agentPanelAllowed(activeModuleId: string | null | undefined): bo
 }
 
 /**
+ * Whether the companion is mounted, and what to push: nothing until it is
+ * first shown, then always — visible or hidden.
+ */
+export function companionPush(s: { chatOpen: boolean; inAgentHub: boolean; mounted: boolean }): {
+  mounted: boolean;
+  push: { hidden: boolean } | null;
+} {
+  const shown = s.chatOpen && !s.inAgentHub;
+  const mounted = s.mounted || shown;
+  return { mounted, push: mounted ? { hidden: !shown } : null };
+}
+
+/**
  * Publishes the conversation into the shell's companion slot.
  *
  * A component rather than an inline effect in Workbench so that its only
@@ -39,19 +52,20 @@ export function AgentCompanionSlot() {
   const inAgentHub = useWorkbenchTabsStore((s) => !agentPanelAllowed(s.activeModuleId));
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
   const { openCompanion, closeCompanion } = useSplitPanel();
-  const shown = chatOpen && !inAgentHub;
-  const [mounted, setMounted] = useState(shown);
-  if (shown && !mounted) setMounted(true);
+  const [wasMounted, setMounted] = useState(false);
+  const { mounted, push } = companionPush({ chatOpen, inAgentHub, mounted: wasMounted });
+  if (mounted && !wasMounted) setMounted(true);
+  const hidden = push?.hidden ?? true;
 
   useEffect(() => {
     if (!mounted) return;
     openCompanion(
       <Suspense fallback={null}>
-        <LazyAgentCompanion visible={shown} />
+        <LazyAgentCompanion visible={!hidden} />
       </Suspense>,
-      { onClose: () => setChatOpen(false), hidden: !shown },
+      { onClose: () => setChatOpen(false), hidden },
     );
-  }, [mounted, shown, openCompanion, setChatOpen]);
+  }, [mounted, hidden, openCompanion, setChatOpen]);
 
   // Only on the way out of the shell: a toggle re-pushes, it never clears.
   useEffect(() => () => closeCompanion(), [closeCompanion]);

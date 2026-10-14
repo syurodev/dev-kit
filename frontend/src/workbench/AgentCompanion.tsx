@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { frozenWhileHidden } from "@/lib/frozenWhileHidden";
 import {
   agentHubCancel,
   agentHubGetStatus,
@@ -208,7 +209,12 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     }
   }
 
-  return (
+  // Hidden (its pane closed, or inside Agent Hub) it stays mounted but frozen:
+  // the store keeps changing under it — the same session's prompt is typed in
+  // Agent Hub — and the rail must not re-render, nor its composer reset its
+  // editor, for any of it. Shown again, it renders once with what is current.
+  const frozen = useRef<ReactElement | null>(null);
+  return frozenWhileHidden(frozen, visible, (
     <AgentRail
       activeSession={session}
       items={transcriptModel.items}
@@ -267,5 +273,5 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       errorMessage={error}
       sendDisabled={false}
     />
-  );
+  ));
 }

@@ -54,6 +54,7 @@ import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
 import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
 import { useRetainedRecord, useRetainedWhileClosing, useStillLeaving } from "@/workbench/slots/retain";
+import { dismissOwnedLayers } from "@/workbench/slots/ownedLayers";
 import { moveHost } from "@/workbench/slots/hostMove";
 import "@/workbench/slots/slots.css";
 
@@ -228,6 +229,8 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     if (host.parentNode !== body) return;
     const park = parkRef.current;
     if (pane === "agent" && park) {
+      // Focus cannot stay in an inert, invisible subtree.
+      if (host.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur();
       const r = body.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) {
         park.style.width = `${r.width}px`;
@@ -238,6 +241,15 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     }
     body.removeChild(host);
   }, []);
+
+  // A menu, popover or select the conversation opened is portalled to the
+  // body and would outlive the pane closing around it — a modal one with the
+  // whole app's pointer events off. Closed the way the person would: Escape,
+  // while the topmost open layer is one the companion owns.
+  const companionHidden = companion?.hidden ?? false;
+  React.useEffect(() => {
+    if (companionHidden) dismissOwnedLayers(hostFor("agent"), document);
+  }, [companionHidden, hostFor]);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
   const docRef = React.useRef<HTMLDivElement | null>(null);
