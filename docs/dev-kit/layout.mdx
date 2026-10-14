@@ -603,11 +603,17 @@ dưới trượt lên, sidebar trượt từ trái. Mặt card đi theo panel, n
 fade vào sau 60 ms. Đóng thì nội dung cuối ở lại tới khi panel đóng xong
 (`--motion-fast`), trừ pane đang hiện ở chỗ khác. Bề rộng module xin cho context
 pane được áp trước frame đầu, nên animation mở không đổi đích giữa chừng. Resize
-cửa sổ thì panel đi theo tức thì.
+cửa sổ, kéo bất kỳ sash nào, hay một thay đổi chỉ do clamp của panel bên cạnh thì
+panel đi theo tức thì. Card đang đóng (và sidebar đã đóng) là `inert`; một pane
+đã sang chỗ khác trong lúc chỗ cũ đang đóng thì chỗ cũ không vẽ lại nó.
 
 **Agent đóng là ẩn, không gỡ:** sau lần mở đầu, companion Agent ở lại mounted
 khi pane đóng (và khi đang ở Agent Hub), `visible={false}` — đọc transcript
-store đang giữ mà không subscribe, không fetch, không toast. Phần tử của nó chờ
+store đang giữ mà không subscribe, không fetch, không toast, và **đóng băng**: trả
+lại element dựng lần cuối còn hiện, nên gõ prompt trong Agent Hub không làm rail ẩn
+render lại (mở lại thì render một lần với state mới). Lúc ẩn, menu/popover/select
+nó mở (portal ra body) được đóng bằng Escape khi lớp trên cùng là của nó, và focus
+trong nó bị blur. Phần tử của nó chờ
 trong một "bãi đỗ" trong document (fixed, ngoài màn hình, `invisible`, `inert`,
 cùng kích thước card vừa rời), nên mở lại là tức thì, đúng chỗ cuộn và composer
 như lúc đóng. Context pane của module vẫn gỡ khi đóng như cũ.
