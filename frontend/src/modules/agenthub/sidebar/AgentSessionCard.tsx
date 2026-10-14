@@ -15,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -31,10 +32,12 @@ import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 const CONTEXT_KIT: MenuKit = {
   Item: ContextMenuItem as MenuKit["Item"],
   Separator: ContextMenuSeparator as MenuKit["Separator"],
+  Label: ContextMenuLabel as MenuKit["Label"],
 };
 const DROPDOWN_KIT: MenuKit = {
   Item: DropdownMenuItem as MenuKit["Item"],
   Separator: DropdownMenuSeparator as MenuKit["Separator"],
+  Label: DropdownMenuLabel as MenuKit["Label"],
 };
 
 export type AgentSessionCardProps = {
@@ -227,7 +230,7 @@ function AgentSessionCardView({
             className="w-56"
             onCloseAutoFocus={() => actions.release((apply) => apply())}
           >
-            <SessionMenuItems kit={DROPDOWN_KIT} session={session} pinned={pinned} />
+            <SessionMenuItems kit={DROPDOWN_KIT} session={session} pinned={pinned} subagents={subagents} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -240,7 +243,7 @@ function AgentSessionCardView({
       <ContextMenuContent className="w-56" onCloseAutoFocus={() => actions.release((apply) => apply())}>
         <ContextMenuLabel className="truncate">{title}</ContextMenuLabel>
         <ContextMenuSeparator />
-        <SessionMenuItems kit={CONTEXT_KIT} session={session} pinned={pinned} />
+        <SessionMenuItems kit={CONTEXT_KIT} session={session} pinned={pinned} subagents={subagents} />
       </ContextMenuContent>
     </ContextMenu>
   );

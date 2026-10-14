@@ -9,7 +9,8 @@ import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { activeAgentHubSessionId, closeAgentSessionTabs, openAgentSession } from "../documents";
 import { useSubagentPanel } from "../subagents";
 import type { Subagent } from "../types";
-import { SessionActionsContext, type SessionActions } from "./actions";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionActionsContext, SessionMenuItems, subagentMenuEntries, type MenuKit, type SessionActions } from "./actions";
 import { AgentSessionCard, type AgentSessionCardProps } from "./AgentSessionCard";
 import { AgentSessionSidebar, type AgentSessionSidebarProps } from "./AgentSessionSidebar";
 import { AgentSubagentAvatars } from "./AgentSubagentAvatars";
@@ -149,10 +150,9 @@ describe("groups", () => {
     expect(html.indexOf('data-testid="agent-needs-you"')).toBeLessThan(html.indexOf('data-testid="agent-session-group"'));
   });
 
-  it("an open group's header is aria-expanded and has no badge when nothing waits", () => {
+  it("an open group's header is aria-expanded", () => {
     const html = render({ sessions: aged(2) });
     expect(html).toContain('aria-expanded="true"');
-    expect(html).not.toContain('data-testid="agent-group-waiting"');
   });
 
   it("the + of a group is there to be tabbed to, and so is the one in the header", () => {
@@ -622,6 +622,22 @@ describe("needs you, and the workspace in front of you", () => {
     expect(cardIds(html).sort()).toEqual(["x", "y"]);
   });
 
+  it("a folded workspace is one compact line; the current one keeps its room", () => {
+    const html = render({
+      sessions: [inWs("x", "1"), inWs("y", "2")],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+    });
+    const header = (key: string) => {
+      const at = html.indexOf(`data-group-key="${key}"`);
+      return html.slice(at, html.indexOf('data-testid="agent-group-toggle"', at));
+    };
+    expect(header("workspace:2")).toContain("h-8");
+    expect(header("workspace:2")).not.toContain("pt-4");
+    expect(header("workspace:1")).toContain("pt-4 pb-1.5");
+    expect(header("workspace:1")).not.toContain("h-8");
+  });
+
   it("a folded workspace says how many of its sessions run", () => {
     const html = render({
       sessions: [inWs("x", "2", { status: "running" }), inWs("y", "2", { status: "running" }), inWs("z", "2")],
@@ -645,5 +661,50 @@ describe("needs you, and the workspace in front of you", () => {
     expect(html).toMatch(/<h2[^>]*>Agents<\/h2>/);
     expect(html).toMatch(/data-testid="agent-tree-new"[^>]*>.*?New<\/button>/);
     expect(html).toContain('data-testid="agent-tree-toggle-closed"');
+  });
+});
+
+describe("subagents in a row's menu", () => {
+  const agents: Subagent[] = [
+    { id: "a1", name: "Docs", state: "completed" },
+    { id: "a2", name: "Review" },
+  ];
+
+  it("one entry per subagent, running first, with its name and state", () => {
+    expect(subagentMenuEntries(agents).map(({ label, detail }) => ({ label, detail }))).toEqual([
+      { label: "Review", detail: "running" },
+      { label: "Docs", detail: "done" },
+    ]);
+    expect(subagentMenuEntries([{ id: "abcdef123" }])[0].label).toBe("Subagent abcdef");
+    expect(subagentMenuEntries([])).toEqual([]);
+  });
+
+  const kit: MenuKit = {
+    Item: ({ children, detail }) => (
+      <button type="button" data-detail={typeof detail === "string" ? detail : undefined}>
+        {children}
+      </button>
+    ),
+    Separator: () => <hr />,
+    Label: ({ children }) => <p data-label="">{children}</p>,
+  };
+  const menu = (subagents: readonly Subagent[]) =>
+    renderToString(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionActionsContext.Provider value={NO_ACTIONS}>
+          <SessionMenuItems kit={kit} session={session("s")} pinned={false} subagents={subagents} />
+        </SessionActionsContext.Provider>
+      </QueryClientProvider>,
+    );
+
+  it("a labelled Subagents group, one item each", () => {
+    const html = menu(agents);
+    expect(html).toContain("<p data-label=\"\">Subagents</p>");
+    expect(html).toContain('data-detail="running">Review</button>');
+    expect(html).toContain('data-detail="done">Docs</button>');
+  });
+
+  it("no group for a session with none", () => {
+    expect(menu([])).not.toContain("Subagents");
   });
 });

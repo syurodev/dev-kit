@@ -87,6 +87,7 @@ function ContextMenuItem({
   variant = "default",
   icon,
   shortcut,
+  detail,
   children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Item> & {
@@ -95,6 +96,8 @@ function ContextMenuItem({
   icon?: React.ReactNode
   /** Optional, e.g. "⌘W" — see lib/shortcut for a per-platform label. */
   shortcut?: string
+  /** Optional quiet text at the end, for a state rather than a key. */
+  detail?: React.ReactNode
 }) {
   return (
     <ContextMenuPrimitive.Item
@@ -103,7 +106,7 @@ function ContextMenuItem({
       className={cn(MENU_ROW, "group/context-menu-item", MENU_ROW_DESTRUCTIVE, className)}
       {...props}
     >
-      <MenuRow icon={icon} trailing={<MenuTrailing shortcut={shortcut} />}>
+      <MenuRow icon={icon} trailing={<MenuTrailing shortcut={shortcut} detail={detail} />}>
         {children}
       </MenuRow>
     </ContextMenuPrimitive.Item>

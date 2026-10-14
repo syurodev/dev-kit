@@ -16,7 +16,6 @@ import {
   partitionGroup,
   shortAge,
   subagentsLabel,
-  waitingCount,
   drawnWhenHidingClosed,
   groupCollapsed,
   needsYou,
@@ -298,11 +297,6 @@ describe("what needs the person", () => {
     expect(cardIndicator(session("a", { status: "" }))).toBeNull();
     // Waiting beats running and error: it is the one with a person behind it.
     expect(cardIndicator(session("a", { status: "error" }), { permissions: 0, questions: 1 })).toBe("question");
-  });
-
-  it("counts the sessions waiting, once each", () => {
-    const list = [session("p", { status: "awaiting_permission" }), session("q"), session("n")];
-    expect(waitingCount(list, { p: { permissions: 1, questions: 1 }, q: { permissions: 0, questions: 1 } })).toBe(2);
   });
 
   it("walks on to the next waiting session, wrapping", () => {

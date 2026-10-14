@@ -302,16 +302,6 @@ export function nextWaiting(waitingIds: string[], activeSessionId?: string): str
   return waitingIds[(at + 1) % waitingIds.length];
 }
 
-/** How many sessions in the group are waiting on the person. */
-export function waitingCount(
-  sessions: readonly AgentSession[],
-  attention: Record<string, Attention>,
-): number {
-  let n = 0;
-  for (const s of sessions) if (attentionKind(s, attention[s.id])) n++;
-  return n;
-}
-
 // ---------------------------------------------------------------------------
 // Labels
 

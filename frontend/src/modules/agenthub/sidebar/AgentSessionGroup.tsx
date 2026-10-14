@@ -21,8 +21,7 @@ import { sessionTitle } from "../documents";
 import { useSessionActions } from "./actions";
 import { AgentSessionCard } from "./AgentSessionCard";
 import { projectLabel } from "./grouping";
-import { useRisingEdge } from "./hooks";
-import { partitionGroup, waitingCount, attentionKind, type Attention, type SidebarGroup } from "./model";
+import { partitionGroup, attentionKind, type Attention, type SidebarGroup } from "./model";
 
 const NO_SUBAGENTS: readonly Subagent[] = [];
 
@@ -47,30 +46,6 @@ export type AgentSessionGroupProps = {
   /** Starts a session in this group: the workspace as a whole, or the folder. */
   onNewSession?: (group: SidebarGroup) => void;
 };
-
-/**
- * How many sessions in this group are waiting, as a pill. It shows whether the
- * group is open or shut — shut is when it matters, since the cards that would
- * say so are not drawn — and it plays its beat once when the number grows.
- */
-function WaitingBadge({ count }: { count: number }) {
-  const pulse = useRisingEdge(count);
-  if (count <= 0) return null;
-  return (
-    <span
-      data-testid="agent-group-waiting"
-      className={cn(
-        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-status-permission-soft px-1 text-caption-11-medium text-status-warning ring-1 ring-status-warning/40",
-        pulse && "agent-attention-pulse",
-      )}
-    >
-      <span aria-hidden="true" className="tabular-nums">
-        {count}
-      </span>
-      <span className="sr-only">{count === 1 ? "1 session needs your response" : `${count} sessions need your response`}</span>
-    </span>
-  );
-}
 
 /**
  * The row that folds a group's older sessions: how many, a hairline to the
@@ -158,7 +133,6 @@ function AgentSessionGroupView({
     }
     placed.current = next;
   });
-  const waiting = React.useMemo(() => waitingCount(group.sessions, attention), [group.sessions, attention]);
   const running = React.useMemo(() => group.sessions.filter((s) => s.status === "running").length, [group.sessions]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
 
@@ -170,6 +144,8 @@ function AgentSessionGroupView({
   const [shownRef] = useAutoAnimate<HTMLDivElement>(listMotion);
   const [stackedRef] = useAutoAnimate<HTMLDivElement>(listMotion);
 
+  // Folded and not the workspace in front of you: one compact line.
+  const compact = collapsed && !current;
   const containsActive = Boolean(activeId) && group.sessions.some((s) => s.id === activeId);
   const newLabel = group.kind === "scratch" ? "New session without a project" : `New session in ${group.label}`;
   const hint = group.kind === "scratch" ? undefined : group.workspace ? group.workspace.paths.join("\n") : group.path || undefined;
@@ -206,7 +182,7 @@ function AgentSessionGroupView({
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="group/header flex items-center gap-1 px-2 pt-4 pb-1.5">
+          <div className={cn("group/header flex items-center gap-1 px-2", compact ? "h-8" : "pt-4 pb-1.5")}>
             <button
               type="button"
               data-sidebar-nav=""
@@ -240,8 +216,7 @@ function AgentSessionGroupView({
                   !collapsed && "rotate-90",
                 )}
               />
-              <WaitingBadge count={waiting} />
-              {collapsed && !current && running > 0 ? (
+              {compact && running > 0 ? (
                 <span
                   data-testid="agent-group-running"
                   className="ml-auto flex shrink-0 items-center gap-1 text-caption-11 text-text-tertiary"

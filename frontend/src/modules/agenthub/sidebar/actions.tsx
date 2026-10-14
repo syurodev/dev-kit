@@ -1,9 +1,10 @@
 import { SessionRemoteControlItem } from "./SessionRemoteControlItem";
 import * as React from "react";
-import { Ban, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
+import { Ban, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
+import { orderSubagents, subagentName, subagentStateWord } from "./model";
 
 /**
  * What the rail's cards and groups can do, handed down by context so a card is
@@ -48,11 +49,26 @@ export type MenuKit = {
     icon?: React.ReactNode;
     variant?: "default" | "destructive";
     disabled?: boolean;
+    /** Quiet text at the end of the row: a state, not a key. */
+    detail?: React.ReactNode;
     onSelect?: () => void;
     children?: React.ReactNode;
   }>;
   Separator: React.ComponentType;
+  Label: React.ComponentType<{ children?: React.ReactNode }>;
 };
+
+export type SubagentMenuEntry = { id: string; label: string; detail: string; agent: Subagent };
+
+/** A session's subagents as menu rows: running first, each with its name and state. */
+export function subagentMenuEntries(subagents: readonly Subagent[]): SubagentMenuEntry[] {
+  return orderSubagents(subagents).map((agent) => ({
+    id: agent.id,
+    label: subagentName(agent),
+    detail: subagentStateWord(agent.state),
+    agent,
+  }));
+}
 
 /**
  * The actions a session offers, in the order the tree's context menu had them.
@@ -63,16 +79,31 @@ export function SessionMenuItems({
   kit,
   session,
   pinned,
+  subagents,
 }: {
   kit: MenuKit;
   session: AgentSession;
   pinned: boolean;
+  /** The agents it started inside itself: the row no longer draws them, so the menu opens them. */
+  subagents: readonly Subagent[];
 }) {
   const a = useSessionActions();
-  const { Item, Separator } = kit;
+  const { Item, Separator, Label } = kit;
   const descendants = a.descendantCount(session.id);
+  const agents = subagentMenuEntries(subagents);
   return (
     <>
+      {agents.length > 0 ? (
+        <>
+          <Label>Subagents</Label>
+          {agents.map((entry) => (
+            <Item key={entry.id} icon={<Bot />} detail={entry.detail} onSelect={() => a.openSubagent(session, entry.agent)}>
+              {entry.label}
+            </Item>
+          ))}
+          <Separator />
+        </>
+      ) : null}
       {a.togglePin ? (
         <Item icon={pinned ? <PinOff /> : <Pin />} onSelect={() => a.togglePin?.(session.id)}>
           {pinned ? "Unpin" : "Pin to top"}
