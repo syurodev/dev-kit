@@ -89,7 +89,7 @@ export function PlanHeader({ plan }: { plan: CodeGraphPlanProgress }) {
  * The count folds the done/total fraction and the node total into one
  * segment ("2/5 nodes" rather than "2/5 · 5 nodes", which said the same 5
  * twice) and Refresh drops its label — every other canvas control
- * (CanvasToolbar's search/fit/expand) is already icon-only with a tooltip,
+ * (CanvasToolbar's fit) is already icon-only with a tooltip,
  * and this is the one row that hadn't caught up.
  */
 export function PlanMeta({

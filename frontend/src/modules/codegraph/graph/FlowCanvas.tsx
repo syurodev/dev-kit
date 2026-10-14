@@ -454,13 +454,11 @@ function Canvas({
           <div className="flex shrink-0 items-center gap-3.5">
             {typeof meta === "function" ? meta(counts) : meta}
             <CanvasToolbar
-              onSearch={() => {}}
               onFit={() => {
                 // Asking for a fit hands the view back to the layout.
                 userMoved.current = false;
                 void fitView(fitOptions);
               }}
-              onExpand={() => {}}
               fitActive
             />
           </div>
