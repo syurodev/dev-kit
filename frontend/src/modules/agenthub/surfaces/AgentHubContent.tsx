@@ -467,6 +467,8 @@ export function AgentHubContent({
                 onLoadOlder={onLoadOlder}
                 onOpenFile={onOpenFile}
                 refContext={refContext}
+                // The summary dock is drawn for any session that is not a draft.
+                planDocked={!!session && !draft}
                 // 760 here (880 from 80rem); the rail keeps 720. On a wide conversation the
                 // scroller's right padding clears the docked summary, so the
                 // column centres in what is left rather than running under it.

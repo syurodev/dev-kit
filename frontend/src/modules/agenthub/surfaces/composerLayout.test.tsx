@@ -159,6 +159,19 @@ describe("the composer is in the layout, below the transcript", () => {
     expect(draft).not.toContain("session-summary-corner");
   });
 
+  it("collapses the latest plan to a line only where the summary docks", () => {
+    const prompt = { id: "u", kind: "user_message_chunk", text: "go" } as TranscriptItem;
+    const items = [prompt, planItem];
+    expect(hub({ items })).toContain('data-testid="turn-plan-docked"');
+    // The rail has the container but no summary dock: its plan stays whole.
+    const rail = render(<AgentRail activeSession={session} items={items} {...base} />);
+    expect(rail).toContain('data-testid="agent-plan"');
+    expect(rail).not.toContain("turn-plan-docked");
+    // A draft has no summary either.
+    const draft = hub({ session: null, draft: { projectPath: "/work/api" }, items });
+    expect(draft).not.toContain("turn-plan-docked");
+  });
+
   it("drops the subagents chip from the bar while the summary is docked", () => {
     const html = hub();
     expect(html).toMatch(/<span[^>]*@6xl\/agent-conversation:hidden[^>]*><button[^>]*data-testid="tray-subagents"/);

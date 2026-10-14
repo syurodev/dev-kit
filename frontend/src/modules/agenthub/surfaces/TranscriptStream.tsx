@@ -49,6 +49,12 @@ export type TranscriptStreamProps = {
    * a draft), prose falls back to `onOpenFile`.
    */
   refContext?: RefContext | null;
+  /**
+   * The Hub docks a summary card beside the conversation, which shows the
+   * latest plan. Only then does that plan's card in the turn step back to one
+   * line. The rail shares this stream and has no dock, so it stays false.
+   */
+  planDocked?: boolean;
   loading?: boolean;
   /** Older pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -218,6 +224,7 @@ export function TranscriptStream({
   onEditPrompt,
   onOpenFile,
   refContext,
+  planDocked = false,
   loading = false,
   hasMore = false,
   loadingOlder = false,
@@ -577,7 +584,7 @@ export function TranscriptStream({
         key={turn.id}
         turn={turn}
         latest={latest}
-        latestPlan={index === planTurnIndex}
+        latestPlan={planDocked && index === planTurnIndex}
         live={latest && streaming}
         vendor={vendor}
         checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
