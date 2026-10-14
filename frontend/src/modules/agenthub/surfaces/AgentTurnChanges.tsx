@@ -158,12 +158,12 @@ export function ChangedFileRow({
   /** Starts open, its diff loading on mount: for a caller that shows this one file. */
   defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = React.useState(defaultOpen ?? false);
+  const canOpen = Boolean(loadDiff) && !file.binary;
+  const [open, setOpen] = React.useState(Boolean(defaultOpen) && canOpen);
   const [diff, setDiff] = React.useState<CheckpointFileDiff | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const source = sourceLabel(file);
   const counts = changeCounts(file);
-  const canOpen = Boolean(loadDiff) && !file.binary;
 
   React.useEffect(() => {
     if (!open || diff || !loadDiff) return;

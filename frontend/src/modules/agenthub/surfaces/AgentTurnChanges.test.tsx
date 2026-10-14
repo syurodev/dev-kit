@@ -138,6 +138,13 @@ describe("a changed file's row", () => {
     expect(html).toContain("Loading…");
   });
 
+  it("does not start open on a file it cannot open", () => {
+    const html = renderToString(
+      <ChangedFileRow checkpointId="cp1" file={file({ binary: true })} overlap={null} loadDiff={() => new Promise(() => {})} defaultOpen />,
+    );
+    expect(html).not.toContain("Loading…");
+  });
+
   it("starts closed by default", () => {
     const html = renderToString(
       <ChangedFileRow checkpointId="cp1" file={file()} overlap={null} loadDiff={() => new Promise(() => {})} />,

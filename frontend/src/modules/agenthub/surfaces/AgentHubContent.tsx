@@ -26,7 +26,7 @@ import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
-import { SessionSummaryButton, SessionSummaryCard } from "../summary/SessionSummary";
+import { SessionSummaryButton, SessionSummaryCard, useSessionSummaryData } from "../summary/SessionSummary";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -300,6 +300,14 @@ export function AgentHubContent({
       ).length,
     [items],
   );
+  // Derived once for the docked card and the corner button: both are mounted
+  // and CSS shows one, so each deriving (and fetching) for itself did it twice.
+  const summary = useSessionSummaryData({
+    sessionId: session && !draft ? session.id : "",
+    items,
+    checkpoints,
+    live: streaming,
+  });
   // The composer tray: where this work is, what runs under it, and — one at a
   // time, in the tray's panel — the permission or question the agent is
   // waiting on. They used to stack above the composer as separate cards.
@@ -586,12 +594,10 @@ export function AgentHubContent({
               >
                 <SessionSummaryCard
                   sessionId={session.id}
-                  items={items}
                   checkpoints={checkpoints}
                   usage={usage}
                   turnCount={turnCount}
-                  live={streaming}
-                  onOpenFile={onOpenFile}
+                  data={summary}
                 />
               </div>
               <div
@@ -600,12 +606,10 @@ export function AgentHubContent({
               >
                 <SessionSummaryButton
                   sessionId={session.id}
-                  items={items}
                   checkpoints={checkpoints}
                   usage={usage}
                   turnCount={turnCount}
-                  live={streaming}
-                  onOpenFile={onOpenFile}
+                  data={summary}
                 />
               </div>
             </>

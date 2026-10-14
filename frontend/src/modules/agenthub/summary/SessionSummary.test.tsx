@@ -4,8 +4,29 @@ import { renderToString } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
-import type { TranscriptItem } from "../types";
-import { SessionSummaryBody, SessionSummaryButton, SessionSummaryCard } from "./SessionSummary";
+import type { TranscriptItem, Usage } from "../types";
+import {
+  SessionSummaryBody as Body,
+  SessionSummaryButton as Button,
+  SessionSummaryCard as Card,
+  documentAttachmentCount,
+  summarySubagents,
+  useSessionSummaryData,
+  type SessionSummaryInput,
+} from "./SessionSummary";
+
+type Props = SessionSummaryInput & { usage: Usage | null; turnCount: number };
+
+// The view takes the derived data; these derive it the way AgentHubContent does.
+function SessionSummaryBody(props: Props) {
+  return <Body {...props} data={useSessionSummaryData(props)} />;
+}
+function SessionSummaryCard(props: Props) {
+  return <Card {...props} data={useSessionSummaryData(props)} />;
+}
+function SessionSummaryButton(props: Props) {
+  return <Button {...props} data={useSessionSummaryData(props)} />;
+}
 
 function render(node: React.ReactNode, documents?: { id: string; name: string; pages: number; size: number }[]) {
   const client = new QueryClient();
@@ -102,6 +123,55 @@ describe("SessionSummaryBody", () => {
 
   test("nothing at all renders nothing", () => {
     expect(render(<SessionSummaryBody {...base} />)).toBe("");
+  });
+
+  test("a long plan's visible rows include the step in progress", () => {
+    const plan = Array.from({ length: 8 }, (_, i) => ({
+      content: `Step ${i}`,
+      status: i < 6 ? "completed" : i === 6 ? "in_progress" : "pending",
+    }));
+    const html = render(<SessionSummaryBody {...base} items={[{ id: "p", kind: "plan", plan } as TranscriptItem]} />);
+    expect(html.match(/data-testid="summary-plan-row"/g)?.length).toBe(5);
+    expect(html).toContain('data-state="in_progress"');
+    expect(html).toContain("See all (8)");
+  });
+
+  test("a binary change is not a button: it has no diff to open", () => {
+    const index = new Map([
+      [
+        "p1",
+        {
+          id: "c1",
+          createdAt: "2026-10-13T10:00:00Z",
+          status: "done",
+          changed: [{ path: "logo.png", kind: "modified", added: 0, removed: 0, binary: true, source: "agent" }],
+        },
+      ],
+    ]) as never;
+    const html = render(<SessionSummaryBody {...base} checkpoints={index} />);
+    expect(html).toContain('<div data-testid="summary-change-row"');
+    expect(html).toContain("binary");
+  });
+
+  test("finished subagents are listed after the running ones", () => {
+    const tracked = [{ id: "a", name: "Done one", state: "completed" }, { id: "b", name: "Running one" }];
+    const subagents = summarySubagents([], tracked, false);
+    expect(subagents.map((a) => a.id)).toEqual(["b", "a"]);
+    const data = { plan: [], changes: [], tools: [], links: [], docs: [], subagents };
+    const html = render(<Body {...base} data={data} />);
+    expect(html).toContain('data-testid="summary-subagents"');
+    expect(html.indexOf("Running one")).toBeLessThan(html.indexOf("Done one"));
+  });
+});
+
+describe("documentAttachmentCount", () => {
+  test("counts the PDFs attached to the session's own prompts", () => {
+    const items = [
+      { id: "1", kind: "user_message_chunk", attachments: [{ name: "a.pdf", kind: "document" }, { name: "b.png", kind: "image" }] },
+      { id: "2", kind: "user_message_chunk", attachments: [{ name: "c.pdf", kind: "document" }] },
+      { id: "3", kind: "agent_message_chunk" },
+    ] as TranscriptItem[];
+    expect(documentAttachmentCount(items)).toBe(2);
   });
 });
 
