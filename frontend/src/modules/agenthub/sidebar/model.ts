@@ -212,11 +212,17 @@ export function needsYou(sessions: readonly AgentSession[], attention: Record<st
 
 /**
  * An ask as plain words for a one-line row: no code ticks, no bold or
- * underscore emphasis, whitespace folded. `Run \`rm -rf build\`?` reads
+ * underscore emphasis wrapping words (never inside a path), whitespace folded. `Run \`rm -rf build\`?` reads
  * `Run rm -rf build?`.
  */
 export function plainAsk(text: string): string {
-  return text.replace(/`/g, "").replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim();
+  // Emphasis is stripped only where it wraps a run of words at boundaries; a
+  // `**` or `__` inside a path, glob or identifier is part of the name.
+  return text
+    .replace(/`/g, "")
+    .replace(/(^|\s)(\*\*|__)(?=\S)(.+?)(?<=\S)\2(?=\s|[.,;:!?)]|$)/g, "$1$3")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** The first thing each session asks: a permission's title wins over a question's message. */

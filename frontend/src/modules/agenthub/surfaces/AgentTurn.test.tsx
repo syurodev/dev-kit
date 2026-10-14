@@ -309,4 +309,16 @@ describe("the plan card when the summary is docked", () => {
     expect(html).not.toContain("turn-plan-docked");
     expect(html).not.toMatch(/data-testid="agent-plan"[^>]*@6xl\/agent-conversation:hidden/);
   });
+
+  it("a latest plan with no entries keeps the normal card and draws no docked line", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "go", createdAt: "2026-09-14T10:00:00Z" },
+      { id: "p", kind: "plan", plan: [] },
+      { id: "a", kind: "agent_message_chunk", text: "Done." },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} latestPlan />);
+    expect(html).not.toContain("turn-plan-docked");
+    expect(html).toContain('data-testid="agent-plan"');
+    expect(html).not.toMatch(/data-testid="agent-plan"[^>]*@6xl\/agent-conversation:hidden/);
+  });
 });

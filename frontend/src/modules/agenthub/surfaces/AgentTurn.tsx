@@ -222,7 +222,8 @@ export const AgentTurn = React.memo(function AgentTurn({
             }
             if (segment.kind === "plan") {
               const entries = segment.item.plan ?? [];
-              if (!latestPlan) return <AgentPlan key={segment.item.id} entries={entries} />;
+              // An empty plan has nothing to say in the summary: keep its card.
+              if (!latestPlan || entries.length === 0) return <AgentPlan key={segment.item.id} entries={entries} />;
               const done = entries.filter((e) => e.status === "completed").length;
               return (
                 <React.Fragment key={segment.item.id}>
@@ -231,7 +232,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                     data-testid="turn-plan-docked"
                     className="hidden w-full items-center gap-2 text-caption-11 text-text-tertiary @6xl/agent-conversation:flex"
                   >
-                    {entries.length > 0 ? `Plan · ${done} of ${entries.length} — in the summary` : "Plan — in the summary"}
+                    {`Plan · ${done} of ${entries.length} — in the summary`}
                   </p>
                 </React.Fragment>
               );

@@ -481,6 +481,14 @@ describe("plainAsk", () => {
     expect(plainAsk("  plain  ")).toBe("plain");
   });
 
+  it("leaves emphasis markers inside paths, globs and identifiers alone", () => {
+    expect(plainAsk("Edit src/__init__.py")).toBe("Edit src/__init__.py");
+    expect(plainAsk("rm -rf **/node_modules")).toBe("rm -rf **/node_modules");
+    expect(plainAsk("src/**/*.ts")).toBe("src/**/*.ts");
+    expect(plainAsk("**Allow** this?")).toBe("Allow this?");
+    expect(plainAsk("Run __this__, now")).toBe("Run this, now");
+  });
+
   it("is applied where asks are built", () => {
     expect(askBySession([{ sessionId: "a", title: "Run `rm -rf build`?" }], [])).toEqual({ a: "Run rm -rf build?" });
     expect(askBySession([], [{ sessionId: "a", message: "Use **npm** or `bun`?" }])).toEqual({ a: "Use npm or bun?" });
