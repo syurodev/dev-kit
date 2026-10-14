@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -21,9 +21,17 @@ export function agentPanelAllowed(activeModuleId: string | null | undefined): bo
  * Code-split via React.lazy so Agent Hub surfaces and leaves do not inflate
  * the initial shell JS budget.
  *
- * Never inside Agent Hub: there every session is a tab of the module itself,
- * and a second copy of the conversation took the column the module's own
- * panels (a diff, a file the agent changed, a query result) need. `chatOpen`
+ * Kept alive once opened: closing the pane hides the conversation rather than
+ * unmounting it, so reopening is instant and finds the transcript where it was
+ * scrolled and the composer as it was left (its attachments are component
+ * state). Hidden, it is `visible={false}`: it reads the transcript the store
+ * holds without subscribing to it, fetches nothing and raises no follow toasts.
+ * Not mounted at all until it is first opened, so a session that never opens
+ * it never loads the chunk.
+ *
+ * Never shown inside Agent Hub: there every session is a tab of the module
+ * itself, and a second copy of the conversation took the column the module's
+ * own panels (a diff, a file the agent changed, a query result) need. `chatOpen`
  * is left as the person set it, so the panel is back when they leave.
  */
 export function AgentCompanionSlot() {
@@ -31,20 +39,22 @@ export function AgentCompanionSlot() {
   const inAgentHub = useWorkbenchTabsStore((s) => !agentPanelAllowed(s.activeModuleId));
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
   const { openCompanion, closeCompanion } = useSplitPanel();
+  const shown = chatOpen && !inAgentHub;
+  const [mounted, setMounted] = useState(shown);
+  if (shown && !mounted) setMounted(true);
 
   useEffect(() => {
-    if (!chatOpen || inAgentHub) {
-      closeCompanion();
-      return;
-    }
+    if (!mounted) return;
     openCompanion(
       <Suspense fallback={null}>
-        <LazyAgentCompanion visible={chatOpen} />
+        <LazyAgentCompanion visible={shown} />
       </Suspense>,
-      { onClose: () => setChatOpen(false) },
+      { onClose: () => setChatOpen(false), hidden: !shown },
     );
-    return () => closeCompanion();
-  }, [chatOpen, inAgentHub, openCompanion, closeCompanion, setChatOpen]);
+  }, [mounted, shown, openCompanion, setChatOpen]);
+
+  // Only on the way out of the shell: a toggle re-pushes, it never clears.
+  useEffect(() => () => closeCompanion(), [closeCompanion]);
 
   return null;
 }

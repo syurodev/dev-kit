@@ -54,6 +54,7 @@ import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
 import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
 import { useRetainedRecord, useRetainedWhileClosing } from "@/workbench/slots/retain";
+import { moveHost } from "@/workbench/slots/hostMove";
 import "@/workbench/slots/slots.css";
 
 const MIN_COLUMN_WIDTH = 320;
@@ -72,6 +73,8 @@ type SlotsCtx = {
   terminalHasModule: boolean;
   resolved: ReturnType<typeof resolve>;
   close: (pane: PaneId) => void;
+  /** A slot card lets go of a pane's host: detached, or parked if the pane is kept alive. */
+  release: (pane: PaneId, host: HTMLDivElement, body: HTMLElement) => void;
   moveTo: (pane: PaneId, slot: SlotId) => void;
   targets: (pane: PaneId) => ReturnType<typeof menuTargets>;
   beginDrag: (pane: PaneId, e: PointerEvent, card: HTMLElement, origin: HTMLElement) => void;
@@ -145,7 +148,8 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     [agentSlot, terminalSlot, contextByModule, visibleModules],
   );
   const open = React.useMemo(() => {
-    const o: OpenPanes = { agent: companion !== null, terminal: bottomOpen };
+    // A hidden companion is still mounted (AgentCompanionSlot), but not open.
+    const o: OpenPanes = { agent: companion !== null && !companion.hidden, terminal: bottomOpen };
     for (const m of visibleModules) o[contextPane(m)] = m in panels;
     return o;
   }, [panels, companion, bottomOpen, visibleModules]);
@@ -186,6 +190,8 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // companion) pushed, so a re-render of this row is not a change.
   const liveBodies = React.useMemo(() => {
     const out: Record<PaneId, React.ReactNode> = {};
+    // Mounted while hidden too: closing the Agent pane keeps the conversation,
+    // its scroll and its composer, and reopening it is instant.
     if (companion) out.agent = <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div>;
     if (terminalAlive) out.terminal = terminalBody;
     for (const m of visibleModules) {
@@ -211,6 +217,26 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     if (widths.b !== undefined) setWidthB(widths.b);
     wasOpen.current = new Set(visibleModules.filter((m) => m in panels));
   }, [panels, visibleModules, resolved, setWidthA, setWidthB]);
+
+  // Where a kept-alive pane's host waits while its pane is closed: in the
+  // document, at the size it had, out of sight and out of reach. Detached, its
+  // scroll boxes would be lost; display:none would do the same.
+  const parkRef = React.useRef<HTMLDivElement>(null);
+  const release = React.useCallback((pane: PaneId, host: HTMLDivElement, body: HTMLElement) => {
+    const park = parkRef.current;
+    if (pane === "agent" && park) {
+      const r = body.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        park.style.width = `${r.width}px`;
+        park.style.height = `${r.height}px`;
+      }
+      moveHost(park, host);
+      return;
+    }
+    // Only if it is still ours: when two panes swap, the other slot may
+    // already have adopted it.
+    if (host.parentNode === body) body.removeChild(host);
+  }, []);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
   const docRef = React.useRef<HTMLDivElement | null>(null);
@@ -289,11 +315,12 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       terminalHasModule: moduleContent != null,
       resolved,
       close,
+      release,
       moveTo,
       targets,
       beginDrag,
     }),
-    [hostFor, pressure, titles, focusedPane, moduleContent, resolved, close, moveTo, targets, beginDrag],
+    [hostFor, pressure, titles, focusedPane, moduleContent, resolved, close, release, moveTo, targets, beginDrag],
   );
 
   return (
@@ -320,6 +347,14 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       </LazyMotion>
 
       {Object.entries(bodies).map(([pane, body]) => createPortal(body, hostFor(pane), pane))}
+
+      <div
+        ref={parkRef}
+        data-pane-park
+        aria-hidden
+        inert
+        className="pointer-events-none invisible fixed top-0 left-full flex flex-col contain-strict"
+      />
 
       {createPortal(
         <div ref={hintRef} data-show="false" className="pane-drop-hint" aria-hidden>
@@ -615,7 +650,7 @@ function SlotCard({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const { hostFor } = useSlots();
+  const { hostFor, release } = useSlots();
   const fade = React.useContext(PanelFade);
   const originRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLDivElement | null>(null);
@@ -625,13 +660,11 @@ function SlotCard({
     const body = bodyRef.current;
     const host = hostFor(pane);
     if (!body) return;
-    body.appendChild(host);
-    return () => {
-      // Only if it is still ours: when two panes swap, the other slot may
-      // already have adopted it.
-      if (host.parentNode === body) body.removeChild(host);
-    };
-  }, [hostFor, pane]);
+    // Moved, not just appended: a pane coming back from the park, or from
+    // another slot, keeps where it was scrolled to (slots/hostMove.ts).
+    moveHost(body, host);
+    return () => release(pane, host, body);
+  }, [hostFor, release, pane]);
 
   const setCard = React.useCallback((el: HTMLDivElement | null) => {
     cardRef.current = el;

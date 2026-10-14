@@ -5,6 +5,11 @@ type PanelState = {
   content: React.ReactNode;
   width: number;
   onClose: () => void;
+  /**
+   * Mounted but not shown: the companion keeps its conversation alive while
+   * its pane is closed (AgentCompanionSlot). Module panels never set it.
+   */
+  hidden?: boolean;
 };
 
 /** A caller outside any module's subtree (the dev harness, the shell itself). */
@@ -16,7 +21,7 @@ type SplitPanelStore = {
   openPanelFor: (owner: string, content: React.ReactNode, opts: { width?: number; onClose: () => void }) => void;
   closePanelFor: (owner: string) => void;
   companion: PanelState | null;
-  openCompanion: (content: React.ReactNode, opts: { onClose: () => void }) => void;
+  openCompanion: (content: React.ReactNode, opts: { onClose: () => void; hidden?: boolean }) => void;
   closeCompanion: () => void;
 };
 
@@ -64,10 +69,10 @@ export function SplitPanelProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const openCompanion = React.useCallback(
-    (content: React.ReactNode, opts: { onClose: () => void }) => {
+    (content: React.ReactNode, opts: { onClose: () => void; hidden?: boolean }) => {
       // No width of its own: it shares the column, and letting it request one
       // would mean the column jumped every time the companion opened.
-      setCompanion({ content, width: 0, onClose: opts.onClose });
+      setCompanion({ content, width: 0, onClose: opts.onClose, hidden: opts.hidden ?? false });
     },
     [],
   );
