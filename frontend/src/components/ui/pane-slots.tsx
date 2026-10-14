@@ -53,7 +53,12 @@ import { useBottomContentStore } from "@/stores/bottomContent";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
 import { panelCloseMs, panelContentFade, panelTransition, usePanelMotionReport } from "@/lib/panelMotion";
-import { useRetainedRecord, useRetainedWhileClosing, useStillLeaving } from "@/workbench/slots/retain";
+import {
+  useResting,
+  useRetainedRecord,
+  useRetainedWhileClosing,
+  useStillLeaving,
+} from "@/workbench/slots/retain";
 import { dismissOwnedLayers } from "@/workbench/slots/ownedLayers";
 import { moveHost } from "@/workbench/slots/hostMove";
 import "@/workbench/slots/slots.css";
@@ -74,6 +79,8 @@ type SlotsCtx = {
   terminalHasModule: boolean;
   resolved: ReturnType<typeof resolve>;
   close: (pane: PaneId) => void;
+  /** Panes kept alive while hidden (the Agent companion): a closed slot goes on holding them. */
+  resting: ReadonlySet<PaneId>;
   /** A slot card lets go of a pane's host: detached, or parked if the pane is kept alive. */
   release: (pane: PaneId, host: HTMLDivElement, body: HTMLElement) => void;
   moveTo: (pane: PaneId, slot: SlotId) => void;
@@ -219,9 +226,14 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     wasOpen.current = new Set(visibleModules.filter((m) => m in panels));
   }, [panels, visibleModules, resolved, setWidthA, setWidthB]);
 
-  // Where a kept-alive pane's host waits while its pane is closed: in the
-  // document, at the size it had, out of sight and out of reach. Detached, its
-  // scroll boxes would be lost; display:none would do the same.
+  // A hidden companion stays in the card it was in (retain.restingStep):
+  // moving it costs WebKit a rebuild of the whole conversation. Only when
+  // another pane takes its slot, or it is shown somewhere else, does its host
+  // go to the park: in the document, at the size it had, out of sight and out
+  // of reach. Detached, its scroll boxes would be lost; display:none would do
+  // the same.
+  const companionHidden = companion?.hidden ?? false;
+  const resting = React.useMemo<ReadonlySet<PaneId>>(() => new Set(companionHidden ? ["agent"] : []), [companionHidden]);
   const parkRef = React.useRef<HTMLDivElement>(null);
   const release = React.useCallback((pane: PaneId, host: HTMLDivElement, body: HTMLElement) => {
     // Only if it is still ours: when two panes swap, the other slot may
@@ -245,10 +257,13 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // A menu, popover or select the conversation opened is portalled to the
   // body and would outlive the pane closing around it — a modal one with the
   // whole app's pointer events off. Closed the way the person would: Escape,
-  // while the topmost open layer is one the companion owns.
-  const companionHidden = companion?.hidden ?? false;
+  // while the topmost open layer is one the companion owns. Focus cannot stay
+  // in the inert box it now rests in either.
   React.useEffect(() => {
-    if (companionHidden) dismissOwnedLayers(hostFor("agent"), document);
+    if (!companionHidden) return;
+    const host = hostFor("agent");
+    if (host.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur();
+    dismissOwnedLayers(host, document);
   }, [companionHidden, hostFor]);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -288,6 +303,9 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
         measure: () => {
           const cards: Geometry["cards"] = {};
           for (const el of row.querySelectorAll<HTMLElement>("[data-slot-card]")) {
+            // A card in a closed slot (a resting companion, a pane on its way
+            // out) is clipped away, but its box is still there under the open ones.
+            if (el.closest("[inert]")) continue;
             cards[el.dataset.slotCard as SlotId] = rectOf(el);
           }
           const columns: Geometry["columns"] = {};
@@ -324,6 +342,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       hostFor,
       pressure,
       titles,
+      resting,
       focusedPane,
       terminalHasModule: moduleContent != null,
       resolved,
@@ -333,7 +352,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       targets,
       beginDrag,
     }),
-    [hostFor, pressure, titles, focusedPane, moduleContent, resolved, close, release, moveTo, targets, beginDrag],
+    [hostFor, pressure, titles, resting, focusedPane, moduleContent, resolved, close, release, moveTo, targets, beginDrag],
   );
 
   return (
@@ -399,7 +418,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
 
 /** The bottom row, under the document. Height is useBottomSlotStore's. */
 function BottomRow({ pane }: { pane: PaneId | null }) {
-  const { resolved } = useSlots();
+  const { resolved, resting } = useSlots();
   const height = useBottomSlotStore((s) => s.height);
   const setHeight = useBottomSlotStore((s) => s.setHeight);
   const windowHeight = useWindowHeight();
@@ -431,10 +450,11 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
   const fade = React.useMemo(() => ({ open, instant: motion.instant }), [open, motion.instant]);
 
   // While it closes, what it showed — unless that pane is on screen elsewhere
-  // now (moved to a column), where it already is.
+  // now (moved to a column), where it already is — and after, a hidden
+  // companion it held, for as long as it is hidden (retain.restingStep).
   const kept = useRetainedWhileClosing(pane, panelCloseMs(reduceMotion));
   const leaving = useStillLeaving(pane === null && kept !== null ? { pane: kept } : null, Object.values(resolved));
-  const shown = pane ?? leaving?.pane ?? null;
+  const shown = useResting({ pane: pane ?? leaving?.pane ?? null }, resting, Object.values(resolved)).drawn.pane ?? null;
 
   return (
     <PanelFade.Provider value={fade}>
@@ -476,7 +496,7 @@ type ColumnPanes = { top: PaneId | null; bottom: PaneId | null; bTop: PaneId | n
  * pane takes the full height, two share it at a draggable split.
  */
 function SlotColumn({ column }: { column: ColumnId }) {
-  const { resolved, pressure } = useSlots();
+  const { resolved, pressure, resting } = useSlots();
   const top = resolved[`${column}.top`] ?? null;
   const bottom = resolved[`${column}.bottom`] ?? null;
   // Under pressure the second column stacks into the first rather than take a
@@ -543,21 +563,26 @@ function SlotColumn({ column }: { column: ColumnId }) {
   if (open && drawn !== lastDrawn) setLastDrawn(drawn);
 
   // While it closes, the panes it last showed — less any now drawn elsewhere
-  // (moved to another slot, or stacked into column A), which are already there.
+  // (moved to another slot, or stacked into column A), which are already
+  // there — and a hidden companion it held, for as long as it is hidden
+  // (retain.restingStep). Beside another pane here that one is stowed: out
+  // of the flow and invisible, its card and host where they were
+  // (retain.stowStep).
   const live = React.useMemo<ColumnPanes | null>(
     () => (open ? { top, bottom, bTop, bBottom } : null),
     [open, top, bottom, bTop, bBottom],
   );
   const kept = useRetainedWhileClosing(live, panelCloseMs(reduceMotion));
   const leaving = useStillLeaving(live === null ? kept : null, Object.values(resolved));
-  const shown: ColumnPanes | null = live ?? leaving;
-  const extras: [SlotId, PaneId][] = shown
-    ? ([["b.top", shown.bTop], ["b.bottom", shown.bBottom]] as [SlotId, PaneId | null][]).filter(
-        (e): e is [SlotId, PaneId] => e[1] !== null,
-      )
-    : [];
-  const shownTop = shown?.top ?? null;
-  const shownBottom = shown?.bottom ?? null;
+  const { drawn: shown, stowed: stowedKeys } = useResting<keyof ColumnPanes>(live ?? leaving, resting, Object.values(resolved));
+  const stowed = (key: keyof ColumnPanes) => stowedKeys.has(key);
+  const extras = (
+    [["b.top", shown.bTop ?? null, stowed("bTop")], ["b.bottom", shown.bBottom ?? null, stowed("bBottom")]] as [SlotId, PaneId | null, boolean][]
+  ).filter((e): e is [SlotId, PaneId, boolean] => e[1] !== null);
+  const shownTop = shown.top ?? null;
+  const shownBottom = shown.bottom ?? null;
+  const topInFlow = shownTop !== null && !stowed("top");
+  const bottomInFlow = shownBottom !== null && !stowed("bottom");
 
   // Measured, not derived: the column's height is the row's, and re-deriving
   // that here would drift the moment the title bar or gutter changes.
@@ -572,8 +597,8 @@ function SlotColumn({ column }: { column: ColumnId }) {
     return () => observer.disconnect();
   }, []);
 
-  const both = shownTop !== null && shownBottom !== null;
-  const sizes = splitColumn({ columnHeight, topOpen: shownTop !== null, bottomOpen: shownBottom !== null, topHeight });
+  const both = topInFlow && bottomInFlow;
+  const sizes = splitColumn({ columnHeight, topOpen: topInFlow, bottomOpen: bottomInFlow, topHeight });
   // sign +1: the handle sits under the top slot, so dragging down grows it.
   const split = useResizableSize({
     size: topHeight,
@@ -612,22 +637,28 @@ function SlotColumn({ column }: { column: ColumnId }) {
             // The sash's place, so the closing content does not shift into it.
             <div aria-hidden className="shrink-0" style={{ width: GAP_WIDTH }} />
           )}
-          <div ref={columnRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* relative: a stowed card fills exactly this box. */}
+          <div ref={columnRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {extras.length > 0 ? (
               // Stacked: every pane an equal share, no split to drag — this is a
               // temporary arrangement that the window's width will undo.
               <div className="flex min-h-0 flex-1 flex-col" style={{ gap: GAP_WIDTH }}>
-                {([...(shownTop ? [[`${column}.top`, shownTop]] : []), ...(shownBottom ? [[`${column}.bottom`, shownBottom]] : []), ...extras] as [SlotId, PaneId][]).map(
-                  ([slot, pane]) => (
-                    <SlotCard key={slot} slot={slot} pane={pane} className="flex-1" />
-                  ),
-                )}
+                {(
+                  [
+                    ...(shownTop ? [[`${column}.top`, shownTop, stowed("top")]] : []),
+                    ...(shownBottom ? [[`${column}.bottom`, shownBottom, stowed("bottom")]] : []),
+                    ...extras,
+                  ] as [SlotId, PaneId, boolean][]
+                ).map(([slot, pane, away]) => (
+                  <SlotCard key={slot} slot={slot} pane={pane} stowed={away} className="flex-1" />
+                ))}
               </div>
             ) : null}
             {extras.length === 0 && shownTop ? (
               <SlotCard
                 slot={`${column}.top`}
                 pane={shownTop}
+                stowed={stowed("top")}
                 className={both ? "shrink-0" : "flex-1"}
                 style={both ? { height: sizes.top } : undefined}
               />
@@ -645,6 +676,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
               <SlotCard
                 slot={`${column}.bottom`}
                 pane={shownBottom}
+                stowed={stowed("bottom")}
                 className={both ? "shrink-0" : "flex-1"}
                 style={both ? { height: sizes.bottom } : undefined}
               />
@@ -663,11 +695,18 @@ function SlotColumn({ column }: { column: ColumnId }) {
 function SlotCard({
   slot,
   pane,
+  stowed = false,
   className,
   style,
 }: {
   slot: SlotId;
   pane: PaneId;
+  /**
+   * A hidden companion resting beside a pane still open in its column: out
+   * of the flow, invisible and inert, at the column's size. Not unmounted —
+   * its host stays put (retain.restingStep).
+   */
+  stowed?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }) {
@@ -693,7 +732,13 @@ function SlotCard({
   }, []);
 
   return (
-    <div ref={originRef} data-slot-card={slot} className={cn("pane-slot relative flex min-h-0 min-w-0 flex-col", className)} style={style}>
+    <div
+      ref={originRef}
+      data-slot-card={slot}
+      inert={stowed}
+      className={cn("pane-slot flex min-h-0 min-w-0 flex-col", stowed ? "invisible absolute inset-0" : cn("relative", className))}
+      style={stowed ? undefined : style}
+    >
       <div ref={setCard} className="isolate relative flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
         <PaneHeader pane={pane} cardRef={cardRef} originRef={originRef} />
         <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col" />

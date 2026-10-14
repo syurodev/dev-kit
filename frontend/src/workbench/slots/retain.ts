@@ -112,7 +112,74 @@ export function stillLeaving<K extends string>(
 }
 
 /**
- * stillLeaving for one closing container: `closing` is what it kept (null
+ * Per slot of a container, the pane resting there: one kept alive while
+ * hidden (`alive`: the Agent companion) that this container drew at that
+ * slot last time (`drawn`), that nothing has taken the slot from (`live`)
+ * and that is not on screen anywhere (`onScreen`). Once let go it is gone:
+ * the next step's `drawn` no longer has it.
+ *
+ * Its card stays where it was — in a closed container the way a closed
+ * sidebar keeps its rail, stowed beside a pane still open in the same column
+ * — so its host never moves to the park and back. A move re-parents the whole
+ * conversation, which an engine without `moveBefore` (WebKit) tears down and
+ * rebuilds: measured on WebKitGTK, 70-90 ms on the first frame of every open
+ * and again at the end of every close (smoothness §3.8).
+ */
+export function restingStep<K extends string>(
+  drawn: Partial<Record<K, string | null>>,
+  live: Partial<Record<K, string | null>>,
+  alive: ReadonlySet<string>,
+  onScreen: ReadonlySet<string>,
+): Partial<Record<K, string>> {
+  const out: Partial<Record<K, string>> = {};
+  for (const key of Object.keys(drawn) as K[]) {
+    const pane = drawn[key];
+    if (pane && alive.has(pane) && !onScreen.has(pane) && !live[key]) out[key] = pane;
+  }
+  return out;
+}
+
+/**
+ * Which resting slots are stowed — out of the flow, invisible, at the
+ * container's size — rather than laid out where they were. A resting pane
+ * alone in its container stays in the flow: the container is closed and
+ * clips it, and leaving it untouched costs nothing. Beside a pane drawn in
+ * the same container (open, or still closing) it is stowed so that one gets
+ * the whole column; and once stowed it stays so while it rests, so it never
+ * drops back into the bottom half of a column that is closing.
+ */
+export function stowStep<K extends string>(prev: ReadonlySet<K>, rest: ReadonlySet<K>, others: ReadonlySet<K>): Set<K> {
+  const out = new Set<K>();
+  for (const key of rest) if (others.size > 0 || prev.has(key)) out.add(key);
+  return out;
+}
+
+/**
+ * `shown` (what a container shows open or while closing) plus the panes
+ * resting in it (restingStep), and which of those are stowed (stowStep).
+ */
+export function useResting<K extends string>(
+  shown: Record<K, string | null> | null,
+  alive: ReadonlySet<string>,
+  onScreen: readonly (string | undefined)[],
+): { drawn: Partial<Record<K, string | null>>; stowed: ReadonlySet<K> } {
+  // Derived during render, like useStillLeaving: idempotent per input, so a
+  // StrictMode double render agrees.
+  const drawn = React.useRef<Partial<Record<K, string | null>>>({});
+  const stowed = React.useRef<ReadonlySet<K>>(new Set());
+  const live: Partial<Record<K, string | null>> = shown ?? {};
+  const resting = restingStep(drawn.current, live, alive, new Set(onScreen.filter((p): p is string => p !== undefined)));
+  const next: Partial<Record<K, string | null>> = { ...resting };
+  for (const key of Object.keys(live) as K[]) if (live[key]) next[key] = live[key];
+  drawn.current = next;
+  const rest = new Set(Object.keys(resting) as K[]);
+  const others = new Set((Object.keys(live) as K[]).filter((key) => live[key]));
+  stowed.current = stowStep(stowed.current, rest, others);
+  return { drawn: next, stowed: stowed.current };
+}
+
+/**
+ * stillLeaving for one closing container:`closing` is what it kept (null
  * while it is open, which also starts the next close afresh), `onScreen` the
  * panes drawn anywhere right now.
  */
