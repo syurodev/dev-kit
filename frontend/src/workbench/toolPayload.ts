@@ -62,6 +62,13 @@ export type ToolPayload = { payload: unknown } | { error: string };
 
 const CODEX_SERVER_PREFIX = "devkit.";
 const CLAUDE_WIRE_PREFIX = "mcp__devkit__";
+/**
+ * What a stored row's rawOutput becomes once its page images are dropped
+ * (internal/agenthub/transcript_slim.go: pageImageMarker — keep in step). It
+ * says what is gone, not what the tool answered: the answer is in `content`.
+ */
+const PAGE_IMAGE_MARKER =
+  "page images are not kept in the transcript: DevKit keeps the document and can draw the pages again";
 const FENCE = /^```[a-z]*\n([\s\S]*?)\n```$/;
 /** internal/mcp's AppError text: "<code>: <message>", code like `query_failed` or `pdf.notFound`. */
 const APP_ERROR = /^[A-Za-z_.]+:/;
@@ -216,7 +223,7 @@ export function toolPayloadOf(call: ToolCallLike): ToolPayload | null {
   const read: TextRead = { isError, devkit, mayBeCut: Boolean(call.truncated) };
   const content = call.content ?? [];
   const text = textOf(content.filter((item) => item.type === "content").map((item) => item.content));
-  if (call.rawOutput !== undefined && call.rawOutput !== null) {
+  if (call.rawOutput !== undefined && call.rawOutput !== null && call.rawOutput !== PAGE_IMAGE_MARKER) {
     const fromRaw = fromRawOutput(call.rawOutput, read);
     // A cut rawOutput beside whole content text (a vendor that sends both):
     // the text answers.

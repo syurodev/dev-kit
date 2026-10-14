@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { toolNameOf, toolPayloadOf, toolResultInputOf } from "./toolPayload";
 import { parseToolOutput, registerToolResultView, renderToolResult } from "./toolResultViews";
 
@@ -287,4 +289,31 @@ test("parseToolOutput passes a payload through: already parsed, already unwrappe
     "Document doc1",
   );
   expect(parseToolOutput("Document doc1")).toBeNull();
+});
+
+test("a stored row whose page images were slimmed reads its content, not the marker", () => {
+  // internal/agenthub/transcript_slim.go: pageImageMarker replaces a large
+  // rawOutput holding images (claude-agent-acp 0.78 sends rawOutput too).
+  const marker = "page images are not kept in the transcript: DevKit keeps the document and can draw the pages again";
+  const call = {
+    name: "mcp__devkit__pdf_viewPages",
+    status: "completed",
+    truncated: true,
+    rawOutput: marker,
+    content: [
+      ...claudeText("Document doc1\n[]"),
+      { type: "content", truncated: true, content: { type: "image", mimeType: "image/png", data: "" } },
+    ],
+  };
+  expect(toolPayloadOf(call)).toEqual({ payload: "Document doc1\n[]" });
+  expect(toolResultInputOf(call)?.rawOutput).toBe("Document doc1\n[]");
+  // With nothing else to read there is nothing to draw — never the marker.
+  expect(toolPayloadOf({ ...call, content: [] })).toBeNull();
+});
+
+test("the page-image marker is the one Go writes", () => {
+  const source = readFileSync(join(import.meta.dir, "../../../internal/agenthub/transcript_slim.go"), "utf8");
+  expect(source).toContain(
+    'const pageImageMarker = "page images are not kept in the transcript: DevKit keeps the document and can draw the pages again"',
+  );
 });
