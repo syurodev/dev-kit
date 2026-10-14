@@ -218,6 +218,63 @@ describe("names that collide", () => {
   });
 });
 
+describe("tables belong to the connection that read them", () => {
+  const staging = { profileId: "p-staging" };
+  const prod = { profileId: "p-prod" };
+  const fk = (schema: string, table: string) => ({
+    result: [{ schema, table, column: "x", referenced_schema: schema, referenced_table: table, referenced_column: "id" }],
+  });
+
+  test("a table carries the profile its call named, from either vendor", () => {
+    for (const make of [claude, codex]) {
+      const entities = sessionEntities([make("s", "db.schema.get", schema, staging)]);
+      expect(entityOf(entities, "public.users")).toMatchObject({ kind: "table", id: "public.users", profileId: "p-staging" });
+      expect(entityOf(entities, "users")).toMatchObject({ profileId: "p-staging" });
+    }
+    const keys = sessionEntities([claude("fk", "db.listForeignKeys", fk("sales", "lines"), prod)]);
+    expect(entityOf(keys, "sales.lines")).toMatchObject({ profileId: "p-prod" });
+  });
+
+  test("the same table under two profiles is neither, qualified or bare", () => {
+    const entities = sessionEntities([
+      claude("a", "db.schema.get", { namespace: { public: { users: ["id"], audit: ["id"] } } }, staging),
+      codex("b", "db.listForeignKeys", fk("public", "users"), prod),
+    ]);
+    expect(entityOf(entities, "public.users")).toBeNull();
+    expect(entityOf(entities, "users")).toBeNull();
+    // Only one profile has it: it opens there.
+    expect(entityOf(entities, "public.audit")).toMatchObject({ profileId: "p-staging" });
+    expect(entityOf(entities, "audit")).toMatchObject({ profileId: "p-staging" });
+  });
+
+  test("the same table read twice on one profile is still that table", () => {
+    const entities = sessionEntities([
+      claude("a", "db.schema.get", { namespace: { public: { users: ["id"] } } }, staging),
+      claude("b", "db.listForeignKeys", fk("public", "users"), staging),
+    ]);
+    expect(entityOf(entities, "public.users")).toMatchObject({ profileId: "p-staging" });
+    expect(entityOf(entities, "users")).toMatchObject({ profileId: "p-staging" });
+  });
+
+  test("a profile's name comes from the session's own db.listProfiles answer", () => {
+    const entities = sessionEntities([
+      codex("l", "db.listProfiles", { result: [{ id: "p-staging", name: "Staging" }, { id: "p-prod", name: "Prod" }] }),
+      claude("s", "db.schema.get", { namespace: { public: { users: ["id"] } } }, staging),
+    ]);
+    expect(entityOf(entities, "users")).toMatchObject({ profileId: "p-staging", profileName: "Staging" });
+    // Without a list, no name: nothing is fetched to find one.
+    const unnamed = sessionEntities([claude("s", "db.schema.get", { namespace: { public: { users: ["id"] } } }, staging)]);
+    expect(entityOf(unnamed, "users")).not.toHaveProperty("profileName");
+  });
+
+  test("the same names on another profile are a new answer", () => {
+    const first = sessionEntities([claude("s", "db.schema.get", schema, staging)]);
+    const moved = sessionEntities([claude("s", "db.schema.get", schema, prod)], first);
+    expect(moved).not.toBe(first);
+    expect(entityOf(moved, "public.users")).toMatchObject({ profileId: "p-prod" });
+  });
+});
+
 describe("tableId", () => {
   test("schema.table, the schema quoted when it holds a dot or starts with a quote", () => {
     expect(tableId("public", "orders")).toBe("public.orders");

@@ -200,18 +200,28 @@ export function entityLabel(hit: EntityHit): string {
 /**
  * Opens a table in Database or a topic in Kafka through their reveal
  * intents (agenthub may not import either module), and says so when it could
- * not: Database has no table to open, or no connected cluster has the topic.
+ * not: Database has no table to open, the connection the table was read on is
+ * not on this device, or no connected cluster has the topic. A table goes with
+ * its connection, so it never opens on whichever one is selected.
  */
 export async function openEntity(hit: EntityHit, placement: Placement, deps: EntityOpenDeps = liveEntityDeps): Promise<void> {
   const label = entityLabel(hit);
   try {
     const outcome =
       hit.kind === "table"
-        ? await deps.dispatch("database.reveal", { module: "database", kind: "table", id: hit.id, label: hit.name }, { placement })
+        ? await deps.dispatch(
+            "database.reveal",
+            { module: "database", kind: "table", id: hit.id, label: hit.name, ...(hit.profileId ? { profileId: hit.profileId } : {}) },
+            { placement },
+          )
         : await deps.dispatch("kafka.reveal", { module: "kafka", kind: "topic", id: hit.id, label: hit.name }, { placement });
     if (outcome === "unavailable") {
       deps.toastError(
-        hit.kind === "table" ? `Couldn't open ${label}: Database isn't available` : `Couldn't open ${label}: it isn't on a connected Kafka cluster`,
+        hit.kind !== "table"
+          ? `Couldn't open ${label}: it isn't on a connected Kafka cluster`
+          : hit.profileId
+            ? `Couldn't open ${label}: its connection isn't on this device`
+            : `Couldn't open ${label}: Database isn't available`,
       );
     }
   } catch (error) {
@@ -219,13 +229,16 @@ export async function openEntity(hit: EntityHit, placement: Placement, deps: Ent
   }
 }
 
-/** A table's or topic's hover card: what the session's results said, nothing fetched. */
+/**
+ * A table's or topic's hover card: what the session's results said, nothing
+ * fetched — so a table's connection is named only when the session listed it.
+ */
 export function EntityPreview({ hit, onOpen }: { hit: EntityHit; onOpen: () => void }) {
   return (
     <div data-testid="ref-preview-entity" className="flex flex-col">
       <div className="flex min-w-0 items-baseline gap-2 p-2.5">
         <span className="min-w-0 truncate text-code-12 font-medium text-text-primary">{hit.name}</span>
-        <span className="shrink-0 text-caption-11 text-text-tertiary">{hit.kind === "table" ? `Table · ${hit.schema}` : "Topic"}</span>
+        <span className="shrink-0 text-caption-11 text-text-tertiary">{hit.kind === "table" ? ["Table", hit.schema, hit.profileName].filter(Boolean).join(" · ") : "Topic"}</span>
       </div>
       <PreviewFooter>
         <Button size="xs" variant="secondary" onClick={onOpen}>

@@ -16,11 +16,23 @@ export type EntityHit =
       name: string;
       schema: string;
       table: string;
+      /**
+       * The connection the call that named it read it on (`rawInput.profileId`):
+       * `database.reveal` opens it there, never on whichever is selected.
+       */
+      profileId?: string;
+      /** That connection's name, when the session's own `db.listProfiles` said it. */
+      profileName?: string;
     }
   | { kind: "topic"; id: string; name: string };
 
 export type SessionEntities = {
-  /** `schema.table` always; the bare `table` too when no other schema has one by that name. */
+  /**
+   * `schema.table` always; the bare `table` too when no other schema has one
+   * by that name. A table is its profile + schema + table: the same name read
+   * on two connections (staging and prod) is neither, since a link would have
+   * to pick one.
+   */
   tables: ReadonlyMap<string, EntityHit>;
   topics: ReadonlyMap<string, EntityHit>;
 };
@@ -54,7 +66,7 @@ export function tableId(schema: string, table: string): string {
  * as a new object naming the same things (a non-material update) changes
  * nothing downstream.
  */
-type Contribution = { tables: readonly { schema: string; table: string }[]; topics: readonly string[]; key: string };
+type Contribution = Found & { key: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -66,14 +78,34 @@ function rows(payload: unknown): unknown[] {
   return isRecord(payload) && Array.isArray(payload.result) ? payload.result : [];
 }
 
-type Found = { tables: { schema: string; table: string }[]; topics: string[] };
+/** A table as one call named it: on the connection its input named, when it named one. */
+type TableName = { schema: string; table: string; profileId?: string };
+
+type Found = {
+  tables: TableName[];
+  topics: string[];
+  /** Connection names by id, from `db.listProfiles`. */
+  profiles?: { id: string; name: string }[];
+};
+
+/** The connection a database call read, from its input. */
+function profileOf(rawInput: unknown): string | undefined {
+  const id = isRecord(rawInput) ? rawInput.profileId : undefined;
+  return nonEmpty(id) ? id : undefined;
+}
+
+/** Each table on the call's connection. */
+function onProfile(tables: { schema: string; table: string }[], rawInput: unknown): TableName[] {
+  const profileId = profileOf(rawInput);
+  return profileId ? tables.map((table) => ({ ...table, profileId })) : tables;
+}
 
 /**
  * How a tool's calls name things. A payload reader parses the answer, so a
  * cut answer names nothing until its full row is loaded; an input reader
  * needs only to know the call answered without an error.
  */
-type Reader = { payload: true; read: (payload: unknown) => Found } | { payload: false; read: (rawInput: unknown) => Found };
+type Reader = { payload: true; read: (payload: unknown, rawInput: unknown) => Found } | { payload: false; read: (rawInput: unknown) => Found };
 
 /** By the tool's Go name; found again from Claude's wire form or Codex's title (toolResultViews). */
 const readers = createToolRegistry<Reader>();
@@ -81,7 +113,7 @@ const readers = createToolRegistry<Reader>();
 // `{namespace: {schema: {table: [col]}}, columns, indexed_at}`
 readers.register("db.schema.get", {
   payload: true,
-  read: (payload) => {
+  read: (payload, rawInput) => {
     const tables: { schema: string; table: string }[] = [];
     const namespace = isRecord(payload) ? payload.namespace : undefined;
     if (isRecord(namespace)) {
@@ -90,14 +122,14 @@ readers.register("db.schema.get", {
         for (const table of Object.keys(byTable)) if (table) tables.push({ schema, table });
       }
     }
-    return { tables, topics: [] };
+    return { tables: onProfile(tables, rawInput), topics: [] };
   },
 });
 
 // `{result: [{schema, table, column, referenced_schema, referenced_table, referenced_column}]}`: both ends.
 readers.register("db.listForeignKeys", {
   payload: true,
-  read: (payload) => {
+  read: (payload, rawInput) => {
     const tables: { schema: string; table: string }[] = [];
     for (const row of rows(payload)) {
       if (!isRecord(row)) continue;
@@ -106,8 +138,18 @@ readers.register("db.listForeignKeys", {
         tables.push({ schema: row.referenced_schema, table: row.referenced_table });
       }
     }
-    return { tables, topics: [] };
+    return { tables: onProfile(tables, rawInput), topics: [] };
   },
+});
+
+// `{result: [{id, name, …}]}`: what the tables' connections are called.
+readers.register("db.listProfiles", {
+  payload: true,
+  read: (payload) => ({
+    tables: [],
+    topics: [],
+    profiles: rows(payload).flatMap((row) => (isRecord(row) && nonEmpty(row.id) && nonEmpty(row.name) ? [{ id: row.id, name: row.name }] : [])),
+  }),
 });
 
 // `{result: [{name}]}`
@@ -138,7 +180,9 @@ const readerOf = (call: ToolCallLike) => readers.lookup(toolNameOf(call));
 type Read = { contribution: Contribution | null; cut: boolean };
 
 function contentKey(found: Found): string {
-  return `${found.tables.map((t) => `${t.schema}\u0000${t.table}`).join("\u0001")}\u0002${found.topics.join("\u0001")}`;
+  const tables = found.tables.map((t) => `${t.profileId ?? ""}\u0000${t.schema}\u0000${t.table}`).join("\u0001");
+  const profiles = (found.profiles ?? []).map((p) => `${p.id}\u0000${p.name}`).join("\u0001");
+  return `${tables}\u0002${found.topics.join("\u0001")}\u0002${profiles}`;
 }
 
 function readCall(call: ToolCallLike): Read {
@@ -150,11 +194,11 @@ function readCall(call: ToolCallLike): Read {
   if (reader.payload) {
     // No payload on a completed call: the page read cut it.
     if (!result) return { contribution: null, cut: Boolean(call.truncated) };
-    found = reader.read(result.payload);
+    found = reader.read(result.payload, call.rawInput);
   } else {
     found = reader.read(call.rawInput);
   }
-  if (found.tables.length === 0 && found.topics.length === 0) return { contribution: null, cut: false };
+  if (found.tables.length === 0 && found.topics.length === 0 && !found.profiles?.length) return { contribution: null, cut: false };
   return { contribution: { ...found, key: contentKey(found) }, cut: false };
 }
 
@@ -191,8 +235,8 @@ function fullReadOf(call: ToolCallLike, full: ToolCallLike): Read {
 export const MAX_FULL_ROWS = 4;
 
 /**
- * The cut answers whose full row would name tables or topics: completed
- * schema reads, foreign-key lists and topic lists the page read cut, most
+ * The cut answers whose full row would name tables, topics or connections:
+ * completed schema reads, foreign-key lists, topic and profile lists the page read cut, most
  * recent first, at most four. A row from a page read names its session; a
  * live one is the transcript's own, `sessionId`.
  */
@@ -207,13 +251,28 @@ export function callsToLoad(items: readonly TranscriptItem[], sessionId: string 
   return out;
 }
 
+const sameTable = (a: TableName, b: TableName) => a.schema === b.schema && a.table === b.table && a.profileId === b.profileId;
+
+/** Claims `span` for `entry`; false (and the span is no one's) once another table has it. */
+function claim(map: Map<string, TableName | null>, span: string, entry: TableName): boolean {
+  if (!map.has(span)) {
+    map.set(span, entry);
+    return true;
+  }
+  const seen = map.get(span);
+  if (seen && sameTable(seen, entry)) return true;
+  map.set(span, null);
+  return false;
+}
+
 /** The contribution keys a result was built from, to hand the same result back when they have not changed. */
 const builtFrom = new WeakMap<SessionEntities, readonly string[]>();
 
 /**
  * The tables and topics this session's DevKit tool calls named: tables from
  * `db.schema.get` and `db.listForeignKeys`, topics from `kafka.listTopics`
- * and the topic of a peek, describe or publish that answered. `loaded` holds
+ * and the topic of a peek, describe or publish that answered; a table is on
+ * the connection its call named, called what `db.listProfiles` said. `loaded` holds
  * full rows by call id for answers the page read cut (callsToLoad).
  * `previous` is the last result: while what the calls name has not changed
  * it comes back as it is, so the prose that reads it through context does not
@@ -240,40 +299,47 @@ export function sessionEntities(
     return previous;
   }
 
-  // Qualified spelling → the one table it names, or null once two tables
-  // spell it the same way (`a` + `b.c` and `a.b` + `c`).
-  const qualified = new Map<string, { schema: string; table: string } | null>();
-  // Bare name → the qualified key, or null once a second table has it too.
-  const bare = new Map<string, string | null>();
+  // Spelling → the one table it names, or null once two tables spell it the
+  // same way: `a` + `b.c` and `a.b` + `c`, or `public.users` on two profiles.
+  const qualified = new Map<string, TableName | null>();
+  const bare = new Map<string, TableName | null>();
   const topics = new Map<string, EntityHit>();
+  const profileNames = new Map<string, string>();
   for (const source of sources) {
-    for (const { schema, table } of source.tables) {
-      const key = `${schema}.${table}`;
-      if (!qualified.has(key)) {
-        qualified.set(key, { schema, table });
-        bare.set(table, bare.has(table) ? null : key);
-        continue;
-      }
+    for (const entry of source.tables) {
+      const key = `${entry.schema}.${entry.table}`;
       const seen = qualified.get(key);
-      if (seen && (seen.schema !== schema || seen.table !== table)) {
-        qualified.set(key, null);
-        bare.set(seen.table, null);
-        bare.set(table, null);
-      } else if (seen === null) {
-        bare.set(table, null);
+      if (claim(qualified, key, entry)) {
+        claim(bare, entry.table, entry);
+      } else {
+        if (seen) bare.set(seen.table, null);
+        bare.set(entry.table, null);
       }
     }
     for (const name of source.topics) {
       if (!topics.has(name)) topics.set(name, { kind: "topic", id: name, name });
     }
+    for (const { id, name } of source.profiles ?? []) profileNames.set(id, name);
   }
+  const hitOf = (entry: TableName): EntityHit => {
+    const profileName = entry.profileId ? profileNames.get(entry.profileId) : undefined;
+    return {
+      kind: "table",
+      id: tableId(entry.schema, entry.table),
+      name: entry.table,
+      schema: entry.schema,
+      table: entry.table,
+      ...(entry.profileId ? { profileId: entry.profileId } : {}),
+      ...(profileName ? { profileName } : {}),
+    };
+  };
   const tables = new Map<string, EntityHit>();
   for (const [key, entry] of qualified) {
-    if (entry) tables.set(key, { kind: "table", id: tableId(entry.schema, entry.table), name: entry.table, ...entry });
+    if (entry) tables.set(key, hitOf(entry));
   }
-  for (const [name, key] of bare) {
+  for (const [name, entry] of bare) {
     // A bare name that is some other table's qualified spelling stays that one.
-    const hit = key ? tables.get(key) : undefined;
+    const hit = entry ? tables.get(`${entry.schema}.${entry.table}`) : undefined;
     if (hit && !tables.has(name)) tables.set(name, hit);
   }
   const result: SessionEntities = { tables, topics };

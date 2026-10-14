@@ -25,7 +25,7 @@ import {
   profileIdOf,
   sqlOf,
 } from "./toolViews/parse";
-import { revealTarget } from "./toolViews/reveal";
+import { reveal, type RevealDeps } from "./toolViews/reveal";
 
 export const databaseModule: ModuleManifest = {
   id: "database",
@@ -199,21 +199,25 @@ export const databaseModule: ModuleManifest = {
  * caller importing this module. Routing is toolViews/reveal.ts, pure and
  * tested. The ref formats, which callers (Agent Hub references) produce:
  *
- * - `{kind:"table", id}` — `id` is `schema.table`, split at the first dot;
- *   a schema with a dot in it is written in SQL double quotes,
- *   `"sales.eu".orders` (`""` for a quote inside). Opens the table on the
- *   connection selected here. An id with no schema is "unavailable".
+ * - `{kind:"table", id, profileId?}` — `id` is `schema.table`, split at the
+ *   first dot; a schema with a dot in it is written in SQL double quotes,
+ *   `"sales.eu".orders` (`""` for a quote inside). With `profileId` the
+ *   connection is selected first (as a click in the rail selects it) and the
+ *   table opens there; a profile this machine does not have is
+ *   "unavailable". Without one it opens on the connection selected here. An
+ *   id with no schema is "unavailable".
  * - `{kind:"console", id, label?}` — `id` is the SQL itself; it opens in a
  *   console titled `label` (else "Console"), never run.
  */
-registerIntent("database.reveal", async (ref, { placement }) => {
-  const target = revealTarget(ref);
-  if (!target) return "unavailable";
-  const beside = placement === "beside";
-  if (target.open === "table") openTableTab(target.schema, target.table, false, { beside });
-  else await openSqlConsole(target.sql, target.title, { beside });
-  return "ok";
-});
+const liveRevealDeps: RevealDeps = {
+  profileIds: () => useDatabaseStore.getState().profiles.map((profile) => profile.id),
+  selectedProfileId: () => useDatabaseStore.getState().selectedProfileId,
+  refreshProfiles: () => useDatabaseStore.getState().fetchProfiles(),
+  selectProfile: (id) => useDatabaseStore.getState().setSelectedProfileId(id),
+  openTable: (schema, table, beside) => openTableTab(schema, table, false, { beside }),
+  openConsole: (sql, title, beside) => openSqlConsole(sql, title, { beside }),
+};
+registerIntent("database.reveal", (ref, { placement }) => reveal(ref, placement, liveRevealDeps));
 
 /**
  * ToolResultViews for the database tools (docs/dev-kit/tool-result-view.mdx).

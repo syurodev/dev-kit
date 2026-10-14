@@ -254,6 +254,11 @@ describe("EntityPreview", () => {
     expect(html).toContain("Open in Database");
   });
 
+  test("a table read on a named connection says which", () => {
+    const html = renderToString(<EntityPreview hit={{ ...TABLE, profileId: "p1", profileName: "Staging" }} onOpen={() => {}} />);
+    expect(html).toContain("Table · public · Staging");
+  });
+
   test("a topic says so and opens in Kafka", () => {
     const html = renderToString(<EntityPreview hit={TOPIC} onOpen={() => {}} />);
     expect(html).toContain(">orders.created<");
@@ -291,6 +296,20 @@ describe("openEntity", () => {
     await openEntity(TABLE, "beside", d);
     expect(calls).toEqual([["database.reveal", { module: "database", kind: "table", id: "public.orders", label: "orders" }, { placement: "beside" }]]);
     expect(d.toastError).not.toHaveBeenCalled();
+  });
+
+  test("a table read on a connection opens on that connection", async () => {
+    const { d, calls } = deps("ok");
+    await openEntity({ ...TABLE, profileId: "p1", profileName: "Staging" }, "replace", d);
+    expect(calls).toEqual([
+      ["database.reveal", { module: "database", kind: "table", id: "public.orders", label: "orders", profileId: "p1" }, { placement: "replace" }],
+    ]);
+  });
+
+  test("a connection this device does not have is named as the reason", async () => {
+    const { d } = deps("unavailable");
+    await openEntity({ ...TABLE, profileId: "elsewhere" }, "beside", d);
+    expect((d.toastError as ReturnType<typeof mock>).mock.calls[0][0]).toBe("Couldn't open public.orders: its connection isn't on this device");
   });
 
   test("a topic opens through kafka.reveal", async () => {

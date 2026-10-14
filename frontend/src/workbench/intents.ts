@@ -30,6 +30,11 @@ export type EntityRef = {
   workspaceId?: string;
   /** The workspace folder (`workspace_services.id`) a resolved file ref lives in. */
   folderId?: string;
+  /**
+   * The database connection a table ref was read on: `database.reveal` opens
+   * it there rather than on whichever connection is selected.
+   */
+  profileId?: string;
 };
 
 /**
