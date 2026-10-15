@@ -70,8 +70,7 @@ export const EDGE = {
  * strip above it is: 40px, the strip's 6px inset (the strip is 6px on every
  * side, so a header's first control lines up with the first tab), its
  * hairline as a bottom border. The flow document's two modes share it, so
- * switching
- * between them never moves the header.
+ * switching between them never moves the header.
  */
 export const FLOW_HEADER =
   "flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-1.5";
