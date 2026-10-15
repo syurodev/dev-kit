@@ -38,9 +38,3 @@ type StepEffectAt struct {
 	Line   int
 	Effect StepEffect
 }
-
-// CallStats is how often each callee is called across the index.
-type CallStats struct {
-	Callers map[string]int // callee key → distinct calling methods
-	Methods int            // method nodes in the index
-}
