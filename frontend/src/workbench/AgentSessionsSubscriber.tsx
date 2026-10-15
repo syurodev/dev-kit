@@ -13,6 +13,7 @@ import {
   onAgentHubSessionRewound,
   onAgentHubTurnFinished,
   type AgentTurnFinishedEvent,
+  type SessionUpdateEvent,
 } from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthub/transcript";
@@ -83,6 +84,16 @@ const previewReads = new Map<string, number>();
  * RPC's reply — sendAgentTurn settles that turn's status and drains the queue
  * itself, and this leaves both alone while it is in flight.
  */
+/**
+ * What an update from a turn says about the session's tabs: it is running.
+ * Whatever the update — a tool call that failed is routine, the agent reads
+ * the failure and goes on; whether the turn failed is for its end to say
+ * (handleAgentTurnFinished).
+ */
+export function handleSessionUpdateTabs(event: Pick<SessionUpdateEvent, "sessionId">): void {
+  setAgentHubTabsStatus(event.sessionId, "running");
+}
+
 export function handleAgentTurnFinished(
   { sessionId, status, outcome }: AgentTurnFinishedEvent,
   bridge?: TurnBridge,
@@ -115,12 +126,16 @@ export function handleAgentTurnFinished(
       .catch(() => {});
   }
 
-  // The turn is over, so the dot stops saying anything is happening. Whether
-  // anyone has seen the answer is the unread badge's job (below); a "success"
-  // dot never went away again. Not while a turn of ours is in flight: a late
-  // event would put the next queued turn's dot out, and sendAgentTurn settles
-  // the dot of its own turn.
-  if (!ours) setAgentHubTabsStatus(sessionId, nextStatus === "error" ? "error" : "idle");
+  // The turn is over: a completed one marks its tabs finished, which the
+  // strip shows until the tab is looked at (workbench/tabs/seenSuccess.ts) —
+  // the tab's own mark, beside the rail's unread badge below, which counts the
+  // answer as read only once the session itself is on screen. Cancelled or
+  // closed is just idle. Not while a turn of ours is in flight: a late event
+  // would put the next queued turn's mark out, and sendAgentTurn settles the
+  // mark of its own turn.
+  if (!ours) {
+    setAgentHubTabsStatus(sessionId, nextStatus === "error" ? "error" : outcome === "completed" ? "success" : "idle");
+  }
 
   if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
   else state.markCompletedUnread(sessionId);
@@ -209,7 +224,7 @@ export function AgentSessionsSubscriber() {
    * Session metadata and tab status synchronization.
    * The shell-owned transcript stream is started alongside this listener;
    * `agenthub:sessionUpdate` marks a tab running; the separate turn-finished
-   * event below puts it back to idle (or error) and records an unread result.
+   * event below marks it finished (or idle, or failed) and records an unread result.
    *
    * Subscribed globally so turns continue streaming when working in another module.
    * Synchronizes tab status with ACP update stream ('running' during turns,
@@ -243,11 +258,7 @@ export function AgentSessionsSubscriber() {
         trackSubagent(event.sessionId, event.parsed.subagent);
       }
 
-      // The session's own tabs only (setAgentHubTabsStatus): a failed tool
-      // call marks them failed, anything else running.
-      const failed =
-        event.parsed?.kind === UpdateKind.UpdateToolCallUpdate && event.parsed.toolCall?.status === "failed";
-      setAgentHubTabsStatus(event.sessionId, failed ? "error" : "running");
+      handleSessionUpdateTabs(event);
     });
   }, [trackSubagent]);
 

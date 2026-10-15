@@ -143,13 +143,17 @@ export function setAgentHubTabsStatus(sessionId: string, status: TabStatus): voi
   }
 }
 
-/** A turn of ours settled. turnFinished leaves the dot alone while one is in flight. */
-function settleTabs(sessionId: string) {
+/**
+ * A turn of ours settled; `completed` when it ran to its end, which marks the
+ * tabs finished until they are looked at (workbench/tabs/seenSuccess.ts).
+ * turnFinished leaves the mark alone while one is in flight.
+ */
+function settleTabs(sessionId: string, completed = false) {
   const state = useAgentSessionsStore.getState();
   const status = state.sessionsById[sessionId]?.status;
   // The next queued turn has started, or another agent's turn holds the session.
   if (state.turnInFlightBySession[sessionId] || status === "running" || status === "awaiting_permission") return;
-  setAgentHubTabsStatus(sessionId, status === "error" ? "error" : "idle");
+  setAgentHubTabsStatus(sessionId, status === "error" ? "error" : completed ? "success" : "idle");
 }
 
 /** Runs a turn already marked in flight (beginTurn / claimQueuedPrompt). */
@@ -215,6 +219,6 @@ async function runTurn(
   // starts now, and a late read would take its Stop button away.
   setStatus(sessionId, "idle");
   void drainQueuedPrompt(sessionId, bridge);
-  settleTabs(sessionId);
+  settleTabs(sessionId, true);
   return result;
 }

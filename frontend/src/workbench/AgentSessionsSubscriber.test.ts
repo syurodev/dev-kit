@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import {
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
+  handleSessionUpdateTabs,
   statusAnnouncement,
   statusTransitionAnnouncement,
   turnFinishedAnnouncement,
@@ -61,10 +62,11 @@ describe("an Agent Hub tab when a turn finishes", () => {
     });
   });
 
-  it("goes back to idle after a completed turn, leaving 'unseen' to the unread badge", () => {
+  it("marks a completed turn finished, beside the unread badge", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
 
-    expect(tabStatus()).toBe("idle");
+    // The strip shows it until the tab is looked at (tabs/seenSuccess.ts).
+    expect(tabStatus()).toBe("success");
     expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBe(true);
   });
 
@@ -78,6 +80,13 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
 
     expect(tabStatus()).toBe("error");
+  });
+
+  it("keeps running through a tool call that failed: only the turn's end says it failed", () => {
+    // What the update carries is not read: any update of a turn means running.
+    handleSessionUpdateTabs({ sessionId: "s1" });
+
+    expect(tabStatus()).toBe("running");
   });
 
   it("leaves the new-session tab alone: it shows no session", () => {
@@ -154,7 +163,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(reads).toBe(0);
   });
 
-  it("goes back to idle when our turn's reply comes after its turnFinished", async () => {
+  it("marks our turn finished when its reply comes after its turnFinished", async () => {
     let finish!: (result: InvokeResult) => void;
     const bridge: TurnBridge = {
       invoke: () => new Promise((resolve) => (finish = resolve)),
@@ -167,7 +176,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
     finish({ status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" });
     await turn;
 
-    expect(tabStatus()).toBe("idle");
+    expect(tabStatus()).toBe("success");
   });
 });
 
