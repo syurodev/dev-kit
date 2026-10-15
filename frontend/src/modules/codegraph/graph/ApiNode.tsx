@@ -9,6 +9,14 @@ export type ApiNodeData = {
   /** Full text for the native tooltip, since the card truncates both lines. */
   titleTooltip?: string;
   detailTooltip?: string;
+  /** The small line above the title: the class a method belongs to. */
+  caption?: string;
+  /** The doc comment's first sentence; takes the detail well's place when there is one. */
+  summary?: string;
+  /** What an extractor saw in the body: "Kafka produce", "HTTP call". */
+  effects?: string[];
+  /** Calls the outline folds away (logging, metrics, helpers), counted since they are not drawn. */
+  hiddenCalls?: number;
 };
 
 /**
