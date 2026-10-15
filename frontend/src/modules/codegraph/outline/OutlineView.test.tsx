@@ -77,6 +77,8 @@ describe("OutlineView", () => {
     expect(html).toContain("… more steps not shown");
     // The selection from the graph marks its rows.
     expect(html).toContain('aria-selected="true"');
+    // Selected the way the sidebar tree selects.
+    expect(html).toContain("border-status-info bg-status-info/10");
   });
 
   test("rows are a tree a screen reader can walk", () => {
@@ -96,6 +98,8 @@ describe("OutlineView", () => {
     // a > if (ok) > send(); a > fold — rows at the tree's 28px, stepped like it.
     expect(html.match(/height:28px/g)).toHaveLength(4);
     for (const level of [0, 1, 2]) expect(html).toContain(`left:${treeContentX(level) - 2}px;padding-left:var(--space-tree-guide)`);
+    // A frame heading has its steps under it, open for good.
+    expect(html).toMatch(/aria-expanded="true"[^>]*>(?:(?!treeitem).)*if \(ok\)/);
     // The frame has a child, so a guide runs down from it; it is not the root's last child.
     expect(html).toContain(renderToStaticMarkup(<TreeGuides level={1} lasts={[true, false]} open leaf rowHeight={28} />));
     expect(html).toContain(renderToStaticMarkup(<TreeGuides level={2} lasts={[true, false, true]} open={false} leaf rowHeight={28} />));

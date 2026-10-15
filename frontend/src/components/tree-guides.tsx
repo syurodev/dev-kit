@@ -47,6 +47,15 @@ const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--back
  */
 const ELBOW_RADIUS = 6;
 
+/**
+ * A selected row's highlight, from its chevron to the right edge. Tinted, and
+ * the border stays: --status-info is the mark that clears 3:1 in every
+ * palette (themeContrast.test.ts), the tint alone does not. Measured
+ * 4.51–13.38 in the gallery. A row that is not selected keeps a transparent
+ * border, so selecting it cannot move its label.
+ */
+export const TREE_ROW_SELECTED = "border-status-info bg-status-info/10 text-text-primary";
+
 /** Where a row at `level` (0 for a top row) starts its chevron. */
 export const treeContentX = (level: number) => TREE_INSET + level * TREE_INDENT;
 /** The guide under a row at `depth`: the centre of its chevron. */

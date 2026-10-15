@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { CodeGraphNode, CodeGraphStep, CodeGraphSteps } from "@/bridge/codegraph";
 import { buildOutline, type OutlineRow } from "./buildOutline";
-import { cursorIndex, isRowOf, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
+import { cursorIndex, isRowOf, mergeKeys, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
 
 const node = (id: string): CodeGraphNode => ({
   id, label: `acme.P.${id}`, kind: "method", layer: "", filePath: "P.java", line: 1, endLine: 9, summary: "",
@@ -68,6 +68,15 @@ describe("newKeys", () => {
   const row = (key: string): OutlineRow => ({ kind: "more", key, depth: 0, nodeId: "a" });
   it("is what opening a row revealed", () => {
     expect([...newKeys([row("a"), row("b")], [row("a"), row("a1"), row("a2"), row("b")])]).toEqual(["a1", "a2"]);
+  });
+  it("is only what is drawn: a revealed row below the window arrives without motion when scrolled to", () => {
+    const next = [row("a"), row("a1"), row("a2"), row("a3"), row("b")];
+    expect([...newKeys([row("a"), row("b")], next, [0, 2])]).toEqual(["a1", "a2"]);
+  });
+  it("merges with what is still arriving", () => {
+    expect([...mergeKeys(new Set(["a1"]), new Set(["b1"]))]).toEqual(["a1", "b1"]);
+    const kept = new Set(["a1"]);
+    expect(mergeKeys(kept, new Set())).toBe(kept);
   });
   it("is nothing on the outline's first rows, on a collapse, or on the same rows again", () => {
     expect(newKeys([], [row("a"), row("b")]).size).toBe(0);

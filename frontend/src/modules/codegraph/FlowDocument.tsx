@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -67,6 +67,17 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   const mode = flow?.mode ?? "outline";
   // The arriving mode fades up only after a switch, not when the tab opens.
   const [switched, setSwitched] = useState(false);
+  // The two modes draw their own header, so the tab strip is a new one after
+  // a switch: a switch made from the keyboard puts focus back on its tab.
+  const page = useRef<HTMLDivElement>(null);
+  const refocusTab = useRef(false);
+  useEffect(() => {
+    if (!refocusTab.current) return;
+    refocusTab.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    page.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus();
+  }, [mode]);
   const view = useMemo(
     () => (flow?.subgraph ? graphView(root, flow.subgraph.nodes, flow.subgraph.edges, flow.steps) : null),
     [flow?.subgraph, flow?.steps, root],
@@ -127,6 +138,8 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
     <Tabs
       value={mode}
       onValueChange={(value) => {
+        // Arrows and Enter/Space switch with focus on a tab; a click does not need it back.
+        refocusTab.current = !!document.activeElement?.closest('[role="tablist"]');
         setSwitched(true);
         setFlowMode(folderId, root, value as "outline" | "graph");
       }}
@@ -159,9 +172,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
     );
     if (mode === "outline") {
       return (
-        // Keyed by mode: the two roots are both divs, and only a new element
-        // plays the fade.
-        <div key="outline" className={cn("flex h-full w-full flex-col overflow-hidden px-4 pt-3", switched && "flow-mode-enter")}>
+        <div ref={page} className="flex h-full w-full flex-col overflow-hidden px-4 pt-3">
           <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
             <div className="flex min-w-0 items-center gap-2.5">{header}</div>
             <div className="flex shrink-0 items-center gap-3.5">
@@ -171,22 +182,26 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
             </div>
           </div>
           <div className="h-px shrink-0 bg-border-subtle" />
-          <OutlineView
-            folderId={folderId}
-            root={root}
-            flow={flow}
-            nodes={subgraph.nodes}
-            selectedNodeId={selectedNodeId}
-            onInspect={onSelect}
-            onShowInGraph={showInGraph}
-            onOpenAt={openAt}
-          />
+          {/* After a switch the body fades up; the header stays where it was. */}
+          <div className={cn("flex min-h-0 flex-1 flex-col", switched && "flow-mode-enter")}>
+            <OutlineView
+              folderId={folderId}
+              root={root}
+              flow={flow}
+              nodes={subgraph.nodes}
+              selectedNodeId={selectedNodeId}
+              onInspect={onSelect}
+              onShowInGraph={showInGraph}
+              onOpenAt={openAt}
+            />
+          </div>
         </div>
       );
     }
     return (
-      <div key="graph" className={cn("flex h-full w-full flex-col overflow-hidden", switched && "flow-mode-enter")}>
+      <div ref={page} className="flex h-full w-full flex-col overflow-hidden">
         <FlowCanvas
+          viewportClassName={switched ? "flow-mode-enter" : undefined}
           key={root}
           rootId={root}
           nodes={view.nodes}

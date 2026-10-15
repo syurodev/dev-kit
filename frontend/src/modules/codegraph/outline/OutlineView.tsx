@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronRight, CornerDownLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TREE_ROW_HEIGHT, TreeGuides, treeContentX } from "@/components/tree-guides";
+import { TREE_ROW_HEIGHT, TREE_ROW_SELECTED, TreeGuides, treeContentX } from "@/components/tree-guides";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,7 +18,7 @@ import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from 
 import { effectName } from "../graph/graphView";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
-import { EMPTY_KEYS, cursorIndex, isOpenRow, isRowOf, isToggleable, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
+import { EMPTY_KEYS, cursorIndex, isOpenRow, isRowOf, isToggleable, mergeKeys, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
 
 /** The sidebar tree's metrics, so the outline's guides and rows match it to the pixel. */
 const ROW_HEIGHT = TREE_ROW_HEIGHT;
@@ -55,21 +55,6 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
     [flow.steps, flow.toggled, root, byId],
   );
   const shape = useMemo(() => treeShape(rows), [rows]);
-  // Rows a row's opening just revealed arrive with a little motion. Worked out
-  // against the rows before, in state so a re-render (or StrictMode's second
-  // one) sees the same answer; cleared once the motion is over, so a row that
-  // a scroll mounts later never plays it.
-  const [arrived, setArrived] = useState<{ rows: typeof rows; fresh: ReadonlySet<string> }>({ rows, fresh: EMPTY_KEYS });
-  let fresh = arrived.fresh;
-  if (arrived.rows !== rows) {
-    fresh = newKeys(arrived.rows, rows);
-    setArrived({ rows, fresh });
-  }
-  useEffect(() => {
-    if (arrived.fresh.size === 0) return;
-    const timer = setTimeout(() => setArrived((a) => (a === arrived ? { rows: a.rows, fresh: EMPTY_KEYS } : a)), MOTION_SETTLED_MS);
-    return () => clearTimeout(timer);
-  }, [arrived]);
   // The row a jump landed on ("shown above", the selection) flashes once.
   const [flash, setFlash] = useState<{ key: string; n: number } | null>(null);
   const flashRow = (key: string) => setFlash((f) => ({ key, n: (f?.n ?? 0) + 1 }));
@@ -79,6 +64,24 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
     return () => clearTimeout(timer);
   }, [flash]);
   const { scrollRef, indices, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT);
+  // Rows an opening just revealed arrive with a little motion: only those
+  // drawn at that moment (a row further down, mounted later by a scroll, does
+  // not play it), merged with any still arriving. Worked out against the rows
+  // before, in state, so a re-render (or StrictMode's second one) sees the
+  // same answer; cleared once the motion is over.
+  const [arrived, setArrived] = useState<{ rows: typeof rows; fresh: ReadonlySet<string> }>({ rows, fresh: EMPTY_KEYS });
+  let fresh = arrived.fresh;
+  if (arrived.rows !== rows) {
+    const drawn: [number, number] = [indices[0] ?? 0, indices[indices.length - 1] ?? -1];
+    fresh = mergeKeys(arrived.fresh, newKeys(arrived.rows, rows, drawn));
+    setArrived({ rows, fresh });
+  }
+  const arriving = arrived.fresh;
+  useEffect(() => {
+    if (arriving.size === 0) return;
+    const timer = setTimeout(() => setArrived((a) => (a.fresh === arriving ? { rows: a.rows, fresh: EMPTY_KEYS } : a)), MOTION_SETTLED_MS);
+    return () => clearTimeout(timer);
+  }, [arriving]);
   const [cursorAt, setCursorAt] = useState<{ key: string | null; index: number }>({ key: null, index: 0 });
   const cursor = cursorIndex(rows, cursorAt.key, cursorAt.index);
   const setCursor = (index: number) => setCursorAt({ key: rows[index]?.key ?? null, index });
@@ -151,7 +154,12 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
       return;
     }
     const id = nodeOf(row);
-    if (id) onInspect(id);
+    if (!id) return;
+    // Picked here, so it is already in view: the reveal that a selection made
+    // in the graph gets (jump, scroll, flash) must not move the outline.
+    doneFor.current = id;
+    triedFor.current = id;
+    onInspect(id);
   }
 
   function move(index: number) {
@@ -161,10 +169,14 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
   }
 
   /** The context menu of the cursor row, from the keyboard: the trigger listens for contextmenu. */
-  function openMenu() {
-    scrollToIndex(cursor);
+  function openMenu(attempt = 0) {
+    if (attempt === 0) scrollToIndex(cursor);
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-row-index="${cursor}"]`);
-    if (!el) return;
+    if (!el) {
+      // A windowed row scrolled to is mounted on the next frames.
+      if (attempt < 3) requestAnimationFrame(() => openMenu(attempt + 1));
+      return;
+    }
     const rect = el.getBoundingClientRect();
     el.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -360,26 +372,27 @@ function OutlineLine({
       aria-posinset={posinset}
       aria-setsize={setsize}
       aria-selected={selected}
-      aria-expanded={toggleable ? open : undefined}
+      aria-expanded={toggleable ? open : hasChildren ? true : undefined}
       onClick={onActivate}
       className="relative"
       style={{ height: ROW_HEIGHT }}
     >
       <TreeGuides level={treeLevel} lasts={lasts} open={hasChildren} leaf={!toggleable} rowHeight={ROW_HEIGHT} />
       {/* The highlight starts at the row's chevron, as in the sidebar tree:
-          a full-width one would paint over the guides it hangs from. Keyed by
-          the flash, so a second jump to the same row replays it. */}
+          a full-width one would paint over the guides it hangs from. Isolated,
+          so the flash below sits over its background and under its text. */}
       <div
-        key={flash}
         className={cn(
-          "absolute inset-y-0 right-1 flex items-center gap-1.5 rounded-md border border-transparent pr-1.5 whitespace-nowrap",
-          selected ? "bg-surface-raised" : "hover:bg-state-soft",
+          "absolute inset-y-0 right-1 isolate flex items-center gap-1.5 rounded-md border pr-1.5 whitespace-nowrap",
+          selected ? TREE_ROW_SELECTED : "border-transparent hover:bg-state-soft",
           focused && "outline-1 -outline-offset-1 outline-border-focus/50",
           entering && "outline-row-enter",
-          flash > 0 && "outline-row-flash",
         )}
         style={{ left: treeContentX(treeLevel) - 2, paddingLeft: "var(--space-tree-guide)" }}
       >
+        {/* Keyed by the flash, so a second jump to the same row replays it
+            without remounting the row's content. */}
+        {flash > 0 && <span key={flash} aria-hidden className="outline-row-flash" />}
         <span
           className="flex size-3 shrink-0 items-center justify-center text-text-tertiary"
           onClick={(e) => {

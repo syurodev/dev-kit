@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { treeKeyboardTarget, treePath } from "./treeNavigation";
 import { Chip } from "@/components/ui/chip";
-import { TREE_CHEVRON, TREE_ROW_HEIGHT, TreeGuides, treeContentX } from "./tree-guides";
+import { TREE_CHEVRON, TREE_ROW_HEIGHT, TREE_ROW_SELECTED, TreeGuides, treeContentX } from "./tree-guides";
 
 /**
  * One row of the tree.
@@ -320,10 +320,7 @@ const Row = memo(function Row({ row, copy = false, keyboard = false, focused = f
           "absolute inset-y-0 right-1 flex items-center gap-1 rounded-md border pr-1.5",
           focused && "group-focus/tree:outline group-focus/tree:outline-1 group-focus/tree:outline-border-focus",
           node.selected
-            // Tinted, and the border stays: --status-info is the mark that
-            // clears 3:1 in every palette (themeContrast.test.ts), the tint
-            // alone does not. Measured 4.51–13.38 in the gallery.
-            ? "border-status-info bg-status-info/10 text-text-primary"
+            ? TREE_ROW_SELECTED
             // --state-soft is defined per mode — white alpha where dark lifts,
             // ink alpha where light recesses.
             : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",

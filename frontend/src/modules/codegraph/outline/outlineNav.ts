@@ -105,12 +105,25 @@ export function pathTo(input: OutlineInput, nodeId: string): string[] {
  * revealed, which the view lets arrive with a little motion. Nothing is new on
  * the first rows of an outline — the whole list arriving is not an opening.
  */
-export function newKeys(previous: readonly OutlineRow[], next: readonly OutlineRow[]): ReadonlySet<string> {
+export function newKeys(
+  previous: readonly OutlineRow[],
+  next: readonly OutlineRow[],
+  /** The rows drawn right now, first and last index: a revealed row below them is mounted later by a scroll, and does not arrive. */
+  window?: readonly [number, number],
+): ReadonlySet<string> {
   if (previous.length === 0) return EMPTY_KEYS;
   const before = new Set(previous.map((r) => r.key));
+  const [first, last] = window ?? [0, next.length - 1];
   const fresh = new Set<string>();
-  for (const r of next) if (!before.has(r.key)) fresh.add(r.key);
+  for (let i = Math.max(0, first); i <= Math.min(last, next.length - 1); i++) if (!before.has(next[i].key)) fresh.add(next[i].key);
   return fresh.size > 0 ? fresh : EMPTY_KEYS;
+}
+
+/** Keys still arriving, plus those a new opening revealed. */
+export function mergeKeys(a: ReadonlySet<string>, b: ReadonlySet<string>): ReadonlySet<string> {
+  if (b.size === 0) return a;
+  if (a.size === 0) return b;
+  return new Set([...a, ...b]);
 }
 
 export const EMPTY_KEYS: ReadonlySet<string> = new Set();

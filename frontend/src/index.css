@@ -1786,14 +1786,22 @@
   }
 
   /* The row a jump landed on ("shown above ↑", the selection from the graph)
-     lights once and settles back to its own background: only a `from`, so a
-     selected row ends on its selection rather than snapping to it. */
+     lights once: an overlay over the row's own background, under its text
+     (the row isolates), whose opacity runs out. Opacity, not background, so
+     it costs no paint on the row and a selected row keeps its colour. */
   .outline-row-flash {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
+    opacity: 0;
     animation: outline-row-flash calc(var(--motion-slow) * 3) var(--ease-out-strong) 1;
   }
   @keyframes outline-row-flash {
     from {
-      background-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
+      opacity: 1;
     }
   }
 
