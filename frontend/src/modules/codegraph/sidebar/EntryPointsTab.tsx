@@ -248,10 +248,12 @@ export function EntryPointsTab({
               onClick={() => toggleVerb(v)}
               className={cn(
                 VERB_CHIP,
-                methodChipClass(v),
-                // Off chips recede rather than vanish: the strip keeps its shape.
-                active.size > 0 && !active.has(v) && "opacity-40 hover:opacity-70",
-                active.size === 0 && "opacity-70 hover:opacity-100",
+                // A filtered-out chip turns neutral rather than vanishing, so
+                // the strip keeps its shape — never a faded tint: the hue on
+                // its tint is 4.5:1 only at full strength (themeContrast.test).
+                active.size > 0 && !active.has(v)
+                  ? "bg-surface-raised text-text-tertiary hover:text-text-secondary"
+                  : methodChipClass(v),
               )}
             >
               {v}
