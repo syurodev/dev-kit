@@ -27,16 +27,29 @@ export function offeredClosedTabs(
 }
 
 /**
+ * The modules Workbench found unusable — metadata that disagrees with Go, or
+ * an API version this build does not speak (Workbench.tsx's
+ * unavailableModuleIds). Registered still, but a tab opened in one shows
+ * only that it is unavailable. Workbench keeps this current.
+ */
+let unavailableModules: ReadonlySet<string> = new Set();
+
+export function setUnavailableModules(ids: ReadonlySet<string>): void {
+  unavailableModules = ids;
+}
+
+/**
  * Reopen the stack's `at`th record. A record whose module or view is gone
- * since (turned off, or a newer build without that view) has nothing to open
- * in: it is dropped, and the person is told rather than left with a press
- * that did nothing.
+ * since (turned off, unusable, or a newer build without that view) has
+ * nothing to open in: it is dropped, and the person is told rather than
+ * left with a press that did nothing.
  */
 export function reopenClosedAt(at: number): string | null {
   const state = useWorkbenchTabsStore.getState();
   const entry = state.recentlyClosed[at];
   if (!entry) return null;
-  if (!getModule(entry.moduleId)?.views.some((view) => view.id === entry.viewId)) {
+  const module = unavailableModules.has(entry.moduleId) ? undefined : getModule(entry.moduleId);
+  if (!module?.views.some((view) => view.id === entry.viewId)) {
     useWorkbenchTabsStore.setState((s) => ({ recentlyClosed: s.recentlyClosed.filter((e) => e !== entry) }));
     toast.error(`${entry.title} can't be reopened`, { description: "Its module is no longer available." });
     return null;

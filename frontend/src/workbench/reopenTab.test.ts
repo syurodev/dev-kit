@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { Package } from "lucide-react";
 import { registerModule, type ModuleManifest } from "@/modules/registry";
 import { useWorkbenchTabsStore, type ClosedTab } from "@/stores/workbenchTabs";
-import { offeredClosedTabs, reopenClosedAt, reopenLastClosed } from "./reopenTab";
+import { offeredClosedTabs, reopenClosedAt, reopenLastClosed, setUnavailableModules } from "./reopenTab";
 
 useWorkbenchTabsStore.persist.setOptions({
   storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
@@ -26,6 +26,7 @@ const manifest: ModuleManifest = {
 registerModule(manifest);
 
 beforeEach(() => {
+  setUnavailableModules(new Set());
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
 });
 
@@ -66,6 +67,15 @@ test("a record whose module or view is gone is dropped, not opened", () => {
   });
   expect(reopenClosedAt(1)).toBeNull();
   expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.moduleId)).toEqual(["gone-module"]);
+  expect(reopenLastClosed()).toBeNull();
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toEqual([]);
+  expect(titles()).toEqual([]);
+});
+
+test("a record of a module the app found unusable is dropped like a gone one", () => {
+  const a = open("a");
+  close(a);
+  setUnavailableModules(new Set([MODULE]));
   expect(reopenLastClosed()).toBeNull();
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toEqual([]);
   expect(titles()).toEqual([]);

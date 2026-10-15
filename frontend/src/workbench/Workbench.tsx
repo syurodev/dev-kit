@@ -75,7 +75,7 @@ import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 import { focusedGroup } from "../stores/documentGroups";
 import { openHomeWhenAsked } from "./showModule";
-import { reopenLastClosed } from "./reopenTab";
+import { reopenLastClosed, setUnavailableModules } from "./reopenTab";
 
 const LazyAgentPermissionToastHost = lazy(() =>
   import("./AgentPermissionToastHost").then((m) => ({
@@ -562,6 +562,7 @@ export function Workbench() {
     }
     return unavailable;
   }, [backendModules, metadataError, parityIssues]);
+  useEffect(() => setUnavailableModules(unavailableModuleIds), [unavailableModuleIds]);
   const availableModules = useMemo(
     () => modules.filter((module) => !unavailableModuleIds.has(module.id)),
     [modules, unavailableModuleIds],
