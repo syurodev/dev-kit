@@ -147,6 +147,14 @@ class GuardsTest {
     }
 
     @Test
+    void aCatchBlockGuardsItsCalls() {
+        assertEquals("catch IllegalStateException",
+                guardOfTarget("void run() { try { x(); } catch (IllegalStateException e) { target(); } }"));
+        assertEquals("", guardOfTarget("void run() { try { target(); } catch (IllegalStateException e) { y(); } }"));
+        assertEquals("catch A | B", guardOfTarget("void run() { try { x(); } catch (A | B e) { target(); } }"));
+    }
+
+    @Test
     void mergingGuards() {
         assertEquals("", Guards.merge(List.of("a", "")), "one unconditional call makes the edge unconditional");
         assertEquals("a", Guards.merge(List.of("a", "a")));

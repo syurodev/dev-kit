@@ -14,6 +14,7 @@ import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ContinueStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
@@ -46,8 +47,9 @@ import java.util.Set;
  * which only runs when the left side let it; and the guard clause, an
  * {@code if} before the call whose branch leaves the block
  * ({@code if (!enabled) return false;}), which is how most of this code is
- * written. Loops and {@code try} are not conditions here: a loop repeats a
- * call, it does not choose it.
+ * written. Loops and the {@code try} block itself are not conditions here; a
+ * {@code catch} block is — it runs only when its exception was thrown. A loop
+ * repeats a call, it does not choose it.
  */
 final class Guards {
 
@@ -108,6 +110,8 @@ final class Guards {
             }
         } else if (parent instanceof SwitchEntry entry && isStatementOf(entry, child)) {
             add(out, switchCondition(entry));
+        } else if (parent instanceof CatchClause clause && child == clause.getBody()) {
+            add(out, "catch " + flatten(clause.getParameter().getType().toString()));
         } else if (parent instanceof BlockStmt block) {
             guardClauses(block, child, out);
         }
@@ -147,7 +151,7 @@ final class Guards {
     }
 
     /** True when control never falls out of the end of {@code s}: it returns, throws, breaks or continues. */
-    private static boolean leaves(Statement s) {
+    static boolean leaves(Statement s) {
         if (s instanceof ReturnStmt || s instanceof ThrowStmt || s instanceof BreakStmt || s instanceof ContinueStmt) {
             return true;
         }
@@ -225,7 +229,7 @@ final class Guards {
         return e;
     }
 
-    private static String flatten(String s) {
+    static String flatten(String s) {
         return s.replaceAll("\\s+", " ").trim();
     }
 
