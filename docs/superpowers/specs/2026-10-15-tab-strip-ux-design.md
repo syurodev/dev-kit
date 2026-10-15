@@ -114,3 +114,35 @@ dashed border stays: that is what marks it as a preview.
   overflow buttons only when overflowing (driven through the pure helper).
 - Manual: server mode — many tabs (fades, buttons), an Agent session running,
   a dirty CodeGraph file, `⌘⇧T` after closing tabs in a split.
+
+## Addendum — later requests (2026-10-15)
+
+Asked for after the design above was approved; implemented on the same branch.
+
+- **An even strip.** The strip stays 40px; tabs are 28px
+  (`--control-height-sm`, the drag ghost's and the ‹ › / + buttons' height),
+  6px from all four sides (`p-1.5`), 6px apart (`TAB_GAP_PX`) and 6px from
+  ‹ ›, + and the split's close-group button. The 6px tab radius is then
+  concentric in the pane's 12px corner. The tab row pads itself 2px and gives
+  it back in negative margin (`RING_PX`) so the ⌘⇧E focus ring is no longer
+  clipped by the scroller.
+- **HTTP method chips** (`frontend/src/lib/httpMethod.ts`): one Postman-like
+  colouring (GET green, POST yellow, PUT/PATCH blue, DELETE red, anything else
+  neutral) wherever a method is written — the API Client's rail and picker,
+  CodeGraph's entry points and flow header. Colour says which method, so it is
+  a palette hue (`--hue-*`), never `--status-*`. A chip is the hue as text on
+  the hue tinted into `--surface-base` by `--method-tint` (10% light, 13%
+  dark), the most that keeps every palette's hue at 4.5:1 on its own tint;
+  `themeContrast.test.ts` checks it. A tinted chip is never dimmed with
+  opacity: CodeGraph's filtered-out verb chips use the neutral chip instead.
+- **Flow header inset.** CodeGraph's flow header follows the strip: `px-1.5`
+  (6px), so its first control lines up with the first tab.
+- **`success` is produced.** A completed Agent Hub turn marks the session's
+  tabs `success` (cancelled/denied stay `idle`); the strip's seen set clears
+  the dot once any group shows the tab. The rail's unread badge is separate
+  and unchanged.
+- **Tool failures no longer mark `error`.** A failed tool call is routine — the
+  agent reads it and goes on — so a session's tabs stay `running`; only a
+  failed turn or session marks `error`. Only the session's own tabs are marked;
+  the "New session" tab never is.
+

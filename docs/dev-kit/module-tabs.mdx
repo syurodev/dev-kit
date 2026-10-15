@@ -37,6 +37,33 @@ card/document group, không thuộc title bar.
   session. Sửa/xóa profile cleanup tài nguyên theo contract của SSH.
 - Dialog của document dùng `useModuleVisibility()` để tab nền không mở
   portal lên tab đang xem. Shadcn `Tabs` chỉ chuyển mode trong cùng document.
+- **Trạng thái trên mọi tab** (spec `docs/superpowers/specs/2026-10-15-tab-strip-ux-design.md`).
+  `setTabStatus(id, status)` vẽ dấu trước title của mọi tab, không chỉ tab
+  active: `running` là vòng xoay, `error` chấm đỏ, `success` chấm xanh cho tới
+  khi tab được nhìn thấy (bất kỳ group nào hiện nó — `workbench/tabs/seenSuccess.ts`;
+  status trong store không bị ghi lại), `idle` không vẽ gì. Caller hiện tại:
+  Agent Hub (`setAgentHubTabsStatus` trong `workbench/agentPromptQueue.ts`,
+  gọi từ đó và `AgentSessionsSubscriber.tsx`) — chỉ tab của đúng session
+  (`tabSessionId(tab) === sessionId`, tab "New session" không bao giờ):
+  `running` khi turn chạy (tool call fail vẫn là `running`), `success` khi turn
+  completed, `error` khi turn/session fail, `idle` khi cancel/denied.
+- **Unsaved work:** `setTabDirty(id, dirty)` (no-op nếu không đổi, không
+  persist, như `status`). Tab dirty hiện `●` ở ô close; hover/focus đổi thành
+  `✕` (hoặc pin), nút vẫn nằm trong accessibility tree. Caller: CodeGraph
+  `FileDocument` (buffer khác disk) và API Client `ApiRequestView` (cờ unsaved
+  của toolbar, request mới chưa lưu cũng tính). Gọi trong effect theo
+  `tabKey(...)` của chính document; không reset khi unmount.
+- **Đóng và mở lại:** `closeTab(id)` ghi tab vào `recentlyClosed` (memory,
+  ≤ 20, mới nhất trước; preview không được ghi; mở lại thật bằng `openTab`
+  thì quên record — chỉ preview giữ). Đóng tab mà document **không còn**
+  (bị xóa, folder rời workspace, file bị xóa trên disk, draft mới đã thành bản
+  lưu) bằng `closeTab(id, { remember: false })`, để ⌘⇧T không đề xuất lại.
+  `reopenClosedTab(at = 0)` mở lại non-preview ở group cũ (nếu còn và còn
+  hiện module đó) tại vị trí cũ, pin lại nếu đã pin; tab đang mở thì chỉ
+  activate. UI đi qua `workbench/reopenTab.ts`: ⌘⇧T / Ctrl⇧T (không khi có
+  dialog/palette mở), menu tab "Reopen Closed Tab" + "Recently Closed" (10
+  mục), Command Palette ("Reopen Closed Tab", "Reopen: <title>"); record đang
+  mở lại bị ẩn, record của module không còn / unusable bị bỏ kèm toast.
 
 Ví dụ: `frontend/src/modules/ssh/manifest.ts`, `documents.ts`, `SSHView.tsx`
 và `documents.test.ts`. Contract API: `frontend/src/modules/registry.ts`.
@@ -129,7 +156,8 @@ Mỗi `WorkbenchTab` gồm:
 - **`closeTab(id)` focus tab bên trái tab vừa đóng** (fallback
   `openTabs[index - 1] ?? openTabs[0]`), giống hành vi VS Code; không đổi
   `activeTabId` nếu tab bị đóng không phải tab đang active.
-- **`setTabStatus(id, status)`** tồn tại sẵn cho tab hiện trạng thái
+- **`setTabStatus(id, status)`** (lịch sử — hiện đã có caller, xem Contract
+  hiện tại) tồn tại sẵn cho tab hiện trạng thái
   running/success/error (dot màu trong `TabStrip`, tái dùng vocabulary
   `--status-running`/`--status-error`/`--status-idle`/`--status-success`) —
   nhưng **chưa module nào gọi hàm này**; đây là primitive dựng trước cho live
