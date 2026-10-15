@@ -347,6 +347,26 @@ export interface Document {
     "createdAt": string;
 }
 
+export interface EnvironmentEntry {
+    "name": string;
+    "kind": string;
+    "status": string;
+    "source"?: string;
+    "detail": string;
+    "action"?: string;
+}
+
+export interface EnvironmentReport {
+    "agent": string;
+
+    /**
+     * session | next
+     */
+    "scope": string;
+    "entries": EnvironmentEntry[] | null;
+    "checkedAt": number;
+}
+
 /**
  * FileDiff is one path's two versions, for the drawer behind a changed file.
  */

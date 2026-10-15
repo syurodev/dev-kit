@@ -168,18 +168,21 @@ func (l launch) releaseLease() {
 // will actually get.
 func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbox.Cmd) {
 	env := claudeEnvAllowlist()
+	inheritToolEnvironment(env, spec)
 	for key, value := range l.env {
 		env[key] = value
 	}
 	for key, value := range spec.ExtraEnv {
 		env[key] = value
 	}
+	completeToolPath(env, spec)
 	pol := sandbox.Policy{
-		WorkDir:        workDir,
-		Network:        sandbox.NetworkHost,
-		Env:            env,
-		ReadOnlyPaths:  uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths: uniqueAbsPaths(append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)...),
+		WorkDir:                workDir,
+		Network:                sandbox.NetworkHost,
+		AllowLoopbackListeners: true,
+		Env:                    env,
+		ReadOnlyPaths:          uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
+		ReadWritePaths:         uniqueAbsPaths(append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)...),
 		// Subscription login keeps the OAuth token in the macOS keychain
 		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
 		AllowKeychain:    true,
@@ -408,38 +411,12 @@ func devkitBaseCapabilities() map[string]any {
 	}
 }
 
-// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
-//
-// claude-agent-acp passes settingSources: ["user","project","local"] to the
-// Agent SDK for every session, so ~/.claude/settings.json, the project's
-// .claude/settings.json and settings.local.json all applied inside DevKit's
-// jail. Two of the things those files can carry defeat the permission gate
-// outright, because the gate is the LAST step of the SDK's evaluation order
-// (hooks → deny → ask → mode → allow → the gate):
-//
-//	permissions.allow      an allow rule approves the call before the gate is
-//	                       reached. Measured: with {"allow":["Bash"]} a shell
-//	                       command that writes a file ran and the gate was
-//	                       never asked.
-//	permissions.defaultMode acp-agent reads it and makes it the session's
-//	                       permission mode, so acceptEdits or bypassPermissions
-//	                       in a user's settings silences the gate for whole
-//	                       classes of tool.
-//
-// An empty settingSources leaves the agent with the programmatic tier only —
-// which is what DevKit passes and controls. It does not disable managed
-// (MDM/policy) settings, which is correct: an organisation's policy should
-// still bind an agent running on its machine.
-//
-// This is a jailbreak fix, not a preference: the whole premise of
-// PermissionWaiter is that it sees every tool call it is meant to gate.
-//
-// The same _meta carries a PreToolUse hook when we know where DevKit's own
-// binary lives inside the jail. settingSources shuts outside settings out;
-// the hook is the one rule DevKit puts back in, and it runs before every
-// other step of the evaluation order. See runPreToolUseHook.
+// sessionNewMeta keeps Claude's normal user, project and local customization
+// sources. Skills, plugins, hooks and permission preferences belong to the
+// user's working environment. DevKit's own tools still enforce their gates
+// after dispatch; the programmatic Git hook remains in place.
 func sessionNewMeta(hookCommand, prompt string, gateOwnedTools ...string) json.RawMessage {
-	options := map[string]any{"settingSources": []string{}}
+	options := map[string]any{"settingSources": []string{"user", "project", "local"}}
 	if len(gateOwnedTools) > 0 {
 		options["allowedTools"] = gateOwnedTools
 	}
@@ -639,9 +616,10 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 
 	rw := &stdioPipe{r: stdout, w: stdin}
 	rt := &claudeRuntime{
-		proc:   proc,
-		cwd:    pol.WorkDir,
-		killer: &procKiller{proc: proc},
+		environment: captureEnvironment(AgentTypeClaude, spec, pol.Env, cmd.Path, ""),
+		proc:        proc,
+		cwd:         pol.WorkDir,
+		killer:      &procKiller{proc: proc},
 	}
 	handler := &claudeConnHandler{rt: rt, onUnknownMethod: a.opts.OnUnknownMethod}
 	conn := acp.NewConn(rw, handler)
@@ -1144,6 +1122,7 @@ func (k *procKiller) Signal(sig os.Signal) error {
 }
 
 type claudeRuntime struct {
+	environment  *environmentSnapshot
 	conn         *acp.Conn
 	proc         *sandbox.Proc
 	killer       acp.ProcessKiller

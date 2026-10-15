@@ -18,17 +18,11 @@ import (
 //	                    asking, possibly inside the session that wrote it.
 //	AGENTS.md,          global instructions: a prompt injected into every
 //	AGENTS.override.md  later session.
-//	skills/             global skills, for the same reason.
 //
-// Read-only is not enough on its own. The jail cannot write these, but a
-// session from before this rule, a symlink planted where one of them should
-// be, or anything else that got there is still read by the next spawn — so
-// DevKit empties them each time, and what Codex reads is what DevKit wrote.
-//
-// Measured on 0.147.0: Codex starts and runs turns with all five read-only.
-// It logs "failed to install system skills" once per start, because it
-// copies its bundled skills into skills/.system on every start and cannot;
-// those skills (imagegen, openai-docs, skill-creator, …) are simply absent.
+// Skills are deliberately excluded: they are user customization, not an exec
+// approval policy. Keep installed skills and let Codex install its bundled
+// system skills. Imported settings and instructions are populated by DevKit
+// after this reset, while exec rules still start empty.
 var codexPolicyEntries = []struct {
 	name string
 	dir  bool
@@ -37,15 +31,13 @@ var codexPolicyEntries = []struct {
 	{"rules", true},
 	{"AGENTS.md", false},
 	{"AGENTS.override.md", false},
-	{"skills", true},
 }
 
-// codexConfigHeader is the whole of the config.toml DevKit writes. Everything
-// DevKit sets goes on the command line or in each request, where the agent
-// cannot reach it; the file exists only so the jail has something to bind
-// read-only.
+// codexConfigHeader precedes portable user customization in shared-home
+// sessions. DevKit-owned settings go on argv or each request; the resulting
+// config stays read-only to the agent.
 const codexConfigHeader = "# Managed by DevKit and rewritten before every Codex session.\n" +
-	"# Settings here are ignored: DevKit passes its own on the command line.\n"
+	"# Session settings and the DevKit MCP endpoint take precedence.\n"
 
 // prepareCodexHome makes home ready for a spawn and returns the paths the
 // jail must not write. The home is created 0700 and must be a real

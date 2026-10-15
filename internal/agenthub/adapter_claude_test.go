@@ -471,17 +471,8 @@ func TestOpenFailsFastWhenVendorDiesDuringHandshake(t *testing.T) {
 	}
 }
 
-func TestSessionNewCutsOffUserSettings(t *testing.T) {
-	// claude-agent-acp passes settingSources ["user","project","local"] to the
-	// Agent SDK unless session/new._meta overrides it, which let a user's own
-	// ~/.claude/settings.json reach inside the jail. Measured against the real
-	// CLI: with permissions.allow ["Bash"], a shell command that wrote a file
-	// ran and the permission gate was never consulted — the gate is the last
-	// step of the evaluation order, so an allow rule skips it entirely.
-	//
-	// Asserting the wire bytes, not the Go value: the agent reads this as JSON
-	// at a path it chose, and a struct that marshals to the wrong shape would
-	// silently restore the hole.
+func TestSessionNewInheritsUserAndProjectSettings(t *testing.T) {
+	// Verify the wire format restores Claude's normal discovery sources.
 	body, err := json.Marshal(acp.SessionNewRequest{
 		Cwd:        "/x",
 		McpServers: []any{},
@@ -508,8 +499,8 @@ func TestSessionNewCutsOffUserSettings(t *testing.T) {
 	if got == nil {
 		t.Fatalf("settingSources missing from session/new: %s", body)
 	}
-	if len(*got) != 0 {
-		t.Fatalf("settingSources = %v, want empty so no user settings apply", *got)
+	if !slices.Equal(*got, []string{"user", "project", "local"}) {
+		t.Fatalf("settingSources = %v, want user, project and local settings", *got)
 	}
 }
 
@@ -565,8 +556,8 @@ func TestSessionNewInstallsThePreToolUseHook(t *testing.T) {
 	}
 
 	opts := wire.ClaudeCode.Options
-	if opts.SettingSources == nil || len(*opts.SettingSources) != 0 {
-		t.Fatalf("settingSources = %v, want empty alongside the hook", opts.SettingSources)
+	if opts.SettingSources == nil || !slices.Equal(*opts.SettingSources, []string{"user", "project", "local"}) {
+		t.Fatalf("settingSources = %v, want normal sources alongside the hook", opts.SettingSources)
 	}
 	groups := opts.Settings.Hooks.PreToolUse
 	if len(groups) != 1 || len(groups[0].Hooks) != 1 {
@@ -1253,12 +1244,9 @@ func TestForkSendsInitializeThenSessionFork(t *testing.T) {
 	if got := fork.Params.Meta.JetBrains.Air.Fork; got.Version != 1 || got.MessageID != "msg_abc" {
 		t.Errorf("fork meta = %+v, want version 1 at msg_abc", got)
 	}
-	// A fork makes a new vendor session, so it needs the same cut-off from the
-	// user's own ~/.claude settings that session/new gets. Dropping it would
-	// make a rewound session the one place a permissions.allow rule applies
-	// inside the jail.
-	if sources := fork.Params.Meta.ClaudeCode.Options.SettingSources; sources == nil || len(sources) != 0 {
-		t.Errorf("settingSources = %v, want an empty list", sources)
+	// Forks inherit the same customization sources as a fresh session.
+	if sources := fork.Params.Meta.ClaudeCode.Options.SettingSources; !slices.Equal(sources, []string{"user", "project", "local"}) {
+		t.Errorf("settingSources = %v, want user, project and local", sources)
 	}
 	if fork.Params.Meta.SystemPrompt.Append != devkitPrompt(claudeNaming, "") {
 		t.Error("fork did not carry DevKit's prompt")

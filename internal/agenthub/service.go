@@ -110,6 +110,7 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 	if extras.HomeShared() {
 		shared := false
 		spec.PrivateHome = &shared
+		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, developmentToolRoots()...)
 	}
 }
 

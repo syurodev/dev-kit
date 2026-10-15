@@ -320,9 +320,9 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   (`internal/agenthub/devkit_prompt.go`). `{{tool.name}}` placeholders become the names the
   model actually sees — `mcp__devkit__git_commit` for Claude, DevKit's own name plus a
   "your host may reformat it" note for Codex — and `TestPromptNamesOnlyRealTools` fails if
-  one names no MCP tool. It says which vendor defaults DevKit replaces (git writes, code
-  structure, saved connections, the task board) and that this takes precedence: the old,
-  descriptive version lost to Claude Code's own prompt every time. `Service.SessionBrief`
+  one names no MCP tool. Normal CLI, search/LSP and skill workflows are allowed;
+  CodeGraph and saving API requests are optional. Git writes still use DevKit's
+  guarded tools; saved-connection checks still apply. `Service.SessionBrief`
   (`app.AgentSessionBrief`) puts the session's workspace folders and which it may write
   in the prompt instead of asking the agent to go and look.
 - **Workspace instructions are read each turn, sent when they change.** Create/Edit workspace
@@ -463,6 +463,20 @@ go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteW
   socket found via DOCKER_HOST / current docker context / OrbStack / Docker Desktop
   (`AllowDocker`, `agenthub.DetectDocker`). DevKit's data dir (except `runtimes/`) is always
   hidden (`agenthub.ProtectDataDir`). Settings → Agents → Sandbox turns either off.
+- **Environment inspection**: Settings → Agents and the session menu expose a
+  UI-only report (`agenthub/environment.go`, `AgentHubEnvironment`). The live
+  report retains launch env/grants. Codex reports skills/MCP through bounded
+  metadata calls; Claude discovery is configuration-only. Never label file
+  discovery as runtime verification or include config values, env secrets or
+  skill bodies in the report/audit. Shared-home PATH completion runs after
+  vendor/session overrides and adds existing common toolchain bins.
+- **Vendor customization is available again**: Claude uses `user`/`project`/`local`
+  setting sources. Shared-home Codex sessions import portable user MCP/settings and
+  global instructions, link user skills/plugins read-only, and keep DevKit's own
+  login/state. `skills/` is persistent and writable for system/managed installs;
+  native features are not forcibly disabled. Shared-home sessions inherit the
+  host process's CLI environment; Codex provider credentials remain selected by
+  DevKit. Codex defaults to Auto, and both adapters allow loopback dev servers.
 - Product docs: `syurodev/base` → `/dev-kit/sandbox` (ADR-009).
 
 ### Linux desktop (GTK4 / WebKitGTK)

@@ -24,6 +24,8 @@ export type {
     ContextFile,
     CreateInput,
     Document,
+    EnvironmentEntry,
+    EnvironmentReport,
     FileDiff,
     ImageAttachment,
     InvokeInput,

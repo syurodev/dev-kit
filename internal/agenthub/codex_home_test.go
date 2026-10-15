@@ -36,8 +36,8 @@ func TestPrepareCodexHomeResetsWhatAPreviousSessionLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(deny) != 5 {
-		t.Fatalf("deny = %v, want the five policy paths", deny)
+	if len(deny) != 4 {
+		t.Fatalf("deny = %v, want the four policy paths", deny)
 	}
 	for _, path := range deny {
 		info, err := os.Lstat(path)
@@ -57,6 +57,9 @@ func TestPrepareCodexHomeResetsWhatAPreviousSessionLeft(t *testing.T) {
 		if want := map[bool]string{true: codexConfigHeader, false: ""}[filepath.Base(path) == "config.toml"]; string(got) != want {
 			t.Fatalf("%s = %q, want %q", path, got, want)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "evil")); err != nil {
+		t.Fatalf("installed skills must survive another spawn: %v", err)
 	}
 	if got, _ := os.ReadFile(outside); string(got) != "keep me" {
 		t.Fatalf("the symlink's target was written through: %q", got)

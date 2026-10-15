@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,42 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSeatbeltAgentCanRunLoopbackDevelopmentServers(t *testing.T) {
+	if os.Getenv("DEVKIT_TEST_LOOPBACK_LISTENER") == "1" {
+		for _, addr := range []string{"127.0.0.1:0", "[::1]:0"} {
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				t.Fatalf("listen on %s: %v", addr, err)
+			}
+			listener.Close()
+		}
+		fmt.Println("LOOPBACK_LISTENERS_OK")
+		return
+	}
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir: t.TempDir(), Network: NetworkHost, AllowLoopbackListeners: true,
+		ReadOnlyPaths: []string{exe}, Env: map[string]string{"DEVKIT_TEST_LOOPBACK_LISTENER": "1"},
+	}, Cmd{Path: exe, Args: []string{"-test.run=^TestSeatbeltAgentCanRunLoopbackDevelopmentServers$"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = proc.Wait()
+	stdout, stderr := proc.Output()
+	if err != nil || !strings.Contains(string(stdout), "LOOPBACK_LISTENERS_OK") {
+		t.Fatalf("loopback server failed: %v\n%s\n%s", err, stdout, stderr)
+	}
+}
 
 func TestSeatbeltDeniesDotSSH(t *testing.T) {
 	backend := NewSeatbeltBackend()

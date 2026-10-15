@@ -249,6 +249,76 @@ Thử riêng từng cái đều fail; phải có cả hai. No-op ngoài darwin.
 
 Read-only là đủ: agent tra token của chính nó, không phải ghi lại.
 
+### Inspecting an agent's environment
+
+Settings → Agents → **Check tools, skills and MCP** inspects the next-session
+setup without starting an agent. A session's sidebar menu → **Session environment**
+uses its original launch environment and write grants; preferences changed later
+are not advertised as already active. Neither action submits a prompt.
+
+The report separates executable/config discovery from runtime verification:
+**Found** means an executable exists on PATH, **Configured** means a skill/server
+file was found, **Loaded** comes from Codex's live `skills/list`, and MCP status
+comes from `mcpServerStatus/list`. Individual execution, connectivity and login
+are not inferred from a file. Claude's skill/server inventory is configuration
+only. Unknown or timed-out runtime inventories remain **Unverified** with a
+refresh hint. Auth status, when reported, can show **Sign-in needed**. There is
+no MCP tool for this report: personal config discovery is UI-only.
+
+Only names, paths, statuses and repair hints cross the bridge. Configuration
+values, credential environment values and skill bodies are never returned or
+put in audit metadata. Reads and inventories are bounded; runtime metadata
+requests have deadlines. Missing optional CLI tools do not block sessions.
+
+Shared-home sessions preserve their explicit PATH order and append existing
+Homebrew, `~/.local/bin`, Bun, Go, Cargo, Volta, asdf and pyenv directories.
+Homebrew/system installation roots get read grants so CLI binaries and libraries
+can be reached from the sandbox. This happens after the managed runtime's PATH
+prefix, and does not execute shell startup scripts or guess an nvm version.
+Variables exported only in another terminal still need to be present in the
+DevKit process; this is PATH completion, not a full login-shell environment import.
+
+### Agent customization and development tools
+
+Agent Hub keeps the vendor's normal customization available. Claude loads
+`user`, `project` and `local` settings, including the user's skill and plugin
+configuration and permission preferences. DevKit's programmatic Git hook stays
+installed; confirmation inside DevKit tools still applies after dispatch.
+User allow rules may approve ordinary vendor tools without a DevKit dialog.
+
+With **Share home folder** enabled (the default), both vendors inherit the
+host process's environment for CLI and MCP tools, including proxy configuration
+and CLI authentication variables. Shared-home Codex sessions also get read
+access to the macOS login keychain for keychain-backed CLI authentication,
+as Claude sessions already do. DevKit never logs those values. A desktop
+app only inherits variables available to its process; variables exported in
+an unrelated terminal are not automatically available.
+
+Codex keeps its own DevKit sign-in and session storage, but imports portable
+settings from `~/.codex/config.toml`: MCP servers, skills, plugins, features,
+project trust, web search, agents and personality. Global `AGENTS.md` and
+`AGENTS.override.md` are imported too. The `devkit` MCP name is reserved for
+the session's identity-bound endpoint. Provider selection, approval policy,
+authentication and storage paths are not imported. Existing host auth/session
+files remain hidden. User skills and plugin assets are linked read-only;
+managed installs win on name collisions. The managed `skills/` is no longer
+emptied or write-protected, so installed skills persist and the runtime can
+install bundled system skills. Turning Share home off stops config/environment
+inheritance and hides the user sources. Hooks, plugins, apps and computer use
+are no longer forcibly disabled; actual availability depends on the runtime,
+configuration and authentication. External MCP OAuth login is not copied from
+the user's Codex home and may require authentication in DevKit's home.
+
+New Codex runtimes start in **Auto** (`on-request`), rather than **Ask**;
+explicit session mode selections still apply. Both vendors can start dev
+servers on arbitrary **loopback** ports, including on macOS. This listener
+permission is not a guarantee of loopback-only isolation: Linux uses host
+networking and Seatbelt can also accept wildcard binds. Existing workspace
+write grants, sensitive-path denies and DevKit data isolation remain in place.
+The prompt permits normal shell/search/LSP/CLI workflows; CodeGraph and saving
+API requests are optional. Guarded Git writes and saved-connection checks still
+use DevKit's existing tools.
+
 ### Agent Hub's jail: home and Docker by default (Implemented)
 
 `sandbox.Policy` stays default-deny — `PrivateHome` nil means private, no unix
