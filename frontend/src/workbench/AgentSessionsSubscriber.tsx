@@ -19,7 +19,6 @@ import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthu
 import { agentSessionOnScreen, showAgentSession, syncAgentSessionTabTitles } from "../modules/agenthub/documents";
 import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
-import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 import {
   drainQueuedPrompt,
@@ -244,27 +243,11 @@ export function AgentSessionsSubscriber() {
         trackSubagent(event.sessionId, event.parsed.subagent);
       }
 
-      // Synchronize tab status: find open tabs belonging to Agent Hub
-      const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
-      const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
-        (t) => !t.params?.sessionId || t.params.sessionId === event.sessionId,
-      );
-
-      if (targetTabs.length > 0) {
-        let nextStatus: TabStatus = "running";
-        if (event.parsed) {
-          const kind = event.parsed.kind;
-          if (
-            kind === UpdateKind.UpdateToolCallUpdate &&
-            event.parsed.toolCall?.status === "failed"
-          ) {
-            nextStatus = "error";
-          }
-        }
-        for (const tab of targetTabs) {
-          setTabStatus(tab.id, nextStatus);
-        }
-      }
+      // The session's own tabs only (setAgentHubTabsStatus): a failed tool
+      // call marks them failed, anything else running.
+      const failed =
+        event.parsed?.kind === UpdateKind.UpdateToolCallUpdate && event.parsed.toolCall?.status === "failed";
+      setAgentHubTabsStatus(event.sessionId, failed ? "error" : "running");
     });
   }, [trackSubagent]);
 

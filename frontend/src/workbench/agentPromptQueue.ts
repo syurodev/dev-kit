@@ -11,6 +11,7 @@ import { toAppError } from "../bridge/errors";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { encodeEntityRef } from "./entityRef";
+import { AGENTHUB_MODULE, tabSessionId } from "../modules/agenthub/documents";
 import type { EntityRef } from "./intents";
 
 export type TurnBridge = {
@@ -129,11 +130,16 @@ export function noteTurnFinishedDuringOurs(sessionId: string): void {
   finishedDuringTurn.add(sessionId);
 }
 
-/** The dot on every Agent Hub tab showing this session. */
+/**
+ * The mark on every Agent Hub tab showing this session. Only those: the
+ * new-session tab shows no session (its draft becomes a session tab of its
+ * own), and now that every tab shows its status it would carry every
+ * session's.
+ */
 export function setAgentHubTabsStatus(sessionId: string, status: TabStatus): void {
   const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
-  for (const tab of moduleTabs(modules, "agenthub").openTabs) {
-    if (!tab.params?.sessionId || tab.params.sessionId === sessionId) setTabStatus(tab.id, status);
+  for (const tab of moduleTabs(modules, AGENTHUB_MODULE).openTabs) {
+    if (tabSessionId(tab) === sessionId) setTabStatus(tab.id, status);
   }
 }
 

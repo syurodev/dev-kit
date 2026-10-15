@@ -11,7 +11,7 @@ import {
 } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
-import { sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
+import { sendAgentTurn, setAgentHubTabsStatus, type TurnBridge } from "./agentPromptQueue";
 import type { InvokeResult } from "../bridge/agenthub";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
@@ -20,6 +20,8 @@ useWorkbenchTabsStore.persist.setOptions({
 });
 
 const tabStatus = () => useWorkbenchTabsStore.getState().modules.agenthub.openTabs[0].status;
+/** The new-session tab: no session of its own, so no session's status. */
+const homeStatus = () => useWorkbenchTabsStore.getState().modules.agenthub.openTabs[1].status;
 
 describe("an Agent Hub tab when a turn finishes", () => {
   beforeEach(() => {
@@ -29,10 +31,18 @@ describe("an Agent Hub tab when a turn finishes", () => {
       modules: {
         agenthub: {
           openTabs: [
-            { id: "agenthub:agenthub.sessions", moduleId: "agenthub", viewId: "agenthub.sessions", title: "Agent Hub", status: "running" },
+            {
+              id: "agenthub:agenthub.sessions:sessionId=s1",
+              moduleId: "agenthub",
+              viewId: "agenthub.sessions",
+              title: "s1",
+              params: { sessionId: "s1" },
+              status: "running",
+            },
+            { id: "agenthub:agenthub.sessions", moduleId: "agenthub", viewId: "agenthub.sessions", title: "New session", status: "idle" },
           ],
-          activeTabId: "agenthub:agenthub.sessions",
-          tabMru: ["agenthub:agenthub.sessions"],
+          activeTabId: "agenthub:agenthub.sessions:sessionId=s1",
+          tabMru: ["agenthub:agenthub.sessions:sessionId=s1"],
         },
       },
     });
@@ -68,6 +78,14 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
 
     expect(tabStatus()).toBe("error");
+  });
+
+  it("leaves the new-session tab alone: it shows no session", () => {
+    handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
+    setAgentHubTabsStatus("s1", "running");
+
+    expect(tabStatus()).toBe("running");
+    expect(homeStatus()).toBe("idle");
   });
 
   it("stays running when a late turnFinished lands while the next turn of ours runs", () => {
