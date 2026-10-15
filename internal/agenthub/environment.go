@@ -178,7 +178,7 @@ func (r *codexRuntime) reportEnvironment(ctx context.Context) (EnvironmentReport
 				if skill.Enabled != nil && !*skill.Enabled {
 					status, detail = "disabled", "Disabled in the runtime's skill configuration."
 				}
-				addEnvironmentEntry(&report, EnvironmentEntry{Name: clipEnvironmentText(skill.Name), Kind: "skills", Status: status, Source: clipEnvironmentText(skill.Path), Detail: detail})
+				addEnvironmentEntry(&report, EnvironmentEntry{Name: clipEnvironmentText(skill.Name), Kind: "skills", Status: status, Source: environmentSkillPath(skill.Path), Detail: detail})
 			}
 		}
 	} else {
@@ -394,6 +394,14 @@ func scanMCPConfig(report *EnvironmentReport, path string, isTOML bool, cwd stri
 			appendNames(project[key])
 		}
 	}
+}
+
+// Paths used by management controls must remain exact, rather than prose-clipped.
+func environmentSkillPath(path string) string {
+	if len(path) > 4096 || !filepath.IsAbs(path) {
+		return ""
+	}
+	return path
 }
 
 func clipEnvironmentText(text string) string {
