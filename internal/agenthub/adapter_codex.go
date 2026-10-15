@@ -93,7 +93,8 @@ type CodexOptions struct {
 // the rest of Agent Hub: notifications through codexTranslator, approvals
 // through PermissionWaiter.
 type CodexAdapter struct {
-	opts CodexOptions
+	opts            CodexOptions
+	customizationMu sync.Mutex
 
 	signInStart sync.Mutex // held for the whole of a startSignIn
 	signInMu    sync.Mutex
@@ -211,6 +212,8 @@ func codexEnv(l launch, spec OpenSpec, home string) map[string]string {
 // listen are loopback ports the process may serve: only a sign-in asks, for
 // the browser's callback.
 func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store string, listen ...int) (sandbox.Policy, sandbox.Cmd, error) {
+	a.customizationMu.Lock()
+	defer a.customizationMu.Unlock()
 	home := a.opts.Home
 	denyWrite, err := prepareCodexHome(home)
 	if err != nil {
@@ -252,6 +255,13 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		}
 	}
 
+	importedRoots, customizationArgs, err := applyCodexCustomization(home, spec.Customizations[string(AgentTypeCodex)])
+	if err != nil {
+		return sandbox.Policy{}, sandbox.Cmd{}, err
+	}
+	customizationPaths = append(customizationPaths, importedRoots...)
+	denyWrite = append(denyWrite, importedRoots...)
+
 	pol := sandbox.Policy{
 		WorkDir:                workDir,
 		Network:                sandbox.NetworkHost,
@@ -272,6 +282,7 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		PrivateHome:           spec.PrivateHome,
 	}
 	args := append(append([]string(nil), l.args...), codexArgs(store, spec.McpServers)...)
+	args = append(args, customizationArgs...)
 	return pol, sandbox.Cmd{Path: l.path, Args: args}, nil
 }
 

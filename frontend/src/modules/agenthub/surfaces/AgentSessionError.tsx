@@ -10,7 +10,7 @@ export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "require
 const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: string }> = {
   crashed: {
     title: "stopped",
-    retry: "Restart",
+    retry: "Resume session",
     reason: "agenthub.processFailed — the agent exited before the turn finished.",
   },
   denied: {

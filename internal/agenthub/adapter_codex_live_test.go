@@ -13,6 +13,7 @@ import (
 
 	"devkit/internal/acp"
 	"devkit/internal/agentruntime"
+	"devkit/internal/preferences"
 	"devkit/internal/sandbox"
 )
 
@@ -322,5 +323,64 @@ func TestCodexLiveMcpApprovalAndResume(t *testing.T) {
 	// as well; one word should cost far less than the first turn did.
 	if usage.OutputTokens <= 0 || usage.OutputTokens >= firstUsage.OutputTokens+usage.InputTokens || usage.InputTokens <= 0 {
 		t.Fatalf("the resumed turn's usage looks wrong: %+v", usage)
+	}
+}
+
+func TestCodexRealBinaryManagedSkillEnablement(t *testing.T) {
+	host := t.TempDir()
+	t.Setenv("HOME", host)
+	folder := customizationSkill(t, "devkit-managed-test")
+	a := codexForReal(t, filepath.Join(t.TempDir(), "managed"))
+	value := preferences.AgentCustomization{SkillFolders: []string{folder}}
+	for _, disabled := range []bool{false, true, false} {
+		if disabled {
+			value.DisabledSkills = []string{filepath.Join(folder, "SKILL.md")}
+		} else {
+			value.DisabledSkills = nil
+		}
+		l, err := a.resolveCommand()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cwd := t.TempDir()
+		p, err := a.start(cwd, l, OpenSpec{Customizations: map[string]preferences.AgentCustomization{"codex": value}}, codexStoreFile, codexNoHandler{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := a.initialize(ctx, p); err != nil {
+			cancel()
+			p.stop()
+			t.Fatal(err)
+		}
+		var result struct {
+			Data []struct {
+				Skills []struct {
+					Name    string `json:"name"`
+					Path    string `json:"path"`
+					Enabled bool   `json:"enabled"`
+				} `json:"skills"`
+			} `json:"data"`
+		}
+		err = p.conn.Call(ctx, "skills/list", map[string]any{"cwds": []string{cwd}}, &result)
+		cancel()
+		p.stop()
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, group := range result.Data {
+			for _, skill := range group.Skills {
+				if skill.Name == "devkit-managed-test" {
+					found = true
+					if skill.Enabled == disabled {
+						t.Fatalf("enabled=%v, disabled=%v, skill=%+v", skill.Enabled, disabled, skill)
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatal("managed skill not discovered")
+		}
 	}
 }

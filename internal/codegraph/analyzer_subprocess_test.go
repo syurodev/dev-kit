@@ -21,6 +21,9 @@ func builtJavaAnalyzer(t *testing.T) Toolchain {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	toolchain := JavaToolchain(repoRoot)
+	if toolchain.localArtifactStale(toolchain.Artifact) {
+		t.Fatalf("Java analyzer jar is older than its source; run `cd analyzer && mvn package` before testing")
+	}
 	if toolchain.installedArtifact() == "" {
 		t.Skipf("analyzer not built (run `cd analyzer && mvn package` first); searched %v", toolchain.Search)
 	}

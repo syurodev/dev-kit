@@ -353,6 +353,18 @@ export function agentHubEnvironment(agent: string, sessionId = ""): Promise<Envi
   return callBridge(async () => (await AppService.AgentHubEnvironment(agent, sessionId)) as EnvironmentReport);
 }
 
+export type AgentMCPConfig = { name: string; command?: string; args?: string[]; url?: string; envKeys?: string[]; enabled: boolean };
+export type AgentCustomization = { revision: number; skillFolders: string[]; disabledSkills: string[]; disabledMCP: string[]; servers: AgentMCPConfig[] };
+export function agentHubGetCustomization(vendor: string): Promise<AgentCustomization> {
+  return callBridge(async () => (await AppService.AgentHubGetCustomization(vendor)) as AgentCustomization);
+}
+export function agentHubSetCustomization(vendor: string, value: AgentCustomization): Promise<AgentCustomization> {
+  return callBridge(async () => (await AppService.AgentHubSetCustomization(vendor, value)) as AgentCustomization);
+}
+export function agentHubResumeSession(sessionId: string, reload = false): Promise<void> {
+  return callBridge(() => AppService.AgentHubResumeSession(sessionId, reload));
+}
+
 export function agentHubPrepareSession(sessionId: string): Promise<void> {
   return callBridge(() => AppService.AgentHubPrepareSession(sessionId));
 }

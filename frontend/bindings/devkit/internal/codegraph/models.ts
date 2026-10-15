@@ -842,6 +842,7 @@ export interface ToolchainStatus {
      * UI says a different thing for each.
      */
     "hasArtifact": boolean;
+    "stale": boolean;
 
     /**
      * Buildable means every requirement is met, so offering a build button is

@@ -375,6 +375,24 @@ go test ./internal/acp/ ./internal/agenthub/ ./internal/bridge/ ./internal/mcp/ 
 DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexRealBinary -v
 ```
 
+### Agent customization and recovery
+- Settings → Agents → Tools, skills and MCP manages local imports and per-vendor
+  overrides (`preferences.AgentCustomization`, in the existing sandbox preference
+  JSON). Dedicated UI-only get/set bridge methods use revision/CAS. General sandbox
+  saves preserve this map; they cannot overwrite it from a stale Settings form.
+- Imported skill folders are read-only links, never copied or deleted at source.
+  Codex uses native skill config (both canonical file and folder forms for runtime
+  compatibility); Claude uses a temporary local plugin cleaned up with its process.
+  MCP definitions support stdio and HTTP, with environment variable names only.
+- Claude's inherited toggles deny skill/MCP tool invocation, not MCP startup.
+  Vendor source deny rules remain authoritative. Local source updates are applied
+  by Refresh + Reload; no remote installer/update command runs automatically.
+- Resume/Reload is UI-only and reuses the persisted native conversation ID without
+  replaying a prompt. Reload reserves the session against Invoke and resume while
+  closing its idle runtime. A missing native conversation stays an explicit error.
+  Startup recovery adds a durable interruption notice; model/effort/mode are restored
+  before attaching live handlers. User-requested Retry turn remains separate.
+
 ### Prompt attachments (`internal/agenthub/attachment*.go`)
 DevKit reads an attached file itself and sends its contents (limit 8 MiB). Text, Markdown and HTML go
 as they are; images as image blocks; **`.docx` and `.xlsx` have their text extracted**
@@ -600,6 +618,10 @@ Three languages, three shapes, and `Toolchain` is the thing they differ in.
   (`frontend/src/modules/codegraph/workspace/indexHealth.ts`, the Files root's dot and the
   header's index summary): a folder whose language has no ready analyzer says so with the build
   action, and every other folder keeps working. The old whole-canvas gate (`analyzerGate.ts`) is gone.
+- A local Java jar older than `analyzer/pom.xml` or `analyzer/src/main` is stale:
+  the setup panel offers a rebuild instead of analyzing with outdated semantics.
+  Real-jar Go tests fail with the Maven rebuild command when a stale jar exists;
+  they still skip when no jar was built. Bundled/external artifacts are unaffected.
 - **Discovery is not `PATH`** (`internal/codegraph/locate.go`). Plenty of Java developers
   have IntelliJ and nothing else: the IDE ships its own JetBrains Runtime, bundles a full
   Maven under `plugins/maven/lib/maven3`, and downloads project JDKs into `~/.jdks` —

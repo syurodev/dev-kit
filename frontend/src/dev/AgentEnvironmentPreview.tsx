@@ -1,4 +1,5 @@
 import { EnvironmentReportView } from "@/modules/agenthub/environment/AgentEnvironment";
+import { AgentCustomizationManager } from "@/modules/agenthub/environment/AgentCustomization";
 import type { EnvironmentReport } from "@/bridge/agenthub";
 
 export const ENVIRONMENT_PREVIEW: EnvironmentReport = {
@@ -25,6 +26,7 @@ export function AgentEnvironmentPreview() {
             <h3 className="mb-2 text-body-13-medium">{label} session report</h3>
             <div className={`max-h-150 overflow-y-auto rounded-xl border border-border-subtle bg-surface-base p-5 ${label === "Narrow" ? "max-w-90" : "max-w-160"}`}>
               <EnvironmentReportView report={ENVIRONMENT_PREVIEW} />
+              <div className="pt-5"><AgentCustomizationManager vendor="codex" report={ENVIRONMENT_PREVIEW} refresh={() => {}} preview={{ initial: { revision: 0, skillFolders: ["/Users/developer/skills/local-workflow"], disabledSkills: [], disabledMCP: ["docs"], servers: [{ name: "local-docs", command: "npx", args: ["-y", "my-mcp-server"], envKeys: ["API_TOKEN"], enabled: true }] } }} /></div>
             </div>
           </div>
         ))}

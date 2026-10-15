@@ -39,9 +39,10 @@ const javaAnalyzerJar = "codegraph-analyzer.jar"
 // finds its artifact through Search instead.
 func JavaToolchain(repoRoot string) Toolchain {
 	return Toolchain{
-		Language: "java",
-		Label:    "Java",
-		Artifact: filepath.Join(repoRoot, "analyzer", "target", javaAnalyzerJar),
+		Language:     "java",
+		SourceInputs: []string{filepath.Join(repoRoot, "analyzer", "pom.xml"), filepath.Join(repoRoot, "analyzer", "src", "main")},
+		Label:        "Java",
+		Artifact:     filepath.Join(repoRoot, "analyzer", "target", javaAnalyzerJar),
 		// A packaged DevKit ships this jar and never builds it; building is the
 		// path for people running from source. See analyzerSearchPaths.
 		Search: analyzerSearchPaths("java", javaAnalyzerJar,
