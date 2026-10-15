@@ -298,13 +298,13 @@ func migrateSchema(db *sql.DB) error {
 	}
 
 	if !cols["summary"] {
-		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN summary TEXT NOT NULL DEFAULT ''"); err != nil {
-			return fmt.Errorf("codegraph: add summary column: %w", err)
+		if err := addColumn(db, "nodes", "summary", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
 		}
 	}
 	if !cols["params"] {
-		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT NOT NULL DEFAULT '[]'"); err != nil {
-			return fmt.Errorf("codegraph: add params column: %w", err)
+		if err := addColumn(db, "nodes", "params", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+			return err
 		}
 	}
 	if err := migrateEdgeGuard(db); err != nil {
@@ -342,7 +342,7 @@ func migrateSchema(db *sql.DB) error {
 			return err
 		}
 		if !found {
-			if _, err := db.Exec("ALTER TABLE entry_points ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''"); err != nil {
+			if err := addColumn(db, "entry_points", name, "TEXT NOT NULL DEFAULT ''"); err != nil {
 				return err
 			}
 		}
@@ -375,8 +375,8 @@ func migrateEdgeGuard(db *sql.DB) error {
 	}
 	rows.Close()
 	if !has {
-		if _, err := db.Exec("ALTER TABLE edges ADD COLUMN guard TEXT NOT NULL DEFAULT ''"); err != nil {
-			return fmt.Errorf("codegraph: add edges.guard column: %w", err)
+		if err := addColumn(db, "edges", "guard", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -420,9 +420,23 @@ func addMissingColumns(db *sql.DB, table string, columns []tableColumn) error {
 		if have[c.name] {
 			continue
 		}
-		if _, err := db.Exec("ALTER TABLE " + table + " ADD COLUMN " + c.name + " " + c.ddl); err != nil {
-			return fmt.Errorf("codegraph: add %s.%s column: %w", table, c.name, err)
+		if err := addColumn(db, table, c.name, c.ddl); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// addColumn adds one column. Two opens of one old index (the app and a test
+// run, two windows) can both find it missing; the second ALTER then fails
+// with "duplicate column name", which is the column being there — what the
+// migration wanted — so it is not an error.
+func addColumn(db *sql.DB, table, name, ddl string) error {
+	if _, err := db.Exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + ddl); err != nil {
+		if strings.Contains(err.Error(), "duplicate column name") {
+			return nil
+		}
+		return fmt.Errorf("codegraph: add %s.%s column: %w", table, name, err)
 	}
 	return nil
 }

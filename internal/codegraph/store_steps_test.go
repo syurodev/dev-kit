@@ -146,3 +146,32 @@ func TestStoreIndexesTheStepLookups(t *testing.T) {
 		}
 	}
 }
+
+// Two opens of one old index can both see a column missing and both add it.
+// The second ALTER fails with "duplicate column name"; that is the column
+// being there, which is what the migration wanted.
+func TestAddColumnToleratesAColumnAddedConcurrently(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+CREATE TABLE edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, kind TEXT NOT NULL, guard TEXT NOT NULL DEFAULT '');
+CREATE TABLE call_sites (from_id TEXT NOT NULL, to_id TEXT NOT NULL, line INTEGER NOT NULL, unresolved TEXT NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0);`); err != nil {
+		t.Fatal(err)
+	}
+	// What the other open did between this one's check and its ALTER.
+	if err := addColumn(db, "edges", "guard", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		t.Fatalf("guard added twice: %v", err)
+	}
+	if err := addColumn(db, "call_sites", "col", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		t.Fatalf("col added twice: %v", err)
+	}
+	// Any other failure is still one.
+	if err := addColumn(db, "no_such_table", "col", "INTEGER NOT NULL DEFAULT 0"); err == nil {
+		t.Fatal("ALTER of a missing table succeeded")
+	}
+}
