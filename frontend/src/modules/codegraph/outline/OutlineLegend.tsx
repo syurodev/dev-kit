@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { LEGEND_TRIGGER } from "../graph/LayerLegend";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { exitMarker } from "./outlineHints";
-import { BRANCH_TEXT, ExitIcon, FOLD_CHIP, QUIET_MARK, implementationsLabel } from "./markers";
+import { BRANCH_TEXT, ExitIcon, FOLD_CHIP, ImplementationsMark, QUIET_MARK, RefMark } from "./markers";
 
 /** Room the button takes at the outline's bottom-left, so the last row can scroll clear of it. */
 export const OUTLINE_LEGEND_CLEARANCE = 40;
@@ -19,10 +19,10 @@ export const OUTLINE_LEGEND: { sample: ReactNode; text: string }[] = [
   { sample: <span className="font-mono font-semibold text-text-primary">save(order)</span>, text: "A call into this project; plain text is a library call." },
   { sample: <span className={FOLD_CHIP}>2 calls · logging</span>, text: "Calls folded away (logging, metrics, helpers…); click to show them." },
   { sample: <span className="font-mono text-text-secondary opacity-60">log.info(…)</span>, text: "A call hidden by default, shown because its fold is open." },
-  { sample: <span className={QUIET_MARK}>{implementationsLabel(2)}</span>, text: "Calls an abstract or overridable method; the classes that provide it are listed below." },
+  { sample: <ImplementationsMark n={2} />, text: "Calls an abstract or overridable method; the classes that provide it are listed below." },
   { sample: <span className={QUIET_MARK}>(base)</span>, text: "The called method's own body, listed before its overrides." },
-  { sample: <span className={QUIET_MARK}>shown above ↑</span>, text: "Already expanded above; click to jump there." },
-  { sample: <span className={QUIET_MARK}>↻ recursion</span>, text: "Calls a method already open on this path; click to jump to it." },
+  { sample: <RefMark reason="shown-above" />, text: "Already expanded above; click to jump there." },
+  { sample: <RefMark reason="recursion" />, text: "Calls a method already open on this path; click to jump to it." },
   { sample: <span className={EFFECT_CHIP}>Kafka produce</span>, text: "What DevKit recognised the call doing: Kafka, HTTP, Redis or DB." },
   { sample: <span className="text-caption-11 text-text-tertiary">Right-click</span>, text: "On a call: always show or always hide it, or every call on its type." },
 ];

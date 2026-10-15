@@ -17,7 +17,7 @@ import type { FlowDoc } from "../codegraphStore";
 import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from "../flowActions";
 import { effectName } from "../graph/graphView";
 import { BASE_HINT, RECURSION_HINT, SHOWN_ABOVE_HINT, effectHint, exitMarker, foldHint, hiddenHint, implsHint, shownHint } from "./outlineHints";
-import { BRANCH_TEXT, ExitIcon, FOLD_CHIP, Hint, MaybeHint, QUIET_MARK, implementationsLabel } from "./markers";
+import { BRANCH_TEXT, ExitIcon, FOLD_CHIP, Hint, ImplArrow, ImplementationsMark, MaybeHint, QUIET_MARK, RefMark } from "./markers";
 import { OUTLINE_LEGEND_CLEARANCE, OutlineLegend } from "./OutlineLegend";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
@@ -469,7 +469,7 @@ function RowBody({ row }: { row: OutlineRow }) {
     case "method":
       return (
         <>
-          {row.impl && <span className="text-text-tertiary">↳</span>}
+          {row.impl && <ImplArrow />}
           <span className="font-semibold text-text-primary">{row.title}</span>
           {row.base && (
             <Hint text={BASE_HINT}>
@@ -519,7 +519,7 @@ function RowBody({ row }: { row: OutlineRow }) {
           </MaybeHint>
           {impls > 0 && (
             <Hint text={implsHint(impls)}>
-              <span className={QUIET_MARK}>{implementationsLabel(impls)}</span>
+              <ImplementationsMark n={impls} />
             </Hint>
           )}
           {row.step.effect && (
@@ -539,7 +539,7 @@ function RowBody({ row }: { row: OutlineRow }) {
 function RefTag({ reason }: { reason: "shown-above" | "recursion" }) {
   return (
     <Hint text={reason === "recursion" ? RECURSION_HINT : SHOWN_ABOVE_HINT}>
-      <span className={QUIET_MARK}>{reason === "recursion" ? "↻ recursion" : "shown above ↑"}</span>
+      <RefMark reason={reason} />
     </Hint>
   );
 }

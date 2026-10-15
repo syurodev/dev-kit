@@ -65,7 +65,9 @@ describe("OutlineView", () => {
     expect(html).not.toContain("Then more.");
     expect(html).toContain("(base)");
     expect(html).toContain("P.special");
-    expect(html).toContain("↳ 1 implementation<");
+    // Marks are lucide icons, never text glyphs.
+    expect(html).toMatch(/lucide-corner-down-right[^>]*>.*?<\/svg>1 implementation</);
+    expect(html).not.toMatch(/[↳↻↑]/);
     // A frame, which leaves the method.
     expect(html).toContain("if (ok)");
     // An index that recorded only that it leaves says "exits".
@@ -78,7 +80,7 @@ describe("OutlineView", () => {
     // A library call stays plain.
     expect(html).toMatch(/text-text-secondary"[^>]*>builder\.send\(\)/);
     // A call back into the root reads as recursion; the method is cut short.
-    expect(html).toContain("↻ recursion");
+    expect(html).toMatch(/lucide-repeat[^>]*>.*?<\/svg>recursion</);
     expect(html).toContain("… more steps not shown");
     // The selection from the graph marks its rows.
     expect(html).toContain('aria-selected="true"');
@@ -150,7 +152,9 @@ describe("OutlineView", () => {
   test("the legend explains every mark, each with a sample", () => {
     const html = renderToStaticMarkup(<TooltipProvider><OutlineLegendContent /></TooltipProvider>);
     expect(html.match(/lucide-corner-down-left/g)).toHaveLength(2);
-    for (const word of ["2 calls · logging", "↳ 2 implementations", "(base)", "shown above ↑", "↻ recursion", "Kafka produce", "Right-click"]) {
+    expect(html).not.toMatch(/[↳↻↑]/);
+    for (const icon of ["lucide-corner-down-right", "lucide-arrow-up", "lucide-repeat"]) expect(html).toContain(icon);
+    for (const word of ["2 calls · logging", "2 implementations", "(base)", "shown above", "recursion", "Kafka produce", "Right-click"]) {
       expect(html).toContain(word);
     }
     expect(html).toContain("A branch: the calls under it run only when it holds");

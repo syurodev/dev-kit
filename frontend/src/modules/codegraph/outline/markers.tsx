@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { CornerDownLeft } from "lucide-react";
+import { ArrowUp, CornerDownLeft, CornerDownRight, Repeat } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ExitMarker } from "./outlineHints";
@@ -46,12 +46,45 @@ export function ExitIcon({ marker }: { marker: ExitMarker }) {
 /** "3 calls · logging": the calls folded away. */
 export const FOLD_CHIP = "truncate rounded-sm border border-dashed border-border px-1.5 text-caption-11 text-text-tertiary";
 
-/** "↳ 2 implementations", "(base)", "shown above ↑", "↻ recursion". */
+/** "2 implementations", "(base)", "shown above", "recursion" — each with its lucide icon. */
 export const QUIET_MARK = "shrink-0 text-caption-11 text-text-tertiary";
+
+/** A quiet mark that leads or trails with an icon, sized to the caption. */
+const ICON_MARK = cn(QUIET_MARK, "inline-flex items-center gap-0.5 [&_svg]:size-3 [&_svg]:shrink-0");
 
 /** A branch heading's text: which kind of row it is, so a palette hue. */
 export const BRANCH_TEXT = "text-(--hue-blue)";
 
 export function implementationsLabel(n: number): string {
-  return `↳ ${n} ${n === 1 ? "implementation" : "implementations"}`;
+  return `${n} ${n === 1 ? "implementation" : "implementations"}`;
+}
+
+/** The turn into an override: before an implementation row, and before "N implementations". */
+export function ImplArrow() {
+  return <CornerDownRight aria-hidden className="size-3 shrink-0 text-text-tertiary" />;
+}
+
+/** "N implementations" after a call into an abstract or overridden method. */
+export function ImplementationsMark({ n }: { n: number }) {
+  return (
+    <span className={ICON_MARK}>
+      <CornerDownRight aria-hidden />
+      {implementationsLabel(n)}
+    </span>
+  );
+}
+
+/** A row drawn elsewhere: "shown above" (expanded higher up) or "recursion" (open on this path). */
+export function RefMark({ reason }: { reason: "shown-above" | "recursion" }) {
+  return reason === "recursion" ? (
+    <span className={ICON_MARK}>
+      <Repeat aria-hidden />
+      recursion
+    </span>
+  ) : (
+    <span className={ICON_MARK}>
+      shown above
+      <ArrowUp aria-hidden />
+    </span>
+  );
 }
