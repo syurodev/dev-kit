@@ -373,6 +373,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "update_checks"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "update_checks"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "codegraph_call_visibility"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "codegraph_call_visibility"},
 		// The one outbound request an update check makes. Separate from the
 		// stored preference so that "off" is enforced where the request is
 		// made, not only in the toggle.

@@ -1102,6 +1102,16 @@ export function CodeGraphGetPlannedFlow(): $CancellablePromise<codegraph$0.Plan>
 }
 
 /**
+ * CodeGraphGetSteps returns the steps of the given methods of a flow — the
+ * Outline mode's rows and the Graph mode's labels — scored with the person's
+ * call-visibility overrides. Read-only, like CodeGraphGetNeighbors, and asked
+ * of the same service.
+ */
+export function CodeGraphGetSteps(nodeIDs: string[] | null, servicePath: string): $CancellablePromise<codegraph$0.StepsResult> {
+    return $Call.ByID(4253622762, nodeIDs, servicePath);
+}
+
+/**
  * CodeGraphGitStatus maps changed files in the active project to M/A/D/R, for
  * the Files tab. Empty outside a git work tree.
  */
@@ -1993,6 +2003,13 @@ export function PreferencesGetAgentSandbox(): $CancellablePromise<preferences$0.
 }
 
 /**
+ * PreferencesGetCallVisibility returns the "always show / hide" choices.
+ */
+export function PreferencesGetCallVisibility(): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(1238499888);
+}
+
+/**
  * PreferencesGetCodexAPIKeyAccount is the id of the Accounts token Codex
  * signs in with, or "" for its own ChatGPT sign-in. An id, never the key.
  */
@@ -2055,6 +2072,14 @@ export function PreferencesSetAgentNotifications(enabled: boolean): $Cancellable
  */
 export function PreferencesSetAgentSandbox(settings: preferences$0.AgentSandboxSettings): $CancellablePromise<void> {
     return $Call.ByID(3347387056, settings);
+}
+
+/**
+ * PreferencesSetCallVisibility sets one callee key to "show" or "hide", or
+ * clears it with "". UI only: no MCP tool changes what a person sees.
+ */
+export function PreferencesSetCallVisibility(calleeKey: string, mode: string): $CancellablePromise<void> {
+    return $Call.ByID(577490220, calleeKey, mode);
 }
 
 /**

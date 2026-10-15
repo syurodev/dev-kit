@@ -781,6 +781,98 @@ export interface ServiceIndexStatus {
 }
 
 /**
+ * Step is one call in a method body, as the flow outline draws it.
+ */
+export interface Step {
+    "line": number;
+    "col": number;
+    "text": string;
+    "calleeKey": string;
+
+    /**
+     * the project node it lands on
+     */
+    "to"?: string;
+
+    /**
+     * Target is the project node a call names when To is empty because that
+     * node has no body (a repository, Feign client or HTTP interface method).
+     */
+    "target"?: string;
+
+    /**
+     * overrides of To, when To is overridden
+     */
+    "impls"?: string[] | null;
+    "frames": StepFrame[] | null;
+
+    /**
+     * Visible and Reason are Visibility's answer.
+     */
+    "visible": boolean;
+    "reason": string;
+    "effect"?: StepEffect | null;
+}
+
+/**
+ * StepEffect is what an extractor recognised at a call: a Kafka produce, an
+ * HTTP call, a Redis or DB access, as recorded (not evaluated).
+ */
+export interface StepEffect {
+    /**
+     * kafka | http | redis | db
+     */
+    "kind": string;
+
+    /**
+     * produce | consume | call | read | write
+     */
+    "role": string;
+
+    /**
+     * topic, method + url, key pattern or table
+     */
+    "target": string;
+}
+
+/**
+ * StepFrame is one control structure around a call, outermost first. It is
+ * language-neutral: Kind is one of if, else, case, catch, finally, try, loop,
+ * closure, and, or, ternary, await (open — a reader shows an unknown kind by
+ * its Text); ID is the structure's "line:col", shared by every call in it, and
+ * for a closure passed as an argument it is the position of the call it is
+ * passed to; Exits is true when the branch ends in return/throw/break/continue.
+ */
+export interface StepFrame {
+    "id": string;
+    "kind": string;
+    "text": string;
+    "exits"?: boolean;
+}
+
+/**
+ * StepsResult is GetSteps' answer.
+ */
+export interface StepsResult {
+    /**
+     * node id → steps in source order
+     */
+    "steps": { [_ in string]?: Step[] | null } | null;
+
+    /**
+     * node ids whose steps were capped
+     */
+    "truncated": string[] | null;
+
+    /**
+     * Legacy: a Java index written before steps, read as a flat outline until
+     * a re-index. Only Java records steps, so no other language is told to
+     * re-index for them.
+     */
+    "legacy": boolean;
+}
+
+/**
  * Subgraph is one bounded page of a GetNeighbors result.
  */
 export interface Subgraph {
