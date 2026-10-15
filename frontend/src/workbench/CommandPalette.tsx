@@ -166,7 +166,15 @@ export function CommandPalette({
       icon: entry.icon ?? viewIcon(entry.moduleId, entry.viewId),
     }));
     const fixed = staticSections(
-      { query: text, scope, activeModuleId, modules: paletteModules, tabs, recentlyClosed },
+      {
+        query: text,
+        scope,
+        activeModuleId,
+        modules: paletteModules,
+        tabs,
+        recentlyClosed,
+        reopenShortcut: shortcut("T", { shift: true }),
+      },
       {
         focusModule: onFocusModule,
         activateTab: (id) => useWorkbenchTabsStore.getState().setActiveTab(id),

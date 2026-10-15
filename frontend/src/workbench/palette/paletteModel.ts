@@ -69,6 +69,8 @@ export type PaletteInput = {
   tabs: readonly PaletteTab[];
   /** Closed tabs, newest first, without any whose tab is open again. */
   recentlyClosed?: readonly PaletteClosedTab[];
+  /** ⌘⇧T's label for this platform (lib/shortcut), beside Reopen Closed Tab. */
+  reopenShortcut?: string;
 };
 
 export type PaletteActions = {
@@ -144,7 +146,7 @@ export function staticSections(input: PaletteInput, actions: PaletteActions): Pa
     if (!reopen || closed.length === 0) return;
     const rows: PaletteRow[] = [];
     if (!searching || rank(query, [REOPEN_TITLE], (title) => ({ title }), 1).length > 0) {
-      rows.push({ id: "command:reopen-closed-tab", title: REOPEN_TITLE, shortcut: "⇧⌘T", run: () => reopen(closed[0].at) });
+      rows.push({ id: "command:reopen-closed-tab", title: REOPEN_TITLE, shortcut: input.reopenShortcut, run: () => reopen(closed[0].at) });
     }
     if (withTabs) {
       const entries = rank(query, closed, (entry) => ({ title: entry.title, others: [titleOf(entry.moduleId)] }), MAX_CLOSED);

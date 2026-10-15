@@ -203,7 +203,7 @@ describe("recently closed tabs", () => {
   const run = (input: Partial<PaletteInput>) => {
     const reopened: number[] = [];
     const found = staticSections(
-      { query: "", activeModuleId: "database", modules, tabs: [], recentlyClosed: closed, ...input },
+      { query: "", activeModuleId: "database", modules, tabs: [], recentlyClosed: closed, reopenShortcut: "Ctrl+Shift+T", ...input },
       { ...actions, reopenClosed: (at) => reopened.push(at) },
     );
     return { section: found.find((s) => s.id === "recently-closed"), reopened };
@@ -213,7 +213,8 @@ describe("recently closed tabs", () => {
     const { section, reopened } = run({});
     expect(section?.heading).toBe("Recently closed");
     expect(section?.rows.map((r) => r.title)).toEqual(["Reopen Closed Tab", "Reopen: orders.sql", "Reopen: Release plan"]);
-    expect(section?.rows[0].shortcut).toBe("⇧⌘T");
+    // The platform's label, as the caller spells it (lib/shortcut).
+    expect(section?.rows[0].shortcut).toBe("Ctrl+Shift+T");
     section!.rows[2].run();
     section!.rows[0].run();
     expect(reopened).toEqual([2, 0]);
