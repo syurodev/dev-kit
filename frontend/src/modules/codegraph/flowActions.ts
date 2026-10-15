@@ -99,6 +99,15 @@ export function toggleOutlineRow(folderId: string, root: string, rowKey: string,
   patchFlow(key, folderId, { toggled: { ...toggled, [rowKey]: open } });
 }
 
+/** Opens several outline rows at once: the way down to a node picked elsewhere. */
+export function openOutlineRows(folderId: string, root: string, rowKeys: readonly string[]) {
+  if (rowKeys.length === 0) return;
+  const key = flowKey(folderId, root);
+  const toggled = { ...(snapshot().flows[key]?.toggled ?? {}) };
+  for (const k of rowKeys) toggled[k] = true;
+  patchFlow(key, folderId, { toggled });
+}
+
 /** "Always show / hide" a callee (or a whole type with "<Type>#*"); every open flow re-reads its steps. */
 export async function setCallVisibility(calleeKey: string, mode: CallVisibilityMode): Promise<void> {
   try {

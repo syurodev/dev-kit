@@ -38,6 +38,11 @@ export type OutlineInput = {
   toggled: Readonly<Record<string, boolean>>;
   /** See DEFAULT_OUTLINE_DEPTH. */
   depth?: number;
+  /**
+   * Every row open, folds included, whatever `toggled` says — the whole tree,
+   * to find the rows leading to a node the person's choices keep closed.
+   */
+  openAll?: boolean;
 };
 
 /**
@@ -72,7 +77,7 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
   const truncated = new Set(input.steps.truncated);
   // Something to expand into: a method whose steps were read and are not empty.
   const hasSteps = (id: string) => (input.steps.steps[id]?.length ?? 0) > 0;
-  const isOpen = (key: string, fallback: boolean) => input.toggled[key] ?? fallback;
+  const isOpen = (key: string, fallback: boolean) => (input.openAll ? true : (input.toggled[key] ?? fallback));
 
   const root = input.nodes.get(input.rootId);
   if (!root) return rows;

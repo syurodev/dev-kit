@@ -78,6 +78,22 @@ describe("OutlineView", () => {
     expect(html).toContain('aria-selected="true"');
   });
 
+  test("rows are a tree a screen reader can walk", () => {
+    const steps: CodeGraphSteps = { legacy: false, truncated: [], steps: { a: [step({ text: "send()" }), step({ text: "close()" })] } };
+    const html = render(flow(steps), [node("a")]);
+    expect(html).toMatch(/role="tree"[^>]*aria-activedescendant="[^"]+-row-0"/);
+    expect(html).toContain('aria-level="2" aria-posinset="2" aria-setsize="2"');
+  });
+
+  test("a failed re-read keeps the rows on screen, under a banner", () => {
+    const steps: CodeGraphSteps = { legacy: false, truncated: [], steps: { a: [step({ text: "send()" })] } };
+    const html = render(flow(steps, { stepsError: "The index is busy." }), [node("a")]);
+    expect(html).toContain("Could not re-read the flow");
+    expect(html).toContain("The index is busy.");
+    expect(html).toContain("Retry");
+    expect(html).toContain("send()");
+  });
+
   test("an old index says how to see branches", () => {
     const steps: CodeGraphSteps = { legacy: true, truncated: [], steps: { a: [] } };
     expect(render(flow(steps), [node("a")])).toContain("Re-index to see them");

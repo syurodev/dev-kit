@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, ChevronRight, CornerDownLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,12 +13,16 @@ import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import type { CodeGraphNode } from "@/bridge/codegraph";
 import type { FlowDoc } from "../codegraphStore";
-import { loadSteps, setCallVisibility, toggleOutlineRow } from "../flowActions";
+import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from "../flowActions";
 import { effectName } from "../graph/graphView";
+import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
+import { cursorIndex, isOpenRow, isRowOf, isToggleable, nodeOf, pathTo, treeShape } from "./outlineNav";
 
 const ROW_HEIGHT = 26;
 const INDENT = 16;
+/** Space above the first row and below the last, carried by the spacers so the scroll maths sees it. */
+const LIST_PAD = 8;
 
 export type OutlineViewProps = {
   folderId: string;
@@ -31,17 +35,14 @@ export type OutlineViewProps = {
   onOpenAt: (nodeId: string, line: number) => void;
 };
 
-/** The node a row is about: the method it names, or the method it calls (else the one it is in). */
-function nodeOf(row: OutlineRow): string | null {
-  if (row.kind === "method") return row.nodeId;
-  if (row.kind === "call") return row.targetId ?? row.ownerId;
-  return null;
-}
-
 /**
  * The Outline mode of a flow tab: the call flow read top to bottom, as the
  * code runs it. Rows come from buildOutline; this draws them, windows them,
  * and turns clicks, keys and the context menu into store actions.
+ *
+ * One tab stop: the tree holds focus and points at the cursor row with
+ * aria-activedescendant. The cursor follows a row by key, so a row opening
+ * above it does not move it onto another.
  */
 export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onInspect, onShowInGraph, onOpenAt }: OutlineViewProps) {
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -49,34 +50,61 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
     () => (flow.steps ? buildOutline({ rootId: root, nodes: byId, steps: flow.steps, toggled: flow.toggled }) : []),
     [flow.steps, flow.toggled, root, byId],
   );
+  const shape = useMemo(() => treeShape(rows), [rows]);
   const { scrollRef, indices, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT);
-  const [cursorAt, setCursor] = useState(0);
-  // Closing a row can leave the cursor past the end.
-  const cursor = Math.min(cursorAt, Math.max(0, rows.length - 1));
-  const hasRows = rows.length > 0;
+  const [cursorAt, setCursorAt] = useState<{ key: string | null; index: number }>({ key: null, index: 0 });
+  const cursor = cursorIndex(rows, cursorAt.key, cursorAt.index);
+  const setCursor = (index: number) => setCursorAt({ key: rows[index]?.key ?? null, index });
+  // The cursor is drawn once the keyboard moves it and until the pointer is
+  // used, which :focus-visible does not track reliably on a container.
+  const [keyboardNav, setKeyboardNav] = useState(false);
+  const [hasFocus, setHasFocus] = useState(false);
+  const baseId = useId();
+  const rowId = (index: number) => `${baseId}-row-${index}`;
 
-  // The selection from the Graph (or the inspector) brings its first row into
-  // view — also once the steps arrive, if they were not there yet. Not on
-  // every change of rows: opening a row must not jump the view back.
-  useEffect(() => {
-    if (!selectedNodeId) return;
-    const index = rows.findIndex((r) => nodeOf(r) === selectedNodeId);
-    if (index < 0) return;
-    setCursor(index);
-    scrollToIndex(index);
-  }, [selectedNodeId, hasRows]);
-
-  function scrollToIndex(index: number) {
+  function scrollToIndex(index: number, center = false) {
     const el = scrollRef.current;
     if (!el) return;
-    const top = index * ROW_HEIGHT;
-    if (top < el.scrollTop || top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 3);
+    const top = LIST_PAD + index * ROW_HEIGHT;
+    const bottom = top + ROW_HEIGHT;
+    if (top >= el.scrollTop && bottom <= el.scrollTop + el.clientHeight) return;
+    if (center) el.scrollTop = Math.max(0, top - el.clientHeight / 3);
+    else el.scrollTop = top < el.scrollTop ? Math.max(0, top - LIST_PAD) : bottom + LIST_PAD - el.clientHeight;
   }
 
-  function toggle(row: OutlineRow, open: boolean) {
-    if (row.kind === "fold" || ((row.kind === "call" || row.kind === "method") && row.expandable)) {
-      toggleOutlineRow(folderId, root, row.key, open);
+  // The selection from the Graph (or the inspector) brings its first row into
+  // view, opening the rows above it when the person's choices keep it closed.
+  // Once per selection: the rows changing later (a row opened, a re-read)
+  // must not jump the view back to it.
+  const doneFor = useRef<string | null>(null);
+  const triedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedNodeId) {
+      doneFor.current = null;
+      triedFor.current = null;
+      return;
     }
+    if (rows.length === 0 || doneFor.current === selectedNodeId) return;
+    const index = rows.findIndex((r) => isRowOf(r, selectedNodeId));
+    if (index >= 0) {
+      doneFor.current = selectedNodeId;
+      setCursorAt({ key: rows[index].key, index });
+      scrollToIndex(index, true);
+      return;
+    }
+    if (triedFor.current !== selectedNodeId && flow.steps) {
+      triedFor.current = selectedNodeId;
+      const keys = pathTo({ rootId: root, nodes: byId, steps: flow.steps, toggled: flow.toggled }, selectedNodeId);
+      if (keys.length > 0) {
+        openOutlineRows(folderId, root, keys);
+        return;
+      }
+    }
+    doneFor.current = selectedNodeId; // not in the outline at all
+  }, [selectedNodeId, rows]); // only the selection and the rows decide; the rest is read
+
+  function toggle(row: OutlineRow, open: boolean) {
+    if (isToggleable(row)) toggleOutlineRow(folderId, root, row.key, open);
   }
 
   function activate(index: number) {
@@ -89,7 +117,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
       const target = rows.findIndex((r) => r.key === row.ref!.key);
       if (target >= 0) {
         setCursor(target);
-        scrollToIndex(target);
+        scrollToIndex(target, true);
       }
       return;
     }
@@ -97,42 +125,104 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
     if (id) onInspect(id);
   }
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const row = rows[cursor];
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = Math.max(0, Math.min(rows.length - 1, cursor + (e.key === "ArrowDown" ? 1 : -1)));
-      setCursor(next);
-      scrollToIndex(next);
-    } else if (e.key === "ArrowRight" && row) {
-      e.preventDefault();
-      toggle(row, true);
-    } else if (e.key === "ArrowLeft" && row) {
-      e.preventDefault();
-      toggle(row, false);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      activate(cursor);
-    }
-  };
+  function move(index: number) {
+    const next = Math.max(0, Math.min(rows.length - 1, index));
+    setCursor(next);
+    scrollToIndex(next);
+  }
 
-  if (flow.stepsError) {
-    return (
-      <div className="flex flex-col items-start gap-3 p-5 text-body-13 text-status-danger">
-        {flow.stepsError}
-        <Button variant="outline" size="xs" className="bg-surface-raised" onClick={() => void loadSteps(folderId, root)}>
-          Try again
-          <RotateCcw className="size-3.5" />
-        </Button>
-      </div>
+  /** The context menu of the cursor row, from the keyboard: the trigger listens for contextmenu. */
+  function openMenu() {
+    scrollToIndex(cursor);
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-row-index="${cursor}"]`);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + 12 + (rows[cursor]?.depth ?? 0) * INDENT + 24,
+        clientY: rect.top + rect.height / 2,
+      }),
     );
   }
-  if (!flow.steps) return <p className="p-5 text-body-13 text-text-tertiary">Reading the flow…</p>;
 
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const row = rows[cursor];
+    if (!row) return;
+    switch (e.key) {
+      case "ArrowDown":
+        move(cursor + 1);
+        break;
+      case "ArrowUp":
+        move(cursor - 1);
+        break;
+      case "Home":
+        move(0);
+        break;
+      case "End":
+        move(rows.length - 1);
+        break;
+      case "ArrowRight":
+        if (isToggleable(row) && !isOpenRow(row)) toggle(row, true);
+        else if (isOpenRow(row) && shape.parent[cursor + 1] === cursor) move(cursor + 1);
+        break;
+      case "ArrowLeft":
+        if (isOpenRow(row)) toggle(row, false);
+        else if (shape.parent[cursor] >= 0) move(shape.parent[cursor]);
+        break;
+      case "Enter":
+      case " ":
+        activate(cursor);
+        break;
+      case "ContextMenu":
+        openMenu();
+        break;
+      case "F10":
+        if (!e.shiftKey) return;
+        openMenu();
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    setKeyboardNav(true);
+  };
+
+  const focusTree = () => scrollRef.current?.focus({ preventScroll: true });
+
+  if (!flow.steps) {
+    if (flow.stepsError) {
+      return (
+        <div className="flex flex-col items-start gap-3 p-5 text-body-13 text-status-danger">
+          {flow.stepsError}
+          <Button variant="outline" size="xs" className="bg-surface-raised" onClick={() => void loadSteps(folderId, root)}>
+            Try again
+            <RotateCcw className="size-3.5" />
+          </Button>
+        </div>
+      );
+    }
+    return <p className="p-5 text-body-13 text-text-tertiary">Reading the flow…</p>;
+  }
+
+  const showCursor = keyboardNav && hasFocus;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {flow.stepsError && (
+        // A re-read failed: the steps on screen stay, said to be the last ones read.
+        <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2 text-caption-12 text-status-danger">
+          <span className="min-w-0 flex-1 truncate" title={flow.stepsError}>
+            Could not re-read the flow; showing the last steps read. {flow.stepsError}
+          </span>
+          <Button variant="outline" size="xs" className="bg-surface-raised" onClick={() => void loadSteps(folderId, root)}>
+            Retry
+            <RotateCcw className="size-3.5" />
+          </Button>
+        </div>
+      )}
       {flow.steps.legacy && (
-        <p className="border-b border-border-subtle px-4 py-2 text-caption-12 text-text-tertiary">
+        <p className="shrink-0 border-b border-border-subtle px-4 py-2 text-caption-12 text-text-tertiary">
           This index was written before branches were recorded. Re-index to see them.
         </p>
       )}
@@ -142,60 +232,95 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
         tabIndex={0}
         role="tree"
         aria-label="Flow outline"
+        aria-activedescendant={rows.length > 0 && indices.includes(cursor) ? rowId(cursor) : undefined}
         onKeyDown={onKeyDown}
-        className="group/outline min-h-0 flex-1 overflow-auto py-2 text-code-12 outline-none"
+        onPointerDown={() => setKeyboardNav(false)}
+        // The menu key's own contextmenu lands on the tree, not on a row:
+        // send it to the cursor row instead of opening the browser's menu.
+        onContextMenu={(e) => {
+          if (e.target !== e.currentTarget) return;
+          e.preventDefault();
+          openMenu();
+        }}
+        onFocus={() => setHasFocus(true)}
+        onBlur={() => setHasFocus(false)}
+        className="min-h-0 flex-1 overflow-auto text-code-12 outline-none"
       >
-        <div style={{ height: padTop }} />
+        <div style={{ height: padTop + LIST_PAD }} />
         {indices.map((index) => (
           <OutlineLine
             key={rows[index].key}
+            id={rowId(index)}
+            index={index}
             row={rows[index]}
-            selected={nodeOf(rows[index]) !== null && nodeOf(rows[index]) === selectedNodeId}
-            focused={index === cursor}
+            level={shape.level[index]}
+            posinset={shape.posinset[index]}
+            setsize={shape.setsize[index]}
+            selected={!!selectedNodeId && isRowOf(rows[index], selectedNodeId)}
+            focused={showCursor && index === cursor}
             onActivate={() => activate(index)}
-            onToggle={(open) => toggle(rows[index], open)}
+            onToggle={(open) => {
+              setCursor(index);
+              toggle(rows[index], open);
+            }}
             onShowInGraph={onShowInGraph}
             onOpenAt={onOpenAt}
+            onMenuClosed={focusTree}
           />
         ))}
-        <div style={{ height: padBottom }} />
+        <div style={{ height: padBottom + LIST_PAD }} />
       </div>
     </div>
   );
 }
 
 function OutlineLine({
+  id,
+  index,
   row,
+  level,
+  posinset,
+  setsize,
   selected,
   focused,
   onActivate,
   onToggle,
   onShowInGraph,
   onOpenAt,
+  onMenuClosed,
 }: {
+  id: string;
+  index: number;
   row: OutlineRow;
+  level: number;
+  posinset: number;
+  setsize: number;
   selected: boolean;
   focused: boolean;
   onActivate: () => void;
   onToggle: (open: boolean) => void;
   onShowInGraph: (nodeId: string) => void;
   onOpenAt: (nodeId: string, line: number) => void;
+  onMenuClosed: () => void;
 }) {
   const expandable = (row.kind === "call" || row.kind === "method") && row.expandable;
   const open = (row.kind === "call" || row.kind === "method") && row.open;
   const line = (
     <div
+      id={id}
+      data-row-index={index}
       role="treeitem"
-      aria-level={row.depth + 1}
+      aria-level={level}
+      aria-posinset={posinset}
+      aria-setsize={setsize}
       aria-selected={selected}
-      aria-expanded={expandable ? open : row.kind === "fold" ? row.open : undefined}
+      aria-expanded={isToggleable(row) ? isOpenRow(row) : undefined}
       onClick={onActivate}
       style={{ height: ROW_HEIGHT, paddingLeft: 12 + row.depth * INDENT }}
       className={cn(
         "flex cursor-default items-center gap-1.5 pr-4 whitespace-nowrap",
         selected ? "bg-surface-raised" : "hover:bg-state-soft",
-        // The keyboard cursor, drawn only while the tree has keyboard focus.
-        focused && "group-focus-visible/outline:outline-1 group-focus-visible/outline:-outline-offset-1 group-focus-visible/outline:outline-border-focus/50",
+        focused && "outline-1 -outline-offset-1 outline-border-focus/50",
       )}
     >
       <span
@@ -219,27 +344,29 @@ function OutlineLine({
   const hash = key.indexOf("#");
   const type = hash > 0 ? key.slice(0, hash) : "";
   const member = hash > 0 ? key.slice(hash + 1) : "";
+  const name = simpleName(type);
   const at = row.kind === "call" ? row.step.line : row.line;
   const ownerId = row.kind === "call" ? row.ownerId : row.nodeId;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{line}</ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(e) => {
+          // Back to the tree, which holds the cursor, rather than to the body.
+          e.preventDefault();
+          onMenuClosed();
+        }}
+      >
         {type && member && (
           <>
             <ContextMenuLabel className="max-w-80 truncate font-mono">{key}</ContextMenuLabel>
-            <ContextMenuItem onSelect={() => void setCallVisibility(key, "show")}>Always show {simpleName(type)}.{member}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => void setCallVisibility(key, "hide")}>Always hide {simpleName(type)}.{member}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => void setCallVisibility(`${type}#*`, "show")}>Always show every call on {simpleName(type)}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => void setCallVisibility(`${type}#*`, "hide")}>Always hide every call on {simpleName(type)}</ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                void setCallVisibility(key, "");
-                void setCallVisibility(`${type}#*`, "");
-              }}
-            >
-              Reset to default
-            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setCallVisibility(key, "show")}>Always show {name}.{member}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setCallVisibility(key, "hide")}>Always hide {name}.{member}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setCallVisibility(`${type}#*`, "show")}>Always show every call on {name}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setCallVisibility(`${type}#*`, "hide")}>Always hide every call on {name}</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void setCallVisibility(key, "")}>Reset {name}.{member} to default</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setCallVisibility(`${type}#*`, "")}>Reset every call on {name}</ContextMenuItem>
             <ContextMenuSeparator />
           </>
         )}
@@ -300,11 +427,7 @@ function RowBody({ row }: { row: OutlineRow }) {
               ↳ {row.step.impls.length} {row.step.impls.length === 1 ? "implementation" : "implementations"}
             </span>
           ) : null}
-          {row.step.effect && (
-            <span className="shrink-0 rounded-sm border border-border-subtle px-1.5 text-caption-11 text-text-secondary">
-              {effectName(row.step.effect)}
-            </span>
-          )}
+          {row.step.effect && <span className={EFFECT_CHIP}>{effectName(row.step.effect)}</span>}
           {row.hidden && <span className="shrink-0 text-caption-11 text-text-tertiary">{row.step.reason}</span>}
           {row.ref && <RefTag reason={row.ref.reason} />}
           <span className="ml-auto pl-3 text-text-tertiary">:{row.step.line}</span>
