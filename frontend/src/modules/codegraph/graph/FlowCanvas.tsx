@@ -32,6 +32,7 @@ import { shortLabel } from "./labels";
 import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { settledRunner } from "@/lib/panelMotion";
+import { cn } from "@/lib/utils";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
@@ -189,6 +190,8 @@ export type FlowCanvasProps = {
   attribution?: boolean;
   /** The placed graph's unscaled size, after every layout — for a box that sizes to it. */
   onGraphSize?: (size: Size) => void;
+  /** Added to the canvas below the header — a fade the header should not take part in. */
+  viewportClassName?: string;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -220,6 +223,7 @@ function Canvas({
   compact = false,
   attribution = true,
   onGraphSize,
+  viewportClassName,
 }: FlowCanvasProps) {
   const { fitView } = useReactFlow();
 
@@ -416,6 +420,8 @@ function Canvas({
               kind: e.kind,
               label,
               title: edgeTitle?.(e) ?? label,
+              // A flow's labels are numbered calls: a branch's sits at its arrowhead.
+              labelAt: edgeTitle ? ("arrow" as const) : undefined,
               showLabel: e.kind === "di" || !!label,
             },
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
@@ -507,7 +513,7 @@ function Canvas({
 
       <div
         ref={viewport}
-        className={placedIds.size > 0 || !placing ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}
+        className={cn("min-h-0 flex-1", placedIds.size > 0 || !placing ? "" : "opacity-0", viewportClassName)}
         onKeyDown={onKeyDown}
         // Keyboard focus lights a flow the way hovering does. Captured here:
         // React Flow's node wrappers take no focus handlers of ours.
