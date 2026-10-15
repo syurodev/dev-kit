@@ -75,6 +75,7 @@ import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 import { focusedGroup } from "../stores/documentGroups";
 import { openHomeWhenAsked } from "./showModule";
+import { reopenLastClosed } from "./reopenTab";
 
 const LazyAgentPermissionToastHost = lazy(() =>
   import("./AgentPermissionToastHost").then((m) => ({
@@ -410,6 +411,14 @@ export function Workbench() {
           event.preventDefault();
           state.splitTab(group.activeTabId);
         }
+        return;
+      }
+      // ⌘⇧T / Ctrl⇧T: the tab closed last, back where it was (browsers, VS
+      // Code). From a text field too, as there: no editor here binds it —
+      // CodeMirror's only t is Ctrl-t, which a Shift press does not reach.
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        reopenLastClosed();
         return;
       }
       // ⌘/ / Ctrl+/: the keyboard reference — Settings on its Keyboard section.

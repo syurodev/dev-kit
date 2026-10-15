@@ -193,3 +193,44 @@ describe("paletteEmptyMessage", () => {
     expect(paletteEmptyMessage("all", "Database", undefined).body).toBe("No command, module or open tab matches.");
   });
 });
+
+describe("recently closed tabs", () => {
+  const closed = [
+    { at: 0, title: "orders.sql", moduleId: "database" },
+    // A record whose tab is open again was left out by the caller: indexes skip it.
+    { at: 2, title: "Release plan", moduleId: "notes" },
+  ];
+  const run = (input: Partial<PaletteInput>) => {
+    const reopened: number[] = [];
+    const found = staticSections(
+      { query: "", activeModuleId: "database", modules, tabs: [], recentlyClosed: closed, ...input },
+      { ...actions, reopenClosed: (at) => reopened.push(at) },
+    );
+    return { section: found.find((s) => s.id === "recently-closed"), reopened };
+  };
+
+  it("offers the reopen command and each record, which reopens its own place in the stack", () => {
+    const { section, reopened } = run({});
+    expect(section?.heading).toBe("Recently closed");
+    expect(section?.rows.map((r) => r.title)).toEqual(["Reopen Closed Tab", "Reopen: orders.sql", "Reopen: Release plan"]);
+    expect(section?.rows[0].shortcut).toBe("⇧⌘T");
+    section!.rows[2].run();
+    section!.rows[0].run();
+    expect(reopened).toEqual([2, 0]);
+  });
+
+  it("is not there with nothing closed, or with no way to reopen", () => {
+    expect(run({ recentlyClosed: [] }).section).toBeUndefined();
+    const found = staticSections({ query: "", activeModuleId: "database", modules, tabs: [], recentlyClosed: closed }, actions);
+    expect(found.some((s) => s.id === "recently-closed")).toBe(false);
+  });
+
+  it("a query narrows it to what matches", () => {
+    expect(run({ query: "orders" }).section?.rows.map((r) => r.title)).toEqual(["Reopen: orders.sql"]);
+    expect(run({ query: "reopen closed" }).section?.rows[0].title).toBe("Reopen Closed Tab");
+  });
+
+  it("the command is among the commands under >", () => {
+    expect(run({ query: "reopen", scope: "commands" }).section?.rows.map((r) => r.title)).toEqual(["Reopen Closed Tab"]);
+  });
+});

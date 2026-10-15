@@ -40,9 +40,10 @@ import {
 } from "react";
 import { useReducedMotion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
-import { getModule, type TabAction } from "../../modules/registry";
+import { getModule, viewIcon, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
-import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
+import { useWorkbenchTabsStore, type TabStatus, type WorkbenchTab } from "../../stores/workbenchTabs";
+import { offeredClosedTabs, reopenClosedAt, reopenLastClosed } from "../reopenTab";
 import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
 
 /**
@@ -191,6 +192,50 @@ function ModuleTabActions({ tab }: { tab: WorkbenchTab }) {
     <>
       <ContextMenuSeparator />
       <TabActionItems actions={actions} />
+    </>
+  );
+}
+
+/** The newest this many closed tabs are listed; the stack holds more. */
+const RECENTLY_CLOSED_LISTED = 10;
+
+/**
+ * Reopen Closed Tab and the Recently Closed list. Drawn as the menu opens,
+ * like ModuleTabActions, so a strip does not follow the stack while no menu
+ * is showing it. A record whose tab is open again is not offered; each entry
+ * reopens its own place in the stack.
+ */
+function ReopenClosedItems() {
+  const stack = useWorkbenchTabsStore((s) => s.recentlyClosed);
+  const modules = useWorkbenchTabsStore((s) => s.modules);
+  const offered = useMemo(() => offeredClosedTabs({ recentlyClosed: stack, modules }), [stack, modules]);
+  return (
+    <>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        shortcut={shortcut("T", { shift: true })}
+        disabled={offered.length === 0}
+        onSelect={() => reopenLastClosed()}
+      >
+        Reopen Closed Tab
+      </ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled={offered.length === 0}>Recently Closed</ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          {offered.slice(0, RECENTLY_CLOSED_LISTED).map(({ entry, at }) => {
+            const Icon = entry.icon ?? viewIcon(entry.moduleId, entry.viewId);
+            return (
+              <ContextMenuItem
+                key={`${entry.closedAt}:${at}`}
+                icon={Icon ? <Icon /> : undefined}
+                onSelect={() => reopenClosedAt(at)}
+              >
+                {entry.title}
+              </ContextMenuItem>
+            );
+          })}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
     </>
   );
 }
@@ -472,6 +517,7 @@ function TabItem({
       <ContextMenuItem disabled={all.length === 0} onSelect={() => onCloseMany(all)}>
         Close All Tabs
       </ContextMenuItem>
+      <ReopenClosedItems />
       {onTogglePin || (tab.preview && onPin) ? <ContextMenuSeparator /> : null}
       {onTogglePin ? (
         <ContextMenuItem

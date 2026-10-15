@@ -84,3 +84,10 @@ describe("capLabels", () => {
     expect(capLabels({ kind: "click", alt: true }, false)).toEqual(["Alt+Click"]);
   });
 });
+
+test("the shell lists reopening a closed tab", () => {
+  const everywhere = buildSections(modules, "git").find((s) => s.title === "Everywhere")!;
+  const reopen = everywhere.entries.find((e) => e.id === "tab-reopen");
+  expect(reopen?.action).toBe("Reopen closed tab");
+  expect(reopen && capLabels(reopen.keys[0], true)).toEqual(["⌘⇧T"]);
+});

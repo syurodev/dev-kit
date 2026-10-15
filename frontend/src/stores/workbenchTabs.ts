@@ -114,7 +114,7 @@ export type ClosedTab = {
 export const MAX_RECENTLY_CLOSED = 20;
 
 /** The id the record's tab had — and will have again: tabKey is the document's identity. */
-const closedTabId = (entry: ClosedTab) => tabKey(entry.moduleId, entry.viewId, entry.params);
+export const closedTabId = (entry: ClosedTab) => tabKey(entry.moduleId, entry.viewId, entry.params);
 
 /**
  * The stack without `id`'s records; the same array when it had none, so nothing

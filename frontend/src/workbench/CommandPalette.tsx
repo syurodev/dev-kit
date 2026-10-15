@@ -13,8 +13,9 @@ import {
 import { ChevronRight, Search } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
-import { getModule, type ModuleManifest, type PaletteSearchGroup } from "@/modules/registry";
+import { getModule, viewIcon, type ModuleManifest, type PaletteSearchGroup } from "@/modules/registry";
 import { allOpenTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { offeredClosedTabs, reopenClosedAt } from "./reopenTab";
 import { shortcut } from "@/lib/shortcut";
 import {
   composeSections,
@@ -75,6 +76,7 @@ export function CommandPalette({
   const [found, setFound] = useState<PaletteSearchGroup[]>([]);
   const [searching, setSearching] = useState(false);
   const tabModules = useWorkbenchTabsStore((state) => state.modules);
+  const closedStack = useWorkbenchTabsStore((state) => state.recentlyClosed);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   // A palette that opens on the last thing typed makes the second use slower
@@ -157,12 +159,22 @@ export function CommandPalette({
         // "the module", which Go to already offers.
         !(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId),
     );
+    const recentlyClosed = offeredClosedTabs({ recentlyClosed: closedStack, modules: tabModules }).map(({ entry, at }) => ({
+      at,
+      moduleId: entry.moduleId,
+      title: entry.title,
+      icon: entry.icon ?? viewIcon(entry.moduleId, entry.viewId),
+    }));
     const fixed = staticSections(
-      { query: text, scope, activeModuleId, modules: paletteModules, tabs },
-      { focusModule: onFocusModule, activateTab: (id) => useWorkbenchTabsStore.getState().setActiveTab(id) },
+      { query: text, scope, activeModuleId, modules: paletteModules, tabs, recentlyClosed },
+      {
+        focusModule: onFocusModule,
+        activateTab: (id) => useWorkbenchTabsStore.getState().setActiveTab(id),
+        reopenClosed: (at) => void reopenClosedAt(at),
+      },
     );
     return composeSections(text, activeModuleId, fixed, scope === "commands" ? [] : found);
-  }, [text, scope, activeModuleId, paletteModules, tabModules, found, onFocusModule]);
+  }, [text, scope, activeModuleId, paletteModules, tabModules, closedStack, found, onFocusModule]);
 
   // The list keeps its scroll between queries otherwise, so new results could
   // open scrolled past their own first row.
