@@ -23,8 +23,9 @@ export type ConnectorEdgeData = {
   title?: string;
   /**
    * "arrow": a branch's label sits at its arrowhead as just its order number
-   * ("2" of "2 · if (ok)"), the rest in the tooltip. Only the flow document
-   * asks for it; without it the label stays at the path's midpoint.
+   * ("2" of "2 · if (ok)"), the rest in the tooltip. Set from FlowCanvas'
+   * `labelAt` prop, which only the flow document passes; without it the label
+   * stays at the path's midpoint.
    */
   labelAt?: "arrow";
   /** Off the flow through the hovered card (focus.ts): its label fades with it. */
@@ -42,6 +43,24 @@ export type ConnectorEdgeData = {
 export function arrowLabel(label: string | undefined): string | null {
   const m = label?.match(/^(\d+)(?: · |$)/);
   return m ? m[1] : null;
+}
+
+/**
+ * The edge data FlowCanvas hands this edge. The tooltip falls back to the
+ * label itself; an injection labels itself, other edges only when labelled.
+ */
+export function connectorEdgeData({
+  kind,
+  label,
+  title,
+  labelAt,
+}: {
+  kind: string;
+  label?: string;
+  title?: string;
+  labelAt?: "arrow";
+}): ConnectorEdgeData {
+  return { kind, label, title: title ?? label, labelAt, showLabel: kind === "di" || !!label };
 }
 
 /** Room between a label at the arrowhead and the card: the arrow itself, so the chip stays clear of the card it leaves (columns are ~40px apart). */

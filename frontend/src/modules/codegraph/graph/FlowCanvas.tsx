@@ -23,7 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ApiNode } from "./ApiNode";
 import { PlanNode } from "../plan/PlanNode";
-import { ConnectorEdge } from "./ConnectorEdge";
+import { ConnectorEdge, connectorEdgeData } from "./ConnectorEdge";
 import { LayerLegend } from "./LayerLegend";
 import { CanvasFitButton, CanvasToolbar } from "./CanvasToolbar";
 import { rankGraph } from "./rank";
@@ -149,6 +149,13 @@ export type FlowCanvasProps = {
   /** Tooltip of each edge's label (the full guard). Stable, like edgeLabel. */
   edgeTitle?: (edge: CodeGraphEdge) => string | undefined;
   /**
+   * "arrow": a numbered label ("2 · if (ok)") on an edge entering its card
+   * from the left sits at the arrowhead as its number, the rest in the
+   * tooltip. The flow document's labels are numbered calls; the plan and
+   * database canvases leave it off and keep midpoint labels.
+   */
+  labelAt?: "arrow";
+  /**
    * Marks one node selected from outside the canvas — picking a row in the
    * sidebar should show you which card it means, and React Flow's own
    * selection only reacts to clicks on the canvas itself.
@@ -214,6 +221,7 @@ function Canvas({
   buildData,
   edgeLabel,
   edgeTitle,
+  labelAt,
   selectedNodeId,
   focusNodeId,
   header,
@@ -416,19 +424,12 @@ function Canvas({
             sourceHandle: "bottom",
             targetHandle: sameColumn ? "top" : "left",
             type: "connector",
-            data: {
-              kind: e.kind,
-              label,
-              title: edgeTitle?.(e) ?? label,
-              // A flow's labels are numbered calls: a branch's sits at its arrowhead.
-              labelAt: edgeTitle ? ("arrow" as const) : undefined,
-              showLabel: e.kind === "di" || !!label,
-            },
+            data: connectorEdgeData({ kind: e.kind, label, title: edgeTitle?.(e), labelAt }),
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
           },
         ];
       }),
-    [edges, ranks, edgeLabel, edgeTitle],
+    [edges, ranks, edgeLabel, edgeTitle, labelAt],
   );
   // The card under the pointer (or focused from the keyboard), and the flow
   // through it: what leads there and what it leads to stay lit, the rest

@@ -210,6 +210,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
           buildData={buildData}
           edgeLabel={view.edgeLabel}
           edgeTitle={view.edgeTitle}
+          labelAt="arrow"
           selectedNodeId={selectedNodeId}
           focusNodeId={selectedNodeId}
           header={header}
