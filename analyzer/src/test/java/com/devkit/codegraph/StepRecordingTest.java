@@ -245,4 +245,44 @@ class StepRecordingTest {
         CallSite save = byText(r.callSites.stream().filter(c -> c.from.startsWith("acme.Svc.go(")).toList(), "repo.save(o)");
         assertEquals("", save.target, "an inherited CRUD method is not a node of this project");
     }
+
+    /**
+     * A record built as a call's argument is produced by that call; one built
+     * elsewhere sits where it is built, which is no step. A listener's row is
+     * read off its declaration (col 0).
+     */
+    @Test
+    void aProducerRecordIsProducedByTheCallItIsPassedTo(@TempDir Path root) throws IOException {
+        Path file = root.resolve("src/main/java/acme/Pub.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, """
+                package acme;
+                import org.apache.kafka.clients.producer.*;
+                import org.springframework.kafka.annotation.KafkaListener;
+                class Pub {
+                    private final KafkaProducer<String, String> producer = null;
+                    private final Props props = null;
+                    void a(String k) { producer.send(new ProducerRecord<>("orders." + props.topic(), k, "v")); }
+                    void b(String k) {
+                        ProducerRecord<String, String> r = new ProducerRecord<>("orders." + props.topic(), k, "v");
+                        producer.send(r);
+                    }
+                    @KafkaListener(topics = "orders") void on(String m) { System.out.println(m); }
+                }
+                interface Props { String topic(); }
+                """);
+        AnalysisResult r = new ProjectAnalyzer(root, 1).analyze();
+        List<CallSite> aSites = r.callSites.stream().filter(c -> c.from.startsWith("acme.Pub.a(")).toList();
+        KafkaAccess a = r.kafkaAccesses.stream().filter(x -> x.from.startsWith("acme.Pub.a(")).findFirst().orElseThrow();
+        assertEquals("producer.send(new ProducerRecord<>(\"orders.\" + props.topic(), k, \"v\"))", at(aSites, a.line, a.col));
+
+        List<CallSite> bSites = r.callSites.stream().filter(c -> c.from.startsWith("acme.Pub.b(")).toList();
+        KafkaAccess b = r.kafkaAccesses.stream().filter(x -> x.from.startsWith("acme.Pub.b(")).findFirst().orElseThrow();
+        assertEquals(9, b.line);
+        assertTrue(b.col > 0);
+        assertTrue(bSites.stream().noneMatch(c -> c.line == b.line && c.col == b.col), "no step is where a record is built");
+
+        KafkaAccess on = r.kafkaAccesses.stream().filter(x -> x.from.startsWith("acme.Pub.on(")).findFirst().orElseThrow();
+        assertEquals(0, on.col);
+    }
 }

@@ -151,9 +151,17 @@ final class KafkaExtractor {
         // new ProducerRecord<>("topic", key, value): the topic a producer writes to, however the record is sent.
         for (ObjectCreationExpr creation : scope.node().findAll(ObjectCreationExpr.class)) {
             if (creation.getType().getNameAsString().equals("ProducerRecord") && !creation.getArguments().isEmpty()) {
-                int line = creation.getBegin().map(p -> p.line).orElse(0);
+                // Passed straight to a call (producer.send(new ProducerRecord<>(..))),
+                // the record is produced by that call, and sits where its step is.
+                // Built anywhere else, it sits where it is built — no step's place,
+                // and the record's own arguments (props.topic()) are not the produce.
+                com.github.javaparser.ast.Node at = creation.getParentNode()
+                        .filter(p -> p instanceof MethodCallExpr m && m.getArguments().stream().anyMatch(arg -> arg == creation))
+                        .orElse(creation);
+                int line = Steps.line(at);
+                int col = Steps.col(at);
                 for (String owner : scope.ownerIds()) {
-                    add(owner, constants.resolve(creation.getArgument(0)), "produce", "kafka-producer", "", false, scope.file(), line);
+                    add(owner, constants.resolve(creation.getArgument(0)), "produce", "kafka-producer", "", false, scope.file(), line, col);
                 }
             }
         }

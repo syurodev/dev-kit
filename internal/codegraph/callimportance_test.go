@@ -26,6 +26,8 @@ func TestVisibility(t *testing.T) {
 			Receiver: "field", ResultUse: "assigned"}, nil, false, "value"},
 		{"a project call", StepFacts{CalleeKey: "acme.P#quarantine", Project: true}, nil, true, "project"},
 		{"a project helper", StepFacts{CalleeKey: "acme.P#metricPrefix", Project: true, Helper: true}, nil, false, "helper"},
+		{"a bodyless project call says what it does", StepFacts{CalleeKey: "acme.UserRepo#findByEmail", Project: true,
+			Effect: &StepEffect{Kind: "db", Role: "read", Target: "users"}}, nil, true, "DB read"},
 
 		// One row per remaining rule.
 		{"override show beats infra", StepFacts{CalleeKey: "org.slf4j.Logger#warn"}, map[string]string{"org.slf4j.Logger#warn": "show"}, true, "you chose"},

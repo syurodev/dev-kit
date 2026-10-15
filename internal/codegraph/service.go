@@ -704,6 +704,27 @@ func (s *Service) activeStore() (Store, func(), error) {
 	return store, release, err
 }
 
+// activeStoreAndDetection is activeStore with what the project was detected
+// as, read under the same lock as the lease, so the two describe one project.
+func (s *Service) activeStoreAndDetection() (Store, DetectedProject, func(), error) {
+	s.mu.RLock()
+	err := s.index.readyErr()
+	active := s.active
+	root, lease, detected := s.projectRoot, s.lease, s.detected
+	s.mu.RUnlock()
+	if err != nil {
+		return nil, DetectedProject{}, nil, err
+	}
+	if !active {
+		return nil, DetectedProject{}, nil, ErrNoActiveProject
+	}
+	store, _, release, err := borrow(lease, root)
+	if err != nil {
+		return nil, DetectedProject{}, nil, err
+	}
+	return store, detected, release, nil
+}
+
 // projectFiles is for operations on the selected directory, not the derived
 // graph — reading and writing files. They remain available while the watcher
 // rebuilds after an editor save, and while a project is still opening: the

@@ -94,6 +94,11 @@ func Visibility(f StepFacts, stats CallStats, overrides map[string]string) (bool
 		if f.Helper {
 			return false, "helper"
 		}
+		// A bodyless project call (a repository or client method) says what
+		// it does when an extractor saw it.
+		if f.Effect != nil {
+			return true, effectLabel(*f.Effect)
+		}
 		return true, "project"
 	}
 	if f.WrapsProjectCall {

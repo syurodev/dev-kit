@@ -219,11 +219,11 @@ func TestGetStepsShowsACallIntoABodylessProjectMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	steps := got.Steps["svc"]
-	if s := stepByText(t, steps, "userRepo.findByEmail"); !s.Visible || s.Reason != "project" || s.Target != "findByEmail" ||
+	if s := stepByText(t, steps, "userRepo.findByEmail"); !s.Visible || s.Reason != "DB write" || s.Target != "findByEmail" ||
 		s.Effect == nil || *s.Effect != (StepEffect{Kind: "db", Role: "write", Target: "audit"}) {
 		t.Fatalf("findByEmail = %+v (effect %v)", s, s.Effect)
 	}
-	if s := stepByText(t, steps, "billing.fetchInvoice"); !s.Visible || s.Effect == nil || *s.Effect != (StepEffect{Kind: "http", Role: "call", Target: "GET /invoices/{id}"}) {
+	if s := stepByText(t, steps, "billing.fetchInvoice"); !s.Visible || s.Reason != "HTTP call" || s.Effect == nil || *s.Effect != (StepEffect{Kind: "http", Role: "call", Target: "GET /invoices/{id}"}) {
 		t.Fatalf("fetchInvoice = %+v (effect %v)", s, s.Effect)
 	}
 	if s := stepByText(t, steps, "counts.count"); !s.Visible || s.Reason != "project" || s.Effect != nil {
@@ -255,7 +255,7 @@ func TestGetStepsKeepsAMethodWithAnEffect(t *testing.T) {
 // another call on the same line.
 func TestGetStepsJoinsEffectsByPosition(t *testing.T) {
 	result := AnalysisResult{
-		Nodes: []Node{method("m")},
+		Nodes: []Node{method("m"), method("lua")},
 		CallSites: []CallSite{
 			// kafka\n  .send(t, x): the effect is on the line of send's name.
 			{From: "m", Line: 4, Col: 5, Unresolved: "library", Text: "audit.mark()", CalleeKey: "acme.Lib#mark", Receiver: "local", ResultUse: "argument"},
@@ -271,23 +271,31 @@ func TestGetStepsJoinsEffectsByPosition(t *testing.T) {
 				Receiver: "field", ResultUse: "discarded"},
 			{From: "m", Line: 8, Col: 27, Unresolved: "library", Text: "ops.get(k)", CalleeKey: "org.springframework.data.redis.core.ValueOperations#get",
 				Receiver: "local", ResultUse: "argument"},
-			// No column (Lua, an older index): the first library call on the line.
-			{From: "m", Line: 10, Unresolved: "library", Text: "red:set(k, v)", CalleeKey: "resty.redis#set", ResultUse: "argument"},
-			{From: "m", Line: 10, Unresolved: "library", Text: "red:expire(k, 9)", CalleeKey: "resty.redis#expire", ResultUse: "argument"},
+			// A row read off a declaration (col 0) in a method whose calls have
+			// columns is at no call: @KafkaListener on a one-line method.
+			{From: "m", Line: 12, Col: 45, Unresolved: "library", Text: "System.out.println(m)", CalleeKey: "java.io.PrintStream#println",
+				Receiver: "static", ResultUse: "discarded"},
+			// No column anywhere in the method (Lua, an older Java index): the
+			// first library call on the line.
+			{From: "lua", Line: 10, Unresolved: "library", Text: "red:set(k, v)", CalleeKey: "resty.redis#set", ResultUse: "argument"},
+			{From: "lua", Line: 10, Unresolved: "library", Text: "red:expire(k, 9)", CalleeKey: "resty.redis#expire", ResultUse: "argument"},
 		},
-		KafkaAccesses: []KafkaAccess{{From: "m", Topic: "orders", Role: "produce", Client: "kafka-template", File: "m.java", Line: 4, Col: 14}},
+		KafkaAccesses: []KafkaAccess{
+			{From: "m", Topic: "orders", Role: "produce", Client: "kafka-template", File: "m.java", Line: 4, Col: 14},
+			{From: "m", Topic: "orders", Role: "consume", Client: "kafka-listener", File: "m.java", Line: 12},
+		},
 		RedisAccesses: []RedisAccess{
 			{From: "m", Key: "k:{id}", Access: "read", Command: "get", File: "m.java", Line: 6, Col: 37},
 			{From: "m", Key: "k:{id}", Access: "write", Command: "set", File: "m.java", Line: 6, Col: 37},
 			{From: "m", Key: "q:{id}", Access: "read", Command: "get", File: "m.java", Line: 8, Col: 27},
-			{From: "m", Key: "r:{id}", Access: "write", Command: "set", File: "m.lua", Line: 10},
+			{From: "lua", Key: "r:{id}", Access: "write", Command: "set", File: "m.lua", Line: 10},
 		},
 	}
-	got, err := openWith(t, result).GetSteps(t.Context(), []string{"m"}, nil)
+	got, err := openWith(t, result).GetSteps(t.Context(), []string{"m", "lua"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps := got.Steps["m"]
+	steps := append(got.Steps["m"], got.Steps["lua"]...)
 	effect := func(text string) string {
 		t.Helper()
 		for _, s := range steps {
@@ -308,6 +316,7 @@ func TestGetStepsJoinsEffectsByPosition(t *testing.T) {
 		"redisTemplate.opsForValue().set(k, v)": "redis write k:{id}", // a write is preferred over a read at one step
 		`log.info("x", ops.get(k))`:             "",
 		"ops.get(k)":                            "redis read q:{id}",
+		"System.out.println(m)":                 "",
 		"red:set(k, v)":                         "redis write r:{id}",
 		"red:expire(k, 9)":                      "",
 	} {

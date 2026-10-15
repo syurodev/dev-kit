@@ -96,7 +96,7 @@ func (s *Service) GetSteps(ctx context.Context, nodeIDs []string, overrides map[
 	if len(nodeIDs) > MaxStepNodeIDs {
 		return StepsResult{}, fmt.Errorf("%w: %d asked, at most %d", ErrTooManyNodes, len(nodeIDs), MaxStepNodeIDs)
 	}
-	store, release, err := s.activeStore()
+	store, detected, release, err := s.activeStoreAndDetection()
 	if err != nil {
 		return StepsResult{}, err
 	}
@@ -105,7 +105,7 @@ func (s *Service) GetSteps(ctx context.Context, nodeIDs []string, overrides map[
 	if err != nil {
 		return StepsResult{}, err
 	}
-	out.Legacy = out.Legacy && s.ActiveDetection().Language == "java"
+	out.Legacy = out.Legacy && detected.Language == "java"
 	return out, nil
 }
 
@@ -219,13 +219,17 @@ func loadStepGraph(ctx context.Context, store Store, roots []string) (*stepGraph
 	// the asked methods' own callees (the cap may have stopped short of
 	// them), and what extractors saw in the bodyless targets of any loaded
 	// call — a repository method's table, a Feign method's route.
+	rootSet := make(map[string]bool, len(roots))
+	for _, id := range roots {
+		rootSet[id] = true
+	}
 	unloadedCallees, bodyless := map[string]bool{}, map[string]bool{}
 	for id := range g.loaded {
 		for _, c := range g.sites[id] {
 			if c.Role == RoleOverride {
 				continue
 			}
-			if c.To != "" && !g.loaded[c.To] && slices.Contains(roots, id) {
+			if c.To != "" && !g.loaded[c.To] && rootSet[id] {
 				unloadedCallees[c.To] = true
 			}
 			if c.To == "" && c.Target != "" && !g.loaded[c.Target] {
@@ -336,10 +340,12 @@ func (j *stepJudge) facts(from string, i int, depth int) StepFacts {
 }
 
 // effectsAt joins what extractors saw in from to its steps, once per method.
-// An effect with a column goes to the step at exactly that position; one
-// without (a Lua index, an older Java one) to the first library call on its
-// line. Each effect goes to at most one step, and a step that several land on
-// keeps the one that changes something.
+// An effect with a column goes to the step at exactly that position. One
+// without goes to the first library call on its line only in a method whose
+// calls carry no column either (Lua, TypeScript, an older Java index): where
+// they do, a column-less row was read off a declaration (a @KafkaListener)
+// and is at no call. Each effect goes to at most one step, and a step that
+// several land on keeps the one that changes something.
 func (j *stepJudge) effectsAt(from string) map[int]StepEffect {
 	if joined, ok := j.joined[from]; ok {
 		return joined
@@ -352,10 +358,12 @@ func (j *stepJudge) effectsAt(from string) map[int]StepEffect {
 	}
 	type pos struct{ line, col int }
 	at, firstLibrary := map[pos]int{}, map[int]int{}
+	hasColumns := false
 	for i, c := range j.g.sites[from] {
 		if c.Role == RoleOverride {
 			continue
 		}
+		hasColumns = hasColumns || c.Col > 0
 		if _, ok := at[pos{c.Line, c.Col}]; !ok {
 			at[pos{c.Line, c.Col}] = i
 		}
@@ -366,9 +374,10 @@ func (j *stepJudge) effectsAt(from string) map[int]StepEffect {
 	for _, e := range effects {
 		var i int
 		var ok bool
-		if e.Col > 0 {
+		switch {
+		case e.Col > 0:
 			i, ok = at[pos{e.Line, e.Col}]
-		} else {
+		case !hasColumns:
 			i, ok = firstLibrary[e.Line]
 		}
 		if !ok {
