@@ -369,3 +369,19 @@ row of that node. Steps are fetched with the subgraph and again after
   effect chip share one class (`EFFECT_CHIP` in `graph/tokens.ts`), in the sans
   caption face (`text-caption-11`) rather than the code face the plan gave the
   card, so one effect reads the same in both modes.
+- **`Step.Target` and body-less project calls.** A call into a method with no body
+  (a repository or client interface) keeps `to` = "" so flow walks still stop
+  there, and `call_sites.target` names the project node. `Step.Target` carries it;
+  such a call is never a helper and shows its effect label when an extractor saw it.
+- **Effect positions.** A method call's `line:col` is its name's position, and
+  call-level effects record that line. Effect tables gained `col` and join to a
+  call site by `(from, line, col)`; col-0 effects attach by line only for methods
+  whose sites carry no column.
+- **`labelAt` opt-in.** Edge number labels sit at the arrowhead only when the
+  canvas passes `labelAt: "arrow"` (the flow canvas); the plan canvas keeps
+  midpoint labels.
+- **Tree guides and motion** (asked for on 2026-10-15). The outline draws the
+  sidebar's tree guides and row geometry from the shared `components/tree-guides.tsx`;
+  rows ease in as they open, a selection flashes, and the mode switch fades
+  (`outline-row-enter`, `outline-row-flash`, `flow-mode-enter`), all off under
+  reduced motion. Picks made inside the outline never jump it.

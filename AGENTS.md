@@ -864,6 +864,42 @@ DevKit build triggers anyway. `FlowStep` carries `Depth` (the flat DFS list is a
 `call_sites` does not carry it; Lua and TypeScript do not set it. Design:
 `docs/dev-kit/codegraph.mdx` § Guard trên cạnh gọi.
 
+### CodeGraph: flow outline and steps
+A flow tab has two modes, **Outline | Graph** (shadcn `Tabs`, Outline first; spec
+`docs/superpowers/specs/2026-10-15-codegraph-flow-outline-design.md`, its Addendum lists what changed in the build).
+- **Steps are call sites with more columns** (`call_sites.col/text/callee_key/receiver/result_use/frames/target/role`,
+  `migrateCallSiteSteps`). Java fills them (`Steps.java`); Lua and TS do not yet and read as a flat outline
+  (`Legacy` is set only for a Java project whose sites carry no step text). `frames` are language-neutral
+  (`if, else, case, catch, finally, try, loop, closure, and, or, ternary, await`). A guard clause is a frame
+  only for the calls inside it.
+- **Positions are the call's NAME**: a method call's `line:col` is where its name starts (`a.b()` points at `b`), and
+  call-level effect extractors record that same line. A closure's frame id is the `line:col` of the call it is
+  passed to. Effect tables (`kafka_accesses`, `redis_accesses`, `outbound_calls`, table accesses) gained `col` and
+  join to a call site by `(from, line, col)`; a col-0 effect (old index, declaration-level) attaches by line only
+  for a method none of whose sites has a column.
+- **`target` vs `to`**: a call into a body-less project method (a repository or client interface) has `to` = ""
+  (a wall for flow walks) and `target` = the project node it names; `Step.Target` carries it so the outline can
+  show its effect. `role = "override"` rows are dispatch links (overridden method → override), never returned as
+  steps, only `Step.Impls`; `references.go` reads `role` and keeps the old line rule as a fallback.
+- **Visibility is decided at read time** (`callimportance.go`, pure `Visibility`; `steps.go` supplies the
+  facts). Rule order: your override → project call (a helper is hidden; a project call with an effect shows the
+  effect label; else "project") → wraps a project call (closure) → extractor effect → decides a branch →
+  infrastructure table (a utility call discarded on a `field` falls through) → writes to param/field/local-from-param
+  → common in the project (`CallStats`) → side effect / accessor / value. Every answer has a reason the outline
+  shows. **Helper** = a project callee that is loaded (≤ 3 levels, ≤ 2000 methods), has no overrides, no field
+  writes, no effects and no visible own step; memoised by `(id, depth)`; a cycle, an unloaded method or a body-less
+  project call is never a helper. `CallStats` is cached per index generation.
+- **Overrides are local preferences** (`codegraph_call_visibility`, `PreferencesGet/SetCallVisibility`, UI only,
+  all projects): validated (`show|hide`, key or `Type#*`), writes serialised, capped at 500.
+- `CodeGraphGetSteps(nodeIds ≤ 200, servicePath)` asks the same Service as `CodeGraphGetNeighbors`.
+- **Frontend** (pure, `bun test src/modules/codegraph`): `outline/buildOutline.ts` builds rows with opaque, stable
+  keys (`calleeKey||to||target||text#occurrence`, joined with `\u0001`, so a re-fetch keeps expansion and
+  selection); `outline/outlineNav.ts` is the keyboard/tree-role model; `OutlineView.tsx` draws it with the
+  shared `TreeGuides` and row geometry (`components/tree-guides.tsx`, also the sidebar's). Motion classes
+  (`outline-row-enter`, `outline-row-flash`, `flow-mode-enter`) are off under `prefers-reduced-motion`.
+  `graph/graphView.ts` hides helpers and drops only the cards that hid disconnected. Arrowhead number labels are
+  opt-in (`labelAt: "arrow"`) for the flow canvas only; the plan canvas keeps midpoint labels.
+
 ### CodeGraph: configuration
 Java only. The analyzer records what config files SET (`ConfigKey`: `ConfigFiles.java`, YAML via
 SnakeYAML `compose()` — never constructed, alias-bomb capped — plus `.properties`) and what the code
