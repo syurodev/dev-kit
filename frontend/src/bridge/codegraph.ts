@@ -377,10 +377,11 @@ function toStep(s: StepModel): CodeGraphStep {
 
 /** The steps of a flow's methods, scored with the person's overrides. */
 export async function getCodeGraphSteps(nodeIds: string[], servicePath = ""): Promise<CodeGraphSteps> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < nodeIds.length; i += MAX_STEP_NODE_IDS) chunks.push(nodeIds.slice(i, i + MAX_STEP_NODE_IDS));
+  const results = await Promise.all(chunks.map((chunk) => callBridge(() => AppService.CodeGraphGetSteps(chunk, servicePath))));
   const merged: CodeGraphSteps = { steps: {}, truncated: [], legacy: false };
-  for (let i = 0; i < nodeIds.length; i += MAX_STEP_NODE_IDS) {
-    const chunk = nodeIds.slice(i, i + MAX_STEP_NODE_IDS);
-    const result = await callBridge(() => AppService.CodeGraphGetSteps(chunk, servicePath));
+  for (const result of results) {
     for (const [id, list] of Object.entries(result.steps ?? {})) {
       merged.steps[id] = (list ?? []).flatMap((s) => (s ? [toStep(s)] : []));
     }

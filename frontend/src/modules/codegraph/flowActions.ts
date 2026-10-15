@@ -66,7 +66,8 @@ export async function loadFlow(folderId: string, root: string, force = false): P
 
 /**
  * Fetches the steps of the flow's methods. Dropped if the subgraph it was
- * asked for is no longer the one in that flow (a refresh replaced it).
+ * asked for is no longer the one in that flow (a refresh replaced it); the
+ * steps on screen stay until the new subgraph's arrive.
  */
 export async function loadSteps(folderId: string, root: string): Promise<void> {
   const key = flowKey(folderId, root);
@@ -77,7 +78,11 @@ export async function loadSteps(folderId: string, root: string): Promise<void> {
   patchFlow(key, folderId, { stepsLoading: true, stepsError: "" });
   try {
     const steps = await getCodeGraphSteps(subgraph.nodes.map((n) => n.id), servicePath);
-    if (current() && snapshot().flows[key]?.subgraph === subgraph) patchFlow(key, folderId, { steps, stepsLoading: false });
+    if (!current()) return;
+    // A later request owns the flag when there is one; this was the last, so
+    // it stops loading even when its subgraph is gone (a failed refresh).
+    if (snapshot().flows[key]?.subgraph === subgraph) patchFlow(key, folderId, { steps, stepsLoading: false });
+    else patchFlow(key, folderId, { stepsLoading: false });
   } catch (e) {
     if (current()) patchFlow(key, folderId, { stepsLoading: false, stepsError: errorMessage(e) });
   }
@@ -105,7 +110,8 @@ export async function setCallVisibility(calleeKey: string, mode: CallVisibilityM
   const open = documentsOf().flatMap(({ doc }) =>
     doc.kind === "flow" && doc.folderId && doc.root ? [[doc.folderId, doc.root] as const] : [],
   );
-  await Promise.all([...new Map(open.map((o) => [`${o[0]} ${o[1]}`, o])).values()].map(([f, r]) => loadSteps(f, r)));
+  const flows = new Map(open.map(([f, r]) => [flowKey(f, r), [f, r] as const]));
+  await Promise.all([...flows.values()].map(([f, r]) => loadSteps(f, r)));
 }
 
 /** An entry point's call flow, in the preview tab unless told otherwise. */
