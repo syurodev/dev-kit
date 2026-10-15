@@ -2,6 +2,7 @@ import { Events } from "@wailsio/runtime";
 import { callBridge } from "./client";
 import { toAppError } from "./errors";
 import { AppService } from "../../bindings/devkit/internal/bridge";
+import type { Step as StepModel } from "../../bindings/devkit/internal/codegraph/models";
 
 /**
  * What calls in — mirrors Go's EntryKind* (internal/codegraph/entrypoints.go).
@@ -297,6 +298,8 @@ export type CodeGraphEdge = {
   from: string;
   to: string;
   kind: string;
+  /** The condition the call runs under, as written (Go Edge.Guard); absent when it always runs. */
+  guard?: string;
 };
 
 export type CodeGraphSubgraph = {
@@ -321,6 +324,84 @@ export async function getCodeGraphNeighbors(
     truncated: result.truncated ?? false,
     continuation: result.continuation,
   };
+}
+
+/** One control structure around a call (Go StepFrame). `kind` is open: render an unknown one by its text. */
+export type CodeGraphStepFrame = { id: string; kind: string; text: string; exits?: boolean };
+
+/** What an extractor recognised at a call (Go StepEffect). */
+export type CodeGraphStepEffect = { kind: string; role: string; target: string };
+
+/** One call in a method body, as the outline draws it (Go Step). */
+export type CodeGraphStep = {
+  line: number;
+  col: number;
+  text: string;
+  calleeKey: string;
+  /** The project node it lands on. */
+  to?: string;
+  /** The project node a call into a method with no body names; set only when `to` is not. */
+  target?: string;
+  /** Overrides of `to`, when `to` is abstract or overridden. */
+  impls?: string[];
+  frames: CodeGraphStepFrame[];
+  visible: boolean;
+  reason: string;
+  effect?: CodeGraphStepEffect;
+};
+
+export type CodeGraphSteps = {
+  steps: Record<string, CodeGraphStep[]>;
+  truncated: string[];
+  legacy: boolean;
+};
+
+/** Go's MaxStepNodeIDs: one request's limit, so longer lists go in chunks. */
+export const MAX_STEP_NODE_IDS = 200;
+
+function toStep(s: StepModel): CodeGraphStep {
+  return {
+    line: s.line,
+    col: s.col,
+    text: s.text,
+    calleeKey: s.calleeKey,
+    to: s.to || undefined,
+    target: s.target || undefined,
+    impls: s.impls && s.impls.length ? [...s.impls] : undefined,
+    frames: (s.frames ?? []).flatMap((f) => (f ? [{ id: f.id, kind: f.kind, text: f.text, exits: f.exits || undefined }] : [])),
+    visible: s.visible,
+    reason: s.reason,
+    effect: s.effect ? { kind: s.effect.kind, role: s.effect.role, target: s.effect.target } : undefined,
+  };
+}
+
+/** The steps of a flow's methods, scored with the person's overrides. */
+export async function getCodeGraphSteps(nodeIds: string[], servicePath = ""): Promise<CodeGraphSteps> {
+  const merged: CodeGraphSteps = { steps: {}, truncated: [], legacy: false };
+  for (let i = 0; i < nodeIds.length; i += MAX_STEP_NODE_IDS) {
+    const chunk = nodeIds.slice(i, i + MAX_STEP_NODE_IDS);
+    const result = await callBridge(() => AppService.CodeGraphGetSteps(chunk, servicePath));
+    for (const [id, list] of Object.entries(result.steps ?? {})) {
+      merged.steps[id] = (list ?? []).flatMap((s) => (s ? [toStep(s)] : []));
+    }
+    merged.truncated.push(...(result.truncated ?? []));
+    merged.legacy = merged.legacy || result.legacy;
+  }
+  return merged;
+}
+
+export type CallVisibilityMode = "show" | "hide" | "";
+
+/** The person's "always show / hide" choices, by callee key. */
+export async function getCallVisibility(): Promise<Record<string, string>> {
+  const result = await callBridge(() => AppService.PreferencesGetCallVisibility());
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(result ?? {})) if (v) out[k] = v;
+  return out;
+}
+
+export async function setCallVisibility(calleeKey: string, mode: CallVisibilityMode): Promise<void> {
+  await callBridge(() => AppService.PreferencesSetCallVisibility(calleeKey, mode));
 }
 
 
