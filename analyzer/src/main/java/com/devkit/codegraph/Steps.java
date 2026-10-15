@@ -1,18 +1,40 @@
 package com.devkit.codegraph;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.CastExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.InstanceOfExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.SuperExpr;
+import com.github.javaparser.ast.expr.SwitchExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
+import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.DoStmt;
+import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.SwitchStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 
@@ -183,5 +205,219 @@ final class Steps {
 
     private static String at(Node n) {
         return n.getBegin().map(p -> p.line + ":" + p.column).orElse("0:0");
+    }
+
+    /** Everything {@link CallSite#describe} records about one call. */
+    record Info(int col, String text, String receiver, String resultUse, List<StepFrame> frames) {}
+
+    static Info of(Node call, Node scope) {
+        String receiver = call instanceof MethodCallExpr m ? receiver(m, scope) : "unknown";
+        return new Info(col(call), text(call), receiver, resultUse(call), frames(call, scope));
+    }
+
+    /**
+     * Where the receiver of {@code call} comes from: param, field,
+     * local-from-param (a local or a chain built from a parameter), local,
+     * static (a type name), this, or unknown. A call that changes something
+     * the method was handed — `in.setHeader(...)` with `in = exchange.getIn()` —
+     * is a step a reader wants to see; the same call on a temporary is not.
+     */
+    static String receiver(MethodCallExpr call, Node scope) {
+        return call.getScope().map(s -> origin(s, call, scope, false)).orElse("this");
+    }
+
+    private static String origin(Expression e, Node at, Node scope, boolean derived) {
+        Expression x = unwrap(e);
+        if (x instanceof ThisExpr || x instanceof SuperExpr) {
+            return "this";
+        }
+        if (x instanceof FieldAccessExpr f) {
+            return f.getScope() instanceof ThisExpr ? "field" : origin(f.getScope(), at, scope, true);
+        }
+        if (x instanceof MethodCallExpr m) {
+            return m.getScope().map(s -> origin(s, at, scope, true)).orElse("local");
+        }
+        if (x instanceof NameExpr n) {
+            String kind = nameKind(n.getNameAsString(), at, scope);
+            if (kind.equals("unknown")) {
+                try {
+                    if (n.resolve().isField()) {
+                        kind = "field"; // inherited: declared on a superclass
+                    }
+                } catch (RuntimeException | StackOverflowError ignored) {
+                    // stays unknown
+                }
+            }
+            return derived && kind.equals("param") ? "local-from-param" : kind;
+        }
+        return "unknown";
+    }
+
+    private static String nameKind(String name, Node at, Node scope) {
+        for (Node n = at; n != null && n != scope; n = n.getParentNode().orElse(null)) {
+            if (n instanceof LambdaExpr l && l.getParameters().stream().anyMatch(p -> p.getNameAsString().equals(name))) {
+                return "local";
+            }
+            if (n instanceof CatchClause c && c.getParameter().getNameAsString().equals(name)) {
+                return "local";
+            }
+            if (n instanceof ForEachStmt f
+                    && f.getVariable().getVariables().stream().anyMatch(v -> v.getNameAsString().equals(name))) {
+                return "local";
+            }
+        }
+        List<String> params = parameterNames(scope);
+        for (VariableDeclarator v : scope.findAll(VariableDeclarator.class)) {
+            if (!v.getNameAsString().equals(name) || v.getParentNode().filter(p -> p instanceof FieldDeclaration).isPresent()) {
+                continue;
+            }
+            boolean fromParam = v.getInitializer()
+                    .filter(init -> init.findAll(NameExpr.class).stream().anyMatch(ref -> params.contains(ref.getNameAsString())))
+                    .isPresent();
+            return fromParam ? "local-from-param" : "local";
+        }
+        if (params.contains(name)) {
+            return "param";
+        }
+        if (fieldType(name, scope) != null) {
+            return "field";
+        }
+        if (!name.isEmpty() && Character.isUpperCase(name.charAt(0))) {
+            return "static";
+        }
+        return "unknown";
+    }
+
+    private static List<String> parameterNames(Node scope) {
+        List<String> names = new ArrayList<>();
+        if (scope instanceof CallableDeclaration<?> c) {
+            for (Parameter p : c.getParameters()) {
+                names.add(p.getNameAsString());
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Where the value of {@code call} goes: discarded (a statement of its
+     * own), assigned, returned, argument (into another call, or as the
+     * receiver of the next call in a chain), condition (decides a branch),
+     * or unknown.
+     */
+    static String resultUse(Node call) {
+        Node child = call;
+        Node p = call.getParentNode().orElse(null);
+        while (p instanceof EnclosedExpr || p instanceof CastExpr) {
+            child = p;
+            p = p.getParentNode().orElse(null);
+        }
+        if (p == null) {
+            return "unknown";
+        }
+        if (p instanceof ExpressionStmt) {
+            return "discarded";
+        }
+        if (p instanceof VariableDeclarator || p instanceof AssignExpr) {
+            return "assigned";
+        }
+        if (p instanceof ReturnStmt || p instanceof LambdaExpr) {
+            return "returned";
+        }
+        if (p instanceof MethodCallExpr || p instanceof ObjectCreationExpr || p instanceof ExplicitConstructorInvocationStmt) {
+            return "argument";
+        }
+        if (inCondition(child, p)) {
+            return "condition";
+        }
+        if (p instanceof BinaryExpr || p instanceof UnaryExpr || p instanceof InstanceOfExpr || p instanceof ConditionalExpr) {
+            Node c = p;
+            Node q = p.getParentNode().orElse(null);
+            while (q instanceof BinaryExpr || q instanceof UnaryExpr || q instanceof EnclosedExpr || q instanceof InstanceOfExpr) {
+                c = q;
+                q = q.getParentNode().orElse(null);
+            }
+            return q != null && inCondition(c, q) ? "condition" : "argument";
+        }
+        return "unknown";
+    }
+
+    private static boolean inCondition(Node child, Node p) {
+        return (p instanceof IfStmt s && s.getCondition() == child)
+                || (p instanceof WhileStmt w && w.getCondition() == child)
+                || (p instanceof DoStmt d && d.getCondition() == child)
+                || (p instanceof ForStmt f && f.getCompare().filter(c -> c == child).isPresent())
+                || (p instanceof ConditionalExpr t && t.getCondition() == child)
+                || (p instanceof SwitchStmt s2 && s2.getSelector() == child)
+                || (p instanceof SwitchExpr s3 && s3.getSelector() == child);
+    }
+
+    /**
+     * The receiver's declared type as written (generics dropped), for a callee
+     * key when the solver could not resolve the call: a parameter, a local, a
+     * field, or the return type of a method of the same class.
+     */
+    static String declaredType(Expression receiver, Node scope) {
+        Expression x = unwrap(receiver);
+        if (x instanceof MethodCallExpr m && m.getScope().isEmpty()) {
+            return scope.findAncestor(TypeDeclaration.class)
+                    .flatMap(td -> ((TypeDeclaration<?>) td).getMethodsByName(m.getNameAsString()).stream().findFirst())
+                    .map(md -> simple(((MethodDeclaration) md).getType().toString()))
+                    .orElse(null);
+        }
+        if (!(x instanceof NameExpr n)) {
+            return null;
+        }
+        String name = n.getNameAsString();
+        if (scope instanceof CallableDeclaration<?> c) {
+            for (Parameter p : c.getParameters()) {
+                if (p.getNameAsString().equals(name)) {
+                    return simple(p.getType().toString());
+                }
+            }
+        }
+        for (VariableDeclarator v : scope.findAll(VariableDeclarator.class)) {
+            if (v.getNameAsString().equals(name) && !v.getType().isVarType()) {
+                return simple(v.getType().toString());
+            }
+        }
+        return fieldType(name, scope);
+    }
+
+    private static String fieldType(String name, Node scope) {
+        Optional<TypeDeclaration> owner = scope.findAncestor(TypeDeclaration.class);
+        if (owner.isEmpty()) {
+            return null;
+        }
+        TypeDeclaration<?> td = owner.get();
+        Optional<FieldDeclaration> field = td.getFieldByName(name);
+        if (field.isPresent()) {
+            return simple(field.get().getVariable(0).getType().toString());
+        }
+        if (td instanceof RecordDeclaration r) {
+            for (Parameter p : r.getParameters()) {
+                if (p.getNameAsString().equals(name)) {
+                    return simple(p.getType().toString());
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String simple(String type) {
+        int lt = type.indexOf('<');
+        return lt >= 0 ? type.substring(0, lt) : type;
+    }
+
+    private static Expression unwrap(Expression e) {
+        Expression x = e;
+        while (true) {
+            if (x instanceof EnclosedExpr en) {
+                x = en.getInner();
+            } else if (x instanceof CastExpr c) {
+                x = c.getExpression();
+            } else {
+                return x;
+            }
+        }
     }
 }

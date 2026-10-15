@@ -91,4 +91,53 @@ class StepsTest {
         assertEquals("try:try / if:if ok / closure:items.forEach(i -> …)",
                 frames("void run() { try { if (ok) { items.forEach(i -> target(i)); } } catch (E e) { } }", "target"));
     }
+
+    private static String receiver(String body, String name) {
+        MethodDeclaration run = run(body);
+        return Steps.receiver(call(run, name), run);
+    }
+
+    private static String use(String body, String name) {
+        MethodDeclaration run = run(body);
+        return Steps.resultUse(call(run, name));
+    }
+
+    @Test
+    void whereTheReceiverComesFrom() {
+        String fields = "private final java.util.List<String> sent = null; ";
+        assertEquals("param", receiver("void run(Exchange exchange) { exchange.target(); }", "target"));
+        assertEquals("local-from-param",
+                receiver("void run(Exchange exchange) { Message in = exchange.getIn(); in.target(); }", "target"));
+        assertEquals("local-from-param", receiver("void run(Exchange exchange) { exchange.getIn().target(); }", "target"));
+        assertEquals("field", receiver(fields + "void run() { sent.target(); }", "target"));
+        assertEquals("field", receiver(fields + "void run() { this.sent.target(); }", "target"));
+        assertEquals("local", receiver("void run() { Foo f = new Foo(); f.target(); }", "target"));
+        assertEquals("static", receiver("void run() { Counter.target(); }", "target"));
+        assertEquals("this", receiver("void run() { target(); }", "target"));
+        assertEquals("local", receiver("void run() { items.forEach(i -> i.target()); }", "target"));
+    }
+
+    @Test
+    void whereTheResultGoes() {
+        assertEquals("discarded", use("void run() { target(); }", "target"));
+        assertEquals("assigned", use("void run() { int x = target(); }", "target"));
+        assertEquals("assigned", use("void run() { x = target(); }", "target"));
+        assertEquals("returned", use("int run() { return target(); }", "target"));
+        assertEquals("argument", use("void run() { other(target()); }", "target"));
+        assertEquals("argument", use("void run() { target().increment(); }", "target"));
+        assertEquals("condition", use("void run() { if (target()) { x(); } }", "target"));
+        assertEquals("condition", use("void run() { if (!target() && ok) { x(); } }", "target"));
+        assertEquals("condition", use("void run() { while (target() != null) { x(); } }", "target"));
+    }
+
+    @Test
+    void theDeclaredTypeOfAReceiver() {
+        MethodDeclaration run = run("Counter counter(String n) { return null; } "
+                + "private java.util.Map<String, Integer> cache; "
+                + "void run(ProducerTemplate template) { Message in = null; template.a(); in.b(); cache.c(); counter(\"x\").d(); }");
+        assertEquals("ProducerTemplate", Steps.declaredType(call(run, "a").getScope().orElseThrow(), run));
+        assertEquals("Message", Steps.declaredType(call(run, "b").getScope().orElseThrow(), run));
+        assertEquals("java.util.Map", Steps.declaredType(call(run, "c").getScope().orElseThrow(), run));
+        assertEquals("Counter", Steps.declaredType(call(run, "d").getScope().orElseThrow(), run));
+    }
 }
