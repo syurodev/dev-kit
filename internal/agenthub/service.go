@@ -23,9 +23,31 @@ import (
 	"github.com/google/uuid"
 )
 
-// DefaultInvokeTimeout bounds Invoke when the caller context has no deadline.
+// DefaultInvokeTimeout bounds Invoke when the caller context has no deadline
+// and the caller is not a person. An agent or terminal CLI that blocks on
+// another session needs a bound; a person watching a turn does not — they
+// have Stop, and a real task (a build, a refactor) outlasts any fixed limit.
 // Overridable in tests.
 var DefaultInvokeTimeout = 10 * time.Minute
+
+// invokeUnbounded reports whether ctx belongs to a person using the app, whose
+// turns run until they end or the person stops them.
+func invokeUnbounded(ctx context.Context) bool {
+	caller, ok := identity.FromContext(ctx)
+	return ok && (caller.Kind == identity.KindUI || caller.Kind == identity.KindRemoteHuman)
+}
+
+// invokeTimeoutFailure is the session failure left when DefaultInvokeTimeout
+// cut a turn short. Without it the turn just stops: no turn row, no message,
+// an idle session — indistinguishable from the agent giving up.
+func invokeTimeoutFailure(limit time.Duration, now time.Time) SessionFailure {
+	return SessionFailure{
+		ID: "invoke-timeout", Revision: int(now.Unix()), Category: "timeout", Severity: "error",
+		Title:   "The turn stopped at its time limit",
+		Details: fmt.Sprintf("This turn was stopped after %s. What it already changed is kept. Send a new prompt to continue.", limit),
+		Actions: []string{"retry"},
+	}
+}
 
 // CreateInput is the request to open a new agent session.
 type CreateInput struct {
@@ -1264,10 +1286,12 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 
 // Invoke runs a blocking prompt turn on an existing session.// Invoke runs a blocking prompt turn on an existing session.
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 {
+	boundedByDefault := false
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 && !invokeUnbounded(ctx) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, DefaultInvokeTimeout)
 		defer cancel()
+		boundedByDefault = true
 	}
 
 	sess, err := s.store.GetSession(ctx, in.SessionID)
@@ -1536,6 +1560,11 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// an agent that invoked this session through MCP — still can.
 	if promptErr != nil {
 		finalStatus := SessionStatusError
+		if boundedByDefault && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			failure := invokeTimeoutFailure(DefaultInvokeTimeout, time.Now())
+			log.Printf("agenthub: invoke %s session %s: stopped at the %s time limit", sess.AgentType, in.SessionID, DefaultInvokeTimeout)
+			s.handleUpdate(recordCtx, in.SessionID, sessionFailureUpdate(failure))
+		}
 		if errors.Is(promptErr, ErrCancelled) || errors.Is(promptErr, context.Canceled) {
 			finalStatus = SessionStatusIdle
 			promptErr = ErrCancelled
