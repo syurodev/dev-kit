@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { CodeGraphNode, CodeGraphStep, CodeGraphSteps } from "@/bridge/codegraph";
 import type { FlowDoc } from "../codegraphStore";
 import { OutlineView } from "./OutlineView";
+import { TreeGuides, treeContentX } from "@/components/tree-guides";
 
 const node = (id: string, summary = ""): CodeGraphNode => ({
   id, label: `acme.P.${id}`, kind: "method", layer: "", filePath: "P.java", line: 3, endLine: 9, summary,
@@ -65,7 +66,7 @@ describe("OutlineView", () => {
     expect(html).toContain("if (ok)");
     expect(html).toContain('aria-label="leaves"');
     // A fold of what the outline hides, with why.
-    expect(html).toContain("+1 call · logging");
+    expect(html).toContain(">1 call · logging<");
     // A call into a method with no body is a project call (bold) with its effect.
     expect(html).toMatch(/font-semibold text-text-primary"[^>]*>repo\.findById\(id\)/);
     expect(html).toContain("DB read");
@@ -83,6 +84,24 @@ describe("OutlineView", () => {
     const html = render(flow(steps), [node("a")]);
     expect(html).toMatch(/role="tree"[^>]*aria-activedescendant="[^"]+-row-0"/);
     expect(html).toContain('aria-level="2" aria-posinset="2" aria-setsize="2"');
+  });
+
+  test("draws the sidebar tree's guides, with a frame's steps hanging off it", () => {
+    const iff = { id: "2:5", kind: "if", text: "if (ok)" };
+    const steps: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: { a: [step({ text: "send()", frames: [iff] }), step({ text: "log.x()", visible: false, reason: "logging" })] },
+    };
+    const html = render(flow(steps), [node("a")]);
+    // a > if (ok) > send(); a > fold — rows at the tree's 28px, stepped like it.
+    expect(html.match(/height:28px/g)).toHaveLength(4);
+    for (const level of [0, 1, 2]) expect(html).toContain(`left:${treeContentX(level) - 2}px;padding-left:var(--space-tree-guide)`);
+    // The frame has a child, so a guide runs down from it; it is not the root's last child.
+    expect(html).toContain(renderToStaticMarkup(<TreeGuides level={1} lasts={[true, false]} open leaf rowHeight={28} />));
+    expect(html).toContain(renderToStaticMarkup(<TreeGuides level={2} lasts={[true, false, true]} open={false} leaf rowHeight={28} />));
+    // The fold is the root's last child and opens, so it has a chevron and an elbow to it.
+    expect(html).toContain(renderToStaticMarkup(<TreeGuides level={1} lasts={[true, true]} open={false} leaf={false} rowHeight={28} />));
+    expect(html.split("lucide-chevron-right").length - 1).toBe(2);
   });
 
   test("a failed re-read keeps the rows on screen, under a banner", () => {

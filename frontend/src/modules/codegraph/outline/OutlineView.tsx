@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, CornerDownLeft, RotateCcw } from "lucide-react";
+import { ChevronRight, CornerDownLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TREE_ROW_HEIGHT, TreeGuides, treeContentX } from "@/components/tree-guides";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,12 +18,15 @@ import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from 
 import { effectName } from "../graph/graphView";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
-import { cursorIndex, isOpenRow, isRowOf, isToggleable, nodeOf, pathTo, treeShape } from "./outlineNav";
+import { EMPTY_KEYS, cursorIndex, isOpenRow, isRowOf, isToggleable, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
 
-const ROW_HEIGHT = 26;
-const INDENT = 16;
+/** The sidebar tree's metrics, so the outline's guides and rows match it to the pixel. */
+const ROW_HEIGHT = TREE_ROW_HEIGHT;
 /** Space above the first row and below the last, carried by the spacers so the scroll maths sees it. */
-const LIST_PAD = 8;
+const PAD_TOP = 4;
+const PAD_BOTTOM = 8;
+/** Longer than a row's arrival (--motion-base) and its flash: when the classes stop mattering. */
+const MOTION_SETTLED_MS = 1000;
 
 export type OutlineViewProps = {
   folderId: string;
@@ -51,6 +55,29 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
     [flow.steps, flow.toggled, root, byId],
   );
   const shape = useMemo(() => treeShape(rows), [rows]);
+  // Rows a row's opening just revealed arrive with a little motion. Worked out
+  // against the rows before, in state so a re-render (or StrictMode's second
+  // one) sees the same answer; cleared once the motion is over, so a row that
+  // a scroll mounts later never plays it.
+  const [arrived, setArrived] = useState<{ rows: typeof rows; fresh: ReadonlySet<string> }>({ rows, fresh: EMPTY_KEYS });
+  let fresh = arrived.fresh;
+  if (arrived.rows !== rows) {
+    fresh = newKeys(arrived.rows, rows);
+    setArrived({ rows, fresh });
+  }
+  useEffect(() => {
+    if (arrived.fresh.size === 0) return;
+    const timer = setTimeout(() => setArrived((a) => (a === arrived ? { rows: a.rows, fresh: EMPTY_KEYS } : a)), MOTION_SETTLED_MS);
+    return () => clearTimeout(timer);
+  }, [arrived]);
+  // The row a jump landed on ("shown above", the selection) flashes once.
+  const [flash, setFlash] = useState<{ key: string; n: number } | null>(null);
+  const flashRow = (key: string) => setFlash((f) => ({ key, n: (f?.n ?? 0) + 1 }));
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash((f) => (f === flash ? null : f)), MOTION_SETTLED_MS);
+    return () => clearTimeout(timer);
+  }, [flash]);
   const { scrollRef, indices, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT);
   const [cursorAt, setCursorAt] = useState<{ key: string | null; index: number }>({ key: null, index: 0 });
   const cursor = cursorIndex(rows, cursorAt.key, cursorAt.index);
@@ -65,11 +92,11 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
   function scrollToIndex(index: number, center = false) {
     const el = scrollRef.current;
     if (!el) return;
-    const top = LIST_PAD + index * ROW_HEIGHT;
+    const top = PAD_TOP + index * ROW_HEIGHT;
     const bottom = top + ROW_HEIGHT;
     if (top >= el.scrollTop && bottom <= el.scrollTop + el.clientHeight) return;
     if (center) el.scrollTop = Math.max(0, top - el.clientHeight / 3);
-    else el.scrollTop = top < el.scrollTop ? Math.max(0, top - LIST_PAD) : bottom + LIST_PAD - el.clientHeight;
+    else el.scrollTop = top < el.scrollTop ? Math.max(0, top - PAD_TOP) : bottom + PAD_BOTTOM - el.clientHeight;
   }
 
   // The selection from the Graph (or the inspector) brings its first row into
@@ -90,6 +117,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
       doneFor.current = selectedNodeId;
       setCursorAt({ key: rows[index].key, index });
       scrollToIndex(index, true);
+      flashRow(rows[index].key);
       return;
     }
     if (triedFor.current !== selectedNodeId && flow.steps) {
@@ -118,6 +146,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
       if (target >= 0) {
         setCursor(target);
         scrollToIndex(target, true);
+        flashRow(rows[target].key);
       }
       return;
     }
@@ -141,7 +170,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
       new MouseEvent("contextmenu", {
         bubbles: true,
         cancelable: true,
-        clientX: rect.left + 12 + (rows[cursor]?.depth ?? 0) * INDENT + 24,
+        clientX: rect.left + treeContentX(shape.level[cursor] - 1) + 24,
         clientY: rect.top + rect.height / 2,
       }),
     );
@@ -246,7 +275,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
         onBlur={() => setHasFocus(false)}
         className="min-h-0 flex-1 overflow-auto text-code-12 outline-none"
       >
-        <div style={{ height: padTop + LIST_PAD }} />
+        <div style={{ height: padTop + PAD_TOP }} />
         {indices.map((index) => (
           <OutlineLine
             key={rows[index].key}
@@ -254,8 +283,12 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
             index={index}
             row={rows[index]}
             level={shape.level[index]}
+            lasts={shape.lasts[index]}
+            hasChildren={shape.parent[index + 1] === index}
             posinset={shape.posinset[index]}
             setsize={shape.setsize[index]}
+            entering={fresh.has(rows[index].key)}
+            flash={flash?.key === rows[index].key ? flash.n : 0}
             selected={!!selectedNodeId && isRowOf(rows[index], selectedNodeId)}
             focused={showCursor && index === cursor}
             onActivate={() => activate(index)}
@@ -268,7 +301,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
             onMenuClosed={focusTree}
           />
         ))}
-        <div style={{ height: padBottom + LIST_PAD }} />
+        <div style={{ height: padBottom + PAD_BOTTOM }} />
       </div>
     </div>
   );
@@ -279,8 +312,12 @@ function OutlineLine({
   index,
   row,
   level,
+  lasts,
+  hasChildren,
   posinset,
   setsize,
+  entering,
+  flash,
   selected,
   focused,
   onActivate,
@@ -292,9 +329,17 @@ function OutlineLine({
   id: string;
   index: number;
   row: OutlineRow;
+  /** aria-level: 1 for the root. */
   level: number;
+  lasts: boolean[];
+  /** Rows hang off this one, a frame heading's steps included: a guide runs down from it. */
+  hasChildren: boolean;
   posinset: number;
   setsize: number;
+  /** Revealed by an opening just now: it slides in. */
+  entering: boolean;
+  /** Non-zero while a jump's flash plays; a new number replays it. */
+  flash: number;
   selected: boolean;
   focused: boolean;
   onActivate: () => void;
@@ -303,8 +348,9 @@ function OutlineLine({
   onOpenAt: (nodeId: string, line: number) => void;
   onMenuClosed: () => void;
 }) {
-  const expandable = (row.kind === "call" || row.kind === "method") && row.expandable;
-  const open = (row.kind === "call" || row.kind === "method") && row.open;
+  const toggleable = isToggleable(row);
+  const open = isOpenRow(row);
+  const treeLevel = level - 1;
   const line = (
     <div
       id={id}
@@ -314,26 +360,45 @@ function OutlineLine({
       aria-posinset={posinset}
       aria-setsize={setsize}
       aria-selected={selected}
-      aria-expanded={isToggleable(row) ? isOpenRow(row) : undefined}
+      aria-expanded={toggleable ? open : undefined}
       onClick={onActivate}
-      style={{ height: ROW_HEIGHT, paddingLeft: 12 + row.depth * INDENT }}
-      className={cn(
-        "flex cursor-default items-center gap-1.5 pr-4 whitespace-nowrap",
-        selected ? "bg-surface-raised" : "hover:bg-state-soft",
-        focused && "outline-1 -outline-offset-1 outline-border-focus/50",
-      )}
+      className="relative"
+      style={{ height: ROW_HEIGHT }}
     >
-      <span
-        className="flex size-4 shrink-0 items-center justify-center text-icon-secondary"
-        onClick={(e) => {
-          if (!expandable) return;
-          e.stopPropagation();
-          onToggle(!open);
-        }}
+      <TreeGuides level={treeLevel} lasts={lasts} open={hasChildren} leaf={!toggleable} rowHeight={ROW_HEIGHT} />
+      {/* The highlight starts at the row's chevron, as in the sidebar tree:
+          a full-width one would paint over the guides it hangs from. Keyed by
+          the flash, so a second jump to the same row replays it. */}
+      <div
+        key={flash}
+        className={cn(
+          "absolute inset-y-0 right-1 flex items-center gap-1.5 rounded-md border border-transparent pr-1.5 whitespace-nowrap",
+          selected ? "bg-surface-raised" : "hover:bg-state-soft",
+          focused && "outline-1 -outline-offset-1 outline-border-focus/50",
+          entering && "outline-row-enter",
+          flash > 0 && "outline-row-flash",
+        )}
+        style={{ left: treeContentX(treeLevel) - 2, paddingLeft: "var(--space-tree-guide)" }}
       >
-        {expandable ? open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" /> : null}
-      </span>
-      <RowBody row={row} />
+        <span
+          className="flex size-3 shrink-0 items-center justify-center text-text-tertiary"
+          onClick={(e) => {
+            if (!toggleable) return;
+            e.stopPropagation();
+            onToggle(!open);
+          }}
+        >
+          {toggleable && (
+            <ChevronRight
+              className={cn(
+                "size-3 transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
+                open && "rotate-90",
+              )}
+            />
+          )}
+        </span>
+        <RowBody row={row} />
+      </div>
     </div>
   );
 
@@ -405,7 +470,6 @@ function RowBody({ row }: { row: OutlineRow }) {
     case "fold":
       return (
         <span className="truncate rounded-sm border border-dashed border-border px-1.5 text-caption-11 text-text-tertiary" title={row.reasons}>
-          {row.open ? "−" : "+"}
           {row.count} {row.count === 1 ? "call" : "calls"} · {row.reasons}
         </span>
       );

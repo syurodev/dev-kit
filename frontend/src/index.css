@@ -1769,6 +1769,45 @@
     }
   }
 
+  /* Rows a flow outline's opening just revealed (codegraph/outline): a short
+     drop out of the row that opened them. The view applies it only to keys
+     that were not in the rows before, never to the first rows or to rows a
+     scroll mounts, and the guides beside the row do not move. */
+  .outline-row-enter {
+    opacity: 1;
+    translate: 0 0;
+    transition:
+      opacity var(--motion-base) var(--ease-out-strong),
+      translate var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+      translate: 0 -4px;
+    }
+  }
+
+  /* The row a jump landed on ("shown above ↑", the selection from the graph)
+     lights once and settles back to its own background: only a `from`, so a
+     selected row ends on its selection rather than snapping to it. */
+  .outline-row-flash {
+    animation: outline-row-flash calc(var(--motion-slow) * 3) var(--ease-out-strong) 1;
+  }
+  @keyframes outline-row-flash {
+    from {
+      background-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
+    }
+  }
+
+  /* Outline ↔ Graph in a flow tab: the arriving mode fades up. Opacity only:
+     a transform on React Flow's ancestor would skew its measuring and its own
+     fit animation. */
+  .flow-mode-enter {
+    opacity: 1;
+    transition: opacity var(--motion-fast) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
   /* Vault gate → workbench, as one crossfade rather than a cut (smoothness
      8.1). The gate is unmounted and the workbench mounts in its place, so
      @starting-style is what gives the arriving shell its start; the gate needs
@@ -1960,6 +1999,13 @@
     }
     .activity-enter {
         transition: none;
+    }
+    .outline-row-enter,
+    .flow-mode-enter {
+        transition: none;
+    }
+    .outline-row-flash {
+        animation: none;
     }
     .shell-enter > * {
         transition: none;

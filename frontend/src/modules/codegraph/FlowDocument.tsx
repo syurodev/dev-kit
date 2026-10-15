@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -65,6 +65,8 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   // steps: the Outline as rows, the Graph as labels and hidden helpers.
   const selectedNodeId = useCodeGraphStore((s) => (key && s.inspector?.flow === key ? s.inspector.nodeId : null));
   const mode = flow?.mode ?? "outline";
+  // The arriving mode fades up only after a switch, not when the tab opens.
+  const [switched, setSwitched] = useState(false);
   const view = useMemo(
     () => (flow?.subgraph ? graphView(root, flow.subgraph.nodes, flow.subgraph.edges, flow.steps) : null),
     [flow?.subgraph, flow?.steps, root],
@@ -75,6 +77,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   );
   const showInGraph = useCallback(
     (nodeId: string) => {
+      setSwitched(true);
       setFlowMode(folderId, root, "graph");
       void inspectNode(folderId, root, nodeId);
     },
@@ -121,7 +124,13 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
     </>
   );
   const modeSwitch = (
-    <Tabs value={mode} onValueChange={(value) => setFlowMode(folderId, root, value as "outline" | "graph")}>
+    <Tabs
+      value={mode}
+      onValueChange={(value) => {
+        setSwitched(true);
+        setFlowMode(folderId, root, value as "outline" | "graph");
+      }}
+    >
       <TabsList>
         <TabsTrigger value="outline">Outline</TabsTrigger>
         <TabsTrigger value="graph">Graph</TabsTrigger>
@@ -150,7 +159,9 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
     );
     if (mode === "outline") {
       return (
-        <div className="flex h-full w-full flex-col overflow-hidden px-4 pt-3">
+        // Keyed by mode: the two roots are both divs, and only a new element
+        // plays the fade.
+        <div key="outline" className={cn("flex h-full w-full flex-col overflow-hidden px-4 pt-3", switched && "flow-mode-enter")}>
           <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
             <div className="flex min-w-0 items-center gap-2.5">{header}</div>
             <div className="flex shrink-0 items-center gap-3.5">
@@ -174,7 +185,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
       );
     }
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden">
+      <div key="graph" className={cn("flex h-full w-full flex-col overflow-hidden", switched && "flow-mode-enter")}>
         <FlowCanvas
           key={root}
           rootId={root}

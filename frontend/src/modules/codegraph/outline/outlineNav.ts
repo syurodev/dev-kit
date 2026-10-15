@@ -55,6 +55,11 @@ export type TreeShape = {
   /** aria-posinset / aria-setsize among the rows of one parent. */
   posinset: number[];
   setsize: number[];
+  /**
+   * For each level of the row's path, from the top: whether that row is its
+   * parent's last child — what TreeGuides needs to know which lines run on.
+   */
+  lasts: boolean[][];
 };
 
 /** Rows are a pre-order walk with depths; a row's parent is the nearest row above it that is less deep. */
@@ -74,7 +79,10 @@ export function treeShape(rows: readonly OutlineRow[]): TreeShape {
     posinset.push(n);
     stack.push(i);
   });
-  return { parent, level, posinset, setsize: parent.map((p) => childCount.get(p) ?? 1) };
+  const setsize = parent.map((p) => childCount.get(p) ?? 1);
+  const lasts: boolean[][] = [];
+  parent.forEach((p, i) => lasts.push([...(p >= 0 ? lasts[p] : []), posinset[i] === setsize[i]]));
+  return { parent, level, posinset, setsize, lasts };
 }
 
 /**
@@ -91,3 +99,18 @@ export function pathTo(input: OutlineInput, nodeId: string): string[] {
   for (let p = parent[at]; p >= 0; p = parent[p]) if (isToggleable(full[p])) keys.push(full[p].key);
   return keys.reverse();
 }
+
+/**
+ * The rows that were not there before: what opening a row (or a fold) just
+ * revealed, which the view lets arrive with a little motion. Nothing is new on
+ * the first rows of an outline — the whole list arriving is not an opening.
+ */
+export function newKeys(previous: readonly OutlineRow[], next: readonly OutlineRow[]): ReadonlySet<string> {
+  if (previous.length === 0) return EMPTY_KEYS;
+  const before = new Set(previous.map((r) => r.key));
+  const fresh = new Set<string>();
+  for (const r of next) if (!before.has(r.key)) fresh.add(r.key);
+  return fresh.size > 0 ? fresh : EMPTY_KEYS;
+}
+
+export const EMPTY_KEYS: ReadonlySet<string> = new Set();

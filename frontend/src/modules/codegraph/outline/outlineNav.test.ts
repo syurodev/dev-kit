@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { CodeGraphNode, CodeGraphStep, CodeGraphSteps } from "@/bridge/codegraph";
 import { buildOutline, type OutlineRow } from "./buildOutline";
-import { cursorIndex, isRowOf, nodeOf, pathTo, treeShape } from "./outlineNav";
+import { cursorIndex, isRowOf, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
 
 const node = (id: string): CodeGraphNode => ({
   id, label: `acme.P.${id}`, kind: "method", layer: "", filePath: "P.java", line: 1, endLine: 9, summary: "",
@@ -50,6 +50,29 @@ describe("treeShape", () => {
     expect(shape.level).toEqual([1, 2, 3, 2]);
     expect(shape.posinset).toEqual([1, 1, 1, 2]);
     expect(shape.setsize).toEqual([1, 2, 1, 2]);
+    expect(shape.lasts).toEqual([[true], [true, false], [true, false, true], [true, true]]);
+  });
+
+  it("hangs a frame's steps off the frame heading", () => {
+    const iff = { id: "2:5", kind: "if", text: "if ok" };
+    const rows = outline({ a: [call("b", { frames: [iff] }), call("c", { frames: [iff] }), call("d")], b: [], c: [], d: [] }, ["a", "b", "c", "d"]);
+    // a; if ok > b(), c(); d()
+    expect(rows.map((r) => r.kind)).toEqual(["method", "frame", "call", "call", "call"]);
+    const shape = treeShape(rows);
+    expect(shape.parent).toEqual([-1, 0, 1, 1, 0]);
+    expect(shape.lasts).toEqual([[true], [true, false], [true, false, false], [true, false, true], [true, true]]);
+  });
+});
+
+describe("newKeys", () => {
+  const row = (key: string): OutlineRow => ({ kind: "more", key, depth: 0, nodeId: "a" });
+  it("is what opening a row revealed", () => {
+    expect([...newKeys([row("a"), row("b")], [row("a"), row("a1"), row("a2"), row("b")])]).toEqual(["a1", "a2"]);
+  });
+  it("is nothing on the outline's first rows, on a collapse, or on the same rows again", () => {
+    expect(newKeys([], [row("a"), row("b")]).size).toBe(0);
+    expect(newKeys([row("a"), row("a1"), row("b")], [row("a"), row("b")]).size).toBe(0);
+    expect(newKeys([row("a")], [row("a")]).size).toBe(0);
   });
 });
 
