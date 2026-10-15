@@ -26,6 +26,8 @@ export type WorkbenchTab = {
   title: string;
   params?: Record<string, unknown>;
   status?: TabStatus;
+  /** Unsaved work in the document: drawn as a dot in the close slot. Never persisted, like status. */
+  dirty?: boolean;
   icon?: LucideIcon;
   preview?: boolean;
   /**
@@ -160,6 +162,7 @@ export type WorkbenchTabsState = {
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   setTabStatus: (id: string, status: TabStatus) => void;
+  setTabDirty: (id: string, dirty: boolean) => void;
   pinTab: (id: string) => void;
   reorderTab: (fromId: string, beforeId: string | null) => void;
   /** Pins or unpins, moving the tab to the edge of the pinned run. */
@@ -264,7 +267,7 @@ export function persistedTabs(
         {
           activeTabId: tabs.activeTabId,
           tabMru: tabs.tabMru,
-          openTabs: tabs.openTabs.map(({ icon: _icon, status: _status, ...tab }) => tab),
+          openTabs: tabs.openTabs.map(({ icon: _icon, status: _status, dirty: _dirty, ...tab }) => tab),
         },
       ]),
     ),
@@ -449,6 +452,19 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         return {
           ...m,
           openTabs: m.openTabs.map((tab) => (tab.id === id ? { ...tab, status } : tab)),
+        };
+      }),
+    ),
+
+  setTabDirty: (id, dirty) =>
+    set((state) =>
+      updateModule(state, moduleOfTab(id), (m) => {
+        if (!m.openTabs.some((tab) => tab.id === id && !!tab.dirty !== dirty)) {
+          return m;
+        }
+        return {
+          ...m,
+          openTabs: m.openTabs.map((tab) => (tab.id === id ? { ...tab, dirty } : tab)),
         };
       }),
     ),

@@ -3,6 +3,7 @@ import {
   EMPTY_MODULE_TABS,
   moduleOfTab,
   moduleTabs,
+  persistedTabs,
   selectActiveModuleTabs,
   useWorkbenchTabsStore,
 } from "./workbenchTabs";
@@ -103,5 +104,28 @@ describe("per-module tab ownership", () => {
     const { modules } = useWorkbenchTabsStore.getState();
     expect(moduleTabs(modules, "kafka")).toBe(EMPTY_MODULE_TABS);
     expect(Object.isFrozen(EMPTY_MODULE_TABS)).toBe(true);
+  });
+});
+
+describe("unsaved work", () => {
+  test("setTabDirty marks a tab and is a no-op when unchanged", () => {
+    const { openTab, setTabDirty } = useWorkbenchTabsStore.getState();
+    const id = openTab({ moduleId: "notes", viewId: "notes.editor", title: "A", params: { noteId: "a" } });
+    setTabDirty(id, true);
+    const tab = () => useWorkbenchTabsStore.getState().modules.notes.openTabs[0];
+    expect(tab().dirty).toBe(true);
+    const before = useWorkbenchTabsStore.getState().modules;
+    setTabDirty(id, true);
+    expect(useWorkbenchTabsStore.getState().modules).toBe(before);
+    setTabDirty(id, false);
+    expect(tab().dirty).toBe(false);
+  });
+
+  test("dirty is not persisted", () => {
+    const { openTab, setTabDirty } = useWorkbenchTabsStore.getState();
+    const id = openTab({ moduleId: "notes", viewId: "notes.editor", title: "A", params: { noteId: "a" } });
+    setTabDirty(id, true);
+    const saved = persistedTabs(useWorkbenchTabsStore.getState());
+    expect(JSON.stringify(saved)).not.toContain("dirty");
   });
 });
