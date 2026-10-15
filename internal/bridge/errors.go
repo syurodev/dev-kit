@@ -234,6 +234,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrInvalidCallVisibility) {
 		return apperrors.Wrap(codeValidationFailed, "That call cannot be marked.", true, preferences.ErrInvalidCallVisibility)
 	}
+	if errors.Is(err, preferences.ErrTooManyCallVisibility) {
+		return apperrors.Wrap(codeValidationFailed, "You can keep at most 500 always show/hide choices.", true, preferences.ErrTooManyCallVisibility)
+	}
 	// Authorization failures are classified before subject-specific adapters so
 	// adding a new module cannot accidentally hide a denied capability as a
 	// connection or service failure.

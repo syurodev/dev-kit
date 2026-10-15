@@ -9,6 +9,7 @@ import (
 
 	"devkit/internal/apperrors"
 	"devkit/internal/codegraph"
+	"devkit/internal/preferences"
 )
 
 // newStepsService is a bridge whose CodeGraph has the given index open; its
@@ -71,5 +72,46 @@ func TestCodeGraphGetStepsTooManyNodesIsValidation(t *testing.T) {
 	var appErr *apperrors.AppError
 	if !errors.As(err, &appErr) || appErr.Code != codeValidationFailed {
 		t.Fatalf("err = %v, want %s", err, codeValidationFailed)
+	}
+}
+
+// unreadableOverrides is a preferences store whose call-visibility row cannot
+// be read.
+type unreadableOverrides struct {
+	*preferences.MemoryRepository
+}
+
+func (unreadableOverrides) GetCallVisibility() (map[string]string, bool, error) {
+	return nil, false, errors.New("disk I/O error")
+}
+
+func TestCodeGraphGetStepsWithUnreadableOverridesUsesTheDefaults(t *testing.T) {
+	service := newStepsService(t, codegraph.AnalysisResult{
+		Nodes: []codegraph.Node{{ID: "a", Label: "a", Kind: "method", Layer: "service", FilePath: "a.java", Line: 1, EndLine: 2}},
+		CallSites: []codegraph.CallSite{{From: "a", Line: 2, Unresolved: "library", Text: "log.warn(x)",
+			CalleeKey: "org.slf4j.Logger#warn", ResultUse: "discarded"}},
+	})
+	service.container.Preferences = preferences.NewService(unreadableOverrides{preferences.NewMemoryRepository()})
+	got, err := service.CodeGraphGetSteps([]string{"a"}, "")
+	if err != nil {
+		t.Fatalf("an unreadable preference failed the outline: %v", err)
+	}
+	if steps := got.Steps["a"]; len(steps) != 1 || steps[0].Visible {
+		t.Fatalf("steps = %+v, want the default (hidden) answer", got.Steps)
+	}
+}
+
+func TestPreferencesSetCallVisibilityPastTheCapSaysSo(t *testing.T) {
+	service := newTestService(t)
+	for i := 0; i < 500; i++ {
+		if err := service.PreferencesSetCallVisibility("T#m"+strconv.Itoa(i), "show"); err != nil {
+			t.Fatalf("entry %d: %v", i, err)
+		}
+	}
+	err := service.PreferencesSetCallVisibility("T#one-more", "show")
+	var appErr *apperrors.AppError
+	if !errors.As(err, &appErr) || appErr.Code != codeValidationFailed ||
+		appErr.Message != "You can keep at most 500 always show/hide choices." {
+		t.Fatalf("err = %#v", err)
 	}
 }

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"log"
 
 	"devkit/internal/codegraph"
 )
@@ -16,13 +17,16 @@ func (s *AppService) CodeGraphGetSteps(nodeIDs []string, servicePath string) (co
 		"action":       "get_steps",
 		"node_count":   len(nodeIDs),
 	}, func(ctx context.Context) (any, error) {
+		// Overrides that cannot be read are not worth losing the outline
+		// over: the defaults are a complete answer, and the next read may work.
 		overrides := map[string]string{}
 		if s.container.Preferences != nil {
 			got, err := s.container.Preferences.CallVisibility()
 			if err != nil {
-				return nil, err
+				log.Printf("codegraph: steps: call-visibility overrides unreadable, using defaults: %v", err)
+			} else {
+				overrides = got
 			}
-			overrides = got
 		}
 		svc, err := s.codeGraphService(ctx, servicePath)
 		if err != nil {

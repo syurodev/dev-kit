@@ -2,7 +2,9 @@ package preferences
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -303,5 +305,72 @@ func TestCallVisibilityOverrides(t *testing.T) {
 		if err := svc.SetCallVisibility(bad.key, bad.mode); err == nil {
 			t.Fatalf("SetCallVisibility(%q, %q) accepted", bad.key, bad.mode)
 		}
+	}
+}
+
+func TestCallVisibilityKeyValidation(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	for _, bad := range []string{"", "#", "#member", "Type#", "  #x", "Type#  ", "Ty\npe#x", "Type#x\x00", "Type#\tx"} {
+		err := svc.SetCallVisibility(bad, "show")
+		if !errors.Is(err, ErrInvalidCallVisibility) {
+			t.Fatalf("SetCallVisibility(%q) = %v, want ErrInvalidCallVisibility", bad, err)
+		}
+	}
+	if err := svc.SetCallVisibility("  org.slf4j.Logger#warn  ", "hide"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.CallVisibility()
+	if got["org.slf4j.Logger#warn"] != "hide" || len(got) != 1 {
+		t.Fatalf("a padded key was not stored trimmed: %v", got)
+	}
+	// "#" after the first one belongs to the member: a key is split once.
+	if err := svc.SetCallVisibility("a#b#c", "show"); err != nil {
+		t.Fatalf("a#b#c: %v", err)
+	}
+}
+
+func TestCallVisibilityEntryCap(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	for i := 0; i < maxCallVisibilityEntries; i++ {
+		if err := svc.SetCallVisibility(fmt.Sprintf("T#m%d", i), "show"); err != nil {
+			t.Fatalf("entry %d: %v", i, err)
+		}
+	}
+	err := svc.SetCallVisibility("T#one-more", "show")
+	if !errors.Is(err, ErrTooManyCallVisibility) {
+		t.Fatalf("501st = %v, want ErrTooManyCallVisibility", err)
+	}
+	if errors.Is(err, ErrInvalidCallVisibility) {
+		t.Fatalf("the cap reads as an invalid key: %v", err)
+	}
+	if err := svc.SetCallVisibility("T#m0", "hide"); err != nil {
+		t.Fatalf("re-setting an existing key at the cap: %v", err)
+	}
+	if err := svc.SetCallVisibility("T#m1", ""); err != nil {
+		t.Fatalf("clearing at the cap: %v", err)
+	}
+	got, _ := svc.CallVisibility()
+	if len(got) != maxCallVisibilityEntries-1 || got["T#m0"] != "hide" {
+		t.Fatalf("len = %d, T#m0 = %q", len(got), got["T#m0"])
+	}
+}
+
+func TestCallVisibilityConcurrentSetsAllSurvive(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	const n = 32
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := svc.SetCallVisibility(fmt.Sprintf("T#m%d", i), "show"); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	got, _ := svc.CallVisibility()
+	if len(got) != n {
+		t.Fatalf("%d of %d concurrent sets survived: %v", len(got), n, got)
 	}
 }

@@ -246,3 +246,18 @@ func TestSQLRepositoryCallVisibilityRoundTrip(t *testing.T) {
 		t.Fatalf("got = %v, found = %v, err = %v", got, found, err)
 	}
 }
+
+func TestSQLRepositoryUnreadableCallVisibilityReadsAsUnset(t *testing.T) {
+	repo, db := checkpointRepo(t)
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES ('codegraph_call_visibility', '{{ not json')`); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := repo.GetCallVisibility()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || len(got) != 0 {
+		t.Fatalf("an unreadable row read as stored: %v, found = %v", got, found)
+	}
+}
