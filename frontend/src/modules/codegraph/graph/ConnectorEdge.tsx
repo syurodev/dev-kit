@@ -17,6 +17,8 @@ export type ConnectorEdgeData = {
    * whole reason the plan canvas shows labels at all.
    */
   label?: string;
+  /** The tooltip of the label: the full guard behind a short frame label. */
+  title?: string;
   /** Off the flow through the hovered card (focus.ts): its label fades with it. */
   dimmed?: boolean;
   /** On that flow: drawn in the primary ink, so the chain reads as one line. */
@@ -29,7 +31,11 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   const label = (data as ConnectorEdgeData | undefined)?.label;
   const dimmed = (data as ConnectorEdgeData | undefined)?.dimmed ?? false;
   const lit = (data as ConnectorEdgeData | undefined)?.lit ?? false;
-  const dashed = kind === "di";
+  const title = (data as ConnectorEdgeData | undefined)?.title;
+  // An injection and a call into an override are both "not a call you wrote here".
+  const dashed = kind === "di" || kind === "implements";
+
+  const titled = !!title && title !== label;
 
   const [path, labelX, labelY] = getSmoothStepPath({
     ...props,
@@ -52,11 +58,13 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
       {showLabel && (
         <EdgeLabelRenderer>
           <div
-            className={`nodrag nopan pointer-events-none absolute transition-opacity duration-150${dimmed ? " opacity-15" : ""}`}
+            // A label that hides more than it shows (a clipped guard) takes
+            // the pointer so its tooltip can open; the rest stay click-through.
+            className={`nodrag nopan absolute transition-opacity duration-150${titled ? " pointer-events-auto" : " pointer-events-none"}${dimmed ? " opacity-15" : ""}`}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
-            <EdgeLabelPill kind={dashed ? "di" : "call"} title={label}>
-              {label ?? (dashed ? "injects" : "calls")}
+            <EdgeLabelPill kind={kind === "di" ? "di" : "call"} title={title ?? label}>
+              {label ?? (kind === "di" ? "injects" : "calls")}
             </EdgeLabelPill>
           </div>
         </EdgeLabelRenderer>

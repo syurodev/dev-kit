@@ -21,7 +21,9 @@ export type ApiNodeData = {
 
 /**
  * Figma `API Node` (162:183): 268 wide, radius 14, padding 12, a 30px icon
- * ring, the layer name in caps over the title, and a state-soft detail well.
+ * ring, a known layer's name in caps beside the class, the method as the
+ * title, and the doc comment's first sentence (or the file chip when there is
+ * none).
  *
  * State uses a neutral border ramp (subtle -> tertiary -> primary 2px) rather
  * than the layer colour. The focus ring is --text-primary, and a layer-coloured
@@ -34,9 +36,13 @@ export type ApiNodeData = {
  * focus-visible state rather than by a second tab stop inside the card.
  */
 export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
-  const visual = LAYERS[layerOf(data.layer)];
+  const layer = layerOf(data.layer);
+  const visual = LAYERS[layer];
   const Icon = visual.icon;
   const accent = `var(${visual.cssVar})`;
+  // "UNKNOWN" on most cards of a Camel or plain-Java service said nothing and
+  // took a line; a known layer keeps its colour and caps label.
+  const knownLayer = layer !== "unknown";
 
   return (
     <div
@@ -59,23 +65,51 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
           <Icon size={16} strokeWidth={2} style={{ color: accent }} />
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-label-11-caps" style={{ color: accent }}>
-            {visual.label}
-          </span>
-          <span
-            title={data.titleTooltip ?? data.title}
-            className="truncate text-title-14 text-text-primary"
-          >
+          {(knownLayer || data.caption) && (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {knownLayer && (
+                <span className="shrink-0 text-label-11-caps" style={{ color: accent }}>
+                  {visual.label}
+                </span>
+              )}
+              {data.caption && (
+                <span title={data.titleTooltip} className="truncate text-caption-11 text-text-tertiary">
+                  {data.caption}
+                </span>
+              )}
+            </span>
+          )}
+          <span title={data.titleTooltip ?? data.title} className="truncate text-title-14 text-text-primary">
             {data.title}
           </span>
         </span>
       </div>
-      <span
-        title={data.detailTooltip ?? data.detail}
-        className="truncate rounded-md bg-state-soft px-2.5 py-1.75 text-code-11 text-text-secondary"
-      >
-        {data.detail}
-      </span>
+      {data.summary ? (
+        <span title={data.detailTooltip ?? data.detail} className="line-clamp-2 text-body-12 text-text-secondary">
+          {data.summary}
+        </span>
+      ) : (
+        <span
+          title={data.detailTooltip ?? data.detail}
+          className="truncate rounded-md bg-state-soft px-2.5 py-1.75 text-code-11 text-text-secondary"
+        >
+          {data.detail}
+        </span>
+      )}
+      {data.effects?.length || data.hiddenCalls ? (
+        <span className="flex flex-wrap items-center gap-1.5 text-caption-11 text-text-tertiary">
+          {data.effects?.map((effect) => (
+            <span key={effect} className="rounded-sm border border-border-subtle px-1.5 text-code-11 text-text-secondary">
+              {effect}
+            </span>
+          ))}
+          {data.hiddenCalls ? (
+            <span>
+              +{data.hiddenCalls} hidden {data.hiddenCalls === 1 ? "call" : "calls"}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 }

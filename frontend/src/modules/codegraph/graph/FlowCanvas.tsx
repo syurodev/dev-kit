@@ -86,6 +86,9 @@ export function describeCounts({ shown, hidden, edges }: CanvasCounts): string {
 
 const HIDDEN_STYLE = { opacity: 0 };
 
+/** A fit centred on one card, at no more than 100%. */
+const focusFit = (id: string) => ({ nodes: [{ id }], maxZoom: 1, duration: 0 });
+
 // Every card and connector carries the transition, so a card fades back as
 // well as out: the class that dims is the only one that comes and goes.
 const NODE_FADE = "transition-opacity duration-150";
@@ -142,12 +145,19 @@ export type FlowCanvasProps = {
   buildData?: (node: CodeGraphNode) => Record<string, unknown>;
   /** Per-edge label text, for plan conditions. Stable, like buildData. */
   edgeLabel?: (edge: CodeGraphEdge) => string | undefined;
+  /** Tooltip of each edge's label (the full guard). Stable, like edgeLabel. */
+  edgeTitle?: (edge: CodeGraphEdge) => string | undefined;
   /**
    * Marks one node selected from outside the canvas — picking a row in the
    * sidebar should show you which card it means, and React Flow's own
    * selection only reacts to clicks on the canvas itself.
    */
   selectedNodeId?: string | null;
+  /**
+   * Centre this node on the first placement instead of fitting the whole
+   * graph — the Outline's selection when switching to Graph.
+   */
+  focusNodeId?: string | null;
   /**
    * Figma `canvas-header` (482:4528): what the graph is, at the left — a
    * method chip and a path, or the PLAN chip and its name.
@@ -199,7 +209,9 @@ function Canvas({
   legend = true,
   buildData,
   edgeLabel,
+  edgeTitle,
   selectedNodeId,
+  focusNodeId,
   header,
   meta,
   hint,
@@ -284,6 +296,13 @@ function Canvas({
   );
   const onGraphSizeRef = useRef(onGraphSize);
   onGraphSizeRef.current = onGraphSize;
+  // A ref, so a selection made after the graph is placed never re-runs the
+  // placement below; it is read only when the node set changes.
+  const focusRef = useRef(focusNodeId);
+  focusRef.current = focusNodeId;
+  // The node the last fit centred, so a resize (the inspector opening beside
+  // the canvas) keeps it centred rather than fitting the whole graph again.
+  const fittedFocus = useRef<string | null>(null);
 
   // The layout is a function of the ranking alone, so it re-runs when the
   // ranking does (a new node, a new edge) and never on a data-only update.
@@ -326,7 +345,12 @@ function Canvas({
     // Fit on the first placement and when the node set changed; a re-layout
     // of the same nodes keeps whatever pan and zoom the user chose. fitView is
     // queued by React Flow until the new positions have reached its store.
-    if (nodeSetChanged) void fitView(fitOptions);
+    if (nodeSetChanged) {
+      const focus = focusRef.current;
+      // A node picked in the Outline is where the reader is; fit around it.
+      fittedFocus.current = focus && positions.has(focus) ? focus : null;
+      void fitView(fittedFocus.current ? focusFit(fittedFocus.current) : fitOptions);
+    }
   }, [placing, rfNodes, ranks, layoutKey, fitView, fitOptions]);
 
   // The view the layout fitted stays fitted while its pane changes size — a
@@ -338,7 +362,9 @@ function Canvas({
   const userMoved = useRef(false);
   const fitRef = useRef(() => {});
   fitRef.current = () => {
-    if (!userMoved.current && placedIds.size > 0) void fitView({ ...fitOptions, duration: 0 });
+    if (!userMoved.current && placedIds.size > 0) {
+      void fitView(fittedFocus.current ? focusFit(fittedFocus.current) : { ...fitOptions, duration: 0 });
+    }
   };
   useEffect(() => {
     const el = viewport.current;
@@ -385,13 +411,14 @@ function Canvas({
             data: {
               kind: e.kind,
               label,
+              title: edgeTitle?.(e) ?? label,
               showLabel: e.kind === "di" || !!label,
             },
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
           },
         ];
       }),
-    [edges, ranks, edgeLabel],
+    [edges, ranks, edgeLabel, edgeTitle],
   );
   // The card under the pointer (or focused from the keyboard), and the flow
   // through it: what leads there and what it leads to stay lit, the rest
@@ -464,6 +491,7 @@ function Canvas({
               onFit={() => {
                 // Asking for a fit hands the view back to the layout.
                 userMoved.current = false;
+                fittedFocus.current = null;
                 void fitView(fitOptions);
               }}
               fitActive
