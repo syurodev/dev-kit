@@ -1,9 +1,9 @@
 package com.devkit.codegraph;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
@@ -40,7 +40,10 @@ import com.github.javaparser.ast.stmt.WhileStmt;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -61,27 +64,80 @@ final class Steps {
 
     private Steps() {}
 
+    /**
+     * The column a step is placed at. For a method call that is its NAME:
+     * {@code getBegin()} of {@code a().b(...)} is where {@code a()} starts, so
+     * every call of a chain would share one column.
+     */
     static int col(Node node) {
-        return node.getBegin().map(p -> p.column).orElse(0);
+        Node at = node instanceof MethodCallExpr m ? m.getName() : node;
+        return at.getBegin().or(node::getBegin).map(p -> p.column).orElse(0);
     }
 
     /**
-     * The call as written, on one line. A lambda argument is shortened to its
-     * head — its body is the outline's next rows, not part of this one.
+     * {@code line:col} of a step: the line it begins on (the line a call site
+     * records) and {@link #col}. A closure frame's id is the position of the
+     * call it is passed to, so the Go side can tell which step runs it.
+     */
+    static String position(Node node) {
+        return node.getBegin().map(p -> p.line + ":" + col(node)).orElse("0:0");
+    }
+
+    /**
+     * The call as written, on one line. Every lambda in it — an argument, or
+     * one further up the receiver chain — is shortened to its head, and an
+     * anonymous class to {@code new T() {…}}: their bodies are the outline's
+     * next rows, not part of this one. Printed from a copy; the tree the
+     * analyzer walks is left alone.
      */
     static String text(Node node) {
-        if (node instanceof MethodCallExpr m && m.getArguments().stream().anyMatch(a -> a instanceof LambdaExpr)) {
-            StringBuilder b = new StringBuilder();
-            m.getScope().ifPresent(s -> b.append(Guards.flatten(s.toString())).append('.'));
-            b.append(m.getNameAsString()).append('(');
-            List<String> args = new ArrayList<>();
-            for (Expression a : m.getArguments()) {
-                args.add(a instanceof LambdaExpr l ? lambdaHead(l) + " -> …" : Guards.flatten(a.toString()));
-            }
-            b.append(String.join(", ", args)).append(')');
-            return clip(b.toString());
+        boolean shortens = node.findFirst(LambdaExpr.class).isPresent()
+                || node.findFirst(ObjectCreationExpr.class, o -> o.getAnonymousClassBody().isPresent()).isPresent();
+        if (!shortens) {
+            return clip(Guards.flatten(node.toString()));
         }
-        return clip(Guards.flatten(node.toString()));
+        return clip(Guards.flatten(shortened(node.clone())));
+    }
+
+    private static String shortened(Node copy) {
+        // Lambdas first: one in an anonymous class's arguments is printed with it.
+        for (LambdaExpr l : copy.findAll(LambdaExpr.class)) {
+            if (insideCollapsed(l)) {
+                continue;
+            }
+            String head = lambdaHead(l) + " -> …";
+            if (l == copy) {
+                return head;
+            }
+            l.replace(new NameExpr(head));
+        }
+        // Innermost first, so a class passed to another class's constructor is already short.
+        List<ObjectCreationExpr> anonymous = copy.findAll(ObjectCreationExpr.class,
+                o -> o.getAnonymousClassBody().isPresent());
+        Collections.reverse(anonymous);
+        for (ObjectCreationExpr o : anonymous) {
+            if (insideCollapsed(o)) {
+                continue;
+            }
+            o.setAnonymousClassBody(null);
+            String head = Guards.flatten(o.toString()) + " {…}";
+            if (o == copy) {
+                return head;
+            }
+            o.replace(new NameExpr(head));
+        }
+        return copy.toString();
+    }
+
+    /** Inside a lambda body or an anonymous class body: printed as part of that, or not at all. */
+    private static boolean insideCollapsed(Node n) {
+        for (Node p = n.getParentNode().orElse(null); p != null; p = p.getParentNode().orElse(null)) {
+            if (p instanceof LambdaExpr || (p instanceof BodyDeclaration<?> && p.getParentNode()
+                    .filter(o -> o instanceof ObjectCreationExpr).isPresent())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String clip(String s) {
@@ -113,7 +169,7 @@ final class Steps {
                         .filter(g -> g instanceof IfStmt outer && outer.getElseStmt().filter(e -> e == s).isPresent())
                         .isPresent();
                 return new StepFrame(at(s.getThenStmt()), "if",
-                        (elseIf ? "else if " : "if ") + Guards.text(s.getCondition()), Guards.leaves(s.getThenStmt()));
+                        condition(elseIf ? "else if" : "if", s.getCondition()), Guards.leaves(s.getThenStmt()));
             }
             Optional<Statement> otherwise = s.getElseStmt();
             // `else if` is drawn by the nested if's own frame, so the else adds nothing.
@@ -140,7 +196,7 @@ final class Steps {
             }
             return null;
         }
-        if (parent instanceof SwitchEntry entry && isStatementOf(entry, child)) {
+        if (parent instanceof SwitchEntry entry && Guards.isStatementOf(entry, child)) {
             List<String> labels = new ArrayList<>();
             entry.getLabels().forEach(l -> labels.add(Guards.flatten(l.toString())));
             String text = labels.isEmpty() ? "default" : "case " + String.join(", ", labels);
@@ -166,13 +222,14 @@ final class Steps {
             return new StepFrame(at(f), "loop", "for " + name + " : " + Guards.flatten(f.getIterable().toString()), false);
         }
         if (parent instanceof ForStmt f && child == f.getBody()) {
-            return new StepFrame(at(f), "loop", "for " + f.getCompare().map(Guards::text).orElse("ever"), false);
+            String compare = f.getCompare().map(Guards::text).orElse("");
+            return new StepFrame(at(f), "loop", "for " + (compare.isEmpty() ? "ever" : compare), false);
         }
         if (parent instanceof WhileStmt w && child == w.getBody()) {
-            return new StepFrame(at(w), "loop", "while " + Guards.text(w.getCondition()), false);
+            return new StepFrame(at(w), "loop", condition("while", w.getCondition()), false);
         }
         if (parent instanceof DoStmt d && child == d.getBody()) {
-            return new StepFrame(at(d), "loop", "do … while " + Guards.text(d.getCondition()), false);
+            return new StepFrame(at(d), "loop", condition("do … while", d.getCondition()), false);
         }
         if (parent instanceof LambdaExpr l && child == l.getBody()) {
             Optional<Node> owner = l.getParentNode();
@@ -180,21 +237,26 @@ final class Steps {
                     && m.getArguments().stream().anyMatch(a -> a == l)) {
                 // Framed at the call it is passed to, so a reader (and rule 3
                 // on the Go side) can tell which call runs it.
-                return new StepFrame(at(m), "closure", text(m), false);
+                return new StepFrame(position(m), "closure", text(m), false);
             }
             return new StepFrame(at(l), "closure", lambdaHead(l) + " -> …", false);
+        }
+        if (parent instanceof CallableDeclaration<?> && parent.getParentNode().orElse(null) instanceof ObjectCreationExpr o) {
+            // A method of an anonymous class is a closure written the long way.
+            Optional<Node> owner = o.getParentNode();
+            if (owner.isPresent() && owner.get() instanceof MethodCallExpr m
+                    && m.getArguments().stream().anyMatch(a -> a == o)) {
+                return new StepFrame(position(m), "closure", text(m), false);
+            }
+            return new StepFrame(position(o), "closure", text(o), false);
         }
         return null;
     }
 
-    /** Identity, not equals: two identical statements in different entries are different places. */
-    private static boolean isStatementOf(SwitchEntry entry, Node child) {
-        for (Statement s : entry.getStatements()) {
-            if (s == child) {
-                return true;
-            }
-        }
-        return false;
+    /** {@code if flag}; {@code if true} for a literal Guards reads as no condition at all. */
+    private static String condition(String keyword, Expression e) {
+        String text = Guards.text(e);
+        return keyword + " " + (text.isEmpty() ? "true" : text);
     }
 
     private static String lambdaHead(LambdaExpr l) {
@@ -208,10 +270,72 @@ final class Steps {
     }
 
     /** Everything {@link CallSite#describe} records about one call. */
-    record Info(int col, String text, String receiver, String resultUse, List<StepFrame> frames) {}
+    record Info(int col, String text, String receiver, String resultUse, List<StepFrame> frames) {
+        Info {
+            frames = List.copyOf(frames);
+        }
 
+        /** What a call says when reading it failed: where it is, and nothing else. */
+        static Info empty(Node call) {
+            int col;
+            try {
+                col = Steps.col(call);
+            } catch (RuntimeException e) {
+                col = 0;
+            }
+            return new Info(col, "", "unknown", "unknown", List.of());
+        }
+    }
+
+    /**
+     * What every call of one scope asks about the same names, read once:
+     * its parameters, the first local declared under each name, and what each
+     * name was found to be. A scope with hundreds of calls would otherwise walk
+     * its whole body, and ask the solver, once per call.
+     */
+    static final class Context {
+        final Node scope;
+        private final Map<String, Parameter> params = new LinkedHashMap<>();
+        private final Map<String, VariableDeclarator> locals = new HashMap<>();
+        private final Map<String, String> kinds = new HashMap<>();
+        private final Map<String, Optional<String>> fieldTypes = new HashMap<>();
+        private Optional<TypeDeclaration<?>> owner;
+
+        private Context(Node scope) {
+            this.scope = scope;
+            if (scope instanceof CallableDeclaration<?> c) {
+                for (Parameter p : c.getParameters()) {
+                    params.putIfAbsent(p.getNameAsString(), p);
+                }
+            }
+            for (VariableDeclarator v : scope.findAll(VariableDeclarator.class)) {
+                if (v.getParentNode().filter(p -> p instanceof FieldDeclaration).isEmpty()) {
+                    locals.putIfAbsent(v.getNameAsString(), v);
+                }
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        Optional<TypeDeclaration<?>> owner() {
+            if (owner == null) {
+                owner = scope.findAncestor(TypeDeclaration.class).map(t -> (TypeDeclaration<?>) t);
+            }
+            return owner;
+        }
+    }
+
+    static Context context(Node scope) {
+        return new Context(scope);
+    }
+
+    /** For a single call; an analyzer reading many calls of one scope shares a {@link Context}. */
     static Info of(Node call, Node scope) {
-        String receiver = call instanceof MethodCallExpr m ? receiver(m, scope) : "unknown";
+        return of(call, context(scope));
+    }
+
+    static Info of(Node call, Context ctx) {
+        Node scope = ctx.scope;
+        String receiver = call instanceof MethodCallExpr m ? receiver(m, ctx) : "unknown";
         return new Info(col(call), text(call), receiver, resultUse(call), frames(call, scope));
     }
 
@@ -223,38 +347,34 @@ final class Steps {
      * is a step a reader wants to see; the same call on a temporary is not.
      */
     static String receiver(MethodCallExpr call, Node scope) {
-        return call.getScope().map(s -> origin(s, call, scope, false)).orElse("this");
+        return receiver(call, context(scope));
     }
 
-    private static String origin(Expression e, Node at, Node scope, boolean derived) {
+    static String receiver(MethodCallExpr call, Context ctx) {
+        return call.getScope().map(s -> origin(s, call, ctx, false)).orElse("this");
+    }
+
+    private static String origin(Expression e, Node at, Context ctx, boolean derived) {
         Expression x = unwrap(e);
         if (x instanceof ThisExpr || x instanceof SuperExpr) {
             return "this";
         }
         if (x instanceof FieldAccessExpr f) {
-            return f.getScope() instanceof ThisExpr ? "field" : origin(f.getScope(), at, scope, true);
+            return f.getScope() instanceof ThisExpr ? "field" : origin(f.getScope(), at, ctx, true);
         }
         if (x instanceof MethodCallExpr m) {
-            return m.getScope().map(s -> origin(s, at, scope, true)).orElse("local");
+            return m.getScope().map(s -> origin(s, at, ctx, true)).orElse("local");
         }
         if (x instanceof NameExpr n) {
-            String kind = nameKind(n.getNameAsString(), at, scope);
-            if (kind.equals("unknown")) {
-                try {
-                    if (n.resolve().isField()) {
-                        kind = "field"; // inherited: declared on a superclass
-                    }
-                } catch (RuntimeException | StackOverflowError ignored) {
-                    // stays unknown
-                }
-            }
+            String kind = nameKind(n, at, ctx);
             return derived && kind.equals("param") ? "local-from-param" : kind;
         }
         return "unknown";
     }
 
-    private static String nameKind(String name, Node at, Node scope) {
-        for (Node n = at; n != null && n != scope; n = n.getParentNode().orElse(null)) {
+    private static String nameKind(NameExpr ref, Node at, Context ctx) {
+        String name = ref.getNameAsString();
+        for (Node n = at; n != null && n != ctx.scope; n = n.getParentNode().orElse(null)) {
             if (n instanceof LambdaExpr l && l.getParameters().stream().anyMatch(p -> p.getNameAsString().equals(name))) {
                 return "local";
             }
@@ -265,37 +385,53 @@ final class Steps {
                     && f.getVariable().getVariables().stream().anyMatch(v -> v.getNameAsString().equals(name))) {
                 return "local";
             }
-        }
-        List<String> params = parameterNames(scope);
-        for (VariableDeclarator v : scope.findAll(VariableDeclarator.class)) {
-            if (!v.getNameAsString().equals(name) || v.getParentNode().filter(p -> p instanceof FieldDeclaration).isPresent()) {
-                continue;
+            // A method of an anonymous (or local) class inside the scope: its parameters are its locals.
+            if (n instanceof CallableDeclaration<?> c
+                    && c.getParameters().stream().anyMatch(p -> p.getNameAsString().equals(name))) {
+                return "local";
             }
-            boolean fromParam = v.getInitializer()
-                    .filter(init -> init.findAll(NameExpr.class).stream().anyMatch(ref -> params.contains(ref.getNameAsString())))
+        }
+        String known = ctx.kinds.get(name);
+        if (known != null) {
+            return known;
+        }
+        ctx.kinds.put(name, "local"); // `Foo f = f.next()` ends here instead of going round
+        String kind = scopeKind(ref, ctx);
+        ctx.kinds.put(name, kind);
+        return kind;
+    }
+
+    private static String scopeKind(NameExpr ref, Context ctx) {
+        String name = ref.getNameAsString();
+        VariableDeclarator local = ctx.locals.get(name);
+        if (local != null) {
+            // From a parameter only when its VALUE is reached from one: `exchange.getIn()`
+            // is, `new Resp(req.id())` and `foo(req)` merely read one.
+            boolean fromParam = local.getInitializer().map(init -> origin(init, local, ctx, true))
+                    .filter(o -> o.equals("param") || o.equals("local-from-param"))
                     .isPresent();
             return fromParam ? "local-from-param" : "local";
         }
-        if (params.contains(name)) {
+        if (ctx.params.containsKey(name)) {
             return "param";
         }
-        if (fieldType(name, scope) != null) {
+        if (fieldType(name, ctx) != null) {
             return "field";
         }
         if (!name.isEmpty() && Character.isUpperCase(name.charAt(0))) {
             return "static";
         }
-        return "unknown";
-    }
-
-    private static List<String> parameterNames(Node scope) {
-        List<String> names = new ArrayList<>();
-        if (scope instanceof CallableDeclaration<?> c) {
-            for (Parameter p : c.getParameters()) {
-                names.add(p.getNameAsString());
+        // `log` is Lombok's, which the solver cannot see; asking costs a failed resolution per scope.
+        if (!name.equals("log")) {
+            try {
+                if (ref.resolve().isField()) {
+                    return "field"; // inherited: declared on a superclass
+                }
+            } catch (RuntimeException | StackOverflowError ignored) {
+                // stays unknown
             }
         }
-        return names;
+        return "unknown";
     }
 
     /**
@@ -314,13 +450,16 @@ final class Steps {
         if (p == null) {
             return "unknown";
         }
-        if (p instanceof ExpressionStmt) {
-            return "discarded";
+        if (p instanceof ExpressionStmt stmt) {
+            // JavaParser wraps an expression lambda's body in a statement: `o -> o.getId()` returns it.
+            boolean lambdaBody = stmt.getParentNode().filter(l -> l instanceof LambdaExpr le && le.getBody() == stmt)
+                    .isPresent();
+            return lambdaBody ? "returned" : "discarded";
         }
         if (p instanceof VariableDeclarator || p instanceof AssignExpr) {
             return "assigned";
         }
-        if (p instanceof ReturnStmt || p instanceof LambdaExpr) {
+        if (p instanceof ReturnStmt) {
             return "returned";
         }
         if (p instanceof MethodCallExpr || p instanceof ObjectCreationExpr || p instanceof ExplicitConstructorInvocationStmt) {
@@ -357,34 +496,45 @@ final class Steps {
      * field, or the return type of a method of the same class.
      */
     static String declaredType(Expression receiver, Node scope) {
+        return declaredType(receiver, context(scope));
+    }
+
+    static String declaredType(Expression receiver, Context ctx) {
         Expression x = unwrap(receiver);
         if (x instanceof MethodCallExpr m && m.getScope().isEmpty()) {
-            return scope.findAncestor(TypeDeclaration.class)
-                    .flatMap(td -> ((TypeDeclaration<?>) td).getMethodsByName(m.getNameAsString()).stream().findFirst())
-                    .map(md -> simple(((MethodDeclaration) md).getType().toString()))
+            return ctx.owner()
+                    .flatMap(td -> td.getMethodsByName(m.getNameAsString()).stream().findFirst())
+                    .map(md -> simple(md.getType().toString()))
                     .orElse(null);
         }
         if (!(x instanceof NameExpr n)) {
             return null;
         }
         String name = n.getNameAsString();
-        if (scope instanceof CallableDeclaration<?> c) {
-            for (Parameter p : c.getParameters()) {
-                if (p.getNameAsString().equals(name)) {
-                    return simple(p.getType().toString());
-                }
-            }
+        Parameter param = ctx.params.get(name);
+        if (param != null) {
+            return simple(param.getType().toString());
         }
-        for (VariableDeclarator v : scope.findAll(VariableDeclarator.class)) {
-            if (v.getNameAsString().equals(name) && !v.getType().isVarType()) {
-                return simple(v.getType().toString());
-            }
+        VariableDeclarator local = ctx.locals.get(name);
+        if (local != null && !local.getType().isVarType()) {
+            return simple(local.getType().toString());
         }
-        return fieldType(name, scope);
+        return fieldType(name, ctx);
     }
 
-    private static String fieldType(String name, Node scope) {
-        Optional<TypeDeclaration> owner = scope.findAncestor(TypeDeclaration.class);
+    /** The scope's class, by qualified name where it has one; "" outside any type. */
+    static String enclosingType(Context ctx) {
+        return ctx.owner()
+                .map(td -> td.getFullyQualifiedName().orElse(td.getNameAsString()))
+                .orElse("");
+    }
+
+    private static String fieldType(String name, Context ctx) {
+        return ctx.fieldTypes.computeIfAbsent(name, k -> Optional.ofNullable(readFieldType(k, ctx))).orElse(null);
+    }
+
+    private static String readFieldType(String name, Context ctx) {
+        Optional<TypeDeclaration<?>> owner = ctx.owner();
         if (owner.isEmpty()) {
             return null;
         }
@@ -408,7 +558,7 @@ final class Steps {
         return lt >= 0 ? type.substring(0, lt) : type;
     }
 
-    private static Expression unwrap(Expression e) {
+    static Expression unwrap(Expression e) {
         Expression x = e;
         while (true) {
             if (x instanceof EnclosedExpr en) {

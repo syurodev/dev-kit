@@ -42,14 +42,15 @@ import java.util.Set;
  *
  * Read syntactically, as the condition is WRITTEN: no evaluation, no
  * resolution, so a guard is a claim about the source and never about a value.
- * Five shapes make a condition: the branches of an {@code if}, of a ternary
+ * Six shapes make a condition: the branches of an {@code if}, of a ternary
  * and of a {@code switch} entry; the right side of {@code &&} and {@code ||},
- * which only runs when the left side let it; and the guard clause, an
- * {@code if} before the call whose branch leaves the block
+ * which only runs when the left side let it; a {@code catch} block, which runs
+ * only when its exception was thrown; and the guard clause, an {@code if}
+ * before the call whose branch leaves the block
  * ({@code if (!enabled) return false;}), which is how most of this code is
- * written. Loops and the {@code try} block itself are not conditions here; a
- * {@code catch} block is — it runs only when its exception was thrown. A loop
- * repeats a call, it does not choose it.
+ * written. Loops and the {@code try} block itself are not conditions here: a
+ * loop repeats a call, it does not choose it, and a {@code try} block runs
+ * whether or not anything throws.
  */
 final class Guards {
 
@@ -118,7 +119,7 @@ final class Guards {
     }
 
     /** Identity, not equals: two identical statements in different entries are different places. */
-    private static boolean isStatementOf(SwitchEntry entry, Node child) {
+    static boolean isStatementOf(SwitchEntry entry, Node child) {
         for (Statement s : entry.getStatements()) {
             if (s == child) {
                 return true;

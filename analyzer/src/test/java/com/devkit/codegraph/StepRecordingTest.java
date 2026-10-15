@@ -46,9 +46,13 @@ class StepRecordingTest {
             """;
 
     private static List<CallSite> sitesOf(Path root, String fromPrefix) throws IOException {
-        Path file = root.resolve("src/main/java/acme/Base.java");
+        return sitesOf(root, "Base.java", SOURCE, fromPrefix);
+    }
+
+    private static List<CallSite> sitesOf(Path root, String fileName, String source, String fromPrefix) throws IOException {
+        Path file = root.resolve("src/main/java/acme/" + fileName);
         Files.createDirectories(file.getParent());
-        Files.writeString(file, SOURCE);
+        Files.writeString(file, source);
         AnalysisResult r = new ProjectAnalyzer(root, 1).analyze();
         return r.callSites.stream().filter(c -> c.from.startsWith(fromPrefix)).collect(Collectors.toList());
     }
@@ -97,5 +101,45 @@ class StepRecordingTest {
         assertEquals(1, sites.size());
         assertEquals("override", sites.get(0).role);
         assertTrue(sites.get(0).to.startsWith("acme.Impl.decide("));
+    }
+
+    @Test
+    void aCallNothingResolvesIsKeyedByWhatTheSourceSays(@TempDir Path root) throws IOException {
+        List<CallSite> sites = sitesOf(root, "U.java", """
+                package acme;
+                class U {
+                    void go(Unknown u) {
+                        helper();
+                        u.foo();
+                        a.b.c();
+                        make().bar();
+                    }
+                }
+                """, "acme.U.go(");
+        assertEquals("acme.U#helper", byText(sites, "helper()").calleeKey);
+        assertEquals("Unknown#foo", byText(sites, "u.foo()").calleeKey);
+        assertEquals("a.b#c", byText(sites, "a.b.c()").calleeKey);
+        assertEquals("acme.U#bar", byText(sites, "make().bar()").calleeKey,
+                "a receiver that is itself a call is not a name to key by");
+    }
+
+    @Test
+    void aNodeIdKeyDropsTheDisambiguationSuffix() {
+        assertEquals("acme.Base#decide", ProjectAnalyzer.keyOfNodeId("acme.Base.decide(java.lang.String)"));
+        assertEquals("acme.Base#decide", ProjectAnalyzer.keyOfNodeId("acme.Base [mod].decide(java.lang.String)"));
+        assertEquals("acme.Base#decide", ProjectAnalyzer.keyOfNodeId("acme.Base [mod #2].decide()"));
+        assertEquals("acme.Base#decide", ProjectAnalyzer.keyOfNodeId("acme.Base [#2].decide()"));
+        assertEquals("acme.Base.Inner#go", ProjectAnalyzer.keyOfNodeId("acme.Base [#2].Inner.go()"));
+        assertEquals("acme.Base#decide", ProjectAnalyzer.keyOfNodeId("acme.Base.decide(int) [#2]"));
+    }
+
+    @Test
+    void readingAStepNeverTakesTheAnalysisDown() {
+        com.github.javaparser.ast.expr.MethodCallExpr call =
+                com.github.javaparser.StaticJavaParser.parseExpression("a().b()");
+        Steps.Info info = ProjectAnalyzer.stepsOf(call, null);
+        assertEquals("", info.text());
+        assertEquals("unknown", info.receiver());
+        assertTrue(info.frames().isEmpty());
     }
 }

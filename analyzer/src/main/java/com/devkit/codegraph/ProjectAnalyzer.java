@@ -908,13 +908,14 @@ public class ProjectAnalyzer {
     private void addCallEdges(CallScope scope, Index index, Dispatch dispatch, Set<String> nodeIds,
                               Map<String, List<String>> methodsByTypeAndName, AnalysisResult result) {
         String module = scope.owner().file.module();
+        Steps.Context steps = Steps.context(scope.node());
         for (MethodCallExpr call : scope.node().findAll(MethodCallExpr.class)) {
             if (deferredCamel(call)) continue;
             if (!belongsTo(call, scope.node())) {
                 continue; // a local class's method records its own calls
             }
             int line = call.getRange().map(r -> r.begin.line).orElse(0);
-            Steps.Info info = Steps.of(call, scope.node());
+            Steps.Info info = stepsOf(call, steps);
             ResolvedMethodDeclaration target = null;
             String toNodeId;
             try {
@@ -946,9 +947,12 @@ public class ProjectAnalyzer {
                     // Still a gap in the graph, not a fatal error (FR-8).
                     // Recorded rather than dropped: a trace that runs into this
                     // has to be able to say the flow was lost here, not just end.
+                    // Every Lombok logger is keyed as slf4j on purpose, @Log4j2 and
+                    // @CommonsLog too: the key decides "this is logging", and what
+                    // the annotation generates cannot be read from here.
                     String key = reason.equals("lombok") && isLogCall(call)
                             ? "org.slf4j.Logger#" + call.getNameAsString()
-                            : calleeKey(call, null, scope.node());
+                            : calleeKey(call, target, steps);
                     for (String owner : scope.ownerIds()) {
                         result.callSites.add(new CallSite(owner, "", line, reason).describe(info, key));
                     }
@@ -968,7 +972,7 @@ public class ProjectAnalyzer {
                         isInterface = false;
                     }
                 }
-                String key = calleeKey(call, target, scope.node());
+                String key = calleeKey(call, target, steps);
                 for (String owner : scope.ownerIds()) {
                     result.callSites.add(new CallSite(owner, "", line, isInterface ? "interface" : "library").describe(info, key));
                 }
@@ -1006,7 +1010,7 @@ public class ProjectAnalyzer {
             }
             if (nodeIds.contains(toNodeId)) {
                 recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result,
-                        Guards.of(construction, scope.node()), Steps.of(construction, scope.node()), keyOfNodeId(toNodeId));
+                        Guards.of(construction, scope.node()), stepsOf(construction, steps), keyOfNodeId(toNodeId));
             }
         }
 
@@ -1031,7 +1035,7 @@ public class ProjectAnalyzer {
                     && !dispatch.implementations.containsKey(toNodeId);
             recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
                     dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()),
-                    Steps.of(reference, scope.node()), keyOfNodeId(toNodeId));
+                    stepsOf(reference, steps), keyOfNodeId(toNodeId));
         }
     }
 
@@ -1081,13 +1085,25 @@ public class ProjectAnalyzer {
     }
 
     /**
+     * A call's step, or only its position when reading it failed: the outline
+     * is extra, and one odd expression must not cost the index its call graph.
+     */
+    static Steps.Info stepsOf(com.github.javaparser.ast.Node node, Steps.Context steps) {
+        try {
+            return Steps.of(node, steps);
+        } catch (RuntimeException | StackOverflowError e) {
+            return Steps.Info.empty(node);
+        }
+    }
+
+    /**
      * "<declaring type>#<member>": what scores a call and what a person marks
      * "always show". The solver's answer first; then the receiver's resolved
-     * type; then the type the receiver was declared with; then a type name used
-     * as a receiver; then the receiver as written.
+     * type; then the type the receiver was declared with; then a name or field
+     * as written. A call with no receiver, or one whose receiver is itself an
+     * expression, is keyed by the class it is written in.
      */
-    private static String calleeKey(MethodCallExpr call, ResolvedMethodDeclaration target,
-                                    com.github.javaparser.ast.Node scope) {
+    private static String calleeKey(MethodCallExpr call, ResolvedMethodDeclaration target, Steps.Context steps) {
         String name = call.getNameAsString();
         if (target != null) {
             try {
@@ -1097,7 +1113,7 @@ public class ProjectAnalyzer {
             }
         }
         if (call.getScope().isEmpty()) {
-            return "#" + name;
+            return Steps.enclosingType(steps) + "#" + name;
         }
         Expression receiver = call.getScope().get();
         try {
@@ -1108,17 +1124,25 @@ public class ProjectAnalyzer {
         } catch (RuntimeException | StackOverflowError ignored) {
             // falls through
         }
-        String declared = Steps.declaredType(receiver, scope);
+        String declared = Steps.declaredType(receiver, steps);
         if (declared != null) {
             return declared + "#" + name;
         }
-        return receiver.toString().replaceAll("\\s+", " ") + "#" + name;
+        Expression written = Steps.unwrap(receiver);
+        if (written instanceof NameExpr || written instanceof FieldAccessExpr) {
+            return Steps.clip(Guards.flatten(written.toString())) + "#" + name;
+        }
+        return Steps.enclosingType(steps) + "#" + name;
     }
 
-    /** A node id's key: `acme.Base.decide(java.lang.String)` → `acme.Base#decide`. */
-    private static String keyOfNodeId(String id) {
+    /**
+     * A node id's key: `acme.Base.decide(java.lang.String)` → `acme.Base#decide`.
+     * The " [..]" the index adds to tell two types apart is dropped, so a
+     * project key reads like the solver's.
+     */
+    static String keyOfNodeId(String id) {
         int paren = id.indexOf('(');
-        String head = paren >= 0 ? id.substring(0, paren) : id;
+        String head = (paren >= 0 ? id.substring(0, paren) : id).replaceAll(" \\[[^\\]]*\\]", "");
         int dot = head.lastIndexOf('.');
         return dot < 0 ? "#" + head : head.substring(0, dot) + "#" + head.substring(dot + 1);
     }

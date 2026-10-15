@@ -5,12 +5,17 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StepsTest {
 
@@ -82,7 +87,7 @@ class StepsTest {
         assertEquals("breaker.executeCallable(() -> …)", got.get(0).text);
         MethodCallExpr wrapper = call(run, "executeCallable");
         int line = wrapper.getBegin().orElseThrow().line;
-        int col = wrapper.getBegin().orElseThrow().column;
+        int col = wrapper.getName().getBegin().orElseThrow().column;
         assertEquals(line + ":" + col, got.get(0).id, "the frame id is the wrapping call's position");
     }
 
@@ -139,5 +144,94 @@ class StepsTest {
         assertEquals("Message", Steps.declaredType(call(run, "b").getScope().orElseThrow(), run));
         assertEquals("java.util.Map", Steps.declaredType(call(run, "c").getScope().orElseThrow(), run));
         assertEquals("Counter", Steps.declaredType(call(run, "d").getScope().orElseThrow(), run));
+    }
+
+    @Test
+    void aCallInAChainIsPlacedAtItsName() {
+        // getBegin() of `a().b(...)` is where `a()` starts, so both calls would
+        // share one column and c's closure could belong to either.
+        MethodDeclaration run = run("void run() { a().b(x -> c()); }");
+        MethodCallExpr a = call(run, "a");
+        MethodCallExpr b = call(run, "b");
+        assertNotEquals(Steps.col(a), Steps.col(b));
+        assertEquals(b.getName().getBegin().orElseThrow().column, Steps.col(b));
+        int line = b.getBegin().orElseThrow().line;
+        assertEquals(line + ":" + Steps.col(b), Steps.position(b));
+        List<StepFrame> got = Steps.frames(call(run, "c"), run);
+        assertEquals(Steps.position(b), got.get(0).id, "c's closure is the one passed to b");
+    }
+
+    @Test
+    void anExpressionLambdaReturnsItsCall() {
+        assertEquals("returned", use("void run() { items.map(o -> o.getId()); }", "getId"));
+        assertEquals("discarded", use("void run() { items.forEach(o -> { o.go(); }); }", "go"));
+    }
+
+    @Test
+    void anEmptyInfoSaysNothingAndFramesAreCopied() {
+        MethodDeclaration run = run("void run() { a().b(); }");
+        MethodCallExpr b = call(run, "b");
+        Steps.Info empty = Steps.Info.empty(b);
+        assertEquals(Steps.col(b), empty.col());
+        assertEquals("", empty.text());
+        assertEquals("unknown", empty.receiver());
+        assertEquals("unknown", empty.resultUse());
+        assertTrue(empty.frames().isEmpty());
+
+        List<StepFrame> frames = new ArrayList<>(List.of(new StepFrame("1:1", "if", "if a", false)));
+        Steps.Info info = new Steps.Info(1, "x()", "this", "discarded", frames);
+        frames.clear();
+        assertEquals(1, info.frames().size());
+        assertThrows(UnsupportedOperationException.class, () -> info.frames().clear());
+    }
+
+    @Test
+    void aLocalIsFromAParamOnlyWhenItsValueIsReachedFromOne() {
+        assertEquals("local-from-param", receiver(
+                "void run(Exchange exchange) { Body b = exchange.getIn().getBody(); b.target(); }", "target"));
+        assertEquals("local-from-param", receiver("void run(Req req) { Req r = (Req) req; r.target(); }", "target"));
+        assertEquals("local-from-param", receiver(
+                "void run(Exchange exchange) { Message in = exchange.getIn(); Body b = in.getBody(); b.target(); }",
+                "target"));
+        assertEquals("local", receiver("void run(Req req) { Resp r = new Resp(req.id()); r.target(); }", "target"));
+        assertEquals("local", receiver("void run(Req req) { Resp r = foo(req); r.target(); }", "target"));
+    }
+
+    @Test
+    void lambdasAndAnonymousClassesAreShortenedAnywhereInTheText() {
+        MethodDeclaration run = run("void run() { list.stream().filter(i -> { return i.ok(); })"
+                + ".map(i -> i.name()).forEach(x -> c(x)); }");
+        assertEquals("list.stream().filter(i -> …).map(i -> …).forEach(x -> …)", Steps.text(call(run, "forEach")));
+
+        MethodDeclaration anon = run("void run() { exec.submit(new Runnable() { public void run() { work(); } }); }");
+        assertEquals("exec.submit(new Runnable() {…})", Steps.text(call(anon, "submit")));
+        ObjectCreationExpr creation = anon.findFirst(ObjectCreationExpr.class).orElseThrow();
+        assertEquals("new Runnable() {…}", Steps.text(creation));
+        assertTrue(creation.getAnonymousClassBody().isPresent(), "the source tree is left alone");
+    }
+
+    @Test
+    void anAnonymousClassIsAClosure() {
+        MethodDeclaration run = run("void run() { exec.submit(new Runnable() { public void run() { work(); } }); }");
+        List<StepFrame> got = Steps.frames(call(run, "work"), run);
+        assertEquals(1, got.size());
+        assertEquals("closure", got.get(0).kind);
+        assertEquals("exec.submit(new Runnable() {…})", got.get(0).text);
+        assertEquals(Steps.position(call(run, "submit")), got.get(0).id);
+
+        MethodDeclaration held = run("void run() { Runnable r = new Runnable() { public void run() { work(); } }; }");
+        List<StepFrame> heldFrames = Steps.frames(call(held, "work"), held);
+        assertEquals("closure:new Runnable() {…}", heldFrames.get(0).kind + ":" + heldFrames.get(0).text);
+        assertEquals(Steps.position(held.findFirst(ObjectCreationExpr.class).orElseThrow()), heldFrames.get(0).id);
+
+        assertEquals("local", receiver(
+                "void run() { exec.submit(new Handler() { public void handle(Job job) { job.go(); } }); }", "go"));
+    }
+
+    @Test
+    void anAlwaysTrueConditionStillReadsAsOne() {
+        assertEquals("loop:while true", frames("void run() { while (true) { target(); } }", "target"));
+        assertEquals("if:if true", frames("void run() { if (true) { target(); } }", "target"));
+        assertEquals("loop:do … while true", frames("void run() { do { target(); } while (true); }", "target"));
     }
 }
