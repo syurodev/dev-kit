@@ -175,4 +175,74 @@ class StepRecordingTest {
         assertEquals("8:16", forEach.line + ":" + forEach.col);
         assertEquals(forEach.line + ":" + forEach.col, deliver.frames.get(0).id);
     }
+
+    private static final String EFFECTS = """
+            package acme;
+            import jakarta.persistence.*;
+            import org.springframework.data.repository.CrudRepository;
+            import org.springframework.data.redis.core.StringRedisTemplate;
+            import org.springframework.kafka.core.KafkaTemplate;
+            import org.springframework.web.client.RestTemplate;
+            @Entity
+            class Order { @Id Long id; }
+            interface OrderRepo extends CrudRepository<Order, Long> { Order findByCode(String code); }
+            class Svc {
+                private final KafkaTemplate<String, String> kafka = null;
+                private final StringRedisTemplate redis = null;
+                private final OrderRepo repo = null;
+                private final RestTemplate rest = null;
+                void go(Order o, String k) {
+                    kafka
+                        .send("orders", k);
+                    redis.opsForValue().set("fsap:x:" + k, "1");
+                    repo
+                        .save(o);
+                    rest
+                        .getForObject("http://billing/x", String.class);
+                    Order found = repo.findByCode(k);
+                }
+            }
+            """;
+
+    private static String at(List<CallSite> sites, int line, int col) {
+        return sites.stream().filter(c -> c.line == line && c.col == col).map(c -> c.text).findFirst()
+                .orElse("nothing at " + line + ":" + col + " in " + sites.stream().map(c -> c.line + ":" + c.col + " " + c.text).toList());
+    }
+
+    /** What an extractor saw at a call is recorded where the call site is: the call's name. */
+    @Test
+    void anEffectSitsAtItsCallsPosition(@TempDir Path root) throws IOException {
+        Path file = root.resolve("src/main/java/acme/Svc.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, EFFECTS);
+        AnalysisResult r = new ProjectAnalyzer(root, 1).analyze();
+        List<CallSite> sites = r.callSites.stream().filter(c -> c.from.startsWith("acme.Svc.go(")).toList();
+
+        KafkaAccess kafka = r.kafkaAccesses.stream().filter(a -> a.from.startsWith("acme.Svc.go(")).findFirst().orElseThrow();
+        assertEquals("kafka.send(\"orders\", k)", at(sites, kafka.line, kafka.col));
+        RedisAccess redis = r.redisAccesses.stream().filter(a -> a.from.startsWith("acme.Svc.go(")).findFirst().orElseThrow();
+        assertEquals("redis.opsForValue().set(\"fsap:x:\" + k, \"1\")", at(sites, redis.line, redis.col));
+        TableAccess save = r.tableAccesses.stream().filter(a -> a.from.startsWith("acme.Svc.go(")).findFirst().orElseThrow();
+        assertEquals("repo.save(o)", at(sites, save.line, save.col));
+        OutboundCall http = r.outboundCalls.stream().filter(a -> a.from.startsWith("acme.Svc.go(")).findFirst().orElseThrow();
+        assertEquals("rest.getForObject(\"http://billing/x\", String.class)", at(sites, http.line, http.col));
+
+        TableAccess derived = r.tableAccesses.stream().filter(a -> a.from.startsWith("acme.OrderRepo.findByCode(")).findFirst().orElseThrow();
+        assertEquals(0, derived.col, "a row read off a declaration is not at any call");
+    }
+
+    /** A call into a project method with no body names it, though the flow cannot go past it. */
+    @Test
+    void aCallIntoABodylessProjectMethodNamesItsTarget(@TempDir Path root) throws IOException {
+        Path file = root.resolve("src/main/java/acme/Svc.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, EFFECTS);
+        AnalysisResult r = new ProjectAnalyzer(root, 1).analyze();
+        CallSite find = byText(r.callSites.stream().filter(c -> c.from.startsWith("acme.Svc.go(")).toList(), "repo.findByCode(k)");
+        assertEquals("", find.to);
+        assertEquals("interface", find.unresolved);
+        assertTrue(find.target.startsWith("acme.OrderRepo.findByCode("), find.target);
+        CallSite save = byText(r.callSites.stream().filter(c -> c.from.startsWith("acme.Svc.go(")).toList(), "repo.save(o)");
+        assertEquals("", save.target, "an inherited CRUD method is not a node of this project");
+    }
 }

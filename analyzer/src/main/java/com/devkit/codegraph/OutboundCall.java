@@ -17,6 +17,8 @@ public class OutboundCall {
     public String from;
     public String file;
     public int line;
+    /** The column of the call's name when the row is read off a call (see Steps.col); 0 when it is read off a declaration. */
+    public int col;
     /** "feign" | "http-interface" | "rest-template" | "web-client" | "rest-client" */
     public String client;
     /** GET, POST, ... or "ANY" when the source does not say. */
@@ -34,5 +36,11 @@ public class OutboundCall {
         this.serviceName = serviceName;
         this.url = url;
         this.line = line;
+    }
+
+    /** A call made at {@code call}: placed where its call site is, the call's name. */
+    OutboundCall(String client, String httpMethod, String serviceName, String url, com.github.javaparser.ast.expr.MethodCallExpr call) {
+        this(client, httpMethod, serviceName, url, Steps.line(call));
+        this.col = Steps.col(call);
     }
 }

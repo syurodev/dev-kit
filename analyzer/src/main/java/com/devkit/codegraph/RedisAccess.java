@@ -19,6 +19,8 @@ public class RedisAccess {
     public String command = "";
     public String file;
     public int line;
+    /** The column of the call's name when the row is read off a call (see Steps.col); 0 when it is read off a declaration. */
+    public int col;
 
     public RedisAccess() {}
 }

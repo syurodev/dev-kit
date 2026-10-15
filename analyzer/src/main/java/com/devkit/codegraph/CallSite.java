@@ -33,6 +33,10 @@ public class CallSite {
     public String resultUse = "";  // discarded | assigned | returned | argument | condition | unknown
     public List<StepFrame> frames = new ArrayList<>();
     public String role = "";       // "" for a call, "override" for a dispatch link to an override
+    // The project node the call names, even when `to` stays "" because the
+    // node has no body to follow (a repository or client interface method):
+    // the flow outline still shows it as the project's own call.
+    public String target = "";
 
     public CallSite() {}
 

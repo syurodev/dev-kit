@@ -315,6 +315,7 @@ public class ProjectAnalyzer {
                         copy.access = access.access;
                         copy.command = access.command;
                         copy.line = access.line;
+                        copy.col = access.col;
                         copy.file = scope.owner().file.relativePath();
                         result.redisAccesses.add(copy);
                     }
@@ -1164,8 +1165,9 @@ public class ProjectAnalyzer {
                             AnalysisResult result, String guard, Steps.Info info, String calleeKey) {
         for (String owner : scope.ownerIds()) {
             // A wall keeps the shape every other wall has: no callee named.
-            result.callSites.add(new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved)
-                    .describe(info, calleeKey));
+            CallSite site = new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved).describe(info, calleeKey);
+            site.target = toNodeId;
+            result.callSites.add(site);
             result.edges.add(new Edge(owner, toNodeId, "call", guard));
         }
 

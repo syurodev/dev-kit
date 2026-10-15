@@ -165,7 +165,7 @@ public final class OutboundCallExtractor {
                     }
                 }
                 return Optional.of(new OutboundCall("rest-template", httpMethod, "",
-                        client.get().baseUrl() + url, line(call)));
+                        client.get().baseUrl() + url, call));
             }
         }
 
@@ -185,7 +185,7 @@ public final class OutboundCallExtractor {
                 // uri(uriBuilder -> ...) builds the URL at run time.
                 String url = arg.isLambdaExpr() ? "{" + arg + "}" : url(arg, constants);
                 return Optional.of(new OutboundCall(client.get().kind(), httpMethod, "",
-                        client.get().baseUrl() + url, line(call)));
+                        client.get().baseUrl() + url, call));
             }
         }
         return Optional.empty();
