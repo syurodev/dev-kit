@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { METHOD_CHIP_CLASSES, NEUTRAL_METHOD_CHIP, methodChipClass, methodHue, methodTextClass } from "./httpMethod";
 
-describe("HTTP method colour (Postman's convention)", () => {
+describe("HTTP method colour (Postman-like: GET green, POST yellow, PUT/PATCH blue, DELETE red)", () => {
   test.each([
     ["GET", "--hue-green"],
     ["POST", "--hue-yellow"],

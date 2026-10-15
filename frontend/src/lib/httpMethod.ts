@@ -2,8 +2,8 @@
  * How an HTTP method is coloured, everywhere it is drawn: the API client's
  * rail and method picker, CodeGraph's entry points and flow header.
  *
- * One convention, Postman's: GET green, POST yellow, PUT/PATCH blue, DELETE
- * red, and anything else (HEAD, OPTIONS, a Kong phase, a Kafka topic, CRON)
+ * One convention, Postman-like (GET green, POST yellow, PUT/PATCH blue,
+ * DELETE red), and anything else (HEAD, OPTIONS, a Kong phase, a Kafka topic, CRON)
  * neutral. The colour says which method it is, not how safe it is, so it is a
  * Color palette hue (`--hue-*`), never `--status-*`.
  *
