@@ -235,13 +235,14 @@ export async function saveFile(key: string, mode: SaveMode = "normal"): Promise<
 
 /**
  * Throws a buffer's edits away and closes its tabs. A file whose folder left
- * the workspace is not offered back by ⌘⇧T: there is nothing to reopen it from.
+ * the workspace, or that was deleted on disk, is not offered back by ⌘⇧T:
+ * with the edits gone there is nothing to reopen.
  */
 export function discardFile(key: string): void {
   begin(`file:${key}`);
   const { [key]: gone, ...rest } = snapshot().buffers;
   set({ buffers: rest });
-  closeTabsOf(key, { remember: gone?.orphan !== "folder_removed" });
+  closeTabsOf(key, { remember: gone?.orphan !== "folder_removed" && gone?.external !== "deleted" });
   void syncWatchedDocuments();
 }
 

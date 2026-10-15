@@ -234,6 +234,18 @@ describe("file actions over a workspace", () => {
     expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toHaveLength(1);
   });
 
+  it("does not offer back a file deleted on disk once its edits are discarded", async () => {
+    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
+    disk.set("fa:a.ts", "x\n");
+    await actions.openFile({ workspaceId: WS, folderId: "fa", path: "a.ts" });
+    actions.editFile(key("fa", "a.ts"), "unsaved\n");
+    disk.delete("fa:a.ts");
+    await actions.reconcileFile(key("fa", "a.ts"));
+    actions.discardFile(key("fa", "a.ts"));
+    expect(documentsOf()).toHaveLength(0);
+    expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+  });
+
   it("drops the buffer of a removed folder when it has no edits", async () => {
     disk.set("fb:a.ts", "x\n");
     await actions.openFile({ workspaceId: WS, folderId: "fb", path: "a.ts" });

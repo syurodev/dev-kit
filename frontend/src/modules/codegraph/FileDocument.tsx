@@ -164,7 +164,8 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   );
 
   const closeTab = () => useWorkbenchTabsStore.getState().closeTab(tabId);
-  // The two dead ends below have no document to come back to, so ⌘⇧T is not offered them.
+  // The dead ends below — and a file deleted on disk — have no document to
+  // come back to, so ⌘⇧T is not offered them.
   const closeDeadTab = () => useWorkbenchTabsStore.getState().closeTab(tabId, { remember: false });
 
   if (!owner) {
@@ -250,7 +251,8 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
             onKeepMine={() => keepMine(key)}
             onOverwrite={() => void saveFile(key, "overwrite")}
             onRecreate={() => void saveFile(key, "recreate")}
-            onClose={() => (buffer.dirty ? discardFile(key) : closeTab())}
+            // A file deleted on disk has nothing to reopen (discardFile says the same).
+            onClose={() => (buffer.dirty ? discardFile(key) : buffer.external === "deleted" ? closeDeadTab() : closeTab())}
           />
           <CompareDialog
             open={compareOpen}
