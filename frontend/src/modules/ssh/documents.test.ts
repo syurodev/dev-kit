@@ -6,13 +6,21 @@ import { openSSHConnection, activeSSHProfileId, closeSSHConnection, renameSSHCon
 
 useWorkbenchTabsStore.persist.setOptions({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "ssh" });
+  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "ssh", recentlyClosed: [] });
   useSSHWorkspaceState.setState({ entries: {} });
   useTerminalTabsStore.setState({ tabs: [], activeKey: "" });
 });
 const a = { id: "a", name: "Development" };
 const b = { id: "b", name: "Staging" };
 const tabs = () => moduleTabs(useWorkbenchTabsStore.getState().modules, "ssh");
+
+test("the tabs of a deleted profile are not offered back", () => {
+  openSSHConnection(a);
+  openSSHConnection(b);
+  closeSSHConnection("a");
+  expect(tabs().openTabs.map((t) => t.title)).toEqual(["Staging"]);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
 
 test("each connection is a workbench document; reopening focuses rather than duplicates", () => {
   openSSHConnection(a); openSSHConnection(b); openSSHConnection(a);

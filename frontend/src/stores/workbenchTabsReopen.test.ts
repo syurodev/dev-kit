@@ -124,6 +124,14 @@ test("a group close reopens one by one, last closed first", () => {
   expect(titles()).toEqual(["a", "b", "c"]);
 });
 
+test("a close that is not to be remembered closes without a record", () => {
+  const a = open("a");
+  open("b");
+  useWorkbenchTabsStore.getState().closeTab(a, { remember: false });
+  expect(titles()).toEqual(["b"]);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
 test("the stack is not persisted", () => {
   useWorkbenchTabsStore.getState().closeTab(open("a"));
   const saved = persistedTabs(useWorkbenchTabsStore.getState());

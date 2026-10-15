@@ -97,7 +97,7 @@ beforeEach(() => {
     expandedTasks: {},
   });
   seed(useWorkspaceSwitcherStore, { currentId: null });
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
 });
 
 describe("TasksSidebar", () => {

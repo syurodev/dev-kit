@@ -4,7 +4,7 @@ import { browseKeyOfTab, consoleIdOfTab } from "./useConsoleLifetime";
 import { DEFAULT_CONSOLE_ID } from "./databaseStore";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
 });
 
 // A table tab stopped owning a console when it stopped being one. Claiming an

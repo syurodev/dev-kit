@@ -165,7 +165,7 @@ export function closeFolderDocuments(folderId: string, keepFile: (path: string) 
   for (const { tab, doc } of documentsOf()) {
     if (doc.folderId !== folderId) continue;
     if (doc.kind === "file" && doc.path && keepFile(doc.path)) continue;
-    store.closeTab(tab.id);
+    store.closeTab(tab.id, { remember: false });
   }
 }
 

@@ -173,7 +173,7 @@ export function AgentHubSidebar() {
       // longer exists. Their tabs go with them: a tab for a deleted session
       // has nothing to show.
       const gone = sessionSubtree(sessions, target.id);
-      closeAgentSessionTabs(gone);
+      closeAgentSessionTabs(gone, { remember: false });
       for (const id of gone) {
         removeSession(id);
         forgetAgentTranscript(id);

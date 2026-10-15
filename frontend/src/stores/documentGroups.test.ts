@@ -12,7 +12,7 @@ const noteId = (id: string) => `notes:notes.editor:noteId=${id}`;
 const shown = () => store().groups.map((g) => `${g.moduleId}:${g.activeTabId.split("=")[1] ?? g.activeTabId}`);
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
   store().focusModule("notes");
 });
 

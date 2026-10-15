@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Bot } from "lucide-react";
 import type { AgentSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
-import { moduleTabs, tabKey, useWorkbenchTabsStore, type WorkbenchTab, type WorkbenchTabsState } from "@/stores/workbenchTabs";
+import { moduleTabs, tabKey, useWorkbenchTabsStore, type CloseTabOptions, type WorkbenchTab, type WorkbenchTabsState } from "@/stores/workbenchTabs";
 
 /**
  * Agent Hub's documents: one workbench tab per session, keyed by
@@ -93,20 +93,23 @@ export function addAgentSessionTabInBackground(session: Pick<AgentSession, "id" 
   });
 }
 
-/** Closes every tab showing these sessions. Closing a tab never closes a session. */
-export function closeAgentSessionTabs(sessionIds: Iterable<string>): void {
+/**
+ * Closes every tab showing these sessions. Closing a tab never closes a session.
+ * `remember: false` when the sessions are gone, so ⌘⇧T does not offer them back.
+ */
+export function closeAgentSessionTabs(sessionIds: Iterable<string>, options?: CloseTabOptions): void {
   const ids = new Set(sessionIds);
   const state = useWorkbenchTabsStore.getState();
   for (const tab of moduleTabs(state.modules, AGENTHUB_MODULE).openTabs) {
-    if (ids.has(tabSessionId(tab))) state.closeTab(tab.id);
+    if (ids.has(tabSessionId(tab))) state.closeTab(tab.id, options);
   }
 }
 
-/** The home tab, where a new session is drafted. */
+/** The home tab, where a new session is drafted. Not remembered: the draft became the session. */
 export function closeNewSessionTab(): void {
   const state = useWorkbenchTabsStore.getState();
   for (const tab of moduleTabs(state.modules, AGENTHUB_MODULE).openTabs) {
-    if (tab.viewId === AGENTHUB_VIEW && tabSessionId(tab) === "") state.closeTab(tab.id);
+    if (tab.viewId === AGENTHUB_VIEW && tabSessionId(tab) === "") state.closeTab(tab.id, { remember: false });
   }
 }
 

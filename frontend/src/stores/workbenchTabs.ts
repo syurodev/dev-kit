@@ -42,6 +42,11 @@ export type WorkbenchTab = {
   group?: string;
 };
 
+export type CloseTabOptions = {
+  /** Offer the tab to reopenClosedTab afterwards. Default true. */
+  remember?: boolean;
+};
+
 export type OpenTabInput = {
   moduleId: string;
   viewId: string;
@@ -189,7 +194,12 @@ export type WorkbenchTabsState = {
    * caller's cue to open its home view. */
   focusModule: (moduleId: string) => void;
   openTab: (input: OpenTabInput) => string;
-  closeTab: (id: string) => void;
+  /**
+   * `remember: false` when the tab closes because its document is gone
+   * (deleted, removed from the workspace, replaced by a saved one): reopening
+   * it would bring back a tab with nothing to show.
+   */
+  closeTab: (id: string, options?: CloseTabOptions) => void;
   /**
    * Opens the `at`-th recently closed tab again (default: the last closed) in
    * its old group if that is still there, at its old place, pinned if it was.
@@ -419,7 +429,7 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
     return id;
   },
 
-  closeTab: (id) =>
+  closeTab: (id, options) =>
     set((state) => {
       const tab = moduleTabs(state.modules, moduleOfTab(id)).openTabs.find((t) => t.id === id);
       if (!tab) return state;
@@ -427,7 +437,7 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
       // partition would pick from another group.
       const group = groupOfTab(state.groups, tab);
       // A preview tab was only being looked through: nothing to bring back.
-      const recentlyClosed = tab.preview
+      const recentlyClosed = tab.preview || options?.remember === false
         ? state.recentlyClosed
         : [
             {

@@ -115,7 +115,7 @@ function TaskActions({ task, board, onGone }: { task: Task; board: Board; onGone
                   if (removed) {
                     useWorkbenchTabsStore
                       .getState()
-                      .closeTab(tabKey(MODULE, DETAIL_VIEW, { taskId: task.id }));
+                      .closeTab(tabKey(MODULE, DETAIL_VIEW, { taskId: task.id }), { remember: false });
                     onGone?.();
                   }
                 });

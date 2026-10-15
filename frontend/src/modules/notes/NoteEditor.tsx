@@ -267,7 +267,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
   }
 
   function onDeleted() {
-    closeTab(tabId);
+    closeTab(tabId, { remember: false });
     bumpNotesRefresh();
   }
 

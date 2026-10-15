@@ -15,10 +15,11 @@ export function activeSSHProfileId(state: WorkbenchTabsState): string {
   return typeof tab?.params?.profileId === "string" ? tab.params.profileId : "";
 }
 
+/** The tabs of a deleted profile: not remembered, there is nothing to reconnect to. */
 export function closeSSHConnection(profileId: string): void {
   const state = useWorkbenchTabsStore.getState();
   for (const tab of moduleTabs(state.modules, "ssh").openTabs) {
-    if (tab.params?.profileId === profileId) state.closeTab(tab.id);
+    if (tab.params?.profileId === profileId) state.closeTab(tab.id, { remember: false });
   }
 }
 

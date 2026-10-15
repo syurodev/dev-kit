@@ -158,6 +158,8 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   );
 
   const closeTab = () => useWorkbenchTabsStore.getState().closeTab(tabId);
+  // The two dead ends below have no document to come back to, so ⌘⇧T is not offered them.
+  const closeDeadTab = () => useWorkbenchTabsStore.getState().closeTab(tabId, { remember: false });
 
   if (!owner) {
     return (
@@ -166,14 +168,14 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
         title="Which folder is this file in?"
         body="This tab was saved before documents named their folder, and it cannot be told from the workspace now. Open the file again from Files."
       >
-        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+        <Button variant="outline" className="bg-surface-raised" onClick={closeDeadTab}>Close this tab</Button>
       </EmptyState>
     );
   }
   if (!buffer && relation === "removed") {
     return (
       <EmptyState icon={TriangleAlert} title="This file's folder left the workspace" body={path}>
-        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+        <Button variant="outline" className="bg-surface-raised" onClick={closeDeadTab}>Close this tab</Button>
       </EmptyState>
     );
   }

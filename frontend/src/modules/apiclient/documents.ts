@@ -109,7 +109,8 @@ export function openVariables(scope: VariablesScope, id: string, title: string, 
 
 /**
  * Closes a tab — the editor of a request just deleted, a new one just saved.
- * Empty params mean the view's home tab, the one opened with none.
+ * Empty params mean the view's home tab, the one opened with none. Never
+ * remembered: either way the document it showed is gone.
  */
 export function closeTabByParams(viewId: string, params: Record<string, unknown>) {
   const tabs = useWorkbenchTabsStore.getState();
@@ -121,7 +122,7 @@ export function closeTabByParams(viewId: string, params: Record<string, unknown>
         ? Object.keys(candidate.params ?? {}).length === 0
         : entries.every(([key, value]) => candidate.params?.[key] === value)),
   );
-  if (tab) tabs.closeTab(tab.id);
+  if (tab) tabs.closeTab(tab.id, { remember: false });
 }
 
 /** Rail selection and shortcuts follow the focused document group. */

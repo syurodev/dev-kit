@@ -8,7 +8,7 @@ import {
   writeFolderFile,
   type FileStatus,
 } from "@/bridge/workspaceCode";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { useWorkbenchTabsStore, type CloseTabOptions } from "@/stores/workbenchTabs";
 import {
   discardedLocal,
   edited,
@@ -233,20 +233,23 @@ export async function saveFile(key: string, mode: SaveMode = "normal"): Promise<
   }
 }
 
-/** Throws a buffer's edits away and closes its tabs. */
+/**
+ * Throws a buffer's edits away and closes its tabs. A file whose folder left
+ * the workspace is not offered back by ⌘⇧T: there is nothing to reopen it from.
+ */
 export function discardFile(key: string): void {
   begin(`file:${key}`);
-  const { [key]: _gone, ...rest } = snapshot().buffers;
+  const { [key]: gone, ...rest } = snapshot().buffers;
   set({ buffers: rest });
-  closeTabsOf(key);
+  closeTabsOf(key, { remember: gone?.orphan !== "folder_removed" });
   void syncWatchedDocuments();
 }
 
-function closeTabsOf(key: string) {
+function closeTabsOf(key: string, options?: CloseTabOptions) {
   const store = useWorkbenchTabsStore.getState();
   for (const { tab, doc } of documentsOf()) {
     if (doc.kind === "file" && doc.workspaceId && doc.folderId && doc.path && docKey(doc.workspaceId, doc.folderId, doc.path) === key) {
-      store.closeTab(tab.id);
+      store.closeTab(tab.id, options);
     }
   }
 }

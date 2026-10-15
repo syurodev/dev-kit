@@ -28,7 +28,7 @@ const openTabs = (moduleId: string) =>
 
 describe("openHomeWhenAsked", () => {
   beforeEach(() => {
-    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
   });
 
   test("a module that asks gets its home view when it has nothing open", () => {
