@@ -501,6 +501,11 @@
        enough to keep them at 4.5:1 would be a selection nobody can see.
        Every editor with dim comments makes the same trade. */
     --editor-selection: var(--feedback-selected);
+    /* How much of a hue an HTTP method chip is tinted with, into
+       --surface-base (lib/httpMethod.ts). The highest that keeps every
+       palette's hue at 4.5:1 on its own tint: Dracula's blue sets dark at
+       13%, Xcode's red sets light at 10%. themeContrast.test.ts checks both. */
+    --method-tint: 13%;
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
@@ -636,6 +641,8 @@
        and light, where selected text has less headroom, takes a lighter band.
        Re-measure when changing it. */
     --editor-selection: color-mix(in srgb, var(--status-info) 8%, transparent);
+    /* Lower than dark's: light reds sit closer to the floor. */
+    --method-tint: 10%;
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
        light's own --status-danger is #b3363f. Light has been drawing salmon

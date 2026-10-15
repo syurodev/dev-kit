@@ -205,20 +205,22 @@ describe("every color palette is readable on the Mono grounds", () => {
       });
 
       // An HTTP method chip is its hue as text on that hue tinted into a
-      // chrome surface. The mix is read back from the class the chip actually
-      // carries and flattened the way `color-mix(in srgb, A p%, B)` paints two
-      // opaque colours: p of A over B.
+      // chrome surface by --method-tint (per mode, index.css). The mix is read
+      // back from the class the chip carries and flattened the way
+      // `color-mix(in srgb, A p%, B)` paints two opaque colours: p of A over B.
       for (const [hue, cls] of Object.entries(METHOD_CHIP_CLASSES)) {
         it(`${family.id}/${mode} ${hue} method chip`, () => {
-          const mix = cls.match(/color-mix\(in_srgb,var\((--hue-[a-z]+)\)_(\d+)%,var\((--[a-z-]+)\)\)/);
+          const mix = cls.match(/color-mix\(in_srgb,var\((--hue-[a-z]+)\)_var\((--[a-z-]+)\),var\((--[a-z-]+)\)\)/);
           if (!mix) throw new Error(`${cls} is not a tinted chip`);
-          const [, mixed, percent, surface] = mix;
+          const [, mixed, amountToken, surface] = mix;
           expect(mixed).toBe(hue);
           expect(cls).toContain(`text-(${hue})`);
+          const percent = resolveVar(amountToken, blocks[mode], blocks.dark);
+          if (!percent?.endsWith("%")) throw new Error(`${amountToken} (${mode}) is ${percent}, not a percentage`);
           const text = resolved[hue as keyof typeof resolved];
-          const ground = over(text, chrome(surface, mode), Number(percent) / 100);
+          const ground = over(text, chrome(surface, mode), Number.parseFloat(percent) / 100);
           const ratio = contrast(text, ground);
-          expect(ratio, `${text} on its ${percent}% tint ${ground} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+          expect(ratio, `${text} on its ${percent} tint ${ground} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
         });
       }
     }

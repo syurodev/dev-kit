@@ -30,13 +30,13 @@ describe("HTTP method colour (Postman's convention)", () => {
 
   test("a chip is tinted, never a solid fill with dark text", () => {
     for (const [hue, cls] of Object.entries(METHOD_CHIP_CLASSES)) {
-      expect(cls).toMatch(new RegExp(String.raw`^bg-\[color-mix\(in_srgb,var\(${hue}\)_\d+%,var\(--surface-base\)\)\] text-\(${hue}\)$`));
+      expect(cls).toMatch(new RegExp(String.raw`^bg-\[color-mix\(in_srgb,var\(${hue}\)_var\(--method-tint\),var\(--surface-base\)\)\] text-\(${hue}\)$`));
       expect(cls).not.toContain("action-primary-foreground");
     }
   });
 
-  test("every chip uses one tint percentage", () => {
-    const tints = new Set(Object.values(METHOD_CHIP_CLASSES).map((cls) => cls.match(/_(\d+)%/)?.[1]));
-    expect(tints.size).toBe(1);
+  // The amount is one token, set per mode in index.css, so no chip can drift.
+  test("every chip reads the shared --method-tint", () => {
+    for (const cls of Object.values(METHOD_CHIP_CLASSES)) expect(cls).toContain("_var(--method-tint),");
   });
 });

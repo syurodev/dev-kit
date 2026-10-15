@@ -9,10 +9,10 @@
  *
  * A chip is tinted, not filled: the hue mixed into `--surface-base` (the
  * codebase's opaque tint recipe, `.agenthub-status` in app.css) with the hue
- * itself as the text. The percentage is the largest that keeps every
- * palette's hue at 4.5:1 on its own tint in both modes — Xcode's light red is
- * the one that sets it (14% gave 4.16:1). `themeContrast.test.ts` reads these
- * classes back and checks it, so a change here is checked there.
+ * itself as the text. How much hue is `--method-tint`, set per mode in
+ * index.css: the most that keeps every palette's hue at 4.5:1 on its own tint.
+ * `themeContrast.test.ts` reads these classes and that token back and checks
+ * it, so a change here or there is checked there.
  *
  * Every class is written out whole: Tailwind finds classes by reading the
  * source, so one assembled from a variable would never be generated.
@@ -38,10 +38,10 @@ export function methodHue(method: string): MethodHue | null {
 }
 
 const CHIP: Record<MethodHue, string> = {
-  "--hue-green": "bg-[color-mix(in_srgb,var(--hue-green)_10%,var(--surface-base))] text-(--hue-green)",
-  "--hue-yellow": "bg-[color-mix(in_srgb,var(--hue-yellow)_10%,var(--surface-base))] text-(--hue-yellow)",
-  "--hue-blue": "bg-[color-mix(in_srgb,var(--hue-blue)_10%,var(--surface-base))] text-(--hue-blue)",
-  "--hue-red": "bg-[color-mix(in_srgb,var(--hue-red)_10%,var(--surface-base))] text-(--hue-red)",
+  "--hue-green": "bg-[color-mix(in_srgb,var(--hue-green)_var(--method-tint),var(--surface-base))] text-(--hue-green)",
+  "--hue-yellow": "bg-[color-mix(in_srgb,var(--hue-yellow)_var(--method-tint),var(--surface-base))] text-(--hue-yellow)",
+  "--hue-blue": "bg-[color-mix(in_srgb,var(--hue-blue)_var(--method-tint),var(--surface-base))] text-(--hue-blue)",
+  "--hue-red": "bg-[color-mix(in_srgb,var(--hue-red)_var(--method-tint),var(--surface-base))] text-(--hue-red)",
 };
 
 /** The neutral chip: the raised surface every other chip in the app uses. */
