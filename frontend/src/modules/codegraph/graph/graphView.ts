@@ -1,4 +1,4 @@
-import type { CodeGraphEdge, CodeGraphNode, CodeGraphSteps } from "@/bridge/codegraph";
+import type { CodeGraphEdge, CodeGraphNode, CodeGraphStepEffect, CodeGraphSteps } from "@/bridge/codegraph";
 import { shortLabel } from "./labels";
 import { firstSentence } from "../outline/buildOutline";
 import type { ApiNodeData } from "./ApiNode";
@@ -22,6 +22,9 @@ export type GraphView = {
 
 const FRAME_LABEL_MAX = 40;
 const EFFECT_NAMES: Record<string, string> = { kafka: "Kafka", http: "HTTP", redis: "Redis", db: "DB" };
+
+/** "Kafka produce": what an extractor saw at a call, the way Go's effectLabel words it. */
+export const effectName = (effect: CodeGraphStepEffect) => `${EFFECT_NAMES[effect.kind] ?? effect.kind} ${effect.role}`;
 
 const clipLabel = (text: string) => (text.length <= FRAME_LABEL_MAX ? text : `${text.slice(0, FRAME_LABEL_MAX - 1)}…`);
 
@@ -56,7 +59,7 @@ export function graphView(rootId: string, nodes: CodeGraphNode[], edges: CodeGra
       }
       if (s.to) for (const impl of s.impls ?? []) implements_.add(`${s.to}->${impl}`);
       if (s.visible && s.effect) {
-        const name = `${EFFECT_NAMES[s.effect.kind] ?? s.effect.kind} ${s.effect.role}`;
+        const name = effectName(s.effect);
         if (!seen.has(name)) {
           seen.add(name);
           effects.set(from, [...(effects.get(from) ?? []), name]);
