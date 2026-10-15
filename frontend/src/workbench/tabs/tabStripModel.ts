@@ -44,3 +44,24 @@ export function revealScrollLeft(view: {
   if (tabLeft > scrollLeft && tabWidth <= viewportWidth) return tabRight - viewportWidth;
   return tabLeft;
 }
+
+export type ScrollView = { scrollLeft: number; scrollWidth: number; clientWidth: number };
+
+/** A pixel of slack: a fractional scrollLeft at either end is still the end. */
+const EDGE_TOLERANCE = 1;
+
+/** Which sides of the strip have tabs scrolled out of sight. */
+export function overflowEdges(view: ScrollView): { left: boolean; right: boolean } {
+  const max = view.scrollWidth - view.clientWidth;
+  if (max <= EDGE_TOLERANCE) return { left: false, right: false };
+  return { left: view.scrollLeft > EDGE_TOLERANCE, right: view.scrollLeft < max - EDGE_TOLERANCE };
+}
+
+/** How far a ‹ › press scrolls: most of a viewport, so a tab cut at the edge stays in sight. */
+const STEP_SHARE = 0.8;
+
+export function scrollStep(view: ScrollView, direction: "left" | "right"): number {
+  const max = Math.max(0, view.scrollWidth - view.clientWidth);
+  const delta = view.clientWidth * STEP_SHARE * (direction === "left" ? -1 : 1);
+  return Math.min(max, Math.max(0, view.scrollLeft + delta));
+}

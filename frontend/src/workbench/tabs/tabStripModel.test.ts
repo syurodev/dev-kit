@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, scrollStep } from "./tabStripModel";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -44,4 +44,21 @@ describe("revealing the active tab", () => {
   test("a tab wider than the strip lines up its start", () => {
     expect(revealScrollLeft({ ...view, tabLeft: 450, tabWidth: 400 })).toBe(450);
   });
+});
+
+test("overflowEdges says which sides hide tabs", () => {
+  expect(overflowEdges({ scrollLeft: 0, scrollWidth: 300, clientWidth: 300 })).toEqual({ left: false, right: false });
+  expect(overflowEdges({ scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: false, right: true });
+  expect(overflowEdges({ scrollLeft: 600, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: false });
+  expect(overflowEdges({ scrollLeft: 200, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: true });
+  // Sub-pixel scroll positions at either end still read as the end.
+  expect(overflowEdges({ scrollLeft: 0.4, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: false, right: true });
+  expect(overflowEdges({ scrollLeft: 599.6, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: false });
+});
+
+test("scrollStep moves by most of a viewport and stops at the ends", () => {
+  const view = { scrollLeft: 100, scrollWidth: 900, clientWidth: 300 };
+  expect(scrollStep(view, "right")).toBe(340);
+  expect(scrollStep(view, "left")).toBe(0);
+  expect(scrollStep({ ...view, scrollLeft: 500 }, "right")).toBe(600);
 });
