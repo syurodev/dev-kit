@@ -1988,6 +1988,16 @@
 @keyframes agent-attention-pulse {
     40% { transform: scale(1.4); }
 }
+/* A tab's running mark: a ring in --status-running with one quarter open,
+   turning. Under reduced motion it stands still and still reads as a ring. */
+.tab-status-spin {
+    border: 1.5px solid var(--status-running);
+    border-top-color: transparent;
+    animation: tab-status-spin 900ms linear infinite;
+}
+@keyframes tab-status-spin {
+    to { transform: rotate(360deg); }
+}
 
 @media (prefers-reduced-motion: reduce) {
     .checkbox-mark { transition: none; }
@@ -2033,7 +2043,8 @@
     .agent-attention-flash,
     .agent-attention-pulse,
     .agent-avatar-spin,
-    .agent-avatar-breathe {
+    .agent-avatar-breathe,
+    .tab-status-spin {
         animation: none;
     }
     .session-summary-enter {

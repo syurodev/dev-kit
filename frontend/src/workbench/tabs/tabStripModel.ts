@@ -82,3 +82,24 @@ export function scrollStep(view: ScrollView, direction: "left" | "right"): numbe
   const delta = view.clientWidth * STEP_SHARE * (direction === "left" ? -1 : 1);
   return Math.min(max, Math.max(0, view.scrollLeft + delta));
 }
+
+export type TabMarkInput = { status?: "idle" | "running" | "success" | "error"; active: boolean; seenSuccess: boolean; dirty: boolean };
+export type TabMarks = { status: "running" | "success" | "error" | null; dirty: boolean; hint: string[] };
+
+/**
+ * What a tab shows besides its title. Status sits before the title on every
+ * tab; "finished" only until the tab is looked at (the active tab never
+ * shows it — you are looking at it); unsaved work is a dot in the close slot.
+ */
+export function tabMarks(input: TabMarkInput): TabMarks {
+  const hint: string[] = [];
+  let status: TabMarks["status"] = null;
+  if (input.status === "running") status = "running";
+  else if (input.status === "error") status = "error";
+  else if (input.status === "success" && !input.active && !input.seenSuccess) status = "success";
+  if (status === "running") hint.push("Running");
+  if (status === "error") hint.push("Failed");
+  if (status === "success") hint.push("Finished");
+  if (input.dirty) hint.push("Unsaved changes");
+  return { status, dirty: input.dirty, hint };
+}

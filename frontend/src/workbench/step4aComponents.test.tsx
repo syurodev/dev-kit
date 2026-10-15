@@ -189,7 +189,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       },
     ];
 
-    it("renders Active pill with h-8, radius 6, surface-raised bg, text-primary, 6px status dot and close button", () => {
+    it("renders Active pill with h-8, radius 6, surface-raised bg, text-primary, running mark and close button", () => {
       const html = renderToString(
         <TooltipProvider>
         <TabStrip
@@ -213,8 +213,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain("bg-surface-raised");
       expect(html).toContain("border-border");
       expect(html).toContain("text-text-primary");
-      // Status dot 6px (size-1.5)
-      expect(html).toContain("size-1.5");
+      // A running tab spins before its title, active or not.
+      expect(html).toContain("tab-status-spin");
       // Close button
       expect(html).toContain('aria-label="Close Active Document"');
     });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -94,4 +94,14 @@ describe("revealing a tab past the overflow fades", () => {
   test("never scrolls before the start", () => {
     expect(revealScrollLeftWithin({ scrollLeft: 20, viewportWidth: 300, tabLeft: 10, tabWidth: 80 }, faded)).toBe(0);
   });
+});
+
+test("tabMarks: status on every tab, success until seen, dirty in the close slot", () => {
+  expect(tabMarks({ status: "running", active: false, seenSuccess: false, dirty: false })).toEqual({ status: "running", dirty: false, hint: ["Running"] });
+  expect(tabMarks({ status: "error", active: true, seenSuccess: false, dirty: false })).toEqual({ status: "error", dirty: false, hint: ["Failed"] });
+  expect(tabMarks({ status: "success", active: false, seenSuccess: false, dirty: false }).status).toBe("success");
+  expect(tabMarks({ status: "success", active: true, seenSuccess: false, dirty: false }).status).toBeNull();
+  expect(tabMarks({ status: "success", active: false, seenSuccess: true, dirty: false }).status).toBeNull();
+  expect(tabMarks({ status: "idle", active: false, seenSuccess: false, dirty: true })).toEqual({ status: null, dirty: true, hint: ["Unsaved changes"] });
+  expect(tabMarks({ active: false, seenSuccess: false, dirty: false })).toEqual({ status: null, dirty: false, hint: [] });
 });

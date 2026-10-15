@@ -43,7 +43,7 @@ import { useShallow } from "zustand/react/shallow";
 import { getModule, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
-import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
 
 /**
  * The workbench tab strip, built the way VS Code's multi-editor tabs control
@@ -66,7 +66,7 @@ import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep } 
  * - Pinned tabs sit at the left and the group closes pass over them.
  */
 
-function statusDotClass(status: TabStatus): string {
+function statusDotClass(status: Exclude<TabStatus, "idle">): string {
   switch (status) {
     case "running":
       return "bg-(--status-running)";
@@ -74,8 +74,6 @@ function statusDotClass(status: TabStatus): string {
       return "bg-(--status-success)";
     case "error":
       return "bg-(--status-error)";
-    default:
-      return "bg-(--status-idle)";
   }
 }
 
@@ -232,6 +230,8 @@ function TabActionItems({ actions }: { actions: TabAction[] }) {
 type TabItemProps = {
   tab: WorkbenchTab;
   isActive: boolean;
+  /** A finished tab that has been looked at since, so its success dot is spent. */
+  seenSuccess: boolean;
   lockedWidth: number | undefined;
   minWidth: number;
   maxWidth: number;
@@ -259,6 +259,7 @@ type TabItemProps = {
 function TabItem({
   tab,
   isActive,
+  seenSuccess,
   lockedWidth,
   minWidth,
   maxWidth,
@@ -289,6 +290,7 @@ function TabItem({
   });
   const ModuleIcon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
   const pinned = Boolean(tab.pinned);
+  const marks = tabMarks({ status: tab.status, active: isActive, seenSuccess, dirty: Boolean(tab.dirty) });
 
   const style: CSSProperties = {
     // Every tab asks for the max and they all give way equally down to the
@@ -365,6 +367,11 @@ function TabItem({
       )}
       <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2">
         <ModuleIcon className="size-3.5 shrink-0 opacity-85" />
+        {marks.status === "running" ? (
+          <span aria-hidden="true" className="tab-status-spin size-2.5 shrink-0 rounded-full" />
+        ) : marks.status ? (
+          <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(marks.status))} />
+        ) : null}
         <span
           className={cn(
             "truncate flex-1 min-w-0",
@@ -375,13 +382,23 @@ function TabItem({
         >
           {tab.title}
         </span>
-        {isActive && tab.status && tab.status !== "idle" ? (
-          <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(tab.status))} />
-        ) : null}
+        {/* The marks are drawn, so a screen reader is told them in words. */}
+        {marks.hint.length > 0 ? <span className="sr-only">, {marks.hint.join(", ")}</span> : null}
       </span>
       {/* A pinned tab shows its pin where the close button goes, and the pin
           unpins (VS Code). Every other tab — a preview too — has the 12px
-          close. */}
+          close. Unsaved work takes the slot as a dot that gives way to the
+          pin or close under the pointer or keyboard focus (VS Code). The dot
+          sits in the same 12px box, so the title does not move. */}
+      {marks.dirty ? (
+        <span
+          aria-hidden="true"
+          data-tab-dirty
+          className="z-10 flex size-3 shrink-0 items-center justify-center group-hover:hidden group-focus-visible:hidden"
+        >
+          <span className="size-2 rounded-full bg-text-secondary" />
+        </span>
+      ) : null}
       {pinned && onTogglePin ? (
         <span
           role="button"
@@ -393,7 +410,10 @@ function TabItem({
             event.stopPropagation();
             onTogglePin(tab.id);
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
+          className={cn(
+            "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
+            marks.dirty && "hidden group-hover:flex group-focus-visible:flex",
+          )}
         >
           <Pin className="size-3" />
         </span>
@@ -416,7 +436,10 @@ function TabItem({
               onClose(tab.id);
             }
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
+          className={cn(
+            "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
+            marks.dirty && "hidden group-hover:flex group-focus-visible:flex",
+          )}
         >
           <X className="size-3" />
         </span>
@@ -424,7 +447,12 @@ function TabItem({
     </div>
     </ContextMenuTrigger>
     </TooltipTrigger>
-    <TooltipContent side="bottom">{tab.title}</TooltipContent>
+    <TooltipContent side="bottom" className={marks.hint.length > 0 ? "h-auto flex-col items-start gap-0.5 py-1.5" : undefined}>
+      <span>{tab.title}</span>
+      {marks.hint.map((line) => (
+        <span key={line} className="text-text-secondary">{line}</span>
+      ))}
+    </TooltipContent>
     {/* VS Code's tab menu: the closes, pinning, then whatever the module
         adds, then the strip's own settings. The group closes pass over
         pinned tabs, which is what pinning is for. */}
@@ -508,6 +536,20 @@ export function TabStrip({
     [tabs],
   );
   const ids = useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
+
+  /*
+   * Finished tabs that have been looked at: their success dot is spent. Kept
+   * here, not in the store — the module's status stays what it said, only
+   * this strip has seen it. A status that moves off success forgets it, so
+   * the next finish is news again.
+   */
+  const seenSuccess = useRef(new Set<string>());
+  useEffect(() => {
+    const seen = seenSuccess.current;
+    const finished = new Set(visibleTabs.filter((tab) => tab.status === "success").map((tab) => tab.id));
+    for (const id of seen) if (!finished.has(id)) seen.delete(id);
+    if (finished.has(activeTabId)) seen.add(activeTabId);
+  }, [visibleTabs, activeTabId]);
   const { minWidth: tabMinWidth, maxWidth: tabMaxWidth } = useTabSettingsStore(
     useShallow((s) => ({ minWidth: s.minWidth, maxWidth: s.maxWidth })),
   );
@@ -780,6 +822,7 @@ export function TabStrip({
                 key={tab.id}
                 tab={tab}
                 isActive={tab.id === activeTabId}
+                seenSuccess={seenSuccess.current.has(tab.id)}
                 lockedWidth={lockedWidths?.get(tab.id)}
                 minWidth={minWidth}
                 maxWidth={tabMaxWidth}

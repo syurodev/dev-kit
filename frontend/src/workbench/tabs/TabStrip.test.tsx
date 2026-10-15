@@ -41,3 +41,36 @@ test("a strip that does not overflow has no scroll buttons and no fade", () => {
   expect(html).not.toContain("Scroll tabs");
   expect(html).not.toContain("mask-image");
 });
+
+const tab = (id: string, extra: Partial<WorkbenchTab> = {}): WorkbenchTab => ({
+  id, moduleId: "m", viewId: "v.doc", title: id, ...extra,
+});
+
+/** The markup of one tab, from its opening tag to the next tab's. */
+function tabMarkup(html: string, id: string): string {
+  const start = html.indexOf(`data-tab-id="${id}"`);
+  const next = html.indexOf('role="tab"', start + 1);
+  return html.slice(start, next === -1 ? undefined : next);
+}
+
+test("a running tab spins and a failed one shows the error dot, active or not", () => {
+  const html = renderStrip([tab("a"), tab("run", { status: "running" }), tab("err", { status: "error" })], "a");
+  expect(tabMarkup(html, "run")).toContain("tab-status-spin");
+  expect(tabMarkup(html, "err")).toContain("bg-(--status-error)");
+  expect(tabMarkup(html, "a")).not.toContain("tab-status-spin");
+});
+
+test("success shows on a tab not yet looked at, never on the active one", () => {
+  const html = renderStrip([tab("done", { status: "success" }), tab("other", { status: "success" })], "done");
+  expect(tabMarkup(html, "done")).not.toContain("bg-(--status-success)");
+  expect(tabMarkup(html, "other")).toContain("bg-(--status-success)");
+});
+
+test("a dirty tab shows the unsaved dot and keeps its close button for hover", () => {
+  const html = renderStrip([tab("a"), tab("edited", { dirty: true, title: "Edited" })], "a");
+  const markup = tabMarkup(html, "edited");
+  expect(markup).toContain("data-tab-dirty");
+  expect(markup).toContain('aria-label="Close Edited"');
+  expect(markup).toContain("Unsaved changes");
+  expect(tabMarkup(html, "a")).not.toContain("data-tab-dirty");
+});
