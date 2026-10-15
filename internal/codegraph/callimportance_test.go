@@ -45,7 +45,8 @@ func TestVisibility(t *testing.T) {
 		{"common in this project", StepFacts{CalleeKey: "acme.Audit#record", Receiver: "local", ResultUse: "discarded"}, nil, false, "common (12 methods)"},
 		{"rare side effect", StepFacts{CalleeKey: "acme.Rare#call", Receiver: "local", ResultUse: "discarded"}, nil, true, "side effect"},
 		{"unknown receiver skips the write rule", StepFacts{CalleeKey: "acme.Rare#call", Receiver: "unknown", ResultUse: "discarded"}, nil, true, "side effect"},
-		{"legacy row: no key, no use", StepFacts{}, nil, false, "value"},
+		{"legacy row: no key, no text", StepFacts{}, nil, false, "unknown call"},
+		{"no text, no key, but an effect", StepFacts{Effect: &StepEffect{Kind: "http", Role: "call", Target: "GET /x"}}, nil, true, "HTTP call"},
 		{"lua logging", StepFacts{CalleeKey: "ngx#log", ResultUse: "discarded"}, nil, false, "logging"},
 		{"ts console", StepFacts{CalleeKey: "console#log", ResultUse: "discarded"}, nil, false, "logging"},
 	}

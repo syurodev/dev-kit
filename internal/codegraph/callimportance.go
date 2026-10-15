@@ -107,6 +107,12 @@ func Visibility(f StepFacts, stats CallStats, overrides map[string]string) (bool
 	if f.Effect != nil {
 		return true, effectLabel(*f.Effect)
 	}
+	// A library call with neither text nor a callee key (Lua and TypeScript
+	// record none yet) has nothing to judge it by and nothing to title a row
+	// with: folded away, saying so.
+	if f.Text == "" && f.CalleeKey == "" {
+		return false, "unknown call"
+	}
 	if f.ResultUse == "condition" {
 		return true, "decides a branch"
 	}

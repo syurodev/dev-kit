@@ -405,3 +405,35 @@ func TestGetStepsNamesOverridesPastTheLoadCap(t *testing.T) {
 		t.Fatalf("decide = %+v, want its override named", s)
 	}
 }
+
+// Lua and TypeScript record a call site with no text and no callee key. The
+// outline could only title it "call", so it is folded away as what it is —
+// unless an extractor saw something there, which says what it does.
+func TestGetStepsFoldsACallItKnowsNothingAbout(t *testing.T) {
+	svc := openAs(t, "lua", AnalysisResult{
+		Nodes: []Node{method("a")},
+		CallSites: []CallSite{
+			{From: "a", Line: 2, Unresolved: "library", Text: "ngx.say(x)", CalleeKey: "ngx#say", ResultUse: "discarded"},
+			{From: "a", Line: 3, Unresolved: "library"},
+			{From: "a", Line: 4, Unresolved: "library"},
+		},
+		KafkaAccesses: []KafkaAccess{{From: "a", Topic: "orders", Role: KafkaProduce, Client: KafkaTemplate, File: "a.lua", Line: 4}},
+	})
+	got, err := svc.GetSteps(t.Context(), []string{"a"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := got.Steps["a"]
+	if len(steps) != 3 {
+		t.Fatalf("steps = %+v", steps)
+	}
+	if !steps[0].Visible || steps[0].Reason != "side effect" {
+		t.Fatalf("call with text = %+v", steps[0])
+	}
+	if steps[1].Visible || steps[1].Reason != "unknown call" {
+		t.Fatalf("unknown call = %+v", steps[1])
+	}
+	if !steps[2].Visible || steps[2].Reason != "Kafka produce" {
+		t.Fatalf("call with an effect = %+v", steps[2])
+	}
+}
