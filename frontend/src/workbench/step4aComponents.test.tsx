@@ -239,7 +239,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain('aria-label="Close All Notes"');
     });
 
-    it("renders Preview pill with dashed border, body-12 regular font, no close button and no dot", () => {
+    it("renders Preview pill with dashed border, body-12 regular font, a close button and no dot", () => {
       const html = renderToString(
         <TooltipProvider>
         <TabStrip
@@ -256,8 +256,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
       expect(html).toContain("border-dashed");
       expect(html).toContain("text-body-12");
-      // Preview tab has NO close button
-      expect(html).not.toContain('aria-label="Close Query 1"');
+      // A preview closes like any tab; the dashed border is what marks it.
+      expect(html).toContain('aria-label="Close Query 1"');
     });
 
     it("renders separate radius 8 focus ring layer when keyboard focused", () => {

@@ -299,7 +299,7 @@ function TabItem({
         onSelect(tab.id);
       }}
       onAuxClick={(event) => {
-        if (event.button === 1 && !tab.preview) onCloseWithPointer(tab.id);
+        if (event.button === 1) onCloseWithPointer(tab.id);
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
@@ -339,7 +339,8 @@ function TabItem({
         ) : null}
       </span>
       {/* A pinned tab shows its pin where the close button goes, and the pin
-          unpins (VS Code). Otherwise: 12px close, not on Preview. */}
+          unpins (VS Code). Every other tab — a preview too — has the 12px
+          close. */}
       {pinned && onTogglePin ? (
         <span
           role="button"
@@ -355,7 +356,7 @@ function TabItem({
         >
           <Pin className="size-3" />
         </span>
-      ) : !tab.preview ? (
+      ) : (
         <span
           role="button"
           tabIndex={-1}
@@ -378,7 +379,7 @@ function TabItem({
         >
           <X className="size-3" />
         </span>
-      ) : null}
+      )}
     </div>
     </ContextMenuTrigger>
     </TooltipTrigger>
