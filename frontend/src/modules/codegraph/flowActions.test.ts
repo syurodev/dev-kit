@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { CodeGraphSteps, CodeGraphSubgraph } from "@/bridge/codegraph";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import type { CallVisibilityMode, CodeGraphSteps, CodeGraphSubgraph } from "@/bridge/codegraph";
 
 /**
  * The flow actions against a fake graph bridge: each call to the steps query
  * waits until the test answers it, so the tests can replace a subgraph while
  * its steps are still on their way.
  *
- * bun's mock.module applies to the whole run, so the real modules are spread
- * and the defaults answer the way fileActions.test.ts's fakes do.
+ * bun's mock.module applies to the whole run, so the real modules are spread,
+ * the steps and visibility fakes answer only while this file's tests run
+ * (`faking`, cleared in afterAll) and the graph fake answers the way
+ * fileActions.test.ts's does.
  */
 mock.module("@/bridge/uistate", () => {
   const mem = new Map<string, unknown>();
@@ -27,14 +29,18 @@ const stepCalls: Pending[] = [];
 let neighbors: (root: string, continuation?: string) => Promise<CodeGraphSubgraph> = async () => ({ nodes: [], edges: [], truncated: false, continuation: "" });
 let saveVisibility: (key: string, mode: string) => Promise<void> = async () => {};
 const toastErrors: string[] = [];
+let faking = false;
 
 const realGraph = await import("@/bridge/codegraph");
 mock.module("@/bridge/codegraph", () => ({
   ...realGraph,
   getCodeGraphNeighbors: (root: string, _depth: number, filter?: { continuation?: string }) => neighbors(root, filter?.continuation),
-  getCodeGraphSteps: (nodeIds: string[]) =>
-    new Promise<CodeGraphSteps>((resolve, reject) => stepCalls.push({ nodeIds, resolve, reject })),
-  setCallVisibility: (key: string, mode: string) => saveVisibility(key, mode),
+  getCodeGraphSteps: (nodeIds: string[], servicePath?: string) =>
+    faking
+      ? new Promise<CodeGraphSteps>((resolve, reject) => stepCalls.push({ nodeIds, resolve, reject }))
+      : realGraph.getCodeGraphSteps(nodeIds, servicePath),
+  setCallVisibility: (key: string, mode: CallVisibilityMode) =>
+    faking ? saveVisibility(key, mode) : realGraph.setCallVisibility(key, mode),
 }));
 
 const realSonner = await import("sonner");
@@ -61,7 +67,12 @@ const graph = (ids: string[], continuation = ""): CodeGraphSubgraph => ({ nodes:
 const steps = (marker: string): CodeGraphSteps => ({ steps: { [marker]: [] }, truncated: [], legacy: false });
 const flow = (root: string) => useCodeGraphStore.getState().flows[flowKey(FOLDER, root)];
 
+afterAll(() => {
+  faking = false;
+});
+
 beforeEach(() => {
+  faking = true;
   stepCalls.length = 0;
   toastErrors.length = 0;
   neighbors = async () => graph([]);
