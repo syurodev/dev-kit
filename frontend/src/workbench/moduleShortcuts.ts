@@ -37,6 +37,17 @@ export function isPaletteShortcut(event: KeyLike, focusEditsText: boolean): bool
   return event.ctrlKey && !focusEditsText;
 }
 
+/**
+ * ⌘⇧T / Ctrl⇧T: reopen the tab closed last (browsers, VS Code) — from a text
+ * field too, as there. Not while a dialog holds the keyboard (the command
+ * palette is one): a tab opening behind it would be out of sight, and the
+ * dialog is what the keys are for.
+ */
+export function isReopenTabShortcut(event: KeyLike, dialogOpen: boolean): boolean {
+  if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey) return false;
+  return event.key.toLowerCase() === "t" && !dialogOpen;
+}
+
 /** True for an element where keys are text: a field, an editor, a terminal. */
 export function editsText(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;

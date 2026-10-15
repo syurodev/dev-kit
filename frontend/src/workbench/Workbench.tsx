@@ -8,7 +8,7 @@ import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleSwitcher } from "./ModuleSwitcher";
 import { buildSwitcherItems, slotModuleIds, slotTarget } from "./switcherItems";
-import { editsText, inRichTextEditor, isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
+import { editsText, inRichTextEditor, isPaletteShortcut, isReopenTabShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -413,10 +413,11 @@ export function Workbench() {
         }
         return;
       }
-      // ⌘⇧T / Ctrl⇧T: the tab closed last, back where it was (browsers, VS
-      // Code). From a text field too, as there: no editor here binds it —
-      // CodeMirror's only t is Ctrl-t, which a Shift press does not reach.
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "t") {
+      // ⌘⇧T / Ctrl⇧T: the tab closed last, back where it was. No editor here
+      // binds it — CodeMirror's only t is Ctrl-t, which a Shift press does not
+      // reach. A dialog open (the palette among them) keeps the keys; the
+      // same query AgentHubView's ⌘N asks.
+      if (isReopenTabShortcut(event, Boolean(document.querySelector('[role="dialog"], [role="alertdialog"]')))) {
         event.preventDefault();
         reopenLastClosed();
         return;

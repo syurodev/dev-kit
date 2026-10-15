@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
+import { isPaletteShortcut, isReopenTabShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 
 test("a meta+digit event maps to a zero-based module index", () => {
   expect(moduleIndexFromEvent({ key: "1", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(0);
@@ -97,4 +97,23 @@ test("neither ⌘digit nor a chord with Shift or without ⌥ opens a peek", () =
 
 test("the module shortcut still ignores the peek chord", () => {
   expect(moduleIndexFromEvent({ key: "1", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false })).toBeNull();
+});
+
+const chord = (k: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) => ({
+  key: k, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods,
+});
+
+test("⌘⇧T and Ctrl⇧T reopen a tab, whichever case the key arrives in", () => {
+  expect(isReopenTabShortcut(chord("T", { metaKey: true, shiftKey: true }), false)).toBe(true);
+  expect(isReopenTabShortcut(chord("t", { ctrlKey: true, shiftKey: true }), false)).toBe(true);
+});
+
+test("⌘T, ⌘⌥⇧T and a bare ⇧T do not", () => {
+  expect(isReopenTabShortcut(chord("t", { metaKey: true }), false)).toBe(false);
+  expect(isReopenTabShortcut(chord("T", { metaKey: true, shiftKey: true, altKey: true }), false)).toBe(false);
+  expect(isReopenTabShortcut(chord("T", { shiftKey: true }), false)).toBe(false);
+});
+
+test("nor while a dialog — the palette is one — holds the keyboard", () => {
+  expect(isReopenTabShortcut(chord("T", { metaKey: true, shiftKey: true }), true)).toBe(false);
 });
