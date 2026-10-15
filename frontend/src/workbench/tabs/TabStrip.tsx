@@ -27,8 +27,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns2, MoveRight, Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns2, MoveRight, Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -41,7 +42,7 @@ import { useShallow } from "zustand/react/shallow";
 import { getModule, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
-import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, scrollStep } from "./tabStripModel";
 
 /**
  * The workbench tab strip, built the way VS Code's multi-editor tabs control
@@ -55,7 +56,8 @@ import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
  * - Closing with the mouse locks every tab at the width it has, until the
  *   pointer leaves the strip — the next close button stays under the cursor.
  * - The active tab is scrolled into view by the smallest amount, except right
- *   after a close. A vertical wheel scrolls the strip sideways.
+ *   after a close. A vertical wheel scrolls the strip sideways. While tabs are
+ *   out of sight, the side hiding them fades and ‹ › scroll the strip.
  * - A tab activates on mousedown; middle-click closes; arrow keys, Home and
  *   End move between tabs with a roving tabindex.
  * - Dragging is the result grid's column drag: dnd-kit sortable, the dragged
@@ -137,6 +139,9 @@ function TabDragGhost({ tab }: { tab: WorkbenchTab | undefined }) {
 const TAB_GAP_PX = 8;
 /** ⌘⇧E browsing widens every tab so the label being chosen can be read. */
 const BROWSING_MIN_WIDTH_PX = 200;
+/** The overflow fade: about a tab icon's width plus its padding — enough to
+ * read as "more", not enough to hide a title. */
+const FADE_PX = 24;
 
 /**
  * A module's own entries, drawn as the menu opens.
@@ -595,6 +600,43 @@ export function TabStrip({
   // What the group closes may take: everything but the pinned.
   const closable = visibleTabs.filter((tab) => !tab.pinned).map((tab) => tab.id);
 
+  /*
+   * Which sides hide tabs. Read from the scroller after layout, and again on
+   * scroll and resize: the count, the width settings, browsing and a close's
+   * locked widths all change what the row holds without resizing it.
+   */
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const syncEdges = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const next = overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
+    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+  }, []);
+  useLayoutEffect(() => syncEdges(), [syncEdges, visibleTabs.length, tabMaxWidth, minWidth, lockedWidths]);
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncEdges);
+    observer.observe(row);
+    row.addEventListener("scroll", syncEdges, { passive: true });
+    return () => {
+      observer.disconnect();
+      row.removeEventListener("scroll", syncEdges);
+    };
+  }, [syncEdges]);
+  function scrollTabs(direction: "left" | "right") {
+    const row = rowRef.current;
+    if (!row) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    row.scrollTo({ left: scrollStep(row, direction), behavior: reduce ? "auto" : "smooth" });
+  }
+  const overflowing = edges.left || edges.right;
+  // A mask, not an overlay, so nothing sits over the tabs eating clicks. Its
+  // #000 is opacity (an alpha mask keeps what is opaque), not a colour.
+  const fadeMask = overflowing
+    ? `linear-gradient(to right, ${edges.left ? "transparent" : "#000"} 0, #000 ${FADE_PX}px, #000 calc(100% - ${FADE_PX}px), ${edges.right ? "transparent" : "#000"} 100%)`
+    : undefined;
+
   return (
     <div
       className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 wails-no-drag"
@@ -603,6 +645,20 @@ export function TabStrip({
         if (event.target === event.currentTarget) onNewTab?.();
       }}
     >
+      {/* Only while tabs are out of sight; a side already at its end is
+          disabled rather than removed, so the strip does not jump. */}
+      {overflowing ? (
+        <Button
+          type="button"
+          variant="titlebar"
+          size="icon-sm"
+          aria-label="Scroll tabs left"
+          disabled={!edges.left}
+          onClick={() => scrollTabs("left")}
+        >
+          <ChevronLeft className="size-3.5" />
+        </Button>
+      ) : null}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -645,6 +701,8 @@ export function TabStrip({
             style={{
               gap: TAB_GAP_PX,
               width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
+              maskImage: fadeMask,
+              WebkitMaskImage: fadeMask,
             }}
             onMouseLeave={() => setLockedWidths(null)}
           >
@@ -688,6 +746,18 @@ export function TabStrip({
           </DragOverlay>
         ) : null}
       </DndContext>
+      {overflowing ? (
+        <Button
+          type="button"
+          variant="titlebar"
+          size="icon-sm"
+          aria-label="Scroll tabs right"
+          disabled={!edges.right}
+          onClick={() => scrollTabs("right")}
+        >
+          <ChevronRight className="size-3.5" />
+        </Button>
+      ) : null}
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
       <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
         <Plus className="size-3.25" />

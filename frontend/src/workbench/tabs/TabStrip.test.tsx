@@ -30,3 +30,14 @@ test("a preview tab has a close button", () => {
   expect(html).toContain('aria-label="Close Peek"');
   expect(html).toContain('aria-label="Close Kept"');
 });
+
+test("a strip that does not overflow has no scroll buttons and no fade", () => {
+  // Static render: no layout, so the strip never measures an overflow. The
+  // arithmetic that decides one is tabStripModel's overflowEdges/scrollStep.
+  const html = renderStrip([
+    { id: "m:v:a", moduleId: "m", viewId: "v.doc", title: "One" },
+    { id: "m:v:b", moduleId: "m", viewId: "v.doc", title: "Two" },
+  ], "m:v:a");
+  expect(html).not.toContain("Scroll tabs");
+  expect(html).not.toContain("mask-image");
+});
