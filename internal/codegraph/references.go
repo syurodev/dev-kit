@@ -358,7 +358,9 @@ func referencesToMethod(ctx context.Context, store Store, method Node) ([]Refere
 // essentially never does (the one false-positive this admits — a genuine
 // call on the exact line its enclosing method's signature starts on, i.e. a
 // one-line method body — is the same tradeoff the task's own framing of this
-// heuristic accepts).
+// heuristic accepts). An analyzer that marks the link (cs.Role ==
+// RoleOverride) is believed first; the line rule is the fallback for indexes
+// written before roles.
 //
 // implements collects the FROM node of every dispatch link into method: the
 // interface/abstract methods method itself implements, for
@@ -383,7 +385,7 @@ func methodCallers(ctx context.Context, store Store, method Node) (real []Refere
 		if !ok || !hasLocation(from) {
 			continue
 		}
-		if cs.Line == from.Line {
+		if cs.Role == RoleOverride || cs.Line == from.Line {
 			if !seenIface[from.ID] {
 				seenIface[from.ID] = true
 				implements = append(implements, from)
@@ -467,9 +469,9 @@ func (s *Service) FindImplementations(ctx context.Context, filePath string, line
 }
 
 // implementationsOfMethod returns the targets of method's own dispatch
-// links: call_sites FROM method whose line equals method's own declaration
-// line (see methodCallers' doc comment for the same recognition rule applied
-// from the callee's side). A method with none is either itself an
+// links: call_sites FROM method marked RoleOverride, or whose line equals
+// method's own declaration line (see methodCallers' doc comment for the same
+// recognition rule applied from the callee's side). A method with none is either itself an
 // implementation or an ordinary method nothing overrides — either way there
 // is nothing to return, and the method is never returned in its own place.
 func implementationsOfMethod(ctx context.Context, store Store, method Node) ([]Definition, error) {
@@ -479,7 +481,7 @@ func implementationsOfMethod(ctx context.Context, store Store, method Node) ([]D
 	}
 	var targetIDs []string
 	for _, cs := range sites {
-		if cs.Line == method.Line && cs.To != "" {
+		if (cs.Role == RoleOverride || cs.Line == method.Line) && cs.To != "" {
 			targetIDs = append(targetIDs, cs.To)
 		}
 	}

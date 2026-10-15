@@ -1261,7 +1261,7 @@ func (s *sqliteStore) GetCallSitesAt(ctx context.Context, filePath string, line 
 // the from_id side.
 func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE to_id = ? ORDER BY from_id, line`,
+		`SELECT from_id, to_id, line, unresolved, role FROM call_sites WHERE to_id = ? ORDER BY from_id, line`,
 		toID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetCallSitesTo: %w", err)
@@ -1271,7 +1271,7 @@ func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSi
 	var out []CallSite
 	for rows.Next() {
 		var c CallSite
-		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Role); err != nil {
 			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
 		}
 		out = append(out, c)
@@ -1417,7 +1417,7 @@ func (s *sqliteStore) FieldWriters(ctx context.Context, ids []string) (map[strin
 // rows, and losing one would put the trace's events in the wrong order.
 func (s *sqliteStore) GetCallSites(ctx context.Context, fromID string) ([]CallSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE from_id = ? ORDER BY line`,
+		`SELECT from_id, to_id, line, unresolved, role FROM call_sites WHERE from_id = ? ORDER BY line`,
 		fromID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetCallSites: %w", err)
@@ -1427,7 +1427,7 @@ func (s *sqliteStore) GetCallSites(ctx context.Context, fromID string) ([]CallSi
 	var out []CallSite
 	for rows.Next() {
 		var c CallSite
-		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Role); err != nil {
 			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
 		}
 		out = append(out, c)
