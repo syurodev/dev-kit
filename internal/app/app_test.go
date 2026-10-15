@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"devkit/internal/mcp"
 	"devkit/internal/permissions"
 	"devkit/internal/tools"
 )
@@ -75,6 +76,23 @@ func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
 		if !decision.Allowed {
 			t.Fatalf("agenthub scope %q / %q was denied", grant.Capability, grant.Scope)
 		}
+	}
+}
+
+// The MCP fakes call the handler without asking the policy, so only the real
+// grants can say whether an agent's fetch or pull is allowed. They were not:
+// git.fetch and git.pull asked for git:write on "remote:origin" and the repo:*
+// grant never covered it, so every call was refused.
+func TestNewContainerGrantsAgentGitSync(t *testing.T) {
+	container := NewContainer()
+	subject, capability, scope := mcp.GitSyncGrant()
+	decision := container.Permissions.Check(permissions.Request{SubjectID: subject, Capability: capability, Scope: scope})
+	if !decision.Allowed {
+		t.Fatalf("git.fetch / git.pull ask for %s %q on %q, which no default grant covers", subject, capability, scope)
+	}
+	// Pushing stays its own capability; a fetch grant must not widen it.
+	if container.Permissions.Check(permissions.Request{SubjectID: subject, Capability: "git:push", Scope: "repo:sync"}).Allowed {
+		t.Fatal("git:push must stay limited to remote:* scopes")
 	}
 }
 

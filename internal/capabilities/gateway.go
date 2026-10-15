@@ -82,9 +82,11 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 	})
 	if !decision.Allowed {
 		// The sentinel lets the bridge classify authorization failures without
-		// matching on message text; the reason detail stays out of the public
-		// error contract.
-		return nil, fmt.Errorf("%w: %s", ErrPermissionDenied, decision.Reason)
+		// matching on message text. The reason and what was asked for ride after
+		// it: a refusal that only says "denied" cannot be told apart from a person
+		// saying no, and a missing grant is a DevKit fault the caller has to be
+		// able to name.
+		return nil, fmt.Errorf("%w: %s (%s on %s)", ErrPermissionDenied, decision.Reason, request.Capability, request.Scope)
 	}
 
 	return request.Handler(ctx)

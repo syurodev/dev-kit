@@ -140,6 +140,12 @@ as production-verified against a real Claude Code session in cloud CI.
   commit as the account identity. `git.fetch` / `git.pull` (ff-only) use the remote's bound
   account and answer ahead/behind. The Claude hook also refuses shell `git pull`,
   `rebase`, `cherry-pick` and `revert`.
+- **`git.fetch` / `git.pull` are `git:write` on `repo:sync`** (`mcp.GitSyncGrant`). They used to ask for
+  `git:write` on `remote:<name>`, which the `repo:*` grant does not cover, so every agent call was refused
+  while the MCP tests (fake caller, no policy) passed; `TestNewContainerGrantsAgentGitSync` now checks the
+  real grants. A denial reaches an agent as `Permission denied: <what was missing>` (the window keeps the
+  bare message, `bridge.publicErrorFor`), and a Codex row for a failed MCP call shows the tool's own text
+  instead of `failed` (`codexMcpErrorText`).
 - Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.
