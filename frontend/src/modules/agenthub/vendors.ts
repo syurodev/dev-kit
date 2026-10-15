@@ -25,6 +25,7 @@ export type VendorInfo = {
   signIn: VendorSignIn;
   /** Can read model settings without creating a conversation. */
   configCatalog?: boolean;
+  customization?: "native" | "toolInvocation";
 };
 
 export const CLAUDE_INFO: VendorInfo = {
@@ -34,6 +35,7 @@ export const CLAUDE_INFO: VendorInfo = {
   runtimeName: "Claude Agent",
   signIn: "terminal",
   configCatalog: true,
+  customization: "toolInvocation",
 };
 
 export const CODEX_INFO: VendorInfo = {
@@ -43,6 +45,7 @@ export const CODEX_INFO: VendorInfo = {
   runtimeName: "Codex",
   signIn: "inApp",
   configCatalog: true,
+  customization: "native",
 };
 
 const KNOWN: Record<string, VendorInfo> = {

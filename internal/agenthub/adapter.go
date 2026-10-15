@@ -8,10 +8,12 @@ import (
 	"sync"
 
 	"devkit/internal/acp"
+	"devkit/internal/preferences"
 )
 
 // OpenSpec is everything an adapter needs to spawn one session.
 type OpenSpec struct {
+	Customizations map[string]preferences.AgentCustomization
 	// GateOwnedMCP is supplied by the trusted identity-bound endpoint registry.
 	// These tools ask through DevKit's gate after vendor dispatch, exactly once.
 	GateOwnedMCP map[string][]string

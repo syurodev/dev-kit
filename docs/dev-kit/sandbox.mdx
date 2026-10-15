@@ -431,3 +431,42 @@ adapters still Design.
   <Card title="Security model" href="/dev-kit/security" description="Threat model and security gates" />
   <Card title="Implementation status" href="/dev-kit/implementation-status" description="Checkout vocabulary: Implemented / Partial / Design only" />
 </Cards>
+
+### Quản lý skills và MCP
+
+Settings → Agents → **Tools, skills and MCP** vừa kiểm tra môi trường vừa quản lý
+cấu hình riêng cho từng vendor. Có thể import một thư mục chứa `SKILL.md`, bỏ
+import, cho phép/chặn gọi skill hoặc MCP, và thêm/sửa/xóa server stdio hoặc HTTP.
+MCP stdio nhận command, mảng arguments và **tên** biến môi trường; giá trị được
+lấy từ môi trường lúc DevKit khởi chạy. HTTP hỗ trợ HTTPS và HTTP loopback.
+Form không có trường lưu giá trị secret; cấu hình này nằm ngoài vault/sync.
+
+Import giữ liên kết tới thư mục nguồn để scripts và tài nguyên tương đối vẫn
+hoạt động. Sửa/cập nhật skill tại nguồn rồi Refresh và **Reload session**. Bỏ
+import chỉ bỏ đăng ký trong DevKit, không xóa thư mục nguồn. File cấu hình cá
+nhân và project không bị manager ghi lại. Các lựa chọn vendor đã có vẫn áp dụng;
+bật switch chỉ gỡ lệnh chặn của DevKit, không ghi đè deny của vendor.
+
+Codex nhận skill enablement và MCP overrides theo cơ chế native. Claude nhận
+skills import qua plugin local riêng của process; các switch kế thừa dùng deny
+rules cho `Skill(name)` và `mcp__server__*`. Vì vậy tắt MCP kế thừa của Claude
+**chặn gọi tool**, không bảo đảm server ngừng kết nối khi khởi động. Muốn ngừng
+startup phải tắt ở file cấu hình nguồn. MCP mới do DevKit quản lý khi tắt sẽ
+không được truyền cho Claude. Đây là quản lý nguồn local và reload, chưa phải
+marketplace hay tự chạy `git pull` để cập nhật nguồn.
+
+Manager chỉ có bridge UI, không có tool MCP. Lưu theo revision/CAS để hai cửa sổ
+không ghi đè lựa chọn của nhau; audit chỉ ghi vendor/session và action.
+
+### Mở lại hội thoại sau gián đoạn
+
+**Resume session** mở đúng native conversation ID, không gửi lại prompt trước
+đó. **Reload session** đóng process đang idle rồi mở lại cùng hội thoại với
+cấu hình hiện tại. Reload bị từ chối khi đang có turn, permission hoặc resume
+khác; không tự tạo hội thoại mới nếu vendor không còn lưu conversation đó.
+
+Khi app mở lại sau một turn bị ngắt, transcript có thông báo bền vững rằng các
+thay đổi trước đó có thể đã tồn tại. Model, effort và mode đã lưu được áp dụng
+trước khi runtime được công bố; lựa chọn vendor không còn hỗ trợ sẽ dùng mặc
+định của vendor. Nút phục hồi lỗi process không chạy lại tác vụ. **Retry turn**
+vẫn là thao tác riêng, có chủ ý, cho lỗi của một lượt.

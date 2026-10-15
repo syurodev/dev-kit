@@ -38,6 +38,27 @@ export interface AgentCheckpointSettings {
 }
 
 /**
+ * AgentCustomization is local UI-owned configuration. Environment keys refer to
+ * the launch environment; credentials never need to be stored in this document.
+ */
+export interface AgentCustomization {
+    "revision": number;
+    "skillFolders": string[] | null;
+    "disabledSkills": string[] | null;
+    "disabledMCP": string[] | null;
+    "servers": AgentMCPConfig[] | null;
+}
+
+export interface AgentMCPConfig {
+    "name": string;
+    "command"?: string;
+    "args"?: string[] | null;
+    "url"?: string;
+    "envKeys"?: string[] | null;
+    "enabled": boolean;
+}
+
+/**
  * AgentSandboxSettings shapes the jail Agent Hub's vendor processes run
  * under, beyond what a session grants on its own (the devkit-mcp socket, the
  * vendor's own credential paths).
@@ -59,6 +80,8 @@ export interface AgentCheckpointSettings {
  * typo, and sandbox.Policy already skips binds for paths that are not there.
  */
 export interface AgentSandboxSettings {
+    "customizations"?: { [_ in string]?: AgentCustomization } | null;
+
     /**
      * ShareHome lets a session see the real $HOME, read-write, instead of an
      * empty tmpfs (sandbox.Policy.PrivateHome). Nil means on. Off, a session

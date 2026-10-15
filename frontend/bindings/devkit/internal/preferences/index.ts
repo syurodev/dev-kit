@@ -8,5 +8,7 @@ export {
 
 export type {
     AgentCheckpointSettings,
+    AgentCustomization,
+    AgentMCPConfig,
     AgentSandboxSettings
 } from "./models.js";

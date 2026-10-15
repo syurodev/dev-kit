@@ -178,6 +178,7 @@ function ToolchainCard({
         )}
       </div>
 
+      {status.stale ? <p role="status" className="text-body-12 text-status-warning">The analyzer source changed since this jar was built. Rebuild it to use the current Java analysis.</p> : null}
       <ul className="flex flex-col gap-2">
         {status.requirements.map((requirement) => (
           <RequirementRow key={requirement.program} requirement={requirement} />

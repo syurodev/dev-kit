@@ -128,8 +128,10 @@ type InstallCommand struct {
 // caller — status probing, the build runner, the UI's setup panel — keeps
 // working without knowing which languages exist.
 type Toolchain struct {
-	Language string
-	Label    string
+	// SourceInputs makes a local build obsolete when its source or build definition is newer. Bundled artifacts are unaffected.
+	SourceInputs []string
+	Language     string
+	Label        string
 	// Native, when set, is the analyzer this language runs IN THIS PROCESS,
 	// and every field below about building and launching one is then unused.
 	//
@@ -227,6 +229,7 @@ type ToolchainStatus struct {
 	// (which a build fixes) from built but unrunnable (which it does not). The
 	// UI says a different thing for each.
 	HasArtifact bool `json:"hasArtifact"`
+	Stale       bool `json:"stale"`
 	// Buildable means every requirement is met, so offering a build button is
 	// honest. False with Ready false is the "install these first" case.
 	Buildable bool `json:"buildable"`
@@ -293,6 +296,7 @@ func (t Toolchain) status(ctx context.Context) ToolchainStatus {
 		Label:        t.Label,
 		Ready:        installed != "" && t.runtimeMet(requirements),
 		HasArtifact:  installed != "",
+		Stale:        installed == "" && t.localArtifactStale(t.Artifact),
 		Buildable:    buildable,
 		Artifact:     artifact,
 		Bundled:      installed != "" && installed != t.Artifact,
@@ -324,10 +328,53 @@ func (t Toolchain) runtimeMet(resolved []Requirement) bool {
 
 // installedArtifact is the usable artifact this toolchain would run, or "".
 func (t Toolchain) installedArtifact() string {
-	if len(t.Search) > 0 {
-		return firstExisting(t.Search)
+	paths := t.Search
+	if len(paths) == 0 {
+		paths = []string{t.Artifact}
 	}
-	return firstExisting([]string{t.Artifact})
+	for _, path := range paths {
+		if firstExisting([]string{path}) != "" && !t.localArtifactStale(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+func (t Toolchain) localArtifactStale(path string) bool {
+	if path != t.Artifact || len(t.SourceInputs) == 0 {
+		return false
+	}
+	built, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	for _, input := range t.SourceInputs {
+		stale := false
+		err := filepath.WalkDir(input, func(_ string, entry os.DirEntry, err error) error {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if info.ModTime().After(built.ModTime()) {
+				stale = true
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if err != nil || stale {
+			return true
+		}
+	}
+	return false
 }
 
 // runnableArtifact is installedArtifact as a path that still points at the

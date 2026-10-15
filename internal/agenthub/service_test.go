@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -2068,5 +2069,104 @@ func TestEveryPromptStartsATurnUnderOneName(t *testing.T) {
 	}
 	if turns[0].PromptMessageID != echo.MessageID {
 		t.Fatalf("turn prompt id = %q, echo id = %q: one turn, two names", turns[0].PromptMessageID, echo.MessageID)
+	}
+}
+
+func TestReloadKeepsConversationAndRestoresControlsWithoutPrompt(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	reg := agenthub.NewRegistry()
+	adapter := resumableMock{agenthub.NewMockAdapter()}
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, store, nil)
+	t.Cleanup(func() { _ = svc.Shutdown(ctx) })
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetMode(ctx, sess.ID, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetConfigOption(ctx, sess.ID, "model", "chosen"); err != nil {
+		t.Fatal(err)
+	}
+	old := adapter.LastRuntime()
+	if err := svc.ResumeSession(ctx, sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.GetStatus(ctx, sess.ID)
+	if err != nil || after.ID != sess.ID || after.ACPSessionID != sess.ACPSessionID || after.Status != agenthub.SessionStatusIdle {
+		t.Fatalf("conversation changed: %+v %v", after, err)
+	}
+	if adapter.LastRuntime() == old {
+		t.Fatal("reload reused old process")
+	}
+	if adapter.LastRuntime().SetModeValue() != "plan" || adapter.LastRuntime().SetOptionValue("model") != "chosen" {
+		t.Fatal("reload lost controls")
+	}
+	page, err := svc.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range page.Entries {
+		if entry.Kind == agenthub.UpdateUserMessageChunk {
+			t.Fatal("reload replayed a prompt")
+		}
+	}
+	if err := store.UpdateSessionStatus(ctx, sess.ID, agenthub.SessionStatusRunning, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ResumeSession(ctx, sess.ID, true); !errors.Is(err, agenthub.ErrSessionBusy) {
+		t.Fatal("reloaded running session", err)
+	}
+	if adapter.LastRuntime().SetModeValue() != "plan" {
+		t.Fatal("busy reload modified runtime")
+	}
+}
+
+func TestInterruptedSessionHasDurableNoticeAndNoPrompt(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	reg := agenthub.NewRegistry()
+	adapter := agenthub.NewMockAdapter()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, store, nil)
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSessionStatus(ctx, sess.ID, agenthub.SessionStatusAwaitingPermission, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	restarted := agenthub.NewService(reg, store, nil)
+	t.Cleanup(func() { _ = restarted.Shutdown(ctx); _ = svc.Shutdown(ctx) })
+	if err := restarted.RecoverStaleSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.RecoverStaleSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	page, err := restarted.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notices := 0
+	for _, entry := range page.Entries {
+		if entry.Kind == agenthub.UpdateUserMessageChunk {
+			t.Fatal("recovery submitted a prompt")
+		}
+		var update agenthub.SessionUpdate
+		if err := json.Unmarshal(entry.Payload, &update); err != nil {
+			t.Fatal(err)
+		}
+		if update.Failure != nil && update.Failure.Category == "interrupted" {
+			notices++
+			if !slices.Contains(update.Failure.Actions, "resume") {
+				t.Fatal("no resume action")
+			}
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("got %d notices", notices)
 	}
 }
