@@ -543,6 +543,88 @@ func TestInvokeAppliesDefaultDeadline(t *testing.T) {
 	}
 }
 
+func TestInvokeTimeoutLeavesASessionFailure(t *testing.T) {
+	prev := agenthub.DefaultInvokeTimeout
+	agenthub.DefaultInvokeTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { agenthub.DefaultInvokeTimeout = prev })
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	var mu sync.Mutex
+	var events []json.RawMessage
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(_ string, ev json.RawMessage) {
+		mu.Lock()
+		events = append(events, append(json.RawMessage(nil), ev...))
+		mu.Unlock()
+	})
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "BLOCK"})
+	if !errors.Is(err, agenthub.ErrCancelled) {
+		t.Fatalf("got %v want ErrCancelled", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	var failure *agenthub.SessionFailure
+	for _, ev := range events {
+		if parsed := agenthub.ParseSessionUpdate(ev); parsed.Failure != nil {
+			failure = parsed.Failure
+		}
+	}
+	if failure == nil || failure.Category != "timeout" || failure.Severity != "error" {
+		t.Fatalf("want a timeout session failure, got %+v", failure)
+	}
+}
+
+// A person watching a turn has Stop; a fixed limit only cut real work short.
+func TestInvokeFromTheUIHasNoDefaultDeadline(t *testing.T) {
+	prev := agenthub.DefaultInvokeTimeout
+	agenthub.DefaultInvokeTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { agenthub.DefaultInvokeTimeout = prev })
+
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(identity.WithCaller(context.Background(), identity.UI()))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "BLOCK"})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("a UI turn was ended after the default deadline: %v", err)
+	case <-time.After(300 * time.Millisecond): // several times DefaultInvokeTimeout
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, agenthub.ErrCancelled) {
+			t.Fatalf("got %v want ErrCancelled after the caller cancelled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Invoke did not return after the caller cancelled")
+	}
+}
+
 func TestDeleteSessionTakesTheSubtreeWithIt(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
