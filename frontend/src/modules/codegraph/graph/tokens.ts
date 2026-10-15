@@ -1,5 +1,4 @@
 import { Globe, Zap, Database, Box, type LucideIcon } from "lucide-react";
-import { methodChipClass } from "@/lib/httpMethod";
 
 /** Matches codegraph.Node.layer, whichever analyzer produced it. */
 export type Layer = "controller" | "service" | "repository" | "unknown";
@@ -20,11 +19,6 @@ export const LAYERS: Record<Layer, LayerVisual> = {
 
 export function layerOf(raw: string): Layer {
   return raw in LAYERS ? (raw as Layer) : "unknown";
-}
-
-/** An entry point's verb chip: the app-wide HTTP method chip (kept for existing importers). */
-export function verbChipClass(verb: string): string {
-  return methodChipClass(verb);
 }
 
 /**
