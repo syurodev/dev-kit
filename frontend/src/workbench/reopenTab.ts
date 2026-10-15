@@ -15,9 +15,9 @@ import {
 
 /**
  * The records worth offering, newest first, each with its index in the stack
- * (what reopenClosedTab takes). A record whose tab is open again — a preview
- * or a background add keeps it — is left out: "reopening" it would only
- * activate a tab already on screen.
+ * (what reopenClosedTab takes). A record whose tab is open again — only a
+ * preview keeps it; every other open forgets it — is left out: "reopening"
+ * it would only activate a tab already on screen.
  */
 export function offeredClosedTabs(
   state: Pick<WorkbenchTabsState, "recentlyClosed" | "modules">,

@@ -507,8 +507,8 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
     const entry = get().recentlyClosed[at];
     if (!entry) return null;
     const recordedId = closedTabId(entry);
-    // Open again by a route that kept the record (a preview, a background
-    // add): show it where it is rather than moving it back.
+    // Open again as a preview, the one route that keeps the record: show it
+    // where it is rather than moving it back.
     if (moduleTabs(get().modules, entry.moduleId).openTabs.some((t) => t.id === recordedId)) {
       set((state) => ({ recentlyClosed: forgetClosed(state.recentlyClosed, recordedId) }));
       get().setActiveTab(recordedId);
