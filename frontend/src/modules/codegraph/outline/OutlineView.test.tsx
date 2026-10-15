@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { CodeGraphNode, CodeGraphStep, CodeGraphSteps } from "@/bridge/codegraph";
 import type { FlowDoc } from "../codegraphStore";
 import { OutlineView } from "./OutlineView";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { OUTLINE_LEGEND, OutlineLegendContent } from "./OutlineLegend";
 import { TreeGuides, treeContentX } from "@/components/tree-guides";
 
 const node = (id: string, summary = ""): CodeGraphNode => ({
@@ -19,6 +21,7 @@ const flow = (steps: CodeGraphSteps | null, over: Partial<FlowDoc> = {}): FlowDo
 
 function render(doc: FlowDoc, nodes: CodeGraphNode[], selectedNodeId: string | null = null) {
   return renderToStaticMarkup(
+    <TooltipProvider>
     <OutlineView
       folderId="f"
       root="a"
@@ -28,7 +31,8 @@ function render(doc: FlowDoc, nodes: CodeGraphNode[], selectedNodeId: string | n
       onInspect={() => {}}
       onShowInGraph={() => {}}
       onOpenAt={() => {}}
-    />,
+    />
+    </TooltipProvider>,
   );
 }
 
@@ -64,7 +68,8 @@ describe("OutlineView", () => {
     expect(html).toContain("↳ 1 implementation<");
     // A frame, which leaves the method.
     expect(html).toContain("if (ok)");
-    expect(html).toContain('aria-label="leaves"');
+    // An index that recorded only that it leaves says "exits".
+    expect(html).toContain('data-exit="exits"');
     // A fold of what the outline hides, with why.
     expect(html).toContain(">1 call · logging<");
     // A call into a method with no body is a project call (bold) with its effect.
@@ -115,6 +120,40 @@ describe("OutlineView", () => {
     expect(html).toContain("The index is busy.");
     expect(html).toContain("Retry");
     expect(html).toContain("send()");
+  });
+
+  test("a branch that leaves says how, a throw in the warning colour", () => {
+    const frame = (id: string, exit: "return" | "throw" | "break" | "continue") => ({ id, kind: "if", text: `if ${exit}s`, exits: true, exit });
+    const steps: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        a: [
+          step({ text: "r()", frames: [frame("1:1", "return")] }),
+          step({ text: "t()", frames: [frame("2:1", "throw")] }),
+          step({ text: "b()", frames: [frame("3:1", "break")] }),
+          step({ text: "c()", frames: [frame("4:1", "continue")] }),
+          step({ text: "f()", frames: [{ id: "5:1", kind: "if", text: "if falls" }] }),
+        ],
+      },
+    };
+    const html = render(flow(steps), [node("a")]);
+    const chips = [...html.matchAll(/data-exit="(\w+)" class="([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    expect(chips.map(([word]) => word)).toEqual(["returns", "throws", "breaks", "continues"]);
+    for (const [word, cls] of chips) {
+      if (word === "throws") expect(cls).toContain("text-status-warning");
+      else expect(cls).toContain("text-text-tertiary");
+    }
+    expect(html).toContain("Show outline legend");
+  });
+
+  test("the legend explains every mark, each with a sample", () => {
+    const html = renderToStaticMarkup(<TooltipProvider><OutlineLegendContent /></TooltipProvider>);
+    for (const word of ["returns", "throws", "breaks", "continues", "2 calls · logging", "↳ 2 implementations", "(base)", "shown above ↑", "↻ recursion", "Kafka produce", "Right-click"]) {
+      expect(html).toContain(word);
+    }
+    expect(html).toContain("A branch: the calls under it run only when it holds");
+    expect(html).toContain("always show or always hide it");
+    expect(html.match(/<li /g)).toHaveLength(OUTLINE_LEGEND.length);
   });
 
   test("an old index says how to see branches", () => {

@@ -287,13 +287,19 @@ type MenuActions = Pick<Props, "onKeep" | "onOpenBeside" | "onAskAgent">;
 /** Why a folder has no rows, and what can be done about it. */
 function FolderNote({ note, health, onReindex }: { note: string; health: FolderHealth; onReindex: () => void }) {
   const canRetry = health.health === "failed" || health.health === "not-indexed" || health.health === "needs-analyzer";
+  // One line: the note sits in a fixed-height tree row, and wrapped it spilled
+  // over the folders below. The whole of it is in the tooltip, and the action
+  // never truncates away.
+  const full = !health.detail || note.includes(health.detail) ? note : `${note}\n${health.detail}`;
   return (
-    <span className="whitespace-normal" title={health.detail}>
-      {note}
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="min-w-0 truncate" title={full}>
+        {note}
+      </span>
       {canRetry ? (
         <>
-          {" · "}
-          <button type="button" className="underline underline-offset-2 hover:text-text-primary" onClick={onReindex}>
+          <span aria-hidden>·</span>
+          <button type="button" className="shrink-0 underline underline-offset-2 hover:text-text-primary" onClick={onReindex}>
             {health.health === "failed" ? "Retry" : "Index now"}
           </button>
         </>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildOutline, firstSentence, summarizeReasons, type OutlineRow } from "./buildOutline";
+import { buildOutline, countReasons, firstSentence, summarizeReasons, type OutlineRow } from "./buildOutline";
 import type { CodeGraphNode, CodeGraphStep, CodeGraphSteps } from "@/bridge/codegraph";
 
 const node = (id: string, label = `acme.P.${id}`): CodeGraphNode => ({
@@ -357,6 +357,32 @@ describe("buildOutline", () => {
     const at = (depth: number) => show(buildOutline({ rootId: "a", nodes: nodes("a", "b", "c"), steps, toggled: {}, depth }));
     expect(at(1)).toEqual(["0 method P.a", "1 call b()"]);
     expect(at(2)).toEqual(["0 method P.a", "1 call b()", "2 call c()"]);
+  });
+});
+
+describe("countReasons", () => {
+  it("counts every reason, the most frequent first, ties in the order met", () => {
+    expect(countReasons(["logging", "metrics", "helper", "metrics", "tracing", "helper", "metrics"])).toEqual([
+      { reason: "metrics", count: 3 },
+      { reason: "helper", count: 2 },
+      { reason: "logging", count: 1 },
+      { reason: "tracing", count: 1 },
+    ]);
+  });
+
+  it("is carried in full on a fold row", () => {
+    const steps: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: { a: ["logging", "metrics", "logging", "tracing", "helper"].map((reason) => step({ visible: false, reason })) },
+    };
+    const [, fold] = buildOutline({ rootId: "a", nodes: nodes("a"), steps, toggled: {} });
+    expect(fold).toMatchObject({ kind: "fold", count: 5, reasons: "logging, metrics, tracing" });
+    expect(fold.kind === "fold" && fold.counts).toEqual([
+      { reason: "logging", count: 2 },
+      { reason: "metrics", count: 1 },
+      { reason: "tracing", count: 1 },
+      { reason: "helper", count: 1 },
+    ]);
   });
 });
 

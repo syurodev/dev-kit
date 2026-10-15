@@ -36,6 +36,20 @@ it("keeps support warnings visible for one folder even when entries exist", () =
   expect(html).toContain("handler is unresolved");
 });
 
+// The note sits in a fixed-height tree row: wrapped, a long detail spilled
+// over the folders below it. One line, the whole text in its tooltip.
+it("keeps a folder's long note on its own row", () => {
+  const detail = "Java entry points: Spring HTTP mappings and source-resolved Camel Java routes. Dynamic DSLs and runtime configuration may be unresolved.";
+  const html = render([{
+    folderId: "f", path: "/fixture", label: "audit", note: "",
+    health: { health: "limited", tone: "warn", label: "Indexed · entry limits", detail },
+    entries: [],
+  }]);
+  expect(html).not.toContain("whitespace-normal");
+  expect(html).toMatch(/class="[^"]*\btruncate\b[^"]*"[^>]*>No supported entry points found\./);
+  expect(html).toContain(`title="No supported entry points found. ${detail}"`);
+});
+
 it("shows consumer group even when Camel has no explicit route ID", () => {
   const html = render([{
     folderId: "f", path: "/fixture", label: "dispatcher", note: "",

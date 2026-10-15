@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronRight, CornerDownLeft, RotateCcw } from "lucide-react";
+import { ChevronRight, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TREE_ROW_HEIGHT, TREE_ROW_SELECTED, TreeGuides, treeContentX } from "@/components/tree-guides";
 import {
@@ -16,6 +16,9 @@ import type { CodeGraphNode } from "@/bridge/codegraph";
 import type { FlowDoc } from "../codegraphStore";
 import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from "../flowActions";
 import { effectName } from "../graph/graphView";
+import { BASE_HINT, RECURSION_HINT, SHOWN_ABOVE_HINT, effectHint, exitMarker, foldHint, hiddenHint, implsHint, shownHint } from "./outlineHints";
+import { BRANCH_TEXT, ExitChip, FOLD_CHIP, Hint, MaybeHint, QUIET_MARK, implementationsLabel } from "./markers";
+import { OUTLINE_LEGEND_CLEARANCE, OutlineLegend } from "./OutlineLegend";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
 import { EMPTY_KEYS, cursorIndex, isOpenRow, isRowOf, isToggleable, mergeKeys, newKeys, nodeOf, pathTo, treeShape } from "./outlineNav";
@@ -24,7 +27,8 @@ import { EMPTY_KEYS, cursorIndex, isOpenRow, isRowOf, isToggleable, mergeKeys, n
 const ROW_HEIGHT = TREE_ROW_HEIGHT;
 /** Space above the first row and below the last, carried by the spacers so the scroll maths sees it. */
 const PAD_TOP = 4;
-const PAD_BOTTOM = 8;
+/** The tree's 8, plus room for the legend button, so the last row scrolls clear of it. */
+const PAD_BOTTOM = 8 + OUTLINE_LEGEND_CLEARANCE;
 /** Longer than a row's arrival (--motion-base) and its flash: when the classes stop mattering. */
 const MOTION_SETTLED_MS = 1000;
 
@@ -249,7 +253,7 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
 
   const showCursor = keyboardNav && hasFocus;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {flow.stepsError && (
         // A re-read failed: the steps on screen stay, said to be the last ones read.
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2 text-caption-12 text-status-danger">
@@ -314,6 +318,9 @@ export function OutlineView({ folderId, root, flow, nodes, selectedNodeId, onIns
           />
         ))}
         <div style={{ height: padBottom + PAD_BOTTOM }} />
+      </div>
+      <div className="absolute bottom-3 left-3 z-10">
+        <OutlineLegend />
       </div>
     </div>
   );
@@ -465,47 +472,59 @@ function RowBody({ row }: { row: OutlineRow }) {
           {row.impl && <span className="text-text-tertiary">↳</span>}
           <span className="font-semibold text-text-primary">{row.title}</span>
           {row.base && (
-            <span title="The overridden method's own body" className="text-caption-11 text-text-tertiary">
-              (base)
-            </span>
+            <Hint text={BASE_HINT}>
+              <span className={QUIET_MARK}>(base)</span>
+            </Hint>
           )}
           {row.ref ? <RefTag reason={row.ref.reason} /> : row.summary && <span className="truncate text-text-tertiary">— {row.summary}</span>}
           <span className="ml-auto pl-3 text-text-tertiary">:{row.line}</span>
         </>
       );
-    case "frame":
+    case "frame": {
+      const marker = exitMarker(row);
       return (
-        <span className="flex min-w-0 items-center gap-1 text-(--hue-blue)">
+        <span className={cn("flex min-w-0 items-center gap-1.5", BRANCH_TEXT)}>
           <span className="truncate">{row.text}</span>
-          {row.exits && <CornerDownLeft aria-label="leaves" className="size-3 shrink-0 text-text-tertiary" />}
+          {marker && (
+            <Hint text={marker.hint}>
+              <ExitChip marker={marker} />
+            </Hint>
+          )}
         </span>
       );
+    }
     case "fold":
       return (
-        <span className="truncate rounded-sm border border-dashed border-border px-1.5 text-caption-11 text-text-tertiary" title={row.reasons}>
-          {row.count} {row.count === 1 ? "call" : "calls"} · {row.reasons}
-        </span>
+        <Hint text={foldHint(row.count, row.counts, row.open)}>
+          <span className={FOLD_CHIP}>
+            {row.count} {row.count === 1 ? "call" : "calls"} · {row.reasons}
+          </span>
+        </Hint>
       );
     case "more":
       return <span className="text-text-tertiary">… more steps not shown</span>;
     case "call": {
       // A call into the project, a method with no body included, is what the flow is made of.
       const project = !!row.targetId;
+      const impls = row.step.impls?.length ?? 0;
       return (
         <>
-          <span
-            title={row.hidden ? `Hidden: ${row.step.reason}` : row.step.reason}
-            className={cn("truncate", project ? "font-semibold text-text-primary" : "text-text-secondary", row.hidden && "opacity-60")}
-          >
-            {row.title}
-          </span>
-          {row.step.impls?.length ? (
-            <span className="shrink-0 text-text-tertiary">
-              ↳ {row.step.impls.length} {row.step.impls.length === 1 ? "implementation" : "implementations"}
+          <MaybeHint text={row.hidden ? hiddenHint(row.step.reason) : shownHint(row.step.reason)}>
+            <span className={cn("truncate", project ? "font-semibold text-text-primary" : "text-text-secondary", row.hidden && "opacity-60")}>
+              {row.title}
             </span>
-          ) : null}
-          {row.step.effect && <span className={EFFECT_CHIP}>{effectName(row.step.effect)}</span>}
-          {row.hidden && <span className="shrink-0 text-caption-11 text-text-tertiary">{row.step.reason}</span>}
+          </MaybeHint>
+          {impls > 0 && (
+            <Hint text={implsHint(impls)}>
+              <span className={QUIET_MARK}>{implementationsLabel(impls)}</span>
+            </Hint>
+          )}
+          {row.step.effect && (
+            <Hint text={effectHint(row.step.effect)}>
+              <span className={EFFECT_CHIP}>{effectName(row.step.effect)}</span>
+            </Hint>
+          )}
+          {row.hidden && <span className={QUIET_MARK}>{row.step.reason}</span>}
           {row.ref && <RefTag reason={row.ref.reason} />}
           <span className="ml-auto pl-3 text-text-tertiary">:{row.step.line}</span>
         </>
@@ -515,5 +534,9 @@ function RowBody({ row }: { row: OutlineRow }) {
 }
 
 function RefTag({ reason }: { reason: "shown-above" | "recursion" }) {
-  return <span className="shrink-0 text-caption-11 text-text-tertiary">{reason === "recursion" ? "↻ recursion" : "shown above ↑"}</span>;
+  return (
+    <Hint text={reason === "recursion" ? RECURSION_HINT : SHOWN_ABOVE_HINT}>
+      <span className={QUIET_MARK}>{reason === "recursion" ? "↻ recursion" : "shown above ↑"}</span>
+    </Hint>
+  );
 }

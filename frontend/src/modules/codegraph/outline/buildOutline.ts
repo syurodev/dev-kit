@@ -31,7 +31,11 @@ export type OutlineRow =
       exit?: CodeGraphStepFrame["exit"];
     }
   | { kind: "call"; key: string; depth: number; ownerId: string; step: CodeGraphStep; title: string; targetId?: string; open: boolean; expandable: boolean; hidden: boolean; ref?: OutlineRef }
-  | { kind: "fold"; key: string; depth: number; count: number; reasons: string; open: boolean }
+  | {
+      kind: "fold"; key: string; depth: number; count: number; reasons: string; open: boolean;
+      /** Every reason in the fold with its count, for the chip's tooltip. */
+      counts: ReasonCount[];
+    }
   | { kind: "more"; key: string; depth: number; nodeId: string };
 
 export type OutlineInput = {
@@ -56,14 +60,22 @@ export type OutlineInput = {
  */
 export const DEFAULT_OUTLINE_DEPTH = 3;
 
-/** "logging, metrics" — the most frequent reasons first, three at most. */
-export function summarizeReasons(reasons: string[]): string {
+export type ReasonCount = { reason: string; count: number };
+
+/** Every reason with how often it occurs, the most frequent first, ties in the order met. */
+export function countReasons(reasons: readonly string[]): ReasonCount[] {
   const counts = new Map<string, number>();
   for (const r of reasons) counts.set(r, (counts.get(r) ?? 0) + 1);
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || reasons.indexOf(a[0]) - reasons.indexOf(b[0]))
+    .map(([reason, count]) => ({ reason, count }));
+}
+
+/** "logging, metrics" — the most frequent reasons first, three at most. */
+export function summarizeReasons(reasons: string[]): string {
+  return countReasons(reasons)
     .slice(0, 3)
-    .map(([r]) => r)
+    .map((r) => r.reason)
     .join(", ");
 }
 
@@ -122,7 +134,8 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
       const key = childKey(parentKey, "fold", pending[0].id);
       const open = isOpen(key, false);
       const d = depth + stack.length;
-      rows.push({ kind: "fold", key, depth: d, count: pending.length, reasons: summarizeReasons(pending.map((p) => p.step.reason)), open });
+      const reasons = pending.map((p) => p.step.reason);
+      rows.push({ kind: "fold", key, depth: d, count: pending.length, reasons: summarizeReasons(reasons), counts: countReasons(reasons), open });
       if (open) for (const p of pending) callRow(ownerId, p.step, childKey(parentKey, "call", p.id), d + 1, level, path, true);
       pending = [];
     };
