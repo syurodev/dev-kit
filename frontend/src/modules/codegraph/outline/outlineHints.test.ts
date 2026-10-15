@@ -21,7 +21,7 @@ describe("exitMarker", () => {
 
   it("falls back to 'exits' for an index that recorded only that it leaves", () => {
     expect(exitMarker({ exits: true, frameKind: "catch" })).toMatchObject({ word: "exits", tone: "neutral" });
-    expect(exitMarker({ exits: true, frameKind: "catch" })!.hint).toContain("Re-index");
+    expect(exitMarker({ exits: true, frameKind: "catch" })!.hint).toBe("This branch ends here. Nothing after it runs on this path.");
   });
 
   it("is nothing for a branch that falls through", () => {

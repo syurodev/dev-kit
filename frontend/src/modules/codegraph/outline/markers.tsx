@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { CornerDownLeft } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ExitMarker } from "./outlineHints";
@@ -28,17 +29,17 @@ export function MaybeHint({ text, children }: { text: string | null; children: R
   return text ? <Hint text={text}>{children}</Hint> : children;
 }
 
-const CHIP = "shrink-0 rounded-sm border px-1.5 text-caption-11";
-
-/** How a branch leaves: a word, not an arrow. A throw wears the chrome's warning, the rest stay quiet. */
-export function ExitChip({ marker, className }: { marker: ExitMarker; className?: string }) {
+/**
+ * How a branch leaves: the ↩ after its heading, its tooltip saying which way
+ * (exitMarker). A throw is tinted with the chrome's warning, the rest stay quiet.
+ */
+export function ExitIcon({ marker }: { marker: ExitMarker }) {
   return (
-    <span
+    <CornerDownLeft
       data-exit={marker.word}
-      className={cn(CHIP, marker.tone === "warning" ? "border-status-warning/50 text-status-warning" : "border-border-subtle text-text-tertiary", className)}
-    >
-      {marker.word}
-    </span>
+      aria-label={`branch ${marker.word}`}
+      className={cn("size-3 shrink-0", marker.tone === "warning" ? "text-status-warning" : "text-text-tertiary")}
+    />
   );
 }
 

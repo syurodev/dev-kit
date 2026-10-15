@@ -17,7 +17,7 @@ import type { FlowDoc } from "../codegraphStore";
 import { loadSteps, openOutlineRows, setCallVisibility, toggleOutlineRow } from "../flowActions";
 import { effectName } from "../graph/graphView";
 import { BASE_HINT, RECURSION_HINT, SHOWN_ABOVE_HINT, effectHint, exitMarker, foldHint, hiddenHint, implsHint, shownHint } from "./outlineHints";
-import { BRANCH_TEXT, ExitChip, FOLD_CHIP, Hint, MaybeHint, QUIET_MARK, implementationsLabel } from "./markers";
+import { BRANCH_TEXT, ExitIcon, FOLD_CHIP, Hint, MaybeHint, QUIET_MARK, implementationsLabel } from "./markers";
 import { OUTLINE_LEGEND_CLEARANCE, OutlineLegend } from "./OutlineLegend";
 import { EFFECT_CHIP } from "../graph/tokens";
 import { buildOutline, type OutlineRow } from "./buildOutline";
@@ -483,11 +483,14 @@ function RowBody({ row }: { row: OutlineRow }) {
     case "frame": {
       const marker = exitMarker(row);
       return (
-        <span className={cn("flex min-w-0 items-center gap-1.5", BRANCH_TEXT)}>
+        <span className={cn("flex min-w-0 items-center gap-1", BRANCH_TEXT)}>
           <span className="truncate">{row.text}</span>
           {marker && (
             <Hint text={marker.hint}>
-              <ExitChip marker={marker} />
+              {/* A span to hold the tooltip: the trigger needs an element that takes a ref and pointer events. */}
+              <span className="flex shrink-0 items-center">
+                <ExitIcon marker={marker} />
+              </span>
             </Hint>
           )}
         </span>

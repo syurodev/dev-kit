@@ -122,7 +122,7 @@ describe("OutlineView", () => {
     expect(html).toContain("send()");
   });
 
-  test("a branch that leaves says how, a throw in the warning colour", () => {
+  test("a branch that leaves ends in ↩, named for how it leaves, a throw in the warning colour", () => {
     const frame = (id: string, exit: "return" | "throw" | "break" | "continue") => ({ id, kind: "if", text: `if ${exit}s`, exits: true, exit });
     const steps: CodeGraphSteps = {
       legacy: false, truncated: [],
@@ -137,9 +137,10 @@ describe("OutlineView", () => {
       },
     };
     const html = render(flow(steps), [node("a")]);
-    const chips = [...html.matchAll(/data-exit="(\w+)" class="([^"]+)"/g)].map((m) => [m[1], m[2]]);
-    expect(chips.map(([word]) => word)).toEqual(["returns", "throws", "breaks", "continues"]);
-    for (const [word, cls] of chips) {
+    const icons = [...html.matchAll(/<svg [^>]*class="([^"]+)"[^>]*data-exit="(\w+)"/g)].map((m) => [m[2], m[1]]);
+    expect(icons.map(([word]) => word)).toEqual(["returns", "throws", "breaks", "continues"]);
+    for (const [word, cls] of icons) {
+      expect(cls).toContain("lucide-corner-down-left");
       if (word === "throws") expect(cls).toContain("text-status-warning");
       else expect(cls).toContain("text-text-tertiary");
     }
@@ -148,10 +149,12 @@ describe("OutlineView", () => {
 
   test("the legend explains every mark, each with a sample", () => {
     const html = renderToStaticMarkup(<TooltipProvider><OutlineLegendContent /></TooltipProvider>);
-    for (const word of ["returns", "throws", "breaks", "continues", "2 calls · logging", "↳ 2 implementations", "(base)", "shown above ↑", "↻ recursion", "Kafka produce", "Right-click"]) {
+    expect(html.match(/lucide-corner-down-left/g)).toHaveLength(2);
+    for (const word of ["2 calls · logging", "↳ 2 implementations", "(base)", "shown above ↑", "↻ recursion", "Kafka produce", "Right-click"]) {
       expect(html).toContain(word);
     }
     expect(html).toContain("A branch: the calls under it run only when it holds");
+    expect(html).toContain("The branch ends by throwing an exception.");
     expect(html).toContain("always show or always hide it");
     expect(html.match(/<li /g)).toHaveLength(OUTLINE_LEGEND.length);
   });

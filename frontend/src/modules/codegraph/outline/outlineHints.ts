@@ -3,13 +3,13 @@ import { effectName } from "../graph/graphView";
 import type { ReasonCount } from "./buildOutline";
 
 /**
- * What the outline's markers mean, in words: the chip after a branch heading
+ * What the outline's markers mean, in words: the ↩ after a branch heading
  * that leaves, and the tooltips of the other marks. Pure, so the wording is
  * tested once and the view and its legend say the same thing.
  */
 
 export type ExitMarker = {
-  /** The chip: "returns", "throws", "breaks", "continues", or "exits" when the index did not say which. */
+  /** The ↩ icon's name: "returns", "throws", "breaks", "continues", or "exits" when the index did not say which. */
   word: string;
   /** A thrown exception is the one way out that is about safety: the chrome's warning. */
   tone: "neutral" | "warning";
@@ -32,11 +32,8 @@ export function exitMarker(frame: { exits: boolean; exit?: CodeGraphStepFrame["e
     case "continue":
       return { word: "continues", tone: "neutral", hint: `${ENDS} it skips to the next iteration. Nothing after it runs on this pass.` };
     default:
-      return {
-        word: "exits",
-        tone: "neutral",
-        hint: `${ENDS} it returns, throws, breaks or continues. Nothing after it runs on this path. Re-index to see which.`,
-      };
+      // An index written before the kind was recorded knows only that it leaves.
+      return { word: "exits", tone: "neutral", hint: "This branch ends here. Nothing after it runs on this path." };
   }
 }
 
