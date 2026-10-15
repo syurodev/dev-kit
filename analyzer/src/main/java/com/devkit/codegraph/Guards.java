@@ -153,17 +153,37 @@ final class Guards {
 
     /** True when control never falls out of the end of {@code s}: it returns, throws, breaks or continues. */
     static boolean leaves(Statement s) {
-        if (s instanceof ReturnStmt || s instanceof ThrowStmt || s instanceof BreakStmt || s instanceof ContinueStmt) {
-            return true;
+        return !exitKind(s).isEmpty();
+    }
+
+    /**
+     * How control leaves {@code s} without falling out of its end: "return",
+     * "throw", "break" or "continue" — the last statement of a block, or of
+     * an if/else whose two sides both leave (the then side's kind when they
+     * differ) — or "" when it can fall through.
+     */
+    static String exitKind(Statement s) {
+        if (s instanceof ReturnStmt) {
+            return "return";
+        }
+        if (s instanceof ThrowStmt) {
+            return "throw";
+        }
+        if (s instanceof BreakStmt) {
+            return "break";
+        }
+        if (s instanceof ContinueStmt) {
+            return "continue";
         }
         if (s instanceof BlockStmt block) {
             NodeList<Statement> statements = block.getStatements();
-            return !statements.isEmpty() && leaves(statements.get(statements.size() - 1));
+            return statements.isEmpty() ? "" : exitKind(statements.get(statements.size() - 1));
         }
-        if (s instanceof IfStmt ifStmt) {
-            return ifStmt.getElseStmt().isPresent() && leaves(ifStmt.getThenStmt()) && leaves(ifStmt.getElseStmt().get());
+        if (s instanceof IfStmt ifStmt && ifStmt.getElseStmt().isPresent()) {
+            String then = exitKind(ifStmt.getThenStmt());
+            return !then.isEmpty() && !exitKind(ifStmt.getElseStmt().get()).isEmpty() ? then : "";
         }
-        return false;
+        return "";
     }
 
     private static String switchCondition(SwitchEntry entry) {

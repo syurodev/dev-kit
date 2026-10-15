@@ -25,7 +25,11 @@ export type OutlineRow =
       base?: boolean;
       ref?: OutlineRef;
     }
-  | { kind: "frame"; key: string; depth: number; frameKind: string; text: string; exits: boolean }
+  | {
+      kind: "frame"; key: string; depth: number; frameKind: string; text: string; exits: boolean;
+      /** How the branch leaves, when the index recorded it (see CodeGraphStepFrame.exit). */
+      exit?: CodeGraphStepFrame["exit"];
+    }
   | { kind: "call"; key: string; depth: number; ownerId: string; step: CodeGraphStep; title: string; targetId?: string; open: boolean; expandable: boolean; hidden: boolean; ref?: OutlineRef }
   | { kind: "fold"; key: string; depth: number; count: number; reasons: string; open: boolean }
   | { kind: "more"; key: string; depth: number; nodeId: string };
@@ -136,7 +140,10 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
         // callee's open body, a later argument's call, a fold) would put the
         // closure's steps under the wrong row, so then it gets a heading.
         if (f.kind === "closure" && drawn.get(f.id) === rows.length) continue;
-        rows.push({ kind: "frame", key: unique(childKey(parentKey, "frame", f.id)), depth: depth + i, frameKind: f.kind, text: f.text, exits: !!f.exits });
+        rows.push({
+          kind: "frame", key: unique(childKey(parentKey, "frame", f.id)), depth: depth + i, frameKind: f.kind, text: f.text, exits: !!f.exits,
+          ...(f.exit ? { exit: f.exit } : {}),
+        });
       }
       stack = frames;
       if (!step.visible) {

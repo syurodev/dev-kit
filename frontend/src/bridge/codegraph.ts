@@ -327,7 +327,17 @@ export async function getCodeGraphNeighbors(
 }
 
 /** One control structure around a call (Go StepFrame). `kind` is open: render an unknown one by its text. */
-export type CodeGraphStepFrame = { id: string; kind: string; text: string; exits?: boolean };
+export type CodeGraphStepFrame = {
+  id: string;
+  kind: string;
+  text: string;
+  /** The branch ends in return, throw, break or continue. */
+  exits?: boolean;
+  /** Which of the four; absent when it does not leave, or in an index written before it was recorded. */
+  exit?: "return" | "throw" | "break" | "continue";
+};
+
+const EXIT_KINDS = new Set(["return", "throw", "break", "continue"]);
 
 /** What an extractor recognised at a call (Go StepEffect). */
 export type CodeGraphStepEffect = { kind: string; role: string; target: string };
@@ -359,7 +369,8 @@ export type CodeGraphSteps = {
 /** Go's MaxStepNodeIDs: one request's limit, so longer lists go in chunks. */
 export const MAX_STEP_NODE_IDS = 200;
 
-function toStep(s: StepModel): CodeGraphStep {
+/** A Go Step as the outline reads it. Exported for its test. */
+export function toStep(s: StepModel): CodeGraphStep {
   return {
     line: s.line,
     col: s.col,
@@ -368,7 +379,17 @@ function toStep(s: StepModel): CodeGraphStep {
     to: s.to || undefined,
     target: s.target || undefined,
     impls: s.impls && s.impls.length ? [...s.impls] : undefined,
-    frames: (s.frames ?? []).flatMap((f) => (f ? [{ id: f.id, kind: f.kind, text: f.text, exits: f.exits || undefined }] : [])),
+    frames: (s.frames ?? []).flatMap((f) =>
+      f
+        ? [{
+            id: f.id,
+            kind: f.kind,
+            text: f.text,
+            exits: f.exits || undefined,
+            exit: f.exit && EXIT_KINDS.has(f.exit) ? (f.exit as CodeGraphStepFrame["exit"]) : undefined,
+          }]
+        : [],
+    ),
     visible: s.visible,
     reason: s.reason,
     effect: s.effect ? { kind: s.effect.kind, role: s.effect.role, target: s.effect.target } : undefined,

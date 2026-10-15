@@ -17,7 +17,7 @@ func TestStoreKeepsCallSiteSteps(t *testing.T) {
 			{From: "a", To: "", Line: 9, Col: 5, Unresolved: "library", Text: "log.warn(x)", CalleeKey: "org.slf4j.Logger#warn",
 				Receiver: "field", ResultUse: "discarded"},
 			{From: "a", To: "b", Line: 9, Col: 1, Text: "b()", CalleeKey: "acme#b", Receiver: "this", ResultUse: "discarded",
-				Frames: []StepFrame{{ID: "8:3", Kind: "catch", Text: "catch E", Exits: true}}, Target: "b"},
+				Frames: []StepFrame{{ID: "8:3", Kind: "catch", Text: "catch E", Exits: true, Exit: "throw"}}, Target: "b"},
 			{From: "b", To: "c", Line: 2, Role: RoleOverride},
 		},
 	})
@@ -31,7 +31,7 @@ func TestStoreKeepsCallSiteSteps(t *testing.T) {
 	if len(sites) != 3 || sites[0].To != "b" || sites[0].Target != "b" || sites[1].CalleeKey != "org.slf4j.Logger#warn" || sites[2].Role != RoleOverride {
 		t.Fatalf("sites = %+v", sites)
 	}
-	if f := sites[0].Frames; len(f) != 1 || f[0] != (StepFrame{ID: "8:3", Kind: "catch", Text: "catch E", Exits: true}) {
+	if f := sites[0].Frames; len(f) != 1 || f[0] != (StepFrame{ID: "8:3", Kind: "catch", Text: "catch E", Exits: true, Exit: "throw"}) {
 		t.Fatalf("frames = %+v", f)
 	}
 	stats, err := store.CallStats(ctx)

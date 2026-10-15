@@ -22,12 +22,16 @@ var ErrTooManyNodes = errors.New("codegraph: too many node ids")
 // closure, and, or, ternary, await (open — a reader shows an unknown kind by
 // its Text); ID is the structure's "line:col", shared by every call in it, and
 // for a closure passed as an argument it is the position of the call it is
-// passed to; Exits is true when the branch ends in return/throw/break/continue.
+// passed to; Exits is true when the branch ends in return/throw/break/continue,
+// and Exit says which ("return", "throw", "break", "continue"; empty when it
+// does not leave, or in an index written before it was recorded). Both ride in
+// call_sites.frames as JSON, so an older row simply has no Exit.
 type StepFrame struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Text  string `json:"text"`
 	Exits bool   `json:"exits,omitempty"`
+	Exit  string `json:"exit,omitempty"`
 }
 
 // StepEffect is what an extractor recognised at a call: a Kafka produce, an

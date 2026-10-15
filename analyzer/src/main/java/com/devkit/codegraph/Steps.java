@@ -197,12 +197,12 @@ final class Steps {
                         .filter(g -> g instanceof IfStmt outer && outer.getElseStmt().filter(e -> e == s).isPresent())
                         .isPresent();
                 return new StepFrame(at(s.getThenStmt()), "if",
-                        condition(elseIf ? "else if" : "if", s.getCondition()), Guards.leaves(s.getThenStmt()));
+                        condition(elseIf ? "else if" : "if", s.getCondition()), Guards.exitKind(s.getThenStmt()));
             }
             Optional<Statement> otherwise = s.getElseStmt();
             // `else if` is drawn by the nested if's own frame, so the else adds nothing.
             if (otherwise.isPresent() && otherwise.get() == child && !(child instanceof IfStmt)) {
-                return new StepFrame(at(child), "else", "else", Guards.leaves(otherwise.get()));
+                return new StepFrame(at(child), "else", "else", Guards.exitKind(otherwise.get()));
             }
             return null;
         }
@@ -229,12 +229,12 @@ final class Steps {
             entry.getLabels().forEach(l -> labels.add(Guards.flatten(l.toString())));
             String text = labels.isEmpty() ? "default" : "case " + String.join(", ", labels);
             var statements = entry.getStatements();
-            boolean exits = !statements.isEmpty() && Guards.leaves(statements.get(statements.size() - 1));
-            return new StepFrame(at(entry), "case", text, exits);
+            String exit = statements.isEmpty() ? "" : Guards.exitKind(statements.get(statements.size() - 1));
+            return new StepFrame(at(entry), "case", text, exit);
         }
         if (parent instanceof CatchClause c && child == c.getBody()) {
             return new StepFrame(at(c), "catch", "catch " + Guards.flatten(c.getParameter().getType().toString()),
-                    Guards.leaves(c.getBody()));
+                    Guards.exitKind(c.getBody()));
         }
         if (parent instanceof TryStmt t) {
             if (child == t.getTryBlock()) {

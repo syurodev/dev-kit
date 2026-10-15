@@ -44,6 +44,39 @@ class StepsTest {
                 .collect(Collectors.joining(" / "));
     }
 
+    /** Each frame's exit kind, outermost first ("-" when the branch does not leave). */
+    private static String exitKinds(String body, String name) {
+        MethodDeclaration run = run(body);
+        return Steps.frames(call(run, name), run).stream()
+                .map(f -> f.exit.isEmpty() ? "-" : f.exit)
+                .collect(Collectors.joining(" / "));
+    }
+
+    @Test
+    void aBranchThatLeavesSaysHow() {
+        assertEquals("return", exitKinds("void run() { if (skip) { target(); return; } y(); }", "target"));
+        assertEquals("throw", exitKinds("void run() { try { x(); } catch (E e) { target(); throw new R(e); } }", "target"));
+        assertEquals("- / break", exitKinds("void run() { while (more()) { if (done) { target(); break; } } }", "target"));
+        assertEquals("- / continue", exitKinds("void run() { for (D d : ds) { if (skip(d)) { target(); continue; } } }", "target"));
+        assertEquals("return", exitKinds("int run() { switch (m) { case A: target(); return 1; default: return 2; } }", "target"));
+        assertEquals("-", exitKinds("void run() { if (flag) { target(); } }", "target"));
+    }
+
+    @Test
+    void aBranchEndingInAnIfElseThatBothLeaveTakesTheFirstKind() {
+        assertEquals("throw", exitKinds("void run() { if (a) { target(); if (b) { throw new X(); } else { return; } } y(); }", "target"));
+        assertEquals("return", exitKinds("void run() { if (a) { target(); if (b) { return; } else { return; } } y(); }", "target"));
+        // Only one side leaves: the branch can fall out of its end.
+        assertEquals("-", exitKinds("void run() { if (a) { target(); if (b) { return; } } y(); }", "target"));
+    }
+
+    @Test
+    void exitsStaysTheBooleanOfExit() {
+        MethodDeclaration run = run("void run() { if (skip) { target(); return; } if (go) { other(); } }");
+        assertTrue(Steps.frames(call(run, "target"), run).get(0).exits);
+        assertEquals(false, Steps.frames(call(run, "other"), run).get(0).exits);
+    }
+
     @Test
     void anUnconditionalCallHasNoFrames() {
         assertEquals("", frames("void run() { target(); }", "target"));

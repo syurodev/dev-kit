@@ -22,6 +22,15 @@ const show = (rows: OutlineRow[]) =>
   });
 
 describe("buildOutline", () => {
+  it("carries how a frame's branch leaves onto its heading", () => {
+    const steps: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: { a: [step({ text: "quarantine(x)", frames: [{ id: "4:7", kind: "catch", text: "catch E", exits: true, exit: "throw" }] })] },
+    };
+    const rows = buildOutline({ rootId: "a", nodes: nodes("a"), steps, toggled: {} });
+    expect(rows[1]).toMatchObject({ kind: "frame", text: "catch E", exits: true, exit: "throw" });
+  });
+
   it("groups steps under their frames and folds hidden runs inside one group", () => {
     const steps: CodeGraphSteps = {
       legacy: false,
