@@ -32,7 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { dispatchIntent, hasIntent } from "@/workbench/intents";
 import type { CodeGraphEntryPoint } from "@/bridge/codegraph";
-import { verbChipClass } from "../graph/tokens";
+import { methodChipClass } from "@/lib/httpMethod";
 import { filterEntryPoints, groupEntryPoints, verbsIn, type KindGroup, type OwnerGroup } from "./sidebarModel";
 import { DOT } from "./WorkspaceHeader";
 import type { FolderHealth } from "../workspace/indexHealth";
@@ -133,7 +133,7 @@ export function EntryPointsTab({
               HTTP method chip sizes to, or its own text overflows the box
               uncontained (no overflow-hidden on the chip) and bleeds into the
               row's truncate boundary and the label beside it. */}
-          <span className={cn(VERB_CHIP, "mr-2 min-w-12 align-middle", verbChipClass(ep.verb))}>{ep.verb}</span>
+          <span className={cn(VERB_CHIP, "mr-2 min-w-12 align-middle", methodChipClass(ep.verb))}>{ep.verb}</span>
           {/* Under its plugin, a phase's target is the plugin again: the
               chip alone says which phase it is. */}
           {ep.kind === "plugin" && ep.target === ep.group ? null : ep.routeId || ep.target}
@@ -248,7 +248,7 @@ export function EntryPointsTab({
               onClick={() => toggleVerb(v)}
               className={cn(
                 VERB_CHIP,
-                verbChipClass(v),
+                methodChipClass(v),
                 // Off chips recede rather than vanish: the strip keeps its shape.
                 active.size > 0 && !active.has(v) && "opacity-40 hover:opacity-70",
                 active.size === 0 && "opacity-70 hover:opacity-100",

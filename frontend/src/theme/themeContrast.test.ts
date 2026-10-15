@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readIndexCss, resolveVar, themeBlocks } from "./cssTokens";
 import { FAMILIES, resolvePalette } from "./families";
 import { PALETTE_TOKENS, SYNTAX_STYLE_TOKENS } from "./tokens";
+import { METHOD_CHIP_CLASSES } from "@/lib/httpMethod";
 
 /**
  * Every palette has to be readable on its own surfaces.
@@ -193,8 +194,8 @@ describe("every color palette is readable on the Mono grounds", () => {
         });
       }
 
-      // A filled hue chip (codegraph verb chips) carries the primary action's
-      // foreground as its glyph.
+      // A filled hue mark (git's untracked/renamed letters) carries the
+      // primary action's foreground as its glyph.
       it(`${family.id}/${mode} hues carry a glyph`, () => {
         const glyph = chrome("--action-primary-foreground", mode);
         for (const hue of ["--hue-red", "--hue-green", "--hue-yellow", "--hue-blue", "--hue-violet"] as const) {
@@ -202,6 +203,24 @@ describe("every color palette is readable on the Mono grounds", () => {
           expect(ratio, `${glyph} on ${resolved[hue]} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
         }
       });
+
+      // An HTTP method chip is its hue as text on that hue tinted into a
+      // chrome surface. The mix is read back from the class the chip actually
+      // carries and flattened the way `color-mix(in srgb, A p%, B)` paints two
+      // opaque colours: p of A over B.
+      for (const [hue, cls] of Object.entries(METHOD_CHIP_CLASSES)) {
+        it(`${family.id}/${mode} ${hue} method chip`, () => {
+          const mix = cls.match(/color-mix\(in_srgb,var\((--hue-[a-z]+)\)_(\d+)%,var\((--[a-z-]+)\)\)/);
+          if (!mix) throw new Error(`${cls} is not a tinted chip`);
+          const [, mixed, percent, surface] = mix;
+          expect(mixed).toBe(hue);
+          expect(cls).toContain(`text-(${hue})`);
+          const text = resolved[hue as keyof typeof resolved];
+          const ground = over(text, chrome(surface, mode), Number(percent) / 100);
+          const ratio = contrast(text, ground);
+          expect(ratio, `${text} on its ${percent}% tint ${ground} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+        });
+      }
     }
   }
 });

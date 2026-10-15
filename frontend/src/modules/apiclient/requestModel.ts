@@ -147,23 +147,6 @@ export function referencedVars(request: RequestInput): string[] {
   return [...names];
 }
 
-/** The colour a method is drawn in, Postman's convention. */
-export function methodTone(method: string): string {
-  switch (method.toUpperCase()) {
-    case "GET":
-      return "text-(--hue-green)";
-    case "POST":
-      return "text-(--hue-yellow)";
-    case "PUT":
-    case "PATCH":
-      return "text-(--hue-blue)";
-    case "DELETE":
-      return "text-(--hue-red)";
-    default:
-      return "text-text-secondary";
-  }
-}
-
 /** A response's size the way people read one. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

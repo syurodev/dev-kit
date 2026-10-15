@@ -11,6 +11,7 @@ const FILES = [
   "modules/codegraph/graph/tokens.ts",
   "modules/codegraph/graph/ConnectorEdge.tsx",
   "modules/database/icons/engineMarks.tsx",
+  "lib/httpMethod.ts",
 ];
 
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
@@ -31,13 +32,13 @@ describe("decorative colour is a hue", () => {
     expect(src).not.toContain("status-info");
   });
 
-  // requestModel.ts also colours HTTP status CODES (2xx/3xx/5xx), which is
-  // semantic and stays on status; only the method tone is categorical.
-  test("API client method tone", () => {
-    const src = strip(readFileSync(join(import.meta.dir, "modules/apiclient/requestModel.ts"), "utf8"));
-    const body = src.slice(src.indexOf("export function methodTone"), src.indexOf("}\n", src.indexOf("export function methodTone")));
-    expect(body).not.toMatch(/status-/);
-    expect(body).toMatch(/hue-/);
+  // HTTP methods are coloured in one place (requestModel.ts colours status
+  // CODES, which are semantic and stay on status).
+  test("HTTP method colour is a hue, never status", () => {
+    const src = strip(readFileSync(join(import.meta.dir, "lib/httpMethod.ts"), "utf8"));
+    expect(src).not.toMatch(/status-/);
+    const model = strip(readFileSync(join(import.meta.dir, "modules/apiclient/requestModel.ts"), "utf8"));
+    expect(model).not.toMatch(/hue-/);
   });
 
   test("plan diagram steps and ERD keys are hues", () => {

@@ -22,27 +22,6 @@ export function layerOf(raw: string): Layer {
 }
 
 /**
- * Figma `method-chip/*` (482:880–482:900): a solid hue (--hue-*, the verb's
- * kind, not a status) with the on-accent text. Reads the same in the sidebar
- * rows and the canvas header, which is the point of a chip.
- */
-export function verbChipClass(verb: string): string {
-  switch (verb.toUpperCase()) {
-    case "GET":
-      return "bg-(--hue-blue) text-action-primary-foreground";
-    case "POST":
-      return "bg-(--hue-green) text-action-primary-foreground";
-    case "DELETE":
-      return "bg-(--hue-red) text-action-primary-foreground";
-    case "PUT":
-    case "PATCH":
-      return "bg-(--hue-yellow) text-action-primary-foreground";
-    default:
-      return "bg-surface-raised text-text-primary";
-  }
-}
-
-/**
  * Figma `icon-badge` (162:47, 331:444): a 30px ring on surface/raised with a
  * subtle stroke, the layer icon inside. Shared by the node cards and the
  * inspector header so a node looks like itself in both places.

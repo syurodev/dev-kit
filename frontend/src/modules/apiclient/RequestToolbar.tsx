@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { shortcut } from "@/lib/shortcut";
-import { METHODS, methodTone } from "./requestModel";
+import { METHODS } from "./requestModel";
+import { methodTextClass } from "@/lib/httpMethod";
 
 /** One document's identity and send target, followed by its primary action. */
 export function RequestToolbar({
@@ -168,7 +169,7 @@ export function RequestToolbar({
             onChange={(e) => onMethodChange(e.target.value)}
             className={cn(
               "w-26 shrink-0 font-mono [&_select]:rounded-none [&_select]:border-0 [&_select]:border-r [&_select]:border-border-subtle [&_select]:bg-transparent [&_select]:shadow-none [&_select]:text-inherit",
-              methodTone(method),
+              methodTextClass(method),
             )}
           >
             {METHODS.map((m) => (
