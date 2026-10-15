@@ -33,6 +33,17 @@ export type ConnectorEdgeData = {
   lit?: boolean;
 };
 
+/**
+ * What a label shows at the arrowhead: its order number ("2" of "2 · if (ok)"
+ * or "2"), or null for a label that is not numbered ("implements", a plan
+ * condition) — that one stays at the midpoint, since at full width it would
+ * cover the card beside the arrow.
+ */
+export function arrowLabel(label: string | undefined): string | null {
+  const m = label?.match(/^(\d+)(?: · |$)/);
+  return m ? m[1] : null;
+}
+
 /** Room between a label at the arrowhead and the card: the arrow itself, so the chip stays clear of the card it leaves (columns are ~40px apart). */
 const LABEL_ARROW_GAP = 14;
 
@@ -56,9 +67,10 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   // caller. Asked for, its label sits at the arrowhead instead, on the run
   // into the card — as the order number alone, small enough not to cover
   // the card beside it.
-  const atArrow = d?.labelAt === "arrow" && props.targetPosition === Position.Left && !!label;
+  const order = d?.labelAt === "arrow" && props.targetPosition === Position.Left ? arrowLabel(label) : null;
+  const atArrow = order !== null;
   const text = label ?? (kind === "di" ? "injects" : "calls");
-  const shown = atArrow ? text.split(" · ")[0] : text;
+  const shown = order ?? text;
   const tooltip = atArrow
     ? [text, title && title !== label ? title : ""].filter(Boolean).join("\n")
     : (title ?? label);
