@@ -337,3 +337,31 @@ row of that node. Steps are fetched with the subgraph and again after
   helper returning `"kafka:" + …`.
 - MCP `getApiFlow` returning steps.
 - Tune `commonShare` / `commonMin` on two or three real projects.
+
+## Addendum — decisions made while planning (2026-10-15)
+
+- **`role` column.** `call_sites.role` is `""` for a call and `"override"` for the
+  dispatch link the analyzer writes from an overridden method to its override.
+  `Step.Impls` is built from these rows. They are never returned as steps.
+- **Closure frame id.** A closure passed as an argument has the frame id of the
+  call it is passed to (`line:col` of that call). "Wraps a project call" (rule 3)
+  matches the frame id to the wrapping step's position, and the outline draws
+  the closure's steps under that call row instead of under a separate heading.
+- **Pure helper, as implemented.** A project callee is a helper when it is
+  loaded (≤ 3 levels below the asked methods, ≤ 2000 methods in all), has no
+  overrides, writes no field (`field_accesses`), and none of its own steps is
+  visible. A cycle or an unloaded method counts as not a helper.
+- **Utility on a field.** The utility category (rule 4) does not hide a
+  discarded call on a `field` receiver (`cache.put(k, v)`): that falls through
+  to rule 5 as a state write.
+- **Unresolved Java types.** When the declaring type does not resolve, the
+  callee key uses the declared type's simple name (`Counter#increment`), and the
+  infrastructure table also matches a few simple names (`Logger`, `Counter`,
+  `MeterRegistry`, …). Lombok's `log` is keyed `org.slf4j.Logger#<method>`.
+- **`GetSteps` goes through the Service** that `CodeGraphGetNeighbors` uses
+  (same `servicePath`), not the on-disk index reader.
+- **Click on an outline row** selects it and opens the inspector, as a click on a
+  card does. Enter does the same from the keyboard.
+- **Windowing** uses the shared `useVirtualRows` threshold (100 rows).
+- **Steps are re-fetched** for the whole subgraph after "Load more", a refresh,
+  or an override change.
