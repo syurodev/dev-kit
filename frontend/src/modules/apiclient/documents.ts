@@ -1,5 +1,5 @@
 import { getModule, viewIcon } from "@/modules/registry";
-import { moduleTabs, useWorkbenchTabsStore, type WorkbenchTabsState } from "@/stores/workbenchTabs";
+import { moduleTabs, retitleClosedTabs, useWorkbenchTabsStore, type WorkbenchTab, type WorkbenchTabsState } from "@/stores/workbenchTabs";
 import type { RequestInput } from "@/bridge/apiclient";
 import { useApiClientStore } from "./apiclientStore";
 import { emptyRequest } from "./requestModel";
@@ -136,8 +136,13 @@ export function activeApiClientTab(state: WorkbenchTabsState) {
 export function renameApiDocument(viewId: string, params: Record<string, unknown>, title: string) {
   useWorkbenchTabsStore.setState((state) => {
     const tabs = moduleTabs(state.modules, MODULE);
-    const matches = (tab: (typeof tabs.openTabs)[number]) => tab.viewId === viewId && Object.entries(params).every(([key, value]) => tab.params?.[key] === value);
-    if (!tabs.openTabs.some((tab) => matches(tab) && tab.title !== title)) return state;
-    return { modules: { ...state.modules, [MODULE]: { ...tabs, openTabs: tabs.openTabs.map((tab) => matches(tab) ? { ...tab, title } : tab) } } };
+    const matches = (tab: Pick<WorkbenchTab, "viewId" | "params">) => tab.viewId === viewId && Object.entries(params).every(([key, value]) => tab.params?.[key] === value);
+    const recentlyClosed = retitleClosedTabs(state.recentlyClosed, (entry) => (entry.moduleId === MODULE && matches(entry) ? title : undefined));
+    const changed = tabs.openTabs.some((tab) => matches(tab) && tab.title !== title);
+    if (!changed && recentlyClosed === state.recentlyClosed) return state;
+    return {
+      modules: changed ? { ...state.modules, [MODULE]: { ...tabs, openTabs: tabs.openTabs.map((tab) => matches(tab) ? { ...tab, title } : tab) } } : state.modules,
+      recentlyClosed,
+    };
   });
 }

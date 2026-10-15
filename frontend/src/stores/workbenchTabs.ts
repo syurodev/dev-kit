@@ -116,9 +116,29 @@ export const MAX_RECENTLY_CLOSED = 20;
 /** The id the record's tab had — and will have again: tabKey is the document's identity. */
 const closedTabId = (entry: ClosedTab) => tabKey(entry.moduleId, entry.viewId, entry.params);
 
-/** The stack without `id`'s records; the same array when it had none, so nothing is published for it. */
-function forgetClosed(stack: ClosedTab[], id: string): ClosedTab[] {
+/**
+ * The stack without `id`'s records; the same array when it had none, so nothing
+ * is published for it. Exported for code that adds a tab without openTab
+ * (a background add writes the partition itself) and must forget it too.
+ */
+export function forgetClosed(stack: ClosedTab[], id: string): ClosedTab[] {
   return stack.some((entry) => closedTabId(entry) === id) ? stack.filter((entry) => closedTabId(entry) !== id) : stack;
+}
+
+/**
+ * The stack with each record `title` names a new title for renamed — so a
+ * document renamed after its tab closed is offered back under its new name.
+ * The same array when nothing changed. For the helpers that retitle open tabs.
+ */
+export function retitleClosedTabs(stack: ClosedTab[], title: (entry: ClosedTab) => string | undefined): ClosedTab[] {
+  let changed = false;
+  const next = stack.map((entry) => {
+    const renamed = title(entry);
+    if (renamed === undefined || renamed === entry.title) return entry;
+    changed = true;
+    return { ...entry, title: renamed };
+  });
+  return changed ? next : stack;
 }
 
 /**
@@ -422,8 +442,10 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         ...partial,
         groups: withGroup(placed.groups, placed.group.id, { activeTabId: id }),
         focusedGroupId: placed.group.id,
-        // Open again by any route, a closed tab is no longer one to reopen.
-        recentlyClosed: forgetClosed(state.recentlyClosed, id),
+        // Opened for real, a closed tab is no longer one to reopen. A preview
+        // is only a look, and may be gone with the next click: keep the record
+        // (the Recently Closed list leaves out ids that are open).
+        recentlyClosed: input.preview ? state.recentlyClosed : forgetClosed(state.recentlyClosed, id),
       });
     });
     return id;
@@ -484,6 +506,14 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
   reopenClosedTab: (at = 0) => {
     const entry = get().recentlyClosed[at];
     if (!entry) return null;
+    const recordedId = closedTabId(entry);
+    // Open again by a route that kept the record (a preview, a background
+    // add): show it where it is rather than moving it back.
+    if (moduleTabs(get().modules, entry.moduleId).openTabs.some((t) => t.id === recordedId)) {
+      set((state) => ({ recentlyClosed: forgetClosed(state.recentlyClosed, recordedId) }));
+      get().setActiveTab(recordedId);
+      return recordedId;
+    }
     // Its old group, if it still exists and still shows the module; else
     // openTab's own placement, which starts at the focused group.
     const home = get().groups.find((g) => g.id === entry.groupId && g.moduleId === entry.moduleId);
@@ -499,12 +529,14 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
     });
     const opened = moduleTabs(get().modules, entry.moduleId).openTabs.find((t) => t.id === id);
     if (entry.pinned && opened && !opened.pinned) get().togglePinTab(id);
-    // Back to its old place in the strip; reorderTab keeps it on its side of
-    // the pinned run, and past the end means the end.
+    // Back to its old place in the strip — only in its own group: an index
+    // in a strip that is gone means nothing in another one, where it stays at
+    // the end like any open. reorderTab keeps it on its side of the pinned run,
+    // and past the end means the end.
     const after = get();
     const placed = moduleTabs(after.modules, entry.moduleId).openTabs.find((t) => t.id === id);
     const group = placed ? groupOfTab(after.groups, placed) : null;
-    if (group) {
+    if (home && group?.id === home.id) {
       const strip = tabsOfGroup(after, group).filter((t) => t.id !== id);
       after.reorderTab(id, strip[entry.index]?.id ?? null);
     }

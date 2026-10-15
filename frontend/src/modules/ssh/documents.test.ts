@@ -22,6 +22,14 @@ test("the tabs of a deleted profile are not offered back", () => {
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
 });
 
+test("a closed connection tab is offered back under the profile's new name", () => {
+  openSSHConnection(a);
+  openSSHConnection(b);
+  useWorkbenchTabsStore.getState().closeTab(tabs().openTabs[0].id);
+  renameSSHConnection({ ...a, name: "API server" });
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["API server"]);
+});
+
 test("each connection is a workbench document; reopening focuses rather than duplicates", () => {
   openSSHConnection(a); openSSHConnection(b); openSSHConnection(a);
   expect(tabs().openTabs.map(t => t.title)).toEqual(["Development", "Staging"]);

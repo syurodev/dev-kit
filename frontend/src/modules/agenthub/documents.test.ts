@@ -100,6 +100,23 @@ test("the new-session tab a session replaced is not offered back", () => {
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
 });
 
+test("a session tab added in the background forgets its closed record", () => {
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  closeAgentSessionTabs(["b"]);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(1);
+  addAgentSessionTabInBackground(session("b"));
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
+test("a closed session tab is offered back under the session's new title", () => {
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  closeAgentSessionTabs(["b"]);
+  syncAgentSessionTabTitles({ b: session("b", "Fix the login") });
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["Fix the login"]);
+});
+
 test("closing tabs leaves other sessions' tabs alone", () => {
   openAgentSession(session("a"));
   openAgentSession(session("b"));

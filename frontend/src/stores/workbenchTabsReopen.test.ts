@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { persistedTabs, useWorkbenchTabsStore, type OpenTabInput } from "./workbenchTabs";
+import { persistedTabs, retitleClosedTabs, useWorkbenchTabsStore, type OpenTabInput } from "./workbenchTabs";
 
 // Every setState below schedules a debounced ui_state write that lands 400ms
 // later on a bridge with no Wails window — an unhandled rejection in whichever
@@ -90,8 +90,66 @@ test("a tab whose group is gone reopens in the focused group", () => {
   useWorkbenchTabsStore.getState().reopenClosedTab();
   const state = useWorkbenchTabsStore.getState();
   const tab = state.modules.notes.openTabs.find((t) => t.title === "b")!;
-  expect(state.groups.some((g) => g.id === (tab.group ?? ""))).toBe(true);
-  expect(tab.group).toBe(state.focusedGroupId);
+  expect(state.groups).toHaveLength(1);
+  const survivor = state.groups[0].id;
+  expect(tab.group).toBe(survivor);
+  expect(state.focusedGroupId).toBe(survivor);
+});
+
+test("in another group a reopened tab goes to the end, not to its old group's index", () => {
+  open("a");
+  const b = open("b");
+  const c = open("c");
+  useWorkbenchTabsStore.getState().splitTab(b);
+  const second = useWorkbenchTabsStore.getState().focusedGroupId;
+  useWorkbenchTabsStore.getState().moveTabToGroup(c, second);
+  // b and c sat at 0 and 1 of the second group; it empties and is dropped.
+  useWorkbenchTabsStore.getState().closeTab(b);
+  useWorkbenchTabsStore.getState().closeTab(c);
+  expect(useWorkbenchTabsStore.getState().groups).toHaveLength(1);
+  useWorkbenchTabsStore.getState().reopenClosedTab();
+  useWorkbenchTabsStore.getState().reopenClosedTab();
+  expect(titles()).toEqual(["a", "c", "b"]);
+});
+
+test("a record whose tab is open again some other way just shows that tab", () => {
+  const a = open("a");
+  open("b");
+  useWorkbenchTabsStore.getState().closeTab(a);
+  const record = useWorkbenchTabsStore.getState().recentlyClosed[0];
+  // Back by a route that is not openTab (a background add writes the partition directly).
+  useWorkbenchTabsStore.setState((s) => ({
+    modules: {
+      ...s.modules,
+      notes: { ...s.modules.notes, openTabs: [...s.modules.notes.openTabs, { id: a, moduleId: "notes", viewId: "notes.editor", title: "a", params: { noteId: "a" } }] },
+    },
+  }));
+  expect(useWorkbenchTabsStore.getState().recentlyClosed[0]).toBe(record);
+  expect(useWorkbenchTabsStore.getState().reopenClosedTab()).toBe(a);
+  const state = useWorkbenchTabsStore.getState();
+  expect(state.recentlyClosed).toHaveLength(0);
+  expect(state.modules.notes.activeTabId).toBe(a);
+  // Shown where it is: not moved back to index 0, not duplicated.
+  expect(titles()).toEqual(["b", "a"]);
+});
+
+test("a preview open keeps the record; a real open forgets it", () => {
+  const a = open("a");
+  open("b");
+  useWorkbenchTabsStore.getState().closeTab(a);
+  open("a", { preview: true });
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(1);
+  open("a");
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
+test("retitleClosedTabs renames matching records and keeps the stack when none match", () => {
+  useWorkbenchTabsStore.getState().closeTab(open("a"));
+  const stack = useWorkbenchTabsStore.getState().recentlyClosed;
+  expect(retitleClosedTabs(stack, () => undefined)).toBe(stack);
+  expect(retitleClosedTabs(stack, (e) => (e.params?.noteId === "a" ? "a" : undefined))).toBe(stack);
+  const renamed = retitleClosedTabs(stack, (e) => (e.params?.noteId === "a" ? "Renamed" : undefined));
+  expect(renamed.map((e) => e.title)).toEqual(["Renamed"]);
 });
 
 test("a tab reopens in its own group when that group is still there", () => {

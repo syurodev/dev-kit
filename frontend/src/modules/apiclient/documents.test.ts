@@ -46,3 +46,12 @@ test("a tab closed for a deleted or newly saved document is not offered back", (
   expect(moduleTabs(useWorkbenchTabsStore.getState().modules, "apiclient").openTabs).toHaveLength(0);
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
 });
+
+test("a closed request tab is offered back under the request's new name", () => {
+  openRequest("a", "Users");
+  openRequest("b", "Projects");
+  const a = moduleTabs(useWorkbenchTabsStore.getState().modules, "apiclient").openTabs[0].id;
+  useWorkbenchTabsStore.getState().closeTab(a);
+  renameApiDocument(REQUEST_VIEW, { requestId: "a" }, "List users");
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["List users"]);
+});
