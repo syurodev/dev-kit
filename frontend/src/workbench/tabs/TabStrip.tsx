@@ -445,14 +445,15 @@ function TabItem({
       </span>
       {/* A pinned tab shows its pin where the close button goes, and the pin
           unpins (VS Code). Every other tab — a preview too — has the 12px
-          close. Unsaved work takes the slot as a dot that gives way to the
-          pin or close under the pointer or keyboard focus (VS Code). The dot
-          sits in the same 12px box, so the title does not move. */}
+          close. Unsaved work shows as a dot laid over that 12px slot (right-3
+          is the tab's px-3), and gives way to the pin or close under the
+          pointer or keyboard focus (VS Code). The button is only see-through
+          meanwhile, so a screen reader still finds it. */}
       {marks.dirty ? (
         <span
           aria-hidden="true"
           data-tab-dirty
-          className="z-10 flex size-3 shrink-0 items-center justify-center group-hover:hidden group-focus-visible:hidden"
+          className="pointer-events-none absolute top-1/2 right-3 z-10 flex size-3 -translate-y-1/2 items-center justify-center group-hover:opacity-0 group-focus-visible:opacity-0"
         >
           <span className="size-2 rounded-full bg-text-secondary" />
         </span>
@@ -470,7 +471,8 @@ function TabItem({
           }}
           className={cn(
             "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
-            marks.dirty && "hidden group-hover:flex group-focus-visible:flex",
+            marks.dirty &&
+              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100",
           )}
         >
           <Pin className="size-3" />
@@ -496,7 +498,8 @@ function TabItem({
           }}
           className={cn(
             "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
-            marks.dirty && "hidden group-hover:flex group-focus-visible:flex",
+            marks.dirty &&
+              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100",
           )}
         >
           <X className="size-3" />

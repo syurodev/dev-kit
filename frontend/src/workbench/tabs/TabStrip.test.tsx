@@ -74,3 +74,11 @@ test("a dirty tab shows the unsaved dot and keeps its close button for hover", (
   expect(markup).toContain("Unsaved changes");
   expect(tabMarkup(html, "a")).not.toContain("data-tab-dirty");
 });
+
+test("a dirty tab's close button stays in the accessibility tree, only out of sight", () => {
+  const html = renderStrip([tab("a"), tab("edited", { dirty: true, title: "Edited" })], "a");
+  const close = tabMarkup(html, "edited").match(/aria-label="Close Edited" class="([^"]*)"/)?.[1] ?? "";
+  expect(close).not.toMatch(/(^|\s)hidden(\s|$)/);
+  expect(close).toContain("opacity-0");
+  expect(close).toContain("group-hover:opacity-100");
+});
