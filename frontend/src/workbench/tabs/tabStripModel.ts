@@ -45,6 +45,23 @@ export function revealScrollLeft(view: {
   return tabLeft;
 }
 
+/**
+ * revealScrollLeft for a strip whose overflowing sides fade: a tab under a
+ * fade reads as cut off, so each faded side's inset is taken off the viewport
+ * before the tab is fitted into what is left.
+ */
+export function revealScrollLeftWithin(
+  view: { scrollLeft: number; viewportWidth: number; tabLeft: number; tabWidth: number },
+  insets: { left: number; right: number },
+): number {
+  const inner = revealScrollLeft({
+    ...view,
+    scrollLeft: view.scrollLeft + insets.left,
+    viewportWidth: Math.max(0, view.viewportWidth - insets.left - insets.right),
+  });
+  return Math.max(0, inner - insets.left);
+}
+
 export type ScrollView = { scrollLeft: number; scrollWidth: number; clientWidth: number };
 
 /** A pixel of slack: a fractional scrollLeft at either end is still the end. */

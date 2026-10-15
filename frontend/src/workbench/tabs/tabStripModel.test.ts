@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beforeIdAfterMove, overflowEdges, revealScrollLeft, scrollStep } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep } from "./tabStripModel";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -61,4 +61,37 @@ test("scrollStep moves by most of a viewport and stops at the ends", () => {
   expect(scrollStep(view, "right")).toBe(340);
   expect(scrollStep(view, "left")).toBe(0);
   expect(scrollStep({ ...view, scrollLeft: 500 }, "right")).toBe(600);
+});
+
+describe("revealing a tab past the overflow fades", () => {
+  // In sight: 124..376 — the 24px under each fade does not count.
+  const view = { scrollLeft: 100, viewportWidth: 300 };
+  const faded = { left: 24, right: 24 };
+
+  test("a tab clear of both fades does not move the strip", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 150, tabWidth: 100 }, faded)).toBe(100);
+  });
+
+  test("a tab under the right fade comes out from under it", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 300, tabWidth: 100 }, faded)).toBe(124);
+  });
+
+  test("a tab under the left fade comes out from under it", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 110, tabWidth: 100 }, faded)).toBe(86);
+  });
+
+  test("a side with no fade is not inset", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 300, tabWidth: 100 }, { left: 24, right: 0 })).toBe(100);
+  });
+
+  test("with no fades it is revealScrollLeft", () => {
+    for (const tabLeft of [40, 150, 350, 450]) {
+      const tab = { ...view, tabLeft, tabWidth: 100 };
+      expect(revealScrollLeftWithin(tab, { left: 0, right: 0 })).toBe(revealScrollLeft(tab));
+    }
+  });
+
+  test("never scrolls before the start", () => {
+    expect(revealScrollLeftWithin({ scrollLeft: 20, viewportWidth: 300, tabLeft: 10, tabWidth: 80 }, faded)).toBe(0);
+  });
 });
