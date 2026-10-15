@@ -327,6 +327,16 @@ type CallSite struct {
 	To         string `json:"to"`
 	Line       int    `json:"line"`
 	Unresolved string `json:"unresolved"`
+
+	// The step the flow outline reads; empty from an analyzer (or an index)
+	// that does not record it. See steps.go for what each field means.
+	Col       int         `json:"col,omitempty"`
+	Text      string      `json:"text,omitempty"`
+	CalleeKey string      `json:"calleeKey,omitempty"` // "<module-or-type>#<member>"
+	Receiver  string      `json:"receiver,omitempty"`  // param | field | local-from-param | local | static | this | unknown
+	ResultUse string      `json:"resultUse,omitempty"` // discarded | assigned | returned | argument | condition | unknown
+	Frames    []StepFrame `json:"frames,omitempty"`
+	Role      string      `json:"role,omitempty"` // "" | RoleOverride
 }
 
 // DataFlowStep is one event in the trace: a read, a write, or a call the flow
@@ -556,6 +566,17 @@ type Store interface {
 	// which neither GetCallSites (by caller) nor GetCallSitesAt (by exact
 	// location) answers.
 	GetCallSitesTo(ctx context.Context, toID string) ([]CallSite, error)
+	// GetStepSites returns every call site of the given callers with its step,
+	// ordered by caller, line and column — the flow outline's input.
+	GetStepSites(ctx context.Context, fromIDs []string) ([]CallSite, error)
+	// CallStats counts, per callee key, the distinct methods calling it, and
+	// the methods in the index.
+	CallStats(ctx context.Context) (CallStats, error)
+	// ListEffectsFrom returns what extractors recognised in the given
+	// callers' bodies (Kafka, HTTP, Redis, DB), ordered by caller and line.
+	ListEffectsFrom(ctx context.Context, fromIDs []string) ([]StepEffectAt, error)
+	// FieldWriters reports which of the given methods write a field.
+	FieldWriters(ctx context.Context, ids []string) (map[string]bool, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error

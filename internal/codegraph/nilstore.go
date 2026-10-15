@@ -98,6 +98,16 @@ func (nilStore) GetCallSitesAt(context.Context, string, int) ([]CallSite, error)
 func (nilStore) GetCallSitesTo(context.Context, string) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) GetStepSites(context.Context, []string) ([]CallSite, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) CallStats(context.Context) (CallStats, error) { return CallStats{}, ErrNoActiveProject }
+func (nilStore) ListEffectsFrom(context.Context, []string) ([]StepEffectAt, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) FieldWriters(context.Context, []string) (map[string]bool, error) {
+	return nil, ErrNoActiveProject
+}
 
 func (nilStore) AddComment(context.Context, PlanComment) error { return ErrNoActiveProject }
 func (nilStore) ListComments(context.Context, string) ([]PlanComment, error) {

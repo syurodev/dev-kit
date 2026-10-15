@@ -147,7 +147,14 @@ CREATE TABLE IF NOT EXISTS call_sites (
 	from_id TEXT NOT NULL,
 	to_id TEXT NOT NULL,
 	line INTEGER NOT NULL,
-	unresolved TEXT NOT NULL
+	unresolved TEXT NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0,
+	text TEXT NOT NULL DEFAULT '',
+	callee_key TEXT NOT NULL DEFAULT '',
+	receiver TEXT NOT NULL DEFAULT '',
+	result_use TEXT NOT NULL DEFAULT '',
+	frames TEXT NOT NULL DEFAULT '',
+	role TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_call_sites_from ON call_sites(from_id);
 CREATE INDEX IF NOT EXISTS idx_call_sites_to ON call_sites(to_id);
@@ -277,6 +284,9 @@ func migrateSchema(db *sql.DB) error {
 	if err := migrateEdgeGuard(db); err != nil {
 		return err
 	}
+	if err := migrateCallSiteSteps(db); err != nil {
+		return err
+	}
 	if err := migrateEndpointsTable(db); err != nil {
 		return err
 	}
@@ -341,6 +351,50 @@ func migrateEdgeGuard(db *sql.DB) error {
 	if !has {
 		if _, err := db.Exec("ALTER TABLE edges ADD COLUMN guard TEXT NOT NULL DEFAULT ''"); err != nil {
 			return fmt.Errorf("codegraph: add edges.guard column: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateCallSiteSteps adds the step columns to an index written before the
+// flow outline. Its call sites read with no step — a flat outline — until the
+// next re-index fills them in.
+func migrateCallSiteSteps(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(call_sites)")
+	if err != nil {
+		return fmt.Errorf("codegraph: inspect call_sites table: %w", err)
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("codegraph: scan table_info: %w", err)
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("codegraph: table_info rows: %w", err)
+	}
+	rows.Close()
+	columns := []struct{ name, ddl string }{
+		{"col", "INTEGER NOT NULL DEFAULT 0"},
+		{"text", "TEXT NOT NULL DEFAULT ''"},
+		{"callee_key", "TEXT NOT NULL DEFAULT ''"},
+		{"receiver", "TEXT NOT NULL DEFAULT ''"},
+		{"result_use", "TEXT NOT NULL DEFAULT ''"},
+		{"frames", "TEXT NOT NULL DEFAULT ''"},
+		{"role", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range columns {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE call_sites ADD COLUMN " + c.name + " " + c.ddl); err != nil {
+			return fmt.Errorf("codegraph: add call_sites.%s column: %w", c.name, err)
 		}
 	}
 	return nil
@@ -483,13 +537,23 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
-	siteStmt, err := insert(`INSERT INTO call_sites (from_id, to_id, line, unresolved) VALUES (?, ?, ?, ?)`)
+	siteStmt, err := insert(`INSERT INTO call_sites (from_id, to_id, line, unresolved, col, text, callee_key, receiver, result_use, frames, role)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer siteStmt.Close()
 	for _, c := range result.CallSites {
-		if _, err := siteStmt.ExecContext(ctx, c.From, c.To, c.Line, c.Unresolved); err != nil {
+		frames := ""
+		if len(c.Frames) > 0 {
+			body, err := json.Marshal(c.Frames)
+			if err != nil {
+				return fmt.Errorf("codegraph: encode frames of %q: %w", c.From, err)
+			}
+			frames = string(body)
+		}
+		if _, err := siteStmt.ExecContext(ctx, c.From, c.To, c.Line, c.Unresolved, c.Col, c.Text, c.CalleeKey,
+			c.Receiver, c.ResultUse, frames, c.Role); err != nil {
 			return fmt.Errorf("codegraph: insert call site %q->%q: %w", c.From, c.To, err)
 		}
 	}
@@ -1213,6 +1277,139 @@ func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSi
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// GetStepSites reads call sites with their step, batched like GetNodes. Order
+// is source order within a caller; column breaks a tie on one line.
+func (s *sqliteStore) GetStepSites(ctx context.Context, fromIDs []string) ([]CallSite, error) {
+	var out []CallSite
+	for start := 0; start < len(fromIDs); start += batchSize {
+		chunk := fromIDs[start:min(start+batchSize, len(fromIDs))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT from_id, to_id, line, unresolved, col, text, callee_key, receiver, result_use, frames, role
+			   FROM call_sites WHERE from_id IN (`+placeholders(len(chunk))+`)
+			  ORDER BY from_id, line, col, to_id`, stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: GetStepSites: %w", err)
+		}
+		for rows.Next() {
+			var c CallSite
+			var frames string
+			if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Col, &c.Text, &c.CalleeKey,
+				&c.Receiver, &c.ResultUse, &frames, &c.Role); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan step site: %w", err)
+			}
+			if frames != "" {
+				// A row that cannot be read keeps its call, without frames:
+				// one bad row must not take the method's outline with it.
+				if err := json.Unmarshal([]byte(frames), &c.Frames); err != nil {
+					c.Frames = nil
+				}
+			}
+			out = append(out, c)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// CallStats counts callers per callee key. Dispatch links (a role) are
+// not calls anyone wrote, and a site with no key says nothing about a callee.
+func (s *sqliteStore) CallStats(ctx context.Context) (CallStats, error) {
+	stats := CallStats{Callers: map[string]int{}}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes WHERE kind = 'method'`).Scan(&stats.Methods); err != nil {
+		return CallStats{}, fmt.Errorf("codegraph: count methods: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT callee_key, COUNT(DISTINCT from_id) FROM call_sites WHERE callee_key != '' AND role = '' GROUP BY callee_key`)
+	if err != nil {
+		return CallStats{}, fmt.Errorf("codegraph: CallStats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var n int
+		if err := rows.Scan(&key, &n); err != nil {
+			return CallStats{}, fmt.Errorf("codegraph: scan call stats: %w", err)
+		}
+		stats.Callers[key] = n
+	}
+	return stats, rows.Err()
+}
+
+// ListEffectsFrom gathers the four extractor tables into one shape, keyed by
+// the line each access was seen at — the line GetSteps matches a call on.
+func (s *sqliteStore) ListEffectsFrom(ctx context.Context, fromIDs []string) ([]StepEffectAt, error) {
+	var out []StepEffectAt
+	for start := 0; start < len(fromIDs); start += batchSize {
+		chunk := fromIDs[start:min(start+batchSize, len(fromIDs))]
+		in := placeholders(len(chunk))
+		args := make([]any, 0, 4*len(chunk))
+		for range 4 {
+			args = append(args, stringArgs(chunk)...)
+		}
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT from_id, line, 'kafka', role, topic FROM kafka_accesses WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, 'http', 'call', TRIM(http_method || ' ' || url) FROM outbound_calls WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, 'redis', access, key FROM redis_accesses WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, 'db', access, CASE WHEN schema_name = '' THEN table_name ELSE schema_name || '.' || table_name END
+			  FROM table_accesses WHERE from_id IN (`+in+`)
+			ORDER BY 1, 2`, args...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: ListEffectsFrom: %w", err)
+		}
+		for rows.Next() {
+			var e StepEffectAt
+			if err := rows.Scan(&e.From, &e.Line, &e.Effect.Kind, &e.Effect.Role, &e.Effect.Target); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan effect: %w", err)
+			}
+			out = append(out, e)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// FieldWriters reads field_accesses' writes; a method absent from the map
+// writes no field.
+func (s *sqliteStore) FieldWriters(ctx context.Context, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for start := 0; start < len(ids); start += batchSize {
+		chunk := ids[start:min(start+batchSize, len(ids))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT DISTINCT node_id FROM field_accesses WHERE kind = 'write' AND node_id IN (`+placeholders(len(chunk))+`)`,
+			stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: FieldWriters: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan field writer: %w", err)
+			}
+			out[id] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
 }
 
 // GetCallSites returns every call expression in one method, in source order.
