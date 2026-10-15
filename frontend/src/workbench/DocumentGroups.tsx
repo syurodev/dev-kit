@@ -260,7 +260,7 @@ function GroupCard({
           </div>
         </Profiler>
       ) : multi ? (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-subtle pr-1 pl-3 text-text-secondary">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-subtle pl-3 text-text-secondary">
           <Icon className="size-4 shrink-0" aria-hidden />
           <span className="min-w-0 flex-1 truncate text-label-12">{module?.title}</span>
           <CloseGroupButton onClose={() => closeGroup(group.id)} />
@@ -272,7 +272,7 @@ function GroupCard({
           // on screen does — so unfolding shows it as it was.
           folded ? "hidden" : "flex min-h-0 flex-1 flex-col",
           module?.padded
-            ? // The tab strip already has a 4px bottom inset. Start content
+            ? // The tab strip already has a 6px bottom inset. Start content
               // at the shell gutter when tabs are present; without a strip
               // the section touches the card edge and owes the full gutter.
               module.tabs
@@ -301,7 +301,7 @@ function CloseGroupButton({ onClose }: { onClose: () => void }): ReactNode {
       type="button"
       aria-label="Close group"
       title="Close group"
-      className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-text-tertiary hover:bg-state-soft hover:text-text-primary"
+      className="mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-text-tertiary hover:bg-state-soft hover:text-text-primary"
       onClick={onClose}
     >
       <X className="size-3.5" />
