@@ -22,4 +22,7 @@ function follow(state: WorkbenchTabsState) {
 }
 
 follow(useWorkbenchTabsStore.getState());
-useWorkbenchTabsStore.subscribe(follow);
+const unsubscribe = useWorkbenchTabsStore.subscribe(follow);
+// A hot reload evaluates this module again; the old subscription would keep
+// writing an old store beside the new one.
+import.meta.hot?.dispose(unsubscribe);
