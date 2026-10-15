@@ -19,6 +19,8 @@ type MemoryRepository struct {
 	hasAgentSandbox       bool
 	codexAPIKeyAccount    string
 	hasCodexAPIKeyAccount bool
+	callVisibility        map[string]string
+	hasCallVisibility     bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -137,5 +139,26 @@ func (r *MemoryRepository) SetUpdateChecks(enabled bool) error {
 	defer r.mu.Unlock()
 	r.updateChecks = enabled
 	r.hasUpdateChecks = true
+	return nil
+}
+
+func (r *MemoryRepository) GetCallVisibility() (map[string]string, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]string, len(r.callVisibility))
+	for k, v := range r.callVisibility {
+		out[k] = v
+	}
+	return out, r.hasCallVisibility, nil
+}
+
+func (r *MemoryRepository) SetCallVisibility(overrides map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.callVisibility = make(map[string]string, len(overrides))
+	for k, v := range overrides {
+		r.callVisibility[k] = v
+	}
+	r.hasCallVisibility = true
 	return nil
 }

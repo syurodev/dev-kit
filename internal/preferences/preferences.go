@@ -3,6 +3,7 @@ package preferences
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -251,6 +252,8 @@ type Repository interface {
 	SetAgentSandbox(settings AgentSandboxSettings) error
 	GetCodexAPIKeyAccount() (string, bool, error)
 	SetCodexAPIKeyAccount(accountID string) error
+	GetCallVisibility() (map[string]string, bool, error)
+	SetCallVisibility(overrides map[string]string) error
 }
 
 type Service struct {
@@ -424,4 +427,55 @@ func (s *Service) CodexAPIKeyAccount() (string, error) {
 // package does not know accounts.
 func (s *Service) SetCodexAPIKeyAccount(accountID string) error {
 	return s.repo.SetCodexAPIKeyAccount(strings.TrimSpace(accountID))
+}
+
+// Limits on CodeGraph's call-visibility overrides: a key is a callee key
+// ("<type>#<member>", or "<type>#*"), a mode is show or hide.
+const (
+	maxCallVisibilityKey     = 300
+	maxCallVisibilityEntries = 500
+)
+
+// ErrInvalidCallVisibility rejects a key or mode the overrides cannot hold.
+var ErrInvalidCallVisibility = errors.New("preferences: invalid call visibility")
+
+// CallVisibility is the person's "always show / always hide" choices for
+// CodeGraph's flow outline. Local to this machine, never synced, the same
+// for every project: a library method behaves the same everywhere.
+func (s *Service) CallVisibility() (map[string]string, error) {
+	got, found, err := s.repo.GetCallVisibility()
+	if err != nil {
+		return nil, err
+	}
+	if !found || got == nil {
+		return map[string]string{}, nil
+	}
+	return got, nil
+}
+
+// SetCallVisibility sets one key to "show" or "hide", or removes it with "".
+func (s *Service) SetCallVisibility(key, mode string) error {
+	if !strings.Contains(key, "#") || len(key) > maxCallVisibilityKey {
+		return fmt.Errorf("%w: key %q", ErrInvalidCallVisibility, key)
+	}
+	if mode != "show" && mode != "hide" && mode != "" {
+		return fmt.Errorf("%w: mode %q", ErrInvalidCallVisibility, mode)
+	}
+	current, err := s.CallVisibility()
+	if err != nil {
+		return err
+	}
+	next := make(map[string]string, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	if mode == "" {
+		delete(next, key)
+	} else {
+		next[key] = mode
+	}
+	if len(next) > maxCallVisibilityEntries {
+		return fmt.Errorf("%w: more than %d entries", ErrInvalidCallVisibility, maxCallVisibilityEntries)
+	}
+	return s.repo.SetCallVisibility(next)
 }

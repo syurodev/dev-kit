@@ -2,6 +2,7 @@ package preferences
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -268,5 +269,39 @@ func TestRevealRequiresPasswordDefaultsOn(t *testing.T) {
 	}
 	if required, err = svc.RevealRequiresPassword(); err != nil || required {
 		t.Fatalf("turning it off did not stick: %v %v", required, err)
+	}
+}
+
+func TestCallVisibilityOverrides(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	got, err := svc.CallVisibility()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("unset = %v, %v", got, err)
+	}
+	if err := svc.SetCallVisibility("org.apache.camel.Message#setHeader", "show"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetCallVisibility("org.slf4j.Logger#*", "hide"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = svc.CallVisibility()
+	if got["org.apache.camel.Message#setHeader"] != "show" || got["org.slf4j.Logger#*"] != "hide" {
+		t.Fatalf("got = %v", got)
+	}
+	if err := svc.SetCallVisibility("org.slf4j.Logger#*", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = svc.CallVisibility()
+	if _, ok := got["org.slf4j.Logger#*"]; ok {
+		t.Fatalf("reset kept the key: %v", got)
+	}
+	for _, bad := range []struct{ key, mode string }{
+		{"no-hash", "show"},
+		{"a#b", "maybe"},
+		{strings.Repeat("x", 301) + "#y", "show"},
+	} {
+		if err := svc.SetCallVisibility(bad.key, bad.mode); err == nil {
+			t.Fatalf("SetCallVisibility(%q, %q) accepted", bad.key, bad.mode)
+		}
 	}
 }
