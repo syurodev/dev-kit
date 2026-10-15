@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { ICON_BADGE, LAYERS, layerOf } from "./tokens";
+import { EFFECT_CHIP, ICON_BADGE, LAYERS, layerOf } from "./tokens";
 import { cn } from "@/lib/utils";
 
 export type ApiNodeData = {
@@ -99,7 +99,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
       {data.effects?.length || data.hiddenCalls ? (
         <span className="flex flex-wrap items-center gap-1.5 text-caption-11 text-text-tertiary">
           {data.effects?.map((effect) => (
-            <span key={effect} className="rounded-sm border border-border-subtle px-1.5 text-code-11 text-text-secondary">
+            <span key={effect} className={EFFECT_CHIP}>
               {effect}
             </span>
           ))}

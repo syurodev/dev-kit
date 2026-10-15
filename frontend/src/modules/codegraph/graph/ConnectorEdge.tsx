@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
+  Position,
   type EdgeProps,
 } from "@xyflow/react";
 import { EDGE } from "./tokens";
@@ -25,6 +26,9 @@ export type ConnectorEdgeData = {
   lit?: boolean;
 };
 
+/** Room between a label at the arrowhead and the card: the arrow itself. */
+const LABEL_ARROW_GAP = 24;
+
 export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   const kind = (data as ConnectorEdgeData | undefined)?.kind ?? "call";
   const showLabel = (data as ConnectorEdgeData | undefined)?.showLabel ?? false;
@@ -35,12 +39,17 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   // An injection and a call into an override are both "not a call you wrote here".
   const dashed = kind === "di" || kind === "implements";
 
-  const titled = !!title && title !== label;
-
-  const [path, labelX, labelY] = getSmoothStepPath({
+  const [path, midX, midY] = getSmoothStepPath({
     ...props,
     borderRadius: EDGE.elbowRadius,
   });
+  // A branch enters its card from the left after running down beside the
+  // column it leaves, and the path's midpoint lands behind the card below the
+  // caller. Its label sits at the arrowhead instead, on the run into the card.
+  const atArrow = props.targetPosition === Position.Left;
+  const transform = atArrow
+    ? `translate(-100%, -50%) translate(${props.targetX - LABEL_ARROW_GAP}px, ${props.targetY}px)`
+    : `translate(-50%, -50%) translate(${midX}px, ${midY}px)`;
 
   return (
     <>
@@ -58,10 +67,11 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
       {showLabel && (
         <EdgeLabelRenderer>
           <div
-            // A label that hides more than it shows (a clipped guard) takes
-            // the pointer so its tooltip can open; the rest stay click-through.
-            className={`nodrag nopan absolute transition-opacity duration-150${titled ? " pointer-events-auto" : " pointer-events-none"}${dimmed ? " opacity-15" : ""}`}
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+            // Above the cards (z-10), and it takes the pointer so the tooltip
+            // of a clipped label (a guard, a plan condition) can open; nodrag
+            // and nopan keep a press on it from moving the canvas.
+            className={`nodrag nopan pointer-events-auto absolute z-10 transition-opacity duration-150${dimmed ? " opacity-15" : ""}`}
+            style={{ transform }}
           >
             <EdgeLabelPill kind={kind === "di" ? "di" : "call"} title={title ?? label}>
               {label ?? (kind === "di" ? "injects" : "calls")}

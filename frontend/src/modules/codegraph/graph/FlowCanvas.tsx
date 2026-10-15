@@ -155,7 +155,8 @@ export type FlowCanvasProps = {
   selectedNodeId?: string | null;
   /**
    * Centre this node on the first placement instead of fitting the whole
-   * graph — the Outline's selection when switching to Graph.
+   * graph — the Outline's selection when switching to Graph. Read once: a
+   * later selection or node set never moves the view to it.
    */
   focusNodeId?: string | null;
   /**
@@ -303,6 +304,7 @@ function Canvas({
   // The node the last fit centred, so a resize (the inspector opening beside
   // the canvas) keeps it centred rather than fitting the whole graph again.
   const fittedFocus = useRef<string | null>(null);
+  const focusUsed = useRef(false);
 
   // The layout is a function of the ranking alone, so it re-runs when the
   // ranking does (a new node, a new edge) and never on a data-only update.
@@ -346,8 +348,10 @@ function Canvas({
     // of the same nodes keeps whatever pan and zoom the user chose. fitView is
     // queued by React Flow until the new positions have reached its store.
     if (nodeSetChanged) {
-      const focus = focusRef.current;
-      // A node picked in the Outline is where the reader is; fit around it.
+      // A node picked in the Outline is where the reader is: the first
+      // placement fits around it. Later node sets ("Load more") fit the graph.
+      const focus = focusUsed.current ? null : focusRef.current;
+      focusUsed.current = true;
       fittedFocus.current = focus && positions.has(focus) ? focus : null;
       void fitView(fittedFocus.current ? focusFit(fittedFocus.current) : fitOptions);
     }

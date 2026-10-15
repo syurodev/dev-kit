@@ -50,6 +50,13 @@ export function verbChipClass(verb: string): string {
 export const ICON_BADGE =
   "flex size-7.5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-raised";
 
+/**
+ * What an extractor saw at a call ("Kafka produce", "DB read"), as a small
+ * outlined chip in the caption face. One class for the card and the outline
+ * row, so the same effect reads the same in both modes.
+ */
+export const EFFECT_CHIP = "shrink-0 rounded-sm border border-border-subtle px-1.5 text-caption-11 text-text-secondary";
+
 /** Read off Connector (167:79). */
 export const EDGE = {
   /** Matches the `a14 14 0 0 0` arc in the Figma Branch path. */

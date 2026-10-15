@@ -365,3 +365,7 @@ row of that node. Steps are fetched with the subgraph and again after
 - **Windowing** uses the shared `useVirtualRows` threshold (100 rows).
 - **Steps are re-fetched** for the whole subgraph after "Load more", a refresh,
   or an override change.
+- **Effect chips in one face.** A card's effect badges and an outline row's
+  effect chip share one class (`EFFECT_CHIP` in `graph/tokens.ts`), in the sans
+  caption face (`text-caption-11`) rather than the code face the plan gave the
+  card, so one effect reads the same in both modes.
