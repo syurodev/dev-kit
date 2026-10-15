@@ -1,5 +1,7 @@
 import { Send } from "lucide-react";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
+import { methodTextClass } from "@/lib/httpMethod";
+import { cn } from "@/lib/utils";
 import { dispatchIntent } from "@/workbench/intents";
 import type { EndpointDraft } from "./endpointDraftResult";
 
@@ -31,7 +33,7 @@ export function EndpointDraftResultCard({ draft, endpointId }: { draft: Endpoint
       />
       <FramedCardPreview>
         <p className="min-w-0 truncate text-code-12 text-text-primary" title={`${draft.method} ${draft.url}`}>
-          <span className="text-code-12-medium">{draft.method}</span> {draft.url}
+          <span className={cn("text-code-12-medium", methodTextClass(draft.method))}>{draft.method}</span> {draft.url}
         </p>
         {note ? <p className="text-caption-11 text-text-tertiary">{note}</p> : null}
       </FramedCardPreview>

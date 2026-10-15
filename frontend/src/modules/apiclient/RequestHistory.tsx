@@ -4,6 +4,8 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
+import { methodTextClass } from "@/lib/httpMethod";
+import { cn } from "@/lib/utils";
 import {
   clearRequestHistory,
   requestHistory,
@@ -87,7 +89,7 @@ export function RequestHistory({ requestID }: { requestID: string }) {
             className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border-subtle py-2 text-caption-11 tabular-nums last:border-b-0"
           >
             <span className={statusTone(entry)}>{entry.status || "—"}</span>
-            <span className="w-12 shrink-0 font-mono text-text-tertiary">{entry.method}</span>
+            <span className={cn("w-12 shrink-0 font-mono", methodTextClass(entry.method))}>{entry.method}</span>
             <span className="min-w-0 flex-1 truncate font-mono" title={entry.url}>
               {entry.url || "(locked — unlock the vault to read the URL)"}
             </span>

@@ -8,8 +8,7 @@ import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CodeGraphNode } from "@/bridge/codegraph";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
-import { FLOW_HEADER } from "./graph/tokens";
-import { methodChipClass } from "@/lib/httpMethod";
+import { FLOW_HEADER, verbChipClass } from "./graph/tokens";
 import { shortLabel } from "./graph/labels";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
@@ -126,7 +125,7 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
       <NavButtons />
       {entry ? (
         <>
-          <span className={cn("shrink-0 rounded-sm px-1.5 py-0.5 text-code-11 font-medium uppercase", methodChipClass(entry.verb))}>
+          <span className={cn("shrink-0 rounded-sm px-1.5 py-0.5 text-code-11 font-medium uppercase", verbChipClass(entry.verb))}>
             {entry.verb}
           </span>
           <span className="min-w-12 truncate text-title-14 text-text-primary" title={entry.routeId ? `${entry.routeId}\n${entry.target}` : entry.target}>

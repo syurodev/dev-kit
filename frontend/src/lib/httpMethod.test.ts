@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { verbChipClass } from "@/modules/codegraph/graph/tokens";
 import { METHOD_CHIP_CLASSES, NEUTRAL_METHOD_CHIP, methodChipClass, methodHue, methodTextClass } from "./httpMethod";
 
 describe("HTTP method colour (Postman's convention)", () => {
@@ -38,5 +39,9 @@ describe("HTTP method colour (Postman's convention)", () => {
   // The amount is one token, set per mode in index.css, so no chip can drift.
   test("every chip reads the shared --method-tint", () => {
     for (const cls of Object.values(METHOD_CHIP_CLASSES)) expect(cls).toContain("_var(--method-tint),");
+  });
+
+  test("CodeGraph's verbChipClass is the same chip", () => {
+    for (const verb of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "CRON"]) expect(verbChipClass(verb)).toBe(methodChipClass(verb));
   });
 });
