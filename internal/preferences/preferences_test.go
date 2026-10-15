@@ -374,3 +374,34 @@ func TestCallVisibilityConcurrentSetsAllSurvive(t *testing.T) {
 		t.Fatalf("%d of %d concurrent sets survived: %v", len(got), n, got)
 	}
 }
+
+func TestCustomizationCASAndSandboxUpdatesPreserveVendorChoices(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	saved, err := svc.SetAgentCustomization("codex", AgentCustomization{SkillFolders: []string{"/skills"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.SkillFolders[0] = "mutated"
+	stored, err := svc.AgentCustomization("codex")
+	if err != nil || stored.SkillFolders[0] != "/skills" {
+		t.Fatal("shared mutable configuration", stored, err)
+	}
+	if _, err := svc.SetAgentCustomization("codex", AgentCustomization{}); !errors.Is(err, ErrCustomizationConflict) {
+		t.Fatal("stale write accepted", err)
+	}
+	off := false
+	if err := svc.SetAgentSandbox(AgentSandboxSettings{ShareHome: &off}); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := svc.AgentSandbox()
+	if err != nil || settings.HomeShared() || settings.Customizations["codex"].Revision != 1 {
+		t.Fatal("sandbox update lost customization", settings, err)
+	}
+	if _, err := svc.SetAgentCustomization("claude", AgentCustomization{DisabledMCP: []string{"external"}}); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ = svc.AgentCustomization("codex")
+	if stored.Revision != 1 {
+		t.Fatal("other vendor write lost settings")
+	}
+}

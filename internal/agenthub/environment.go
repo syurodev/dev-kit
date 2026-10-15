@@ -178,7 +178,7 @@ func (r *codexRuntime) reportEnvironment(ctx context.Context) (EnvironmentReport
 				if skill.Enabled != nil && !*skill.Enabled {
 					status, detail = "disabled", "Disabled in the runtime's skill configuration."
 				}
-				addEnvironmentEntry(&report, EnvironmentEntry{Name: clipEnvironmentText(skill.Name), Kind: "skills", Status: status, Source: clipEnvironmentText(skill.Path), Detail: detail})
+				addEnvironmentEntry(&report, EnvironmentEntry{Name: clipEnvironmentText(skill.Name), Kind: "skills", Status: status, Source: environmentSkillPath(skill.Path), Detail: detail})
 			}
 		}
 	} else {
@@ -248,7 +248,8 @@ func (snap environmentSnapshot) report(ctx context.Context, scope string) (Envir
 		addEnvironmentEntry(&report, entry)
 	}
 	host, _ := os.UserHomeDir()
-	if snap.Agent == AgentTypeCodex {
+	switch snap.Agent {
+	case AgentTypeCodex:
 		if shared {
 			scanSkillRoot(ctx, &report, filepath.Join(host, ".codex", "skills"))
 			scanSkillRoot(ctx, &report, filepath.Join(host, ".agents", "skills"))
@@ -260,7 +261,7 @@ func (snap environmentSnapshot) report(ctx context.Context, scope string) (Envir
 		if snap.Spec.Cwd != "" {
 			scanMCPConfig(&report, filepath.Join(snap.Spec.Cwd, ".codex", "config.toml"), true, snap.Spec.Cwd)
 		}
-	} else if snap.Agent == AgentTypeClaude {
+	case AgentTypeClaude:
 		configDir := snap.Env["CLAUDE_CONFIG_DIR"]
 		if configDir == "" {
 			configDir = filepath.Join(host, ".claude")
@@ -281,6 +282,7 @@ func (snap environmentSnapshot) report(ctx context.Context, scope string) (Envir
 	for _, server := range snap.Spec.McpServers {
 		addEnvironmentEntry(&report, EnvironmentEntry{Name: server.Name, Kind: "mcp", Status: "configured", Detail: "Provided by DevKit to this session."})
 	}
+	customizationEnvironment(ctx, &report, snap.Spec.Customizations[string(snap.Agent)])
 	return report, ctx.Err()
 }
 
@@ -394,6 +396,14 @@ func scanMCPConfig(report *EnvironmentReport, path string, isTOML bool, cwd stri
 	}
 }
 
+// Paths used by management controls must remain exact, rather than prose-clipped.
+func environmentSkillPath(path string) string {
+	if len(path) > 4096 || !filepath.IsAbs(path) {
+		return ""
+	}
+	return path
+}
+
 func clipEnvironmentText(text string) string {
 	r := []rune(strings.TrimSpace(text))
 	if len(r) > 240 {
@@ -402,6 +412,11 @@ func clipEnvironmentText(text string) string {
 	return string(r)
 }
 func addEnvironmentEntry(report *EnvironmentReport, entry EnvironmentEntry) {
+	if entry.Kind == "skills" && strings.HasSuffix(entry.Source, "SKILL.md") {
+		if real, err := filepath.EvalSymlinks(entry.Source); err == nil {
+			entry.Source = real
+		}
+	}
 	if len(report.Entries) >= 300 {
 		return
 	}

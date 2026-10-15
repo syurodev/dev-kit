@@ -573,6 +573,25 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	if err != nil {
 		return nil, err
 	}
+	customization := spec.Customizations[string(AgentTypeClaude)]
+	plugin, releaseCustomization, err := claudeCustomization(customization)
+	if err != nil {
+		l.releaseLease()
+		return nil, err
+	}
+	oldRelease := l.release
+	l.release = func() {
+		releaseCustomization()
+		if oldRelease != nil {
+			oldRelease()
+		}
+	}
+	if plugin != "" {
+		pol.ReadOnlyPaths = append(pol.ReadOnlyPaths, plugin)
+	}
+	pol.ReadOnlyPaths = append(pol.ReadOnlyPaths, customization.SkillFolders...)
+	pol.DenyWritePaths = append(pol.DenyWritePaths, customization.SkillFolders...)
+
 	owned := true
 	defer func() {
 		if owned {
@@ -721,7 +740,17 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		}
 		mcpServers = append(mcpServers, srv)
 	}
-	meta := sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief), delegatedClaudeTools(spec)...)
+	for _, server := range customization.Servers {
+		if server.Enabled && server.URL != "" {
+			caps, _ := initRes.AgentCapabilities["mcpCapabilities"].(map[string]any)
+			if supported, _ := caps["http"].(bool); !supported {
+				cleanup()
+				return nil, invalidCustomization("This Claude runtime does not support HTTP MCP servers. Update the runtime or use a stdio server.")
+			}
+		}
+	}
+	mcpServers = append(mcpServers, customizationMCP(customization, pol.Env)...)
+	meta := claudeCustomizationMeta(sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief), delegatedClaudeTools(spec)...), customization, plugin)
 
 	if plan.forkFrom != "" {
 		var forkRes acp.SessionForkResult

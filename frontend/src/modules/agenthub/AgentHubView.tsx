@@ -27,6 +27,7 @@ import {
   agentHubCreateSession,
   agentHubConfigCatalog,
   agentHubPrepareSession,
+  agentHubResumeSession,
   agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubListContextFiles,
@@ -229,6 +230,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   const pendingAgentHubCommand = useAgentSessionsStore((state) => state.pendingAgentHubCommand);
   const consumeAgentHubCommand = useAgentSessionsStore((state) => state.consumeAgentHubCommand);
   const markCompletedRead = useAgentSessionsStore((state) => state.markCompletedRead);
+  const recoveryPending = useRef(false);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
   const enqueuePrompt = useAgentSessionsStore((state) => state.enqueuePrompt);
@@ -917,7 +919,20 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
 
   // The vendor's own hints for a failure, each mapped to the thing this app
   // already does for it.
+  async function handleResumeSession() {
+    if (!activeSession || recoveryPending.current) return;
+    recoveryPending.current = true;
+    try {
+      await agentHubResumeSession(activeSession.id);
+      upsertSession(await agentHubGetStatus(activeSession.id));
+      setErrorCause(undefined);
+      await queryClient.invalidateQueries({ queryKey: ["agenthub", "sessionConfig", activeSession.id] });
+    } catch (e) { reportError(e); }
+    finally { recoveryPending.current = false; }
+  }
+
   function handleFailureAction(action: string) {
+    if (action === "resume") { void handleResumeSession(); return; }
     if (action === "retry") {
       const retry = retryTurn();
       if (retry) void handleSend(retry);
@@ -1023,7 +1038,6 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // rateLimit), so without this a rejected turn had no banner at all — just
   // the composer's context-meter popover, which nobody opens unprompted.
   const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
-  const retryable = retryTurn();
 
   // A tab restored for a session the list does not have yet is still loading;
   // once the list is in, the session is gone (deleted elsewhere, or with its
@@ -1162,9 +1176,8 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error || sandboxHint}
             errorCause={errorCause}
-            // No Retry at all rather than one that does nothing: with no turn
-            // to resend, the composer below is the way back in.
-            onRetrySession={retryable ? () => void handleSend(retryable) : undefined}
+            // Reopen the same conversation; replaying a turn is a separate action.
+            onRetrySession={() => void handleResumeSession()}
             onNewSession={newSession}
             emptyExtra={<GettingStarted onNewSession={newSession} />}
             onOpenSettings={() => requestSettings("agents")}

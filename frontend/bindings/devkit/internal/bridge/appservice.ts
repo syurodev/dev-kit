@@ -424,6 +424,10 @@ export function AgentHubEnvironment(agent: string, sessionID: string): $Cancella
     return $Call.ByID(2029621563, agent, sessionID);
 }
 
+export function AgentHubGetCustomization(vendor: string): $CancellablePromise<preferences$0.AgentCustomization> {
+    return $Call.ByID(2606780855, vendor);
+}
+
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(2289470436, id);
 }
@@ -570,6 +574,10 @@ export function AgentHubRespondElicitation(id: string, response: json$0.RawMessa
     return $Call.ByID(3217368980, id, response);
 }
 
+export function AgentHubResumeSession(sessionID: string, reload: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2490520843, sessionID, reload);
+}
+
 /**
  * AgentHubScratchRoot is where "Don't work in a project" sessions live. The
  * sidebar gathers every session under it into one group instead of drawing a
@@ -584,6 +592,10 @@ export function AgentHubScratchRoot(): $CancellablePromise<string> {
  */
 export function AgentHubSetConfigOption(id: string, optionID: string, value: string): $CancellablePromise<void> {
     return $Call.ByID(1489269769, id, optionID, value);
+}
+
+export function AgentHubSetCustomization(vendor: string, value: preferences$0.AgentCustomization): $CancellablePromise<preferences$0.AgentCustomization> {
+    return $Call.ByID(1263349651, vendor, value);
 }
 
 /**

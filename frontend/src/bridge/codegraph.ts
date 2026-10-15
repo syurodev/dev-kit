@@ -657,6 +657,7 @@ export type CodeGraphToolchainStatus = {
   ready: boolean;
   /** Separates "nothing built yet" from "built but no runtime to launch it". */
   hasArtifact: boolean;
+  stale?: boolean;
   buildable: boolean;
   artifact: string;
   buildCommand: string;

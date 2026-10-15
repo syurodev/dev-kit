@@ -228,6 +228,13 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, errUpdateCheckFailed) {
 		return apperrors.New(codeConnectionFailed, "Could not check for updates. Check your internet connection and try again.", true)
 	}
+	var invalidCustomization *agenthub.CustomizationError
+	if errors.As(err, &invalidCustomization) {
+		return apperrors.New(codeValidationFailed, invalidCustomization.Message, true)
+	}
+	if errors.Is(err, preferences.ErrCustomizationConflict) {
+		return apperrors.New(codeValidationFailed, "Agent configuration changed. Refresh and apply your changes again.", true)
+	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}

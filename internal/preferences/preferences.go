@@ -2,6 +2,7 @@
 package preferences
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -171,6 +172,7 @@ func clamp(value, low, high int) int {
 // does not exist yet (a Docker socket before the daemon starts) is not a
 // typo, and sandbox.Policy already skips binds for paths that are not there.
 type AgentSandboxSettings struct {
+	Customizations map[string]AgentCustomization `json:"customizations,omitempty"`
 	// ShareHome lets a session see the real $HOME, read-write, instead of an
 	// empty tmpfs (sandbox.Policy.PrivateHome). Nil means on. Off, a session
 	// sees the project, the agent's own credentials and what is listed below,
@@ -221,6 +223,7 @@ func StrictAgentSandbox() AgentSandboxSettings {
 // way in and the way out, like AgentCheckpointSettings.Normalized, so a value
 // written by hand or by an older build still reads as something usable.
 func (s AgentSandboxSettings) Normalized() AgentSandboxSettings {
+	s.Customizations = cloneCustomizations(s.Customizations)
 	s.DockerSocketPath = strings.TrimSpace(s.DockerSocketPath)
 
 	paths := make([]string, 0, len(s.ExtraReadOnlyPaths))
@@ -259,7 +262,8 @@ type Repository interface {
 }
 
 type Service struct {
-	repo Repository
+	repo            Repository
+	customizationMu sync.Mutex
 	// callVisibilityMu serialises SetCallVisibility's read-modify-write: the
 	// overrides are one stored value, so two unserialised sets of different
 	// keys would each write back a map missing the other's key.
@@ -413,6 +417,13 @@ func (s *Service) AgentSandbox() (AgentSandboxSettings, error) {
 }
 
 func (s *Service) SetAgentSandbox(settings AgentSandboxSettings) error {
+	s.customizationMu.Lock()
+	defer s.customizationMu.Unlock()
+	current, err := s.AgentSandbox()
+	if err != nil {
+		return err
+	}
+	settings.Customizations = current.Customizations
 	return s.repo.SetAgentSandbox(settings.Normalized())
 }
 
@@ -508,4 +519,58 @@ func validCallVisibilityKey(key string) error {
 		return fmt.Errorf("%w: key %q holds a control character", ErrInvalidCallVisibility, key)
 	}
 	return nil
+}
+
+// AgentCustomization is local UI-owned configuration. Environment keys refer to
+// the launch environment; credentials never need to be stored in this document.
+type AgentCustomization struct {
+	Revision       int64            `json:"revision"`
+	SkillFolders   []string         `json:"skillFolders"`
+	DisabledSkills []string         `json:"disabledSkills"`
+	DisabledMCP    []string         `json:"disabledMCP"`
+	Servers        []AgentMCPConfig `json:"servers"`
+}
+type AgentMCPConfig struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	URL     string   `json:"url,omitempty"`
+	EnvKeys []string `json:"envKeys,omitempty"`
+	Enabled bool     `json:"enabled"`
+}
+
+var ErrCustomizationConflict = errors.New("agent configuration revision conflict")
+
+func cloneCustomizations(in map[string]AgentCustomization) map[string]AgentCustomization {
+	if in == nil {
+		return nil
+	}
+	data, _ := json.Marshal(in)
+	var out map[string]AgentCustomization
+	_ = json.Unmarshal(data, &out)
+	return out
+}
+func (s *Service) AgentCustomization(vendor string) (AgentCustomization, error) {
+	settings, err := s.AgentSandbox()
+	return settings.Customizations[vendor], err
+}
+func (s *Service) SetAgentCustomization(vendor string, value AgentCustomization) (AgentCustomization, error) {
+	s.customizationMu.Lock()
+	defer s.customizationMu.Unlock()
+	settings, err := s.AgentSandbox()
+	if err != nil {
+		return AgentCustomization{}, err
+	}
+	if settings.Customizations[vendor].Revision != value.Revision {
+		return AgentCustomization{}, ErrCustomizationConflict
+	}
+	if settings.Customizations == nil {
+		settings.Customizations = map[string]AgentCustomization{}
+	}
+	value.Revision++
+	settings.Customizations[vendor] = value
+	if err := s.repo.SetAgentSandbox(settings.Normalized()); err != nil {
+		return AgentCustomization{}, err
+	}
+	return cloneCustomizations(settings.Customizations)[vendor], nil
 }
