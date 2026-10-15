@@ -7,13 +7,24 @@ import { shortLabel } from "../graph/labels";
  * expanding into the callee's own steps. Pure — the view windows these rows
  * and keeps the open/closed choices; nothing here fetches.
  *
- * Keys are paths ("root/3/fold@5"), so a row keeps its open state while the
- * rows around it change.
+ * Keys are paths of ids that stay put when a method's body changes around
+ * them ("root/Svc#send#0/fold@Log#info#1"): a call is named by what it calls
+ * and which occurrence of that it is in its method, never by its index, so a
+ * row keeps its open state across a re-index that adds or removes steps
+ * elsewhere.
  */
 export type OutlineRef = { reason: "shown-above" | "recursion"; key: string };
 
 export type OutlineRow =
-  | { kind: "method"; key: string; depth: number; nodeId: string; title: string; summary: string; line: number; open: boolean; expandable: boolean; impl: boolean; ref?: OutlineRef }
+  | {
+      kind: "method"; key: string; depth: number; nodeId: string; title: string; summary: string; line: number;
+      open: boolean; expandable: boolean;
+      /** Listed under a call as one of the methods it can run (an override, or the overridden method itself). */
+      impl: boolean;
+      /** The overridden method itself, listed first among its overrides because it has a body of its own. */
+      base?: boolean;
+      ref?: OutlineRef;
+    }
   | { kind: "frame"; key: string; depth: number; frameKind: string; text: string; exits: boolean }
   | { kind: "call"; key: string; depth: number; ownerId: string; step: CodeGraphStep; title: string; targetId?: string; open: boolean; expandable: boolean; hidden: boolean; ref?: OutlineRef }
   | { kind: "fold"; key: string; depth: number; count: number; reasons: string; open: boolean }
@@ -25,10 +36,15 @@ export type OutlineInput = {
   steps: CodeGraphSteps;
   /** Rows whose open state the person changed, by key. */
   toggled: Readonly<Record<string, boolean>>;
-  /** Levels of methods open by default, the root included. */
+  /** See DEFAULT_OUTLINE_DEPTH. */
   depth?: number;
 };
 
+/**
+ * Levels of methods whose bodies are open by default, the root included: with
+ * 3, the root's body, its callees' bodies and theirs are drawn, and the calls
+ * inside those last bodies are drawn closed.
+ */
 export const DEFAULT_OUTLINE_DEPTH = 3;
 
 /** "logging, metrics" — the most frequent reasons first, three at most. */
@@ -68,30 +84,37 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
   }
   return rows;
 
-  function methodRow(n: CodeGraphNode, key: string, depth: number, open: boolean, expandable: boolean, impl: boolean, ref?: OutlineRef): OutlineRow {
-    return { kind: "method", key, depth, nodeId: n.id, title: shortLabel(n.label, n.kind), summary: firstSentence(n.summary), line: n.line, open, expandable, impl, ref };
+  function methodRow(n: CodeGraphNode, key: string, depth: number, open: boolean, expandable: boolean, impl: boolean, ref?: OutlineRef, base?: boolean): OutlineRow {
+    return {
+      kind: "method", key, depth, nodeId: n.id, title: shortLabel(n.label, n.kind), summary: firstSentence(n.summary), line: n.line,
+      open, expandable, impl, ...(base ? { base: true } : {}), ref,
+    };
   }
 
   function body(ownerId: string, parentKey: string, depth: number, level: number, path: ReadonlySet<string>) {
     const list = input.steps.steps[ownerId] ?? [];
-    const usedKeys = new Set<string>();
+    const ids = stepIds(list);
+    const frameKeys = new Set<string>();
+    // Calls drawn at this body's own level, by position, and how many rows
+    // there were right after each call's row: a closure passed to one is that
+    // call's body.
+    const drawn = new Map<string, number>();
     let stack: CodeGraphStepFrame[] = [];
-    let pending: { index: number; step: CodeGraphStep }[] = [];
-    let lastCallAt = "";
+    let pending: { id: string; step: CodeGraphStep }[] = [];
 
     const unique = (key: string) => {
       let k = key;
-      for (let n = 2; usedKeys.has(k); n++) k = `${key}~${n}`;
-      usedKeys.add(k);
+      for (let n = 2; frameKeys.has(k); n++) k = `${key}~${n}`;
+      frameKeys.add(k);
       return k;
     };
     const flush = () => {
       if (pending.length === 0) return;
-      const key = `${parentKey}/fold@${pending[0].index}`;
+      const key = `${parentKey}/fold@${pending[0].id}`;
       const open = isOpen(key, false);
       const d = depth + stack.length;
       rows.push({ kind: "fold", key, depth: d, count: pending.length, reasons: summarizeReasons(pending.map((p) => p.step.reason)), open });
-      if (open) for (const p of pending) callRow(ownerId, p.step, `${parentKey}/${p.index}`, d + 1, level, path, true);
+      if (open) for (const p of pending) callRow(ownerId, p.step, `${parentKey}/${p.id}`, d + 1, level, path, true);
       pending = [];
     };
 
@@ -103,17 +126,21 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
       if (!sameGroup || step.visible) flush();
       for (let i = common; i < frames.length; i++) {
         const f = frames[i];
-        // A closure passed to the call just drawn is that call's body.
-        if (f.kind === "closure" && f.id === lastCallAt) continue;
+        // A closure passed to a call whose row is the last thing drawn reads
+        // as that row's body, one level in. Anything drawn after the call (its
+        // callee's open body, a later argument's call, a fold) would put the
+        // closure's steps under the wrong row, so then it gets a heading.
+        if (f.kind === "closure" && drawn.get(f.id) === rows.length) continue;
         rows.push({ kind: "frame", key: unique(`${parentKey}/frame@${f.id}`), depth: depth + i, frameKind: f.kind, text: f.text, exits: !!f.exits });
       }
       stack = frames;
       if (!step.visible) {
-        pending.push({ index, step });
+        pending.push({ id: ids[index], step });
         return;
       }
-      callRow(ownerId, step, `${parentKey}/${index}`, depth + frames.length, level, path, false);
-      lastCallAt = `${step.line}:${step.col}`;
+      // The count right after the call's own row, before any body it opens.
+      drawn.set(`${step.line}:${step.col}`, rows.length + 1);
+      callRow(ownerId, step, `${parentKey}/${ids[index]}`, depth + frames.length, level, path, false);
     });
     flush();
     if (truncated.has(ownerId)) rows.push({ kind: "more", key: `${parentKey}/more`, depth, nodeId: ownerId });
@@ -125,29 +152,31 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
     // names a project node it cannot expand into.
     const named = target ?? (step.target ? input.nodes.get(step.target) : undefined);
     const title = step.text || (named ? shortLabel(named.label, named.kind) : step.calleeKey || "call");
-    const impls = step.impls ?? [];
+    // What the call can run: its overrides that are in this graph, after the
+    // overridden method itself when that has a body of its own.
+    const overrides = target ? (step.impls ?? []).filter((id) => id !== target.id && input.nodes.has(id)) : [];
+    const variants = target && overrides.length > 0 ? (hasSteps(target.id) ? [target.id, ...overrides] : overrides) : [];
     let ref: OutlineRef | undefined;
     if (target && path.has(target.id)) ref = { reason: "recursion", key: firstAt.get(target.id) ?? "root" };
-    const expandable = !!target && !ref && (impls.length > 0 || hasSteps(target.id));
+    else if (target && variants.length === 0 && firstAt.has(target.id)) ref = { reason: "shown-above", key: firstAt.get(target.id)! };
+    const expandable = !!target && !ref && (variants.length > 0 || hasSteps(target.id));
     const open = expandable && isOpen(key, level + 1 < limit);
-    if (target && open && impls.length === 0 && firstAt.has(target.id)) ref = { reason: "shown-above", key: firstAt.get(target.id)! };
-    rows.push({ kind: "call", key, depth, ownerId, step, title, targetId: named?.id, open: open && !ref, expandable: expandable && !ref, hidden, ref });
-    if (!open || ref || !target) return;
+    rows.push({ kind: "call", key, depth, ownerId, step, title, targetId: named?.id, open, expandable, hidden, ref });
+    if (!open || !target) return;
 
-    if (impls.length > 0) {
-      for (const implId of impls) {
-        const impl = input.nodes.get(implId);
-        if (!impl) continue;
-        const implKey = `${key}/impl:${implId}`;
-        const seen = firstAt.get(implId);
-        const implRef: OutlineRef | undefined = path.has(implId)
+    if (variants.length > 0) {
+      for (const id of variants) {
+        const variant = input.nodes.get(id)!;
+        const variantKey = `${key}/impl:${id}`;
+        const seen = firstAt.get(id);
+        const variantRef: OutlineRef | undefined = path.has(id)
           ? { reason: "recursion", key: seen ?? "root" }
           : seen ? { reason: "shown-above", key: seen } : undefined;
-        const implOpen = !implRef && hasSteps(implId) && isOpen(implKey, level + 1 < limit);
-        rows.push(methodRow(impl, implKey, depth + 1, implOpen, !implRef && hasSteps(implId), true, implRef));
-        if (implOpen) {
-          firstAt.set(implId, implKey);
-          body(implId, implKey, depth + 2, level + 1, new Set([...path, implId]));
+        const variantOpen = !variantRef && hasSteps(id) && isOpen(variantKey, level + 1 < limit);
+        rows.push(methodRow(variant, variantKey, depth + 1, variantOpen, !variantRef && hasSteps(id), true, variantRef, id === target.id));
+        if (variantOpen) {
+          firstAt.set(id, variantKey);
+          body(id, variantKey, depth + 2, level + 1, new Set([...path, id]));
         }
       }
       return;
@@ -155,4 +184,18 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
     firstAt.set(target.id, key);
     body(target.id, key, depth + 1, level + 1, new Set([...path, target.id]));
   }
+}
+
+/**
+ * Each step's id within its method: what it calls and which occurrence of that
+ * it is ("Svc#send#1"), so the id survives steps added or removed elsewhere.
+ */
+function stepIds(list: readonly CodeGraphStep[]): string[] {
+  const seen = new Map<string, number>();
+  return list.map((s) => {
+    const base = s.calleeKey || s.to || s.target || s.text;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
 }
