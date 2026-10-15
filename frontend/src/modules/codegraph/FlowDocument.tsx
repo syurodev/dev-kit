@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { tabKey } from "@/stores/workbenchTabs";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { CodeGraphNode } from "@/bridge/codegraph";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
-import { verbChipClass } from "./graph/tokens";
+import { FLOW_HEADER, verbChipClass } from "./graph/tokens";
 import { shortLabel } from "./graph/labels";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
-import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors } from "./flowActions";
+import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors, setFlowMode } from "./flowActions";
+import { cardData, graphView } from "./graph/graphView";
+import { OutlineView } from "./outline/OutlineView";
 import { openFile } from "./fileActions";
 import { NavButtons } from "./file/NavButtons";
 import { describeParams, FLOW_VIEW, MODULE } from "./documents";
@@ -22,6 +26,10 @@ import { Chip } from "@/components/ui/chip";
  * One flow as a tab: the call graph behind an entry point, or behind a class or
  * method picked with @. Its inspector is a context pane of this tab — it
  * shows while this is the document in front and comes back when it is again.
+ *
+ * Two modes of the same flow, switched in the header: the Outline reads it
+ * top to bottom in source order, the Graph draws it as cards. They share the
+ * selection, so "Show in Graph" lands on the row's card.
  *
  * A flow belongs to one folder (its params name it) and is drawn from that
  * folder's index only: it never mixes in another folder's nodes, and it says
@@ -53,6 +61,48 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   const onSelect = useCallback((nodeId: string) => void inspectNode(folderId, root, nodeId), [folderId, root]);
   useInspectorPane(folderId, root, key, front, ownership.owner?.workspaceId ?? "");
 
+  // Both modes share the selection (the inspector's node) and read the same
+  // steps: the Outline as rows, the Graph as labels and hidden helpers.
+  const selectedNodeId = useCodeGraphStore((s) => (key && s.inspector?.flow === key ? s.inspector.nodeId : null));
+  const mode = flow?.mode ?? "outline";
+  // The arriving mode fades up only after a switch, not when the tab opens.
+  const [switched, setSwitched] = useState(false);
+  // The two modes draw their own header, so the tab strip is a new one after
+  // a switch: a switch made from the keyboard puts focus back on its tab.
+  const page = useRef<HTMLDivElement>(null);
+  const refocusTab = useRef(false);
+  useEffect(() => {
+    if (!refocusTab.current) return;
+    refocusTab.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    page.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus();
+  }, [mode]);
+  const view = useMemo(
+    () => (flow?.subgraph ? graphView(root, flow.subgraph.nodes, flow.subgraph.edges, flow.steps) : null),
+    [flow?.subgraph, flow?.steps, root],
+  );
+  const buildData = useCallback(
+    (n: CodeGraphNode) => cardData(n, view?.hiddenCalls.get(n.id) ?? 0, view?.effects.get(n.id) ?? []),
+    [view],
+  );
+  const showInGraph = useCallback(
+    (nodeId: string) => {
+      setSwitched(true);
+      setFlowMode(folderId, root, "graph");
+      void inspectNode(folderId, root, nodeId);
+    },
+    [folderId, root],
+  );
+  const workspaceId = ownership.owner?.workspaceId ?? "";
+  const openAt = useCallback(
+    (nodeId: string, line: number) => {
+      const n = flow?.subgraph?.nodes.find((x) => x.id === nodeId);
+      if (n?.filePath) void openFile({ workspaceId, folderId, path: n.filePath }, line, { preview: false, beside: true });
+    },
+    [flow?.subgraph, folderId, workspaceId],
+  );
+
   if (ownership.relation === "removed" || ownership.relation === "other-workspace" || !ownership.owner) {
     return (
       <EmptyState
@@ -64,54 +114,123 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
   }
 
   const subgraph = flow?.subgraph;
-  if (subgraph) {
-    const rootNode = subgraph.nodes.find((n) => n.id === root);
+  const rootNode = subgraph?.nodes.find((n) => n.id === root);
+  // One 40px row, like the tab strip above it. The name keeps its room;
+  // the source/group line gives way first (flex-shrink 100), then the name.
+  const entryDetail = entry && (entry.routeId || entry.consumerGroup)
+    ? `${entry.routeId ? entry.target : ""}${entry.consumerGroup ? `${entry.routeId ? " · " : ""}group ${entry.consumerGroup}` : ""}`
+    : "";
+  const header = (
+    <>
+      <NavButtons />
+      {entry ? (
+        <>
+          <span className={cn("shrink-0 rounded-sm px-1.5 py-0.5 text-code-11 font-medium uppercase", verbChipClass(entry.verb))}>
+            {entry.verb}
+          </span>
+          <span className="min-w-12 truncate text-title-14 text-text-primary" title={entry.routeId ? `${entry.routeId}\n${entry.target}` : entry.target}>
+            {entry.routeId || entry.target}
+          </span>
+          {entryDetail ? (
+            <span className="min-w-0 truncate text-code-11 text-text-tertiary" style={{ flexShrink: 100 }} title={entryDetail}>
+              {entryDetail}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <span className="min-w-12 truncate text-title-14 text-text-primary" title={rootNode?.label ?? root}>
+          {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
+        </span>
+      )}
+      {several ? <Chip className="max-w-40 shrink-0 truncate">{ownership.label}</Chip> : null}
+    </>
+  );
+  const modeSwitch = (
+    <Tabs
+      value={mode}
+      onValueChange={(value) => {
+        // Arrows and Enter/Space switch with focus on a tab; a click does not need it back.
+        refocusTab.current = !!document.activeElement?.closest('[role="tablist"]');
+        setSwitched(true);
+        setFlowMode(folderId, root, value as "outline" | "graph");
+      }}
+    >
+      {/* The tab strip's height, not a toolbar's: 28px track, 24px chips, 12px labels. */}
+      <TabsList className="h-7 gap-0.5 p-0.5">
+        <TabsTrigger value="outline" className="h-6 px-2 text-label-12">Outline</TabsTrigger>
+        <TabsTrigger value="graph" className="h-6 px-2 text-label-12">Graph</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+
+  if (flow && subgraph && view) {
+    // A capped subgraph says so in both modes: the outline's calls into the
+    // nodes not loaded yet read as plain calls until they are.
+    const partial = subgraph.truncated && (
+      <>
+        <span title="The backend capped this subgraph; some nodes are not shown yet." className="text-code-11 text-status-warning">
+          partial
+        </span>
+        <Button
+          variant="outline"
+          size="xs"
+          className="bg-surface-raised"
+          disabled={flow.loadingMore || !subgraph.continuation}
+          onClick={() => void loadMoreNeighbors(folderId, root)}
+        >
+          {flow.loadingMore ? "Loading…" : "Load more"}
+        </Button>
+      </>
+    );
+    if (mode === "outline") {
+      return (
+        <div ref={page} className="flex h-full w-full flex-col overflow-hidden">
+          <div className={FLOW_HEADER}>
+            <div className="flex min-w-0 items-center gap-2">{header}</div>
+            <div className="flex shrink-0 items-center gap-2">
+              {flow.stepsLoading && <span className="text-code-11 text-text-tertiary">reading…</span>}
+              {partial}
+              {modeSwitch}
+            </div>
+          </div>
+          {/* After a switch the body fades up; the header stays where it was. */}
+          <div className={cn("flex min-h-0 flex-1 flex-col", switched && "flow-mode-enter")}>
+            <OutlineView
+              folderId={folderId}
+              root={root}
+              flow={flow}
+              nodes={subgraph.nodes}
+              selectedNodeId={selectedNodeId}
+              onInspect={onSelect}
+              onShowInGraph={showInGraph}
+              onOpenAt={openAt}
+            />
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden">
+      <div ref={page} className="flex h-full w-full flex-col overflow-hidden">
         <FlowCanvas
+          viewportClassName={switched ? "flow-mode-enter" : undefined}
           key={root}
           rootId={root}
-          nodes={subgraph.nodes}
-          edges={subgraph.edges}
+          nodes={view.nodes}
+          edges={view.edges}
           onSelect={onSelect}
-          header={
-            <>
-              <NavButtons />
-              {entry ? (
-                <>
-                  <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
-                    {entry.verb}
-                  </span>
-                  <span className="truncate text-title-16 text-text-primary" title={entry.target}>{entry.routeId || entry.target}</span>
-                  {entry.routeId || entry.consumerGroup ? <span className="truncate text-code-11 text-text-tertiary" title={entry.consumerGroup ? `Consumer group: ${entry.consumerGroup}` : undefined}>{entry.routeId ? entry.target : ""}{entry.consumerGroup ? ` · group ${entry.consumerGroup}` : ""}</span> : null}
-                </>
-              ) : (
-                <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
-                  {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
-                </span>
-              )}
-              {several ? <Chip className="max-w-40 truncate" >{ownership.label}</Chip> : null}
-            </>
-          }
+          buildData={buildData}
+          edgeLabel={view.edgeLabel}
+          edgeTitle={view.edgeTitle}
+          labelAt="arrow"
+          flush
+          selectedNodeId={selectedNodeId}
+          focusNodeId={selectedNodeId}
+          header={header}
           meta={(counts: CanvasCounts) => (
             <>
-              <span className="text-code-11 text-text-tertiary">{describeCounts(counts)}</span>
-              {subgraph.truncated && (
-                <>
-                  <span title="The backend capped this subgraph; some nodes are not shown yet." className="text-code-11 text-status-warning">
-                    partial
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    className="bg-surface-raised"
-                    disabled={flow.loadingMore || !subgraph.continuation}
-                    onClick={() => void loadMoreNeighbors(folderId, root)}
-                  >
-                    {flow.loadingMore ? "Loading…" : "Load more"}
-                  </Button>
-                </>
-              )}
+              <span className="truncate text-code-11 text-text-tertiary" title={describeCounts(counts)}>{describeCounts(counts)}</span>
+              {partial}
+              {modeSwitch}
             </>
           )}
           hint={

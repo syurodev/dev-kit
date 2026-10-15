@@ -1,5 +1,8 @@
 package com.devkit.codegraph;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * One call expression in one method body, kept un-deduped and with its line.
  *
@@ -21,6 +24,20 @@ public class CallSite {
     public int line;
     public String unresolved; // "" | "library" | "interface" | "unresolved" | "lombok"
 
+    // What the flow outline reads (see Steps). Empty on a site the analyzer
+    // has nothing to say about, which is how every older index reads too.
+    public int col;
+    public String text = "";
+    public String calleeKey = "";  // "<declaring type>#<member>"
+    public String receiver = "";   // param | field | local-from-param | local | static | this | unknown
+    public String resultUse = "";  // discarded | assigned | returned | argument | condition | unknown
+    public List<StepFrame> frames = new ArrayList<>();
+    public String role = "";       // "" for a call, "override" for a dispatch link to an override
+    // The project node the call names, even when `to` stays "" because the
+    // node has no body to follow (a repository or client interface method):
+    // the flow outline still shows it as the project's own call.
+    public String target = "";
+
     public CallSite() {}
 
     public CallSite(String from, String to, int line, String unresolved) {
@@ -28,5 +45,15 @@ public class CallSite {
         this.to = to;
         this.line = line;
         this.unresolved = unresolved;
+    }
+
+    CallSite describe(Steps.Info info, String calleeKey) {
+        this.col = info.col();
+        this.text = info.text();
+        this.receiver = info.receiver();
+        this.resultUse = info.resultUse();
+        this.frames = info.frames();
+        this.calleeKey = calleeKey == null ? "" : calleeKey;
+        return this;
     }
 }

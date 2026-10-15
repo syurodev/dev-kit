@@ -16,6 +16,7 @@ const (
 	agentSandboxKey       = "agent_sandbox"
 	codexAPIKeyAccountKey = "agent_codex_api_key_account"
 	revealPasswordKey     = "accounts_reveal_requires_password"
+	callVisibilityKey     = "codegraph_call_visibility"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -234,5 +235,35 @@ func (r *SQLRepository) SetUpdateChecks(enabled bool) error {
 	_, err := r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, updateChecksKey, strconv.FormatBool(enabled))
+	return err
+}
+
+// GetCallVisibility reads a value it cannot parse as unset: losing the
+// overrides shows the defaults, which is safe.
+func (r *SQLRepository) GetCallVisibility() (map[string]string, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", callVisibilityKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var overrides map[string]string
+	if jsonErr := json.Unmarshal([]byte(value), &overrides); jsonErr != nil {
+		return nil, false, nil
+	}
+	return overrides, true, nil
+}
+
+func (r *SQLRepository) SetCallVisibility(overrides map[string]string) error {
+	body, err := json.Marshal(overrides)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, callVisibilityKey, string(body))
 	return err
 }

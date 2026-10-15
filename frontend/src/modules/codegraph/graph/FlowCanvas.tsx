@@ -23,7 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ApiNode } from "./ApiNode";
 import { PlanNode } from "../plan/PlanNode";
-import { ConnectorEdge } from "./ConnectorEdge";
+import { ConnectorEdge, connectorEdgeData } from "./ConnectorEdge";
 import { LayerLegend } from "./LayerLegend";
 import { CanvasFitButton, CanvasToolbar } from "./CanvasToolbar";
 import { rankGraph } from "./rank";
@@ -32,6 +32,8 @@ import { shortLabel } from "./labels";
 import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { settledRunner } from "@/lib/panelMotion";
+import { cn } from "@/lib/utils";
+import { FLOW_HEADER } from "./tokens";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
@@ -85,6 +87,9 @@ export function describeCounts({ shown, hidden, edges }: CanvasCounts): string {
 }
 
 const HIDDEN_STYLE = { opacity: 0 };
+
+/** A fit centred on one card, at no more than 100%. */
+const focusFit = (id: string) => ({ nodes: [{ id }], maxZoom: 1, duration: 0 });
 
 // Every card and connector carries the transition, so a card fades back as
 // well as out: the class that dims is the only one that comes and goes.
@@ -142,12 +147,27 @@ export type FlowCanvasProps = {
   buildData?: (node: CodeGraphNode) => Record<string, unknown>;
   /** Per-edge label text, for plan conditions. Stable, like buildData. */
   edgeLabel?: (edge: CodeGraphEdge) => string | undefined;
+  /** Tooltip of each edge's label (the full guard). Stable, like edgeLabel. */
+  edgeTitle?: (edge: CodeGraphEdge) => string | undefined;
+  /**
+   * "arrow": a numbered label ("2 · if (ok)") on an edge entering its card
+   * from the left sits at the arrowhead as its number, the rest in the
+   * tooltip. The flow document's labels are numbered calls; the plan and
+   * database canvases leave it off and keep midpoint labels.
+   */
+  labelAt?: "arrow";
   /**
    * Marks one node selected from outside the canvas — picking a row in the
    * sidebar should show you which card it means, and React Flow's own
    * selection only reacts to clicks on the canvas itself.
    */
   selectedNodeId?: string | null;
+  /**
+   * Centre this node on the first placement instead of fitting the whole
+   * graph — the Outline's selection when switching to Graph. Read once: a
+   * later selection or node set never moves the view to it.
+   */
+  focusNodeId?: string | null;
   /**
    * Figma `canvas-header` (482:4528): what the graph is, at the left — a
    * method chip and a path, or the PLAN chip and its name.
@@ -178,6 +198,14 @@ export type FlowCanvasProps = {
   attribution?: boolean;
   /** The placed graph's unscaled size, after every layout — for a box that sizes to it. */
   onGraphSize?: (size: Size) => void;
+  /** Added to the canvas below the header — a fade the header should not take part in. */
+  viewportClassName?: string;
+  /**
+   * Edge to edge, like the tab strip: no side gutter around the canvas and
+   * the header is FLOW_HEADER. The flow document passes it; the plan and
+   * query-plan canvases keep their inset.
+   */
+  flush?: boolean;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -199,7 +227,10 @@ function Canvas({
   legend = true,
   buildData,
   edgeLabel,
+  edgeTitle,
+  labelAt,
   selectedNodeId,
+  focusNodeId,
   header,
   meta,
   hint,
@@ -207,6 +238,8 @@ function Canvas({
   compact = false,
   attribution = true,
   onGraphSize,
+  viewportClassName,
+  flush = false,
 }: FlowCanvasProps) {
   const { fitView } = useReactFlow();
 
@@ -284,6 +317,14 @@ function Canvas({
   );
   const onGraphSizeRef = useRef(onGraphSize);
   onGraphSizeRef.current = onGraphSize;
+  // A ref, so a selection made after the graph is placed never re-runs the
+  // placement below; it is read only when the node set changes.
+  const focusRef = useRef(focusNodeId);
+  focusRef.current = focusNodeId;
+  // The node the last fit centred, so a resize (the inspector opening beside
+  // the canvas) keeps it centred rather than fitting the whole graph again.
+  const fittedFocus = useRef<string | null>(null);
+  const focusUsed = useRef(false);
 
   // The layout is a function of the ranking alone, so it re-runs when the
   // ranking does (a new node, a new edge) and never on a data-only update.
@@ -326,7 +367,14 @@ function Canvas({
     // Fit on the first placement and when the node set changed; a re-layout
     // of the same nodes keeps whatever pan and zoom the user chose. fitView is
     // queued by React Flow until the new positions have reached its store.
-    if (nodeSetChanged) void fitView(fitOptions);
+    if (nodeSetChanged) {
+      // A node picked in the Outline is where the reader is: the first
+      // placement fits around it. Later node sets ("Load more") fit the graph.
+      const focus = focusUsed.current ? null : focusRef.current;
+      focusUsed.current = true;
+      fittedFocus.current = focus && positions.has(focus) ? focus : null;
+      void fitView(fittedFocus.current ? focusFit(fittedFocus.current) : fitOptions);
+    }
   }, [placing, rfNodes, ranks, layoutKey, fitView, fitOptions]);
 
   // The view the layout fitted stays fitted while its pane changes size — a
@@ -338,7 +386,9 @@ function Canvas({
   const userMoved = useRef(false);
   const fitRef = useRef(() => {});
   fitRef.current = () => {
-    if (!userMoved.current && placedIds.size > 0) void fitView({ ...fitOptions, duration: 0 });
+    if (!userMoved.current && placedIds.size > 0) {
+      void fitView(fittedFocus.current ? focusFit(fittedFocus.current) : { ...fitOptions, duration: 0 });
+    }
   };
   useEffect(() => {
     const el = viewport.current;
@@ -382,16 +432,12 @@ function Canvas({
             sourceHandle: "bottom",
             targetHandle: sameColumn ? "top" : "left",
             type: "connector",
-            data: {
-              kind: e.kind,
-              label,
-              showLabel: e.kind === "di" || !!label,
-            },
+            data: connectorEdgeData({ kind: e.kind, label, title: edgeTitle?.(e), labelAt }),
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
           },
         ];
       }),
-    [edges, ranks, edgeLabel],
+    [edges, ranks, edgeLabel, edgeTitle, labelAt],
   );
   // The card under the pointer (or focused from the keyboard), and the flow
   // through it: what leads there and what it leads to stay lit, the rest
@@ -452,18 +498,19 @@ function Canvas({
   };
 
   return (
-    <div className={compact ? "flex size-full flex-col" : "flex size-full flex-col px-4 pt-3"}>
+    <div className={compact || flush ? "flex size-full flex-col" : "flex size-full flex-col px-4 pt-3"}>
       {/* Header lives outside ReactFlow but inside its provider, so the
           toolbar's fitView works and the row never pans with the graph. */}
       {compact ? null : (
-        <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
-          <div className="flex min-w-0 items-center gap-2.5">{header}</div>
-          <div className="flex shrink-0 items-center gap-3.5">
+        <div className={flush ? FLOW_HEADER : "flex shrink-0 items-center justify-between gap-4 pb-1"}>
+          <div className={cn("flex min-w-0 items-center", flush ? "gap-2" : "gap-2.5")}>{header}</div>
+          <div className={cn("flex shrink-0 items-center", flush ? "gap-2" : "gap-3.5")}>
             {typeof meta === "function" ? meta(counts) : meta}
             <CanvasToolbar
               onFit={() => {
                 // Asking for a fit hands the view back to the layout.
                 userMoved.current = false;
+                fittedFocus.current = null;
                 void fitView(fitOptions);
               }}
               fitActive
@@ -471,11 +518,11 @@ function Canvas({
           </div>
         </div>
       )}
-      {compact ? null : <div className="h-px shrink-0 bg-border-subtle" />}
+      {compact || flush ? null : <div className="h-px shrink-0 bg-border-subtle" />}
 
       <div
         ref={viewport}
-        className={placedIds.size > 0 || !placing ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}
+        className={cn("min-h-0 flex-1", placedIds.size > 0 || !placing ? "" : "opacity-0", viewportClassName)}
         onKeyDown={onKeyDown}
         // Keyboard focus lights a flow the way hovering does. Captured here:
         // React Flow's node wrappers take no focus handlers of ours.

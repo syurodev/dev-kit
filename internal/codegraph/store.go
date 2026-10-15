@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -85,7 +86,8 @@ CREATE TABLE IF NOT EXISTS table_accesses (
 	via TEXT NOT NULL,
 	detail TEXT NOT NULL,
 	file TEXT NOT NULL,
-	line INTEGER NOT NULL
+	line INTEGER NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_table_accesses_canon ON table_accesses(canon);
 CREATE TABLE IF NOT EXISTS outbound_calls (
@@ -95,7 +97,8 @@ CREATE TABLE IF NOT EXISTS outbound_calls (
 	client TEXT NOT NULL,
 	http_method TEXT NOT NULL,
 	service_name TEXT NOT NULL,
-	url TEXT NOT NULL
+	url TEXT NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_outbound_calls_from ON outbound_calls(from_id);
 CREATE TABLE IF NOT EXISTS redis_accesses (
@@ -104,7 +107,8 @@ CREATE TABLE IF NOT EXISTS redis_accesses (
 	access TEXT NOT NULL,
 	command TEXT NOT NULL,
 	file TEXT NOT NULL,
-	line INTEGER NOT NULL
+	line INTEGER NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS kafka_accesses (
 	from_id TEXT NOT NULL,
@@ -114,7 +118,8 @@ CREATE TABLE IF NOT EXISTS kafka_accesses (
 	group_id TEXT NOT NULL,
 	is_pattern INTEGER NOT NULL,
 	file TEXT NOT NULL,
-	line INTEGER NOT NULL
+	line INTEGER NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS entry_points (
 	id TEXT PRIMARY KEY,
@@ -147,7 +152,15 @@ CREATE TABLE IF NOT EXISTS call_sites (
 	from_id TEXT NOT NULL,
 	to_id TEXT NOT NULL,
 	line INTEGER NOT NULL,
-	unresolved TEXT NOT NULL
+	unresolved TEXT NOT NULL,
+	col INTEGER NOT NULL DEFAULT 0,
+	text TEXT NOT NULL DEFAULT '',
+	callee_key TEXT NOT NULL DEFAULT '',
+	receiver TEXT NOT NULL DEFAULT '',
+	result_use TEXT NOT NULL DEFAULT '',
+	frames TEXT NOT NULL DEFAULT '',
+	role TEXT NOT NULL DEFAULT '',
+	target TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_call_sites_from ON call_sites(from_id);
 CREATE INDEX IF NOT EXISTS idx_call_sites_to ON call_sites(to_id);
@@ -208,7 +221,23 @@ const indexedAnalyzerKey = "analyzer"
 // order they land in is the order they were requested in.
 type sqliteStore struct {
 	db *sql.DB
+
+	// stats caches CallStats: it reads all of call_sites, and only
+	// ReplaceIndex changes that. statsGen is bumped by each ReplaceIndex, so
+	// a count read across one is not kept.
+	statsMu  sync.Mutex
+	stats    *CallStats
+	statsGen uint64
 }
+
+// postMigrationIndexes run after migrateSchema, so an index may name a
+// column a migration added. The step lookups read these tables by caller.
+const postMigrationIndexes = `
+CREATE INDEX IF NOT EXISTS idx_kafka_accesses_from ON kafka_accesses(from_id);
+CREATE INDEX IF NOT EXISTS idx_redis_accesses_from ON redis_accesses(from_id);
+CREATE INDEX IF NOT EXISTS idx_table_accesses_from ON table_accesses(from_id);
+CREATE INDEX IF NOT EXISTS idx_field_accesses_node ON field_accesses(node_id, kind);
+`
 
 // storePragmas apply to every connection the pool opens (they are DSN
 // parameters, not one-off statements, because database/sql may open more).
@@ -239,6 +268,10 @@ func newSQLiteStore(path string) (*sqliteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("codegraph: migrate schema: %w", err)
 	}
+	if _, err := db.Exec(postMigrationIndexes); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("codegraph: create indexes: %w", err)
+	}
 	return &sqliteStore{db: db}, nil
 }
 
@@ -265,16 +298,19 @@ func migrateSchema(db *sql.DB) error {
 	}
 
 	if !cols["summary"] {
-		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN summary TEXT NOT NULL DEFAULT ''"); err != nil {
-			return fmt.Errorf("codegraph: add summary column: %w", err)
+		if err := addColumn(db, "nodes", "summary", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
 		}
 	}
 	if !cols["params"] {
-		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT NOT NULL DEFAULT '[]'"); err != nil {
-			return fmt.Errorf("codegraph: add params column: %w", err)
+		if err := addColumn(db, "nodes", "params", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+			return err
 		}
 	}
 	if err := migrateEdgeGuard(db); err != nil {
+		return err
+	}
+	if err := migrateCallSiteSteps(db); err != nil {
 		return err
 	}
 	if err := migrateEndpointsTable(db); err != nil {
@@ -306,7 +342,7 @@ func migrateSchema(db *sql.DB) error {
 			return err
 		}
 		if !found {
-			if _, err := db.Exec("ALTER TABLE entry_points ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''"); err != nil {
+			if err := addColumn(db, "entry_points", name, "TEXT NOT NULL DEFAULT ''"); err != nil {
 				return err
 			}
 		}
@@ -339,11 +375,92 @@ func migrateEdgeGuard(db *sql.DB) error {
 	}
 	rows.Close()
 	if !has {
-		if _, err := db.Exec("ALTER TABLE edges ADD COLUMN guard TEXT NOT NULL DEFAULT ''"); err != nil {
-			return fmt.Errorf("codegraph: add edges.guard column: %w", err)
+		if err := addColumn(db, "edges", "guard", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// migrateCallSiteSteps adds the step columns to an index written before the
+// flow outline. Its call sites read with no step — a flat outline — until the
+// next re-index fills them in. The extractor tables gain the column of the
+// call an access was seen at; an old row reads as 0, which GetSteps joins by
+// line alone.
+func migrateCallSiteSteps(db *sql.DB) error {
+	if err := addMissingColumns(db, "call_sites", []tableColumn{
+		{"col", "INTEGER NOT NULL DEFAULT 0"},
+		{"text", "TEXT NOT NULL DEFAULT ''"},
+		{"callee_key", "TEXT NOT NULL DEFAULT ''"},
+		{"receiver", "TEXT NOT NULL DEFAULT ''"},
+		{"result_use", "TEXT NOT NULL DEFAULT ''"},
+		{"frames", "TEXT NOT NULL DEFAULT ''"},
+		{"role", "TEXT NOT NULL DEFAULT ''"},
+		{"target", "TEXT NOT NULL DEFAULT ''"},
+	}); err != nil {
+		return err
+	}
+	for _, table := range []string{"kafka_accesses", "redis_accesses", "table_accesses", "outbound_calls"} {
+		if err := addMissingColumns(db, table, []tableColumn{{"col", "INTEGER NOT NULL DEFAULT 0"}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type tableColumn struct{ name, ddl string }
+
+// addMissingColumns adds each column table does not have yet.
+func addMissingColumns(db *sql.DB, table string, columns []tableColumn) error {
+	have, err := tableColumns(db, table)
+	if err != nil {
+		return err
+	}
+	for _, c := range columns {
+		if have[c.name] {
+			continue
+		}
+		if err := addColumn(db, table, c.name, c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addColumn adds one column. Two opens of one old index (the app and a test
+// run, two windows) can both find it missing; the second ALTER then fails
+// with "duplicate column name", which is the column being there — what the
+// migration wanted — so it is not an error.
+func addColumn(db *sql.DB, table, name, ddl string) error {
+	if _, err := db.Exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + ddl); err != nil {
+		if strings.Contains(err.Error(), "duplicate column name") {
+			return nil
+		}
+		return fmt.Errorf("codegraph: add %s.%s column: %w", table, name, err)
+	}
+	return nil
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: inspect %s table: %w", table, err)
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return nil, fmt.Errorf("codegraph: scan table_info: %w", err)
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("codegraph: table_info rows: %w", err)
+	}
+	return have, nil
 }
 
 // migrateEndpointsTable moves an index written when entry points were called
@@ -483,13 +600,23 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
-	siteStmt, err := insert(`INSERT INTO call_sites (from_id, to_id, line, unresolved) VALUES (?, ?, ?, ?)`)
+	siteStmt, err := insert(`INSERT INTO call_sites (from_id, to_id, line, unresolved, col, text, callee_key, receiver, result_use, frames, role, target)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer siteStmt.Close()
 	for _, c := range result.CallSites {
-		if _, err := siteStmt.ExecContext(ctx, c.From, c.To, c.Line, c.Unresolved); err != nil {
+		frames := ""
+		if len(c.Frames) > 0 {
+			body, err := json.Marshal(c.Frames)
+			if err != nil {
+				return fmt.Errorf("codegraph: encode frames of %q: %w", c.From, err)
+			}
+			frames = string(body)
+		}
+		if _, err := siteStmt.ExecContext(ctx, c.From, c.To, c.Line, c.Unresolved, c.Col, c.Text, c.CalleeKey,
+			c.Receiver, c.ResultUse, frames, c.Role, c.Target); err != nil {
 			return fmt.Errorf("codegraph: insert call site %q->%q: %w", c.From, c.To, err)
 		}
 	}
@@ -541,40 +668,40 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 
-	tableAccessStmt, err := insert(`INSERT INTO table_accesses (from_id, table_name, schema_name, canon, access, via, detail, file, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	tableAccessStmt, err := insert(`INSERT INTO table_accesses (from_id, table_name, schema_name, canon, access, via, detail, file, line, col) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer tableAccessStmt.Close()
 	for _, a := range result.TableAccesses {
-		if _, err := tableAccessStmt.ExecContext(ctx, a.From, a.Table, a.Schema, CanonicalConfigKey(a.Table), a.Access, a.Via, a.Detail, a.File, a.Line); err != nil {
+		if _, err := tableAccessStmt.ExecContext(ctx, a.From, a.Table, a.Schema, CanonicalConfigKey(a.Table), a.Access, a.Via, a.Detail, a.File, a.Line, a.Col); err != nil {
 			return fmt.Errorf("codegraph: insert table access to %q: %w", a.Table, err)
 		}
 	}
 
-	outboundStmt, err := insert(`INSERT INTO outbound_calls (from_id, file, line, client, http_method, service_name, url) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	outboundStmt, err := insert(`INSERT INTO outbound_calls (from_id, file, line, client, http_method, service_name, url, col) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer outboundStmt.Close()
 	for _, o := range result.OutboundCalls {
-		if _, err := outboundStmt.ExecContext(ctx, o.From, o.File, o.Line, o.Client, o.HTTPMethod, o.ServiceName, o.URL); err != nil {
+		if _, err := outboundStmt.ExecContext(ctx, o.From, o.File, o.Line, o.Client, o.HTTPMethod, o.ServiceName, o.URL, o.Col); err != nil {
 			return fmt.Errorf("codegraph: insert outbound call %q: %w", o.URL, err)
 		}
 	}
 
-	redisStmt, err := insert(`INSERT INTO redis_accesses (from_id, key, access, command, file, line) VALUES (?, ?, ?, ?, ?, ?)`)
+	redisStmt, err := insert(`INSERT INTO redis_accesses (from_id, key, access, command, file, line, col) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer redisStmt.Close()
 	for _, a := range result.RedisAccesses {
-		if _, err := redisStmt.ExecContext(ctx, a.From, a.Key, a.Access, a.Command, a.File, a.Line); err != nil {
+		if _, err := redisStmt.ExecContext(ctx, a.From, a.Key, a.Access, a.Command, a.File, a.Line, a.Col); err != nil {
 			return fmt.Errorf("codegraph: insert redis access %q: %w", a.Key, err)
 		}
 	}
 
-	kafkaStmt, err := insert(`INSERT INTO kafka_accesses (from_id, topic, role, client, group_id, is_pattern, file, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	kafkaStmt, err := insert(`INSERT INTO kafka_accesses (from_id, topic, role, client, group_id, is_pattern, file, line, col) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -584,7 +711,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		if a.Pattern {
 			pattern = 1
 		}
-		if _, err := kafkaStmt.ExecContext(ctx, a.From, a.Topic, a.Role, a.Client, a.GroupID, pattern, a.File, a.Line); err != nil {
+		if _, err := kafkaStmt.ExecContext(ctx, a.From, a.Topic, a.Role, a.Client, a.GroupID, pattern, a.File, a.Line, a.Col); err != nil {
 			return fmt.Errorf("codegraph: insert kafka access %q: %w", a.Topic, err)
 		}
 	}
@@ -609,6 +736,10 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("codegraph: commit replace: %w", err)
 	}
+	s.statsMu.Lock()
+	s.stats = nil
+	s.statsGen++
+	s.statsMu.Unlock()
 	return nil
 }
 
@@ -1197,7 +1328,7 @@ func (s *sqliteStore) GetCallSitesAt(ctx context.Context, filePath string, line 
 // the from_id side.
 func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE to_id = ? ORDER BY from_id, line`,
+		`SELECT from_id, to_id, line, unresolved, role FROM call_sites WHERE to_id = ? ORDER BY from_id, line`,
 		toID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetCallSitesTo: %w", err)
@@ -1207,7 +1338,7 @@ func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSi
 	var out []CallSite
 	for rows.Next() {
 		var c CallSite
-		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Role); err != nil {
 			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
 		}
 		out = append(out, c)
@@ -1215,12 +1346,190 @@ func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSi
 	return out, rows.Err()
 }
 
+// GetStepSites reads call sites with their step, batched like GetNodes. Order
+// is source order within a caller; column breaks a tie on one line.
+func (s *sqliteStore) GetStepSites(ctx context.Context, fromIDs []string) ([]CallSite, error) {
+	var out []CallSite
+	for start := 0; start < len(fromIDs); start += batchSize {
+		chunk := fromIDs[start:min(start+batchSize, len(fromIDs))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT from_id, to_id, line, unresolved, col, text, callee_key, receiver, result_use, frames, role, target
+			   FROM call_sites WHERE from_id IN (`+placeholders(len(chunk))+`)
+			  ORDER BY from_id, line, col, to_id`, stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: GetStepSites: %w", err)
+		}
+		for rows.Next() {
+			var c CallSite
+			var frames string
+			if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Col, &c.Text, &c.CalleeKey,
+				&c.Receiver, &c.ResultUse, &frames, &c.Role, &c.Target); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan step site: %w", err)
+			}
+			if frames != "" {
+				// A row that cannot be read keeps its call, without frames:
+				// one bad row must not take the method's outline with it.
+				if err := json.Unmarshal([]byte(frames), &c.Frames); err != nil {
+					c.Frames = nil
+				}
+			}
+			out = append(out, c)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("codegraph: read rows: %w", err)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// CallStats counts callers per callee key. Dispatch links (a role) are
+// not calls anyone wrote, and a site with no key says nothing about a callee.
+// The answer is cached until the next ReplaceIndex; callers must not change
+// the map it returns.
+func (s *sqliteStore) CallStats(ctx context.Context) (CallStats, error) {
+	s.statsMu.Lock()
+	cached, gen := s.stats, s.statsGen
+	s.statsMu.Unlock()
+	if cached != nil {
+		return *cached, nil
+	}
+	stats := CallStats{Callers: map[string]int{}}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes WHERE kind = 'method'`).Scan(&stats.Methods); err != nil {
+		return CallStats{}, fmt.Errorf("codegraph: count methods: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT callee_key, COUNT(DISTINCT from_id) FROM call_sites WHERE callee_key != '' AND role = '' GROUP BY callee_key`)
+	if err != nil {
+		return CallStats{}, fmt.Errorf("codegraph: CallStats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var n int
+		if err := rows.Scan(&key, &n); err != nil {
+			return CallStats{}, fmt.Errorf("codegraph: scan call stats: %w", err)
+		}
+		stats.Callers[key] = n
+	}
+	if err := rows.Err(); err != nil {
+		return CallStats{}, fmt.Errorf("codegraph: read call stats: %w", err)
+	}
+	s.statsMu.Lock()
+	if s.statsGen == gen {
+		s.stats = &stats
+	}
+	s.statsMu.Unlock()
+	return stats, nil
+}
+
+// ListEffectsFrom gathers the four extractor tables into one shape, keyed by
+// the line each access was seen at — the line GetSteps matches a call on.
+func (s *sqliteStore) ListEffectsFrom(ctx context.Context, fromIDs []string) ([]StepEffectAt, error) {
+	var out []StepEffectAt
+	for start := 0; start < len(fromIDs); start += batchSize {
+		chunk := fromIDs[start:min(start+batchSize, len(fromIDs))]
+		in := placeholders(len(chunk))
+		args := make([]any, 0, 4*len(chunk))
+		for range 4 {
+			args = append(args, stringArgs(chunk)...)
+		}
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT from_id, line, col, 'kafka', role, topic FROM kafka_accesses WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, col, 'http', 'call', TRIM(http_method || ' ' || url) FROM outbound_calls WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, col, 'redis', access, key FROM redis_accesses WHERE from_id IN (`+in+`)
+			UNION ALL
+			SELECT from_id, line, col, 'db', access, CASE WHEN schema_name = '' THEN table_name ELSE schema_name || '.' || table_name END
+			  FROM table_accesses WHERE from_id IN (`+in+`)
+			ORDER BY 1, 2, 3, 4, 5`, args...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: ListEffectsFrom: %w", err)
+		}
+		for rows.Next() {
+			var e StepEffectAt
+			if err := rows.Scan(&e.From, &e.Line, &e.Col, &e.Effect.Kind, &e.Effect.Role, &e.Effect.Target); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan effect: %w", err)
+			}
+			out = append(out, e)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("codegraph: read rows: %w", err)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// FieldWriters reads field_accesses' writes; a method absent from the map
+// writes no field.
+func (s *sqliteStore) FieldWriters(ctx context.Context, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for start := 0; start < len(ids); start += batchSize {
+		chunk := ids[start:min(start+batchSize, len(ids))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT DISTINCT node_id FROM field_accesses WHERE kind = 'write' AND node_id IN (`+placeholders(len(chunk))+`)`,
+			stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: FieldWriters: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan field writer: %w", err)
+			}
+			out[id] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("codegraph: read rows: %w", err)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// OverridesOf reads only the dispatch links of the given methods: what
+// GetSteps needs of a callee it did not load.
+func (s *sqliteStore) OverridesOf(ctx context.Context, ids []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for start := 0; start < len(ids); start += batchSize {
+		chunk := ids[start:min(start+batchSize, len(ids))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT from_id, to_id FROM call_sites WHERE role = 'override' AND from_id IN (`+placeholders(len(chunk))+`)
+			  ORDER BY from_id, to_id`, stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: OverridesOf: %w", err)
+		}
+		for rows.Next() {
+			var from, to string
+			if err := rows.Scan(&from, &to); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan override: %w", err)
+			}
+			out[from] = append(out[from], to)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("codegraph: read overrides: %w", err)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
 // GetCallSites returns every call expression in one method, in source order.
 // Repeats are preserved: a method that calls the same target twice has two
 // rows, and losing one would put the trace's events in the wrong order.
 func (s *sqliteStore) GetCallSites(ctx context.Context, fromID string) ([]CallSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE from_id = ? ORDER BY line`,
+		`SELECT from_id, to_id, line, unresolved, role FROM call_sites WHERE from_id = ? ORDER BY line`,
 		fromID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetCallSites: %w", err)
@@ -1230,7 +1539,7 @@ func (s *sqliteStore) GetCallSites(ctx context.Context, fromID string) ([]CallSi
 	var out []CallSite
 	for rows.Next() {
 		var c CallSite
-		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved, &c.Role); err != nil {
 			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
 		}
 		out = append(out, c)

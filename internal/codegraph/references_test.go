@@ -242,6 +242,49 @@ func TestFindReferencesImplReachedOnlyThroughInterface(t *testing.T) {
 	}
 }
 
+// A dispatch link the analyzer marked as one (Role: RoleOverride) is
+// recognised by its role, not only by sitting on the abstract method's own
+// declaration line: here the method's node starts on its annotation (line 4)
+// while the link is recorded at line 5. The line rule stays as the fallback
+// for indexes written before roles (the tests above).
+func roleMarkedDispatch() AnalysisResult {
+	return AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.OrderService.create(Request)", Label: "com.acme.OrderService.create", Kind: "method", FilePath: "OrderService.java", Line: 4, EndLine: 5},
+			{ID: "com.acme.OrderServiceImpl.create(Request)", Label: "com.acme.OrderServiceImpl.create", Kind: "method", FilePath: "OrderServiceImpl.java", Line: 10, EndLine: 15},
+			{ID: "com.acme.OrderController.handle()", Label: "com.acme.OrderController.handle", Kind: "method", FilePath: "OrderController.java", Line: 3, EndLine: 8},
+		},
+		CallSites: []CallSite{
+			{From: "com.acme.OrderService.create(Request)", To: "com.acme.OrderServiceImpl.create(Request)", Line: 5, Role: RoleOverride},
+			{From: "com.acme.OrderController.handle()", To: "com.acme.OrderService.create(Request)", Line: 4},
+		},
+	}
+}
+
+func TestFindImplementationsReadsTheOverrideRole(t *testing.T) {
+	svc := openWith(t, roleMarkedDispatch())
+
+	defs, err := svc.FindImplementations(context.Background(), "OrderService.java", 4, "create")
+	if err != nil {
+		t.Fatalf("FindImplementations: %v", err)
+	}
+	if len(defs) != 1 || defs[0].NodeID != "com.acme.OrderServiceImpl.create(Request)" {
+		t.Fatalf("defs = %+v, want the implementation the role-marked link names", defs)
+	}
+}
+
+func TestFindReferencesSkipsARoleMarkedDispatchLink(t *testing.T) {
+	svc := openWith(t, roleMarkedDispatch())
+
+	refs, err := svc.FindReferences(context.Background(), "OrderServiceImpl.java", 10, "create")
+	if err != nil {
+		t.Fatalf("FindReferences: %v", err)
+	}
+	if len(refs) != 1 || refs[0].NodeID != "com.acme.OrderController.handle()" || refs[0].Line != 4 {
+		t.Fatalf("refs = %+v, want only the controller's call reached through the interface", refs)
+	}
+}
+
 // --- FindReferences: fields ---------------------------------------------------
 
 func TestFindReferencesFieldReadAndWrite(t *testing.T) {

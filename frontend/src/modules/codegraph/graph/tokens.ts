@@ -50,6 +50,13 @@ export function verbChipClass(verb: string): string {
 export const ICON_BADGE =
   "flex size-7.5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-raised";
 
+/**
+ * What an extractor saw at a call ("Kafka produce", "DB read"), as a small
+ * outlined chip in the caption face. One class for the card and the outline
+ * row, so the same effect reads the same in both modes.
+ */
+export const EFFECT_CHIP = "shrink-0 rounded-sm border border-border-subtle px-1.5 text-caption-11 text-text-secondary";
+
 /** Read off Connector (167:79). */
 export const EDGE = {
   /** Matches the `a14 14 0 0 0` arc in the Figma Branch path. */
@@ -57,3 +64,12 @@ export const EDGE = {
   strokeWidth: 1.5,
   dashArray: "5 5",
 } as const;
+
+/**
+ * A document's header strip, run edge to edge the way the workbench's tab
+ * strip above it is: 40px, the strip's own 8px inset, its hairline as a
+ * bottom border. The flow document's two modes share it, so switching
+ * between them never moves the header.
+ */
+export const FLOW_HEADER =
+  "flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-2";

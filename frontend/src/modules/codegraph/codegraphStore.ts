@@ -4,6 +4,7 @@ import type { CodeGraphPlanEdge, CodeGraphPlanProgress } from "@/bridge/codegrap
 import type {
   CodeGraphCodeSnippet,
   CodeGraphFileEntry,
+  CodeGraphSteps,
   CodeGraphSubgraph,
   CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
@@ -33,6 +34,14 @@ export type FlowDoc = {
   /** True while fetching the next page of a truncated subgraph. */
   loadingMore: boolean;
   error: string;
+  /** The steps of the subgraph's methods — the Outline's rows, the Graph's labels. */
+  steps: CodeGraphSteps | null;
+  stepsLoading: boolean;
+  stepsError: string;
+  /** Which mode the flow tab shows. Memory only; a new flow opens on the outline. */
+  mode: "outline" | "graph";
+  /** Outline rows whose open state the person changed, by row key. */
+  toggled: Record<string, boolean>;
 };
 
 /** One task on a plan node, narrowed to what a chip draws. */

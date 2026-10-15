@@ -37,6 +37,10 @@ export type {
     Reference,
     Requirement,
     ServiceIndexStatus,
+    Step,
+    StepEffect,
+    StepFrame,
+    StepsResult,
     Subgraph,
     SymbolMatch,
     ToolchainStatus

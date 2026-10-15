@@ -83,7 +83,8 @@ final class RedisExtractor {
         access.key = key;
         access.access = write ? "write" : "read";
         access.command = command;
-        access.line = call.getBegin().map(p -> p.line).orElse(0);
+        access.line = Steps.line(call);
+        access.col = Steps.col(call);
         return Optional.of(access);
     }
 

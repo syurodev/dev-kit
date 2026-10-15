@@ -118,7 +118,7 @@ final class TableExtractor {
     private List<TableAccess> deduped() {
         Map<String, TableAccess> byKey = new LinkedHashMap<>();
         for (TableAccess a : accesses) {
-            byKey.putIfAbsent(String.join("\n", a.from, a.schema, a.table, a.access, a.via, String.valueOf(a.line), a.detail), a);
+            byKey.putIfAbsent(String.join("\n", a.from, a.schema, a.table, a.access, a.via, String.valueOf(a.line), String.valueOf(a.col), a.detail), a);
         }
         return new ArrayList<>(byKey.values());
     }
@@ -302,7 +302,7 @@ final class TableExtractor {
         Owner repository = ownersById.get(repositoryId);
         String detail = repository.decl().getNameAsString() + "." + name;
         for (String from : scope.ownerIds()) {
-            add(from, entity.table, entity.schema, write ? "write" : "read", "repository-crud", detail, scope.file(), line(call));
+            add(from, entity.table, entity.schema, write ? "write" : "read", "repository-crud", detail, scope.file(), Steps.line(call), Steps.col(call));
         }
     }
 
@@ -319,7 +319,7 @@ final class TableExtractor {
         boolean jpql = name.equals("createQuery");
         for (SqlTables.Ref ref : SqlTables.parse(text, jpql)) {
             for (String from : scope.ownerIds()) {
-                record(from, ref, !jpql, entityManager ? "entity-manager" : "jdbc", text, scope.file(), line(call));
+                record(from, ref, !jpql, entityManager ? "entity-manager" : "jdbc", text, scope.file(), Steps.line(call), Steps.col(call));
             }
         }
     }
@@ -328,17 +328,26 @@ final class TableExtractor {
 
     /** Turns a parsed reference into an access: a JPQL entity name through the entity map, a native name as it is. */
     private void record(String from, SqlTables.Ref ref, boolean nativeSql, String via, String statement, String file, int line) {
+        record(from, ref, nativeSql, via, statement, file, line, 0);
+    }
+
+    private void record(String from, SqlTables.Ref ref, boolean nativeSql, String via, String statement, String file, int line, int col) {
         if (nativeSql) {
-            add(from, ref.name(), ref.schema(), ref.access(), via, statement, file, line);
+            add(from, ref.name(), ref.schema(), ref.access(), via, statement, file, line, col);
             return;
         }
         EntityTable entity = primaryByName.get(ref.name().toLowerCase(Locale.ROOT));
         if (entity != null) {
-            add(from, entity.table, entity.schema, ref.access(), via, statement, file, line);
+            add(from, entity.table, entity.schema, ref.access(), via, statement, file, line, col);
         }
     }
 
     private void add(String from, String table, String schema, String access, String via, String detail, String file, int line) {
+        add(from, table, schema, access, via, detail, file, line, 0);
+    }
+
+    /** col is the call's name column for a row read off a call (Steps.col), 0 for one read off a declaration. */
+    private void add(String from, String table, String schema, String access, String via, String detail, String file, int line, int col) {
         if (!nodeIds.contains(from) || table == null || table.isEmpty()) {
             return;
         }
@@ -352,6 +361,7 @@ final class TableExtractor {
         a.detail = folded.length() <= MAX_DETAIL ? folded : folded.substring(0, MAX_DETAIL - 1) + "…";
         a.file = file;
         a.line = line;
+        a.col = col;
         accesses.add(a);
     }
 

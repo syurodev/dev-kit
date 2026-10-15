@@ -1,7 +1,9 @@
+import { useLayoutEffect, useRef, useState, type Ref } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
+  Position,
   type EdgeProps,
 } from "@xyflow/react";
 import { EDGE } from "./tokens";
@@ -17,24 +19,92 @@ export type ConnectorEdgeData = {
    * whole reason the plan canvas shows labels at all.
    */
   label?: string;
+  /** The tooltip of the label: the full guard behind a short frame label. */
+  title?: string;
+  /**
+   * "arrow": a branch's label sits at its arrowhead as just its order number
+   * ("2" of "2 · if (ok)"), the rest in the tooltip. Set from FlowCanvas'
+   * `labelAt` prop, which only the flow document passes; without it the label
+   * stays at the path's midpoint.
+   */
+  labelAt?: "arrow";
   /** Off the flow through the hovered card (focus.ts): its label fades with it. */
   dimmed?: boolean;
   /** On that flow: drawn in the primary ink, so the chain reads as one line. */
   lit?: boolean;
 };
 
-export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
-  const kind = (data as ConnectorEdgeData | undefined)?.kind ?? "call";
-  const showLabel = (data as ConnectorEdgeData | undefined)?.showLabel ?? false;
-  const label = (data as ConnectorEdgeData | undefined)?.label;
-  const dimmed = (data as ConnectorEdgeData | undefined)?.dimmed ?? false;
-  const lit = (data as ConnectorEdgeData | undefined)?.lit ?? false;
-  const dashed = kind === "di";
+/**
+ * What a label shows at the arrowhead: its order number ("2" of "2 · if (ok)"
+ * or "2"), or null for a label that is not numbered ("implements", a plan
+ * condition) — that one stays at the midpoint, since at full width it would
+ * cover the card beside the arrow.
+ */
+export function arrowLabel(label: string | undefined): string | null {
+  const m = label?.match(/^(\d+)(?: · |$)/);
+  return m ? m[1] : null;
+}
 
-  const [path, labelX, labelY] = getSmoothStepPath({
+/**
+ * The edge data FlowCanvas hands this edge. The tooltip falls back to the
+ * label itself; an injection labels itself, other edges only when labelled.
+ */
+export function connectorEdgeData({
+  kind,
+  label,
+  title,
+  labelAt,
+}: {
+  kind: string;
+  label?: string;
+  title?: string;
+  labelAt?: "arrow";
+}): ConnectorEdgeData {
+  return { kind, label, title: title ?? label, labelAt, showLabel: kind === "di" || !!label };
+}
+
+/** Room between a label at the arrowhead and the card: the arrow itself, so the chip stays clear of the card it leaves (columns are ~40px apart). */
+const LABEL_ARROW_GAP = 14;
+
+export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
+  const d = data as ConnectorEdgeData | undefined;
+  const kind = d?.kind ?? "call";
+  const showLabel = d?.showLabel ?? false;
+  const label = d?.label;
+  const dimmed = d?.dimmed ?? false;
+  const lit = d?.lit ?? false;
+  const title = d?.title;
+  // An injection and a call into an override are both "not a call you wrote here".
+  const dashed = kind === "di" || kind === "implements";
+
+  const [path, midX, midY] = getSmoothStepPath({
     ...props,
     borderRadius: EDGE.elbowRadius,
   });
+  // A branch enters its card from the left after running down beside the
+  // column it leaves, and the path's midpoint lands behind the card below the
+  // caller. Asked for, its label sits at the arrowhead instead, on the run
+  // into the card — as the order number alone, small enough not to cover
+  // the card beside it.
+  const order = d?.labelAt === "arrow" && props.targetPosition === Position.Left ? arrowLabel(label) : null;
+  const atArrow = order !== null;
+  const text = label ?? (kind === "di" ? "injects" : "calls");
+  const shown = order ?? text;
+  const tooltip = atArrow
+    ? [text, title && title !== label ? title : ""].filter(Boolean).join("\n")
+    : (title ?? label);
+
+  // The label takes the pointer only when its tooltip says more than the pill
+  // does: a guard behind a frame label, a number standing for its label, or a
+  // pill the width cap clipped. Everything else stays click-through, and a
+  // dimmed label never catches the pointer.
+  const pill = useRef<HTMLSpanElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = pill.current;
+    setClipped(!!el && el.scrollWidth > el.clientWidth);
+  }, [shown, showLabel]);
+  const interactive = !dimmed && (clipped || (!!tooltip && tooltip !== shown));
 
   return (
     <>
@@ -52,11 +122,15 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
       {showLabel && (
         <EdgeLabelRenderer>
           <div
-            className={`nodrag nopan pointer-events-none absolute transition-opacity duration-150${dimmed ? " opacity-15" : ""}`}
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+            className={`nodrag nopan absolute transition-opacity duration-150 ${interactive ? "pointer-events-auto" : "pointer-events-none"}${atArrow ? " z-10" : ""}${dimmed ? " opacity-15" : ""}`}
+            style={{
+              transform: atArrow
+                ? `translate(-100%, -50%) translate(${props.targetX - LABEL_ARROW_GAP}px, ${props.targetY}px)`
+                : `translate(-50%, -50%) translate(${midX}px, ${midY}px)`,
+            }}
           >
-            <EdgeLabelPill kind={dashed ? "di" : "call"} title={label}>
-              {label ?? (dashed ? "injects" : "calls")}
+            <EdgeLabelPill ref={pill} kind={kind === "di" ? "di" : "call"} title={tooltip}>
+              {shown}
             </EdgeLabelPill>
           </div>
         </EdgeLabelRenderer>
@@ -76,10 +150,12 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
  * shares the canvas. Capped and truncated, with the full text as a tooltip.
  */
 export function EdgeLabelPill({
+  ref,
   kind,
   title,
   children,
 }: {
+  ref?: Ref<HTMLSpanElement>;
   kind: "call" | "di";
   title?: string;
   children: string;
@@ -87,6 +163,7 @@ export function EdgeLabelPill({
   const blue = "var(--hue-blue)";
   return (
     <span
+      ref={ref}
       title={title}
       className="block max-w-52 truncate rounded-full border px-2.25 py-1 text-code-11 shadow-canvas-chip"
       style={

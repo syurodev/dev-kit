@@ -1,6 +1,10 @@
+import { toast } from "sonner";
 import {
   getCodeGraphCodeSnippet,
   getCodeGraphNeighbors,
+  getCodeGraphSteps,
+  setCallVisibility as saveCallVisibility,
+  type CallVisibilityMode,
   type CodeGraphEntryPoint,
   type CodeGraphSubgraph,
   type CodeGraphSymbolMatch,
@@ -24,7 +28,10 @@ import { captureDeparture, focusedGroupId, recordArrival } from "./navigation";
  */
 
 const NEIGHBOR_DEPTH = 3;
-const EMPTY_FLOW = (folderId: string): FlowDoc => ({ folderId, subgraph: null, pages: 0, loading: false, loadingMore: false, error: "" });
+const EMPTY_FLOW = (folderId: string): FlowDoc => ({
+  folderId, subgraph: null, pages: 0, loading: false, loadingMore: false, error: "",
+  steps: null, stepsLoading: false, stepsError: "", mode: "outline", toggled: {},
+});
 
 function patchFlow(key: string, folderId: string, patch: Partial<FlowDoc>) {
   const flows = snapshot().flows;
@@ -51,9 +58,69 @@ export async function loadFlow(folderId: string, root: string, force = false): P
   try {
     const sub = await getCodeGraphNeighbors(root, NEIGHBOR_DEPTH, undefined, servicePath);
     if (current()) patchFlow(key, folderId, { subgraph: sub, pages: 1, loading: false });
+    if (current()) void loadSteps(folderId, root);
   } catch (e) {
     if (current()) patchFlow(key, folderId, { subgraph: null, loading: false, error: errorMessage(e) });
   }
+}
+
+/**
+ * Fetches the steps of the flow's methods. Dropped if the subgraph it was
+ * asked for is no longer the one in that flow (a refresh replaced it); the
+ * steps on screen stay until the new subgraph's arrive.
+ */
+export async function loadSteps(folderId: string, root: string): Promise<void> {
+  const key = flowKey(folderId, root);
+  const subgraph = snapshot().flows[key]?.subgraph;
+  const servicePath = servicePathOf(folderId);
+  if (!subgraph || !servicePath) return;
+  const current = begin(`steps:${key}`);
+  patchFlow(key, folderId, { stepsLoading: true, stepsError: "" });
+  try {
+    const steps = await getCodeGraphSteps(subgraph.nodes.map((n) => n.id), servicePath);
+    if (!current()) return;
+    // A later request owns the flag when there is one; this was the last, so
+    // it stops loading even when its subgraph is gone (a failed refresh).
+    if (snapshot().flows[key]?.subgraph === subgraph) patchFlow(key, folderId, { steps, stepsLoading: false });
+    else patchFlow(key, folderId, { stepsLoading: false });
+  } catch (e) {
+    if (current()) patchFlow(key, folderId, { stepsLoading: false, stepsError: errorMessage(e) });
+  }
+}
+
+export function setFlowMode(folderId: string, root: string, mode: FlowDoc["mode"]) {
+  patchFlow(flowKey(folderId, root), folderId, { mode });
+}
+
+/** Opens or closes one outline row. */
+export function toggleOutlineRow(folderId: string, root: string, rowKey: string, open: boolean) {
+  const key = flowKey(folderId, root);
+  const toggled = snapshot().flows[key]?.toggled ?? {};
+  patchFlow(key, folderId, { toggled: { ...toggled, [rowKey]: open } });
+}
+
+/** Opens several outline rows at once: the way down to a node picked elsewhere. */
+export function openOutlineRows(folderId: string, root: string, rowKeys: readonly string[]) {
+  if (rowKeys.length === 0) return;
+  const key = flowKey(folderId, root);
+  const toggled = { ...(snapshot().flows[key]?.toggled ?? {}) };
+  for (const k of rowKeys) toggled[k] = true;
+  patchFlow(key, folderId, { toggled });
+}
+
+/** "Always show / hide" a callee (or a whole type with "<Type>#*"); every open flow re-reads its steps. */
+export async function setCallVisibility(calleeKey: string, mode: CallVisibilityMode): Promise<void> {
+  try {
+    await saveCallVisibility(calleeKey, mode);
+  } catch (e) {
+    toast.error(errorMessage(e));
+    return;
+  }
+  const open = documentsOf().flatMap(({ doc }) =>
+    doc.kind === "flow" && doc.folderId && doc.root ? [[doc.folderId, doc.root] as const] : [],
+  );
+  const flows = new Map(open.map(([f, r]) => [flowKey(f, r), [f, r] as const]));
+  await Promise.all([...flows.values()].map(([f, r]) => loadSteps(f, r)));
 }
 
 /** An entry point's call flow, in the preview tab unless told otherwise. */
@@ -99,6 +166,7 @@ export async function loadMoreNeighbors(folderId: string, root: string): Promise
     const now = snapshot().flows[key];
     if (!current() || now?.subgraph !== subgraph) return;
     patchFlow(key, folderId, { subgraph: mergeSubgraph(subgraph, next), pages: now.pages + 1 });
+    void loadSteps(folderId, root);
   } catch (e) {
     if (current() && snapshot().flows[key]?.subgraph === subgraph) patchFlow(key, folderId, { error: errorMessage(e) });
   } finally {
@@ -161,6 +229,7 @@ export async function refreshFolderFlows(folderId: string): Promise<void> {
       try {
         const { sub, loaded } = await fetchPages(servicePath, root, pages, current);
         if (current()) patchFlow(key, folderId, { subgraph: sub, pages: loaded, loading: false, error: "" });
+        if (current()) void loadSteps(folderId, root);
       } catch (e) {
         // A node the re-index removed: the tab says so rather than keeping
         // a graph of code that is gone.

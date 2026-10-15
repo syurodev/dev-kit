@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TreeView, flattenTree, pinnedRows, type TreeNodeData } from "./tree-view";
+import { TreeGuides } from "./tree-guides";
 
 /** Counts chevrons — one per expandable row, whatever its state. */
 function chevrons(html: string): number {
@@ -101,6 +102,18 @@ describe("TreeView", () => {
     expect(html).not.toContain("tree-branch");
     expect(html).not.toContain("tree-row-enter");
     expect(html).toContain("rotate-90");
+  });
+
+  it("draws its guides with the shared TreeGuides, so other trees can match it", () => {
+    const html = renderToString(
+      <TreeView nodes={[{ id: "s", label: "public", expandable: true, expanded: true, children: [{ id: "a", label: "a" }, { id: "b", label: "b" }] }]} />,
+    );
+    const guides = (h: string) => [...h.matchAll(/<span aria-hidden="true">.*?<\/span><\/span>|<span aria-hidden="true"><\/span>/g)].map((m) => m[0]);
+    expect(guides(html)).toEqual([
+      renderToString(<TreeGuides level={0} lasts={[true]} open leaf={false} rowHeight={28} />),
+      renderToString(<TreeGuides level={1} lasts={[true, false]} open={false} leaf rowHeight={28} />),
+      renderToString(<TreeGuides level={1} lasts={[true, true]} open={false} leaf rowHeight={28} />),
+    ]);
   });
 
   it("gives a leaf no chevron", () => {

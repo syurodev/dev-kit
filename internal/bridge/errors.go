@@ -238,6 +238,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}
+	if errors.Is(err, preferences.ErrInvalidCallVisibility) {
+		return apperrors.Wrap(codeValidationFailed, "That call cannot be marked.", true, preferences.ErrInvalidCallVisibility)
+	}
+	if errors.Is(err, preferences.ErrTooManyCallVisibility) {
+		return apperrors.Wrap(codeValidationFailed, "You can keep at most 500 always show/hide choices.", true, preferences.ErrTooManyCallVisibility)
+	}
 	// Authorization failures are classified before subject-specific adapters so
 	// adding a new module cannot accidentally hide a denied capability as a
 	// connection or service failure.
@@ -420,6 +426,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "Plan node not found.", true, codegraph.ErrPlanNodeNotFound)
 		case errors.Is(err, codegraph.ErrInvalidPlan):
 			return apperrors.Wrap(codeValidationFailed, "Invalid plan.", true, codegraph.ErrInvalidPlan)
+		case errors.Is(err, codegraph.ErrTooManyNodes):
+			return apperrors.Wrap(codeValidationFailed, "Too many CodeGraph nodes in one request.", true, codegraph.ErrTooManyNodes)
 		case errors.Is(err, codegraph.ErrPathOutsideProject):
 			return apperrors.Wrap(codeValidationFailed, "File path must stay inside the active CodeGraph project.", true, err)
 		case errors.Is(err, os.ErrNotExist):

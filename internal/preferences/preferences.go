@@ -4,8 +4,10 @@ package preferences
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 type Theme string
@@ -255,11 +257,17 @@ type Repository interface {
 	SetAgentSandbox(settings AgentSandboxSettings) error
 	GetCodexAPIKeyAccount() (string, bool, error)
 	SetCodexAPIKeyAccount(accountID string) error
+	GetCallVisibility() (map[string]string, bool, error)
+	SetCallVisibility(overrides map[string]string) error
 }
 
 type Service struct {
 	repo            Repository
 	customizationMu sync.Mutex
+	// callVisibilityMu serialises SetCallVisibility's read-modify-write: the
+	// overrides are one stored value, so two unserialised sets of different
+	// keys would each write back a map missing the other's key.
+	callVisibilityMu sync.Mutex
 }
 
 func NewService(repo Repository) *Service {
@@ -436,6 +444,81 @@ func (s *Service) CodexAPIKeyAccount() (string, error) {
 // package does not know accounts.
 func (s *Service) SetCodexAPIKeyAccount(accountID string) error {
 	return s.repo.SetCodexAPIKeyAccount(strings.TrimSpace(accountID))
+}
+
+// Limits on CodeGraph's call-visibility overrides: a key is a callee key
+// ("<type>#<member>", or "<type>#*"), a mode is show or hide.
+const (
+	maxCallVisibilityKey     = 300
+	maxCallVisibilityEntries = 500
+)
+
+// ErrInvalidCallVisibility rejects a key or mode the overrides cannot hold.
+var ErrInvalidCallVisibility = errors.New("preferences: invalid call visibility")
+
+// ErrTooManyCallVisibility refuses a new key once the overrides are full.
+var ErrTooManyCallVisibility = errors.New("preferences: too many call visibility overrides")
+
+// CallVisibility is the person's "always show / always hide" choices for
+// CodeGraph's flow outline. Local to this machine, never synced, the same
+// for every project: a library method behaves the same everywhere.
+func (s *Service) CallVisibility() (map[string]string, error) {
+	got, found, err := s.repo.GetCallVisibility()
+	if err != nil {
+		return nil, err
+	}
+	if !found || got == nil {
+		return map[string]string{}, nil
+	}
+	return got, nil
+}
+
+// SetCallVisibility sets one key to "show" or "hide", or removes it with "".
+// The key is trimmed; it must read "<type>#<member>" with text on both sides
+// of the first '#' and no control characters.
+func (s *Service) SetCallVisibility(key, mode string) error {
+	key = strings.TrimSpace(key)
+	if err := validCallVisibilityKey(key); err != nil {
+		return err
+	}
+	if mode != "show" && mode != "hide" && mode != "" {
+		return fmt.Errorf("%w: mode %q", ErrInvalidCallVisibility, mode)
+	}
+	s.callVisibilityMu.Lock()
+	defer s.callVisibilityMu.Unlock()
+	current, err := s.CallVisibility()
+	if err != nil {
+		return err
+	}
+	next := make(map[string]string, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	if mode == "" {
+		delete(next, key)
+	} else {
+		next[key] = mode
+	}
+	// Only a new key can overflow: re-setting or clearing one at the cap is
+	// fine, and a map already over it (an older build) may still shrink.
+	if _, existed := current[key]; !existed && mode != "" && len(next) > maxCallVisibilityEntries {
+		return fmt.Errorf("%w: at most %d", ErrTooManyCallVisibility, maxCallVisibilityEntries)
+	}
+	return s.repo.SetCallVisibility(next)
+}
+
+func validCallVisibilityKey(key string) error {
+	if len(key) > maxCallVisibilityKey {
+		return fmt.Errorf("%w: key longer than %d bytes", ErrInvalidCallVisibility, maxCallVisibilityKey)
+	}
+	typ, member, found := strings.Cut(key, "#")
+	if !found || strings.TrimSpace(typ) == "" || strings.TrimSpace(member) == "" {
+		return fmt.Errorf("%w: key %q is not <type>#<member>", ErrInvalidCallVisibility, key)
+	}
+	if strings.IndexFunc(key, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: key %q holds a control character", ErrInvalidCallVisibility, key)
+	}
+	return nil
 }
 
 // AgentCustomization is local UI-owned configuration. Environment keys refer to

@@ -14,6 +14,7 @@ import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ContinueStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
@@ -41,13 +42,15 @@ import java.util.Set;
  *
  * Read syntactically, as the condition is WRITTEN: no evaluation, no
  * resolution, so a guard is a claim about the source and never about a value.
- * Five shapes make a condition: the branches of an {@code if}, of a ternary
+ * Six shapes make a condition: the branches of an {@code if}, of a ternary
  * and of a {@code switch} entry; the right side of {@code &&} and {@code ||},
- * which only runs when the left side let it; and the guard clause, an
- * {@code if} before the call whose branch leaves the block
+ * which only runs when the left side let it; a {@code catch} block, which runs
+ * only when its exception was thrown; and the guard clause, an {@code if}
+ * before the call whose branch leaves the block
  * ({@code if (!enabled) return false;}), which is how most of this code is
- * written. Loops and {@code try} are not conditions here: a loop repeats a
- * call, it does not choose it.
+ * written. Loops and the {@code try} block itself are not conditions here: a
+ * loop repeats a call, it does not choose it, and a {@code try} block runs
+ * whether or not anything throws.
  */
 final class Guards {
 
@@ -108,13 +111,15 @@ final class Guards {
             }
         } else if (parent instanceof SwitchEntry entry && isStatementOf(entry, child)) {
             add(out, switchCondition(entry));
+        } else if (parent instanceof CatchClause clause && child == clause.getBody()) {
+            add(out, "catch " + flatten(clause.getParameter().getType().toString()));
         } else if (parent instanceof BlockStmt block) {
             guardClauses(block, child, out);
         }
     }
 
     /** Identity, not equals: two identical statements in different entries are different places. */
-    private static boolean isStatementOf(SwitchEntry entry, Node child) {
+    static boolean isStatementOf(SwitchEntry entry, Node child) {
         for (Statement s : entry.getStatements()) {
             if (s == child) {
                 return true;
@@ -147,18 +152,38 @@ final class Guards {
     }
 
     /** True when control never falls out of the end of {@code s}: it returns, throws, breaks or continues. */
-    private static boolean leaves(Statement s) {
-        if (s instanceof ReturnStmt || s instanceof ThrowStmt || s instanceof BreakStmt || s instanceof ContinueStmt) {
-            return true;
+    static boolean leaves(Statement s) {
+        return !exitKind(s).isEmpty();
+    }
+
+    /**
+     * How control leaves {@code s} without falling out of its end: "return",
+     * "throw", "break" or "continue" — the last statement of a block, or of
+     * an if/else whose two sides both leave (the then side's kind when they
+     * differ) — or "" when it can fall through.
+     */
+    static String exitKind(Statement s) {
+        if (s instanceof ReturnStmt) {
+            return "return";
+        }
+        if (s instanceof ThrowStmt) {
+            return "throw";
+        }
+        if (s instanceof BreakStmt) {
+            return "break";
+        }
+        if (s instanceof ContinueStmt) {
+            return "continue";
         }
         if (s instanceof BlockStmt block) {
             NodeList<Statement> statements = block.getStatements();
-            return !statements.isEmpty() && leaves(statements.get(statements.size() - 1));
+            return statements.isEmpty() ? "" : exitKind(statements.get(statements.size() - 1));
         }
-        if (s instanceof IfStmt ifStmt) {
-            return ifStmt.getElseStmt().isPresent() && leaves(ifStmt.getThenStmt()) && leaves(ifStmt.getElseStmt().get());
+        if (s instanceof IfStmt ifStmt && ifStmt.getElseStmt().isPresent()) {
+            String then = exitKind(ifStmt.getThenStmt());
+            return !then.isEmpty() && !exitKind(ifStmt.getElseStmt().get()).isEmpty() ? then : "";
         }
-        return false;
+        return "";
     }
 
     private static String switchCondition(SwitchEntry entry) {
@@ -225,7 +250,7 @@ final class Guards {
         return e;
     }
 
-    private static String flatten(String s) {
+    static String flatten(String s) {
         return s.replaceAll("\\s+", " ").trim();
     }
 

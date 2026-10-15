@@ -119,38 +119,49 @@ final class KafkaExtractor {
             if (root.isEmpty()) {
                 continue;
             }
-            int line = call.getBegin().map(p -> p.line).orElse(0);
+            // Where the call site is: the call's name, so a chain split over
+            // lines (kafka\n.send(..)) still meets its step.
+            int line = Steps.line(call);
+            int col = Steps.col(call);
             if (name.equals("send") && PRODUCER_TYPES.contains(root.get()) && !(call.getArgument(0) instanceof ObjectCreationExpr)) {
                 // send(ProducerRecord) is read where the record is built.
                 for (String owner : scope.ownerIds()) {
                     add(owner, constants.resolve(call.getArgument(0)), "produce",
                             root.get().equals("KafkaTemplate") || root.get().startsWith("Reactive") || root.get().startsWith("KafkaOperations") ? "kafka-template" : "kafka-producer",
-                            "", false, scope.file(), line);
+                            "", false, scope.file(), line, col);
                 }
             } else if (name.equals("subscribe") && CONSUMER_TYPES.contains(root.get())) {
                 for (String topic : topicArguments(call.getArgument(0))) {
                     for (String owner : scope.ownerIds()) {
-                        add(owner, topic, "consume", "kafka-consumer", "", false, scope.file(), line);
+                        add(owner, topic, "consume", "kafka-consumer", "", false, scope.file(), line, col);
                     }
                 }
             } else if (STREAM_SOURCES.contains(name) && STREAM_TYPES.contains(root.get())) {
                 for (String topic : topicArguments(call.getArgument(0))) {
                     for (String owner : scope.ownerIds()) {
-                        add(owner, topic, "consume", "kafka-streams", "", false, scope.file(), line);
+                        add(owner, topic, "consume", "kafka-streams", "", false, scope.file(), line, col);
                     }
                 }
             } else if (name.equals("to") && STREAM_TYPES.contains(root.get())) {
                 for (String owner : scope.ownerIds()) {
-                    add(owner, constants.resolve(call.getArgument(0)), "produce", "kafka-streams", "", false, scope.file(), line);
+                    add(owner, constants.resolve(call.getArgument(0)), "produce", "kafka-streams", "", false, scope.file(), line, col);
                 }
             }
         }
         // new ProducerRecord<>("topic", key, value): the topic a producer writes to, however the record is sent.
         for (ObjectCreationExpr creation : scope.node().findAll(ObjectCreationExpr.class)) {
             if (creation.getType().getNameAsString().equals("ProducerRecord") && !creation.getArguments().isEmpty()) {
-                int line = creation.getBegin().map(p -> p.line).orElse(0);
+                // Passed straight to a call (producer.send(new ProducerRecord<>(..))),
+                // the record is produced by that call, and sits where its step is.
+                // Built anywhere else, it sits where it is built — no step's place,
+                // and the record's own arguments (props.topic()) are not the produce.
+                com.github.javaparser.ast.Node at = creation.getParentNode()
+                        .filter(p -> p instanceof MethodCallExpr m && m.getArguments().stream().anyMatch(arg -> arg == creation))
+                        .orElse(creation);
+                int line = Steps.line(at);
+                int col = Steps.col(at);
                 for (String owner : scope.ownerIds()) {
-                    add(owner, constants.resolve(creation.getArgument(0)), "produce", "kafka-producer", "", false, scope.file(), line);
+                    add(owner, constants.resolve(creation.getArgument(0)), "produce", "kafka-producer", "", false, scope.file(), line, col);
                 }
             }
         }
@@ -188,6 +199,10 @@ final class KafkaExtractor {
     // --- helpers ------------------------------------------------------------------------------
 
     private void add(String from, String topic, String role, String client, String group, boolean pattern, String file, int line) {
+        add(from, topic, role, client, group, pattern, file, line, 0);
+    }
+
+    private void add(String from, String topic, String role, String client, String group, boolean pattern, String file, int line, int col) {
         if (!nodeIds.contains(from) || topic == null) {
             return;
         }
@@ -204,6 +219,7 @@ final class KafkaExtractor {
         a.pattern = pattern;
         a.file = file;
         a.line = line;
+        a.col = col;
         out.add(a);
     }
 
