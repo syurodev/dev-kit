@@ -131,6 +131,12 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     if (wasDirty.current && !dirty && viewRef.current) markCodeIntelBaseline(viewRef.current);
     wasDirty.current = dirty;
   }, [dirty]);
+  // The tab says so too: a dot in its close slot while the buffer differs
+  // from disk. Not cleared on unmount — the view can go while the tab and its
+  // draft stay; the tab's close takes the flag with it.
+  useEffect(() => {
+    useWorkbenchTabsStore.getState().setTabDirty(tabId, dirty);
+  }, [tabId, dirty]);
 
   const unregister = useRef<(() => void) | null>(null);
   const onView = useCallback((view: EditorView | null) => {
