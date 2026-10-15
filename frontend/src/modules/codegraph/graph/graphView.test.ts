@@ -67,6 +67,70 @@ describe("graphView", () => {
     expect(view.edgeLabel(view.edges.find((e) => e.to === "findById")!)).toBe("2 · if valid");
   });
 
+  it("numbers only the caller's visible project calls, once per callee", () => {
+    const g = [node("process"), node("a"), node("b")];
+    const e = [{ from: "process", to: "a", kind: "call" }, { from: "process", to: "b", kind: "call" }];
+    const st: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        process: [
+          step({ text: "send()", reason: "Kafka produce" }),
+          step({ text: "a()", to: "a" }),
+          step({ text: "a()", to: "a" }),
+          step({ text: "b()", to: "b" }),
+        ],
+        a: [], b: [],
+      },
+    };
+    const view = graphView("process", g, e, st);
+    expect(view.edges.map((x) => view.edgeLabel(x))).toEqual(["1", "2"]);
+  });
+
+  it("keeps a method one caller hides as a helper and another calls visibly", () => {
+    const g = [node("process"), node("decide"), node("fmt")];
+    const e = [{ from: "process", to: "fmt", kind: "call" }, { from: "process", to: "decide", kind: "call" }, { from: "decide", to: "fmt", kind: "call" }];
+    const st: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        process: [step({ text: "fmt()", to: "fmt", visible: false, reason: "helper" }), step({ text: "decide()", to: "decide" })],
+        decide: [step({ text: "fmt()", to: "fmt" })],
+        fmt: [],
+      },
+    };
+    expect(graphView("process", g, e, st).nodes.map((n) => n.id)).toEqual(["process", "decide", "fmt"]);
+  });
+
+  it("drops what only a hidden helper reached", () => {
+    const g = [node("process"), node("decide"), node("fmt"), node("pad")];
+    const e = [{ from: "process", to: "decide", kind: "call" }, { from: "process", to: "fmt", kind: "call" }, { from: "fmt", to: "pad", kind: "call" }];
+    const st: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        process: [step({ text: "decide()", to: "decide" }), step({ text: "fmt()", to: "fmt", visible: false, reason: "helper" })],
+        fmt: [step({ text: "pad()", to: "pad" })],
+        decide: [], pad: [],
+      },
+    };
+    const view = graphView("process", g, e, st);
+    expect(view.nodes.map((n) => n.id)).toEqual(["process", "decide"]);
+    expect(view.edges.map((x) => `${x.from}->${x.to}`)).toEqual(["process->decide"]);
+  });
+
+  it("names each effect of a method once", () => {
+    const st: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        process: [
+          step({ text: "send(a)", reason: "Kafka produce", effect: { kind: "kafka", role: "produce", target: "a" } }),
+          step({ text: "send(b)", reason: "Kafka produce", effect: { kind: "kafka", role: "produce", target: "b" } }),
+          step({ text: "get()", reason: "HTTP call", effect: { kind: "http", role: "call", target: "GET /x" } }),
+          step({ text: "log()", visible: false, reason: "logging", effect: { kind: "db", role: "write", target: "t" } }),
+        ],
+      },
+    };
+    expect(graphView("process", [node("process")], [], st).effects.get("process")).toEqual(["Kafka produce", "HTTP call"]);
+  });
+
   it("passes the graph through untouched without steps", () => {
     const view = graphView("process", nodes, edges, null);
     expect(view.nodes).toBe(nodes);

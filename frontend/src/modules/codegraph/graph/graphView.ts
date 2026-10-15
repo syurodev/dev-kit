@@ -5,8 +5,9 @@ import type { ApiNodeData } from "./ApiNode";
 
 /**
  * What the Graph mode draws, read off the same steps as the Outline: helpers
- * the outline folds away are not cards; an edge says which call it is (its
- * order among the caller's visible steps) and under which structure; a call
+ * the outline folds away are not cards, nor is what only they reached; an edge
+ * says which call it is (its order among the caller's visible project calls)
+ * and under which structure; a call
  * into an override is drawn as "implements". Without steps the graph is
  * today's, untouched.
  */
@@ -39,17 +40,18 @@ export function graphView(rootId: string, nodes: CodeGraphNode[], edges: CodeGra
     let hidden = 0;
     const seen = new Set<string>();
     for (const s of list) {
-      if (s.visible) order++;
-      else hidden++;
+      if (!s.visible) hidden++;
       // A call into a method with no body names its node in `target`; the
       // graph still has an edge to it.
-      const callee = s.to ?? s.target;
+      const callee = s.to || s.target;
       if (callee) {
         const arr = incoming.get(callee) ?? [];
         arr.push({ visible: s.visible, reason: s.reason });
         incoming.set(callee, arr);
+        // Numbered among the edges the caller draws: its visible project
+        // calls, each callee once, so the labels read 1, 2, 3.
         if (s.visible && !firstCall.has(`${from}->${callee}`)) {
-          firstCall.set(`${from}->${callee}`, { order, frame: s.frames[s.frames.length - 1]?.text ?? "" });
+          firstCall.set(`${from}->${callee}`, { order: ++order, frame: s.frames[s.frames.length - 1]?.text ?? "" });
         }
       }
       if (s.to) for (const impl of s.impls ?? []) implements_.add(`${s.to}->${impl}`);
@@ -68,9 +70,28 @@ export function graphView(rootId: string, nodes: CodeGraphNode[], edges: CodeGra
   for (const [id, calls] of incoming) {
     if (id !== rootId && calls.length > 0 && calls.every((c) => !c.visible && c.reason === "helper")) helper.add(id);
   }
-  const keptNodes = nodes.filter((n) => !helper.has(n.id));
-  const keptEdges = edges
-    .filter((e) => !helper.has(e.from) && !helper.has(e.to))
+  const unhidden = edges.filter((e) => !helper.has(e.from) && !helper.has(e.to));
+  // What only a hidden helper led to is not drawn either: keep what the root
+  // still reaches (everything, when the root is not in the graph to walk from).
+  const out = new Map<string, string[]>();
+  for (const e of unhidden) {
+    const list = out.get(e.from);
+    if (list) list.push(e.to);
+    else out.set(e.from, [e.to]);
+  }
+  const queue = nodes.some((n) => n.id === rootId) ? [rootId] : nodes.map((n) => n.id);
+  const reached = new Set<string>(queue);
+  for (let i = 0; i < queue.length; i++) {
+    for (const to of out.get(queue[i]) ?? []) {
+      if (!reached.has(to)) {
+        reached.add(to);
+        queue.push(to);
+      }
+    }
+  }
+  const keptNodes = nodes.filter((n) => reached.has(n.id) && !helper.has(n.id));
+  const keptEdges = unhidden
+    .filter((e) => reached.has(e.from) && reached.has(e.to))
     .map((e) => (implements_.has(`${e.from}->${e.to}`) ? { ...e, kind: "implements" } : e));
 
   return {
