@@ -234,4 +234,35 @@ class StepsTest {
         assertEquals("if:if true", frames("void run() { if (true) { target(); } }", "target"));
         assertEquals("loop:do … while true", frames("void run() { do { target(); } while (true); }", "target"));
     }
+
+    @Test
+    void everyCallOfAMultiLineChainHasItsOwnPosition() {
+        MethodDeclaration run = run("void run() {\n  repo.findAll()\n      .stream()\n      .forEach(x -> deliver(x));\n}");
+        List<String> positions = List.of(
+                Steps.position(call(run, "findAll")), Steps.position(call(run, "stream")),
+                Steps.position(call(run, "forEach")));
+        assertEquals(3, positions.stream().distinct().count(), positions.toString());
+        assertEquals(call(run, "stream").getName().getBegin().orElseThrow().line + ":" + Steps.col(call(run, "stream")),
+                Steps.position(call(run, "stream")));
+        assertEquals(Steps.position(call(run, "forEach")), Steps.frames(call(run, "deliver"), run).get(0).id);
+    }
+
+    @Test
+    void manyCallsInOneClosureAreReadInLinearTime() {
+        StringBuilder body = new StringBuilder("void run() { tx.execute(s -> {\n");
+        for (int i = 0; i < 1500; i++) {
+            body.append("  s.step").append(i).append("(a").append(i).append(", b.get(").append(i).append("));\n");
+        }
+        body.append("  return null; }); }");
+        MethodDeclaration run = run(body.toString());
+        Steps.Context ctx = Steps.context(run);
+        long start = System.nanoTime();
+        int read = 0;
+        for (MethodCallExpr c : run.findAll(MethodCallExpr.class)) {
+            read += Steps.of(c, ctx).frames().size();
+        }
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        assertTrue(read >= 3000, "every call inside the closure is framed by it");
+        assertTrue(ms < 3000, "reading 3001 calls took " + ms + " ms; the wrapping call is being printed per call again");
+    }
 }

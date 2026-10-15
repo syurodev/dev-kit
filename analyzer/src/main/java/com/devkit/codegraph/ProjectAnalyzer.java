@@ -914,7 +914,9 @@ public class ProjectAnalyzer {
             if (!belongsTo(call, scope.node())) {
                 continue; // a local class's method records its own calls
             }
-            int line = call.getRange().map(r -> r.begin.line).orElse(0);
+            // The line of the call's NAME, as its column is: in a chain spread
+            // over lines every call would otherwise be on the chain's first.
+            int line = Steps.line(call);
             Steps.Info info = stepsOf(call, steps);
             ResolvedMethodDeclaration target = null;
             String toNodeId;
@@ -1089,8 +1091,14 @@ public class ProjectAnalyzer {
      * is extra, and one odd expression must not cost the index its call graph.
      */
     static Steps.Info stepsOf(com.github.javaparser.ast.Node node, Steps.Context steps) {
+        return stepsOf(node, n -> Steps.of(n, steps));
+    }
+
+    /** {@link #stepsOf(com.github.javaparser.ast.Node, Steps.Context)} with the reader passed in, for a test to break. */
+    static Steps.Info stepsOf(com.github.javaparser.ast.Node node,
+                              java.util.function.Function<com.github.javaparser.ast.Node, Steps.Info> reader) {
         try {
-            return Steps.of(node, steps);
+            return reader.apply(node);
         } catch (RuntimeException | StackOverflowError e) {
             return Steps.Info.empty(node);
         }
@@ -1100,8 +1108,9 @@ public class ProjectAnalyzer {
      * "<declaring type>#<member>": what scores a call and what a person marks
      * "always show". The solver's answer first; then the receiver's resolved
      * type; then the type the receiver was declared with; then a name or field
-     * as written. A call with no receiver, or one whose receiver is itself an
-     * expression, is keyed by the class it is written in.
+     * as written. A call with no receiver is keyed by the class it is written
+     * in; one whose receiver is itself an expression (`make().bar()`) has no
+     * key, since nothing says whose method it is.
      */
     private static String calleeKey(MethodCallExpr call, ResolvedMethodDeclaration target, Steps.Context steps) {
         String name = call.getNameAsString();
@@ -1132,7 +1141,7 @@ public class ProjectAnalyzer {
         if (written instanceof NameExpr || written instanceof FieldAccessExpr) {
             return Steps.clip(Guards.flatten(written.toString())) + "#" + name;
         }
-        return Steps.enclosingType(steps) + "#" + name;
+        return "";
     }
 
     /**

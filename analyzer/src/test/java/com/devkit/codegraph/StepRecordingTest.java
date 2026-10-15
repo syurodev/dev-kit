@@ -62,6 +62,11 @@ class StepRecordingTest {
                 .orElseThrow(() -> new AssertionError("no site starting " + textPrefix + " in " + sites.stream().map(c -> c.text).toList()));
     }
 
+    private static CallSite exactly(List<CallSite> sites, String text) {
+        return sites.stream().filter(c -> c.text.equals(text)).findFirst()
+                .orElseThrow(() -> new AssertionError("no site " + text + " in " + sites.stream().map(c -> c.text).toList()));
+    }
+
     private static String frames(CallSite c) {
         return c.frames.stream().map(f -> f.kind + ":" + f.text + (f.exits ? "↩" : "")).collect(Collectors.joining(" / "));
     }
@@ -119,8 +124,8 @@ class StepRecordingTest {
         assertEquals("acme.U#helper", byText(sites, "helper()").calleeKey);
         assertEquals("Unknown#foo", byText(sites, "u.foo()").calleeKey);
         assertEquals("a.b#c", byText(sites, "a.b.c()").calleeKey);
-        assertEquals("acme.U#bar", byText(sites, "make().bar()").calleeKey,
-                "a receiver that is itself a call is not a name to key by");
+        assertEquals("", byText(sites, "make().bar()").calleeKey,
+                "a receiver that is itself a call is not a name to key by, and the class did not declare bar");
     }
 
     @Test
@@ -137,9 +142,37 @@ class StepRecordingTest {
     void readingAStepNeverTakesTheAnalysisDown() {
         com.github.javaparser.ast.expr.MethodCallExpr call =
                 com.github.javaparser.StaticJavaParser.parseExpression("a().b()");
-        Steps.Info info = ProjectAnalyzer.stepsOf(call, null);
+        Steps.Info info = ProjectAnalyzer.stepsOf(call, node -> {
+            throw new StackOverflowError();
+        });
+        assertEquals(Steps.col(call), info.col());
         assertEquals("", info.text());
         assertEquals("unknown", info.receiver());
         assertTrue(info.frames().isEmpty());
+    }
+
+    @Test
+    void aCallSiteIsWhereTheCallIsOnScreen(@TempDir Path root) throws IOException {
+        List<CallSite> sites = sitesOf(root, "Chain.java", """
+                package acme;
+                import java.util.List;
+                class Chain {
+                    List<String> repo;
+                    void go() {
+                        repo.subList(0, 1)
+                              .stream()
+                              .forEach(x -> deliver(x));
+                    }
+                    void deliver(String x) {}
+                }
+                """, "acme.Chain.go(");
+        CallSite subList = exactly(sites, "repo.subList(0, 1)");
+        CallSite stream = exactly(sites, "repo.subList(0, 1).stream()");
+        CallSite forEach = exactly(sites, "repo.subList(0, 1).stream().forEach(x -> …)");
+        CallSite deliver = byText(sites, "deliver(x)");
+        assertEquals("6:14", subList.line + ":" + subList.col);
+        assertEquals("7:16", stream.line + ":" + stream.col);
+        assertEquals("8:16", forEach.line + ":" + forEach.col);
+        assertEquals(forEach.line + ":" + forEach.col, deliver.frames.get(0).id);
     }
 }

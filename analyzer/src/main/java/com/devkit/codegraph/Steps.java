@@ -41,6 +41,7 @@ import com.github.javaparser.ast.stmt.WhileStmt;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,22 +66,31 @@ final class Steps {
     private Steps() {}
 
     /**
-     * The column a step is placed at. For a method call that is its NAME:
+     * Where a step is on screen. For a method call that is its NAME:
      * {@code getBegin()} of {@code a().b(...)} is where {@code a()} starts, so
-     * every call of a chain would share one column.
+     * every call of a chain — across lines too — would share one place.
      */
-    static int col(Node node) {
+    private static Optional<com.github.javaparser.Position> placeOf(Node node) {
         Node at = node instanceof MethodCallExpr m ? m.getName() : node;
-        return at.getBegin().or(node::getBegin).map(p -> p.column).orElse(0);
+        return at.getBegin().or(node::getBegin);
+    }
+
+    /** The line a step is on, which is the line its call site records. */
+    static int line(Node node) {
+        return placeOf(node).map(p -> p.line).orElse(0);
+    }
+
+    static int col(Node node) {
+        return placeOf(node).map(p -> p.column).orElse(0);
     }
 
     /**
-     * {@code line:col} of a step: the line it begins on (the line a call site
-     * records) and {@link #col}. A closure frame's id is the position of the
-     * call it is passed to, so the Go side can tell which step runs it.
+     * {@code line:col} of a step, as its call site records them. A closure
+     * frame's id is the position of the call it is passed to, so the Go side
+     * can tell which step runs it.
      */
     static String position(Node node) {
-        return node.getBegin().map(p -> p.line + ":" + col(node)).orElse("0:0");
+        return placeOf(node).map(p -> p.line + ":" + p.column).orElse("0:0");
     }
 
     /**
@@ -97,6 +107,15 @@ final class Steps {
             return clip(Guards.flatten(node.toString()));
         }
         return clip(Guards.flatten(shortened(node.clone())));
+    }
+
+    private static String text(Node node, Map<Node, String> texts) {
+        String known = texts.get(node);
+        if (known == null) {
+            known = text(node);
+            texts.put(node, known);
+        }
+        return known;
     }
 
     private static String shortened(Node copy) {
@@ -146,12 +165,21 @@ final class Steps {
 
     /** The control structures around {@code node} inside {@code scope}, outermost first. */
     static List<StepFrame> frames(Node node, Node scope) {
+        return frames(node, scope, new IdentityHashMap<>());
+    }
+
+    /**
+     * {@code texts} remembers each call printed for a frame: every call inside
+     * a closure is framed by the same wrapping call, and printing it per call
+     * makes a long closure quadratic.
+     */
+    private static List<StepFrame> frames(Node node, Node scope, Map<Node, String> texts) {
         List<StepFrame> inner = new ArrayList<>();
         Node child = node;
         Optional<Node> parent = node.getParentNode();
         while (parent.isPresent() && child != scope) {
             Node p = parent.get();
-            StepFrame frame = frameOf(p, child);
+            StepFrame frame = frameOf(p, child, texts);
             if (frame != null) {
                 inner.add(frame);
             }
@@ -162,7 +190,7 @@ final class Steps {
         return inner;
     }
 
-    private static StepFrame frameOf(Node parent, Node child) {
+    private static StepFrame frameOf(Node parent, Node child, Map<Node, String> texts) {
         if (parent instanceof IfStmt s) {
             if (child == s.getThenStmt()) {
                 boolean elseIf = s.getParentNode()
@@ -237,7 +265,7 @@ final class Steps {
                     && m.getArguments().stream().anyMatch(a -> a == l)) {
                 // Framed at the call it is passed to, so a reader (and rule 3
                 // on the Go side) can tell which call runs it.
-                return new StepFrame(position(m), "closure", text(m), false);
+                return new StepFrame(position(m), "closure", text(m, texts), false);
             }
             return new StepFrame(at(l), "closure", lambdaHead(l) + " -> …", false);
         }
@@ -246,9 +274,9 @@ final class Steps {
             Optional<Node> owner = o.getParentNode();
             if (owner.isPresent() && owner.get() instanceof MethodCallExpr m
                     && m.getArguments().stream().anyMatch(a -> a == o)) {
-                return new StepFrame(position(m), "closure", text(m), false);
+                return new StepFrame(position(m), "closure", text(m, texts), false);
             }
-            return new StepFrame(position(o), "closure", text(o), false);
+            return new StepFrame(position(o), "closure", text(o, texts), false);
         }
         return null;
     }
@@ -299,6 +327,7 @@ final class Steps {
         private final Map<String, VariableDeclarator> locals = new HashMap<>();
         private final Map<String, String> kinds = new HashMap<>();
         private final Map<String, Optional<String>> fieldTypes = new HashMap<>();
+        private final Map<Node, String> texts = new IdentityHashMap<>();
         private Optional<TypeDeclaration<?>> owner;
 
         private Context(Node scope) {
@@ -336,7 +365,7 @@ final class Steps {
     static Info of(Node call, Context ctx) {
         Node scope = ctx.scope;
         String receiver = call instanceof MethodCallExpr m ? receiver(m, ctx) : "unknown";
-        return new Info(col(call), text(call), receiver, resultUse(call), frames(call, scope));
+        return new Info(col(call), text(call, ctx.texts), receiver, resultUse(call), frames(call, scope, ctx.texts));
     }
 
     /**
