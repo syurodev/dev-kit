@@ -56,7 +56,7 @@ import {
   REQUEST_VIEW,
   VARIABLES_VIEW,
 } from "./documents";
-import { methodTone } from "./requestModel";
+import { methodTextClass } from "@/lib/httpMethod";
 import { ancestorsOf, buildSidebarTree, descendantsOf, type SidebarEntry } from "./sidebarTree";
 
 function withMenus(node: TreeNodeData, name: string, actions: RowAction[]): TreeNodeData {
@@ -86,7 +86,7 @@ function withMenus(node: TreeNodeData, name: string, actions: RowAction[]): Tree
 /** The method as a fixed-width coloured chip, the way every client draws it. */
 function MethodMark({ method }: { method: string }) {
   const label = method.toUpperCase() === "DELETE" ? "DEL" : method.toUpperCase() === "OPTIONS" ? "OPT" : method.toUpperCase();
-  return <span className={`inline-block w-9 font-mono text-code-11 ${methodTone(method)}`}>{label}</span>;
+  return <span className={`inline-block w-9 font-mono text-code-11 ${methodTextClass(method)}`}>{label}</span>;
 }
 
 type Dialog =

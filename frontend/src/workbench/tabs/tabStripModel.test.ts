@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep, tabMarks, nextSeen } from "./tabStripModel";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -43,5 +43,94 @@ describe("revealing the active tab", () => {
 
   test("a tab wider than the strip lines up its start", () => {
     expect(revealScrollLeft({ ...view, tabLeft: 450, tabWidth: 400 })).toBe(450);
+  });
+});
+
+test("overflowEdges says which sides hide tabs", () => {
+  expect(overflowEdges({ scrollLeft: 0, scrollWidth: 300, clientWidth: 300 })).toEqual({ left: false, right: false });
+  expect(overflowEdges({ scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: false, right: true });
+  expect(overflowEdges({ scrollLeft: 600, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: false });
+  expect(overflowEdges({ scrollLeft: 200, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: true });
+  // Sub-pixel scroll positions at either end still read as the end.
+  expect(overflowEdges({ scrollLeft: 0.4, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: false, right: true });
+  expect(overflowEdges({ scrollLeft: 599.6, scrollWidth: 900, clientWidth: 300 })).toEqual({ left: true, right: false });
+});
+
+test("scrollStep moves by most of a viewport and stops at the ends", () => {
+  const view = { scrollLeft: 100, scrollWidth: 900, clientWidth: 300 };
+  expect(scrollStep(view, "right")).toBe(340);
+  expect(scrollStep(view, "left")).toBe(0);
+  expect(scrollStep({ ...view, scrollLeft: 500 }, "right")).toBe(600);
+});
+
+describe("revealing a tab past the overflow fades", () => {
+  // In sight: 124..376 — the 24px under each fade does not count.
+  const view = { scrollLeft: 100, viewportWidth: 300 };
+  const faded = { left: 24, right: 24 };
+
+  test("a tab clear of both fades does not move the strip", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 150, tabWidth: 100 }, faded)).toBe(100);
+  });
+
+  test("a tab under the right fade comes out from under it", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 300, tabWidth: 100 }, faded)).toBe(124);
+  });
+
+  test("a tab under the left fade comes out from under it", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 110, tabWidth: 100 }, faded)).toBe(86);
+  });
+
+  test("a side with no fade is not inset", () => {
+    expect(revealScrollLeftWithin({ ...view, tabLeft: 300, tabWidth: 100 }, { left: 24, right: 0 })).toBe(100);
+  });
+
+  test("with no fades it is revealScrollLeft", () => {
+    for (const tabLeft of [40, 150, 350, 450]) {
+      const tab = { ...view, tabLeft, tabWidth: 100 };
+      expect(revealScrollLeftWithin(tab, { left: 0, right: 0 })).toBe(revealScrollLeft(tab));
+    }
+  });
+
+  test("never scrolls before the start", () => {
+    expect(revealScrollLeftWithin({ scrollLeft: 20, viewportWidth: 300, tabLeft: 10, tabWidth: 80 }, faded)).toBe(0);
+  });
+});
+
+test("tabMarks: status on every tab, success until seen, dirty in the close slot", () => {
+  expect(tabMarks({ status: "running", active: false, seenSuccess: false, dirty: false })).toEqual({ status: "running", dirty: false, hint: ["Running"] });
+  expect(tabMarks({ status: "error", active: true, seenSuccess: false, dirty: false })).toEqual({ status: "error", dirty: false, hint: ["Failed"] });
+  expect(tabMarks({ status: "success", active: false, seenSuccess: false, dirty: false }).status).toBe("success");
+  expect(tabMarks({ status: "success", active: true, seenSuccess: false, dirty: false }).status).toBeNull();
+  expect(tabMarks({ status: "success", active: false, seenSuccess: true, dirty: false }).status).toBeNull();
+  expect(tabMarks({ status: "idle", active: false, seenSuccess: false, dirty: true })).toEqual({ status: null, dirty: true, hint: ["Unsaved changes"] });
+  expect(tabMarks({ active: false, seenSuccess: false, dirty: false })).toEqual({ status: null, dirty: false, hint: [] });
+});
+
+describe("which finished tabs have been seen", () => {
+  const none: ReadonlySet<string> = new Set();
+
+  test("a finished tab on screen is seen, and stays seen once it is not", () => {
+    const tabs = [{ id: "a", status: "success" as const }, { id: "b" }];
+    const seen = nextSeen(none, tabs, ["a"]);
+    expect([...seen]).toEqual(["a"]);
+    expect(nextSeen(seen, tabs, ["b"])).toBe(seen);
+  });
+
+  test("a tab is not seen for being on screen before it finished", () => {
+    expect(nextSeen(none, [{ id: "a", status: "running" as const }], ["a"]).size).toBe(0);
+  });
+
+  test("a status that leaves success forgets it, so the next finish is news", () => {
+    const seen = new Set(["a"]);
+    expect(nextSeen(seen, [{ id: "a", status: "running" as const }], []).size).toBe(0);
+  });
+
+  test("a closed tab is pruned", () => {
+    expect(nextSeen(new Set(["gone"]), [{ id: "a", status: "success" as const }], []).size).toBe(0);
+  });
+
+  test("unchanged, it is the same set, so nothing is published", () => {
+    const seen = new Set(["a"]);
+    expect(nextSeen(seen, [{ id: "a", status: "success" as const }], ["a"])).toBe(seen);
   });
 });

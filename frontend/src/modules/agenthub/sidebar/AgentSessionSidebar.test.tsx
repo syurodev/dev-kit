@@ -500,7 +500,7 @@ describe("tabs, selection and resources", () => {
   const tabs = () => moduleTabs(useWorkbenchTabsStore.getState().modules, "agenthub");
 
   beforeEach(() => {
-    useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes" });
+    useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes", recentlyClosed: [] });
     useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], activeSessionId: "", chatOpen: false });
     useSubagentPanel.setState({ open: null });
     useAgentPinsStore.setState({ olderOpen: [], collapsed: [], expanded: [] });

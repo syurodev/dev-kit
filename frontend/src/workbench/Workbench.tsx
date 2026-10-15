@@ -8,7 +8,7 @@ import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleSwitcher } from "./ModuleSwitcher";
 import { buildSwitcherItems, slotModuleIds, slotTarget } from "./switcherItems";
-import { editsText, inRichTextEditor, isPaletteShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
+import { editsText, inRichTextEditor, isPaletteShortcut, isReopenTabShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -75,6 +75,7 @@ import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 import { focusedGroup } from "../stores/documentGroups";
 import { openHomeWhenAsked } from "./showModule";
+import { reopenLastClosed, setUnavailableModules } from "./reopenTab";
 
 const LazyAgentPermissionToastHost = lazy(() =>
   import("./AgentPermissionToastHost").then((m) => ({
@@ -412,6 +413,15 @@ export function Workbench() {
         }
         return;
       }
+      // ⌘⇧T / Ctrl⇧T: the tab closed last, back where it was. No editor here
+      // binds it — CodeMirror's only t is Ctrl-t, which a Shift press does not
+      // reach. A dialog open (the palette among them) keeps the keys; the
+      // same query AgentHubView's ⌘N asks.
+      if (isReopenTabShortcut(event, Boolean(document.querySelector('[role="dialog"], [role="alertdialog"]')))) {
+        event.preventDefault();
+        reopenLastClosed();
+        return;
+      }
       // ⌘/ / Ctrl+/: the keyboard reference — Settings on its Keyboard section.
       // Not from a text field: CodeMirror binds ⌘/ to comment a line, and the
       // editor's own binding must win where the caret is.
@@ -553,6 +563,7 @@ export function Workbench() {
     }
     return unavailable;
   }, [backendModules, metadataError, parityIssues]);
+  useEffect(() => setUnavailableModules(unavailableModuleIds), [unavailableModuleIds]);
   const availableModules = useMemo(
     () => modules.filter((module) => !unavailableModuleIds.has(module.id)),
     [modules, unavailableModuleIds],

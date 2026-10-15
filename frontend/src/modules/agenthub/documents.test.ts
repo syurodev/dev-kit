@@ -25,7 +25,7 @@ function session(id: string, title: string | null = `Title ${id}`): AgentSession
 const tabs = () => moduleTabs(useWorkbenchTabsStore.getState().modules, "agenthub");
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes" });
+  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes", recentlyClosed: [] });
   useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], activeSessionId: "", chatOpen: false });
   useAgentDraftRequests.setState({ request: null });
 });
@@ -82,6 +82,39 @@ test("titles follow the session; a rename keeps the tab's id and pin", () => {
   useWorkbenchTabsStore.getState().togglePinTab(id);
   syncAgentSessionTabTitles({ a: session("a", "Fix the dialog") });
   expect(tabs().openTabs[0]).toMatchObject({ id, title: "Fix the dialog", pinned: true });
+});
+
+test("tabs of deleted sessions are not offered back; a closed tab is", () => {
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  closeAgentSessionTabs(["a"], { remember: false });
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+  closeAgentSessionTabs(["b"]);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.params?.sessionId)).toEqual(["b"]);
+});
+
+test("the new-session tab a session replaced is not offered back", () => {
+  openNewAgentSession();
+  openAgentSession(session("a"));
+  closeNewSessionTab();
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
+test("a session tab added in the background forgets its closed record", () => {
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  closeAgentSessionTabs(["b"]);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(1);
+  addAgentSessionTabInBackground(session("b"));
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
+test("a closed session tab is offered back under the session's new title", () => {
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  closeAgentSessionTabs(["b"]);
+  syncAgentSessionTabTitles({ b: session("b", "Fix the login") });
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["Fix the login"]);
 });
 
 test("closing tabs leaves other sessions' tabs alone", () => {

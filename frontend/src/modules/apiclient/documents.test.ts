@@ -1,9 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { useWorkbenchTabsStore, moduleTabs } from "@/stores/workbenchTabs";
-import { activeApiClientTab, openRequest, renameApiDocument, REQUEST_VIEW } from "./documents";
+import { activeApiClientTab, closeTabByParams, openRequest, renameApiDocument, REQUEST_VIEW } from "./documents";
 
 useWorkbenchTabsStore.persist.setOptions({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
-beforeEach(() => useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "apiclient" }));
+beforeEach(() => useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "apiclient", recentlyClosed: [] }));
 
 test("API selection follows the focused split and reopening keeps document identity", () => {
   const a = openRequest("a", "Users");
@@ -38,4 +38,20 @@ test("a variables reveal can open beside the current request without duplicating
   expect(state.groups.some((g) => g.activeTabId === variables)).toBe(true);
   expect(state.groups.length).toBe(2);
   expect(openVariables("environment", "staging", "Staging")).toBe(variables);
+});
+
+test("a tab closed for a deleted or newly saved document is not offered back", () => {
+  openRequest("a", "Users");
+  closeTabByParams(REQUEST_VIEW, { requestId: "a" });
+  expect(moduleTabs(useWorkbenchTabsStore.getState().modules, "apiclient").openTabs).toHaveLength(0);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
+test("a closed request tab is offered back under the request's new name", () => {
+  openRequest("a", "Users");
+  openRequest("b", "Projects");
+  const a = moduleTabs(useWorkbenchTabsStore.getState().modules, "apiclient").openTabs[0].id;
+  useWorkbenchTabsStore.getState().closeTab(a);
+  renameApiDocument(REQUEST_VIEW, { requestId: "a" }, "List users");
+  expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["List users"]);
 });

@@ -27,8 +27,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns2, MoveRight, Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns2, MoveRight, Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -37,11 +38,14 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useReducedMotion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
-import { getModule, type TabAction } from "../../modules/registry";
+import { getModule, viewIcon, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
-import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
-import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
+import { useWorkbenchTabsStore, type TabStatus, type WorkbenchTab } from "../../stores/workbenchTabs";
+import { offeredClosedTabs, reopenClosedAt, reopenLastClosed } from "../reopenTab";
+import { useSeenSuccessStore } from "./seenSuccess";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
 
 /**
  * The workbench tab strip, built the way VS Code's multi-editor tabs control
@@ -55,7 +59,8 @@ import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
  * - Closing with the mouse locks every tab at the width it has, until the
  *   pointer leaves the strip — the next close button stays under the cursor.
  * - The active tab is scrolled into view by the smallest amount, except right
- *   after a close. A vertical wheel scrolls the strip sideways.
+ *   after a close. A vertical wheel scrolls the strip sideways. While tabs are
+ *   out of sight, the side hiding them fades and ‹ › scroll the strip.
  * - A tab activates on mousedown; middle-click closes; arrow keys, Home and
  *   End move between tabs with a roving tabindex.
  * - Dragging is the result grid's column drag: dnd-kit sortable, the dragged
@@ -63,7 +68,7 @@ import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
  * - Pinned tabs sit at the left and the group closes pass over them.
  */
 
-function statusDotClass(status: TabStatus): string {
+function statusDotClass(status: Exclude<TabStatus, "idle">): string {
   switch (status) {
     case "running":
       return "bg-(--status-running)";
@@ -71,8 +76,6 @@ function statusDotClass(status: TabStatus): string {
       return "bg-(--status-success)";
     case "error":
       return "bg-(--status-error)";
-    default:
-      return "bg-(--status-idle)";
   }
 }
 
@@ -133,10 +136,60 @@ function TabDragGhost({ tab }: { tab: WorkbenchTab | undefined }) {
   );
 }
 
-/** Gap between two tabs. */
-const TAB_GAP_PX = 8;
+/**
+ * ‹ or ›. Out of the tab order: a keyboard reaches a hidden tab with the
+ * arrow keys, which reveal it. The span takes the double-click a disabled
+ * button lets through (it has no pointer events), which would otherwise land
+ * on the strip's empty space and open a tab.
+ */
+function ScrollTabsButton({
+  direction,
+  disabled,
+  onScroll,
+  nodeRef,
+}: {
+  direction: "left" | "right";
+  disabled: boolean;
+  onScroll: (direction: "left" | "right") => void;
+  nodeRef: (node: HTMLSpanElement | null) => void;
+}) {
+  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <span ref={nodeRef} className="flex shrink-0" onDoubleClick={(event) => event.stopPropagation()}>
+      <Button
+        type="button"
+        variant="titlebar"
+        size="icon-sm"
+        tabIndex={-1}
+        aria-label={`Scroll tabs ${direction}`}
+        disabled={disabled}
+        onClick={() => onScroll(direction)}
+      >
+        <Icon className="size-3.5" />
+      </Button>
+    </span>
+  );
+}
+
+/**
+ * Gap between two tabs — and the strip's inset on all four sides, and the
+ * space between the last tab, ‹ › and + (p-1.5 gap-1.5 below): a 40px strip
+ * holds 28px tabs 6px from every edge, so the 6px tab radius sits
+ * concentric in the pane's 12px corner.
+ */
+const TAB_GAP_PX = 6;
+/**
+ * How far the keyboard focus ring reaches outside a tab (-inset-0.5). The
+ * scroller clips both axes (overflow-x makes overflow-y clip too), so it pads
+ * itself by this much and gives it back in negative margin: the ring is drawn
+ * whole and nothing moves.
+ */
+const RING_PX = 2;
 /** ⌘⇧E browsing widens every tab so the label being chosen can be read. */
 const BROWSING_MIN_WIDTH_PX = 200;
+/** The overflow fade: about a tab icon's width plus its padding — enough to
+ * read as "more", not enough to hide a title. */
+const FADE_PX = 24;
 
 /**
  * A module's own entries, drawn as the menu opens.
@@ -152,6 +205,50 @@ function ModuleTabActions({ tab }: { tab: WorkbenchTab }) {
     <>
       <ContextMenuSeparator />
       <TabActionItems actions={actions} />
+    </>
+  );
+}
+
+/** The newest this many closed tabs are listed; the stack holds more. */
+const RECENTLY_CLOSED_LISTED = 10;
+
+/**
+ * Reopen Closed Tab and the Recently Closed list. Drawn as the menu opens,
+ * like ModuleTabActions, so a strip does not follow the stack while no menu
+ * is showing it. A record whose tab is open again is not offered; each entry
+ * reopens its own place in the stack.
+ */
+function ReopenClosedItems() {
+  const stack = useWorkbenchTabsStore((s) => s.recentlyClosed);
+  const modules = useWorkbenchTabsStore((s) => s.modules);
+  const offered = useMemo(() => offeredClosedTabs({ recentlyClosed: stack, modules }), [stack, modules]);
+  return (
+    <>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        shortcut={shortcut("T", { shift: true })}
+        disabled={offered.length === 0}
+        onSelect={() => reopenLastClosed()}
+      >
+        Reopen Closed Tab
+      </ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled={offered.length === 0}>Recently Closed</ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          {offered.slice(0, RECENTLY_CLOSED_LISTED).map(({ entry, at }) => {
+            const Icon = entry.icon ?? viewIcon(entry.moduleId, entry.viewId);
+            return (
+              <ContextMenuItem
+                key={`${entry.closedAt}:${at}`}
+                icon={Icon ? <Icon /> : undefined}
+                onSelect={() => reopenClosedAt(at)}
+              >
+                {entry.title}
+              </ContextMenuItem>
+            );
+          })}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
     </>
   );
 }
@@ -191,6 +288,8 @@ function TabActionItems({ actions }: { actions: TabAction[] }) {
 type TabItemProps = {
   tab: WorkbenchTab;
   isActive: boolean;
+  /** A finished tab that has been looked at since, so its success dot is spent. */
+  seenSuccess: boolean;
   lockedWidth: number | undefined;
   minWidth: number;
   maxWidth: number;
@@ -218,6 +317,7 @@ type TabItemProps = {
 function TabItem({
   tab,
   isActive,
+  seenSuccess,
   lockedWidth,
   minWidth,
   maxWidth,
@@ -248,6 +348,7 @@ function TabItem({
   });
   const ModuleIcon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
   const pinned = Boolean(tab.pinned);
+  const marks = tabMarks({ status: tab.status, active: isActive, seenSuccess, dirty: Boolean(tab.dirty) });
 
   const style: CSSProperties = {
     // Every tab asks for the max and they all give way equally down to the
@@ -299,11 +400,11 @@ function TabItem({
         onSelect(tab.id);
       }}
       onAuxClick={(event) => {
-        if (event.button === 1 && !tab.preview) onCloseWithPointer(tab.id);
+        if (event.button === 1) onCloseWithPointer(tab.id);
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
-        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-border-focus",
+        "group relative flex h-(--control-height-sm) items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-border-focus",
         // The same two marks the selected row in a tree carries — a
         // --status-info hairline and a fill. The hairline carries it (floored
         // at 3:1 in themeContrast.test); an inactive tab keeps a quiet
@@ -324,6 +425,11 @@ function TabItem({
       )}
       <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2">
         <ModuleIcon className="size-3.5 shrink-0 opacity-85" />
+        {marks.status === "running" ? (
+          <span aria-hidden="true" className="tab-status-spin size-2.5 shrink-0 rounded-full" />
+        ) : marks.status ? (
+          <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(marks.status))} />
+        ) : null}
         <span
           className={cn(
             "truncate flex-1 min-w-0",
@@ -334,12 +440,24 @@ function TabItem({
         >
           {tab.title}
         </span>
-        {isActive && tab.status && tab.status !== "idle" ? (
-          <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(tab.status))} />
-        ) : null}
+        {/* The marks are drawn, so a screen reader is told them in words. */}
+        {marks.hint.length > 0 ? <span className="sr-only">, {marks.hint.join(", ")}</span> : null}
       </span>
       {/* A pinned tab shows its pin where the close button goes, and the pin
-          unpins (VS Code). Otherwise: 12px close, not on Preview. */}
+          unpins (VS Code). Every other tab — a preview too — has the 12px
+          close. Unsaved work shows as a dot laid over that 12px slot (right-3
+          is the tab's px-3), and gives way to the pin or close under the
+          pointer or keyboard focus (VS Code). The button is only see-through
+          meanwhile, so a screen reader still finds it. */}
+      {marks.dirty ? (
+        <span
+          aria-hidden="true"
+          data-tab-dirty
+          className="pointer-events-none absolute top-1/2 right-3 z-10 flex size-3 -translate-y-1/2 items-center justify-center group-hover:opacity-0 group-focus-visible:opacity-0"
+        >
+          <span className="size-2 rounded-full bg-text-secondary" />
+        </span>
+      ) : null}
       {pinned && onTogglePin ? (
         <span
           role="button"
@@ -351,11 +469,15 @@ function TabItem({
             event.stopPropagation();
             onTogglePin(tab.id);
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
+          className={cn(
+            "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
+            marks.dirty &&
+              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100",
+          )}
         >
           <Pin className="size-3" />
         </span>
-      ) : !tab.preview ? (
+      ) : (
         <span
           role="button"
           tabIndex={-1}
@@ -374,15 +496,24 @@ function TabItem({
               onClose(tab.id);
             }
           }}
-          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer"
+          className={cn(
+            "z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none wails-no-drag cursor-pointer",
+            marks.dirty &&
+              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100",
+          )}
         >
           <X className="size-3" />
         </span>
-      ) : null}
+      )}
     </div>
     </ContextMenuTrigger>
     </TooltipTrigger>
-    <TooltipContent side="bottom">{tab.title}</TooltipContent>
+    <TooltipContent side="bottom" className={marks.hint.length > 0 ? "h-auto flex-col items-start gap-0.5 py-1.5" : undefined}>
+      <span>{tab.title}</span>
+      {marks.hint.map((line) => (
+        <span key={line} className="text-text-secondary">{line}</span>
+      ))}
+    </TooltipContent>
     {/* VS Code's tab menu: the closes, pinning, then whatever the module
         adds, then the strip's own settings. The group closes pass over
         pinned tabs, which is what pinning is for. */}
@@ -402,6 +533,7 @@ function TabItem({
       <ContextMenuItem disabled={all.length === 0} onSelect={() => onCloseMany(all)}>
         Close All Tabs
       </ContextMenuItem>
+      <ReopenClosedItems />
       {onTogglePin || (tab.preview && onPin) ? <ContextMenuSeparator /> : null}
       {onTogglePin ? (
         <ContextMenuItem
@@ -466,6 +598,9 @@ export function TabStrip({
     [tabs],
   );
   const ids = useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
+
+  // Finished tabs looked at since: their success dot is spent (seenSuccess.ts).
+  const seenSuccess = useSeenSuccessStore((s) => s.seen);
   const { minWidth: tabMinWidth, maxWidth: tabMaxWidth } = useTabSettingsStore(
     useShallow((s) => ({ minWidth: s.minWidth, maxWidth: s.maxWidth })),
   );
@@ -514,13 +649,43 @@ export function TabStrip({
   }, [keyboardBrowsing, ids, keyboardFocusedTabId, onSelect, onExitBrowsing]);
 
   /*
+   * Which sides hide tabs. Read from the scroller after layout, and again on
+   * scroll and resize: the count, the width settings, browsing and a close's
+   * locked widths all change what the row holds without resizing it.
+   *
+   * Asked of the room the row would have without ‹ ›: measured with them, a
+   * row that overflows only by their width would keep them for good.
+   */
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const scrollButtons = useRef<{ left: HTMLSpanElement | null; right: HTMLSpanElement | null }>({ left: null, right: null });
+  const syncEdges = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    // Each button and the gap beside it is what the row would get back.
+    const buttonsRoom = [scrollButtons.current.left, scrollButtons.current.right].reduce(
+      (room, button) => room + (button ? button.getBoundingClientRect().width + TAB_GAP_PX : 0),
+      0,
+    );
+    const next = row.scrollWidth <= row.clientWidth + buttonsRoom
+      ? { left: false, right: false }
+      : overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
+    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+  }, []);
+  const overflowing = edges.left || edges.right;
+
+  /*
    * Widths frozen by a mouse close (VS Code's beforeCloseEditor +
    * --tab-sizing-current-width). Measured before the store drops the tab, so
    * the ones that remain keep their size and slide left by one slot: the next
    * close button lands under the pointer instead of wherever the equal share
    * would put it. Released when the pointer leaves the strip.
+   *
+   * The ‹ › pair is held the same way: a close that ends the overflow would
+   * otherwise unmount ‹ and shift every tab left by its width.
    */
   const [lockedWidths, setLockedWidths] = useState<Map<string, number> | null>(null);
+  const [buttonsHeld, setButtonsHeld] = useState(false);
+  const showButtons = overflowing || (lockedWidths !== null && buttonsHeld);
   const skipNextReveal = useRef(false);
 
   function closeWithPointer(id: string) {
@@ -529,41 +694,55 @@ export function TabStrip({
       setLockedWidths(
         new Map(ids.map((tabId) => [tabId, tabNodes.current.get(tabId)?.getBoundingClientRect().width ?? 0])),
       );
+      setButtonsHeld(showButtons);
     }
     onClose(id);
   }
 
-  // Reveal the active tab after the DOM has it, before paint.
+  /*
+   * Reveal the active tab (the one ⌘⇧E browsing is on, while browsing) after
+   * the DOM has it, before paint — clear of the fades, which read as cut off.
+   * Again when the ‹ › pair comes or goes: the tab that starts the overflow
+   * was fitted into the room before the buttons took theirs.
+   */
+  const revealId = keyboardBrowsing ? (keyboardFocusedTabId ?? activeTabId) : activeTabId;
   useLayoutEffect(() => {
     if (skipNextReveal.current) {
       skipNextReveal.current = false;
       return;
     }
     const row = rowRef.current;
-    const tab = tabNodes.current.get(activeTabId);
+    const tab = tabNodes.current.get(revealId);
     if (!row || !tab) return;
-    const next = revealScrollLeft({
-      scrollLeft: row.scrollLeft,
-      viewportWidth: row.clientWidth,
-      tabLeft: tab.offsetLeft,
-      tabWidth: tab.offsetWidth,
-    });
+    const faded = overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
+    const next = revealScrollLeftWithin(
+      {
+        scrollLeft: row.scrollLeft,
+        viewportWidth: row.clientWidth,
+        tabLeft: tab.offsetLeft,
+        tabWidth: tab.offsetWidth,
+      },
+      { left: faded.left ? FADE_PX : 0, right: faded.right ? FADE_PX : 0 },
+    );
     if (next !== row.scrollLeft) row.scrollLeft = next;
-  }, [activeTabId, ids.length]);
+  }, [revealId, ids.length, overflowing, showButtons]);
 
-  // A vertical wheel scrolls the strip sideways (VS Code's scrollYToX).
-  // Non-passive, because it has to stop the page scrolling instead.
+  // A vertical wheel scrolls the strip sideways (VS Code's scrollYToX) —
+  // anywhere on it, ‹ › included. Non-passive, because it has to stop the
+  // page scrolling instead.
+  const stripRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
+    const strip = stripRef.current;
+    if (!strip) return;
     function onWheel(event: WheelEvent) {
+      const row = rowRef.current;
       if (!row || event.deltaX !== 0 || event.deltaY === 0) return;
       if (row.scrollWidth <= row.clientWidth) return;
       event.preventDefault();
       row.scrollLeft += event.deltaY;
     }
-    row.addEventListener("wheel", onWheel, { passive: false });
-    return () => row.removeEventListener("wheel", onWheel);
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onWheel);
   }, []);
 
   // The grid's sensor: a press that moves 4px is a drag, anything less is
@@ -594,14 +773,55 @@ export function TabStrip({
   // What the group closes may take: everything but the pinned.
   const closable = visibleTabs.filter((tab) => !tab.pinned).map((tab) => tab.id);
 
+  useLayoutEffect(() => syncEdges(), [syncEdges, visibleTabs.length, tabMaxWidth, minWidth, lockedWidths]);
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncEdges);
+    observer.observe(row);
+    row.addEventListener("scroll", syncEdges, { passive: true });
+    return () => {
+      observer.disconnect();
+      row.removeEventListener("scroll", syncEdges);
+    };
+  }, [syncEdges]);
+  const reduceMotion = useReducedMotion();
+  function scrollTabs(direction: "left" | "right") {
+    const row = rowRef.current;
+    if (!row) return;
+    row.scrollTo({ left: scrollStep(row, direction), behavior: reduceMotion ? "auto" : "smooth" });
+  }
+  // A mask, not an overlay, so nothing sits over the tabs eating clicks. Its
+  // #000 is opacity (an alpha mask keeps what is opaque), not a colour.
+  const fadeMask = overflowing
+    ? `linear-gradient(to right, ${edges.left ? "transparent" : "#000"} 0, #000 ${FADE_PX}px, #000 calc(100% - ${FADE_PX}px), ${edges.right ? "transparent" : "#000"} 100%)`
+    : undefined;
+
   return (
     <div
-      className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 wails-no-drag"
+      ref={stripRef}
+      className="flex h-10 min-w-0 w-full items-center justify-start p-1.5 gap-1.5 wails-no-drag"
       // Double-click on the strip's own empty space opens a tab, as in VS Code.
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) onNewTab?.();
       }}
+      onMouseLeave={() => {
+        setLockedWidths(null);
+        setButtonsHeld(false);
+      }}
     >
+      {/* Only while tabs are out of sight; a side already at its end is
+          disabled rather than removed, so the strip does not jump. */}
+      {showButtons ? (
+        <ScrollTabsButton
+          direction="left"
+          disabled={!edges.left}
+          onScroll={scrollTabs}
+          nodeRef={(node) => {
+            scrollButtons.current.left = node;
+          }}
+        />
+      ) : null}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -634,8 +854,8 @@ export function TabStrip({
             aria-orientation="horizontal"
             // Content-sized so + follows the last tab, min-w-0 so it gives way
             // to the window and scrolls past that, relative so a tab's
-            // offsetLeft is measured from here.
-            className="scrollbar-hide relative flex min-w-0 shrink items-center overflow-x-auto"
+            // offsetLeft is measured from here; -m-0.5 p-0.5 is RING_PX.
+            className="scrollbar-hide relative -m-0.5 flex min-w-0 shrink items-center overflow-x-auto p-0.5"
             // Asks for every tab at its max; the strip hands back what fits
             // and the tabs share it equally. Arithmetic from the count, not a
             // measurement: a flex row's natural width is its labels', so
@@ -643,15 +863,17 @@ export function TabStrip({
             // beside empty space.
             style={{
               gap: TAB_GAP_PX,
-              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
+              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX + 2 * RING_PX,
+              maskImage: fadeMask,
+              WebkitMaskImage: fadeMask,
             }}
-            onMouseLeave={() => setLockedWidths(null)}
           >
             {visibleTabs.map((tab, index) => (
               <TabItem
                 key={tab.id}
                 tab={tab}
                 isActive={tab.id === activeTabId}
+                seenSuccess={seenSuccess.has(tab.id)}
                 lockedWidth={lockedWidths?.get(tab.id)}
                 minWidth={minWidth}
                 maxWidth={tabMaxWidth}
@@ -687,6 +909,16 @@ export function TabStrip({
           </DragOverlay>
         ) : null}
       </DndContext>
+      {showButtons ? (
+        <ScrollTabsButton
+          direction="right"
+          disabled={!edges.right}
+          onScroll={scrollTabs}
+          nodeRef={(node) => {
+            scrollButtons.current.right = node;
+          }}
+        />
+      ) : null}
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
       <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
         <Plus className="size-3.25" />

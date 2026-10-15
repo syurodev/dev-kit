@@ -13,7 +13,7 @@ const profile = (id: string, name: string) => ({ id, name }) as ConnectionProfil
 
 beforeEach(() => {
   resetConsoleHydration();
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
   useDatabaseStore.setState({
     profiles: [profile("p1", "staging"), profile("p2", "prod")],
     selectedProfileId: "p1",

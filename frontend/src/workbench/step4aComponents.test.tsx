@@ -123,7 +123,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
   });
 
   describe("Tab Strip (Figma 449:325)", () => {
-    it("renders a compact 40px strip with 4px vertical inset, new-tab button and trailing spacer", () => {
+    it("renders a compact 40px strip with an even 6px inset, new-tab button and trailing spacer", () => {
       const sampleTabs: WorkbenchTab[] = [
         {
           id: "notes:1",
@@ -150,8 +150,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
       // Compact shell: retain horizontal alignment while bringing content up.
       expect(html).toContain("h-10");
-      expect(html).toContain("px-2 py-1");
-      expect(html).toContain("gap-2");
+      // One 6px inset on all four sides, and 6px between what it holds.
+      expect(html).toContain("p-1.5 gap-1.5");
       // New-tab button: the titlebar variant at icon-sm — 28x28, radius 8 —
       // with a 13px plus of its own.
       expect(html).toContain('aria-label="New tab"');
@@ -189,7 +189,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       },
     ];
 
-    it("renders Active pill with h-8, radius 6, surface-raised bg, text-primary, 6px status dot and close button", () => {
+    it("renders Active pill 28px tall, radius 6, surface-raised bg, text-primary, running mark and close button", () => {
       const html = renderToString(
         <TooltipProvider>
         <TabStrip
@@ -204,8 +204,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         </TooltipProvider>,
       );
 
-      // 200x32, radius 6, px-3, gap-2
-      expect(html).toContain("h-8");
+      // 28px (the control height), radius 6, px-3, gap-2
+      expect(html).toContain("h-(--control-height-sm)");
       expect(html).toContain("rounded-sm");
       expect(html).toContain("px-3");
       expect(html).toContain("gap-2");
@@ -213,8 +213,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain("bg-surface-raised");
       expect(html).toContain("border-border");
       expect(html).toContain("text-text-primary");
-      // Status dot 6px (size-1.5)
-      expect(html).toContain("size-1.5");
+      // A running tab spins before its title, active or not.
+      expect(html).toContain("tab-status-spin");
       // Close button
       expect(html).toContain('aria-label="Close Active Document"');
     });
@@ -239,7 +239,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain('aria-label="Close All Notes"');
     });
 
-    it("renders Preview pill with dashed border, body-12 regular font, no close button and no dot", () => {
+    it("renders Preview pill with dashed border, body-12 regular font, a close button and no dot", () => {
       const html = renderToString(
         <TooltipProvider>
         <TabStrip
@@ -256,8 +256,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
       expect(html).toContain("border-dashed");
       expect(html).toContain("text-body-12");
-      // Preview tab has NO close button
-      expect(html).not.toContain('aria-label="Close Query 1"');
+      // A preview closes like any tab; the dashed border is what marks it.
+      expect(html).toContain('aria-label="Close Query 1"');
     });
 
     it("renders separate radius 8 focus ring layer when keyboard focused", () => {

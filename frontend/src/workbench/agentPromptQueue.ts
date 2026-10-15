@@ -11,6 +11,7 @@ import { toAppError } from "../bridge/errors";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { encodeEntityRef } from "./entityRef";
+import { AGENTHUB_MODULE, tabSessionId } from "../modules/agenthub/documents";
 import type { EntityRef } from "./intents";
 
 export type TurnBridge = {
@@ -129,21 +130,30 @@ export function noteTurnFinishedDuringOurs(sessionId: string): void {
   finishedDuringTurn.add(sessionId);
 }
 
-/** The dot on every Agent Hub tab showing this session. */
+/**
+ * The mark on every Agent Hub tab showing this session. Only those: the
+ * new-session tab shows no session (its draft becomes a session tab of its
+ * own), and now that every tab shows its status it would carry every
+ * session's.
+ */
 export function setAgentHubTabsStatus(sessionId: string, status: TabStatus): void {
   const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
-  for (const tab of moduleTabs(modules, "agenthub").openTabs) {
-    if (!tab.params?.sessionId || tab.params.sessionId === sessionId) setTabStatus(tab.id, status);
+  for (const tab of moduleTabs(modules, AGENTHUB_MODULE).openTabs) {
+    if (tabSessionId(tab) === sessionId) setTabStatus(tab.id, status);
   }
 }
 
-/** A turn of ours settled. turnFinished leaves the dot alone while one is in flight. */
-function settleTabs(sessionId: string) {
+/**
+ * A turn of ours settled; `completed` when it ran to its end, which marks the
+ * tabs finished until they are looked at (workbench/tabs/seenSuccess.ts).
+ * turnFinished leaves the mark alone while one is in flight.
+ */
+function settleTabs(sessionId: string, completed = false) {
   const state = useAgentSessionsStore.getState();
   const status = state.sessionsById[sessionId]?.status;
   // The next queued turn has started, or another agent's turn holds the session.
   if (state.turnInFlightBySession[sessionId] || status === "running" || status === "awaiting_permission") return;
-  setAgentHubTabsStatus(sessionId, status === "error" ? "error" : "idle");
+  setAgentHubTabsStatus(sessionId, status === "error" ? "error" : completed ? "success" : "idle");
 }
 
 /** Runs a turn already marked in flight (beginTurn / claimQueuedPrompt). */
@@ -209,6 +219,6 @@ async function runTurn(
   // starts now, and a late read would take its Stop button away.
   setStatus(sessionId, "idle");
   void drainQueuedPrompt(sessionId, bridge);
-  settleTabs(sessionId);
+  settleTabs(sessionId, true);
   return result;
 }

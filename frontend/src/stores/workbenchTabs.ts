@@ -26,6 +26,8 @@ export type WorkbenchTab = {
   title: string;
   params?: Record<string, unknown>;
   status?: TabStatus;
+  /** Unsaved work in the document: drawn as a dot in the close slot. Never persisted, like status. */
+  dirty?: boolean;
   icon?: LucideIcon;
   preview?: boolean;
   /**
@@ -38,6 +40,11 @@ export type WorkbenchTab = {
    * group that is gone: the first group showing its module.
    */
   group?: string;
+};
+
+export type CloseTabOptions = {
+  /** Offer the tab to reopenClosedTab afterwards. Default true. */
+  remember?: boolean;
 };
 
 export type OpenTabInput = {
@@ -87,6 +94,51 @@ export function tabKey(
   }
   const suffix = keys.map((key) => `${key}=${String(params![key])}`).join("&");
   return `${moduleId}:${viewId}:${suffix}`;
+}
+
+/** A closed tab, as `reopenClosedTab` needs it back. */
+export type ClosedTab = {
+  moduleId: string;
+  viewId: string;
+  title: string;
+  params?: Record<string, unknown>;
+  icon?: LucideIcon;
+  pinned: boolean;
+  /** The group it sat in, and its position in that group's strip. */
+  groupId: string;
+  index: number;
+  closedAt: number;
+};
+
+/** Enough to undo a burst of closes, small enough to read as a menu. */
+export const MAX_RECENTLY_CLOSED = 20;
+
+/** The id the record's tab had — and will have again: tabKey is the document's identity. */
+export const closedTabId = (entry: ClosedTab) => tabKey(entry.moduleId, entry.viewId, entry.params);
+
+/**
+ * The stack without `id`'s records; the same array when it had none, so nothing
+ * is published for it. Exported for code that adds a tab without openTab
+ * (a background add writes the partition itself) and must forget it too.
+ */
+export function forgetClosed(stack: ClosedTab[], id: string): ClosedTab[] {
+  return stack.some((entry) => closedTabId(entry) === id) ? stack.filter((entry) => closedTabId(entry) !== id) : stack;
+}
+
+/**
+ * The stack with each record `title` names a new title for renamed — so a
+ * document renamed after its tab closed is offered back under its new name.
+ * The same array when nothing changed. For the helpers that retitle open tabs.
+ */
+export function retitleClosedTabs(stack: ClosedTab[], title: (entry: ClosedTab) => string | undefined): ClosedTab[] {
+  let changed = false;
+  const next = stack.map((entry) => {
+    const renamed = title(entry);
+    if (renamed === undefined || renamed === entry.title) return entry;
+    changed = true;
+    return { ...entry, title: renamed };
+  });
+  return changed ? next : stack;
 }
 
 /**
@@ -152,14 +204,31 @@ export type WorkbenchTabsState = {
   groups: DocGroup[];
   /** The group you are working in. activeModuleId is its module. */
   focusedGroupId: string;
+  /**
+   * Tabs closed this session, newest first, at most MAX_RECENTLY_CLOSED. Memory
+   * only, like status: it is about what you just did, not what you had open.
+   */
+  recentlyClosed: ClosedTab[];
   /** Switch the content area to a module. Its own last-active tab stays
    * active (sticky). Does NOT open anything — a module with no tabs is the
    * caller's cue to open its home view. */
   focusModule: (moduleId: string) => void;
   openTab: (input: OpenTabInput) => string;
-  closeTab: (id: string) => void;
+  /**
+   * `remember: false` when the tab closes because its document is gone
+   * (deleted, removed from the workspace, replaced by a saved one): reopening
+   * it would bring back a tab with nothing to show.
+   */
+  closeTab: (id: string, options?: CloseTabOptions) => void;
+  /**
+   * Opens the `at`-th recently closed tab again (default: the last closed) in
+   * its old group if that is still there, at its old place, pinned if it was.
+   * Returns its id, or null when there is nothing to reopen.
+   */
+  reopenClosedTab: (at?: number) => string | null;
   setActiveTab: (id: string) => void;
   setTabStatus: (id: string, status: TabStatus) => void;
+  setTabDirty: (id: string, dirty: boolean) => void;
   pinTab: (id: string) => void;
   reorderTab: (fromId: string, beforeId: string | null) => void;
   /** Pins or unpins, moving the tab to the edge of the pinned run. */
@@ -264,7 +333,7 @@ export function persistedTabs(
         {
           activeTabId: tabs.activeTabId,
           tabMru: tabs.tabMru,
-          openTabs: tabs.openTabs.map(({ icon: _icon, status: _status, ...tab }) => tab),
+          openTabs: tabs.openTabs.map(({ icon: _icon, status: _status, dirty: _dirty, ...tab }) => tab),
         },
       ]),
     ),
@@ -273,12 +342,14 @@ export function persistedTabs(
 
 export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
   activeModuleId: "",
   modules: {},
 
   groups: [],
   focusedGroupId: "",
+
+  recentlyClosed: [],
 
   // A module already on screen in some group is focused there; otherwise the
   // focused group switches to it.
@@ -371,18 +442,39 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         ...partial,
         groups: withGroup(placed.groups, placed.group.id, { activeTabId: id }),
         focusedGroupId: placed.group.id,
+        // Opened for real, a closed tab is no longer one to reopen. A preview
+        // is only a look, and may be gone with the next click: keep the record
+        // (the Recently Closed list leaves out ids that are open).
+        recentlyClosed: input.preview ? state.recentlyClosed : forgetClosed(state.recentlyClosed, id),
       });
     });
     return id;
   },
 
-  closeTab: (id) =>
+  closeTab: (id, options) =>
     set((state) => {
       const tab = moduleTabs(state.modules, moduleOfTab(id)).openTabs.find((t) => t.id === id);
       if (!tab) return state;
       // The group it leaves shows its own left neighbour, not whatever the
       // partition would pick from another group.
       const group = groupOfTab(state.groups, tab);
+      // A preview tab was only being looked through: nothing to bring back.
+      const recentlyClosed = tab.preview || options?.remember === false
+        ? state.recentlyClosed
+        : [
+            {
+              moduleId: tab.moduleId,
+              viewId: tab.viewId,
+              title: tab.title,
+              params: tab.params,
+              icon: tab.icon,
+              pinned: !!tab.pinned,
+              groupId: group?.id ?? "",
+              index: Math.max(0, group ? tabsOfGroup(state, group).findIndex((t) => t.id === id) : 0),
+              closedAt: Date.now(),
+            },
+            ...forgetClosed(state.recentlyClosed, id),
+          ].slice(0, MAX_RECENTLY_CLOSED);
       const groups =
         group && group.activeTabId === id
           ? withGroup(state.groups, group.id, { activeTabId: neighbourIn(tabsOfGroup(state, group), id) })
@@ -404,9 +496,52 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         const fallback = openTabs[index - 1] ?? openTabs[0];
         return { openTabs, tabMru, activeTabId: fallback?.id ?? "" };
       });
-      const next = { ...state, ...partial, groups };
+      const next = { ...state, ...partial, groups, recentlyClosed };
       return reconcile(group ? dropIfEmpty(next, group.id) : next);
     }),
+
+  // Composed from the actions a person would use to put the tab back — focus
+  // its group, open it, pin it, drag it into place — so it obeys their rules
+  // (where an open lands, the pinned run's edge) rather than restating them.
+  reopenClosedTab: (at = 0) => {
+    const entry = get().recentlyClosed[at];
+    if (!entry) return null;
+    const recordedId = closedTabId(entry);
+    // Open again as a preview, the one route that keeps the record: show it
+    // where it is rather than moving it back.
+    if (moduleTabs(get().modules, entry.moduleId).openTabs.some((t) => t.id === recordedId)) {
+      set((state) => ({ recentlyClosed: forgetClosed(state.recentlyClosed, recordedId) }));
+      get().setActiveTab(recordedId);
+      return recordedId;
+    }
+    // Its old group, if it still exists and still shows the module; else
+    // openTab's own placement, which starts at the focused group.
+    const home = get().groups.find((g) => g.id === entry.groupId && g.moduleId === entry.moduleId);
+    if (home) get().focusGroup(home.id);
+    // openTab forgets the record (forgetClosed) as it opens the tab.
+    const id = get().openTab({
+      moduleId: entry.moduleId,
+      viewId: entry.viewId,
+      title: entry.title,
+      params: entry.params,
+      icon: entry.icon,
+      preview: false,
+    });
+    const opened = moduleTabs(get().modules, entry.moduleId).openTabs.find((t) => t.id === id);
+    if (entry.pinned && opened && !opened.pinned) get().togglePinTab(id);
+    // Back to its old place in the strip — only in its own group: an index
+    // in a strip that is gone means nothing in another one, where it stays at
+    // the end like any open. reorderTab keeps it on its side of the pinned run,
+    // and past the end means the end.
+    const after = get();
+    const placed = moduleTabs(after.modules, entry.moduleId).openTabs.find((t) => t.id === id);
+    const group = placed ? groupOfTab(after.groups, placed) : null;
+    if (home && group?.id === home.id) {
+      const strip = tabsOfGroup(after, group).filter((t) => t.id !== id);
+      after.reorderTab(id, strip[entry.index]?.id ?? null);
+    }
+    return id;
+  },
 
   setActiveTab: (id) => {
     const moduleId = moduleOfTab(id);
@@ -449,6 +584,19 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         return {
           ...m,
           openTabs: m.openTabs.map((tab) => (tab.id === id ? { ...tab, status } : tab)),
+        };
+      }),
+    ),
+
+  setTabDirty: (id, dirty) =>
+    set((state) =>
+      updateModule(state, moduleOfTab(id), (m) => {
+        if (!m.openTabs.some((tab) => tab.id === id && !!tab.dirty !== dirty)) {
+          return m;
+        }
+        return {
+          ...m,
+          openTabs: m.openTabs.map((tab) => (tab.id === id ? { ...tab, dirty } : tab)),
         };
       }),
     ),

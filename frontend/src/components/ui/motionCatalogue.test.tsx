@@ -62,7 +62,7 @@ describe("motion defined in index.css", () => {
 
   it("every motion added here is switched off by prefers-reduced-motion", () => {
     const reduced = CSS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/)![0];
-    for (const cls of ["module-enter", "activity-enter", "row-accent", "value-blink", "outline-row-enter", "outline-row-flash", "flow-mode-enter"]) {
+    for (const cls of ["module-enter", "activity-enter", "row-accent", "value-blink", "outline-row-enter", "outline-row-flash", "flow-mode-enter", "tab-status-spin"]) {
       expect(reduced, `${cls} must be disabled under reduced motion`).toContain(cls);
     }
   });

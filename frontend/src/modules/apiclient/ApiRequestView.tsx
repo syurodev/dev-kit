@@ -160,6 +160,12 @@ function RequestEditor({
   const environment = activeEnvironment({ environments, activeEnvironmentId });
   const { request, response, sending } = editor;
   const dirty = !editor.baseline || !sameRequest(editor.baseline, request);
+  const tabId = tabKey(MODULE, REQUEST_VIEW, params);
+  // What the toolbar's unsaved mark says, the tab says too (a dot in its
+  // close slot). A new request has nothing saved yet, so it counts.
+  useEffect(() => {
+    useWorkbenchTabsStore.getState().setTabDirty(tabId, dirty);
+  }, [tabId, dirty]);
   const [tab, setTab] = useState("params");
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
   const [curl, setCurl] = useState("");
@@ -309,7 +315,7 @@ function RequestEditor({
   const shortcutRef = useRef(shortcut);
   shortcutRef.current = shortcut;
   const inFront = useWorkbenchTabsStore(
-    (s) => s.activeModuleId === MODULE && activeApiClientTab(s)?.id === tabKey(MODULE, REQUEST_VIEW, params),
+    (s) => s.activeModuleId === MODULE && activeApiClientTab(s)?.id === tabId,
   );
   useEffect(() => {
     if (!inFront) return;

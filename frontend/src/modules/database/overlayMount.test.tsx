@@ -6,7 +6,7 @@ import { DEFAULT_CONSOLE_ID } from "./databaseStore";
 import { isActiveDocument } from "./useIsActiveDocument";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
 });
 
 /**

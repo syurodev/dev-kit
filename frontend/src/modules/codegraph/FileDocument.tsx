@@ -131,6 +131,12 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     if (wasDirty.current && !dirty && viewRef.current) markCodeIntelBaseline(viewRef.current);
     wasDirty.current = dirty;
   }, [dirty]);
+  // The tab says so too: a dot in its close slot while the buffer differs
+  // from disk. Not cleared on unmount — the view can go while the tab and its
+  // draft stay; the tab's close takes the flag with it.
+  useEffect(() => {
+    useWorkbenchTabsStore.getState().setTabDirty(tabId, dirty);
+  }, [tabId, dirty]);
 
   const unregister = useRef<(() => void) | null>(null);
   const onView = useCallback((view: EditorView | null) => {
@@ -158,6 +164,9 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   );
 
   const closeTab = () => useWorkbenchTabsStore.getState().closeTab(tabId);
+  // The dead ends below — and a file deleted on disk — have no document to
+  // come back to, so ⌘⇧T is not offered them.
+  const closeDeadTab = () => useWorkbenchTabsStore.getState().closeTab(tabId, { remember: false });
 
   if (!owner) {
     return (
@@ -166,14 +175,14 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
         title="Which folder is this file in?"
         body="This tab was saved before documents named their folder, and it cannot be told from the workspace now. Open the file again from Files."
       >
-        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+        <Button variant="outline" className="bg-surface-raised" onClick={closeDeadTab}>Close this tab</Button>
       </EmptyState>
     );
   }
   if (!buffer && relation === "removed") {
     return (
       <EmptyState icon={TriangleAlert} title="This file's folder left the workspace" body={path}>
-        <Button variant="outline" className="bg-surface-raised" onClick={closeTab}>Close this tab</Button>
+        <Button variant="outline" className="bg-surface-raised" onClick={closeDeadTab}>Close this tab</Button>
       </EmptyState>
     );
   }
@@ -242,7 +251,8 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
             onKeepMine={() => keepMine(key)}
             onOverwrite={() => void saveFile(key, "overwrite")}
             onRecreate={() => void saveFile(key, "recreate")}
-            onClose={() => (buffer.dirty ? discardFile(key) : closeTab())}
+            // A file deleted on disk has nothing to reopen (discardFile says the same).
+            onClose={() => (buffer.dirty ? discardFile(key) : buffer.external === "deleted" ? closeDeadTab() : closeTab())}
           />
           <CompareDialog
             open={compareOpen}

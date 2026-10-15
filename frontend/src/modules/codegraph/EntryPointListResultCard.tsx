@@ -1,5 +1,7 @@
 import { Code } from "lucide-react";
 import { FramedCard, FramedCardHeader, FramedCardMore, FramedCardPreview, FramedCardRow } from "@/components/ui/framed-card";
+import { methodTextClass } from "@/lib/httpMethod";
+import { cn } from "@/lib/utils";
 import { dispatchIntent } from "@/workbench/intents";
 import type { EntryPointMatch } from "./searchResult";
 
@@ -21,7 +23,7 @@ export function EntryPointListResultCard({ entries }: { entries: EntryPointMatch
             key={entry.id}
             label={
               <>
-                <span className="text-code-12-medium">{entry.verb}</span>{" "}
+                <span className={cn("text-code-12-medium", methodTextClass(entry.verb))}>{entry.verb}</span>{" "}
                 <span className="text-code-12">{entry.target}</span>
               </>
             }

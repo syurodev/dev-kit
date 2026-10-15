@@ -79,7 +79,7 @@ export function openConsoleTab(consoleId: string, title = "Console", options: { 
  */
 export function closeConsoleTab(consoleId: string): void {
   const state = useWorkbenchTabsStore.getState();
-  state.closeTab(tabKey("database", "database.console", { consoleId }));
+  state.closeTab(tabKey("database", "database.console", { consoleId }), { remember: false });
 }
 
 /**

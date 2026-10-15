@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Bot } from "lucide-react";
 import type { AgentSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
-import { moduleTabs, tabKey, useWorkbenchTabsStore, type WorkbenchTab, type WorkbenchTabsState } from "@/stores/workbenchTabs";
+import { forgetClosed, moduleTabs, retitleClosedTabs, tabKey, useWorkbenchTabsStore, type CloseTabOptions, type WorkbenchTab, type WorkbenchTabsState } from "@/stores/workbenchTabs";
 
 /**
  * Agent Hub's documents: one workbench tab per session, keyed by
@@ -89,24 +89,29 @@ export function addAgentSessionTabInBackground(session: Pick<AgentSession, "id" 
         ...state.modules,
         [AGENTHUB_MODULE]: { ...tabs, openTabs: [...tabs.openTabs, tab], activeTabId: tabs.activeTabId || tab.id },
       },
+      // Open again without openTab, so it forgets its closed record itself.
+      recentlyClosed: forgetClosed(state.recentlyClosed, tab.id),
     };
   });
 }
 
-/** Closes every tab showing these sessions. Closing a tab never closes a session. */
-export function closeAgentSessionTabs(sessionIds: Iterable<string>): void {
+/**
+ * Closes every tab showing these sessions. Closing a tab never closes a session.
+ * `remember: false` when the sessions are gone, so ⌘⇧T does not offer them back.
+ */
+export function closeAgentSessionTabs(sessionIds: Iterable<string>, options?: CloseTabOptions): void {
   const ids = new Set(sessionIds);
   const state = useWorkbenchTabsStore.getState();
   for (const tab of moduleTabs(state.modules, AGENTHUB_MODULE).openTabs) {
-    if (ids.has(tabSessionId(tab))) state.closeTab(tab.id);
+    if (ids.has(tabSessionId(tab))) state.closeTab(tab.id, options);
   }
 }
 
-/** The home tab, where a new session is drafted. */
+/** The home tab, where a new session is drafted. Not remembered: the draft became the session. */
 export function closeNewSessionTab(): void {
   const state = useWorkbenchTabsStore.getState();
   for (const tab of moduleTabs(state.modules, AGENTHUB_MODULE).openTabs) {
-    if (tab.viewId === AGENTHUB_VIEW && tabSessionId(tab) === "") state.closeTab(tab.id);
+    if (tab.viewId === AGENTHUB_VIEW && tabSessionId(tab) === "") state.closeTab(tab.id, { remember: false });
   }
 }
 
@@ -124,7 +129,16 @@ export function syncAgentSessionTabTitles(sessionsById: Record<string, AgentSess
       changed = true;
       return { ...tab, title: sessionTitle(session) };
     });
-    return changed ? { modules: { ...state.modules, [AGENTHUB_MODULE]: { ...tabs, openTabs } } } : state;
+    const recentlyClosed = retitleClosedTabs(state.recentlyClosed, (entry) => {
+      if (entry.moduleId !== AGENTHUB_MODULE) return undefined;
+      const session = sessionsById[tabSessionId(entry)];
+      return session ? sessionTitle(session) : undefined;
+    });
+    if (!changed && recentlyClosed === state.recentlyClosed) return state;
+    return {
+      modules: changed ? { ...state.modules, [AGENTHUB_MODULE]: { ...tabs, openTabs } } : state.modules,
+      recentlyClosed,
+    };
   });
 }
 

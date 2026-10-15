@@ -3,10 +3,10 @@ import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useDatabaseStore } from "./databaseStore";
 import type { StoredConsole } from "@/bridge/database";
 import { resetConsoleHydration } from "./consoleHydration";
-import { consoleIdFor, openNewConsoleTab, openSqlConsole, openTableTab, sqlConsoleId } from "./documents";
+import { closeConsoleTab, consoleIdFor, openNewConsoleTab, openSqlConsole, openTableTab, sqlConsoleId } from "./documents";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
 });
 
 describe("table documents", () => {
@@ -202,6 +202,14 @@ describe("an agent's result comes with its statement", () => {
 // The + button must give you a console you did not have. tabKey resolves the
 // same module+view+params to the same tab, so a fixed id would focus the
 // existing console instead of opening a new one.
+test("a deleted console's tab is not offered back", () => {
+  openNewConsoleTab();
+  const tab = moduleTabs(useWorkbenchTabsStore.getState().modules, "database").openTabs[0];
+  closeConsoleTab(String(tab.params?.consoleId));
+  expect(moduleTabs(useWorkbenchTabsStore.getState().modules, "database").openTabs).toHaveLength(0);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+});
+
 test("the + button opens a console each time", () => {
   openNewConsoleTab();
   openNewConsoleTab();

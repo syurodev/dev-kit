@@ -20,7 +20,9 @@ or `useSidebarContent` for document-specific rails. Do not embed a fixed-width
 `aside`, duplicate sidebar toggle/resize/material, or maintain a second document
 strip / `openIds` / `selectedId` in a module view/store. Enable `tabs: true` and
 open documents through `useWorkbenchTabsStore.openTab` with stable ID params;
-provide a working `newTab` action. Shadcn `Tabs` may switch modes inside one
+provide a working `newTab` action. Close a tab whose document is gone (deleted,
+its folder removed, deleted on disk, a draft saved as a new document) with
+`closeTab(id, { remember: false })` so ⌘⇧T does not offer it back. Shadcn `Tabs` may switch modes inside one
 document, such as SSH Terminal/Commands/Tunnels/Details. Keep drafts/resource
 lifetimes separate from view mounting, derive selection from the focused group,
 and gate document dialogs with `useModuleVisibility`. The shared sidebar has no

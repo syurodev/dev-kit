@@ -36,6 +36,9 @@ export type PaletteModule = {
 
 export type PaletteTab = { id: string; moduleId: string; title: string; icon?: LucideIcon };
 
+/** A closed tab that can be reopened; `at` is its place in the store's stack. */
+export type PaletteClosedTab = { at: number; moduleId: string; title: string; icon?: LucideIcon };
+
 /**
  * What a query is asking about. The first character narrows it, VS Code's way:
  *
@@ -64,14 +67,22 @@ export type PaletteInput = {
   modules: readonly PaletteModule[];
   /** Every open tab but the one in front and the modules' hidden home previews. */
   tabs: readonly PaletteTab[];
+  /** Closed tabs, newest first, without any whose tab is open again. */
+  recentlyClosed?: readonly PaletteClosedTab[];
+  /** ⌘⇧T's label for this platform (lib/shortcut), beside Reopen Closed Tab. */
+  reopenShortcut?: string;
 };
 
 export type PaletteActions = {
   focusModule: (moduleId: string) => void;
   activateTab: (tabId: string) => void;
+  /** Reopen the closed tab at this place in the store's stack. */
+  reopenClosed?: (at: number) => void;
 };
 
 const MAX_TABS = 6;
+const MAX_CLOSED = 6;
+const REOPEN_TITLE = "Reopen Closed Tab";
 const MAX_FOREIGN_COMMANDS = 5;
 
 /**
@@ -125,10 +136,38 @@ export function staticSections(input: PaletteInput, actions: PaletteActions): Pa
     }
   };
 
+  const titleOf = (moduleId: string) => modules.find((module) => module.id === moduleId)?.title ?? moduleId;
+
+  // ⌘⇧T's command, then the tabs it would bring back, each by its own place
+  // in the stack. A command of the shell's, so > lists it, without the tabs.
+  const closed = actions.reopenClosed ? (input.recentlyClosed ?? []) : [];
+  const recentlyClosed = (withTabs: boolean) => {
+    const reopen = actions.reopenClosed;
+    if (!reopen || closed.length === 0) return;
+    const rows: PaletteRow[] = [];
+    if (!searching || rank(query, [REOPEN_TITLE], (title) => ({ title }), 1).length > 0) {
+      rows.push({ id: "command:reopen-closed-tab", title: REOPEN_TITLE, shortcut: input.reopenShortcut, run: () => reopen(closed[0].at) });
+    }
+    if (withTabs) {
+      const entries = rank(query, closed, (entry) => ({ title: entry.title, others: [titleOf(entry.moduleId)] }), MAX_CLOSED);
+      for (const entry of entries) {
+        rows.push({
+          id: `reopen:${entry.at}`,
+          title: `Reopen: ${entry.title}`,
+          subtitle: titleOf(entry.moduleId),
+          icon: entry.icon,
+          run: () => reopen(entry.at),
+        });
+      }
+    }
+    if (rows.length > 0) sections.push({ id: "recently-closed", heading: "Recently closed", rows });
+  };
+
   if (commandsOnly) {
     // Asked for by name, so all of them, typed or not — this is the one place
     // the whole app's commands can be browsed.
     foreignCommands(Number.POSITIVE_INFINITY);
+    recentlyClosed(false);
     return sections;
   }
 
@@ -147,11 +186,13 @@ export function staticSections(input: PaletteInput, actions: PaletteActions): Pa
   }));
   if (destinations.length > 0) sections.push({ id: "modules", heading: "Go to", rows: destinations });
 
-  if (!searching) return sections;
+  if (!searching) {
+    recentlyClosed(true);
+    return sections;
+  }
 
   // Tabs only when asked for: ⌘⇧E already lists the ones in front by recency,
   // and a list of every open tab would push the modules off the first screen.
-  const titleOf = (moduleId: string) => modules.find((module) => module.id === moduleId)?.title ?? moduleId;
   const tabRows = rank(query, tabs, (tab) => ({ title: tab.title, others: [titleOf(tab.moduleId)] }), MAX_TABS).map<PaletteRow>(
     (tab) => ({
       id: `tab:${tab.id}`,
@@ -162,6 +203,7 @@ export function staticSections(input: PaletteInput, actions: PaletteActions): Pa
     }),
   );
   if (tabRows.length > 0) sections.push({ id: "tabs", heading: "Open tabs", rows: tabRows });
+  recentlyClosed(true);
 
   foreignCommands(MAX_FOREIGN_COMMANDS);
   return sections;

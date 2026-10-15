@@ -1051,7 +1051,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             className="flex-1"
             title="Session not available"
             body="It was deleted, or belongs to a list this window could not load."
-            action={{ label: "Close tab", onClick: () => closeAgentSessionTabs([tabSessionId]) }}
+            action={{ label: "Close tab", onClick: () => closeAgentSessionTabs([tabSessionId], { remember: false }) }}
             secondaryAction={{ label: "New session", onClick: () => openNewAgentSession() }}
           />
         ) : (

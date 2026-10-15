@@ -5,13 +5,14 @@ import { renderToString } from "react-dom/server";
 import {
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
+  handleSessionUpdateTabs,
   statusAnnouncement,
   statusTransitionAnnouncement,
   turnFinishedAnnouncement,
 } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
-import { sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
+import { sendAgentTurn, setAgentHubTabsStatus, type TurnBridge } from "./agentPromptQueue";
 import type { InvokeResult } from "../bridge/agenthub";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
@@ -20,6 +21,8 @@ useWorkbenchTabsStore.persist.setOptions({
 });
 
 const tabStatus = () => useWorkbenchTabsStore.getState().modules.agenthub.openTabs[0].status;
+/** The new-session tab: no session of its own, so no session's status. */
+const homeStatus = () => useWorkbenchTabsStore.getState().modules.agenthub.openTabs[1].status;
 
 describe("an Agent Hub tab when a turn finishes", () => {
   beforeEach(() => {
@@ -29,10 +32,18 @@ describe("an Agent Hub tab when a turn finishes", () => {
       modules: {
         agenthub: {
           openTabs: [
-            { id: "agenthub:agenthub.sessions", moduleId: "agenthub", viewId: "agenthub.sessions", title: "Agent Hub", status: "running" },
+            {
+              id: "agenthub:agenthub.sessions:sessionId=s1",
+              moduleId: "agenthub",
+              viewId: "agenthub.sessions",
+              title: "s1",
+              params: { sessionId: "s1" },
+              status: "running",
+            },
+            { id: "agenthub:agenthub.sessions", moduleId: "agenthub", viewId: "agenthub.sessions", title: "New session", status: "idle" },
           ],
-          activeTabId: "agenthub:agenthub.sessions",
-          tabMru: ["agenthub:agenthub.sessions"],
+          activeTabId: "agenthub:agenthub.sessions:sessionId=s1",
+          tabMru: ["agenthub:agenthub.sessions:sessionId=s1"],
         },
       },
     });
@@ -51,10 +62,11 @@ describe("an Agent Hub tab when a turn finishes", () => {
     });
   });
 
-  it("goes back to idle after a completed turn, leaving 'unseen' to the unread badge", () => {
+  it("marks a completed turn finished, beside the unread badge", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
 
-    expect(tabStatus()).toBe("idle");
+    // The strip shows it until the tab is looked at (tabs/seenSuccess.ts).
+    expect(tabStatus()).toBe("success");
     expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBe(true);
   });
 
@@ -68,6 +80,21 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
 
     expect(tabStatus()).toBe("error");
+  });
+
+  it("keeps running through a tool call that failed: only the turn's end says it failed", () => {
+    // What the update carries is not read: any update of a turn means running.
+    handleSessionUpdateTabs({ sessionId: "s1" });
+
+    expect(tabStatus()).toBe("running");
+  });
+
+  it("leaves the new-session tab alone: it shows no session", () => {
+    handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
+    setAgentHubTabsStatus("s1", "running");
+
+    expect(tabStatus()).toBe("running");
+    expect(homeStatus()).toBe("idle");
   });
 
   it("stays running when a late turnFinished lands while the next turn of ours runs", () => {
@@ -136,7 +163,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(reads).toBe(0);
   });
 
-  it("goes back to idle when our turn's reply comes after its turnFinished", async () => {
+  it("marks our turn finished when its reply comes after its turnFinished", async () => {
     let finish!: (result: InvokeResult) => void;
     const bridge: TurnBridge = {
       invoke: () => new Promise((resolve) => (finish = resolve)),
@@ -149,7 +176,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
     finish({ status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" });
     await turn;
 
-    expect(tabStatus()).toBe("idle");
+    expect(tabStatus()).toBe("success");
   });
 });
 

@@ -14,7 +14,7 @@ function session(id: string, status: AgentSession["status"] = "idle"): AgentSess
 }
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes" });
+  useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes", recentlyClosed: [] });
   const sessions = [session("a"), session("b", "running"), session("c", "closed")];
   useAgentSessionsStore.setState({
     sessionsById: Object.fromEntries(sessions.map((s) => [s.id, s])),

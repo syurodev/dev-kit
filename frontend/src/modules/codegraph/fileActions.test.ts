@@ -82,6 +82,7 @@ const { docKey } = await import("./workspace/identity");
 const { focusedDocument, documentsOf } = await import("./documents");
 const { viewFlow } = await import("./flowActions");
 const { useNavigationStore } = await import("./navigation");
+const { useWorkbenchTabsStore } = await import("@/stores/workbenchTabs");
 
 
 const WS = "w1";
@@ -205,6 +206,44 @@ describe("file actions over a workspace", () => {
     expect(buffer(key("fb2", "a.ts"))).toBeUndefined();
     // The clean buffer of a surviving folder is untouched.
     expect(buffer(key("fa", "a.ts")).content).toBe("clean\n");
+  });
+
+  it("does not offer back the tabs of a removed folder, nor a discarded orphan", async () => {
+    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
+    disk.set("fb:clean.ts", "x\n");
+    disk.set("fb:draft.ts", "y\n");
+    await actions.openFile({ workspaceId: WS, folderId: "fb", path: "clean.ts" });
+    await actions.openFile({ workspaceId: WS, folderId: "fb", path: "draft.ts" });
+    actions.editFile(key("fb", "draft.ts"), "unsaved\n");
+    removedFolders.add("fb");
+    useCodeGraphStore.setState({ folders: [folder("fa", "/ws/fa")], primaryId: "fa" } as never);
+    actions.markRemovedFolders();
+    // The clean file's tab closed with its folder; the draft's stays, orphaned.
+    expect(documentsOf().map(({ doc }) => doc.path)).toEqual(["draft.ts"]);
+    actions.discardFile(key("fb", "draft.ts"));
+    expect(documentsOf()).toHaveLength(0);
+    expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
+  });
+
+  it("offers back a file whose edits were discarded while its folder is still there", async () => {
+    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
+    disk.set("fa:a.ts", "x\n");
+    await actions.openFile({ workspaceId: WS, folderId: "fa", path: "a.ts" });
+    actions.editFile(key("fa", "a.ts"), "unsaved\n");
+    actions.discardFile(key("fa", "a.ts"));
+    expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toHaveLength(1);
+  });
+
+  it("does not offer back a file deleted on disk once its edits are discarded", async () => {
+    useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "", recentlyClosed: [] });
+    disk.set("fa:a.ts", "x\n");
+    await actions.openFile({ workspaceId: WS, folderId: "fa", path: "a.ts" });
+    actions.editFile(key("fa", "a.ts"), "unsaved\n");
+    disk.delete("fa:a.ts");
+    await actions.reconcileFile(key("fa", "a.ts"));
+    actions.discardFile(key("fa", "a.ts"));
+    expect(documentsOf()).toHaveLength(0);
+    expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
   });
 
   it("drops the buffer of a removed folder when it has no edits", async () => {

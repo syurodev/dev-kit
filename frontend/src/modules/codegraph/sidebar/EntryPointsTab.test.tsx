@@ -59,3 +59,33 @@ it("shows consumer group even when Camel has no explicit route ID", () => {
   expect(html).toContain("kafka:events");
   expect(html).toContain(" · group standalone");
 });
+
+// A tinted chip is only 4.5:1 at full strength (themeContrast.test), so an
+// off chip is the neutral one rather than a faded tint.
+it("verb filter chips keep their tint at full strength and turn neutral when filtered out", () => {
+  const entry = (id: string, verb: string) => ({ id, entryNode: id, verb, target: `/${id}`, kind: "http" as const, owner: "C", group: "C", service: "", order: 0 });
+  const folders: FolderEntries[] = [{
+    folderId: "f", path: "/fixture", label: "api", note: "",
+    health: { health: "ready", tone: "ok", label: "Indexed", detail: "" },
+    entries: [entry("a", "GET"), entry("b", "POST")],
+  }];
+  const chip = (html: string, verb: string) =>
+    html.match(new RegExp(`<button[^>]*aria-pressed="(true|false)"[^>]*class="([^"]*)"[^>]*>${verb}</button>`))?.slice(1) ?? [];
+  const filtered = renderToString(
+    <TooltipProvider>
+      <EntryPointsTab folders={folders} query="" selected={null} verbFilter={["GET"]} collapsed={[]}
+        onVerbFilter={noop} onToggleGroup={noop} onSelect={noop} onKeep={noop}
+        onOpenBeside={noop} onAskAgent={noop} onReindexFolder={noop} />
+    </TooltipProvider>,
+  );
+  const [getPressed, getClass] = chip(filtered, "GET");
+  const [postPressed, postClass] = chip(filtered, "POST");
+  expect(getPressed).toBe("true");
+  expect(getClass).toContain("text-(--hue-green)");
+  expect(postPressed).toBe("false");
+  expect(postClass).toContain("bg-surface-raised");
+  expect(postClass).not.toContain("--hue-yellow");
+  const [, restClass] = chip(render(folders), "POST");
+  expect(restClass).toContain("text-(--hue-yellow)");
+  for (const cls of [getClass, postClass, restClass]) expect(cls).not.toMatch(/(^|\s)(hover:)?opacity-/);
+});

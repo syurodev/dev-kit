@@ -35,11 +35,13 @@ describe("the base theme implements the contract", () => {
   test("no colour token exists outside the contract without being derived", () => {
     const derived = (value: string) => value.startsWith("var(") || value.startsWith("color-mix(");
     const shape = (name: string) => /blur|saturate|radius|motion|ease|font|spring/.test(name);
+    // A bare percentage is a mix amount (--method-tint), not a colour.
+    const amount = (value: string) => /^\d+(\.\d+)?%$/.test(value);
     const brand = (name: string) => name.startsWith("--vendor-");
     const orphans = [...dark]
       .filter(
         ([name, value]) =>
-          !shape(name) && !brand(name) && !derived(value) && !CONTRACT.includes(name as never),
+          !shape(name) && !brand(name) && !derived(value) && !amount(value) && !CONTRACT.includes(name as never),
       )
       .map(([name]) => name);
     expect(orphans, `${orphans.join(", ")} is a literal colour no theme can reach`).toEqual([]);

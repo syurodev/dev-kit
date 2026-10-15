@@ -67,6 +67,7 @@ const EVERYWHERE: ShortcutEntry[] = [
   },
   { id: "tab-close", action: "Close tab", keys: [chord("W")] },
   { id: "tab-split", action: "Split tab right", keys: [chord("\\")] },
+  { id: "tab-reopen", action: "Reopen closed tab", keys: [chord("T", { mod: true, shift: true })] },
   {
     id: "module-beside",
     action: "Open module beside",
