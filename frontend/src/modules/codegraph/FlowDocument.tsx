@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CodeGraphNode } from "@/bridge/codegraph";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
-import { verbChipClass } from "./graph/tokens";
+import { FLOW_HEADER, verbChipClass } from "./graph/tokens";
 import { shortLabel } from "./graph/labels";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
@@ -115,23 +115,34 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
 
   const subgraph = flow?.subgraph;
   const rootNode = subgraph?.nodes.find((n) => n.id === root);
+  // One 40px row, like the tab strip above it. The name keeps its room;
+  // the source/group line gives way first (flex-shrink 100), then the name.
+  const entryDetail = entry && (entry.routeId || entry.consumerGroup)
+    ? `${entry.routeId ? entry.target : ""}${entry.consumerGroup ? `${entry.routeId ? " · " : ""}group ${entry.consumerGroup}` : ""}`
+    : "";
   const header = (
     <>
       <NavButtons />
       {entry ? (
         <>
-          <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", verbChipClass(entry.verb))}>
+          <span className={cn("shrink-0 rounded-sm px-1.5 py-0.5 text-code-11 font-medium uppercase", verbChipClass(entry.verb))}>
             {entry.verb}
           </span>
-          <span className="truncate text-title-16 text-text-primary" title={entry.target}>{entry.routeId || entry.target}</span>
-          {entry.routeId || entry.consumerGroup ? <span className="truncate text-code-11 text-text-tertiary" title={entry.consumerGroup ? `Consumer group: ${entry.consumerGroup}` : undefined}>{entry.routeId ? entry.target : ""}{entry.consumerGroup ? ` · group ${entry.consumerGroup}` : ""}</span> : null}
+          <span className="min-w-12 truncate text-title-14 text-text-primary" title={entry.routeId ? `${entry.routeId}\n${entry.target}` : entry.target}>
+            {entry.routeId || entry.target}
+          </span>
+          {entryDetail ? (
+            <span className="min-w-0 truncate text-code-11 text-text-tertiary" style={{ flexShrink: 100 }} title={entryDetail}>
+              {entryDetail}
+            </span>
+          ) : null}
         </>
       ) : (
-        <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
+        <span className="min-w-12 truncate text-title-14 text-text-primary" title={rootNode?.label ?? root}>
           {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
         </span>
       )}
-      {several ? <Chip className="max-w-40 truncate" >{ownership.label}</Chip> : null}
+      {several ? <Chip className="max-w-40 shrink-0 truncate">{ownership.label}</Chip> : null}
     </>
   );
   const modeSwitch = (
@@ -144,9 +155,10 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
         setFlowMode(folderId, root, value as "outline" | "graph");
       }}
     >
-      <TabsList>
-        <TabsTrigger value="outline">Outline</TabsTrigger>
-        <TabsTrigger value="graph">Graph</TabsTrigger>
+      {/* The tab strip's height, not a toolbar's: 28px track, 24px chips, 12px labels. */}
+      <TabsList className="h-7 gap-0.5 p-0.5">
+        <TabsTrigger value="outline" className="h-6 px-2 text-label-12">Outline</TabsTrigger>
+        <TabsTrigger value="graph" className="h-6 px-2 text-label-12">Graph</TabsTrigger>
       </TabsList>
     </Tabs>
   );
@@ -172,16 +184,15 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
     );
     if (mode === "outline") {
       return (
-        <div ref={page} className="flex h-full w-full flex-col overflow-hidden px-4 pt-3">
-          <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
-            <div className="flex min-w-0 items-center gap-2.5">{header}</div>
-            <div className="flex shrink-0 items-center gap-3.5">
+        <div ref={page} className="flex h-full w-full flex-col overflow-hidden">
+          <div className={FLOW_HEADER}>
+            <div className="flex min-w-0 items-center gap-2">{header}</div>
+            <div className="flex shrink-0 items-center gap-2">
               {flow.stepsLoading && <span className="text-code-11 text-text-tertiary">reading…</span>}
               {partial}
               {modeSwitch}
             </div>
           </div>
-          <div className="h-px shrink-0 bg-border-subtle" />
           {/* After a switch the body fades up; the header stays where it was. */}
           <div className={cn("flex min-h-0 flex-1 flex-col", switched && "flow-mode-enter")}>
             <OutlineView
@@ -211,12 +222,13 @@ export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
           edgeLabel={view.edgeLabel}
           edgeTitle={view.edgeTitle}
           labelAt="arrow"
+          flush
           selectedNodeId={selectedNodeId}
           focusNodeId={selectedNodeId}
           header={header}
           meta={(counts: CanvasCounts) => (
             <>
-              <span className="text-code-11 text-text-tertiary">{describeCounts(counts)}</span>
+              <span className="truncate text-code-11 text-text-tertiary" title={describeCounts(counts)}>{describeCounts(counts)}</span>
               {partial}
               {modeSwitch}
             </>

@@ -33,6 +33,7 @@ import { flowThrough } from "./focus";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { settledRunner } from "@/lib/panelMotion";
 import { cn } from "@/lib/utils";
+import { FLOW_HEADER } from "./tokens";
 
 const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
@@ -199,6 +200,12 @@ export type FlowCanvasProps = {
   onGraphSize?: (size: Size) => void;
   /** Added to the canvas below the header — a fade the header should not take part in. */
   viewportClassName?: string;
+  /**
+   * Edge to edge, like the tab strip: no side gutter around the canvas and
+   * the header is FLOW_HEADER. The flow document passes it; the plan and
+   * query-plan canvases keep their inset.
+   */
+  flush?: boolean;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -232,6 +239,7 @@ function Canvas({
   attribution = true,
   onGraphSize,
   viewportClassName,
+  flush = false,
 }: FlowCanvasProps) {
   const { fitView } = useReactFlow();
 
@@ -490,13 +498,13 @@ function Canvas({
   };
 
   return (
-    <div className={compact ? "flex size-full flex-col" : "flex size-full flex-col px-4 pt-3"}>
+    <div className={compact || flush ? "flex size-full flex-col" : "flex size-full flex-col px-4 pt-3"}>
       {/* Header lives outside ReactFlow but inside its provider, so the
           toolbar's fitView works and the row never pans with the graph. */}
       {compact ? null : (
-        <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
-          <div className="flex min-w-0 items-center gap-2.5">{header}</div>
-          <div className="flex shrink-0 items-center gap-3.5">
+        <div className={flush ? FLOW_HEADER : "flex shrink-0 items-center justify-between gap-4 pb-1"}>
+          <div className={cn("flex min-w-0 items-center", flush ? "gap-2" : "gap-2.5")}>{header}</div>
+          <div className={cn("flex shrink-0 items-center", flush ? "gap-2" : "gap-3.5")}>
             {typeof meta === "function" ? meta(counts) : meta}
             <CanvasToolbar
               onFit={() => {
@@ -510,7 +518,7 @@ function Canvas({
           </div>
         </div>
       )}
-      {compact ? null : <div className="h-px shrink-0 bg-border-subtle" />}
+      {compact || flush ? null : <div className="h-px shrink-0 bg-border-subtle" />}
 
       <div
         ref={viewport}
