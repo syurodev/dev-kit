@@ -1,12 +1,16 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
-import { agentHubEnvironment, type EnvironmentReport } from "@/bridge/agenthub";
+import { agentHubEnvironment, agentHubResumeSession, agentHubGetStatus, type EnvironmentReport } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
+
+import { vendorInfo } from "../vendors";
+import { AgentCustomizationManager } from "./AgentCustomization";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 const GROUPS = [
   { kind: "access", title: "Environment and access", empty: "No access information reported." },
@@ -61,6 +65,19 @@ export function EnvironmentReportView({ report }: { report: EnvironmentReport })
 }
 
 function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string; sessionId?: string; enabled: boolean }) {
+  const client = useQueryClient();
+  const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState("");
+  const session = useAgentSessionsStore((state) => state.sessionsById[sessionId]);
+  async function reload() {
+    setReloading(true); setReloadError("");
+    try {
+      await agentHubResumeSession(sessionId, true);
+      useAgentSessionsStore.getState().upsertSession(await agentHubGetStatus(sessionId));
+      await client.invalidateQueries({ queryKey: ["agenthub"] });
+    } catch (e) { setReloadError(errorMessage(e)); }
+    finally { setReloading(false); }
+  }
   const query = useQuery({
     queryKey: ["agenthub", "environment", vendor, sessionId],
     queryFn: () => agentHubEnvironment(vendor, sessionId),
@@ -78,8 +95,10 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
           {query.isFetching ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
       </div>
+      {sessionId ? <div className="flex flex-col gap-2"><Button type="button" size="sm" variant="outline" disabled={reloading || session?.status === "running" || session?.status === "awaiting_permission"} onClick={() => void reload()}>{reloading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Reload session</Button><p className="text-body-12 text-text-secondary">Reopens this conversation with current settings without sending a prompt. Finish or stop the current turn first.</p></div> : null}
+      {reloadError ? <p role="alert" className="text-body-12 text-status-danger">{reloadError}</p> : null}
       {query.error ? <p role="alert" className="text-body-12 text-status-danger">{errorMessage(query.error)}</p> : null}
-      {query.data ? <EnvironmentReportView report={query.data} /> : query.isPending ? <p role="status" className="text-body-12 text-text-secondary">Checking tools, skills and MCP configuration…</p> : null}
+      {query.data ? <><EnvironmentReportView report={query.data} />{vendorInfo(vendor).customization ? <AgentCustomizationManager vendor={vendor} report={query.data} refresh={() => { void query.refetch(); }} /> : null}</> : query.isPending ? <p role="status" className="text-body-12 text-text-secondary">Checking tools, skills and MCP configuration…</p> : null}
     </div>
   );
 }
@@ -90,7 +109,7 @@ export function AgentEnvironmentSetting({ vendor }: { vendor: string }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <Button type="button" variant="outline" size="sm"><ChevronDown /> Check tools, skills and MCP</Button>
+        <Button type="button" variant="outline" size="sm"><ChevronDown /> Tools, skills and MCP</Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-4">
         {open && visible ? <EnvironmentCheck vendor={vendor} enabled /> : null}

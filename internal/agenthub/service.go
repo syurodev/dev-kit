@@ -101,6 +101,7 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 		return
 	}
 	extras := s.SandboxExtras()
+	spec.Customizations = extras.Normalized().Customizations
 	if extras.DockerAllowed() {
 		s.applyDocker(spec, extras.DockerSocketPath)
 	}
@@ -438,6 +439,13 @@ func (s *Service) RecoverStaleSessions(ctx context.Context) error {
 	for _, sess := range list {
 		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
 			continue
+		}
+		notice := SessionUpdate{Kind: UpdateSessionInfo, Failure: &SessionFailure{
+			ID: "interrupted:" + sess.ID, Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
+			Details: "The app stopped before this turn finished. Its earlier changes may already exist. Resume this conversation, then send your next instruction; no prompt or command is replayed automatically.", Actions: []string{"resume"},
+		}}
+		if err := s.recorder.Record(ctx, sess.ID, notice); err != nil {
+			return err
 		}
 		if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
 			return err
@@ -1878,7 +1886,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		rt := s.runtimes[sess.ID]
 		s.mu.Unlock()
 		if rt == nil {
-			return nil, ErrUnavailable
+			return s.resumeRuntime(ctx, sess)
 		}
 		return rt, nil
 	}
@@ -1920,22 +1928,26 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		closeEndpoint()
 		return nil, err
 	}
-	// After Load, not before: the replay it streams is already in the store.
-	if sess.AgentType == AgentTypeCodex {
+	// Restore the controls before publishing the newly loaded conversation.
+	if configurator, ok := rt.(RuntimeConfigurator); ok {
 		if entry, found, readErr := s.store.FindTranscriptKind(ctx, sess.ID, UpdateConfigOptions); readErr == nil && found {
-			if configurator, ok := rt.(RuntimeConfigurator); ok {
-				var saved SessionUpdate
-				_ = json.Unmarshal(entry.Payload, &saved)
+			var saved SessionUpdate
+			if json.Unmarshal(entry.Payload, &saved) == nil {
 				for _, option := range saved.ConfigOptions {
-					if option.ID != codexModelOption && option.ID != codexEffortOption {
+					if option.ID != "model" && option.ID != "reasoning_effort" && option.ID != "effort" {
 						continue
 					}
 					var value string
 					if json.Unmarshal(option.CurrentValue, &value) == nil && value != "" {
-						// A removed model/effort falls back to the runtime default.
 						_ = configurator.SetConfigOption(ctx, option.ID, value)
 					}
 				}
+			}
+		}
+		if entry, found, readErr := s.store.FindTranscriptKind(ctx, sess.ID, UpdateCurrentMode); readErr == nil && found {
+			var saved SessionUpdate
+			if json.Unmarshal(entry.Payload, &saved) == nil && saved.Mode != "" {
+				_ = configurator.SetMode(ctx, saved.Mode)
 			}
 		}
 	}

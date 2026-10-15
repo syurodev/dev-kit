@@ -387,7 +387,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Last update 3 min ago");
       expect(html).toContain("agenthub.processFailed");
       // 948:2190 labels the primary action Restart when the process died.
-      expect(html).toContain("Restart");
+      expect(html).toContain("Resume session");
     });
 
     it("changes only the copy and the primary label between causes", () => {

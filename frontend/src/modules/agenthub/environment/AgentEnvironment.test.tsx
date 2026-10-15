@@ -29,3 +29,22 @@ test("untrusted names and paths are rendered as text", () => {
   expect(html).toContain("&lt;script&gt;");
   expect(html).toContain("Unverified");
 });
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AgentCustomizationManager, normalizeCustomization, toggleDisabled } from "./AgentCustomization";
+
+test("customization controls preserve native configuration and expose local management", () => {
+  const client = new QueryClient();
+  const html = renderToString(<QueryClientProvider client={client}><AgentCustomizationManager vendor="claude" report={ENVIRONMENT_PREVIEW} refresh={() => {}} preview={{ initial: {
+    revision: 2, skillFolders: ["/my/skill"], disabledSkills: [], disabledMCP: ["docs"], servers: [{ name: "local", command: "node", enabled: false }],
+  } }} /></QueryClientProvider>);
+  for (const text of ["Import skill folder", "Remove import", "Add MCP server", "Edit", "Remove", "Existing vendor settings still apply", "server may still connect"]) expect(html).toContain(text);
+  expect(html).not.toContain("API_KEY_VALUE");
+  expect(html).toContain('aria-label="Allow MCP docs in DevKit"');
+});
+
+test("enabling removes only the selected override; disabling deduplicates it", () => {
+  expect(toggleDisabled(["a", "b"], "a", true)).toEqual(["b"]);
+  expect(toggleDisabled(["a", "b"], "b", false)).toEqual(["a", "b"]);
+  expect(normalizeCustomization({ revision: 1 } as never)).toEqual({ revision: 1, skillFolders: [], disabledSkills: [], disabledMCP: [], servers: [] });
+});

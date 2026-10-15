@@ -6,6 +6,7 @@ import type { SessionFailure } from "../types";
 const ACTION_LABEL: Record<string, string> = {
   login: "Sign in",
   retry: "Retry turn",
+  resume: "Resume session",
   new_session: "New session",
 };
 
