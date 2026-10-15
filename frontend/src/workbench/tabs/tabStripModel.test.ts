@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeft, revealScrollLeftWithin, scrollStep, tabMarks, nextSeen } from "./tabStripModel";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -104,4 +104,33 @@ test("tabMarks: status on every tab, success until seen, dirty in the close slot
   expect(tabMarks({ status: "success", active: false, seenSuccess: true, dirty: false }).status).toBeNull();
   expect(tabMarks({ status: "idle", active: false, seenSuccess: false, dirty: true })).toEqual({ status: null, dirty: true, hint: ["Unsaved changes"] });
   expect(tabMarks({ active: false, seenSuccess: false, dirty: false })).toEqual({ status: null, dirty: false, hint: [] });
+});
+
+describe("which finished tabs have been seen", () => {
+  const none: ReadonlySet<string> = new Set();
+
+  test("a finished tab on screen is seen, and stays seen once it is not", () => {
+    const tabs = [{ id: "a", status: "success" as const }, { id: "b" }];
+    const seen = nextSeen(none, tabs, ["a"]);
+    expect([...seen]).toEqual(["a"]);
+    expect(nextSeen(seen, tabs, ["b"])).toBe(seen);
+  });
+
+  test("a tab is not seen for being on screen before it finished", () => {
+    expect(nextSeen(none, [{ id: "a", status: "running" as const }], ["a"]).size).toBe(0);
+  });
+
+  test("a status that leaves success forgets it, so the next finish is news", () => {
+    const seen = new Set(["a"]);
+    expect(nextSeen(seen, [{ id: "a", status: "running" as const }], []).size).toBe(0);
+  });
+
+  test("a closed tab is pruned", () => {
+    expect(nextSeen(new Set(["gone"]), [{ id: "a", status: "success" as const }], []).size).toBe(0);
+  });
+
+  test("unchanged, it is the same set, so nothing is published", () => {
+    const seen = new Set(["a"]);
+    expect(nextSeen(seen, [{ id: "a", status: "success" as const }], ["a"])).toBe(seen);
+  });
 });

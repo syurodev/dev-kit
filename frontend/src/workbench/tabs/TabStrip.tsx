@@ -44,6 +44,7 @@ import { getModule, viewIcon, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
 import { useWorkbenchTabsStore, type TabStatus, type WorkbenchTab } from "../../stores/workbenchTabs";
 import { offeredClosedTabs, reopenClosedAt, reopenLastClosed } from "../reopenTab";
+import { useSeenSuccessStore } from "./seenSuccess";
 import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep, tabMarks } from "./tabStripModel";
 
 /**
@@ -595,19 +596,8 @@ export function TabStrip({
   );
   const ids = useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
 
-  /*
-   * Finished tabs that have been looked at: their success dot is spent. Kept
-   * here, not in the store — the module's status stays what it said, only
-   * this strip has seen it. A status that moves off success forgets it, so
-   * the next finish is news again.
-   */
-  const seenSuccess = useRef(new Set<string>());
-  useEffect(() => {
-    const seen = seenSuccess.current;
-    const finished = new Set(visibleTabs.filter((tab) => tab.status === "success").map((tab) => tab.id));
-    for (const id of seen) if (!finished.has(id)) seen.delete(id);
-    if (finished.has(activeTabId)) seen.add(activeTabId);
-  }, [visibleTabs, activeTabId]);
+  // Finished tabs looked at since: their success dot is spent (seenSuccess.ts).
+  const seenSuccess = useSeenSuccessStore((s) => s.seen);
   const { minWidth: tabMinWidth, maxWidth: tabMaxWidth } = useTabSettingsStore(
     useShallow((s) => ({ minWidth: s.minWidth, maxWidth: s.maxWidth })),
   );
@@ -880,7 +870,7 @@ export function TabStrip({
                 key={tab.id}
                 tab={tab}
                 isActive={tab.id === activeTabId}
-                seenSuccess={seenSuccess.current.has(tab.id)}
+                seenSuccess={seenSuccess.has(tab.id)}
                 lockedWidth={lockedWidths?.get(tab.id)}
                 minWidth={minWidth}
                 maxWidth={tabMaxWidth}

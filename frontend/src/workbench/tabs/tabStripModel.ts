@@ -103,3 +103,20 @@ export function tabMarks(input: TabMarkInput): TabMarks {
   if (input.dirty) hint.push("Unsaved changes");
   return { status, dirty: input.dirty, hint };
 }
+
+/**
+ * Finished tabs that have been looked at, after a change to the tabs: one on
+ * screen (`shown`) while finished is seen; one whose status left success, or
+ * that closed, is forgotten — the next finish is news again. The same set
+ * when nothing changed, so a store holding it publishes nothing.
+ */
+export function nextSeen(
+  seen: ReadonlySet<string>,
+  tabs: readonly { id: string; status?: TabMarkInput["status"] }[],
+  shown: Iterable<string>,
+): ReadonlySet<string> {
+  const finished = new Set(tabs.filter((tab) => tab.status === "success").map((tab) => tab.id));
+  const next = new Set([...seen].filter((id) => finished.has(id)));
+  for (const id of shown) if (finished.has(id)) next.add(id);
+  return next.size === seen.size && [...next].every((id) => seen.has(id)) ? seen : next;
+}
