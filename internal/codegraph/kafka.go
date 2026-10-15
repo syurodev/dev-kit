@@ -35,4 +35,7 @@ type KafkaAccess struct {
 	Pattern bool   `json:"pattern,omitempty"`
 	File    string `json:"file"`
 	Line    int    `json:"line"`
+	// Col is the column of the call it was seen at (the call's name); 0 when
+	// it was read off a declaration, or by an analyzer that does not say.
+	Col int `json:"col,omitempty"`
 }

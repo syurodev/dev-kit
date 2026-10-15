@@ -30,4 +30,7 @@ type OutboundCall struct {
 	// ServiceName is @FeignClient's logical service name; empty for the others.
 	ServiceName string `json:"serviceName,omitempty"`
 	URL         string `json:"url"`
+	// Col is the column of the call it was seen at (the call's name); 0 when
+	// it was read off a declaration, or by an analyzer that does not say.
+	Col int `json:"col,omitempty"`
 }

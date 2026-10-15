@@ -108,6 +108,9 @@ func (nilStore) ListEffectsFrom(context.Context, []string) ([]StepEffectAt, erro
 func (nilStore) FieldWriters(context.Context, []string) (map[string]bool, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) OverridesOf(context.Context, []string) (map[string][]string, error) {
+	return nil, ErrNoActiveProject
+}
 
 func (nilStore) AddComment(context.Context, PlanComment) error { return ErrNoActiveProject }
 func (nilStore) ListComments(context.Context, string) ([]PlanComment, error) {

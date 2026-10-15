@@ -337,6 +337,10 @@ type CallSite struct {
 	ResultUse string      `json:"resultUse,omitempty"` // discarded | assigned | returned | argument | condition | unknown
 	Frames    []StepFrame `json:"frames,omitempty"`
 	Role      string      `json:"role,omitempty"` // "" | RoleOverride
+	// Target is the project node the call names. It is To for a call the flow
+	// follows, and is set alone when To is empty because that node has no body
+	// to read (a repository, Feign client or HTTP interface method).
+	Target string `json:"target,omitempty"`
 }
 
 // DataFlowStep is one event in the trace: a read, a write, or a call the flow
@@ -577,6 +581,9 @@ type Store interface {
 	ListEffectsFrom(ctx context.Context, fromIDs []string) ([]StepEffectAt, error)
 	// FieldWriters reports which of the given methods write a field.
 	FieldWriters(ctx context.Context, ids []string) (map[string]bool, error)
+	// OverridesOf returns the dispatch links (RoleOverride) of the given
+	// methods: method id → its overrides.
+	OverridesOf(ctx context.Context, ids []string) (map[string][]string, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error

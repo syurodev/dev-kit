@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 )
 
 // RoleOverride marks the call site the Java analyzer writes from an overridden
@@ -36,10 +38,13 @@ type StepEffect struct {
 	Target string `json:"target"` // topic, method + url, key pattern or table
 }
 
-// StepEffectAt is a StepEffect with the method and line it was seen at.
+// StepEffectAt is a StepEffect with the method and position it was seen at.
+// Col is 0 for a row read off a declaration or by an analyzer that records
+// no column; GetSteps then joins it by line.
 type StepEffectAt struct {
 	From   string
 	Line   int
+	Col    int
 	Effect StepEffect
 }
 
@@ -57,29 +62,37 @@ const (
 
 // Step is one call in a method body, as the flow outline draws it.
 type Step struct {
-	Line      int         `json:"line"`
-	Col       int         `json:"col"`
-	Text      string      `json:"text"`
-	CalleeKey string      `json:"calleeKey"`
-	To        string      `json:"to,omitempty"`    // the project node it lands on
-	Impls     []string    `json:"impls,omitempty"` // overrides of To, when To is overridden
-	Frames    []StepFrame `json:"frames"`
-	Visible   bool        `json:"visible"`
-	Reason    string      `json:"reason"`
-	Effect    *StepEffect `json:"effect,omitempty"`
+	Line      int    `json:"line"`
+	Col       int    `json:"col"`
+	Text      string `json:"text"`
+	CalleeKey string `json:"calleeKey"`
+	To        string `json:"to,omitempty"` // the project node it lands on
+	// Target is the project node a call names when To is empty because that
+	// node has no body (a repository, Feign client or HTTP interface method).
+	Target string      `json:"target,omitempty"`
+	Impls  []string    `json:"impls,omitempty"` // overrides of To, when To is overridden
+	Frames []StepFrame `json:"frames"`
+	// Visible and Reason are Visibility's answer.
+	Visible bool        `json:"visible"`
+	Reason  string      `json:"reason"`
+	Effect  *StepEffect `json:"effect,omitempty"`
 }
 
 // StepsResult is GetSteps' answer.
 type StepsResult struct {
 	Steps     map[string][]Step `json:"steps"`     // node id → steps in source order
 	Truncated []string          `json:"truncated"` // node ids whose steps were capped
-	Legacy    bool              `json:"legacy"`    // the index predates steps: a flat outline
+	// Legacy: a Java index written before steps, read as a flat outline until
+	// a re-index. Only Java records steps, so no other language is told to
+	// re-index for them.
+	Legacy bool `json:"legacy"`
 }
 
 // GetSteps returns the steps of each asked method, scored for visibility.
 // overrides are the person's "always show / hide" choices
 // ({"<key>": "show"|"hide"}, "<Type>#*" for a whole type).
 func (s *Service) GetSteps(ctx context.Context, nodeIDs []string, overrides map[string]string) (StepsResult, error) {
+	nodeIDs = uniqueIDs(nodeIDs)
 	if len(nodeIDs) > MaxStepNodeIDs {
 		return StepsResult{}, fmt.Errorf("%w: %d asked, at most %d", ErrTooManyNodes, len(nodeIDs), MaxStepNodeIDs)
 	}
@@ -88,9 +101,28 @@ func (s *Service) GetSteps(ctx context.Context, nodeIDs []string, overrides map[
 		return StepsResult{}, err
 	}
 	defer release()
-	return buildSteps(ctx, store, nodeIDs, overrides)
+	out, err := buildSteps(ctx, store, nodeIDs, overrides)
+	if err != nil {
+		return StepsResult{}, err
+	}
+	out.Legacy = out.Legacy && s.ActiveDetection().Language == "java"
+	return out, nil
 }
 
+func uniqueIDs(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// buildSteps reports Legacy whenever no asked method's call sites carry step
+// text; GetSteps narrows that to the language that would record it.
 func buildSteps(ctx context.Context, store Store, nodeIDs []string, overrides map[string]string) (StepsResult, error) {
 	out := StepsResult{Steps: make(map[string][]Step, len(nodeIDs)), Truncated: []string{}}
 	if len(nodeIDs) == 0 {
@@ -104,11 +136,11 @@ func buildSteps(ctx context.Context, store Store, nodeIDs []string, overrides ma
 	if err != nil {
 		return StepsResult{}, err
 	}
-	j := &stepJudge{g: g, stats: stats, overrides: overrides, helper: map[string]int8{}}
+	j := &stepJudge{g: g, stats: stats, overrides: overrides, helper: map[helperKey]bool{}, joined: map[string]map[int]StepEffect{}}
 	anySite, anyText := false, false
 	for _, id := range nodeIDs {
 		steps := []Step{}
-		for _, c := range g.sites[id] {
+		for i, c := range g.sites[id] {
 			if c.Role == RoleOverride {
 				continue
 			}
@@ -118,7 +150,7 @@ func buildSteps(ctx context.Context, store Store, nodeIDs []string, overrides ma
 				out.Truncated = append(out.Truncated, id)
 				break
 			}
-			steps = append(steps, j.step(id, c))
+			steps = append(steps, j.step(id, i))
 		}
 		out.Steps[id] = steps
 	}
@@ -129,18 +161,21 @@ func buildSteps(ctx context.Context, store Store, nodeIDs []string, overrides ma
 // stepGraph is the asked methods and the callees below them, as far as
 // telling a helper apart needs.
 type stepGraph struct {
-	loaded  map[string]bool
-	sites   map[string][]CallSite
-	impls   map[string][]string
-	effects map[string][]StepEffect // effectKey(from, line) → effects
+	loaded map[string]bool
+	sites  map[string][]CallSite // in GetStepSites' order: line, then column
+	impls  map[string][]string
+	// effects are what extractors saw in each method, at any line; for a
+	// bodyless target too, which has no sites of its own.
+	effects map[string][]StepEffectAt
 	writers map[string]bool
+	// closureCalls[from][frameID] are the project calls made inside the
+	// closure passed to the call at frameID ("line:col").
+	closureCalls map[string]map[string][]CallSite
 }
-
-func effectKey(from string, line int) string { return fmt.Sprintf("%s\x00%d", from, line) }
 
 func loadStepGraph(ctx context.Context, store Store, roots []string) (*stepGraph, error) {
 	g := &stepGraph{loaded: map[string]bool{}, sites: map[string][]CallSite{}, impls: map[string][]string{},
-		effects: map[string][]StepEffect{}, writers: map[string]bool{}}
+		effects: map[string][]StepEffectAt{}, writers: map[string]bool{}, closureCalls: map[string]map[string][]CallSite{}}
 	frontier := roots
 	for level := 0; level <= helperDepth && len(frontier) > 0 && len(g.loaded) < maxStepGraph; level++ {
 		var ask []string
@@ -167,13 +202,8 @@ func loadStepGraph(ctx context.Context, store Store, roots []string) (*stepGraph
 				next = append(next, c.To)
 			}
 		}
-		effects, err := store.ListEffectsFrom(ctx, ask)
-		if err != nil {
+		if err := g.addEffects(ctx, store, ask); err != nil {
 			return nil, err
-		}
-		for _, e := range effects {
-			k := effectKey(e.From, e.Line)
-			g.effects[k] = append(g.effects[k], e.Effect)
 		}
 		writers, err := store.FieldWriters(ctx, ask)
 		if err != nil {
@@ -184,7 +214,61 @@ func loadStepGraph(ctx context.Context, store Store, roots []string) (*stepGraph
 		}
 		frontier = next
 	}
+
+	// What the graph did not load but a step still needs: the overrides of
+	// the asked methods' own callees (the cap may have stopped short of
+	// them), and what extractors saw in the bodyless targets of any loaded
+	// call — a repository method's table, a Feign method's route.
+	unloadedCallees, bodyless := map[string]bool{}, map[string]bool{}
+	for id := range g.loaded {
+		for _, c := range g.sites[id] {
+			if c.Role == RoleOverride {
+				continue
+			}
+			if c.To != "" && !g.loaded[c.To] && slices.Contains(roots, id) {
+				unloadedCallees[c.To] = true
+			}
+			if c.To == "" && c.Target != "" && !g.loaded[c.Target] {
+				bodyless[c.Target] = true
+			}
+			if c.To == "" && c.Target == "" {
+				continue
+			}
+			for _, fr := range c.Frames {
+				if fr.Kind != "closure" {
+					continue
+				}
+				if g.closureCalls[id] == nil {
+					g.closureCalls[id] = map[string][]CallSite{}
+				}
+				g.closureCalls[id][fr.ID] = append(g.closureCalls[id][fr.ID], c)
+			}
+		}
+	}
+	if len(unloadedCallees) > 0 {
+		impls, err := store.OverridesOf(ctx, slices.Sorted(maps.Keys(unloadedCallees)))
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(g.impls, impls)
+	}
+	if len(bodyless) > 0 {
+		if err := g.addEffects(ctx, store, slices.Sorted(maps.Keys(bodyless))); err != nil {
+			return nil, err
+		}
+	}
 	return g, nil
+}
+
+func (g *stepGraph) addEffects(ctx context.Context, store Store, ids []string) error {
+	effects, err := store.ListEffectsFrom(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, e := range effects {
+		g.effects[e.From] = append(g.effects[e.From], e)
+	}
+	return nil
 }
 
 // stepJudge scores steps, remembering which callees are helpers.
@@ -192,82 +276,168 @@ type stepJudge struct {
 	g         *stepGraph
 	stats     CallStats
 	overrides map[string]string
-	helper    map[string]int8 // 1 helper, 2 not, 3 being judged (a cycle counts as not)
+	// helper is keyed by depth too: how far below the asked methods a callee
+	// is judged decides how much of its own body can be read, so a verdict
+	// reached deep down says nothing about the same method called directly.
+	helper map[helperKey]bool
+	joined map[string]map[int]StepEffect // method → site index → its effect
 }
 
-func (j *stepJudge) step(from string, c CallSite) Step {
+type helperKey struct {
+	id    string
+	depth int
+}
+
+func (j *stepJudge) step(from string, i int) Step {
+	c := j.g.sites[from][i]
 	st := Step{Line: c.Line, Col: c.Col, Text: c.Text, CalleeKey: c.CalleeKey, To: c.To, Frames: c.Frames}
+	if c.To == "" {
+		st.Target = c.Target
+	}
 	if st.Frames == nil {
 		st.Frames = []StepFrame{}
 	}
 	if c.To != "" {
 		st.Impls = j.g.impls[c.To]
 	}
-	f := j.facts(from, c, 0)
+	f := j.facts(from, i, 0)
 	st.Effect = f.Effect
 	st.Visible, st.Reason = Visibility(f, j.stats, j.overrides)
 	return st
 }
 
-func (j *stepJudge) facts(from string, c CallSite, depth int) StepFacts {
+func (j *stepJudge) facts(from string, i int, depth int) StepFacts {
+	c := j.g.sites[from][i]
 	f := StepFacts{CalleeKey: c.CalleeKey, Text: c.Text, Receiver: c.Receiver, ResultUse: c.ResultUse}
-	if c.To != "" {
+	switch {
+	case c.To != "":
 		f.Project = true
-		f.Helper = len(j.g.impls[c.To]) == 0 && j.isHelper(c.To, depth)
+		// A project method that runs a closure (withLock(k, () -> pay(x)))
+		// is shown when the closure's call is: it decides how that runs.
+		f.Helper = len(j.g.impls[c.To]) == 0 && !j.wraps(from, c, depth) && j.isHelper(c.To, depth)
 		return f
+	case c.Target != "":
+		// The project's own method with no body to read: never a helper,
+		// since nothing says it does nothing, and what extractors read off
+		// its declaration is what it does.
+		f.Project = true
+		if e, ok := preferredEffect(j.g.effects[c.Target]); ok {
+			f.Effect = &e
+			return f
+		}
 	}
-	if effs := j.g.effects[effectKey(from, c.Line)]; len(effs) > 0 {
-		e := effs[0]
+	if e, ok := j.effectsAt(from)[i]; ok {
 		f.Effect = &e
 	}
-	f.WrapsProjectCall = j.wraps(from, c, depth)
+	if !f.Project {
+		f.WrapsProjectCall = j.wraps(from, c, depth)
+	}
 	return f
+}
+
+// effectsAt joins what extractors saw in from to its steps, once per method.
+// An effect with a column goes to the step at exactly that position; one
+// without (a Lua index, an older Java one) to the first library call on its
+// line. Each effect goes to at most one step, and a step that several land on
+// keeps the one that changes something.
+func (j *stepJudge) effectsAt(from string) map[int]StepEffect {
+	if joined, ok := j.joined[from]; ok {
+		return joined
+	}
+	effects := j.g.effects[from]
+	joined := map[int]StepEffect{}
+	j.joined[from] = joined
+	if len(effects) == 0 {
+		return joined
+	}
+	type pos struct{ line, col int }
+	at, firstLibrary := map[pos]int{}, map[int]int{}
+	for i, c := range j.g.sites[from] {
+		if c.Role == RoleOverride {
+			continue
+		}
+		if _, ok := at[pos{c.Line, c.Col}]; !ok {
+			at[pos{c.Line, c.Col}] = i
+		}
+		if _, ok := firstLibrary[c.Line]; !ok && c.To == "" && c.Target == "" {
+			firstLibrary[c.Line] = i
+		}
+	}
+	for _, e := range effects {
+		var i int
+		var ok bool
+		if e.Col > 0 {
+			i, ok = at[pos{e.Line, e.Col}]
+		} else {
+			i, ok = firstLibrary[e.Line]
+		}
+		if !ok {
+			continue
+		}
+		if cur, has := joined[i]; !has || effectRank(e.Effect) < effectRank(cur) {
+			joined[i] = e.Effect
+		}
+	}
+	return joined
+}
+
+// effectRank orders effects by what an outline row should say first: a
+// write or a produce changes something, a read only looks.
+func effectRank(e StepEffect) int {
+	switch e.Role {
+	case "write", "produce":
+		return 0
+	case "call":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func preferredEffect(effects []StepEffectAt) (StepEffect, bool) {
+	var best StepEffect
+	found := false
+	for _, e := range effects {
+		if !found || effectRank(e.Effect) < effectRank(best) {
+			best, found = e.Effect, true
+		}
+	}
+	return best, found
 }
 
 // wraps reports whether a closure passed to c holds a project call that matters.
 func (j *stepJudge) wraps(from string, c CallSite, depth int) bool {
-	at := fmt.Sprintf("%d:%d", c.Line, c.Col)
-	for _, o := range j.g.sites[from] {
-		if o.To == "" || o.Role == RoleOverride {
-			continue
-		}
-		for _, fr := range o.Frames {
-			if fr.Kind == "closure" && fr.ID == at && (len(j.g.impls[o.To]) > 0 || !j.isHelper(o.To, depth)) {
-				return true
-			}
+	for _, o := range j.g.closureCalls[from][fmt.Sprintf("%d:%d", c.Line, c.Col)] {
+		if o.To == "" || len(j.g.impls[o.To]) > 0 || !j.isHelper(o.To, depth) {
+			return true
 		}
 	}
 	return false
 }
 
-// isHelper: loaded, not overridden, writes no field, and none of its own
-// steps is visible. Anything not known for sure is not a helper — hiding a
-// step that matters is worse than showing one that does not.
+// isHelper: loaded, not overridden, writes no field, touches nothing an
+// extractor saw, and none of its own steps is visible. Anything not known
+// for sure is not a helper — hiding a step that matters is worse than showing
+// one that does not. Depth bounds the recursion, so a cycle reaches the limit
+// and counts as not a helper.
 func (j *stepJudge) isHelper(id string, depth int) bool {
-	switch j.helper[id] {
-	case 1:
-		return true
-	case 2, 3:
+	if depth >= helperDepth || !j.g.loaded[id] || j.g.writers[id] || len(j.g.impls[id]) > 0 || len(j.g.effects[id]) > 0 {
 		return false
 	}
-	if depth >= helperDepth || !j.g.loaded[id] || j.g.writers[id] || len(j.g.impls[id]) > 0 {
-		return false
+	key := helperKey{id, depth}
+	if helper, ok := j.helper[key]; ok {
+		return helper
 	}
-	j.helper[id] = 3
 	helper := true
-	for _, c := range j.g.sites[id] {
+	for i, c := range j.g.sites[id] {
 		if c.Role == RoleOverride {
 			continue
 		}
-		if visible, _ := Visibility(j.facts(id, c, depth+1), j.stats, j.overrides); visible {
+		if visible, _ := Visibility(j.facts(id, i, depth+1), j.stats, j.overrides); visible {
 			helper = false
 			break
 		}
 	}
-	if helper {
-		j.helper[id] = 1
-	} else {
-		j.helper[id] = 2
-	}
+	j.helper[key] = helper
 	return helper
 }
