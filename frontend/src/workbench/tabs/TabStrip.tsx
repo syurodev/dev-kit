@@ -170,8 +170,20 @@ function ScrollTabsButton({
   );
 }
 
-/** Gap between two tabs. */
-const TAB_GAP_PX = 8;
+/**
+ * Gap between two tabs — and the strip's inset on all four sides, and the
+ * space between the last tab, ‹ › and + (p-1.5 gap-1.5 below): a 40px strip
+ * holds 28px tabs 6px from every edge, so the 6px tab radius sits
+ * concentric in the pane's 12px corner.
+ */
+const TAB_GAP_PX = 6;
+/**
+ * How far the keyboard focus ring reaches outside a tab (-inset-0.5). The
+ * scroller clips both axes (overflow-x makes overflow-y clip too), so it pads
+ * itself by this much and gives it back in negative margin: the ring is drawn
+ * whole and nothing moves.
+ */
+const RING_PX = 2;
 /** ⌘⇧E browsing widens every tab so the label being chosen can be read. */
 const BROWSING_MIN_WIDTH_PX = 200;
 /** The overflow fade: about a tab icon's width plus its padding — enough to
@@ -391,7 +403,7 @@ function TabItem({
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
-        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-border-focus",
+        "group relative flex h-(--control-height-sm) items-center rounded-sm border px-3 gap-2 outline-none transition-border-bg select-none wails-no-drag focus-visible:border-border-focus",
         // The same two marks the selected row in a tree carries — a
         // --status-info hairline and a fill. The hairline carries it (floored
         // at 3:1 in themeContrast.test); an inactive tab keeps a quiet
@@ -656,11 +668,11 @@ export function TabStrip({
   const syncEdges = useCallback(() => {
     const row = rowRef.current;
     if (!row) return;
-    const { left, right } = scrollButtons.current;
-    const rowBox = row.getBoundingClientRect();
-    const buttonsRoom =
-      (left ? rowBox.left - left.getBoundingClientRect().left : 0) +
-      (right ? right.getBoundingClientRect().right - rowBox.right : 0);
+    // Each button and the gap beside it is what the row would get back.
+    const buttonsRoom = [scrollButtons.current.left, scrollButtons.current.right].reduce(
+      (room, button) => room + (button ? button.getBoundingClientRect().width + TAB_GAP_PX : 0),
+      0,
+    );
     const next = row.scrollWidth <= row.clientWidth + buttonsRoom
       ? { left: false, right: false }
       : overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
@@ -795,7 +807,7 @@ export function TabStrip({
   return (
     <div
       ref={stripRef}
-      className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 wails-no-drag"
+      className="flex h-10 min-w-0 w-full items-center justify-start p-1.5 gap-1.5 wails-no-drag"
       // Double-click on the strip's own empty space opens a tab, as in VS Code.
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) onNewTab?.();
@@ -849,8 +861,8 @@ export function TabStrip({
             aria-orientation="horizontal"
             // Content-sized so + follows the last tab, min-w-0 so it gives way
             // to the window and scrolls past that, relative so a tab's
-            // offsetLeft is measured from here.
-            className="scrollbar-hide relative flex min-w-0 shrink items-center overflow-x-auto"
+            // offsetLeft is measured from here; -m-0.5 p-0.5 is RING_PX.
+            className="scrollbar-hide relative -m-0.5 flex min-w-0 shrink items-center overflow-x-auto p-0.5"
             // Asks for every tab at its max; the strip hands back what fits
             // and the tabs share it equally. Arithmetic from the count, not a
             // measurement: a flex row's natural width is its labels', so
@@ -858,7 +870,7 @@ export function TabStrip({
             // beside empty space.
             style={{
               gap: TAB_GAP_PX,
-              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
+              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX + 2 * RING_PX,
               maskImage: fadeMask,
               WebkitMaskImage: fadeMask,
             }}
