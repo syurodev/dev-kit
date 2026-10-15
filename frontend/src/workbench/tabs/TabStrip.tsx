@@ -38,11 +38,12 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useReducedMotion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import { getModule, type TabAction } from "../../modules/registry";
 import { useTabSettingsStore } from "../../stores/tabSettings";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
-import { beforeIdAfterMove, overflowEdges, revealScrollLeft, scrollStep } from "./tabStripModel";
+import { beforeIdAfterMove, overflowEdges, revealScrollLeftWithin, scrollStep } from "./tabStripModel";
 
 /**
  * The workbench tab strip, built the way VS Code's multi-editor tabs control
@@ -132,6 +133,41 @@ function TabDragGhost({ tab }: { tab: WorkbenchTab | undefined }) {
       <Icon className="size-3.5 shrink-0" />
       <span className="truncate">{tab.title}</span>
     </div>
+  );
+}
+
+/**
+ * ‹ or ›. Out of the tab order: a keyboard reaches a hidden tab with the
+ * arrow keys, which reveal it. The span takes the double-click a disabled
+ * button lets through (it has no pointer events), which would otherwise land
+ * on the strip's empty space and open a tab.
+ */
+function ScrollTabsButton({
+  direction,
+  disabled,
+  onScroll,
+  nodeRef,
+}: {
+  direction: "left" | "right";
+  disabled: boolean;
+  onScroll: (direction: "left" | "right") => void;
+  nodeRef: (node: HTMLSpanElement | null) => void;
+}) {
+  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <span ref={nodeRef} className="flex shrink-0" onDoubleClick={(event) => event.stopPropagation()}>
+      <Button
+        type="button"
+        variant="titlebar"
+        size="icon-sm"
+        tabIndex={-1}
+        aria-label={`Scroll tabs ${direction}`}
+        disabled={disabled}
+        onClick={() => onScroll(direction)}
+      >
+        <Icon className="size-3.5" />
+      </Button>
+    </span>
   );
 }
 
@@ -520,13 +556,43 @@ export function TabStrip({
   }, [keyboardBrowsing, ids, keyboardFocusedTabId, onSelect, onExitBrowsing]);
 
   /*
+   * Which sides hide tabs. Read from the scroller after layout, and again on
+   * scroll and resize: the count, the width settings, browsing and a close's
+   * locked widths all change what the row holds without resizing it.
+   *
+   * Asked of the room the row would have without ‹ ›: measured with them, a
+   * row that overflows only by their width would keep them for good.
+   */
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const scrollButtons = useRef<{ left: HTMLSpanElement | null; right: HTMLSpanElement | null }>({ left: null, right: null });
+  const syncEdges = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const { left, right } = scrollButtons.current;
+    const rowBox = row.getBoundingClientRect();
+    const buttonsRoom =
+      (left ? rowBox.left - left.getBoundingClientRect().left : 0) +
+      (right ? right.getBoundingClientRect().right - rowBox.right : 0);
+    const next = row.scrollWidth <= row.clientWidth + buttonsRoom
+      ? { left: false, right: false }
+      : overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
+    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+  }, []);
+  const overflowing = edges.left || edges.right;
+
+  /*
    * Widths frozen by a mouse close (VS Code's beforeCloseEditor +
    * --tab-sizing-current-width). Measured before the store drops the tab, so
    * the ones that remain keep their size and slide left by one slot: the next
    * close button lands under the pointer instead of wherever the equal share
    * would put it. Released when the pointer leaves the strip.
+   *
+   * The ‹ › pair is held the same way: a close that ends the overflow would
+   * otherwise unmount ‹ and shift every tab left by its width.
    */
   const [lockedWidths, setLockedWidths] = useState<Map<string, number> | null>(null);
+  const [buttonsHeld, setButtonsHeld] = useState(false);
+  const showButtons = overflowing || (lockedWidths !== null && buttonsHeld);
   const skipNextReveal = useRef(false);
 
   function closeWithPointer(id: string) {
@@ -535,41 +601,55 @@ export function TabStrip({
       setLockedWidths(
         new Map(ids.map((tabId) => [tabId, tabNodes.current.get(tabId)?.getBoundingClientRect().width ?? 0])),
       );
+      setButtonsHeld(showButtons);
     }
     onClose(id);
   }
 
-  // Reveal the active tab after the DOM has it, before paint.
+  /*
+   * Reveal the active tab (the one ⌘⇧E browsing is on, while browsing) after
+   * the DOM has it, before paint — clear of the fades, which read as cut off.
+   * Again when the ‹ › pair comes or goes: the tab that starts the overflow
+   * was fitted into the room before the buttons took theirs.
+   */
+  const revealId = keyboardBrowsing ? (keyboardFocusedTabId ?? activeTabId) : activeTabId;
   useLayoutEffect(() => {
     if (skipNextReveal.current) {
       skipNextReveal.current = false;
       return;
     }
     const row = rowRef.current;
-    const tab = tabNodes.current.get(activeTabId);
+    const tab = tabNodes.current.get(revealId);
     if (!row || !tab) return;
-    const next = revealScrollLeft({
-      scrollLeft: row.scrollLeft,
-      viewportWidth: row.clientWidth,
-      tabLeft: tab.offsetLeft,
-      tabWidth: tab.offsetWidth,
-    });
+    const faded = overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
+    const next = revealScrollLeftWithin(
+      {
+        scrollLeft: row.scrollLeft,
+        viewportWidth: row.clientWidth,
+        tabLeft: tab.offsetLeft,
+        tabWidth: tab.offsetWidth,
+      },
+      { left: faded.left ? FADE_PX : 0, right: faded.right ? FADE_PX : 0 },
+    );
     if (next !== row.scrollLeft) row.scrollLeft = next;
-  }, [activeTabId, ids.length]);
+  }, [revealId, ids.length, overflowing, showButtons]);
 
-  // A vertical wheel scrolls the strip sideways (VS Code's scrollYToX).
-  // Non-passive, because it has to stop the page scrolling instead.
+  // A vertical wheel scrolls the strip sideways (VS Code's scrollYToX) —
+  // anywhere on it, ‹ › included. Non-passive, because it has to stop the
+  // page scrolling instead.
+  const stripRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
+    const strip = stripRef.current;
+    if (!strip) return;
     function onWheel(event: WheelEvent) {
+      const row = rowRef.current;
       if (!row || event.deltaX !== 0 || event.deltaY === 0) return;
       if (row.scrollWidth <= row.clientWidth) return;
       event.preventDefault();
       row.scrollLeft += event.deltaY;
     }
-    row.addEventListener("wheel", onWheel, { passive: false });
-    return () => row.removeEventListener("wheel", onWheel);
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onWheel);
   }, []);
 
   // The grid's sensor: a press that moves 4px is a drag, anything less is
@@ -600,18 +680,6 @@ export function TabStrip({
   // What the group closes may take: everything but the pinned.
   const closable = visibleTabs.filter((tab) => !tab.pinned).map((tab) => tab.id);
 
-  /*
-   * Which sides hide tabs. Read from the scroller after layout, and again on
-   * scroll and resize: the count, the width settings, browsing and a close's
-   * locked widths all change what the row holds without resizing it.
-   */
-  const [edges, setEdges] = useState({ left: false, right: false });
-  const syncEdges = useCallback(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    const next = overflowEdges({ scrollLeft: row.scrollLeft, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth });
-    setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
-  }, []);
   useLayoutEffect(() => syncEdges(), [syncEdges, visibleTabs.length, tabMaxWidth, minWidth, lockedWidths]);
   useEffect(() => {
     const row = rowRef.current;
@@ -624,13 +692,12 @@ export function TabStrip({
       row.removeEventListener("scroll", syncEdges);
     };
   }, [syncEdges]);
+  const reduceMotion = useReducedMotion();
   function scrollTabs(direction: "left" | "right") {
     const row = rowRef.current;
     if (!row) return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    row.scrollTo({ left: scrollStep(row, direction), behavior: reduce ? "auto" : "smooth" });
+    row.scrollTo({ left: scrollStep(row, direction), behavior: reduceMotion ? "auto" : "smooth" });
   }
-  const overflowing = edges.left || edges.right;
   // A mask, not an overlay, so nothing sits over the tabs eating clicks. Its
   // #000 is opacity (an alpha mask keeps what is opaque), not a colour.
   const fadeMask = overflowing
@@ -639,25 +706,28 @@ export function TabStrip({
 
   return (
     <div
+      ref={stripRef}
       className="flex h-10 min-w-0 w-full items-center justify-start px-2 py-1 gap-2 wails-no-drag"
       // Double-click on the strip's own empty space opens a tab, as in VS Code.
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) onNewTab?.();
       }}
+      onMouseLeave={() => {
+        setLockedWidths(null);
+        setButtonsHeld(false);
+      }}
     >
       {/* Only while tabs are out of sight; a side already at its end is
           disabled rather than removed, so the strip does not jump. */}
-      {overflowing ? (
-        <Button
-          type="button"
-          variant="titlebar"
-          size="icon-sm"
-          aria-label="Scroll tabs left"
+      {showButtons ? (
+        <ScrollTabsButton
+          direction="left"
           disabled={!edges.left}
-          onClick={() => scrollTabs("left")}
-        >
-          <ChevronLeft className="size-3.5" />
-        </Button>
+          onScroll={scrollTabs}
+          nodeRef={(node) => {
+            scrollButtons.current.left = node;
+          }}
+        />
       ) : null}
       <DndContext
         sensors={sensors}
@@ -704,7 +774,6 @@ export function TabStrip({
               maskImage: fadeMask,
               WebkitMaskImage: fadeMask,
             }}
-            onMouseLeave={() => setLockedWidths(null)}
           >
             {visibleTabs.map((tab, index) => (
               <TabItem
@@ -746,17 +815,15 @@ export function TabStrip({
           </DragOverlay>
         ) : null}
       </DndContext>
-      {overflowing ? (
-        <Button
-          type="button"
-          variant="titlebar"
-          size="icon-sm"
-          aria-label="Scroll tabs right"
+      {showButtons ? (
+        <ScrollTabsButton
+          direction="right"
           disabled={!edges.right}
-          onClick={() => scrollTabs("right")}
-        >
-          <ChevronRight className="size-3.5" />
-        </Button>
+          onScroll={scrollTabs}
+          nodeRef={(node) => {
+            scrollButtons.current.right = node;
+          }}
+        />
       ) : null}
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
       <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
