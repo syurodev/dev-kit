@@ -699,7 +699,9 @@ public class ProjectAnalyzer {
                         if (isDispatchTarget(overridden)) {
                             dispatch.implementations.computeIfAbsent(overridden.id(), k -> new ArrayList<>()).add(method.id());
                             result.edges.add(new Edge(overridden.id(), method.id(), "call"));
-                            result.callSites.add(new CallSite(overridden.id(), method.id(), overridden.line(), ""));
+                            CallSite link = new CallSite(overridden.id(), method.id(), overridden.line(), "");
+                            link.role = "override";
+                            result.callSites.add(link);
                         }
                     }
                 }
@@ -912,6 +914,7 @@ public class ProjectAnalyzer {
                 continue; // a local class's method records its own calls
             }
             int line = call.getRange().map(r -> r.begin.line).orElse(0);
+            Steps.Info info = Steps.of(call, scope.node());
             ResolvedMethodDeclaration target = null;
             String toNodeId;
             try {
@@ -943,8 +946,11 @@ public class ProjectAnalyzer {
                     // Still a gap in the graph, not a fatal error (FR-8).
                     // Recorded rather than dropped: a trace that runs into this
                     // has to be able to say the flow was lost here, not just end.
+                    String key = reason.equals("lombok") && isLogCall(call)
+                            ? "org.slf4j.Logger#" + call.getNameAsString()
+                            : calleeKey(call, null, scope.node());
                     for (String owner : scope.ownerIds()) {
-                        result.callSites.add(new CallSite(owner, "", line, reason));
+                        result.callSites.add(new CallSite(owner, "", line, reason).describe(info, key));
                     }
                     continue;
                 }
@@ -962,8 +968,9 @@ public class ProjectAnalyzer {
                         isInterface = false;
                     }
                 }
+                String key = calleeKey(call, target, scope.node());
                 for (String owner : scope.ownerIds()) {
-                    result.callSites.add(new CallSite(owner, "", line, isInterface ? "interface" : "library"));
+                    result.callSites.add(new CallSite(owner, "", line, isInterface ? "interface" : "library").describe(info, key));
                 }
                 continue;
             }
@@ -972,7 +979,8 @@ public class ProjectAnalyzer {
             // real, but the flow cannot go past it.
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
-            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result, Guards.of(call, scope.node()));
+            recordCall(scope, toNodeId, line, dangling ? "interface" : "", index, result, Guards.of(call, scope.node()),
+                    info, keyOfNodeId(toNodeId));
         }
 
         // `new Foo(...)`, `this(...)` and `super(...)` run a constructor. Only
@@ -998,7 +1006,7 @@ public class ProjectAnalyzer {
             }
             if (nodeIds.contains(toNodeId)) {
                 recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result,
-                        Guards.of(construction, scope.node()));
+                        Guards.of(construction, scope.node()), Steps.of(construction, scope.node()), keyOfNodeId(toNodeId));
             }
         }
 
@@ -1022,7 +1030,8 @@ public class ProjectAnalyzer {
             boolean dangling = dispatch.abstractMethods.contains(toNodeId)
                     && !dispatch.implementations.containsKey(toNodeId);
             recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
-                    dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()));
+                    dangling ? "interface" : "", index, result, Guards.of(reference, scope.node()),
+                    Steps.of(reference, scope.node()), keyOfNodeId(toNodeId));
         }
     }
 
@@ -1071,11 +1080,59 @@ public class ProjectAnalyzer {
         return qualified.substring(qualified.lastIndexOf('.') + 1);
     }
 
+    /**
+     * "<declaring type>#<member>": what scores a call and what a person marks
+     * "always show". The solver's answer first; then the receiver's resolved
+     * type; then the type the receiver was declared with; then a type name used
+     * as a receiver; then the receiver as written.
+     */
+    private static String calleeKey(MethodCallExpr call, ResolvedMethodDeclaration target,
+                                    com.github.javaparser.ast.Node scope) {
+        String name = call.getNameAsString();
+        if (target != null) {
+            try {
+                return target.declaringType().getQualifiedName() + "#" + name;
+            } catch (RuntimeException | StackOverflowError ignored) {
+                // falls through
+            }
+        }
+        if (call.getScope().isEmpty()) {
+            return "#" + name;
+        }
+        Expression receiver = call.getScope().get();
+        try {
+            var type = receiver.calculateResolvedType();
+            if (type.isReferenceType()) {
+                return type.asReferenceType().getQualifiedName() + "#" + name;
+            }
+        } catch (RuntimeException | StackOverflowError ignored) {
+            // falls through
+        }
+        String declared = Steps.declaredType(receiver, scope);
+        if (declared != null) {
+            return declared + "#" + name;
+        }
+        return receiver.toString().replaceAll("\\s+", " ") + "#" + name;
+    }
+
+    /** A node id's key: `acme.Base.decide(java.lang.String)` → `acme.Base#decide`. */
+    private static String keyOfNodeId(String id) {
+        int paren = id.indexOf('(');
+        String head = paren >= 0 ? id.substring(0, paren) : id;
+        int dot = head.lastIndexOf('.');
+        return dot < 0 ? "#" + head : head.substring(0, dot) + "#" + head.substring(dot + 1);
+    }
+
+    private static boolean isLogCall(MethodCallExpr call) {
+        return call.getScope().filter(s -> s instanceof NameExpr n && n.getNameAsString().equals("log")).isPresent();
+    }
+
     private void recordCall(CallScope scope, String toNodeId, int line, String unresolved, Index index,
-                            AnalysisResult result, String guard) {
+                            AnalysisResult result, String guard, Steps.Info info, String calleeKey) {
         for (String owner : scope.ownerIds()) {
             // A wall keeps the shape every other wall has: no callee named.
-            result.callSites.add(new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved));
+            result.callSites.add(new CallSite(owner, unresolved.isEmpty() ? toNodeId : "", line, unresolved)
+                    .describe(info, calleeKey));
             result.edges.add(new Edge(owner, toNodeId, "call", guard));
         }
 
