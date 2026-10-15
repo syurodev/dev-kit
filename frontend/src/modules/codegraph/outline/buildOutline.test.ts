@@ -217,6 +217,24 @@ describe("buildOutline", () => {
     expect(rows.find((r) => r.kind === "call" && r.title === "b()")).toMatchObject({ open: false, expandable: true });
   });
 
+  it("keeps keys apart when a callee key holds the characters a key is built from", () => {
+    const steps: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        a: [
+          step({ text: "b()", calleeKey: "x", to: "b" }),
+          step({ text: "lua()", calleeKey: "x#0/y", to: "c" }),
+          step({ text: "fold()", calleeKey: "fold@y", to: "c" }),
+        ],
+        b: [step({ text: "y()", calleeKey: "y", to: "c" })],
+        c: [step({ text: "z()", calleeKey: "z" })],
+      },
+    };
+    const rows = buildOutline({ rootId: "a", nodes: nodes("a", "b", "c"), steps, toggled: {} });
+    expect(rows).toHaveLength(6);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  });
+
   it("keeps a fold's open state when a step is added before it", () => {
     const fold = (pre: CodeGraphStep[]): CodeGraphSteps => ({
       legacy: false, truncated: [],

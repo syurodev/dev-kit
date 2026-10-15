@@ -8,10 +8,10 @@ import { shortLabel } from "../graph/labels";
  * and keeps the open/closed choices; nothing here fetches.
  *
  * Keys are paths of ids that stay put when a method's body changes around
- * them ("root/Svc#send#0/fold@Log#info#1"): a call is named by what it calls
- * and which occurrence of that it is in its method, never by its index, so a
- * row keeps its open state across a re-index that adds or removes steps
- * elsewhere.
+ * them (root, call:Svc#send#0, fold:Log#info#1): a call is named by what it
+ * calls and which occurrence of that it is in its method, never by its index,
+ * so a row keeps its open state across a re-index that adds or removes steps
+ * elsewhere. Opaque to the view: compare them, never parse them.
  */
 export type OutlineRef = { reason: "shown-above" | "recursion"; key: string };
 
@@ -110,11 +110,11 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
     };
     const flush = () => {
       if (pending.length === 0) return;
-      const key = `${parentKey}/fold@${pending[0].id}`;
+      const key = childKey(parentKey, "fold", pending[0].id);
       const open = isOpen(key, false);
       const d = depth + stack.length;
       rows.push({ kind: "fold", key, depth: d, count: pending.length, reasons: summarizeReasons(pending.map((p) => p.step.reason)), open });
-      if (open) for (const p of pending) callRow(ownerId, p.step, `${parentKey}/${p.id}`, d + 1, level, path, true);
+      if (open) for (const p of pending) callRow(ownerId, p.step, childKey(parentKey, "call", p.id), d + 1, level, path, true);
       pending = [];
     };
 
@@ -131,7 +131,7 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
         // callee's open body, a later argument's call, a fold) would put the
         // closure's steps under the wrong row, so then it gets a heading.
         if (f.kind === "closure" && drawn.get(f.id) === rows.length) continue;
-        rows.push({ kind: "frame", key: unique(`${parentKey}/frame@${f.id}`), depth: depth + i, frameKind: f.kind, text: f.text, exits: !!f.exits });
+        rows.push({ kind: "frame", key: unique(childKey(parentKey, "frame", f.id)), depth: depth + i, frameKind: f.kind, text: f.text, exits: !!f.exits });
       }
       stack = frames;
       if (!step.visible) {
@@ -140,10 +140,10 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
       }
       // The count right after the call's own row, before any body it opens.
       drawn.set(`${step.line}:${step.col}`, rows.length + 1);
-      callRow(ownerId, step, `${parentKey}/${ids[index]}`, depth + frames.length, level, path, false);
+      callRow(ownerId, step, childKey(parentKey, "call", ids[index]), depth + frames.length, level, path, false);
     });
     flush();
-    if (truncated.has(ownerId)) rows.push({ kind: "more", key: `${parentKey}/more`, depth, nodeId: ownerId });
+    if (truncated.has(ownerId)) rows.push({ kind: "more", key: childKey(parentKey, "more", ""), depth, nodeId: ownerId });
   }
 
   function callRow(ownerId: string, step: CodeGraphStep, key: string, depth: number, level: number, path: ReadonlySet<string>, hidden: boolean) {
@@ -167,7 +167,7 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
     if (variants.length > 0) {
       for (const id of variants) {
         const variant = input.nodes.get(id)!;
-        const variantKey = `${key}/impl:${id}`;
+        const variantKey = childKey(key, "impl", id);
         const seen = firstAt.get(id);
         const variantRef: OutlineRef | undefined = path.has(id)
           ? { reason: "recursion", key: seen ?? "root" }
@@ -184,6 +184,17 @@ export function buildOutline(input: OutlineInput): OutlineRow[] {
     firstAt.set(target.id, key);
     body(target.id, key, depth + 1, level + 1, new Set([...path, target.id]));
   }
+}
+
+/**
+ * Joins a key's segments. A callee key is source text (a Lua require path, a
+ * TypeScript file, a Java signature) and may hold "/", "#", "@" or ":", so the
+ * joiner is a control character no key holds, and every segment says what kind
+ * it is, so a callee named like a fold cannot be taken for one.
+ */
+const KEY_JOIN = "\u0001";
+function childKey(parent: string, kind: "call" | "fold" | "frame" | "impl" | "more", id: string): string {
+  return `${parent}${KEY_JOIN}${kind}:${id}`;
 }
 
 /**
