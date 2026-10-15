@@ -426,7 +426,8 @@ const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
     <div className="relative" style={{ height }}>
       <Guides row={row} />
       <span
-        className="absolute inset-y-0 flex items-center text-code-11 text-text-tertiary"
+        // Bounded on the right so a long label truncates inside its row.
+        className="absolute inset-y-0 right-2 flex min-w-0 items-center overflow-hidden text-code-11 text-text-tertiary"
         style={{ left: treeContentX(row.level) + TREE_CHEVRON + 4 }}
       >
         {row.node.loading ? "Loading…" : row.node.emptyLabel}
