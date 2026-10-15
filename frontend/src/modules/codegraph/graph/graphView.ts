@@ -71,27 +71,17 @@ export function graphView(rootId: string, nodes: CodeGraphNode[], edges: CodeGra
     if (id !== rootId && calls.length > 0 && calls.every((c) => !c.visible && c.reason === "helper")) helper.add(id);
   }
   const unhidden = edges.filter((e) => !helper.has(e.from) && !helper.has(e.to));
-  // What only a hidden helper led to is not drawn either: keep what the root
-  // still reaches (everything, when the root is not in the graph to walk from).
-  const out = new Map<string, string[]>();
-  for (const e of unhidden) {
-    const list = out.get(e.from);
-    if (list) list.push(e.to);
-    else out.set(e.from, [e.to]);
-  }
-  const queue = nodes.some((n) => n.id === rootId) ? [rootId] : nodes.map((n) => n.id);
-  const reached = new Set<string>(queue);
-  for (let i = 0; i < queue.length; i++) {
-    for (const to of out.get(queue[i]) ?? []) {
-      if (!reached.has(to)) {
-        reached.add(to);
-        queue.push(to);
-      }
-    }
-  }
-  const keptNodes = nodes.filter((n) => reached.has(n.id) && !helper.has(n.id));
+  // What hiding the helpers cut off from the root is not drawn either. Both
+  // directions, since a flow holds the root's callers too, and only what was
+  // connected to the root before: a node the graph never linked (its edges
+  // are on a page not loaded yet) stays.
+  const hasRoot = nodes.some((n) => n.id === rootId);
+  const before = hasRoot ? connected(rootId, edges) : null;
+  const after = hasRoot ? connected(rootId, unhidden) : null;
+  const kept = (id: string) => !helper.has(id) && (!before?.has(id) || !!after?.has(id));
+  const keptNodes = nodes.filter((n) => kept(n.id));
   const keptEdges = unhidden
-    .filter((e) => reached.has(e.from) && reached.has(e.to))
+    .filter((e) => kept(e.from) && kept(e.to))
     .map((e) => (implements_.has(`${e.from}->${e.to}`) ? { ...e, kind: "implements" } : e));
 
   return {
@@ -107,6 +97,31 @@ export function graphView(rootId: string, nodes: CodeGraphNode[], edges: CodeGra
     },
     edgeTitle: (e) => e.guard || undefined,
   };
+}
+
+/** The nodes linked to `start` over `edges`, in either direction. */
+function connected(start: string, edges: readonly CodeGraphEdge[]): Set<string> {
+  const near = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    const list = near.get(a);
+    if (list) list.push(b);
+    else near.set(a, [b]);
+  };
+  for (const e of edges) {
+    link(e.from, e.to);
+    link(e.to, e.from);
+  }
+  const queue = [start];
+  const seen = new Set(queue);
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of near.get(queue[i]) ?? []) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return seen;
 }
 
 /** A card's data: the method as the title, its class above it, the doc comment's first sentence. */

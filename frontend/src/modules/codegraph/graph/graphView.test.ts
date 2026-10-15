@@ -116,6 +116,27 @@ describe("graphView", () => {
     expect(view.edges.map((x) => `${x.from}->${x.to}`)).toEqual(["process->decide"]);
   });
 
+  it("keeps the root's callers, their other callees and nodes the graph never connected", () => {
+    const g = [node("caller"), node("process"), node("other"), node("fmt"), node("pad"), node("loose")];
+    const e = [
+      { from: "caller", to: "process", kind: "call" },
+      { from: "caller", to: "other", kind: "call" },
+      { from: "process", to: "fmt", kind: "call" },
+      { from: "fmt", to: "pad", kind: "call" },
+    ];
+    const st: CodeGraphSteps = {
+      legacy: false, truncated: [],
+      steps: {
+        caller: [step({ text: "process()", to: "process" }), step({ text: "other()", to: "other" })],
+        process: [step({ text: "fmt()", to: "fmt", visible: false, reason: "helper" })],
+        fmt: [step({ text: "pad()", to: "pad" })],
+      },
+    };
+    const view = graphView("process", g, e, st);
+    expect(view.nodes.map((n) => n.id)).toEqual(["caller", "process", "other", "loose"]);
+    expect(view.edges.map((x) => `${x.from}->${x.to}`)).toEqual(["caller->process", "caller->other"]);
+  });
+
   it("names each effect of a method once", () => {
     const st: CodeGraphSteps = {
       legacy: false, truncated: [],
