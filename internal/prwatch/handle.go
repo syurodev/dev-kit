@@ -79,6 +79,9 @@ func (h *Handle) Account() string { return h.account }
 // Terms are the words of this handle's platform.
 func (h *Handle) Terms() forge.Terms { return h.provider.Terms() }
 
+// MergeMethods are the ways this platform merges in one call.
+func (h *Handle) MergeMethods() []forge.MergeMethod { return h.provider.MergeMethods() }
+
 // Number is the change request being acted on; 0 until resolved by branch.
 func (h *Handle) Number() int { return h.number }
 

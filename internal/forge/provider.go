@@ -18,6 +18,9 @@ type Provider interface {
 	Terms() Terms
 	// Serves reports whether host is one this provider talks to.
 	Serves(host string) bool
+	// MergeMethods are the ways this platform can merge in one call. A caller
+	// refuses an unsupported method before asking anyone.
+	MergeMethods() []MergeMethod
 	// ParseURL reads the address of a change request (what a person pastes to
 	// attach one by hand): the repository and its number.
 	ParseURL(raw string) (Repo, int, bool)

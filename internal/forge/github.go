@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -19,20 +18,14 @@ import (
 // token to send. Serves is exact for the same reason a token is never sent to
 // a host it was not issued for.
 type GitHub struct {
-	client *http.Client
-	base   string
-	cache  *etagCache
-	slots  chan struct{}
-
-	mu    sync.Mutex
-	stats Stats
+	*client
 }
 
 // GitHubOption configures NewGitHub.
 type GitHubOption func(*GitHub)
 
 // WithHTTPClient replaces the HTTP client (timeouts, transport).
-func WithHTTPClient(client *http.Client) GitHubOption { return func(g *GitHub) { g.client = client } }
+func WithHTTPClient(client *http.Client) GitHubOption { return func(g *GitHub) { g.http = client } }
 
 // WithAPIBase points the provider at another API root. It exists for tests,
 // which stand a fake host up with httptest; Serves still answers for github.com.
@@ -50,12 +43,10 @@ func WithConcurrency(n int) GitHubOption {
 }
 
 func NewGitHub(opts ...GitHubOption) *GitHub {
-	g := &GitHub{
-		client: &http.Client{Timeout: 20 * time.Second},
-		base:   githubAPI,
-		cache:  newETagCache(512),
-		slots:  make(chan struct{}, defaultConcurrent),
-	}
+	g := &GitHub{client: newClient(githubAPI, func(req *http.Request) {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	})}
 	for _, opt := range opts {
 		opt(g)
 	}
@@ -63,7 +54,7 @@ func NewGitHub(opts ...GitHubOption) *GitHub {
 }
 
 // Stats is a snapshot of the request counters.
-func (g *GitHub) Stats() Stats {
+func (g *client) Stats() Stats {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.stats
@@ -72,6 +63,10 @@ func (g *GitHub) Stats() Stats {
 func (g *GitHub) Kind() string { return "github" }
 func (g *GitHub) Terms() Terms {
 	return Terms{Platform: "GitHub", Short: "PR", Long: "pull request", Checks: "checks"}
+}
+
+func (g *GitHub) MergeMethods() []MergeMethod {
+	return []MergeMethod{MergeMethodMerge, MergeMethodSquash, MergeMethodRebase}
 }
 
 func (g *GitHub) Serves(host string) bool {

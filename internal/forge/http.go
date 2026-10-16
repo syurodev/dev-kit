@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +25,30 @@ const (
 	defaultConcurrent = 4
 )
 
+// client is the HTTP layer both providers stand on: bounded, conditional
+// (ETag), classified errors, and a token that only ever goes in a header. A
+// provider adds its own headers and speaks its own paths and shapes.
+type client struct {
+	http    *http.Client
+	base    string
+	cache   *etagCache
+	slots   chan struct{}
+	headers func(*http.Request)
+
+	mu    sync.Mutex
+	stats Stats
+}
+
+func newClient(base string, headers func(*http.Request)) *client {
+	return &client{
+		http:    &http.Client{Timeout: 20 * time.Second},
+		base:    base,
+		cache:   newETagCache(512),
+		slots:   make(chan struct{}, defaultConcurrent),
+		headers: headers,
+	}
+}
+
 // Stats counts what the HTTP layer did, so a test (and a diagnosis) can see
 // that polling an unchanged change request was answered with 304s.
 type Stats struct {
@@ -32,7 +58,7 @@ type Stats struct {
 
 // get is a conditional GET decoded into out. The second result is the Link
 // header's next page, "" when there is none.
-func (g *GitHub) get(ctx context.Context, c Credential, path string, query url.Values, out any) (string, error) {
+func (g *client) get(ctx context.Context, c Credential, path string, query url.Values, out any) (string, error) {
 	target := g.base + path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
@@ -40,7 +66,7 @@ func (g *GitHub) get(ctx context.Context, c Credential, path string, query url.V
 	return g.getURL(ctx, c, target, out)
 }
 
-func (g *GitHub) getURL(ctx context.Context, c Credential, target string, out any) (string, error) {
+func (g *client) getURL(ctx context.Context, c Credential, target string, out any) (string, error) {
 	key := etagKey(c.Token, target)
 	cached, have := g.cache.get(key)
 	req, err := g.newRequest(ctx, c, http.MethodGet, target, nil)
@@ -77,7 +103,7 @@ func (g *GitHub) getURL(ctx context.Context, c Credential, target string, out an
 }
 
 // send is a write: POST, PATCH, PUT or DELETE with a JSON body, never cached.
-func (g *GitHub) send(ctx context.Context, c Credential, method, path string, in, out any) error {
+func (g *client) send(ctx context.Context, c Credential, method, path string, in, out any) error {
 	var payload io.Reader
 	if in != nil {
 		raw, err := json.Marshal(in)
@@ -109,7 +135,7 @@ func (g *GitHub) send(ctx context.Context, c Credential, method, path string, in
 	return decode(body, out)
 }
 
-func (g *GitHub) newRequest(ctx context.Context, c Credential, method, target string, body io.Reader) (*http.Request, error) {
+func (g *client) newRequest(ctx context.Context, c Credential, method, target string, body io.Reader) (*http.Request, error) {
 	if strings.TrimSpace(c.Token) == "" {
 		return nil, &Error{Kind: ErrUnauthorized, Message: "no token"}
 	}
@@ -118,23 +144,24 @@ func (g *GitHub) newRequest(ctx context.Context, c Credential, method, target st
 		return nil, &Error{Kind: ErrInvalid, Message: err.Error()}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "DevKit")
+	if g.headers != nil {
+		g.headers(req)
+	}
 	return req, nil
 }
 
 // do runs a request under the concurrency limit and reads a bounded body. The
 // error it returns never contains the token: net/http puts the URL in its
 // errors, and the URL has none.
-func (g *GitHub) do(req *http.Request) (*http.Response, []byte, error) {
+func (g *client) do(req *http.Request) (*http.Response, []byte, error) {
 	select {
 	case g.slots <- struct{}{}:
 		defer func() { <-g.slots }()
 	case <-req.Context().Done():
 		return nil, nil, req.Context().Err()
 	}
-	resp, err := g.client.Do(req)
+	resp, err := g.http.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, nil, err
@@ -162,7 +189,10 @@ func decode(body []byte, out any) error {
 // httpError turns a failed response into an *Error with the host's own words.
 func httpError(resp *http.Response, body []byte) error {
 	var payload struct {
-		Message string `json:"message"`
+		// GitHub says {"message": "text"}; GitLab may say {"message": {"base": ["text"]}}
+		// or {"error": "text"}.
+		Message json.RawMessage `json:"message"`
+		Error   string          `json:"error"`
 		Errors  []struct {
 			Message string `json:"message"`
 			Code    string `json:"code"`
@@ -170,7 +200,10 @@ func httpError(resp *http.Response, body []byte) error {
 		} `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &payload)
-	message := strings.TrimSpace(payload.Message)
+	message := messageText(payload.Message)
+	if message == "" {
+		message = strings.TrimSpace(payload.Error)
+	}
 	for _, detail := range payload.Errors {
 		extra := detail.Message
 		if extra == "" && detail.Code != "" {
@@ -202,6 +235,7 @@ func httpError(resp *http.Response, body []byte) error {
 		e.Kind = ErrNotFound
 	case resp.StatusCode == http.StatusUnprocessableEntity,
 		resp.StatusCode == http.StatusMethodNotAllowed,
+		resp.StatusCode == http.StatusNotAcceptable,
 		resp.StatusCode == http.StatusConflict:
 		e.Kind = ErrValidation
 	case resp.StatusCode >= 500:
@@ -219,7 +253,11 @@ func retryAt(resp *http.Response) time.Time {
 			return time.Now().Add(time.Duration(seconds) * time.Second)
 		}
 	}
-	if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
+	for _, name := range []string{"X-RateLimit-Reset", "RateLimit-Reset"} {
+		reset := resp.Header.Get(name)
+		if reset == "" {
+			continue
+		}
 		if unix, err := strconv.ParseInt(reset, 10, 64); err == nil {
 			return time.Unix(unix, 0)
 		}
@@ -269,4 +307,34 @@ func numberPath(number int) (string, error) {
 		return "", &Error{Kind: ErrInvalid, Message: fmt.Sprintf("not a pull request number: %d", number)}
 	}
 	return strconv.Itoa(number), nil
+}
+
+// messageText flattens a host's "message": a string, or an object/array of
+// reasons (GitLab's validation errors) into one sentence.
+func messageText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return strings.TrimSpace(strings.Join(list, "; "))
+	}
+	var fields map[string][]string
+	if json.Unmarshal(raw, &fields) == nil {
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, k+" "+strings.Join(fields[k], ", "))
+		}
+		return strings.Join(parts, "; ")
+	}
+	return ""
 }
