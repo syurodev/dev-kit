@@ -2573,6 +2573,15 @@ export function WorkspaceFileRead(workspaceID: string, folderID: string, relativ
 }
 
 /**
+ * WorkspaceFileReveal shows a file of a folder in the file manager (Finder,
+ * File Explorer…). Desktop only: in server mode the bridge is unauthenticated
+ * loopback HTTP and the machine it would act on has no one looking at it.
+ */
+export function WorkspaceFileReveal(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<void> {
+    return $Call.ByID(1560590664, workspaceID, folderID, relativePath);
+}
+
+/**
  * WorkspaceFileStat says what is on disk at a path — exists, revision, why it
  * cannot be opened as text — without its content. The editor reconciles an open
  * buffer with this after a change notification, a focus return or a save.

@@ -111,6 +111,7 @@ func TestEveryWorkspaceBridgeMethodIsGrantedToTheUI(t *testing.T) {
 		"WorkspaceFileWrite":    func() error { _, err := svc.WorkspaceFileWrite(w, f.ID, "new.txt", "x", "absent"); return err },
 		"WorkspaceGitStatus":    func() error { _, err := svc.WorkspaceGitStatus(ctx, w, f.ID); return err },
 		"WorkspaceEntryPoints":  func() error { _, err := svc.WorkspaceEntryPoints(ctx, w, f.ID); return err },
+		"WorkspaceFileReveal":   func() error { return svc.WorkspaceFileReveal(w, f.ID, "main.txt") },
 		"WorkspacePdfInfo":      func() error { _, err := svc.WorkspacePdfInfo(ctx, w, f.ID, "main.txt"); return err },
 		"WorkspacePdfPage":      func() error { _, err := svc.WorkspacePdfPage(ctx, w, f.ID, "main.txt", "", 1, 0); return err },
 		"WorkspacePdfSearch":    func() error { _, err := svc.WorkspacePdfSearch(ctx, w, f.ID, "main.txt", "", "x"); return err },

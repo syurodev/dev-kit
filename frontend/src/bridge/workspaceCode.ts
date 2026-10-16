@@ -157,6 +157,13 @@ export function pdfSearch(workspaceId: string, folderId: string, path: string, r
   );
 }
 
+/** Shows a file of a folder in the file manager. Go resolves the path; desktop only. */
+export function revealFolderFile(workspaceId: string, folderId: string, path: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.WorkspaceFileReveal(workspaceId, folderId, path);
+  });
+}
+
 export type CodeGraphGitMark = "M" | "A" | "D" | "R";
 
 export function folderGitStatus(workspaceId: string, folderId: string): Promise<Record<string, CodeGraphGitMark>> {

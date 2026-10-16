@@ -439,6 +439,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "This file is too large to open in the editor.", true, codegraph.ErrFileTooLarge)
 		case errors.Is(err, codegraph.ErrFileConflict):
 			return apperrors.Wrap(codeFileConflict, "The file changed on disk after it was opened. Nothing was saved; your edits are still in the editor.", true, codegraph.ErrFileConflict)
+		case errors.Is(err, errRevealUnavailable):
+			return apperrors.New(codeValidationFailed, "Showing a file in the file manager is only available in the desktop app.", true)
 		case errors.Is(err, app.ErrPDFChanged):
 			return apperrors.Wrap(codePDFChanged, "This PDF changed on disk. Open it again to see the new version.", true, app.ErrPDFChanged)
 		case errors.Is(err, app.ErrPDFUnavailable), errors.Is(err, pdfdoc.ErrUnavailable):

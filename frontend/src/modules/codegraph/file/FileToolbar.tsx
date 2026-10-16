@@ -1,5 +1,12 @@
 import { memo, useMemo, useState } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, Copy, Ellipsis, FolderSearch, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { errorMessage } from "@/bridge/errors";
+import { copyText } from "@/bridge/clipboard";
+import { revealFolderFile } from "@/bridge/workspaceCode";
+import { Button } from "@/components/ui/button";
+import { detectPlatform } from "@/lib/platform";
+import { fullPath, revealLabel } from "./fileMenu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,10 +99,56 @@ export const FileToolbar = memo(function FileToolbar({
           <SymbolCrumb workspaceId={workspaceId} folderId={folderId} path={path} bufferKey={key} dirty={buffer?.dirty ?? false} />
         </nav>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">{right}</div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {right}
+        <FileActionsMenu workspaceId={workspaceId} folderId={folderId} path={path} />
+      </div>
     </div>
   );
 });
+
+/**
+ * What anyone wants to do with a file they are looking at besides reading it: take its
+ * path somewhere, or find it on disk. Reveal is named for the desktop's own file manager
+ * and left out where there is none (a browser). The full path needs the folder to be one
+ * of the open workspace's; the relative path never does.
+ */
+function FileActionsMenu({ workspaceId, folderId, path }: { workspaceId: string; folderId: string; path: string }) {
+  const folderPath = useCodeGraphStore((s) => s.folders.find((f) => f.id === folderId)?.path);
+  const reveal = revealLabel(detectPlatform());
+  const copy = (text: string, what: string) =>
+    copyText(text).then(
+      () => toast(`${what} copied`),
+      (e: unknown) => toast.error(errorMessage(e)),
+    );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label="File actions" title="File actions">
+          <Ellipsis />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {folderPath ? (
+          <DropdownMenuItem icon={<Copy />} onSelect={() => void copy(fullPath(folderPath, path), "Path")}>
+            Copy path
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem icon={<Copy />} onSelect={() => void copy(path, "Relative path")}>
+          Copy relative path
+        </DropdownMenuItem>
+        {reveal ? (
+          <DropdownMenuItem
+            icon={<FolderSearch />}
+            onSelect={() => void revealFolderFile(workspaceId, folderId, path).catch((e: unknown) => toast.error(errorMessage(e)))}
+          >
+            {reveal}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /** A path segment that opens the files beside it. */
 function SiblingMenu({

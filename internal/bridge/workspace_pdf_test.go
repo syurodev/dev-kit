@@ -96,3 +96,35 @@ func TestPdfViewerRefusesWhatIsNotAPDFOrLeavesTheFolder(t *testing.T) {
 		t.Fatalf("no engine: %q (%v)", publicCode(err), err)
 	}
 }
+
+func TestRevealHandsTheFileManagerAResolvedPathAndOnlyOnTheDesktop(t *testing.T) {
+	svc, ws := codeWorkspace(t)
+	folder := ws.Services[0]
+	var shown []string
+	svc.container.WorkspaceCode.Reveal = func(path string) error { shown = append(shown, path); return nil }
+	svc.serverMode = func() bool { return false }
+
+	if err := svc.WorkspaceFileReveal(ws.Workspace.ID, folder.ID, "main.txt"); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(filepath.Join(folder.Path, "main.txt"))
+	if len(shown) != 1 || shown[0] != want {
+		t.Fatalf("revealed %v, want [%s]", shown, want)
+	}
+	// What leaves the folder, does not exist or is not a file is never handed over.
+	for _, rel := range []string{"../outside.txt", "missing.txt", "."} {
+		if err := svc.WorkspaceFileReveal(ws.Workspace.ID, folder.ID, rel); err == nil {
+			t.Fatalf("%q was revealed", rel)
+		}
+	}
+	if err := svc.WorkspaceFileReveal(ws.Workspace.ID, "ffffffffffffffffffffffff", "main.txt"); publicCode(err) != "folder_not_in_workspace" {
+		t.Fatalf("unknown folder: %q (%v)", publicCode(err), err)
+	}
+	if len(shown) != 1 {
+		t.Fatalf("a refused reveal reached the file manager: %v", shown)
+	}
+	svc.serverMode = func() bool { return true }
+	if err := svc.WorkspaceFileReveal(ws.Workspace.ID, folder.ID, "main.txt"); publicCode(err) != "validation_failed" || len(shown) != 1 {
+		t.Fatalf("server mode: %q (%v), shown %v", publicCode(err), err, shown)
+	}
+}

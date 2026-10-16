@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 
 	"devkit/internal/app"
 )
@@ -79,4 +80,28 @@ func (s *AppService) WorkspacePdfSearch(ctx context.Context, workspaceID, folder
 		return app.PDFSearch{}, err
 	}
 	return result.(app.PDFSearch), nil
+}
+
+var errRevealUnavailable = errors.New("bridge.revealUnavailable")
+
+// WorkspaceFileReveal shows a file of a folder in the file manager (Finder,
+// File Explorer…). Desktop only: in server mode the bridge is unauthenticated
+// loopback HTTP and the machine it would act on has no one looking at it.
+func (s *AppService) WorkspaceFileReveal(workspaceID, folderID, relativePath string) error {
+	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "file:"+relativePath, map[string]any{
+		"workspace_id":  recordID(workspaceID),
+		"folder_id":     recordID(folderID),
+		"action":        "reveal_file",
+		"relative_path": relativePath,
+	}, func(context.Context) (any, error) {
+		if s.inServerMode() {
+			return nil, errRevealUnavailable
+		}
+		code, err := s.workspaceCode()
+		if err != nil {
+			return nil, err
+		}
+		return nil, code.RevealFile(workspaceID, folderID, relativePath)
+	})
+	return err
 }

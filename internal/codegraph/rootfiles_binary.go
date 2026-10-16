@@ -70,3 +70,21 @@ func ReadBinaryAt(root, relativePath string, limit int64) (BinaryFile, error) {
 	}
 	return BinaryFile{Data: data, Signature: FileSignature{Size: int64(len(data)), ModifiedAt: info.ModTime().UnixMilli()}}, nil
 }
+
+// ResolveExistingFileAt is the absolute path of a regular file under root, symlinks
+// resolved and kept inside (the same check as every read): what is handed to the
+// operating system to reveal or open, never a path the caller composed.
+func ResolveExistingFileAt(root, relativePath string) (string, error) {
+	resolved, err := resolvePath(root, relativePath)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("codegraph: file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("codegraph: file: %s is not a regular file", relativePath)
+	}
+	return resolved, nil
+}

@@ -30,6 +30,9 @@ import (
 type WorkspaceCode struct {
 	c *Container
 
+	// Reveal shows a resolved file in the file manager; tests replace it.
+	Reveal func(path string) error
+
 	mu       sync.Mutex
 	searches map[string]*searchRun
 	watch    *docwatch.Watcher
@@ -43,7 +46,7 @@ type searchRun struct{ cancel context.CancelFunc }
 // container's Workspace on every call: main.go replaces the in-memory registry
 // with the SQL-backed one after construction.
 func NewWorkspaceCode(c *Container) *WorkspaceCode {
-	return &WorkspaceCode{c: c, searches: map[string]*searchRun{}}
+	return &WorkspaceCode{c: c, Reveal: RevealInFileManager, searches: map[string]*searchRun{}}
 }
 
 // ErrFolderNotInWorkspace: the folder is not (or is no longer) one of the
@@ -152,6 +155,20 @@ func (w *WorkspaceCode) ReadFile(workspaceID, folderID, rel string) (codegraph.F
 		return codegraph.FileContent{}, err
 	}
 	return codegraph.ReadFileAt(svc.Path, rel)
+}
+
+// RevealFile shows a file of a folder in the operating system's file manager.
+// The path is resolved here, inside the folder, so the window never names one.
+func (w *WorkspaceCode) RevealFile(workspaceID, folderID, rel string) error {
+	svc, err := w.Folder(workspaceID, folderID)
+	if err != nil {
+		return err
+	}
+	path, err := codegraph.ResolveExistingFileAt(svc.Path, rel)
+	if err != nil {
+		return err
+	}
+	return w.Reveal(path)
 }
 
 func (w *WorkspaceCode) StatFile(workspaceID, folderID, rel string) (codegraph.FileStatus, error) {
