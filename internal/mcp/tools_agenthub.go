@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	"devkit/internal/interaction"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -17,6 +20,9 @@ type AgentHubAPI interface {
 	GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error)
 	Invoke(ctx context.Context, in agenthub.InvokeInput) (agenthub.InvokeResult, error)
 	Cancel(ctx context.Context, id string) error
+	SendMessage(ctx context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error)
+	ListPeers(ctx context.Context) ([]agenthub.PeerInfo, error)
+	PeerRoute(ctx context.Context, targetID string) (agenthub.PeerRelation, agenthub.AgentSession, bool, error)
 }
 
 func (s *Server) requireAgentHub() error {
@@ -50,6 +56,27 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 			DestructiveHint: boolPtr(false),
 		},
 	}, s.toolAgentHubInvokeAgent)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "agenthub.listPeers",
+		Description: "List the Agent Hub sessions you can message: your own workspace's sessions, your sub-sessions and your parent. " +
+			"Use the sessionId with agenthub.sendMessage.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolAgentHubListPeers)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "agenthub.sendMessage",
+		Description: "Send a message to another Agent Hub session without waiting for its answer. " +
+			"The result says at once what became of it: started (the session was idle and began a turn on it), " +
+			"steered (it was working and the message went into that turn), queued (it waits until the session can take it) " +
+			"or refused (with a code: not_found, self, closed, loop, rate, queue_full, too_long, declined). " +
+			"The other session reads it as a message from you, not from the user, and may reply with this same tool (replyTo). " +
+			"Replies and exchanges are capped; do not message just to acknowledge.",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.toolAgentHubSendMessage)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.getSessionStatus",
@@ -156,6 +183,101 @@ func (s *Server) toolAgentHubInvokeAgent(ctx context.Context, _ *sdk.CallToolReq
 		return nil, nil, err
 	}
 	return nil, structured(v), nil
+}
+
+func (s *Server) toolAgentHubListPeers(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
+	subject, capability, scope := peerListGrant()
+	v, err := s.deps.Caller.Call(ctx, subject, capability, scope, meta("list_peers", nil), func(callCtx context.Context) (any, error) {
+		return s.deps.AgentHub.ListPeers(callCtx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type agentHubSendMessageInput struct {
+	SessionID string `json:"sessionId" jsonschema:"The recipient's session id, from agenthub.listPeers."`
+	Message   string `json:"message" jsonschema:"What to tell it, with the context it needs: it has none of yours. At most 16000 characters."`
+	ReplyTo   string `json:"replyTo,omitempty" jsonschema:"When answering a message you received, that message's id. Replies count towards the exchange's cap."`
+}
+
+// What the two messaging tools ask the gateway for. Named so that
+// PeerMessageGrants can hand the real requests to a test of the container's
+// grants: the tool tests call their handlers without the policy, and a scope no
+// grant covers is refused for every agent while they all pass (git.fetch was).
+func peerListGrant() (subject, capability, scope string) {
+	return "builtin.agenthub", "agenthub:read", "session:list"
+}
+
+func peerSendGrant(sessionID string) (subject, capability, scope string) {
+	return "builtin.agenthub", "agenthub:execute", "session:" + sessionID
+}
+
+// PeerMessageGrants is every request agenthub.listPeers and agenthub.sendMessage
+// make of the capability gateway, subject / capability / scope.
+func PeerMessageGrants() [][3]string {
+	var out [][3]string
+	subject, capability, scope := peerListGrant()
+	out = append(out, [3]string{subject, capability, scope})
+	subject, capability, scope = peerSendGrant("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	return append(out, [3]string{subject, capability, scope})
+}
+
+// peerConfirmClip bounds the message shown in the confirmation: the person
+// reads all of what is asked, and a wall of text is not read.
+const peerConfirmClip = 1500
+
+func (s *Server) toolAgentHubSendMessage(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSendMessageInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
+	opaqueID := hubSessionID(in.SessionID)
+	subject, capability, scope := peerSendGrant(opaqueID)
+	v, err := s.deps.Caller.Call(ctx, subject, capability, scope, meta("send_message", map[string]any{
+		"session_id": opaqueID,
+		"length":     utf8.RuneCountInString(in.Message),
+	}), func(callCtx context.Context) (any, error) {
+		send := agenthub.SendMessageInput{SessionID: in.SessionID, Message: in.Message, ReplyTo: in.ReplyTo}
+		// A session of another workspace is not one the sender can see. The
+		// person may still want the message to go — they pasted its id — so they
+		// are asked, every time, with the exact words.
+		rel, target, found, err := s.deps.AgentHub.PeerRoute(callCtx, in.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		if found && rel == agenthub.PeerElsewhere {
+			title := "a session"
+			if target.Title != nil {
+				title = "“" + clipText(*target.Title, 80) + "”"
+			}
+			summary := "Send a message from one agent session to " + title + ", a session of a different workspace:\n\n" + clipText(in.Message, peerConfirmClip)
+			switch err := s.peerConfirm(callCtx, summary); {
+			case err == nil:
+				send.CrossWorkspaceApproved = true
+			case errors.Is(err, interaction.ErrConfirmationDenied):
+				return agenthub.SendMessageResult{Delivery: agenthub.DeliveryRefused, Code: agenthub.PeerDeclined, Reason: "The person declined to let this message go to a session of another workspace."}, nil
+			default:
+				return nil, mapInteractErr(err)
+			}
+		}
+		return s.deps.AgentHub.SendMessage(callCtx, send)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+// peerConfirm asks before a message crosses into another workspace. Always: no
+// allow-always, because what is being approved is this text to that session.
+func (s *Server) peerConfirm(ctx context.Context, summary string) error {
+	return effectiveHub(s.deps.Hub).Confirm(ctx, interaction.ConfirmRequest{
+		Tool: "agenthub.sendMessage", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
+	})
 }
 
 type agentHubSessionIDInput struct {

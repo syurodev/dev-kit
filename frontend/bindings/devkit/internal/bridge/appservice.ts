@@ -617,6 +617,16 @@ export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise
 }
 
 /**
+ * AgentHubSetPromptQueue tells the service how many of the person's own prompts
+ * the window holds for a session and whether they paused them. The queue is the
+ * window's; this lets a message from another session wait behind it, and never
+ * start work on a session the person paused.
+ */
+export function AgentHubSetPromptQueue(id: string, waiting: number, paused: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2051873875, id, waiting, paused);
+}
+
+/**
  * AgentHubSignInStatus reads an agent's in-app sign-in ("codex"): ChatGPT
  * with its email and plan, an API key, or none. Claude signs in in a terminal
  * (AgentHubAuthMethods) and answers "not supported" here.

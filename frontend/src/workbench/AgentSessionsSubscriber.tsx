@@ -5,6 +5,7 @@ import {
   agentHubListAgents,
   agentHubPendingElicitations,
   agentHubPendingPermissions,
+  agentHubSetPromptQueue,
   onAgentHubElicitation,
   onAgentHubElicitationClosed,
   onAgentHubPermission,
@@ -72,6 +73,42 @@ export function turnFinishedAnnouncement(
   const worked = turns.length > 0 ? workedFor(turns[turns.length - 1]) : "";
   // "Worked" alone means the rows carry no times; there is nothing to add.
   return worked.startsWith("Worked for") ? `Answer ready. ${worked}` : "Answer ready.";
+}
+
+type QueueFacts = Pick<
+  ReturnType<typeof useAgentSessionsStore.getState>,
+  "queuedPromptsBySession" | "queuePausedBySession"
+>;
+
+/**
+ * The sessions whose own prompt queue (how many wait, whether the person
+ * paused it) differs between two states: what Go is told so that a message
+ * from another session waits behind the person's prompts and never starts work
+ * on a session they paused. Pure so the rule can be tested without a bridge.
+ */
+export function promptQueueChanges(
+  next: QueueFacts,
+  previous: QueueFacts,
+): { sessionId: string; waiting: number; paused: boolean }[] {
+  const ids = new Set([
+    ...Object.keys(next.queuedPromptsBySession),
+    ...Object.keys(next.queuePausedBySession),
+    ...Object.keys(previous.queuedPromptsBySession),
+    ...Object.keys(previous.queuePausedBySession),
+  ]);
+  const out: { sessionId: string; waiting: number; paused: boolean }[] = [];
+  for (const sessionId of ids) {
+    const now = { waiting: next.queuedPromptsBySession[sessionId]?.length ?? 0, paused: Boolean(next.queuePausedBySession[sessionId]) };
+    const before = { waiting: previous.queuedPromptsBySession[sessionId]?.length ?? 0, paused: Boolean(previous.queuePausedBySession[sessionId]) };
+    if (now.waiting !== before.waiting || now.paused !== before.paused) out.push({ sessionId, ...now });
+  }
+  return out;
+}
+
+/** A user message the person did not type: another session's, or the terminal's. */
+export function isPeerMessage(event: Pick<SessionUpdateEvent, "parsed">): boolean {
+  const parsed = event.parsed;
+  return parsed?.kind === UpdateKind.UpdateUserMessageChunk && Boolean(parsed.source);
 }
 
 /** The latest preview read per session; an older read that answers late is ignored. */
@@ -178,6 +215,22 @@ export function AgentSessionsSubscriber() {
 
   // A session's tabs carry its title: a rename, or the title the agent gives
   // it after the first turn, retitles them wherever they are.
+  useEffect(
+    () =>
+      useAgentSessionsStore.subscribe((state, previous) => {
+        if (
+          state.queuedPromptsBySession === previous.queuedPromptsBySession &&
+          state.queuePausedBySession === previous.queuePausedBySession
+        ) {
+          return;
+        }
+        for (const { sessionId, waiting, paused } of promptQueueChanges(state, previous)) {
+          void agentHubSetPromptQueue(sessionId, waiting, paused).catch(() => {});
+        }
+      }),
+    [],
+  );
+
   useEffect(() => {
     syncAgentSessionTabTitles(useAgentSessionsStore.getState().sessionsById);
     return useAgentSessionsStore.subscribe((state, previous) => {
@@ -256,6 +309,12 @@ export function AgentSessionsSubscriber() {
         event.parsed.subagent
       ) {
         trackSubagent(event.sessionId, event.parsed.subagent);
+      }
+
+      // Another session wrote to this one. The row says so until the person
+      // looks; a session already in front of them has nothing to flag.
+      if (isPeerMessage(event) && !sessionVisible(event.sessionId)) {
+        useAgentSessionsStore.getState().notePeerMessage(event.sessionId);
       }
 
       handleSessionUpdateTabs(event);

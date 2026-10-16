@@ -16,6 +16,7 @@ const (
 	MethodThreadResume          = "thread/resume"
 	MethodTurnStart             = "turn/start"
 	MethodTurnInterrupt         = "turn/interrupt"
+	MethodTurnSteer             = "turn/steer"
 	MethodAccountRead           = "account/read"
 	MethodAccountLoginStart     = "account/login/start"
 	MethodAccountLoginCancel    = "account/login/cancel"
@@ -169,6 +170,21 @@ type TurnStartResponse struct {
 type TurnInterruptParams struct {
 	ThreadID string `json:"threadId"`
 	TurnID   string `json:"turnId"`
+}
+
+// TurnSteerParams is turn/steer: more input for the turn that is running.
+// ExpectedTurnID is required — the app-server refuses the request when it is
+// not the active turn, which is how a steer that lost the race with the turn's
+// end is told apart from one that landed (schema from `codex app-server
+// generate-json-schema`, 0.162).
+type TurnSteerParams struct {
+	ThreadID       string      `json:"threadId"`
+	ExpectedTurnID string      `json:"expectedTurnId"`
+	Input          []UserInput `json:"input"`
+}
+
+type TurnSteerResponse struct {
+	TurnID string `json:"turnId"`
 }
 
 type Account struct {

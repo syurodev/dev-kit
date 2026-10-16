@@ -349,6 +349,12 @@ type SessionUpdate struct {
 	// echo of it. A prompt of only images or files is still a turn, and the echo
 	// is what starts one.
 	Attachments []PromptAttachment `json:"attachments,omitempty"`
+	// Source says who wrote a user_message_chunk when it was not the person at
+	// the composer: another agent session, or the person's terminal CLI. Nil for
+	// the person's own prompts. DevKit's own annotation (peer.go), never the
+	// vendor's, and what makes the transcript draw the message as a message
+	// from elsewhere instead of as the user's bubble.
+	Source *MessageSource `json:"source,omitempty"`
 	// WireKind is the sessionUpdate string exactly as the vendor sent it, kept
 	// even when Kind degrades to UpdateUnknown. Without it an unmodelled kind
 	// is indistinguishable from a malformed one, and the whole point of
@@ -388,6 +394,7 @@ const DevKitWireKey = "_devkit"
 type wireDevKit struct {
 	Origin      string             `json:"origin"`
 	Attachments []PromptAttachment `json:"attachments"`
+	Source      *MessageSource     `json:"source"`
 	// What an adapter adds to a usage_update or session_info_update that the
 	// vendor's own wire shape has no place for.
 	Tokens     *TokenBreakdown `json:"tokens"`
@@ -515,6 +522,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.MessageID = wire.MessageID
 		if wire.DevKit != nil && out.Kind == UpdateUserMessageChunk {
 			out.Attachments = wire.DevKit.Attachments
+			out.Source = wire.DevKit.Source
 		}
 		var block ContentBlock
 		if err := json.Unmarshal(wire.Content, &block); err == nil {

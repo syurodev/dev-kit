@@ -795,3 +795,29 @@ describe("after needs-you", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("messages from other sessions on a row", () => {
+  it("marks the row with how many arrived, and says it in words", () => {
+    const html = renderCard({ session: session("s1"), peerUnread: 2 });
+    expect(html).toContain('data-testid="agent-card-peer-unread"');
+    expect(html).toContain('aria-label="2 new messages from other sessions"');
+    expect(renderCard({ session: session("s1"), peerUnread: 1 })).toContain('aria-label="1 new message from another session"');
+    // The tooltip and the description carry it too, for a screen reader.
+    expect(html).toContain("2 new messages from other sessions");
+  });
+
+  it("draws nothing for a session with none", () => {
+    expect(renderCard({ session: session("s1") })).not.toContain("agent-card-peer-unread");
+    expect(renderCard({ session: session("s1"), peerUnread: 0 })).not.toContain("agent-card-peer-unread");
+  });
+
+  it("stays out of Needs you: nothing waits on the person", () => {
+    const html = render({ sessions: [session("s1"), session("s2")], peerUnread: { s1: 3 } });
+    expect(html).not.toContain('data-testid="agent-needs-you"');
+    // Still in its own group, marked.
+    expect(cardHtml(html, "s1")).toContain("agent-card-peer-unread");
+    expect(cardHtml(html, "s2")).not.toContain("agent-card-peer-unread");
+    // And it neither takes the waiting dot nor the waiting state.
+    expect(cardHtml(html, "s1")).not.toContain("data-waiting");
+  });
+});

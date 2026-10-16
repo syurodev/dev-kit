@@ -408,6 +408,11 @@ export function indicatorLabel(indicator: CardIndicator, attention?: Attention):
   }
 }
 
+/** What the rail's mark for messages from other sessions says. */
+export function peerUnreadLabel(count: number): string {
+  return count === 1 ? "1 new message from another session" : `${count} new messages from other sessions`;
+}
+
 /** Everything a card says in icons, as sentences: its tooltip's second line and its screen-reader text. */
 export function cardSummary(input: {
   vendorName: string;
@@ -417,6 +422,8 @@ export function cardSummary(input: {
   pinned: boolean;
   age: string;
   parentTitle?: string;
+  /** Messages from other sessions the person has not seen. */
+  peerUnread?: number;
 }): string[] {
   const { session, attention } = input;
   const parts = [input.vendorName];
@@ -426,6 +433,7 @@ export function cardSummary(input: {
   // A question waits behind a permission in the indicator; say both.
   if (attention && attention.permissions > 0 && attention.questions > 0) parts.push(indicatorLabel("question", attention));
   if (input.subagents.length) parts.push(subagentsLabel(input.subagents));
+  if (input.peerUnread) parts.push(peerUnreadLabel(input.peerUnread));
   if (input.parentTitle) parts.push(`Child of ${input.parentTitle}`);
   if (input.pinned) parts.push("Pinned");
   if (input.age) parts.push(input.age === "now" ? "Active just now" : `Active ${input.age} ago`);

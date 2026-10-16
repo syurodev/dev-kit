@@ -109,6 +109,12 @@ type AgentSessionsState = {
   pendingAgentHubCommand: AgentHubCommand | null;
   pendingAgentAttach: PendingAgentAttach | null;
   unreadCompletedBySession: Record<string, boolean>;
+  /**
+   * Messages other sessions (or the terminal) sent a session that the person has
+   * not looked at yet. A count for the rail's row only: nothing waits on the
+   * person, so it never joins "Needs you".
+   */
+  peerUnreadBySession: Record<string, number>;
   /** Prompts waiting for their turn. One whose turn has started is not here. */
   queuedPromptsBySession: Record<string, QueuedAgentPrompt[]>;
   /**
@@ -153,7 +159,9 @@ type AgentSessionsState = {
   requestAgentAttach: (refs: EntityRef[], prompt?: string) => void;
   consumeAgentAttach: () => void;
   markCompletedUnread: (sessionId: string) => void;
+  /** Also clears the session's unread messages from other sessions: both mean "it was looked at". */
   markCompletedRead: (sessionId: string) => void;
+  notePeerMessage: (sessionId: string) => void;
   enqueuePrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
   removeQueuedPrompt: (sessionId: string, promptId: string) => void;
   updateQueuedPrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
@@ -192,6 +200,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   pendingAgentHubCommand: null,
   pendingAgentAttach: null,
   unreadCompletedBySession: {},
+  peerUnreadBySession: {},
   queuedPromptsBySession: {},
   turnInFlightBySession: {},
   queuePausedBySession: {},
@@ -224,6 +233,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       const { [id]: _paging, ...transcriptPagingById } = state.transcriptPagingById;
       const { [id]: _prompt, ...promptBySession } = state.promptBySession;
       const { [id]: _unread, ...unreadCompletedBySession } = state.unreadCompletedBySession;
+      const { [id]: _peerUnread, ...peerUnreadBySession } = state.peerUnreadBySession;
       const { [id]: _queued, ...queuedPromptsBySession } = state.queuedPromptsBySession;
       const { [id]: _inFlight, ...turnInFlightBySession } = state.turnInFlightBySession;
       const { [id]: _paused, ...queuePausedBySession } = state.queuePausedBySession;
@@ -237,6 +247,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
         transcriptPagingById,
         promptBySession,
         unreadCompletedBySession,
+        peerUnreadBySession,
         queuedPromptsBySession,
         turnInFlightBySession,
         queuePausedBySession,
@@ -335,10 +346,17 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     ),
   markCompletedRead: (sessionId) =>
     set((state) => {
-      if (!state.unreadCompletedBySession[sessionId]) return state;
+      const completed = Boolean(state.unreadCompletedBySession[sessionId]);
+      const peer = Boolean(state.peerUnreadBySession[sessionId]);
+      if (!completed && !peer) return state;
       const { [sessionId]: _read, ...unreadCompletedBySession } = state.unreadCompletedBySession;
-      return { unreadCompletedBySession };
+      const { [sessionId]: _peerRead, ...peerUnreadBySession } = state.peerUnreadBySession;
+      return { unreadCompletedBySession, peerUnreadBySession };
     }),
+  notePeerMessage: (sessionId) =>
+    set((state) => ({
+      peerUnreadBySession: { ...state.peerUnreadBySession, [sessionId]: (state.peerUnreadBySession[sessionId] ?? 0) + 1 },
+    })),
   enqueuePrompt: (sessionId, prompt) =>
     set((state) => ({
       queuedPromptsBySession: {

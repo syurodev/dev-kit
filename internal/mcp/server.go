@@ -254,12 +254,19 @@ func (s *Server) gateOwnedTool(tool *sdk.Tool) *sdk.Tool {
 // PreApprovedTools are the tools an agent may run without being asked: the
 // read-only pdf.* tools, which answer only for the calling session's own
 // documents. Reading a document the user attached is what attaching it is for;
-// a prompt per page would make the feature unusable.
+// a prompt per page would make the feature unusable. agenthub.listPeers is the
+// other: it names the sessions of the caller's own workspace and nothing else.
+// agenthub.sendMessage is not on the list — what an agent says to another
+// session is the person's to approve through the vendor's own permission flow.
 func (s *Server) PreApprovedTools() []string {
-	if s.deps.PDFDocuments == nil {
-		return nil
+	var names []string
+	if s.deps.PDFDocuments != nil {
+		names = append(names, "pdf.list", "pdf.info", "pdf.search", "pdf.readText", "pdf.viewPages")
 	}
-	return []string{"pdf.list", "pdf.info", "pdf.search", "pdf.readText", "pdf.viewPages"}
+	if s.deps.AgentHub != nil {
+		names = append(names, "agenthub.listPeers")
+	}
+	return names
 }
 
 func (s *Server) GateOwnedTools() []string {

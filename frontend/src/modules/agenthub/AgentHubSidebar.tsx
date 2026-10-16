@@ -82,6 +82,7 @@ export function AgentHubSidebar() {
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
   const elicitationQueue = useAgentSessionsStore((state) => state.elicitationQueue);
   const subagents = useAgentSessionsStore((state) => state.subagents);
+  const peerUnread = useAgentSessionsStore((state) => state.peerUnreadBySession);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const dequeuePendingForSession = useAgentSessionsStore((state) => state.dequeuePendingForSession);
@@ -197,6 +198,7 @@ export function AgentHubSidebar() {
         asks={asks}
         currentWorkspaceId={currentWorkspaceId}
         subagents={subagents}
+        peerUnread={peerUnread}
         pinnedIds={pinned}
         onTogglePin={togglePin}
         collapsedKeys={collapsed}

@@ -693,3 +693,30 @@ describe("a session failure lasts one turn", () => {
     expect(retried.failure).toBeNull();
   });
 });
+
+describe("a message another session sent", () => {
+  const source = { kind: "session", sessionId: "s-alpha", agentType: "claude", name: "alpha", messageId: "m1", hop: 2 };
+
+  it("keeps its source on the live item and on a reloaded page, so a reload draws the same label", () => {
+    let live = createInitialTranscriptModel();
+    live = applySessionUpdate(live, { kind: "user_message_chunk", messageId: "m1", content: { type: "text", text: "look at the parser" }, source });
+    live = applySessionUpdate(live, { kind: "agent_message_chunk", messageId: "r1", content: { type: "text", text: "ok" } });
+    expect(live.items[0]).toMatchObject({ messageId: "m1", text: "look at the parser", source });
+
+    const reloaded = initTranscript([
+      { ID: "r1", Seq: 1, Kind: "user_message_chunk", Text: "look at the parser", Payload: { messageId: "m1", source }, CreatedAt: "2026-09-17T00:00:00Z" },
+      { ID: "r2", Seq: 2, Kind: "agent_message_chunk", Text: "ok", Payload: { messageId: "r1" }, CreatedAt: "2026-09-17T00:00:01Z" },
+    ]);
+    expect(reloaded.items[0]).toMatchObject({ messageId: "m1", text: "look at the parser", source });
+    // The person's own prompts carry no source key at all.
+    expect("source" in reloaded.items[1]).toBe(false);
+  });
+
+  it("is a message of its own, not folded into the person's prompt before it", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: "user_message_chunk", messageId: "p1", content: { type: "text", text: "mine" } });
+    model = applySessionUpdate(model, { kind: "user_message_chunk", messageId: "m1", content: { type: "text", text: "theirs" }, source });
+    expect(model.items.map((item) => item.text)).toEqual(["mine", "theirs"]);
+    expect("source" in model.items[0]).toBe(false);
+  });
+});

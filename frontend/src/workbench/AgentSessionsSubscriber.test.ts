@@ -6,6 +6,8 @@ import {
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
   handleSessionUpdateTabs,
+  isPeerMessage,
+  promptQueueChanges,
   statusAnnouncement,
   statusTransitionAnnouncement,
   turnFinishedAnnouncement,
@@ -231,5 +233,43 @@ describe("what the shell's live region says", () => {
     const html = renderToString(createElement(AgentSessionsSubscriber));
     expect(html.match(/aria-live=/g)).toHaveLength(1);
     expect(html).toContain('aria-live="polite"');
+  });
+});
+
+describe("messages from other sessions and the person's own queue", () => {
+  const queued = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `q${i}`, text: "t", attachments: [], images: [], refs: [] }));
+
+  it("recognises a user message the person did not type", () => {
+    expect(isPeerMessage({ parsed: { kind: "user_message_chunk", source: { kind: "session", sessionId: "a", hop: 1 } } as never })).toBe(true);
+    expect(isPeerMessage({ parsed: { kind: "user_message_chunk" } as never })).toBe(false);
+    expect(isPeerMessage({ parsed: { kind: "agent_message_chunk", source: { kind: "session", hop: 1 } } as never })).toBe(false);
+    expect(isPeerMessage({ parsed: null })).toBe(false);
+  });
+
+  it("reports only the sessions whose queue or pause changed", () => {
+    const none = { queuedPromptsBySession: {}, queuePausedBySession: {} };
+    const one = { queuedPromptsBySession: { s1: queued(2) }, queuePausedBySession: { s1: true, s2: false } };
+    expect(promptQueueChanges(one, none)).toEqual([{ sessionId: "s1", waiting: 2, paused: true }]);
+    // Nothing moved: nothing is sent.
+    expect(promptQueueChanges(one, one)).toEqual([]);
+    // Drained and resumed: Go is told the session is free again.
+    expect(promptQueueChanges(none, one)).toEqual([{ sessionId: "s1", waiting: 0, paused: false }]);
+    // One more prompt waiting is a change.
+    expect(promptQueueChanges({ ...one, queuedPromptsBySession: { s1: queued(3) } }, one)).toEqual([{ sessionId: "s1", waiting: 3, paused: true }]);
+  });
+
+  it("counts them on the session until it is looked at, and never as needing the person", () => {
+    const store = useAgentSessionsStore;
+    store.setState({ peerUnreadBySession: {}, unreadCompletedBySession: {} });
+    store.getState().notePeerMessage("s1");
+    store.getState().notePeerMessage("s1");
+    store.getState().notePeerMessage("s2");
+    expect(store.getState().peerUnreadBySession).toEqual({ s1: 2, s2: 1 });
+    // Looking at s1 clears its count and leaves s2's.
+    store.getState().markCompletedRead("s1");
+    expect(store.getState().peerUnreadBySession).toEqual({ s2: 1 });
+    // Deleting a session takes its count with it.
+    store.getState().removeSession("s2");
+    expect(store.getState().peerUnreadBySession).toEqual({});
   });
 });

@@ -27,6 +27,17 @@ type MockAdapter struct {
 	forkErr   error
 	deleted   []string
 	deleteErr error
+	// noSteer makes every runtime refuse a mid-turn message, like a vendor that
+	// cannot take one (SetSteering).
+	noSteer bool
+}
+
+// SetSteering turns mid-turn messages on (the default) or off for runtimes
+// opened afterwards, so a test can ask for the vendor that cannot steer.
+func (a *MockAdapter) SetSteering(on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.noSteer = !on
 }
 
 // MockFork is one branch the mock was asked for.
@@ -108,8 +119,8 @@ func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, 
 	a.lastSpec = spec
 	a.mu.Unlock()
 	id := fmt.Sprintf("mock-acp-%d", mockSessionSeq.Add(1))
-	runtime := &mockRuntime{acpSessionID: id, adapter: a}
 	a.mu.Lock()
+	runtime := &mockRuntime{acpSessionID: id, adapter: a, noSteer: a.noSteer}
 	a.lastRuntime = runtime
 	a.mu.Unlock()
 	return runtime, nil
@@ -186,6 +197,7 @@ type mockRuntime struct {
 	// steering injects rather than reporting promptRequired — the same rule the
 	// real agent applies.
 	turnRunning bool
+	noSteer     bool
 	steered     []string
 	goal        string
 }
@@ -200,6 +212,9 @@ func (r *mockRuntime) Steer(ctx context.Context, prompt []acp.ContentBlock) (str
 	defer r.mu.Unlock()
 	if r.closed {
 		return "", ErrSessionNotFound
+	}
+	if r.noSteer {
+		return "", ErrUnsupported
 	}
 	if !r.turnRunning {
 		return "promptRequired", nil

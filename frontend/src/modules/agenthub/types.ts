@@ -217,7 +217,27 @@ export type SessionUpdate = {
   origin?: string;
   /** What a prompt carried besides text, on DevKit's echo of it. */
   attachments?: PromptAttachment[];
+  /** Who wrote a user message that the person did not type. */
+  source?: MessageSource;
   raw?: unknown;
+};
+
+/**
+ * Where a user message came from when it was not the person at the composer:
+ * another Agent Hub session, or the person's terminal CLI. Mirrors
+ * peer.go: MessageSource. The label is stored with the row, so a reload draws
+ * the same thing the live message did.
+ */
+export type MessageSource = {
+  kind: "session" | "terminal" | string;
+  sessionId?: string;
+  agentType?: string;
+  /** The sender's title when the message was sent; the live title wins. */
+  name?: string;
+  messageId?: string;
+  replyTo?: string;
+  /** Which step of the exchange this is, from 1. */
+  hop: number;
 };
 
 /** One file, image, PDF document or ref a prompt carried, by name. Mirrors update.go: PromptAttachment. */
@@ -335,6 +355,8 @@ export type TranscriptItem = {
   origin?: string;
   /** A prompt's attachments, by name. */
   attachments?: PromptAttachment[];
+  /** Set on a user message another session (or the terminal) sent. */
+  source?: MessageSource;
   toolCallId?: string;
   toolCall?: ToolCall;
   plan?: PlanEntry[];

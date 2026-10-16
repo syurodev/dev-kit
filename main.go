@@ -608,6 +608,32 @@ func main() {
 	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
+	// A message between sessions is audited with who, to whom, how long and what
+	// became of it — never the text. The window needs no event of its own: the
+	// receiving session's transcript update carries the message and its source.
+	agentSvc.HasPendingQuestion = agentElicitations.HasSession
+	peerAudit := audit.NewTee(container.Audit, auditSQL)
+	agentSvc.OnPeerMessage = func(ev agenthub.PeerMessageEvent) {
+		caller, scope := "user-terminal", "session:invalid"
+		if ev.From.Kind == "session" {
+			caller = identity.Agent(ev.From.SessionID).String()
+		}
+		if len(ev.To) == 36 {
+			scope = "session:" + ev.To
+		}
+		outcome := audit.OutcomeAllowed
+		if ev.Delivery == agenthub.DeliveryRefused {
+			outcome = audit.OutcomeDenied
+		}
+		peerAudit.Record(audit.Event{
+			Caller: caller, At: time.Now().UTC(), SubjectID: "builtin.agenthub", Capability: "agenthub:execute",
+			Scope: scope, Outcome: outcome,
+			Metadata: map[string]any{
+				"origin": "mcp", "action": "peer_message", "message_id": ev.MessageID, "from": caller, "to": ev.To,
+				"length": ev.Length, "delivery": string(ev.Delivery), "code": ev.Code, "hop": ev.From.Hop, "drained": ev.Drained,
+			},
+		})
+	}
 	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {
 		emitAppEvent("agenthub:turnFinished", map[string]any{
 			"sessionId": sessionID,

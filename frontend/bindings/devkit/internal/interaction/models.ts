@@ -39,6 +39,11 @@ export enum Kind {
     KindTask = "task",
 
     /**
+     * KindAgent is an agent session's message to a session outside its workspace.
+     */
+    KindAgent = "agent",
+
+    /**
      * KindGitAccount is a git remote that more than one account could
      * authenticate: the person says which, because choosing the wrong identity
      * is worse than asking once.

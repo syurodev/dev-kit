@@ -37,6 +37,7 @@ export type AgentSessionGroupProps = {
   activeId?: string;
   pinnedIds: readonly string[];
   subagents: Record<string, Subagent[]>;
+  peerUnread: Record<string, number>;
   now: number;
   onToggleCollapsed: (key: string) => void;
   onToggleOlder: (key: string) => void;
@@ -85,6 +86,7 @@ function AgentSessionGroupView({
   activeId,
   pinnedIds,
   subagents,
+  peerUnread,
   now,
   onToggleCollapsed,
   onToggleOlder,
@@ -136,6 +138,7 @@ function AgentSessionGroupView({
       folder={severalFolders ? projectLabel(session.projectPath) : null}
       pinned={pinnedIds.includes(session.id)}
       subagents={subagents[session.id] ?? NO_SUBAGENTS}
+      peerUnread={peerUnread[session.id]}
       parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
       now={now}
     />
