@@ -62,6 +62,54 @@ export interface MigrationReport {
 }
 
 /**
+ * PDFHit is one place a search found.
+ */
+export interface PDFHit {
+    "page": number;
+    "snippet": string;
+}
+
+/**
+ * PDFInfo is a document as the viewer lays it out.
+ */
+export interface PDFInfo {
+    /**
+     * Revision is the content hash of the bytes shown; later calls name it so a
+     * file replaced meanwhile is noticed instead of mixing two documents.
+     */
+    "revision": string;
+    "pages": number;
+
+    /**
+     * PageSizes is width and height in points (1/72 in) per page, rotation applied.
+     */
+    "pageSizes": number[][] | null;
+    "size": number;
+    "modifiedAt": number;
+}
+
+/**
+ * PDFPage is one drawn page.
+ */
+export interface PDFPage {
+    "page": number;
+    "mimeType": string;
+    "data": string | null;
+    "width": number;
+    "height": number;
+}
+
+/**
+ * PDFSearch is the answer to a search, including what it could not cover.
+ */
+export interface PDFSearch {
+    "hits": PDFHit[] | null;
+    "truncated": boolean;
+    "complete": boolean;
+    "pagesWithoutText": number[] | null;
+}
+
+/**
  * SearchRequest is a find-in-workspace request. FolderIDs empty means every
  * folder of the workspace. RequestID names the search so it can be cancelled.
  */

@@ -2573,6 +2573,15 @@ export function WorkspaceFileRead(workspaceID: string, folderID: string, relativ
 }
 
 /**
+ * WorkspaceFileReveal shows a file of a folder in the file manager (Finder,
+ * File Explorer…). Desktop only: in server mode the bridge is unauthenticated
+ * loopback HTTP and the machine it would act on has no one looking at it.
+ */
+export function WorkspaceFileReveal(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<void> {
+    return $Call.ByID(1560590664, workspaceID, folderID, relativePath);
+}
+
+/**
  * WorkspaceFileStat says what is on disk at a path — exists, revision, why it
  * cannot be opened as text — without its content. The editor reconciles an open
  * buffer with this after a change notification, a focus return or a save.
@@ -2662,6 +2671,29 @@ export function WorkspaceMemoryRestore(workspaceID: string, id: string, expected
 
 export function WorkspaceMemoryUpdate(workspaceID: string, id: string, expectedRevision: number, $in: workspacememory$0.Input): $CancellablePromise<workspacememory$0.Entry> {
     return $Call.ByID(2506625165, workspaceID, id, expectedRevision, $in);
+}
+
+/**
+ * WorkspacePdfInfo opens a PDF of a folder: its page count and page sizes, and
+ * the revision later calls name.
+ */
+export function WorkspacePdfInfo(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<app$0.PDFInfo> {
+    return $Call.ByID(224395399, workspaceID, folderID, relativePath);
+}
+
+/**
+ * WorkspacePdfPage draws one page (1-based) of the revision WorkspacePdfInfo
+ * reported, at dpi (0 = default; bounded by the engine).
+ */
+export function WorkspacePdfPage(workspaceID: string, folderID: string, relativePath: string, revision: string, page: number, dpi: number): $CancellablePromise<app$0.PDFPage> {
+    return $Call.ByID(1841678280, workspaceID, folderID, relativePath, revision, page, dpi);
+}
+
+/**
+ * WorkspacePdfSearch finds a phrase in the text of a PDF's pages.
+ */
+export function WorkspacePdfSearch(workspaceID: string, folderID: string, relativePath: string, revision: string, query: string): $CancellablePromise<app$0.PDFSearch> {
+    return $Call.ByID(378289899, workspaceID, folderID, relativePath, revision, query);
 }
 
 /**

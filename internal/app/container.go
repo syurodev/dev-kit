@@ -139,6 +139,9 @@ type Container struct {
 	// search, outline and entry points by (workspace, folder) identity, without
 	// a "focused project" (docs/design/codegraph-workspace.md).
 	WorkspaceCode *WorkspaceCode
+	// PDFView draws a PDF of a workspace folder for the Files viewer. Set by
+	// main.go once the PDF engine exists; nil answers "not available".
+	PDFView *PDFView
 	// CodexSessions stores what an external Codex CLI session reported through
 	// its lifecycle hooks — a session DevKit did not spawn and does not run.
 	// Nil in ephemeral containers, which leaves it read-only-empty: the MCP

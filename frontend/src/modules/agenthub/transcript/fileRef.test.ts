@@ -55,6 +55,21 @@ describe("fileRef review fixes", () => {
   });
 });
 
+describe("a link to a document that is not source code", () => {
+  test("an explicit link opens any file with an extension, the way the author meant it", () => {
+    expect(linkTarget("/Users/me/project-docs/huong-dan-ca-12.pdf")).toEqual({ kind: "file", ref: { path: "/Users/me/project-docs/huong-dan-ca-12.pdf" } });
+    expect(linkTarget("docs/report.docx")).toEqual({ kind: "file", ref: { path: "docs/report.docx" } });
+    expect(linkTarget("file:///Users/me/a/spec.pdf")).toEqual({ kind: "file", ref: { path: "/Users/me/a/spec.pdf" } });
+    expect(linkTarget("docs/report")).toEqual({ kind: "other" });
+  });
+  test("an inline `span` still has to look like a file, but a PDF or text file does", () => {
+    expect(fileRef("docs/spec.pdf")).toEqual({ path: "docs/spec.pdf" });
+    expect(fileRef("notes/todo.txt")).toEqual({ path: "notes/todo.txt" });
+    expect(fileRef("report.docx")).toBeNull();
+    expect(fileRef("v1.2")).toBeNull();
+  });
+});
+
 describe("linkTarget", () => {
   test("classifies hrefs", () => {
     expect(linkTarget("https://x.test/a")).toEqual({ kind: "url", url: "https://x.test/a" });

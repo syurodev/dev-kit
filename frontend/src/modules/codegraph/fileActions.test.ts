@@ -108,6 +108,22 @@ const buffer = (k: string) => useCodeGraphStore.getState().buffers[k];
 beforeEach(() => reset());
 
 describe("file actions over a workspace", () => {
+  it("opens a PDF as a tab with no text buffer, and a Markdown file as an ordinary text buffer", async () => {
+    // Were the PDF read as text it would fail as binary and leave an error buffer behind.
+    disk.set("fa:docs/spec.pdf", "%PDF-1.7 not read as text");
+    disk.set("fa:docs/guide.md", "# Guide\n");
+    expect(await actions.openFile({ workspaceId: WS, folderId: "fa", path: "docs/spec.pdf" }, null, { preview: false })).toBe(true);
+    expect(buffer(key("fa", "docs/spec.pdf"))).toBeUndefined();
+    expect(documentsOf().some(({ doc }) => doc.kind === "file" && doc.path === "docs/spec.pdf" && doc.folderId === "fa")).toBe(true);
+
+    // A restored tab asks for its buffer; a PDF has none to give.
+    actions.ensureBuffer({ workspaceId: WS, folderId: "fa", path: "docs/spec.pdf" });
+    expect(buffer(key("fa", "docs/spec.pdf"))).toBeUndefined();
+
+    await actions.openFile({ workspaceId: WS, folderId: "fa", path: "docs/guide.md" }, null, { preview: false });
+    expect(buffer(key("fa", "docs/guide.md")).content).toBe("# Guide\n");
+  });
+
   it("keeps the same relative path in two folders as two independent buffers", async () => {
     disk.set("fa:src/config.ts", "export const a = 1\n");
     disk.set("fb:src/config.ts", "export const b = 2\n");

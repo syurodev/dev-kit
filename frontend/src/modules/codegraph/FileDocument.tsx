@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, TriangleAlert } from "lucide-react";
+import { Code, RotateCcw, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
@@ -7,7 +8,9 @@ import { codeIntel, markCodeIntelBaseline, savedLineAt, type CodeIntelPanelReque
 import { languageForPath } from "@/components/code/languages";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { detectPlatform } from "@/lib/platform";
+import { statFolderFile } from "@/bridge/workspaceCode";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -25,11 +28,29 @@ import { ExternalChangeBanner, MixedEolNote, OrphanBanner } from "./file/FileBan
 import { CompareDialog } from "./file/CompareDialog";
 import { FileToolbar, SavingMark } from "./file/FileToolbar";
 import { NavigationPanel, closePanel } from "./file/NavigationPanel";
+import { MarkdownFileEditor } from "./viewers/MarkdownFileEditor";
+import { MarkdownPreview } from "./viewers/MarkdownPreview";
+import { PdfDocument } from "./viewers/PdfDocument";
+import { viewerKindOf } from "./viewers/viewerKind";
 
 const platform = detectPlatform();
 
+type MarkdownMode = "view" | "edit" | "source";
+
+/** Which view of a Markdown file each document last showed, so switching tabs does not reset it. */
+const markdownModes = new Map<string, MarkdownMode>();
+
 /**
- * One file as a tab, open for editing.
+ * One file as a tab. A PDF is a viewer (viewers/PdfDocument); any other file is
+ * the editor, and a Markdown file also has a rendered view to switch to.
+ */
+export function FileDocument({ params }: { params?: Record<string, unknown> }) {
+  const kind = viewerKindOf(describeParams(FILE_VIEW, params).path ?? "");
+  return kind === "pdf" ? <PdfDocument params={params} /> : <TextFileDocument params={params} markdown={kind === "markdown"} />;
+}
+
+/**
+ * One text file as a tab, open for editing.
  *
  * The file is `(workspace, folder, path)` — read from, saved into and watched in
  * that folder whatever the primary is and whichever workspace the title bar now
@@ -38,16 +59,42 @@ const platform = detectPlatform();
  * clean buffer follows it, a dirty one raises a conflict that only the person
  * resolves (file/FileBanners.tsx).
  */
-export function FileDocument({ params }: { params?: Record<string, unknown> }) {
+function TextFileDocument({ params, markdown }: { params?: Record<string, unknown>; markdown: boolean }) {
   const doc = describeParams(FILE_VIEW, params);
   const path = doc.path ?? "";
   const tabId = tabKey(MODULE, FILE_VIEW, params);
   const ownership = useDocumentOwnership(doc);
   const { owner, folder, relation } = ownership;
+  const folderId = owner?.folderId ?? "";
+  const workspaceId = owner?.workspaceId ?? "";
   const key = owner && path ? docKey(owner.workspaceId, owner.folderId, path) : "";
   const buffer = useCodeGraphStore((s) => (key ? s.buffers[key] : undefined));
   const front = useIsFrontDocument(tabId);
   const [compareOpen, setCompareOpen] = useState(false);
+  // Markdown opens rendered; a jump to a line (an agent's reference, Back/Forward) is about the text.
+  const [mode, setModeState] = useState<MarkdownMode>(() => markdownModes.get(key) ?? "view");
+  const setMode = useCallback(
+    (next: MarkdownMode) => {
+      markdownModes.set(key, next);
+      setModeState(next);
+    },
+    [key],
+  );
+  const restoreToken = buffer?.restore?.token;
+  useEffect(() => {
+    if (markdown && restoreToken !== undefined) setMode("source");
+  }, [markdown, restoreToken, setMode]);
+  const openLinked = useCallback(
+    async (rel: string) => {
+      const found = await statFolderFile(workspaceId, folderId, rel).catch(() => null);
+      if (!found?.exists) {
+        toast.error(`${rel} is not in this folder`);
+        return;
+      }
+      void openFile({ workspaceId, folderId, path: rel }, null, { preview: false });
+    },
+    [workspaceId, folderId],
+  );
 
   // A tab restored after a relaunch has no buffer yet: read it once its owner is known.
   useEffect(() => {
@@ -64,8 +111,6 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   const keyRef = useRef(key);
   keyRef.current = key;
 
-  const folderId = owner?.folderId ?? "";
-  const workspaceId = owner?.workspaceId ?? "";
   const provider = useMemo(() => (folder ? createCodeGraphIntelProvider({ id: folder.id, path: folder.path }) : null), [folder?.id, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNavigate = useCallback(
@@ -214,6 +259,20 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
   const orphaned = buffer.orphan !== null;
   const conflicted = buffer.external !== null && !orphaned;
 
+  const codeEditor = (
+    <CodeEditor
+      // Line endings are fixed when the editor is created.
+      key={buffer.eol}
+      value={buffer.content}
+      revealLine={revealTarget}
+      onChange={(content) => editFile(key, content, tabId)}
+      extensions={extensions}
+      onView={onView}
+      lineSeparator={buffer.eol}
+      wrap="auto"
+    />
+  );
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <FileToolbar
@@ -224,6 +283,28 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
         buffer={buffer}
         right={
           <>
+            {markdown ? (
+              <>
+                {mode !== "view" ? (
+                  <Button
+                    variant={mode === "source" ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-label="Edit as text"
+                    aria-pressed={mode === "source"}
+                    title="Edit the Markdown text"
+                    onClick={() => setMode(mode === "source" ? "edit" : "source")}
+                  >
+                    <Code />
+                  </Button>
+                ) : null}
+                <Tabs value={mode === "view" ? "view" : "edit"} onValueChange={(value) => setMode(value as MarkdownMode)}>
+                  <TabsList className="h-7 gap-0.5 p-0.5">
+                    <TabsTrigger value="view" className="h-6 px-2 text-label-12">View</TabsTrigger>
+                    <TabsTrigger value="edit" className="h-6 px-2 text-label-12">Edit</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </>
+            ) : null}
             {buffer.saving ? <SavingMark /> : null}
             {buffer.reloadedAt > 0 ? <ReloadedMark at={buffer.reloadedAt} /> : null}
             {buffer.dirty ? (
@@ -266,17 +347,18 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
       ) : null}
       {buffer.mixedEol ? <MixedEolNote eol={buffer.eol} /> : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <CodeEditor
-          // Line endings are fixed when the editor is created.
-          key={buffer.eol}
-          value={buffer.content}
-          revealLine={revealTarget}
-          onChange={(content) => editFile(key, content, tabId)}
-          extensions={extensions}
-          onView={onView}
-          lineSeparator={buffer.eol}
-          wrap="auto"
-        />
+        {markdown && mode === "view" ? (
+          <MarkdownPreview source={buffer.content} docPath={path} onOpenFile={(rel) => void openLinked(rel)} />
+        ) : markdown && mode === "edit" ? (
+          <MarkdownFileEditor
+            source={buffer.content}
+            onChange={(content) => editFile(key, content, tabId)}
+            onSave={() => void saveFile(key)}
+            fallback={codeEditor}
+          />
+        ) : (
+          codeEditor
+        )}
       </div>
       {buffer.error ? (
         <p role="alert" className="shrink-0 px-4 py-1 text-body-12 text-status-danger">

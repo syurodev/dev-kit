@@ -91,6 +91,79 @@ export function writeFolderFile(
   });
 }
 
+/**
+ * PDFs of a folder, drawn by Go (internal/pdfdoc). The viewer names the file by
+ * (workspace, folder, path) like everything above and gets pictures back — a PDF
+ * never reaches the webview as anything it could run.
+ */
+export type PdfInfo = {
+  /** Names the bytes shown; later calls carry it so a replaced file is noticed. */
+  revision: string;
+  pages: number;
+  /** Width and height per page in points (1/72 in), rotation applied. */
+  pageSizes: Array<[number, number]>;
+  size: number;
+  modifiedAt: number;
+};
+
+export function pdfInfo(workspaceId: string, folderId: string, path: string): Promise<PdfInfo> {
+  return callBridge(async () => {
+    const r = await AppService.WorkspacePdfInfo(workspaceId, folderId, path);
+    return {
+      revision: r.revision,
+      pages: r.pages,
+      pageSizes: (r.pageSizes ?? []).map((s) => [s[0], s[1]] as [number, number]),
+      size: Number(r.size),
+      modifiedAt: Number(r.modifiedAt),
+    };
+  });
+}
+
+/** A drawn page as an `<img src>`; Go sends the bytes base64-encoded. */
+export type PdfPageImage = { page: number; src: string; width: number; height: number };
+
+export function pdfPage(
+  workspaceId: string,
+  folderId: string,
+  path: string,
+  revision: string,
+  page: number,
+  dpi: number,
+): CancellableCall<PdfPageImage> {
+  return callBridgeCancellable(
+    () => AppService.WorkspacePdfPage(workspaceId, folderId, path, revision, page, dpi),
+    (r) => ({ page: r.page, src: `data:${r.mimeType};base64,${r.data ?? ""}`, width: r.width, height: r.height }),
+  );
+}
+
+export type PdfSearchResult = {
+  hits: Array<{ page: number; snippet: string }>;
+  truncated: boolean;
+  /** False when the search ran out of time before every page was looked at. */
+  complete: boolean;
+  /** Pages with no text layer (scans): not searchable. */
+  pagesWithoutText: number[];
+};
+
+export function pdfSearch(workspaceId: string, folderId: string, path: string, revision: string, query: string): CancellableCall<PdfSearchResult> {
+  return callBridgeCancellable(
+    () => AppService.WorkspacePdfSearch(workspaceId, folderId, path, revision, query),
+    (r) => ({
+      hits: (r.hits ?? []).map((h) => ({ page: h.page, snippet: h.snippet })),
+      truncated: r.truncated,
+      complete: r.complete,
+      pagesWithoutText: r.pagesWithoutText ?? [],
+    }),
+  );
+}
+
+/** Shows a file of a folder in the file manager. Go resolves the path; desktop only. */
+export function revealFolderFile(workspaceId: string, folderId: string, path: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.WorkspaceFileReveal(workspaceId, folderId, path);
+  });
+}
+
 export type CodeGraphGitMark = "M" | "A" | "D" | "R";
 
 export function folderGitStatus(workspaceId: string, folderId: string): Promise<Record<string, CodeGraphGitMark>> {

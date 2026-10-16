@@ -424,3 +424,24 @@ func TestRealSampleDocument(t *testing.T) {
 		t.Fatalf("info = %+v", info)
 	}
 }
+
+func TestPageSizesAreReadWithoutReadingText(t *testing.T) {
+	src := load(t, "webprint.pdf")
+	sizes, err := eng().PageSizes(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := eng().Inspect(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sizes) != info.Pages || info.Pages < 2 {
+		t.Fatalf("%d sizes for %d pages", len(sizes), info.Pages)
+	}
+	if sizes[0] != info.PageSize {
+		t.Fatalf("first page = %v, Inspect says %v", sizes[0], info.PageSize)
+	}
+	if _, err := eng().PageSizes(context.Background(), Source{Data: []byte("not a pdf")}); !errors.Is(err, ErrNotPDF) {
+		t.Fatalf("not a pdf: %v", err)
+	}
+}

@@ -585,6 +585,29 @@ CodeGraph works on the **workspace**; a folder is neither a service nor "the" pr
 - **Verifying in a browser**: `task run:server`, then drive it with Playwright; fixtures are
   `scripts/codegraph-fixture.mjs` (representative workspace), `scripts/codegraph-bench-fixture.mjs` (10k files) and
   `scripts/codegraph-index-fixture.mjs` (real Java/TypeScript analyzer timing). Server mode has no Agent Hub.
+- **Markdown and PDF files open in `FileDocument` by their name** (`modules/codegraph/viewers/viewerKind.ts`;
+  tab identity is unchanged, so agent references, Back/Forward and the palette reach them for free).
+  Markdown stays a text buffer with a **View | Edit** switch (plus a text-editor toggle and, for a jump to a line,
+  `source`). View is `MarkdownPreview`: it renders `marked`'s tokens through the agent transcript's parser
+  (`agentMarkdown.parseMarkdown`) — no HTML string is built, raw HTML shows as text, images are never fetched, links go
+  to the browser, a heading of the file or a file of the same folder (`markdownLinks.ts`). Edit is Plate, the same
+  editor as Notes (`MarkdownFileEditor`, `markdownEditorKit.ts`) — **but the file is never written from Plate's
+  tree**: Plate re-pads tables, turns hard-wrapped paragraphs into `\`-hard-breaks and rewrites list markers, which
+  measured 0/84 of this repo's `.md` files round-tripping. `markdownSplice.ts` applies only what the person changed to
+  the original text, block by block (median 2 changed lines over this repo's docs; 6 of 68 fall back to Plate's own
+  formatting and the editor says so before saving). A file whose letters/digits Plate would drop or change (HTML it
+  cannot read, reference-link definitions, entities — 16 of 84 here, `losesText`) is edited as text instead. Front
+  matter is set aside and put back (`markdownFrontMatter.ts`). The buffer stays the source of truth (`editFile`, Save,
+  conflicts); `markdownNorm` must call `serialize({value})`, not `setValue` (11× slower). A PDF has **no buffer**
+  (`openFile`/`ensureBuffer` skip `isPdfPath`): `PdfDocument` asks Go for `WorkspacePdfInfo` / `Page` / `Search`
+  (`internal/app/pdfview.go`, the same `pdfdoc` engine the agent's `pdf.*` tools use — pages are PNG pictures, no
+  new frontend library, nothing of the file runs in the webview). Go reads the bytes through `codegraph.ReadBinaryAt`
+  (folder-resolved, symlink-safe, 100 MiB) and keeps ≤ 4 documents / 256 MiB, validated by size+mtime; every call
+  names the content `revision` from `Info`, so a replaced file answers `pdf_changed` and the view reopens. Layout,
+  zoom and which pages are near the viewport are pure (`pdfLayout.ts`); an effect there must depend on ids, never on
+  the `owner` object from `useDocumentOwnership` (new every render — it once re-read the file in a loop). Not done:
+  highlighting a search hit on the page, selecting/copying PDF text, password-protected PDFs, images in Markdown,
+  `#anchor` into another file, Markdown headings in the Outline.
 - **Cross-folder intelligence is deliberately thin.** Definitions/references/outline come from the
   index of the folder that owns the file; nothing matches names across folders and text search is never
   presented as references. HTTP/Kafka/Redis links stay in `internal/crossservice`.

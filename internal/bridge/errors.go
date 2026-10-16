@@ -26,6 +26,7 @@ import (
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
 	"devkit/internal/notes"
+	"devkit/internal/pdfdoc"
 	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
 	"devkit/internal/tasks"
@@ -438,6 +439,22 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "This file is too large to open in the editor.", true, codegraph.ErrFileTooLarge)
 		case errors.Is(err, codegraph.ErrFileConflict):
 			return apperrors.Wrap(codeFileConflict, "The file changed on disk after it was opened. Nothing was saved; your edits are still in the editor.", true, codegraph.ErrFileConflict)
+		case errors.Is(err, errRevealUnavailable):
+			return apperrors.New(codeValidationFailed, "Showing a file in the file manager is only available in the desktop app.", true)
+		case errors.Is(err, app.ErrPDFChanged):
+			return apperrors.Wrap(codePDFChanged, "This PDF changed on disk. Open it again to see the new version.", true, app.ErrPDFChanged)
+		case errors.Is(err, app.ErrPDFUnavailable), errors.Is(err, pdfdoc.ErrUnavailable):
+			return apperrors.Wrap(codePDFUnavailable, "DevKit's PDF reader is not available.", true, err)
+		case errors.Is(err, pdfdoc.ErrPasswordRequired):
+			return apperrors.Wrap(codeValidationFailed, "This PDF is password-protected, and DevKit cannot open it.", true, pdfdoc.ErrPasswordRequired)
+		case errors.Is(err, pdfdoc.ErrNotPDF):
+			return apperrors.Wrap(codeValidationFailed, "This file is not a PDF.", true, pdfdoc.ErrNotPDF)
+		case errors.Is(err, pdfdoc.ErrCorrupt):
+			return apperrors.Wrap(codeValidationFailed, "This PDF is damaged and cannot be read.", true, pdfdoc.ErrCorrupt)
+		case errors.Is(err, pdfdoc.ErrTooLarge), errors.Is(err, pdfdoc.ErrTooManyPages):
+			return apperrors.Wrap(codeValidationFailed, "This PDF is too large to open.", true, err)
+		case errors.Is(err, pdfdoc.ErrPageRange):
+			return apperrors.Wrap(codeValidationFailed, "That page is not in this PDF.", true, pdfdoc.ErrPageRange)
 		case errors.Is(err, wssearch.ErrEmptyQuery):
 			return apperrors.Wrap(codeInvalidQuery, "Type something to search for.", true, wssearch.ErrEmptyQuery)
 		case invalidQuery(err) != nil:
@@ -610,7 +627,10 @@ func publicErrorForCode(subject string, err error, existing *apperrors.AppError)
 }
 
 const (
-	codePDFFailed      = "pdf.failed"
+	codePDFFailed = "pdf.failed"
+	// codePDFChanged: the Files viewer's PDF was replaced on disk after it was
+	// opened. The answer is to open it again, never to retry the call.
+	codePDFChanged     = "pdf_changed"
 	codePDFUnavailable = "pdf.unavailable"
 )
 

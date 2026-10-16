@@ -395,7 +395,8 @@ export function FilePreviewView({
       body = window ? <PreviewLines window={window} language={languageForPath(state.target.rel) ?? "text"} /> : null;
       break;
     case "unreadable":
-      body = <PreviewNote>{UNREADABLE[state.reason]}</PreviewNote>;
+      // A PDF is not previewed as text, but Open shows it page by page.
+      body = <PreviewNote>{state.reason === "binary" && /\.pdf$/i.test(state.target.rel) ? "PDF document — Open to read it" : UNREADABLE[state.reason]}</PreviewNote>;
       break;
     case "missing":
       body = <PreviewNote>Not found in this workspace</PreviewNote>;

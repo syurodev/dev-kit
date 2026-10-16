@@ -508,6 +508,7 @@ func main() {
 	// (ProtectDataDir); an agent reaches a document only through the pdf.* tools.
 	pdfEngine := pdfdoc.New(pdfdoc.Options{CacheDir: filepath.Join(dataDir, "pdf-engine")})
 	defer pdfEngine.Close()
+	container.PDFView = app.NewPDFView(container.WorkspaceCode, pdfEngine)
 	documentsDir := filepath.Join(dataDir, "agent-documents")
 	if err := os.MkdirAll(documentsDir, 0o700); err != nil {
 		log.Printf("agenthub: documents directory: %v", err)
