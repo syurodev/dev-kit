@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseMarkdown } from "@/modules/agenthub/transcript/agentMarkdown";
+import { parseMarkdown } from "@/lib/agentMarkdown";
 import { headingSlugs, inlineText } from "./markdownHeadings";
 
 function idsOf(source: string): string[] {

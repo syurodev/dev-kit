@@ -1,5 +1,5 @@
 import { fileRef } from "./fileRef";
-import type { InlineToken, MarkdownBlock } from "./agentMarkdown";
+import type { InlineToken, MarkdownBlock } from "@/lib/agentMarkdown";
 
 /** A symbol found in the workspace's indexes, ready to open and preview. */
 export type SymbolHit = {

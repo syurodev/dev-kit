@@ -10,7 +10,7 @@ import {
 } from "./transcript";
 import { groupTurns } from "./turns";
 import { largeMarkdownAnswer, largeTranscriptEntries, LARGE_TRANSCRIPT_ROW_COUNT } from "./transcriptPerformance.fixture";
-import { parseMarkdown, parseMarkdownIncremental } from "./transcript/agentMarkdown";
+import { parseMarkdown, parseMarkdownIncremental } from "@/lib/agentMarkdown";
 import type { TranscriptItem } from "./types";
 
 const TOKEN_COUNT = 1_000;

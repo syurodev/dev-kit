@@ -1,4 +1,4 @@
-import type { InlineToken, MarkdownBlock } from "@/modules/agenthub/transcript/agentMarkdown";
+import type { InlineToken, MarkdownBlock } from "@/lib/agentMarkdown";
 import { uniqueSlugs } from "./markdownLinks";
 
 /** A heading's id by the block that holds it, so a block's render can look its id up. */

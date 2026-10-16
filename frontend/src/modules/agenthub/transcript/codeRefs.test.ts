@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { codeSpans, commitCandidate, exactSymbolMatch, lastSegment, projectFolderPath, symbolCandidate, symbolNames } from "./codeRefs";
-import { parseMarkdownIncremental } from "./agentMarkdown";
+import { parseMarkdownIncremental } from "@/lib/agentMarkdown";
 
 describe("symbolCandidate", () => {
   test("identifiers, dotted names and calls", () => {

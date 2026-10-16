@@ -20,7 +20,7 @@ import {
   type InlineToken,
   type ListItem,
   type MarkdownBlock,
-} from "./agentMarkdown";
+} from "@/lib/agentMarkdown";
 
 /** A masked token reads out this many dots at most — enough to fill the
  *  several lines a real JWT does, without an adversarial one turning into an
