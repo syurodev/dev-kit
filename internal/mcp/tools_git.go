@@ -688,6 +688,18 @@ func (s *Server) toolGitPull(ctx context.Context, _ *sdk.CallToolRequest, in git
 	return s.gitSync(ctx, in, "pull", GitAPI.Pull)
 }
 
+// GitSyncGrant is the capability request git.fetch and git.pull make. Exported
+// so the app can check it against the grants it really installs: it once asked
+// for git:write on "remote:<name>", which the repo:* grant does not cover, and
+// every agent fetch and pull was refused while the fakes in this package's
+// tests, which skip the policy, passed.
+//
+// It is git:write on repo:sync, not git:push: neither sends anything to the
+// remote (push is the gated one), and both write the repository.
+func GitSyncGrant() (subject, capability, scope string) {
+	return "builtin.git", "git:write", "repo:sync"
+}
+
 // gitSync is fetch and pull: both write the repository (remote-tracking refs,
 // and for pull the branch and work tree), so both take a granted folder.
 func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run func(GitAPI, context.Context, string) error) (*sdk.CallToolResult, any, error) {
@@ -695,7 +707,8 @@ func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run 
 	if remote == "" {
 		remote = "origin"
 	}
-	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "remote:"+remote, meta(op, repoMeta(in.Repo, map[string]any{"remote": remote})), func(ctx context.Context) (any, error) {
+	subject, capability, scope := GitSyncGrant()
+	v, err := s.deps.Caller.Call(ctx, subject, capability, scope, meta(op, repoMeta(in.Repo, map[string]any{"remote": remote})), func(ctx context.Context) (any, error) {
 		git, repo, err := s.gitFor(ctx, in.Repo, true)
 		if err != nil {
 			return nil, err

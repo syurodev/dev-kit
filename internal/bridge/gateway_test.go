@@ -12,6 +12,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/capabilities"
 	"devkit/internal/environments"
+	"devkit/internal/identity"
 	"devkit/internal/permissions"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/vault"
@@ -31,6 +32,33 @@ func TestNotesBridgeUsesGateway(t *testing.T) {
 	}
 	if publicErr.Code != "permission_denied" {
 		t.Fatalf("error code = %q, want permission_denied", publicErr.Code)
+	}
+}
+
+// The window is told "Permission denied."; an agent is told what was missing,
+// because it cannot otherwise tell a person's no from a grant that was never
+// installed (every agent fetch and pull was refused for the second reason and
+// reported as the first).
+func TestPermissionDenialNamesTheMissingGrantOnlyToNonWindowCallers(t *testing.T) {
+	container := app.NewContainer()
+	container.Permissions = permissions.NewPolicy(nil)
+	container.Capabilities = capabilities.NewGateway(container.Permissions, container.Audit)
+	service := NewAppService(container)
+	run := func(ctx context.Context) string {
+		t.Helper()
+		_, err := service.call(ctx, "builtin.git", "git:write", "repo:sync", nil, func(context.Context) (any, error) { return nil, nil })
+		if err == nil {
+			t.Fatal("call was allowed with no grants")
+		}
+		return err.Error()
+	}
+
+	if got := run(identity.WithCaller(context.Background(), identity.UI())); got != "permission_denied: Permission denied." {
+		t.Fatalf("window caller got %q", got)
+	}
+	got := run(identity.WithCaller(context.Background(), identity.Agent("11111111-2222-3333-4444-555555555555")))
+	if !strings.Contains(got, "permission_denied") || !strings.Contains(got, "git:write on repo:sync") {
+		t.Fatalf("agent caller got %q, want the capability and scope named", got)
 	}
 }
 

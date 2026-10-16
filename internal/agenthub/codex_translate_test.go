@@ -477,6 +477,39 @@ func TestCodexUnknownItemRawOutputIsCappedButMetaKeepsTheWhole(t *testing.T) {
 	}
 }
 
+func TestCodexFailedMcpCallKeepsTheReasonFromItsResult(t *testing.T) {
+	cases := []struct {
+		name string
+		item map[string]any
+		want string
+	}{
+		{"reason in the result", map[string]any{
+			"type": "mcpToolCall", "id": "m1", "server": "devkit", "tool": "git.fetch", "status": "failed",
+			"result": json.RawMessage(`{"content":[{"type":"text","text":"permission_denied: Permission denied."}],"isError":true}`),
+		}, "permission_denied: Permission denied."},
+		{"error field wins", map[string]any{
+			"type": "mcpToolCall", "id": "m2", "server": "devkit", "tool": "git.fetch", "status": "failed",
+			"error":  map[string]any{"message": "transport closed"},
+			"result": json.RawMessage(`{"content":[{"type":"text","text":"ignored"}]}`),
+		}, "transport closed"},
+		{"nothing to say", map[string]any{
+			"type": "mcpToolCall", "id": "m3", "server": "devkit", "tool": "git.fetch", "status": "failed",
+		}, "failed"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := translateOne(t, newCodexTranslator(), codexapp.MethodItemCompleted, item(c.item))
+			last := got[len(got)-1].ToolCall
+			var out struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(last.RawOutput, &out); err != nil || out.Error != c.want {
+				t.Fatalf("rawOutput = %s, want error %q", last.RawOutput, c.want)
+			}
+		})
+	}
+}
+
 func TestCodexMcpResultRawOutputIsCapped(t *testing.T) {
 	tr := newCodexTranslator()
 	big := strings.Repeat("x", codexOutputLimit+50)

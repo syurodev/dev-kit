@@ -404,6 +404,8 @@ func codexToolResult(itemType string, item json.RawMessage) (status string, cont
 			msg := "failed"
 			if m.Error != nil {
 				msg = m.Error.Message
+			} else if text := codexMcpErrorText(m.Result); text != "" {
+				msg = text
 			}
 			rawOutput, _ = json.Marshal(map[string]string{"error": msg})
 			return "failed", nil, rawOutput, true
@@ -709,4 +711,27 @@ func codexTail(s string, limit int) string {
 		s = s[1:]
 	}
 	return "…\n" + s
+}
+
+// codexMcpErrorText is what a failed MCP call said, when Codex reports the
+// failure as a result (isError, the reason in its text content) and not in the
+// item's error. Without it every refusal read "failed", and the row could not
+// say whether a tool was denied, misused or broken.
+func codexMcpErrorText(result json.RawMessage) string {
+	var r struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if len(result) == 0 || json.Unmarshal(result, &r) != nil {
+		return ""
+	}
+	var parts []string
+	for _, c := range r.Content {
+		if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
+			parts = append(parts, strings.TrimSpace(c.Text))
+		}
+	}
+	return strings.Join(parts, "\n")
 }

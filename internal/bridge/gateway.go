@@ -2,8 +2,10 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"strings"
 
+	"devkit/internal/apperrors"
 	"devkit/internal/capabilities"
 	"devkit/internal/identity"
 )
@@ -30,9 +32,25 @@ func (s *AppService) call(
 		Handler:    handler,
 	})
 	if err != nil {
-		return nil, publicError(subject, err)
+		return nil, publicErrorFor(ctx, subject, err)
 	}
 	return result, nil
+}
+
+// publicErrorFor is publicError, except that a caller that is not the window
+// is told what the gateway found missing. The window's contract stays "Permission
+// denied."; an agent that is only told that cannot tell a person saying no from
+// a grant DevKit forgot to install, and reports the first when it is the second.
+func publicErrorFor(ctx context.Context, subject string, err error) *apperrors.AppError {
+	mapped := publicError(subject, err)
+	if caller, _ := identity.FromContext(ctx); caller.Kind == identity.KindUI || !errors.Is(err, capabilities.ErrPermissionDenied) {
+		return mapped
+	}
+	_, detail, ok := strings.Cut(err.Error(), capabilities.ErrPermissionDenied.Error()+": ")
+	if detail = strings.TrimSpace(detail); !ok || detail == "" {
+		return mapped
+	}
+	return apperrors.New(codePermissionDenied, "Permission denied: "+detail+".", false)
 }
 
 // callerContext defaults an unattributed call to the UI: bridge methods are
