@@ -301,6 +301,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerTasks(ms)
 	s.registerGit(ms)
 	s.registerPullRequests(ms)
+	s.registerCI(ms)
 	s.registerAccounts(ms)
 	s.registerAPIClient(ms)
 	s.registerCodexHook(ms)

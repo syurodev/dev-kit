@@ -43,6 +43,15 @@ type Provider interface {
 	// Branch says whether a branch is the default or protected.
 	Branch(ctx context.Context, c Credential, repo Repo, name string) (BranchInfo, error)
 
+	// Runs lists recent workflow runs / pipelines, newest first.
+	Runs(ctx context.Context, c Credential, repo Repo, q RunQuery) ([]Run, error)
+	// Run reads one run with its jobs (and steps) and the annotations of the
+	// jobs that failed.
+	Run(ctx context.Context, c Credential, repo Repo, runID string) (RunDetail, error)
+	// JobLog reads the end of one job's log. The credential is sent to the
+	// host's API only: a redirect to a storage address is followed without it.
+	JobLog(ctx context.Context, c Credential, repo Repo, jobID string) (LogTail, error)
+
 	Create(ctx context.Context, c Credential, repo Repo, in CreateInput) (ChangeRequest, error)
 	Update(ctx context.Context, c Credential, repo Repo, number int, in UpdateInput) (ChangeRequest, error)
 	Comment(ctx context.Context, c Credential, repo Repo, number int, body string) (Comment, error)

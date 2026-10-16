@@ -52,6 +52,13 @@ export interface ChangeRequest {
  * Check is one CI job: a GitHub check run or commit status, a GitLab job.
  */
 export interface Check {
+    /**
+     * ID and RunID say how to look closer: ci.logs takes the job id (the check
+     * run's id for a GitHub Actions job, the job's for GitLab) and ci.run the run.
+     * Empty for a check that is no CI job (a commit status).
+     */
+    "id"?: string;
+    "runId"?: string;
     "name": string;
     "status": CheckStatus;
 

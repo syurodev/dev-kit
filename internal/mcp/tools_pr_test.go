@@ -29,7 +29,9 @@ type prHost struct {
 	mu     sync.Mutex
 	routes map[string]func(http.ResponseWriter, *http.Request, []byte)
 	calls  []string
-	bodies map[string]string
+	// queries are "METHOD path?query" for every request.
+	queries []string
+	bodies  map[string]string
 }
 
 func newPRHost(t *testing.T) *prHost {
@@ -39,6 +41,7 @@ func newPRHost(t *testing.T) *prHost {
 		line := r.Method + " " + r.URL.Path
 		h.mu.Lock()
 		h.calls = append(h.calls, line)
+		h.queries = append(h.queries, line+"?"+r.URL.RawQuery)
 		h.bodies[line] = string(body)
 		fn := h.routes[line]
 		h.mu.Unlock()

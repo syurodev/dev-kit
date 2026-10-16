@@ -276,6 +276,7 @@ func (g *GitHub) Checks(ctx context.Context, c Credential, repo Repo, number int
 }
 
 type ghCheckRun struct {
+	ID         int64  `json:"id"`
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
@@ -345,22 +346,18 @@ func (g *GitHub) headChecks(ctx context.Context, c Credential, repo Repo, sha st
 	return checks, nil
 }
 
+var actionsJobURL = regexp.MustCompile(`/actions/runs/(\d+)/job/\d+`)
+
 func checkOfRun(run ghCheckRun) Check {
-	ch := Check{Name: run.Name, URL: run.HTMLURL, Conclusion: run.Conclusion}
-	switch run.Status {
-	case "completed":
-		switch run.Conclusion {
-		case "success":
-			ch.Status = CheckPassed
-		case "neutral":
-			ch.Status = CheckPassed
-		case "skipped":
-			ch.Status = CheckSkipped
-		default: // failure, timed_out, cancelled, action_required, stale, startup_failure
-			ch.Status = CheckFailed
-		}
-	default: // queued, in_progress, waiting, requested, pending
-		ch.Status = CheckRunning
+	ch := Check{Name: run.Name, URL: run.HTMLURL, Conclusion: run.Conclusion, Status: checkStatusOf(run.Status, run.Conclusion)}
+	if run.ID != 0 {
+		ch.ID = strconv.FormatInt(run.ID, 10)
+	}
+	if m := actionsJobURL.FindStringSubmatch(run.HTMLURL); m != nil {
+		ch.RunID = m[1]
+	} else {
+		// Not a GitHub Actions job (an App's check): there is no log to read.
+		ch.ID = ""
 	}
 	if ch.Status == CheckFailed {
 		text := run.Output.Title
@@ -370,6 +367,22 @@ func checkOfRun(run ghCheckRun) Check {
 		ch.Summary = clip(firstLine(text), summaryClip)
 	}
 	return ch
+}
+
+// checkStatusOf collapses GitHub's status and conclusion (a check run, a job,
+// a step) to one of passed / failed / running / skipped.
+func checkStatusOf(status, conclusion string) CheckStatus {
+	if status != "completed" {
+		return CheckRunning // queued, in_progress, waiting, requested, pending
+	}
+	switch conclusion {
+	case "success", "neutral":
+		return CheckPassed
+	case "skipped":
+		return CheckSkipped
+	default: // failure, timed_out, cancelled, action_required, stale, startup_failure
+		return CheckFailed
+	}
 }
 
 func firstLine(text string) string {
