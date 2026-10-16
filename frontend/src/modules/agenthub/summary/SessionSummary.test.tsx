@@ -4,7 +4,8 @@ import { renderToString } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
-import type { TranscriptItem, Usage } from "../types";
+import type { Connector, SessionGoal, TranscriptItem, Usage } from "../types";
+import type { SummaryRow } from "./summaryModel";
 import {
   SessionSummaryBody as Body,
   SessionSummaryButton as Button,
@@ -15,7 +16,13 @@ import {
   type SessionSummaryInput,
 } from "./SessionSummary";
 
-type Props = SessionSummaryInput & { usage: Usage | null; turnCount: number };
+type Props = SessionSummaryInput & {
+  usage: Usage | null;
+  turnCount: number;
+  environment?: readonly SummaryRow[];
+  goal?: SessionGoal | null;
+  connectors?: readonly Connector[];
+};
 
 // The view takes the derived data; these derive it the way AgentHubContent does.
 function SessionSummaryBody(props: Props) {
@@ -197,5 +204,89 @@ describe("the wrappers", () => {
     expect(html).toContain('aria-label="Session summary"');
     // Closed: the sections are not drawn until it opens.
     expect(html).not.toContain('data-testid="summary-plan"');
+  });
+});
+
+// What a vendor reports decides what its summary has. Nothing here is drawn
+// for a vendor that has no data for it: not empty, not a placeholder.
+describe("vendor-driven sections", () => {
+  const tokens = {
+    session: { total: 1_000_000, input: 980_000, cached: 490_000, output: 20_000, reasoning: 5_000 },
+    lastRequest: { total: 30_000, input: 29_000, cached: 0, output: 1_000, reasoning: 0 },
+  };
+
+  test("a Codex-shaped session shows its token split, plan windows and MCP servers", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        usage={{
+          used: 30_000,
+          size: 400_000,
+          amount: 0,
+          tokens,
+          limits: [{ label: "5-hour", usedPercent: 42, status: "ok" }],
+        }}
+        connectors={[{ name: "devkit", state: "ready" }, { name: "github", state: "failed", needsLogin: true }]}
+      />,
+    );
+    expect(html).toContain('data-testid="summary-token-row"');
+    expect(html).toContain("980k · 50% cached");
+    expect(html).toContain('data-testid="summary-limit-row"');
+    expect(html).toContain("42%");
+    expect(html).toContain('data-testid="summary-connectors"');
+    expect(html).toContain("Sign-in needed");
+    // Codex has no background tasks, and the section is not there to say so.
+    expect(html).not.toContain('data-testid="summary-background"');
+  });
+
+  test("a Claude-shaped session shows background tasks and cost, and none of Codex's", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        items={[
+          { id: "t1", kind: "async_task_spawned", asyncTask: { id: "t1", name: "Run the tests", state: "running", usage: { totalTokens: 10, toolUses: 3, durationMs: 72_000 } } } as TranscriptItem,
+        ]}
+        usage={{ used: 42, size: 100, amount: 0.18, limits: [{ label: "Weekly · Opus", usedPercent: 83, status: "warning" }] }}
+      />,
+    );
+    expect(html).toContain('data-testid="summary-background"');
+    expect(html).toContain("Run the tests");
+    expect(html).toContain("$0.18");
+    expect(html).toContain("Weekly · Opus");
+    expect(html).not.toContain('data-testid="summary-token-row"');
+    expect(html).not.toContain('data-testid="summary-connectors"');
+  });
+
+  test("plan windows alone draw the section even before the context window is known", () => {
+    const html = render(
+      <SessionSummaryBody {...base} usage={{ used: 0, size: 0, amount: 0, limits: [{ label: "5-hour", usedPercent: 10 }] }} />,
+    );
+    expect(html).toContain('data-testid="summary-context"');
+    expect(html).toContain('data-testid="summary-limit-row"');
+    expect(html).not.toContain('role="meter"');
+  });
+
+  test("environment and goal are drawn when given, and the changes carry their total", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        checkpoints={checkpointsWith(["a.go", "b.go"])}
+        environment={[
+          { key: "agent", label: "Agent", value: "Codex" },
+          { key: "branch", label: "Branch", value: "feat/x" },
+        ]}
+        goal={{ objective: "Ship the viewer" }}
+      />,
+    );
+    expect(html).toContain('data-testid="summary-environment"');
+    expect(html).toContain("feat/x");
+    expect(html).toContain('data-testid="summary-goal"');
+    expect(html).toContain("Ship the viewer");
+    expect(html).toContain('data-testid="summary-changes-total"');
+    expect(html).toContain("+4");
+  });
+
+  test("a session with nothing to say is still not a card", () => {
+    expect(render(<SessionSummaryCard {...base} />)).not.toContain("session-summary-card");
   });
 });

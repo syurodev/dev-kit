@@ -923,6 +923,14 @@ export enum UpdateKind {
     UpdateAsyncTaskState = "async_task_state_update",
 
     /**
+     * UpdateConnectors is DevKit's own: the MCP servers a vendor started for the
+     * session and their states, on `_devkit.connectors`. No vendor sends it; an
+     * adapter that learns of them (Codex's startup status) writes it. It is
+     * session state — one current list, replaced whole — not a thing said.
+     */
+    UpdateConnectors = "devkit_connectors_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.

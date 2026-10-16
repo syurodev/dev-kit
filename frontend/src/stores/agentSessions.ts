@@ -13,6 +13,7 @@ export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
   usage: null,
   failure: null,
   goal: null,
+  connectors: [],
   commands: [],
   mode: null,
   availableModes: [],

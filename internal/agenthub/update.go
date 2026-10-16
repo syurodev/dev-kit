@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"encoding/json"
+	"strings"
 
 	"devkit/internal/acp"
 )
@@ -49,6 +50,11 @@ const (
 	UpdateAsyncTaskSpawned  UpdateKind = "async_task_spawned"
 	UpdateAsyncTaskProgress UpdateKind = "async_task_progress"
 	UpdateAsyncTaskState    UpdateKind = "async_task_state_update"
+	// UpdateConnectors is DevKit's own: the MCP servers a vendor started for the
+	// session and their states, on `_devkit.connectors`. No vendor sends it; an
+	// adapter that learns of them (Codex's startup status) writes it. It is
+	// session state — one current list, replaced whole — not a thing said.
+	UpdateConnectors UpdateKind = "devkit_connectors_update"
 	// UpdateUnknown is a kind this build does not model. The raw blob is kept
 	// so a vendor that ships a new kind degrades to "not rendered" rather than
 	// "silently dropped" — the Meta Inspector surface reads Raw.
@@ -143,6 +149,10 @@ type Usage struct {
 	// RateLimit is the subscription's own ceiling, which the context window
 	// says nothing about: a turn can fit and still be refused.
 	RateLimit *RateLimit `json:"rateLimit,omitempty"`
+	// Tokens and Limits are what only some vendors report; see TokenBreakdown
+	// and LimitWindow. Absent means "this vendor does not say", not zero.
+	Tokens *TokenBreakdown `json:"tokens,omitempty"`
+	Limits []LimitWindow   `json:"limits,omitempty"`
 }
 
 // ConfigSelectOption is one selectable value of a select-typed ConfigOption.
@@ -255,6 +265,44 @@ type RateLimit struct {
 	Utilization float64 `json:"utilization,omitempty"`
 }
 
+// TokenCounts is one tally of tokens, as a vendor splits them.
+type TokenCounts struct {
+	Total     int64 `json:"total"`
+	Input     int64 `json:"input"`
+	Cached    int64 `json:"cached"`
+	Output    int64 `json:"output"`
+	Reasoning int64 `json:"reasoning"`
+}
+
+// TokenBreakdown is what a vendor says the session's tokens went to: the whole
+// session so far, and the last request alone. Only a vendor that reports the
+// split sends it (Codex does; Claude's usage_update carries a total only), and
+// the summary draws a section for it only then — never an empty one.
+type TokenBreakdown struct {
+	Session     TokenCounts `json:"session"`
+	LastRequest TokenCounts `json:"lastRequest"`
+}
+
+// LimitWindow is one ceiling a plan puts on the account — a window that
+// resets, not the context window. Label is the vendor's own window ("5-hour",
+// "Weekly"); ResetsAt is a Unix second; Status is "ok", "warning" or "reached".
+type LimitWindow struct {
+	Label       string  `json:"label"`
+	UsedPercent float64 `json:"usedPercent"`
+	ResetsAt    int64   `json:"resetsAt,omitempty"`
+	Status      string  `json:"status,omitempty"`
+}
+
+// Connector is an MCP server the vendor started for the session, and where it
+// got to. State is "starting", "ready", "failed" or "cancelled"; NeedsLogin
+// says the server is waiting for the person to sign in to it.
+type Connector struct {
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	Error      string `json:"error,omitempty"`
+	NeedsLogin bool   `json:"needsLogin,omitempty"`
+}
+
 type SessionUpdate struct {
 	Kind     UpdateKind         `json:"kind"`
 	Content  *ContentBlock      `json:"content,omitempty"`
@@ -284,6 +332,9 @@ type SessionUpdate struct {
 	Failure     *SessionFailure `json:"failure,omitempty"`
 	Goal        *SessionGoal    `json:"goal,omitempty"`
 	GoalCleared bool            `json:"goalCleared,omitempty"`
+	// Connectors is the whole list of MCP servers and their states, on a
+	// devkit_connectors_update. Each update replaces the list.
+	Connectors []Connector `json:"connectors,omitempty"`
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
@@ -337,6 +388,11 @@ const DevKitWireKey = "_devkit"
 type wireDevKit struct {
 	Origin      string             `json:"origin"`
 	Attachments []PromptAttachment `json:"attachments"`
+	// What an adapter adds to a usage_update or session_info_update that the
+	// vendor's own wire shape has no place for.
+	Tokens     *TokenBreakdown `json:"tokens"`
+	Limits     []LimitWindow   `json:"limits"`
+	Connectors []Connector     `json:"connectors"`
 }
 
 // Subagent is an agent the vendor ran inside its own process, as reported by
@@ -501,6 +557,11 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Title = wire.Title
 		out.Failure = parseSessionFailure(wire.Meta)
 		out.Goal, out.GoalCleared = parseSessionGoal(wire.Meta)
+	case UpdateConnectors:
+		out.Kind = UpdateConnectors
+		if wire.DevKit != nil {
+			out.Connectors = wire.DevKit.Connectors
+		}
 	case UpdateConfigOptions:
 		out.Kind = UpdateConfigOptions
 		out.ConfigOptions = parseConfigOptions(wire.ConfigOptions)
@@ -510,6 +571,13 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 	case UpdateUsage:
 		out.Kind = UpdateUsage
 		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
+		usage.Limits = limitsOfRateLimit(usage.RateLimit)
+		if wire.DevKit != nil {
+			usage.Tokens = wire.DevKit.Tokens
+			if len(wire.DevKit.Limits) > 0 {
+				usage.Limits = wire.DevKit.Limits
+			}
+		}
 		var cost struct {
 			Amount   float64 `json:"amount"`
 			Currency string  `json:"currency"`
@@ -687,4 +755,40 @@ func parseRateLimit(meta json.RawMessage) *RateLimit {
 		LimitType:   parsed.RateLimit.RateLimitType,
 		Utilization: parsed.RateLimit.Utilization,
 	}
+}
+
+// limitsOfRateLimit is Claude's rate-limit block as a LimitWindow, so the
+// summary reads one shape whichever vendor reported the ceiling. Claude sends
+// the window the event is about, not all of them, so this is one entry.
+func limitsOfRateLimit(r *RateLimit) []LimitWindow {
+	if r == nil {
+		return nil
+	}
+	status := "ok"
+	switch r.Status {
+	case "allowed_warning":
+		status = "warning"
+	case "rejected":
+		status = "reached"
+	}
+	return []LimitWindow{{Label: claudeLimitLabel(r.LimitType), UsedPercent: r.Utilization, ResetsAt: r.ResetsAt, Status: status}}
+}
+
+// claudeLimitLabel names Claude's rate-limit types the way its own /usage does.
+func claudeLimitLabel(limitType string) string {
+	switch limitType {
+	case "five_hour":
+		return "5-hour"
+	case "seven_day":
+		return "Weekly"
+	case "seven_day_opus":
+		return "Weekly · Opus"
+	case "seven_day_sonnet":
+		return "Weekly · Sonnet"
+	case "overage":
+		return "Extra usage"
+	case "":
+		return "Plan"
+	}
+	return strings.ReplaceAll(limitType, "_", " ")
 }

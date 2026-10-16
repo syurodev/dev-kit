@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { latestPlan, sessionChanges, toolSources, linkHosts } from "./summaryModel";
+import {
+  backgroundTasks,
+  connectorRows,
+  environmentRows,
+  latestPlan,
+  limitRows,
+  linkHosts,
+  resetsIn,
+  sessionChanges,
+  toolSources,
+  tokenRows,
+} from "./summaryModel";
 
 const item = (x: object) => x as never;
 
@@ -178,5 +189,130 @@ describe("linkHosts", () => {
   test("only http(s) with a host", () => {
     const items = [item({ kind: "tool_call", toolCall: { kind: "fetch", rawInput: { url: "file:///etc/passwd" } } })];
     expect(linkHosts(items)).toEqual([]);
+  });
+});
+
+describe("environmentRows", () => {
+  const options = [
+    { id: "model", currentValue: "gpt-6", options: [{ value: "gpt-6", name: "GPT-6" }] },
+    { id: "reasoning_effort", currentValue: "medium", options: [{ value: "medium", name: "Medium" }] },
+  ];
+  test("names what the session has and leaves out what it does not", () => {
+    const rows = environmentRows({
+      vendorName: "Codex",
+      folderPath: "/work/api/",
+      workspaceName: null,
+      repos: [],
+      configOptions: options,
+      mode: "auto",
+      availableModes: [{ id: "auto", name: "Auto" }],
+    });
+    expect(rows.map((r) => [r.key, r.value])).toEqual([
+      ["agent", "Codex"],
+      ["model", "GPT-6"],
+      ["effort", "Medium"],
+      ["mode", "Auto"],
+      ["folder", "api"],
+    ]);
+    expect(rows.find((r) => r.key === "folder")?.title).toBe("/work/api/");
+  });
+  test("one repository is its branch, several are counted", () => {
+    const base = { vendorName: "Claude", folderPath: "", configOptions: [], mode: null, availableModes: [] };
+    const one = environmentRows({ ...base, repos: [{ name: "api", branch: "main", own: true }] });
+    expect(one.find((r) => r.key === "branch")?.value).toBe("main");
+    const many = environmentRows({
+      ...base,
+      workspaceName: "Clinic",
+      repos: [
+        { name: "api", branch: "main", own: true },
+        { name: "web", branch: "feat/x", own: false },
+      ],
+    });
+    const branches = many.find((r) => r.key === "branch");
+    expect(branches?.value).toBe("2 repositories");
+    expect(branches?.title).toBe("api: main\nweb: feat/x");
+    expect(many.find((r) => r.key === "workspace")?.value).toBe("Clinic");
+  });
+});
+
+describe("limitRows", () => {
+  const now = Date.UTC(2026, 9, 16, 12, 0, 0);
+  test("the vendor's own window labels, with when each resets", () => {
+    const rows = limitRows(
+      [
+        { label: "5-hour", usedPercent: 42, resetsAt: now / 1000 + 3 * 3600, status: "ok" },
+        { label: "Weekly", usedPercent: 91.4, resetsAt: now / 1000 + 20 * 60, status: "warning" },
+        { label: "Spark · Plan", usedPercent: 100, status: "reached" },
+      ],
+      now,
+    );
+    expect(rows.map((r) => [r.label, r.value, r.tone])).toEqual([
+      ["5-hour", "42% · resets in 3h", undefined],
+      ["Weekly", "91% · resets in 20m", "warning"],
+      ["Spark · Plan", "100%", "danger"],
+    ]);
+  });
+  test("none when the vendor reports none", () => {
+    expect(limitRows(undefined)).toEqual([]);
+    expect(limitRows([])).toEqual([]);
+  });
+  test("resetsIn counts hours and days once minutes stop meaning anything", () => {
+    const at = (minutes: number) => now / 1000 + minutes * 60;
+    expect(resetsIn(at(5), now)).toBe("resets in 5m");
+    expect(resetsIn(at(89), now)).toBe("resets in 89m");
+    expect(resetsIn(at(300), now)).toBe("resets in 5h");
+    expect(resetsIn(at(60 * 72), now)).toBe("resets in 3d");
+    expect(resetsIn(at(-5), now)).toBe("resets in 0m");
+  });
+});
+
+describe("tokenRows", () => {
+  const counts = (t: number, i: number, c: number, o: number, r: number) => ({ total: t, input: i, cached: c, output: o, reasoning: r });
+  test("input with its cache share, output with its reasoning, the last request", () => {
+    const rows = tokenRows({ session: counts(1_000_000, 980_000, 490_000, 20_000, 5_000), lastRequest: counts(30_000, 29_000, 0, 1_000, 0) });
+    expect(rows.map((r) => [r.label, r.value])).toEqual([
+      ["Input", "980k · 50% cached"],
+      ["Output", "20k · 5k reasoning"],
+      ["Last request", "30k"],
+    ]);
+  });
+  test("nothing for a vendor that gives no split, or an empty one", () => {
+    expect(tokenRows(null)).toEqual([]);
+    expect(tokenRows(undefined)).toEqual([]);
+    expect(tokenRows({ session: counts(0, 0, 0, 0, 0), lastRequest: counts(0, 0, 0, 0, 0) })).toEqual([]);
+  });
+});
+
+describe("connectorRows", () => {
+  test("state as a word, a failure's text on hover, a sign-in said as such", () => {
+    const rows = connectorRows([
+      { name: "devkit", state: "ready" },
+      { name: "github", state: "failed", error: "401", needsLogin: true },
+      { name: "db", state: "failed", error: "refused" },
+      { name: "slow", state: "starting" },
+    ]);
+    expect(rows.map((r) => [r.label, r.value, r.tone, r.title])).toEqual([
+      ["devkit", "Ready", undefined, undefined],
+      ["github", "Sign-in needed", "warning", "401"],
+      ["db", "Failed", "danger", "refused"],
+      ["slow", "Starting", undefined, undefined],
+    ]);
+    expect(connectorRows(undefined)).toEqual([]);
+  });
+});
+
+describe("backgroundTasks", () => {
+  test("one per id, running first, a subagent's own left out", () => {
+    const items = [
+      item({ asyncTask: { id: "a", name: "Tests", state: "completed" } }),
+      item({ asyncTask: { id: "b", name: "Dev server", state: "running" } }),
+      item({ asyncTask: { id: "a", name: "Tests", state: "failed" } }),
+      item({ origin: "sub1", asyncTask: { id: "c", name: "Theirs", state: "running" } }),
+      item({ kind: "agent_message_chunk" }),
+    ];
+    expect(backgroundTasks(items).map((t) => [t.id, t.state])).toEqual([
+      ["b", "running"],
+      ["a", "failed"],
+    ]);
   });
 });

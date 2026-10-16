@@ -10,6 +10,7 @@ import type { EntityRef } from "@/workbench/intents";
 import type {
   AvailableCommand,
   ConfigOption,
+  Connector,
   SessionFailure,
   SessionGoal,
   SessionMode,
@@ -28,6 +29,7 @@ import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
 import { SessionSummaryButton, SessionSummaryCard, useSessionSummaryData } from "../summary/SessionSummary";
+import { environmentRows } from "../summary/summaryModel";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -99,6 +101,8 @@ export type AgentHubContentProps = {
   onDismissFailure?: () => void;
   /** What the session works towards, and the ask to change it; see AgentComposer. */
   goal?: SessionGoal | null;
+  /** The MCP servers the vendor started, for a vendor that reports them. */
+  connectors?: Connector[];
   onSetGoal?: (objective: string) => void;
   /** Copies a string — a message, a code block. */
   onCopy?: (text: string) => void;
@@ -244,6 +248,7 @@ export function AgentHubContent({
   onFailureAction,
   onDismissFailure,
   goal,
+  connectors = [],
   onSetGoal,
   onCompact,
   pendingPermission,
@@ -351,6 +356,24 @@ export function AgentHubContent({
         ? { pending: pendingElicitation, onRespond: onRespondElicitation, busy: elicitationBusy, error: elicitationError }
         : null,
   });
+  // Where and how this session runs, for the summary: what the tray already
+  // read (workspace, repositories) with what the session says about itself.
+  // Rows the session does not have are not made up.
+  const environment = React.useMemo(
+    () =>
+      session && !draft
+        ? environmentRows({
+            vendorName: vendorInfo(session.agentType).name,
+            folderPath: session.projectPath,
+            workspaceName: tray.status.workspace?.name,
+            repos: tray.status.repos.map((repo) => ({ name: repo.name, branch: repo.branch, own: repo.own })),
+            configOptions,
+            mode,
+            availableModes,
+          })
+        : [],
+    [session, draft, tray.status, configOptions, mode, availableModes],
+  );
   // Which turn the rewind confirmation is about, and whether the user came in
   // through the pencil. "" means closed; the dialog plans for itself, so
   // nothing is planned for a turn nobody asked about.
@@ -605,6 +628,9 @@ export function AgentHubContent({
                   usage={usage}
                   turnCount={turnCount}
                   data={summary}
+                  environment={environment}
+                  goal={goal}
+                  connectors={connectors}
                 />
               </div>
               <div
@@ -617,6 +643,9 @@ export function AgentHubContent({
                   usage={usage}
                   turnCount={turnCount}
                   data={summary}
+                  environment={environment}
+                  goal={goal}
+                  connectors={connectors}
                 />
               </div>
             </>

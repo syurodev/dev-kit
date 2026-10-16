@@ -45,6 +45,7 @@ export function createInitialTranscriptModel(): TranscriptModel {
     usage: null,
     failure: null,
     goal: null,
+    connectors: [],
     commands: [],
     mode: null,
     availableModes: [],
@@ -223,6 +224,7 @@ export function applySessionUpdates(
   let usage = model.usage;
   let failure = model.failure;
   let goal = model.goal;
+  let connectors = model.connectors;
   let commands = model.commands;
   let mode = model.mode;
   let availableModes = model.availableModes;
@@ -257,6 +259,15 @@ export function applySessionUpdates(
     if (kind === UpdateKind.UpdateAvailableCommands || kind === "available_commands_update") {
       if (update.commands) {
         commands = [...update.commands];
+        changed = true;
+      }
+      continue;
+    }
+
+    // The MCP servers a vendor started: one current list, replaced whole.
+    if (kind === UpdateKind.UpdateConnectors || kind === "devkit_connectors_update") {
+      if (update.connectors) {
+        connectors = [...update.connectors];
         changed = true;
       }
       continue;
@@ -502,6 +513,7 @@ export function applySessionUpdates(
     usage,
     failure,
     goal,
+    connectors,
     commands,
     mode,
     availableModes,
@@ -548,6 +560,11 @@ export function initTranscript(
       if (payload.commands) {
         model.commands = payload.commands;
       }
+      continue;
+    }
+
+    if (kind === UpdateKind.UpdateConnectors || kind === "devkit_connectors_update") {
+      if (payload.connectors) model.connectors = payload.connectors;
       continue;
     }
 
@@ -764,6 +781,7 @@ function fillSessionState(model: TranscriptModel, page: TranscriptModel): Transc
   const availableModes =
     model.availableModes.length > 0 || page.availableModes.length === 0 ? model.availableModes : page.availableModes;
   const commands = model.commands.length > 0 || page.commands.length === 0 ? model.commands : page.commands;
+  const connectors = model.connectors.length > 0 || page.connectors.length === 0 ? model.connectors : page.connectors;
   const configOptions =
     model.configOptions.length > 0 || page.configOptions.length === 0 ? model.configOptions : page.configOptions;
   if (
@@ -771,11 +789,12 @@ function fillSessionState(model: TranscriptModel, page: TranscriptModel): Transc
     mode === model.mode &&
     availableModes === model.availableModes &&
     commands === model.commands &&
+    connectors === model.connectors &&
     configOptions === model.configOptions
   ) {
     return model;
   }
-  return { ...model, usage, mode, availableModes, commands, configOptions };
+  return { ...model, usage, mode, availableModes, commands, connectors, configOptions };
 }
 
 /**
@@ -972,6 +991,7 @@ const IMMEDIATE_UPDATE_KINDS = new Set<string>([
   UpdateKind.UpdateCurrentMode,
   UpdateKind.UpdateSessionInfo,
   UpdateKind.UpdateConfigOptions,
+  UpdateKind.UpdateConnectors,
   UpdateKind.UpdateAsyncTaskSpawned,
   UpdateKind.UpdateAsyncTaskProgress,
   UpdateKind.UpdateAsyncTaskState,
@@ -980,6 +1000,7 @@ const IMMEDIATE_UPDATE_KINDS = new Set<string>([
   "current_mode_update",
   "session_info_update",
   "config_option_update",
+  "devkit_connectors_update",
   "async_task_spawned",
   "async_task_progress",
   "async_task_state_update",
