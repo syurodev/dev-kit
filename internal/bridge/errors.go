@@ -372,6 +372,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "This agent doesn't support that.", true)
 		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
 			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
+		case errors.Is(err, agenthub.ErrModelsUnavailable):
+			return apperrors.New(codeConnectionFailed, agentDisplayName(agenthub.ErrorVendor(err))+" didn't report which models it offers. Try Refresh models, or check that it is signed in.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):

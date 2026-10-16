@@ -799,6 +799,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		}
 		rt.acpSessionID = resume
 		rt.modes = loadRes.Modes
+		rt.setHandshakeOptions(loadRes.ConfigOptions)
 		return rt, nil
 	}
 
@@ -823,7 +824,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	log.Printf("agenthub: claude: session ready (acp session %s)", newRes.SessionID)
 	rt.acpSessionID = newRes.SessionID
 	rt.modes = newRes.Modes
-	rt.configOptions = newRes.ConfigOptions
+	rt.setHandshakeOptions(newRes.ConfigOptions)
 	return rt, nil
 }
 
@@ -1161,9 +1162,9 @@ type claudeRuntime struct {
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
 	modes *acp.SessionModeState
-	// configOptions is what session/new said the agent's settings are; only a
-	// fresh session has it (a load or fork answers without). ConfigCatalog reads
-	// it, nothing else does.
+	// configOptions is what session/new said the agent's settings are, as the
+	// agent wrote it. ConfigCatalog reads it for the effort levels it starts
+	// from; options (below) is the live copy.
 	configOptions json.RawMessage
 	steering      bool
 	goalControl   string
@@ -1174,6 +1175,14 @@ type claudeRuntime struct {
 	mu       sync.Mutex
 	handlers RuntimeHandlers
 	closed   bool
+	// options is the agent's settings kept current: what the handshake said,
+	// changed by every setConfigOption answer. claude-agent-acp sends the model
+	// list once, in the answer to session/new or session/load, and never again
+	// until something changes — so DevKit has to keep it itself, or a session
+	// that has not been prompted yet has no model choices anywhere.
+	options []ConfigOption
+	// announced: the first update handler has been given options.
+	announced bool
 	// closing records that Close asked the serve loop to stop. Without it the
 	// only evidence of a deliberate shutdown was Serve's error, and Serve
 	// reports a clean EOF as no error at all.
@@ -1257,13 +1266,102 @@ func (r *claudeRuntime) setConfigOption(ctx context.Context, optionID, value str
 	if err := conn.Call(ctx, "session/set_config_option", acp.SessionSetConfigOptionRequest{SessionID: sid, ConfigID: optionID, Value: value}, &result); err != nil {
 		return nil, fmt.Errorf("%w: session/set_config_option: %v", ErrProcessFailed, err)
 	}
-	return parseConfigOptions(result.ConfigOptions), nil
+	answer := parseConfigOptions(result.ConfigOptions)
+	r.noteConfigChange(optionID, value, answer)
+	return answer, nil
 }
 
+// SetHandlers installs the callbacks. The first time an update handler arrives
+// the agent's settings are announced through it, as Codex's runtime does: the
+// handshake carried them, no config_option_update ever will, and a session
+// opened by an agent has nobody listening until Service attaches.
 func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.handlers = h
+	var announce json.RawMessage
+	if h.OnUpdate != nil && !r.announced && len(r.options) > 0 {
+		r.announced = true
+		announce = r.configOptionsUpdateLocked()
+	}
+	r.mu.Unlock()
+	if announce != nil {
+		h.OnUpdate(announce, nil)
+	}
+}
+
+// RefreshConfigOptions publishes the settings the runtime holds again, for a
+// reader that missed the announcement (a window opened later). Nothing is
+// asked of the agent: it has no call that lists them without changing one.
+func (r *claudeRuntime) RefreshConfigOptions(context.Context) error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return ErrSessionNotFound
+	}
+	var update json.RawMessage
+	if len(r.options) > 0 {
+		update = r.configOptionsUpdateLocked()
+	}
+	onUpdate := r.handlers.OnUpdate
+	r.mu.Unlock()
+	if update != nil && onUpdate != nil {
+		onUpdate(update, nil)
+	}
+	return nil
+}
+
+func (r *claudeRuntime) configOptionsUpdateLocked() json.RawMessage {
+	return marshalUpdate(map[string]any{
+		"sessionUpdate": string(UpdateConfigOptions),
+		"configOptions": r.options,
+	})
+}
+
+// setHandshakeOptions records what session/new, session/load or session/fork
+// answered with the settings.
+func (r *claudeRuntime) setHandshakeOptions(raw json.RawMessage) {
+	r.configOptions = raw
+	parsed := parseConfigOptions(raw)
+	r.mu.Lock()
+	r.options = parsed
+	r.mu.Unlock()
+}
+
+// noteConfigChange folds a session/set_config_option answer into the held
+// settings. The answer lists the agent's settings after the change — the effort
+// levels on offer follow the model — but only what it names is replaced, so an
+// answer that leaves the rest out cannot erase it. The changed option's value
+// is set from the request, since an answer that omits it still means it took.
+func (r *claudeRuntime) noteConfigChange(optionID, value string, answer []ConfigOption) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	chosen, _ := json.Marshal(value)
+	for i := range r.options {
+		if r.options[i].ID == optionID {
+			r.options[i].CurrentValue = chosen
+		}
+	}
+	r.options = mergeConfigOptions(r.options, answer)
+}
+
+// mergeConfigOptions replaces the options base has under the ids update names
+// and appends the ones it does not have, keeping base's order.
+func mergeConfigOptions(base, update []ConfigOption) []ConfigOption {
+	out := append([]ConfigOption(nil), base...)
+	for _, u := range update {
+		replaced := false
+		for i := range out {
+			if out[i].ID == u.ID {
+				out[i] = u
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // Delete asks Claude to remove its own copy of the session, satisfying

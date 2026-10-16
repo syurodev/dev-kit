@@ -13,6 +13,12 @@ func (resumableSessionStore) GetSession(_ context.Context, id string) (AgentSess
 	return AgentSession{ID: id, AgentType: AgentTypeMock, ACPSessionID: "acp-" + id, Status: SessionStatusIdle}, nil
 }
 
+// ListTurns: a session with a turn behind it is resumed with Load, which is the
+// path these tests are about.
+func (resumableSessionStore) ListTurns(context.Context, string) ([]TurnRecord, error) {
+	return []TurnRecord{{}}, nil
+}
+
 // secondLoadMock fails any Load: a caller that finds a resume in flight must
 // take that one's result, not start another.
 type secondLoadMock struct{ *MockAdapter }

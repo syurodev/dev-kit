@@ -1934,16 +1934,20 @@ type resumeCall struct {
 // died with its process, and the identity-bound socket is what ties the agent's
 // tool calls back to this session in the audit log.
 func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt SessionRuntime, err error) {
-	if sess.ACPSessionID == "" {
-		return nil, ErrUnavailable
-	}
 	adapter, ok := s.reg.Get(sess.AgentType)
 	if !ok {
 		return nil, ErrVendorUnknown
 	}
-	loader, ok := adapter.(SessionLoader)
-	if !ok {
-		return nil, ErrUnavailable
+	// A session nobody has prompted has no conversation to resume: neither
+	// vendor writes one to disk before the first turn (Codex answers a resume of
+	// such a thread with "no rollout found", Claude Code with "no conversation
+	// found"). It starts over instead, which loses nothing.
+	fresh := s.neverPrompted(ctx, sess)
+	loader, isLoader := adapter.(SessionLoader)
+	if !fresh {
+		if sess.ACPSessionID == "" || !isLoader {
+			return nil, ErrUnavailable
+		}
 	}
 	// A restart brings sessions back without going through CreateSession, so
 	// this is where an existing project's shadow repository gets warmed. A
@@ -2006,11 +2010,22 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	}
 	s.applySandboxExtras(&spec)
 
-	rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
+	if fresh {
+		rt, err = adapter.Open(ctx, spec)
+	} else {
+		rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
+	}
 	if err != nil {
 		log.Printf("agenthub: resume %s session %s: %v", sess.AgentType, sess.ID, err)
 		closeEndpoint()
 		return nil, err
+	}
+	if fresh && rt.ACPSessionID() != sess.ACPSessionID {
+		if err := s.store.UpdateSessionACPID(ctx, sess.ID, rt.ACPSessionID(), time.Now().UTC()); err != nil {
+			_ = rt.Close(ctx)
+			closeEndpoint()
+			return nil, err
+		}
 	}
 	// Restore the controls before publishing the newly loaded conversation.
 	if configurator, ok := rt.(RuntimeConfigurator); ok {
@@ -2045,6 +2060,19 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()
 	return rt, nil
+}
+
+// neverPrompted reports a session that has had no turn and shows no message of
+// the person's: nothing exists on the vendor's side that a resume could lose.
+// A store that cannot say counts as prompted — the old path, which fails loudly
+// rather than start a conversation over by mistake.
+func (s *Service) neverPrompted(ctx context.Context, sess AgentSession) bool {
+	turns, err := s.store.ListTurns(ctx, sess.ID)
+	if err != nil || len(turns) > 0 {
+		return false
+	}
+	_, found, err := s.store.FindTranscriptKind(ctx, sess.ID, UpdateUserMessageChunk)
+	return err == nil && !found
 }
 
 // Cancel requests cancellation of the in-flight prompt on a session.
@@ -2146,7 +2174,13 @@ func (s *Service) PrepareSession(ctx context.Context, id string) error {
 		return err
 	}
 	if refresh, ok := rt.(interface{ RefreshConfigOptions(context.Context) error }); ok {
-		return refresh.RefreshConfigOptions(ctx)
+		if err := refresh.RefreshConfigOptions(ctx); err != nil {
+			if errors.Is(err, ErrAgentAuthRequired) || errors.Is(err, ErrSessionNotFound) {
+				return err
+			}
+			log.Printf("agenthub: %s session %s: model list: %v", sess.AgentType, sess.ID, err)
+			return vendorError(sess.AgentType, fmt.Errorf("%w: %w", ErrModelsUnavailable, err))
+		}
 	}
 	return nil
 }

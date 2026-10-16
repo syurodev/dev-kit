@@ -43,6 +43,10 @@ var (
 	ErrWorkspaceMismatch       = errors.New("agenthub.workspaceMismatch")
 	ErrInvalidSessionTitle     = errors.New("agenthub.invalidSessionTitle")
 	ErrInvalidConfigOption     = errors.New("agenthub.invalidConfigOption")
+	// ErrModelsUnavailable is a running agent that would not say which models
+	// it offers. It rides beside the cause (and the vendor) so the picker can
+	// say that, instead of the process-failed sentence that told nothing.
+	ErrModelsUnavailable = errors.New("agenthub.modelsUnavailable")
 	// ErrInvalidPrompt is a prompt DevKit refuses to send: empty, or with an
 	// attachment or pasted image that is unreadable, unsupported or too large.
 	ErrInvalidPrompt  = errors.New("agenthub.invalidPrompt")

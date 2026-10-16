@@ -90,7 +90,10 @@ type SessionLoadRequest struct {
 type SessionLoadResult struct {
 	SessionID string            `json:"sessionId"`
 	Modes     *SessionModeState `json:"modes,omitempty"`
-	Meta      json.RawMessage   `json:"_meta,omitempty"`
+	// ConfigOptions is the agent's settings (model, effort, …) as of the load.
+	// claude-agent-acp 0.92 answers it; older ones leave it out.
+	ConfigOptions json.RawMessage `json:"configOptions,omitempty"`
+	Meta          json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionForkRequest is the params object for session/fork.
@@ -110,8 +113,9 @@ type SessionForkRequest struct {
 // works from a process that never loaded the source session, the new session
 // remembers only up to the named message, and the source stays usable.
 type SessionForkResult struct {
-	SessionID string          `json:"sessionId"`
-	Meta      json.RawMessage `json:"_meta,omitempty"`
+	SessionID     string          `json:"sessionId"`
+	ConfigOptions json.RawMessage `json:"configOptions,omitempty"`
+	Meta          json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionDeleteRequest is the params object for session/delete. The agent

@@ -853,6 +853,16 @@ func TestSessionTakesTheAgentsNameOnlyWhenUnnamed(t *testing.T) {
 	}
 }
 
+// markPrompted gives a session a turn behind it. A session nobody has prompted
+// is reopened with Open, not Load — neither vendor has a conversation on disk
+// to resume — so a test of the resume path must say it was prompted.
+func markPrompted(t *testing.T, store agenthub.Store, sessionID string) {
+	t.Helper()
+	if err := store.InsertTurn(context.Background(), agenthub.TurnRecord{ID: "turn-" + sessionID, SessionID: sessionID, StopReason: "end_turn", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("insert turn: %v", err)
+	}
+}
+
 // loadableAdapter is titlingAdapter plus SessionLoader, so a test can drive the
 // orphan path without a real vendor.
 type loadableAdapter struct {
@@ -899,6 +909,7 @@ func TestOrphanSessionResumesInsteadOfDyingThere(t *testing.T) {
 	// A restart, as the store sees it: the row survives, every runtime is gone.
 	// Before this change that was the end of the conversation — the only way
 	// forward was a new session, which loses the context the agent still has.
+	markPrompted(t, store, sess.ID)
 	restarted := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
 	if _, err := restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "still there?"}); err != nil {
 		t.Fatalf("invoke after restart: %v", err)
@@ -958,6 +969,7 @@ func TestRestartResetsStaleMidTurnSessionsToIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	markPrompted(t, store, running.ID)
 	restarted := agenthub.NewService(reg, store, nil)
 	if err := restarted.RecoverStaleSessions(ctx); err != nil {
 		t.Fatalf("recover: %v", err)
@@ -1011,10 +1023,32 @@ func TestOrphanSessionStaysUnavailableWithoutALoader(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
+	markPrompted(t, store, sess.ID)
 	restarted := agenthub.NewService(reg, store, nil)
 	_, err = restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hi"})
 	if !errors.Is(err, agenthub.ErrUnavailable) {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+}
+
+// A session nobody has prompted has nothing on the vendor's side to resume, so
+// a vendor that cannot load still serves it: the process is started again.
+func TestUnpromptedSessionRestartsWithoutALoader(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := agenthub.NewService(reg, store, nil)
+	t.Cleanup(func() { _ = restarted.Shutdown(ctx) })
+	if err := restarted.PrepareSession(ctx, sess.ID); err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if _, err := restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hi"}); err != nil {
+		t.Fatalf("Invoke: %v", err)
 	}
 }
 
@@ -1085,7 +1119,8 @@ func TestInvokeReplacesADeadRuntimeInsteadOfReusingIt(t *testing.T) {
 	}
 	reg := agenthub.NewRegistry()
 	reg.Register(adapter)
-	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
 
 	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
 		AgentType: agenthub.AgentType("crashy"), Cwd: t.TempDir(),
@@ -1094,6 +1129,7 @@ func TestInvokeReplacesADeadRuntimeInsteadOfReusingIt(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
+	markPrompted(t, store, sess.ID)
 	// The agent process crashed after its last turn. The runtime stays
 	// registered — only CloseSession ever removed one — so every retry used
 	// to prompt the corpse and fail with the crash's error, forever.
@@ -1489,11 +1525,13 @@ func TestConcurrentInvokesOnADeadRuntimeResumeOnce(t *testing.T) {
 	adapter := &blockingLoadAdapter{started: make(chan struct{}, 2), release: make(chan struct{})}
 	reg := agenthub.NewRegistry()
 	reg.Register(adapter)
-	svc := agenthub.NewService(reg, newTestStore(t), nil)
+	store := newTestStore(t)
+	svc := agenthub.NewService(reg, store, nil)
 	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
+	markPrompted(t, store, sess.ID)
 
 	first := make(chan error, 1)
 	go func() {
@@ -1809,6 +1847,7 @@ func TestSettingsOnAnOrphanThatCannotResumeSayUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	markPrompted(t, store, sess.ID)
 	if err := agenthub.NewService(reg, store, nil).SetMode(ctx, sess.ID, "plan"); !errors.Is(err, agenthub.ErrUnavailable) {
 		t.Fatalf("err = %v, want ErrUnavailable rather than a claim the agent has no modes", err)
 	}
@@ -2038,7 +2077,8 @@ func TestAClosedSessionReopensOnTheNextPrompt(t *testing.T) {
 	adapter := &crashResumeAdapter{rt: &crashingRuntime{}, loads: make(chan string, 1)}
 	reg := agenthub.NewRegistry()
 	reg.Register(adapter)
-	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
 
 	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
 		AgentType: agenthub.AgentType("crashy"), Cwd: t.TempDir(),
@@ -2046,6 +2086,7 @@ func TestAClosedSessionReopensOnTheNextPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	markPrompted(t, store, sess.ID)
 	if err := svc.CloseSession(ctx, sess.ID); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -2169,6 +2210,7 @@ func TestReloadKeepsConversationAndRestoresControlsWithoutPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	markPrompted(t, store, sess.ID)
 	if err := svc.SetMode(ctx, sess.ID, "plan"); err != nil {
 		t.Fatal(err)
 	}
