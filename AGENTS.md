@@ -225,7 +225,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `PullRequestState|Attach|Detach`, frontend `summary/usePullRequests.ts`, `pullRequestModel.ts`,
   `PullRequestCards.tsx`; section "Pull requests" beside Changes). `forge` is a leaf: a platform-neutral `Provider`
   (`ChangeRequest`, `Check`, `Comment`; `Terms` carries "PR"/"MR" and "checks"/"pipelines") with GitHub as the first
-  implementation — GitLab is a second `Provider` and a line in `NewRegistry`, no UI or data-shape change.
+  implementation and GitLab (`forge/gitlab*.go`, gitlab.com: merge requests, the head pipeline's jobs as checks,
+  discussions, approvals) the second — a `Provider` and a line in `NewRegistry`, no UI or data-shape change. Both
+  share one HTTP layer (`forge/http.go`: bounded, ETag, classified errors, `Authorization: Bearer`, which GitLab accepts
+  for personal/project/OAuth tokens). GitLab differences worth knowing: a project is addressed by its escaped path
+  (`group%2Fsub%2Fproject`); a comment id is `<discussion>:<note>` (a reply goes to the discussion); line counts are
+  summed from `/diffs` (3 pages × 100 files, then a note says it is partial); `requested_changes` is a review
+  verdict, approvals only ever give "approved"; `Provider.MergeMethods()` is merge+squash (rebase is refused before
+  asking); a merge request from a fork is found but not created.
   `prwatch` reads a folder through `Source` (git: branch, push remote, origin, default branch), a token through
   `Credentials`, and finds the request by `head=<owner>:<branch>` in origin's repo (a fork's branch uses the fork's
   owner). The account is the one bound to the remote if it is a token, else `Accounts.ForRemote(host, owner, …, https)`;
@@ -238,7 +245,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   a 304 costs no rate limit, the cache key holds a digest of the token, never the token); two calls within 3 s are
   one round; 4 requests in flight. The unresolved-thread count (GraphQL, no ETag) is re-read when the request
   changed or every 3 min. `session_change_requests` (migration 42) holds requests attached by hand or by `pr.create`.
-  Not done: GitHub Enterprise (no host→account mapping for it), GitLab (phase 2), waking a session when CI fails,
+  Not done: GitHub Enterprise and self-managed GitLab (no host→account mapping for them), waking a session when CI fails,
   an entry point to attach by address when the branch lookup found nothing (the bridge method exists).
 - **References in agent prose resolve, preview and open** (spec
   `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;

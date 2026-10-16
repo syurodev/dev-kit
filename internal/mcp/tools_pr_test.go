@@ -909,3 +909,84 @@ func TestClipText(t *testing.T) {
 		t.Error("clipText")
 	}
 }
+
+// ---- GitLab behind the same tools ---------------------------------------------
+
+func newGitLabPRRig(t *testing.T, held ...string) *prRig {
+	r := &prRig{t: t, host: newPRHost(t), caller: &fakeCaller{}, asks: &confirmations{answer: "allow"}, store: prwatch.NewMemoryStore()}
+	remote := prwatch.RemoteRef{Name: "origin", Host: "gitlab.com", Path: "group/sub/widgets", Owner: "group"}
+	r.svc = prwatch.New(forge.NewRegistry(forge.NewGitLab(forge.WithGitLabAPIBase(r.host.srv.URL))),
+		prSource{co: prwatch.Checkout{Branch: prBranch, Origin: remote, Push: remote, DefaultBranch: "main"}}, prToken{}, r.store)
+	r.hub = interaction.NewHub(interaction.NoopPrompter{})
+	r.hub.ConfirmAgent = r.asks.confirm
+	d := agentHubTestDeps(r.caller, &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}})
+	d.Workspace = workspaceFixture()
+	d.Git = &fakeGit{name: "open"}
+	d.GitRepos = fakeRepos{kong: {name: "kong-plugin"}, auth: {name: "auth"}, config: {name: "config"}, other: {name: "billing"}}
+	d.PullRequests = r.svc
+	d.Envs = &fakeEnvs{}
+	d.Hub = r.hub
+	d.TaskBranches = taskBranches{gitSession: held}
+	r.srv = NewServer(d)
+	mr := map[string]any{
+		"iid": 7, "title": "Add retries", "description": "d", "state": "opened", "source_branch": prBranch, "target_branch": "main", "sha": "abc",
+		"web_url": "https://gitlab.com/group/sub/widgets/-/merge_requests/7", "updated_at": "2026-10-16T09:00:00Z", "detailed_merge_status": "mergeable",
+		"changes_count": "1", "source_project_id": 1, "target_project_id": 1, "author": map[string]any{"username": "u"},
+		"head_pipeline": map[string]any{"id": 5, "status": "success"},
+	}
+	r.host.json("GET /projects/group/sub/widgets/merge_requests", []any{mr})
+	r.host.json("GET /projects/group/sub/widgets/merge_requests/7", mr)
+	r.host.json("GET /projects/group/sub/widgets/merge_requests/7/diffs", []any{map[string]any{"diff": "+a\n"}})
+	r.host.json("GET /projects/group/sub/widgets/pipelines/5/jobs", []any{map[string]any{"name": "build", "status": "success"}})
+	r.host.json("GET /projects/group/sub/widgets/merge_requests/7/approvals", map[string]any{"approved": true})
+	r.host.json("GET /projects/group/sub/widgets/merge_requests/7/discussions", []any{})
+	return r
+}
+
+func TestPRToolsReadAGitLabMergeRequestInTheSameShape(t *testing.T) {
+	r := newGitLabPRRig(t)
+	_, v, err := r.srv.toolPRGet(r.agent(), req, prInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr := asMap(t, v)["changeRequest"].(map[string]any)
+	terms := cr["terms"].(map[string]any)
+	if cr["number"] != float64(7) || terms["short"] != "MR" || terms["checks"] != "pipelines" || cr["reviewDecision"] != "approved" {
+		t.Errorf("%v", cr)
+	}
+	if cr["checks"].(map[string]any)["passed"] != float64(1) {
+		t.Errorf("%v", cr["checks"])
+	}
+}
+
+func TestMergeByAMethodThePlatformLacksIsRefusedBeforeAsking(t *testing.T) {
+	r := newGitLabPRRig(t, prBranch)
+	_, _, err := r.srv.toolPRMerge(r.agent(), req, prMergeInput{Method: "rebase"})
+	if errCode(err) != "pr.invalid" || !strings.Contains(err.Error(), "GitLab cannot merge by rebase") || !strings.Contains(err.Error(), "merge, squash") {
+		t.Fatalf("%v", err)
+	}
+	if r.asks.count() != 0 || len(r.host.mutated()) != 0 {
+		t.Errorf("asked %d, wrote %v", r.asks.count(), r.host.mutated())
+	}
+}
+
+func TestPRMergeOnGitLabSquashesWithTheConfirmedCommit(t *testing.T) {
+	r := newGitLabPRRig(t, prBranch)
+	r.host.mu.Lock()
+	r.host.routes["PUT /projects/group/sub/widgets/merge_requests/7/merge"] = func(w http.ResponseWriter, _ *http.Request, _ []byte) {
+		w.Write([]byte(`{"iid":7,"state":"merged","merge_commit_sha":"deadbeef"}`))
+	}
+	r.host.mu.Unlock()
+	_, v, err := r.srv.toolPRMerge(r.agent(), req, prMergeInput{Method: "squash"})
+	if err != nil || asMap(t, v)["merged"] != true {
+		t.Fatalf("%v %v", v, err)
+	}
+	if s := r.asks.last(t).Summary; !strings.Contains(s, "MR #7") || !strings.Contains(s, "gitlab.com/group/sub/widgets") {
+		t.Errorf("%s", s)
+	}
+	var sent map[string]any
+	json.Unmarshal([]byte(r.host.bodies["PUT /projects/group/sub/widgets/merge_requests/7/merge"]), &sent)
+	if sent["squash"] != true || sent["sha"] != "abc" {
+		t.Errorf("sent %v", sent)
+	}
+}
