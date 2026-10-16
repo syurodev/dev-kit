@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, TriangleAlert } from "lucide-react";
+import { Code, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -28,14 +28,17 @@ import { ExternalChangeBanner, MixedEolNote, OrphanBanner } from "./file/FileBan
 import { CompareDialog } from "./file/CompareDialog";
 import { FileToolbar, SavingMark } from "./file/FileToolbar";
 import { NavigationPanel, closePanel } from "./file/NavigationPanel";
+import { MarkdownFileEditor } from "./viewers/MarkdownFileEditor";
 import { MarkdownPreview } from "./viewers/MarkdownPreview";
 import { PdfDocument } from "./viewers/PdfDocument";
 import { viewerKindOf } from "./viewers/viewerKind";
 
 const platform = detectPlatform();
 
+type MarkdownMode = "view" | "edit" | "source";
+
 /** Which view of a Markdown file each document last showed, so switching tabs does not reset it. */
-const markdownModes = new Map<string, "preview" | "source">();
+const markdownModes = new Map<string, MarkdownMode>();
 
 /**
  * One file as a tab. A PDF is a viewer (viewers/PdfDocument); any other file is
@@ -69,9 +72,9 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
   const front = useIsFrontDocument(tabId);
   const [compareOpen, setCompareOpen] = useState(false);
   // Markdown opens rendered; a jump to a line (an agent's reference, Back/Forward) is about the text.
-  const [mode, setModeState] = useState<"preview" | "source">(() => markdownModes.get(key) ?? "preview");
+  const [mode, setModeState] = useState<MarkdownMode>(() => markdownModes.get(key) ?? "view");
   const setMode = useCallback(
-    (next: "preview" | "source") => {
+    (next: MarkdownMode) => {
       markdownModes.set(key, next);
       setModeState(next);
     },
@@ -256,6 +259,20 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
   const orphaned = buffer.orphan !== null;
   const conflicted = buffer.external !== null && !orphaned;
 
+  const codeEditor = (
+    <CodeEditor
+      // Line endings are fixed when the editor is created.
+      key={buffer.eol}
+      value={buffer.content}
+      revealLine={revealTarget}
+      onChange={(content) => editFile(key, content, tabId)}
+      extensions={extensions}
+      onView={onView}
+      lineSeparator={buffer.eol}
+      wrap="auto"
+    />
+  );
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <FileToolbar
@@ -267,12 +284,26 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
         right={
           <>
             {markdown ? (
-              <Tabs value={mode} onValueChange={(value) => setMode(value as "preview" | "source")}>
-                <TabsList className="h-7 gap-0.5 p-0.5">
-                  <TabsTrigger value="preview" className="h-6 px-2 text-label-12">Preview</TabsTrigger>
-                  <TabsTrigger value="source" className="h-6 px-2 text-label-12">Source</TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <>
+                {mode !== "view" ? (
+                  <Button
+                    variant={mode === "source" ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-label="Edit as text"
+                    aria-pressed={mode === "source"}
+                    title="Edit the Markdown text"
+                    onClick={() => setMode(mode === "source" ? "edit" : "source")}
+                  >
+                    <Code />
+                  </Button>
+                ) : null}
+                <Tabs value={mode === "view" ? "view" : "edit"} onValueChange={(value) => setMode(value as MarkdownMode)}>
+                  <TabsList className="h-7 gap-0.5 p-0.5">
+                    <TabsTrigger value="view" className="h-6 px-2 text-label-12">View</TabsTrigger>
+                    <TabsTrigger value="edit" className="h-6 px-2 text-label-12">Edit</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </>
             ) : null}
             {buffer.saving ? <SavingMark /> : null}
             {buffer.reloadedAt > 0 ? <ReloadedMark at={buffer.reloadedAt} /> : null}
@@ -316,20 +347,17 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
       ) : null}
       {buffer.mixedEol ? <MixedEolNote eol={buffer.eol} /> : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {markdown && mode === "preview" ? (
+        {markdown && mode === "view" ? (
           <MarkdownPreview source={buffer.content} docPath={path} onOpenFile={(rel) => void openLinked(rel)} />
+        ) : markdown && mode === "edit" ? (
+          <MarkdownFileEditor
+            source={buffer.content}
+            onChange={(content) => editFile(key, content, tabId)}
+            onSave={() => void saveFile(key)}
+            fallback={codeEditor}
+          />
         ) : (
-        <CodeEditor
-          // Line endings are fixed when the editor is created.
-          key={buffer.eol}
-          value={buffer.content}
-          revealLine={revealTarget}
-          onChange={(content) => editFile(key, content, tabId)}
-          extensions={extensions}
-          onView={onView}
-          lineSeparator={buffer.eol}
-          wrap="auto"
-        />
+          codeEditor
         )}
       </div>
       {buffer.error ? (
