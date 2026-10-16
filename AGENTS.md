@@ -585,6 +585,21 @@ CodeGraph works on the **workspace**; a folder is neither a service nor "the" pr
 - **Verifying in a browser**: `task run:server`, then drive it with Playwright; fixtures are
   `scripts/codegraph-fixture.mjs` (representative workspace), `scripts/codegraph-bench-fixture.mjs` (10k files) and
   `scripts/codegraph-index-fixture.mjs` (real Java/TypeScript analyzer timing). Server mode has no Agent Hub.
+- **Markdown and PDF files open in `FileDocument` by their name** (`modules/codegraph/viewers/viewerKind.ts`;
+  tab identity is unchanged, so agent references, Back/Forward and the palette reach them for free).
+  Markdown stays a text buffer with a Preview | Source switch (`MarkdownPreview`): it renders `marked`'s tokens
+  through the agent transcript's parser (`agentMarkdown.parseMarkdown`) — no HTML string is built, raw HTML shows as
+  text, images are never fetched, links go to the browser, a heading of the file or a file of the same folder
+  (`markdownLinks.ts`). A jump to a line (`buffer.restore`) switches to Source. A PDF has **no buffer**
+  (`openFile`/`ensureBuffer` skip `isPdfPath`): `PdfDocument` asks Go for `WorkspacePdfInfo` / `Page` / `Search`
+  (`internal/app/pdfview.go`, the same `pdfdoc` engine the agent's `pdf.*` tools use — pages are PNG pictures, no
+  new frontend library, nothing of the file runs in the webview). Go reads the bytes through `codegraph.ReadBinaryAt`
+  (folder-resolved, symlink-safe, 100 MiB) and keeps ≤ 4 documents / 256 MiB, validated by size+mtime; every call
+  names the content `revision` from `Info`, so a replaced file answers `pdf_changed` and the view reopens. Layout,
+  zoom and which pages are near the viewport are pure (`pdfLayout.ts`); an effect there must depend on ids, never on
+  the `owner` object from `useDocumentOwnership` (new every render — it once re-read the file in a loop). Not done:
+  highlighting a search hit on the page, selecting/copying PDF text, password-protected PDFs, images in Markdown,
+  `#anchor` into another file, Markdown headings in the Outline.
 - **Cross-folder intelligence is deliberately thin.** Definitions/references/outline come from the
   index of the folder that owns the file; nothing matches names across folders and text search is never
   presented as references. HTTP/Kafka/Redis links stay in `internal/crossservice`.

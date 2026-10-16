@@ -6,6 +6,10 @@ export type {
     FolderState,
     FolderSymbols,
     MigrationReport,
+    PDFHit,
+    PDFInfo,
+    PDFPage,
+    PDFSearch,
     SearchRequest,
     TurnCommit,
     WatchedDocument

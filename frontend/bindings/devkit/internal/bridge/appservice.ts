@@ -2665,6 +2665,29 @@ export function WorkspaceMemoryUpdate(workspaceID: string, id: string, expectedR
 }
 
 /**
+ * WorkspacePdfInfo opens a PDF of a folder: its page count and page sizes, and
+ * the revision later calls name.
+ */
+export function WorkspacePdfInfo(workspaceID: string, folderID: string, relativePath: string): $CancellablePromise<app$0.PDFInfo> {
+    return $Call.ByID(224395399, workspaceID, folderID, relativePath);
+}
+
+/**
+ * WorkspacePdfPage draws one page (1-based) of the revision WorkspacePdfInfo
+ * reported, at dpi (0 = default; bounded by the engine).
+ */
+export function WorkspacePdfPage(workspaceID: string, folderID: string, relativePath: string, revision: string, page: number, dpi: number): $CancellablePromise<app$0.PDFPage> {
+    return $Call.ByID(1841678280, workspaceID, folderID, relativePath, revision, page, dpi);
+}
+
+/**
+ * WorkspacePdfSearch finds a phrase in the text of a PDF's pages.
+ */
+export function WorkspacePdfSearch(workspaceID: string, folderID: string, relativePath: string, revision: string, query: string): $CancellablePromise<app$0.PDFSearch> {
+    return $Call.ByID(378289899, workspaceID, folderID, relativePath, revision, query);
+}
+
+/**
  * WorkspacePlanApprove approves the folder's plan. Human-only, like
  * CodeGraphApprovePlan.
  */

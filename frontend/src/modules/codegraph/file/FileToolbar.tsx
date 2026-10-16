@@ -59,7 +59,8 @@ export const FileToolbar = memo(function FileToolbar({
   folderId: string;
   folderLabel: string;
   path: string;
-  buffer: FileBuffer;
+  /** Absent for a document with no text buffer (a PDF). */
+  buffer?: FileBuffer;
   right?: React.ReactNode;
 }) {
   const key = docKey(workspaceId, folderId, path);
@@ -88,7 +89,7 @@ export const FileToolbar = memo(function FileToolbar({
               )}
             </span>
           ))}
-          <SymbolCrumb workspaceId={workspaceId} folderId={folderId} path={path} bufferKey={key} dirty={buffer.dirty} />
+          <SymbolCrumb workspaceId={workspaceId} folderId={folderId} path={path} bufferKey={key} dirty={buffer?.dirty ?? false} />
         </nav>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">{right}</div>

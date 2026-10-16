@@ -33,6 +33,7 @@ import { MODULE, closeFolderDocuments, documentsOf, focusedDocument, keepTab, op
 import { begin, folderById, set, snapshot } from "./storeAccess";
 import type { OutlineEntry } from "./codegraphStore";
 import { loadFolder } from "./workspaceSync";
+import { isPdfPath } from "./viewers/viewerKind";
 
 /**
  * Every way a file is opened, edited, saved, kept true to the disk and
@@ -91,6 +92,14 @@ export async function openFile(ref: DocRef, line: number | null = null, options:
   const seq = ++navigationSeq;
   if (!options.replay) captureDeparture();
   openFileDoc(doc, options);
+  // A PDF has no text to buffer: its viewer asks Go for pages (viewers/PdfDocument).
+  if (isPdfPath(path)) {
+    if (seq === navigationSeq && !options.replay) {
+      const groupId = focusedGroupId();
+      if (groupId) recordArrival(groupId, { ...doc, line: 1, column: 1 });
+    }
+    return true;
+  }
   const ok = await loadBuffer(doc, key, line, options);
   if (seq !== navigationSeq) return false;
   if (ok && !options.replay) {
@@ -155,6 +164,7 @@ async function loadBuffer(ref: DocRef, key: string, line: number | null, options
  * focus and records no navigation: the tab is already there.
  */
 export function ensureBuffer(ref: DocRef): void {
+  if (isPdfPath(ref.path)) return;
   const key = keyOf(ref);
   const existing = snapshot().buffers[key];
   if (existing && !existing.error) return;

@@ -9,6 +9,7 @@ import { useCursor } from "../cursor";
 import { shortLabel } from "../graph/labels";
 import { countSymbols, outlineRows, symbolPathAt } from "../workspace/outline";
 import { ago } from "../workspace/indexHealth";
+import { isPdfPath } from "../viewers/viewerKind";
 
 const FILTER_FROM = 15;
 
@@ -49,6 +50,8 @@ export function OutlineSection({
 
   let note = "";
   if (!key) note = "Open a file to see what it declares.";
+  // A PDF has nothing the index could declare, and no outline is ever read for it.
+  else if (isPdfPath(path)) note = "A PDF has no outline.";
   else if (outline) {
     if (outline.state === "unsupported") note = "No analyzer reads this folder, so there is no outline. The file can still be read and edited.";
     else if (outline.state === "not-indexed") note = "This folder has no index yet — reindex it to get an outline.";
@@ -80,7 +83,7 @@ export function OutlineSection({
               {outline?.loading && !outline.symbols.length ? "Reading the outline…" : note}
             </p>
           ) : null}
-          {key && !outline ? <p className="px-3 text-caption-11 text-text-tertiary">Reading the outline…</p> : null}
+          {key && !outline && !isPdfPath(path) ? <p className="px-3 text-caption-11 text-text-tertiary">Reading the outline…</p> : null}
           {outline?.error ? <p role="alert" className="px-3 text-caption-11 text-status-danger">{outline.error}</p> : null}
           <div className="min-h-0 flex-1 overflow-y-auto" role="tree" aria-label="Outline">
             {rows.map(({ symbol, depth }) => (
