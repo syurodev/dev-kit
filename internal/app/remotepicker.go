@@ -79,6 +79,8 @@ func remoteQuestion(in gitservice.PickAccountInput) string {
 		repository = in.Owner + "/" + in.Repo
 	}
 	switch in.Op {
+	case "pr":
+		return "Use an account for pull requests of " + repository + " on " + in.Host
 	case "push":
 		return "Push " + repository + " to " + in.Host
 	case "pull":

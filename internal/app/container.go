@@ -26,6 +26,7 @@ import (
 	"devkit/internal/notify"
 	"devkit/internal/permissions"
 	"devkit/internal/preferences"
+	"devkit/internal/prwatch"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
@@ -123,6 +124,9 @@ type Container struct {
 	// GitBindings holds the guards and remote-to-account bindings the Git
 	// module reads but cannot store itself.
 	GitBindings *GitBindings
+	// PullRequests follows the pull/merge request of a session's branch and
+	// backs the pr.* tools. Nil until main wires it (it needs the database).
+	PullRequests *prwatch.Service
 	// APIClient sends HTTP requests with credentials resolved from Accounts.
 	APIClient    *apiclient.Service
 	Sync         SyncService

@@ -14,6 +14,14 @@ export function gatePermission(params: unknown) {
   };
 }
 
+/**
+ * A gate that asks every time with no environment behind it: the pr.* tools on
+ * a remote with no tag. It has no tag to name, so the card says it always asks.
+ */
+export function isUntaggedGate(gate: ReturnType<typeof gatePermission>): boolean {
+  return Boolean(gate && gate.locked && (!gate.env || gate.env === "unknown"));
+}
+
 /** The exact gate request, shared by the inline card and notification surface. */
 export function GatePermissionDetails({ params, className, showTool = true }: { params: unknown; className?: string; showTool?: boolean }) {
   const request = gatePermission(params);

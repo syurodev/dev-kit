@@ -2,6 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { SessionSummaryBody, useSessionSummaryData } from "@/modules/agenthub/summary/SessionSummary";
 import { environmentRows } from "@/modules/agenthub/summary/summaryModel";
+import { pullRequestsView } from "@/modules/agenthub/summary/pullRequestModel";
+import type { PullRequestsPanel } from "@/modules/agenthub/summary/usePullRequests";
+import type { ChangeRequest, PullRequestItem } from "@/bridge/pullRequests";
 import type { TranscriptItem, Usage } from "@/modules/agenthub/types";
 
 /**
@@ -12,6 +15,51 @@ import type { TranscriptItem, Usage } from "@/modules/agenthub/types";
  */
 
 const client = new QueryClient();
+
+// What Go reports for a workspace of three repositories: an open request with a
+// failing check and a conflict, a merged one, and a repository the account
+// cannot reach. The generated types are string enums; the gallery writes the
+// strings the wire carries.
+const request = (extra: Record<string, unknown>) =>
+  ({
+    repo: { host: "github.com", path: "acme/receipts" },
+    number: 412,
+    title: "Let a person pick the receipts that count by hand",
+    url: "https://github.com/acme/receipts/pull/412",
+    state: "open",
+    draft: false,
+    head: "feat/receipt-manual-selection",
+    base: "main",
+    additions: 318,
+    deletions: 47,
+    changedFiles: 9,
+    mergeable: "clean",
+    reviewDecision: "",
+    checks: { total: 6, passed: 3, failed: 1, running: 2, skipped: 0, failing: [{ name: "unit (ubuntu)", status: "failed", url: "https://github.com/acme/receipts/actions/runs/1", summary: "3 tests failed in ReceiptSelectionTest" }] },
+    checksKnown: true,
+    unresolvedThreads: 2,
+    terms: { platform: "GitHub", short: "PR", long: "pull request", checks: "checks" },
+    ...extra,
+  }) as unknown as ChangeRequest;
+const prItem = (extra: Record<string, unknown>) => ({ folder: "/work/chiro/his-connector", branch: "feat/x", source: "branch", ...extra }) as unknown as PullRequestItem;
+
+const pullRequests: PullRequestsPanel = {
+  ...pullRequestsView([
+    prItem({ status: "found", changeRequest: request({ mergeable: "conflicting", reviewDecision: "changes_requested" }) }),
+    prItem({
+      status: "found",
+      folder: "/work/chiro/billing",
+      changeRequest: request({ number: 98, title: "Round line totals", repo: { host: "github.com", path: "acme/billing" }, state: "merged", additions: 22, deletions: 3, changedFiles: 2 }),
+    }),
+    prItem({
+      status: "no_account",
+      folder: "/work/chiro/legacy-ui",
+      message: "No GitHub account for this remote (acme/legacy-ui on github.com). Add a token in Accounts.",
+    }),
+  ]),
+  attach: async () => {},
+  detach: async () => {},
+};
 
 const plan = {
   id: "plan",
@@ -55,7 +103,7 @@ const codexUsage: Usage = {
   ],
 };
 
-function Card({ vendorName, items, usage, ...rest }: { vendorName: string; items: TranscriptItem[]; usage: Usage } & Pick<Parameters<typeof SessionSummaryBody>[0], "connectors" | "goal">) {
+function Card({ vendorName, items, usage, ...rest }: { vendorName: string; items: TranscriptItem[]; usage: Usage } & Pick<Parameters<typeof SessionSummaryBody>[0], "connectors" | "goal" | "pullRequests">) {
   const data = useSessionSummaryData({ sessionId: "gallery", items, checkpoints: new Map(), live: false });
   const environment = environmentRows({
     vendorName,
@@ -90,7 +138,7 @@ export function AgentSummarySection() {
       <section id="agenthub-summary" className="flex flex-col gap-4 p-6">
         <h2 className="text-title-16 text-text-primary">Agent Hub — session summary by vendor</h2>
         <div className="flex flex-wrap items-start gap-6">
-          <Card vendorName="Claude" items={claudeItems} usage={claudeUsage} goal={{ objective: "Let a person pick the receipts that count by hand" }} />
+          <Card vendorName="Claude" items={claudeItems} usage={claudeUsage} goal={{ objective: "Let a person pick the receipts that count by hand" }} pullRequests={pullRequests} />
           <Card
             vendorName="Codex"
             items={[plan]}

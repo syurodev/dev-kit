@@ -29,7 +29,10 @@ const (
 	TableEnvTags            = "env_tags"
 	TableAgentSessions      = "agent_sessions"
 	TableAgentDocuments     = "agent_documents"
-	TableAgentTurns         = "agent_turns"
+	// TableSessionChangeRequests ties a pull/merge request to an Agent Hub
+	// session by hand or by pr.create. Local like the session; not synced.
+	TableSessionChangeRequests = "session_change_requests"
+	TableAgentTurns            = "agent_turns"
 	// TableAgentTranscript holds what was said in a session. Like sessions and
 	// turns it is device-local and outside vault_items: sync has no path here,
 	// which is deliberate — a transcript is operational, project data lives in
@@ -1346,7 +1349,31 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41})
+	// m42: pull/merge requests attached to a session by hand (a pasted address,
+	// a fork) or opened by the pr.create tool. A branch's own request is found
+	// from the branch and needs no row.
+	m42 := Migration{
+		Version: 42,
+		Name:    "session change requests",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					session_id TEXT NOT NULL,
+					host TEXT NOT NULL,
+					path TEXT NOT NULL,
+					number INTEGER NOT NULL,
+					folder TEXT NOT NULL DEFAULT '',
+					url TEXT NOT NULL DEFAULT '',
+					source TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					PRIMARY KEY (session_id, host, path, number)
+				)`, TableSessionChangeRequests,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42})
 	if err != nil {
 		return err
 	}

@@ -29,6 +29,7 @@ import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
 import { SessionSummaryButton, SessionSummaryCard, useSessionSummaryData } from "../summary/SessionSummary";
+import { useSessionPullRequests } from "../summary/usePullRequests";
 import { environmentRows } from "../summary/summaryModel";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
@@ -374,6 +375,17 @@ export function AgentHubContent({
         : [],
     [session, draft, tray.status, configOptions, mode, availableModes],
   );
+  // The pull (or merge) request each repository's branch became. Go finds it
+  // from the folder's branch and calls the host as the account it chose; the
+  // hook asks again when Go says to, and when a turn ends.
+  const repoFolders = tray.status.repos.map((repo) => repo.path).join("\n");
+  const pullRequestFolders = React.useMemo(() => (repoFolders ? repoFolders.split("\n") : []), [repoFolders]);
+  const pullRequests = useSessionPullRequests({
+    sessionId: session && !draft ? session.id : "",
+    folders: pullRequestFolders,
+    live: streaming,
+    enabled: Boolean(session) && !draft,
+  });
   // Which turn the rewind confirmation is about, and whether the user came in
   // through the pencil. "" means closed; the dialog plans for itself, so
   // nothing is planned for a turn nobody asked about.
@@ -631,6 +643,7 @@ export function AgentHubContent({
                   environment={environment}
                   goal={goal}
                   connectors={connectors}
+                  pullRequests={pullRequests}
                 />
               </div>
               <div
@@ -646,6 +659,7 @@ export function AgentHubContent({
                   environment={environment}
                   goal={goal}
                   connectors={connectors}
+                  pullRequests={pullRequests}
                 />
               </div>
             </>

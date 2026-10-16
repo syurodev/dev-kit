@@ -24,6 +24,9 @@ import { loadCheckpointFileDiff } from "../useSessionCheckpoints";
 import type { AsyncTask, Connector, PlanEntry, SessionGoal, Subagent, TranscriptItem, Usage } from "../types";
 import { asyncTaskSpent } from "../transcript/AgentAsyncTask";
 import { useSummarySectionOpen } from "./summaryFold";
+import { PullRequestCards } from "./PullRequestCards";
+import { hasPullRequests } from "./pullRequestModel";
+import type { PullRequestsPanel } from "./usePullRequests";
 import {
   backgroundTasks,
   connectorRows,
@@ -80,6 +83,11 @@ export type SessionSummaryProps = {
   environment?: readonly SummaryRow[];
   goal?: SessionGoal | null;
   connectors?: readonly Connector[];
+  /**
+   * The pull (or merge) request each repository's branch became, with the
+   * reason where one cannot be shown. Absent or empty: no section.
+   */
+  pullRequests?: PullRequestsPanel;
 };
 
 /** PDFs attached to the session's own prompts — each one becomes a document of the session. */
@@ -152,12 +160,13 @@ function usageShows(usage: Usage | null | undefined): boolean {
 export function hasSummary(
   data: SessionSummaryData,
   usage: Usage | null | undefined,
-  extras: Pick<SessionSummaryProps, "environment" | "goal" | "connectors"> = {},
+  extras: Pick<SessionSummaryProps, "environment" | "goal" | "connectors" | "pullRequests"> = {},
 ): boolean {
   return (
     Boolean(extras.environment?.length) ||
     Boolean(extras.goal) ||
     Boolean(extras.connectors?.length) ||
+    hasPullRequests(extras.pullRequests) ||
     Boolean(data.background?.length) ||
     data.plan.length > 0 ||
     data.changes.length > 0 ||
@@ -262,9 +271,10 @@ function SummarySections({
   environment = [],
   goal = null,
   connectors = [],
+  pullRequests,
   onOpenChange,
 }: SessionSummaryProps & { onOpenChange: (change: SessionChange) => void }) {
-  if (!hasSummary(data, usage, { environment, goal, connectors })) return null;
+  if (!hasSummary(data, usage, { environment, goal, connectors, pullRequests })) return null;
   const { plan, changes, tools, links, docs, subagents } = data;
   const background = data.background ?? [];
   const done = plan.filter((entry) => entry.status === "completed").length;
@@ -324,6 +334,19 @@ function SummarySections({
             <ChangeRow key={change.path} change={change} onOpen={() => onOpenChange(change)} />
           ))}
         />
+      ) : null}
+
+      {pullRequests && hasPullRequests(pullRequests) ? (
+        // Beside Changes, not inside it: Changes lists files and is empty until
+        // a turn has been checkpointed, while a request exists regardless; and
+        // its +/− total is files', which a request's size must not be added to.
+        <SectionShell
+          name="pullRequests"
+          title={pullRequestsTitle(pullRequests)}
+          count={pullRequests.cards.length || undefined}
+        >
+          <PullRequestCards panel={pullRequests} several={new Set(pullRequests.cards.map((c) => c.repo)).size > 1} />
+        </SectionShell>
       ) : null}
 
       {background.length ? (
@@ -419,6 +442,12 @@ function SummarySections({
       {usageShows(usage) && usage ? <ContextSection usage={usage} turnCount={turnCount} /> : null}
     </>
   );
+}
+
+/** "Pull requests", or "Merge requests" when that is the only word the platforms in use have. */
+function pullRequestsTitle(panel: PullRequestsPanel): string {
+  const shorts = new Set(panel.cards.map((card) => card.short));
+  return shorts.size === 1 && shorts.has("MR") ? "Merge requests" : "Pull requests";
 }
 
 const TOOL_ICON: Record<string, LucideIcon> = { database: Database, kafka: Radio, ssh: Terminal };

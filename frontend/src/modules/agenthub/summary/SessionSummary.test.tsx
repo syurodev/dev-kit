@@ -6,6 +6,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { Connector, SessionGoal, TranscriptItem, Usage } from "../types";
 import type { SummaryRow } from "./summaryModel";
+import type { ChangeRequest, PullRequestItem } from "@/bridge/pullRequests";
+import { pullRequestsView } from "./pullRequestModel";
+import type { PullRequestsPanel } from "./usePullRequests";
 import { resetSummaryFold, setSummarySectionOpen } from "./summaryFold";
 import {
   SessionSummaryBody as Body,
@@ -23,6 +26,7 @@ type Props = SessionSummaryInput & {
   environment?: readonly SummaryRow[];
   goal?: SessionGoal | null;
   connectors?: readonly Connector[];
+  pullRequests?: PullRequestsPanel;
 };
 
 // The view takes the derived data; these derive it the way AgentHubContent does.
@@ -312,6 +316,120 @@ describe("folding a section", () => {
       expect(html).toContain("1/3");
       expect(html).not.toContain('data-testid="summary-plan-row"');
       expect(html).toContain('data-testid="summary-environment-row"');
+    } finally {
+      resetSummaryFold();
+    }
+  });
+});
+
+describe("the pull request section", () => {
+  const change = (extra: Record<string, unknown> = {}) =>
+    ({
+      repo: { host: "github.com", path: "acme/widgets" },
+      number: 7,
+      title: "Add retries",
+      url: "https://github.com/acme/widgets/pull/7",
+      state: "open",
+      draft: false,
+      head: "feat/retries",
+      base: "main",
+      additions: 120,
+      deletions: 14,
+      changedFiles: 5,
+      mergeable: "conflicting",
+      reviewDecision: "changes_requested",
+      checks: { total: 4, passed: 1, failed: 1, running: 2, skipped: 0, failing: [{ name: "unit", status: "failed", url: "https://ci/unit", summary: "2 tests failed" }] },
+      checksKnown: true,
+      unresolvedThreads: 2,
+      terms: { platform: "GitHub", short: "PR", long: "pull request", checks: "checks" },
+      ...extra,
+    }) as unknown as ChangeRequest;
+  const item = (extra: Record<string, unknown>) => ({ folder: "/w/widgets", branch: "feat/retries", source: "branch", ...extra }) as unknown as PullRequestItem;
+  const panel = (items: PullRequestItem[]): PullRequestsPanel => pullRequestsView(items);
+
+  test("a request alone is a card, with no other section and no placeholder", () => {
+    const html = render(<SessionSummaryBody {...base} pullRequests={panel([item({ status: "found", changeRequest: change() })])} />);
+    expect(html).toContain('data-testid="summary-pullRequests"');
+    expect(html).toContain("Pull requests");
+    expect(html).toContain('data-testid="summary-pr-card"');
+    expect(html).not.toContain('data-testid="summary-changes"');
+  });
+
+  test("the card carries number, title, size, progress and what needs attention", () => {
+    const html = render(<SessionSummaryBody {...base} pullRequests={panel([item({ status: "found", changeRequest: change() })])} />);
+    for (const want of ["#7", "Add retries", "+120", "−14", "1/4", "Conflicts with main", "Changes requested", "2 unresolved threads", "unit", "2 tests failed"]) {
+      expect(html).toContain(want);
+    }
+    expect(html).toContain('data-tone="danger"');
+  });
+
+  test("a merged request has no attention lines", () => {
+    const html = render(<SessionSummaryBody {...base} pullRequests={panel([item({ status: "found", changeRequest: change({ state: "merged" }) })])} />);
+    expect(html).toContain('data-state="merged"');
+    expect(html).not.toContain("summary-pr-attention");
+    expect(html).not.toContain("summary-pr-checks");
+    expect(html).not.toContain("summary-pr-failing");
+  });
+
+  test("a repository with no account says why", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        pullRequests={panel([item({ status: "no_account", message: "No GitHub account for this remote (acme/widgets on github.com). Add a token in Accounts." })])}
+      />,
+    );
+    expect(html).toContain('data-testid="summary-pr-notice"');
+    expect(html).toContain("No GitHub account for this remote");
+    expect(html).not.toContain('data-testid="summary-pr-card"');
+  });
+
+  test("a branch with no request yet, or on the default branch, draws nothing", () => {
+    for (const status of ["none", "default_branch", "detached", "not_repository", "unsupported_host"]) {
+      expect(render(<SessionSummaryBody {...base} pullRequests={panel([item({ status, message: "x" })])} />)).toBe("");
+    }
+  });
+
+  test("a workspace of several repositories names each", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        pullRequests={panel([
+          item({ status: "found", changeRequest: change() }),
+          item({ status: "found", folder: "/w/api", changeRequest: change({ number: 9, repo: { host: "github.com", path: "acme/api" } }) }),
+        ])}
+      />,
+    );
+    expect(html.match(/data-testid="summary-pr-card"/g)?.length).toBe(2);
+    expect(html).toContain("acme/widgets");
+    expect(html).toContain("acme/api");
+  });
+
+  test("an attached request can be unlinked and another linked by address; a branch's cannot", () => {
+    const attach = async () => {};
+    const detach = async () => {};
+    const view = pullRequestsView([item({ status: "found", source: "attached", changeRequest: change() }), item({ status: "found", folder: "/w/api", changeRequest: change({ number: 9, repo: { host: "github.com", path: "acme/api" } }) })]);
+    const html = render(<SessionSummaryBody {...base} pullRequests={{ ...view, attach, detach }} />);
+    expect(html.match(/data-testid="summary-pr-detach"/g)?.length).toBe(1);
+    expect(html).toContain('data-testid="summary-pr-attach"');
+  });
+
+  test("a merge request platform is called by its own name", () => {
+    const html = render(
+      <SessionSummaryBody
+        {...base}
+        pullRequests={panel([item({ status: "found", changeRequest: change({ terms: { platform: "GitLab", short: "MR", long: "merge request", checks: "pipelines" } }) })])}
+      />,
+    );
+    expect(html).toContain("Merge requests");
+    expect(html).toContain("pipelines:");
+  });
+
+  test("it folds like the other sections", () => {
+    try {
+      setSummarySectionOpen("pullRequests", false);
+      const html = render(<SessionSummaryBody {...base} pullRequests={panel([item({ status: "found", changeRequest: change() })])} />);
+      expect(html).toContain('data-testid="summary-pullRequests-toggle"');
+      expect(html).not.toContain('data-testid="summary-pr-card"');
     } finally {
       resetSummaryFold();
     }

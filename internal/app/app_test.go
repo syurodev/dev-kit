@@ -96,6 +96,29 @@ func TestNewContainerGrantsAgentGitSync(t *testing.T) {
 	}
 }
 
+// Every pr.* tool asks the gateway for one of these. The tests in internal/mcp
+// call the handlers without the policy, so only the grants the container really
+// installs can say whether an agent's pr.get or pr.create would be refused.
+func TestNewContainerGrantsEveryPullRequestToolItsCapability(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range mcp.PullRequestGrants() {
+		decision := container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]})
+		if !decision.Allowed {
+			t.Errorf("pr.* asks for %s %q on %q, which no default grant covers", grant[0], grant[1], grant[2])
+		}
+	}
+	// The window reads and attaches under the same subject.
+	for _, grant := range [][3]string{{"builtin.git", "git:read", "repo:pr"}, {"builtin.git", "git:write", "repo:pr"}} {
+		if !container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]}).Allowed {
+			t.Errorf("the window's %v is not granted", grant)
+		}
+	}
+	// A write is push-class: a git:write grant must not stand in for it.
+	if container.Permissions.Check(permissions.Request{SubjectID: "builtin.git", Capability: "git:push", Scope: "repo:pr"}).Allowed {
+		t.Error("git:push must stay limited to remote:* scopes")
+	}
+}
+
 func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
 	container := NewContainer()
 	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect", "sync:conflicts", "sync:resolve", "sync:devices"} {

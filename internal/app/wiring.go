@@ -13,6 +13,7 @@ import (
 	"devkit/internal/gitssh"
 	"devkit/internal/interaction"
 	"devkit/internal/notify"
+	"devkit/internal/prwatch"
 	"devkit/internal/tasks"
 	"devkit/internal/vault"
 )
@@ -34,6 +35,8 @@ type Tables struct {
 	CodexHookEvents      string
 	TaskVerifyRuns       string
 	TaskBoardBindings    string
+	// SessionChangeRequests holds pull requests attached to a session by hand.
+	SessionChangeRequests string
 }
 
 // WireCredentialsAndWork upgrades the four modules from the shapes an
@@ -82,6 +85,10 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// An HTTPS remote with no binding is matched to an account by its host and
 	// owner, and the person is asked when two accounts fit.
 	c.Git.SetAccountPicker(remotePicker{accounts: c.Accounts, hub: c.Interaction})
+	// The pull/merge request each session's branch became: found from the
+	// branch and the remote, called as the account Accounts picks for it.
+	c.PullRequests = NewPullRequests(c.Git, c.Accounts, remotePicker{accounts: c.Accounts, hub: c.Interaction},
+		prwatch.NewSQLStore(db, tables.SessionChangeRequests))
 	// Without these two the Git module's guards and remote bindings are nil,
 	// which silently turns off commit gating and means a push never resolves
 	// a credential at all.

@@ -15,7 +15,7 @@ import {
   type PermissionEnv,
 } from "./permissionCard";
 import { PermissionFileEdits } from "./PermissionFileEdits";
-import { GatePermissionDetails, gatePermission } from "./GatePermissionDetails";
+import { GatePermissionDetails, gatePermission, isUntaggedGate } from "./GatePermissionDetails";
 import { TrayPanelHeading } from "./composer/TrayPanelHeading";
 
 export type { PermissionEnv };
@@ -163,7 +163,7 @@ export function AgentPermissionRequest({
   );
 
   const marks = (
-    <PermissionMarks env={env} environment={gate?.env} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
+    <PermissionMarks env={env} environment={gate?.env} untagged={isUntaggedGate(gate)} secondsLeft={secondsLeft} expired={expired} testIdPrefix="permission" />
   );
 
   return (
@@ -233,7 +233,7 @@ export function AgentPermissionRequest({
         {/* What the edit is, not only which tool: the file as it would be. */}
         <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
-        <PermissionLockedNote env={env} environment={gate?.env} />
+        <PermissionLockedNote env={env} environment={gate?.env} untagged={isUntaggedGate(gate)} />
         {/* Sticky to the foot of whatever scrolls this card (the composer's panel
             area on a short pane): a long command or a stack of file edits scrolls
             past, and Deny / Allow stay where they can be pressed. */}

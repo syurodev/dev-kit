@@ -662,6 +662,10 @@ var keptCodes = map[string]bool{
 	"memory.notFound":         true,
 	"memory.revisionConflict": true,
 	"memory.workspaceDenied":  true,
+	// internal/prwatch words these itself (account missing, token refused, the
+	// host's own message); a token is never part of any of them.
+	"pullrequests.attachFailed": true,
+	"pullrequests.unavailable":  true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that
