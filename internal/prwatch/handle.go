@@ -330,7 +330,7 @@ func (s *Service) find(ctx context.Context, p forge.Provider, c forge.Credential
 	s.mu.Lock()
 	cached, ok := s.finds[key]
 	s.mu.Unlock()
-	if ok && !cached.failed && s.now().Sub(cached.at) < minAge {
+	if ok && s.now().Sub(cached.at) < minAge {
 		return cached.list, nil
 	}
 	list, err := p.Find(ctx, c, repo, head)

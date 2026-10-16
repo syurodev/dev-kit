@@ -61,17 +61,6 @@ func (h *prHost) status(route string, code int, v any) {
 	h.mu.Unlock()
 }
 
-func (h *prHost) sent(route string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, c := range h.calls {
-		if c == route {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *prHost) mutated() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -122,10 +122,8 @@ type entry struct {
 }
 
 type found struct {
-	at     time.Time
-	list   []forge.ChangeRequest
-	err    error
-	failed bool
+	at   time.Time
+	list []forge.ChangeRequest
 }
 
 // New wires the service. store may be nil: hand-attached requests then last
