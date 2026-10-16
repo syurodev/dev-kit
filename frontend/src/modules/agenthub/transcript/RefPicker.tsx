@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useId, useMemo, useRef } from "react";
 import { create } from "zustand";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -101,6 +102,7 @@ export function RefPickerList({
               "hover:bg-state-soft focus-visible:bg-state-soft",
             )}
           >
+            <FileIcon path={target.rel} className="size-3.5" />
             <span className="shrink-0 font-medium">{name}</span>
             <span className="min-w-0 truncate text-text-tertiary">{dir ? `${target.folderName} · ${dir}` : target.folderName}</span>
           </button>

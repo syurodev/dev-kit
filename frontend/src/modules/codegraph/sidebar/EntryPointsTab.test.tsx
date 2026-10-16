@@ -1,6 +1,7 @@
 import { expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { entryCollapseKeys } from "./treeActions";
 import { EntryPointsTab, type FolderEntries } from "./EntryPointsTab";
 
 const noop = () => {};
@@ -88,4 +89,24 @@ it("verb filter chips keep their tint at full strength and turn neutral when fil
   const [, restClass] = chip(render(folders), "POST");
   expect(restClass).toContain("text-(--hue-yellow)");
   for (const cls of [getClass, postClass, restClass]) expect(cls).not.toMatch(/(^|\s)(hover:)?opacity-/);
+});
+
+it("keeps owner groups folded after reopening a collapsed workspace folder", () => {
+  const ep = { id: "health", entryNode: "Health", verb: "GET", target: "/health", kind: "http", owner: "Health", group: "HealthController", service: "api", order: 0 };
+  const folders: FolderEntries[] = ["a", "b"].map((folderId) => ({
+    folderId, path: `/${folderId}`, label: folderId, note: "",
+    health: { health: "ready", tone: "ok", label: "Indexed", detail: "" }, entries: [ep],
+  }));
+  const collapsed = entryCollapseKeys(folders);
+  const draw = (keys: string[]) => renderToString(
+    <TooltipProvider>
+      <EntryPointsTab folders={folders} query="" selected={null} verbFilter={[]} collapsed={keys}
+        onVerbFilter={noop} onToggleGroup={noop} onSelect={noop} onKeep={noop}
+        onOpenBeside={noop} onAskAgent={noop} onReindexFolder={noop} />
+    </TooltipProvider>,
+  );
+  expect(draw(collapsed)).not.toContain("HealthController");
+  const reopened = draw(collapsed.filter((key) => key !== "folder:a"));
+  expect(reopened).toContain("HealthController");
+  expect(reopened).not.toContain("/health");
 });

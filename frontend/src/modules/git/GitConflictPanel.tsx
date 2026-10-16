@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { gitUI, useGitBusy } from "./gitUI";
 import { useModuleFolder } from "@/stores/workFolder";
 import { useEffect, useState } from "react";
@@ -81,6 +82,7 @@ export function GitConflictPanel({
     >
       <div className="flex h-9 shrink-0 items-center gap-3">
         <GitMerge className="size-4.5 shrink-0 text-text-secondary" aria-hidden />
+        <FileIcon path={path} />
         <span className="truncate font-mono text-title-16 text-text-primary">{path}</span>
         <span className="flex h-6 items-center gap-1.5 rounded-md border border-border-subtle bg-surface-raised px-2.5 text-code-11 text-text-secondary">
           <span className="size-1.5 rounded-full bg-status-warning" />

@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -130,7 +131,7 @@ function TabDragGhost({ tab }: { tab: WorkbenchTab | undefined }) {
   const Icon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
   return (
     <div className="flex h-(--control-height-sm) max-w-60 cursor-grabbing items-center gap-2 rounded-md border border-border-subtle bg-surface-raised px-2.5 text-label-12 text-text-primary shadow-lg">
-      <Icon className="size-3.5 shrink-0" />
+      {tab.viewId === "codegraph.file" && typeof tab.params?.path === "string" ? <FileIcon path={tab.params.path} className="size-3.5" /> : <Icon className="size-3.5 shrink-0" />}
       <span className="truncate">{tab.title}</span>
     </div>
   );
@@ -424,7 +425,7 @@ function TabItem({
         />
       )}
       <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2">
-        <ModuleIcon className="size-3.5 shrink-0 opacity-85" />
+        {tab.viewId === "codegraph.file" && typeof tab.params?.path === "string" ? <FileIcon path={tab.params.path} className="size-3.5" /> : <ModuleIcon className="size-3.5 shrink-0 opacity-85" />}
         {marks.status === "running" ? (
           <span aria-hidden="true" className="tab-status-spin size-2.5 shrink-0 rounded-full" />
         ) : marks.status ? (

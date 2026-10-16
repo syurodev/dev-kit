@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
 import { SidebarHeader, SidebarInset, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { gitUI, useGitBusy, useGitOperation } from "./gitUI";
@@ -542,6 +543,7 @@ function FileItem({
         className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-3 text-left"
       >
         <StatusMark kind={kind} />
+        <FileIcon path={path} className="size-3.5" />
         <span className="min-w-0 truncate text-body-13 text-text-primary">{name}</span>
         {dir ? <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary">{dir}</span> : null}
       </button>

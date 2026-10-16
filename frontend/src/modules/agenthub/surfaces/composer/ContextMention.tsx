@@ -1,4 +1,5 @@
-import { FileCode } from "lucide-react";
+import { FileIcon } from "@/components/file-icon/FileIcon";
+import { Badge } from "@/components/ui/badge";
 import { PlateElement, type PlateElementProps } from "platejs/react";
 
 /**
@@ -13,15 +14,16 @@ export function ContextMentionElement(props: PlateElementProps) {
 
   return (
     <PlateElement {...props} as="span">
-      <span
+      <Badge
+        variant="secondary"
         contentEditable={false}
         data-context-mention={path}
         title={path}
-        className="inline-flex items-center gap-1 rounded-sm border border-status-info bg-status-info/8 px-1.75 py-0.5 align-baseline text-label-12 text-status-info"
+        className="max-w-full min-w-0 h-6 items-center gap-1.5 rounded-md py-0 align-middle"
       >
-        <FileCode className="size-2.75" />
-        {label}
-      </span>
+        <FileIcon path={path} className="size-3" />
+        <span className="min-w-0 truncate">{label}</span>
+      </Badge>
       {props.children}
     </PlateElement>
   );

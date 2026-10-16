@@ -1,5 +1,6 @@
+import { fileIconComponent } from "@/components/file-icon/FileIcon";
 import * as React from "react";
-import { Check, Code2, Copy, FileCode, Terminal } from "lucide-react";
+import { Check, Code2, Copy, Terminal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
@@ -76,7 +77,7 @@ export function AgentCodeBlock({
   const name = path ? path.split("/").pop() || path : "";
   const lineCount = code.split("\n").length;
   const range = startLine !== undefined ? `lines ${startLine}–${startLine + lineCount - 1}` : undefined;
-  const Icon = path ? FileCode : SHELLS.has(lang) ? Terminal : Code2;
+  const Icon = path ? fileIconComponent(path) : SHELLS.has(lang) ? Terminal : Code2;
 
   return (
     <FramedCard data-testid="agent-code-block" className={cn("max-w-full", className)}>

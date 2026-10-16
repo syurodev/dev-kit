@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { focusWhenInteractive } from "@/lib/focusWhenInteractive";
 import { frozenWhileHidden } from "@/lib/frozenWhileHidden";
@@ -129,7 +130,7 @@ function ReferenceList({ panel, onOpen }: { panel: NavigationPanelState; onOpen:
           {[...files.entries()].map(([path, rows]) => (
             <div key={treeFileId(folderId, path)}>
               <div className="flex items-center gap-2 px-3 pt-1.5 pb-0.5 text-code-11 text-text-tertiary" title={path}>
-                <span className="min-w-0 truncate">{path}</span>
+                <FileIcon path={path} className="size-3" /><span className="min-w-0 truncate">{path}</span>
                 <span className="shrink-0">{rows.length}</span>
               </div>
               {rows.map(({ loc, index }) => (
@@ -238,6 +239,7 @@ function PeekBody({ panel, onOpen }: { panel: NavigationPanelState; onOpen: (loc
         </div>
       ) : null}
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
+        <FileIcon path={loc.path} className="size-3" />
         <span className="min-w-0 truncate text-code-11 text-text-secondary" title={`${label} › ${loc.path}`}>
           {label ? `${label} › ` : ""}
           {loc.path}:{loc.line}

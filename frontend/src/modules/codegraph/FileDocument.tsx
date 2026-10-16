@@ -1,3 +1,4 @@
+import { YamlEditor } from "@/components/yaml/YamlEditor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -162,7 +163,9 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
       }),
     ];
   }, [key, path, folderId, provider, onNavigate, onPanel]);
-  const language = useLanguageExtension(languageForPath(path));
+  const languageId = languageForPath(path);
+  const yaml = languageId === "yaml";
+  const language = useLanguageExtension(languageId);
   const extensions = useMemo(() => [...language, ...fileExtensions], [language, fileExtensions]);
 
   // Once a save lands, the index will describe the text on screen, so that is
@@ -259,19 +262,17 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
   const orphaned = buffer.orphan !== null;
   const conflicted = buffer.external !== null && !orphaned;
 
-  const codeEditor = (
-    <CodeEditor
-      // Line endings are fixed when the editor is created.
-      key={buffer.eol}
-      value={buffer.content}
-      revealLine={revealTarget}
-      onChange={(content) => editFile(key, content, tabId)}
-      extensions={extensions}
-      onView={onView}
-      lineSeparator={buffer.eol}
-      wrap="auto"
-    />
-  );
+  const editorProps = {
+    value: buffer.content,
+    revealLine: revealTarget,
+    onChange: (content: string) => editFile(key, content, tabId),
+    extensions,
+    onView,
+    lineSeparator: buffer.eol,
+  };
+  const codeEditor = yaml
+    ? <YamlEditor key={buffer.eol} {...editorProps} file={path} documentKey={key} active={front} />
+    : <CodeEditor key={buffer.eol} {...editorProps} wrap="auto" />;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">

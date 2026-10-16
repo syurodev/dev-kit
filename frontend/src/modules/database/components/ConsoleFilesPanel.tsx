@@ -1,6 +1,7 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileCode2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -162,7 +163,7 @@ export function ConsoleFilesPanel() {
           {group.files.map((file) => (
             <SidebarRow
               key={file.id}
-              icon={<FileCode2 className="size-(--icon-12) shrink-0 text-text-tertiary" />}
+              icon={<FileIcon path="console.sql" className="size-(--icon-12)" />}
               label={consoleLabel(file.sql) || "Empty console"}
               onClick={() => void open(file)}
               trailing={

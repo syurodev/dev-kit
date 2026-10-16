@@ -832,8 +832,10 @@ describe("AgentProse links and file refs", () => {
       </TranscriptActionsProvider>,
     );
     expect(html.match(/data-testid="agent-file-ref"/g)?.length).toBe(1);
-    expect(html).toContain('role="button"');
-    expect(html).toContain(">auth/session.go:88<");
+    expect(html).toContain('<button type="button" data-testid="agent-file-ref"');
+    expect(html).toContain('data-file-icon="go"');
+    expect(html).toContain(">auth/session.go</span><span");
+    expect(html).toContain(">:88</span>");
   });
 
   it("a file ref is a button when references can open, with no chip handler", () => {

@@ -450,13 +450,15 @@ const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
  * to set state on every event and re-render every visible row with it:
  * 8.3–8.7ms of main thread a step, p95 15ms, in the harness.
  */
-export function TreeView({ nodes, className, keyboardNavigation = false, revealNodeId }: {
+export function TreeView({ nodes, className, keyboardNavigation = false, revealNodeId, revealRequest = 0 }: {
   nodes: TreeNodeData[];
   className?: string;
   /** IDE-style arrows, Home/End, Space preview and Enter keep. */
   keyboardNavigation?: boolean;
   /** Reveal once when the target changes, without taking keyboard focus. */
   revealNodeId?: string | null;
+  /** Increment to reveal the same target again after scrolling or collapsing. */
+  revealRequest?: number;
 }) {
   const treeId = useId();
   const treeRef = useRef<HTMLDivElement>(null);
@@ -492,6 +494,11 @@ export function TreeView({ nodes, className, keyboardNavigation = false, revealN
   });
 
   useEffect(() => {
+    revealed.current = null;
+    expanding.current = { id: null, nodes: new Set() };
+  }, [revealRequest]);
+
+  useEffect(() => {
     if (expanding.current.id !== revealNodeId) expanding.current = { id: revealNodeId ?? null, nodes: new Set() };
     if (!revealNodeId) { revealed.current = null; return; }
     if (revealed.current === revealNodeId) return;
@@ -511,7 +518,7 @@ export function TreeView({ nodes, className, keyboardNavigation = false, revealN
     if (index < 0) return;
     virtualizer.scrollToIndex(index, { align: "auto" });
     revealed.current = revealNodeId;
-  }, [revealNodeId, nodes, rows, virtualizer]);
+  }, [revealNodeId, revealRequest, nodes, rows, virtualizer]);
 
   useEffect(() => {
     const el = scrollRef.current;

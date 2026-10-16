@@ -1,6 +1,7 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
-import { ChevronRight, File, FileText, ImageIcon } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -178,13 +179,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                       className="flex max-w-full items-center gap-2.5 rounded-xl bg-surface-tinted py-2 pr-3.5 pl-2"
                     >
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-base">
-                        {attachment.kind === "document" ? (
-                          <FileText className="size-4 text-status-danger" aria-hidden="true" />
-                        ) : attachment.kind === "image" ? (
-                          <ImageIcon className="size-4 text-text-secondary" aria-hidden="true" />
-                        ) : (
-                          <File className="size-4 text-text-secondary" aria-hidden="true" />
-                        )}
+                        <FileIcon path={attachment.name} className="size-4" />
                       </span>
                       <span className="flex min-w-0 flex-col">
                         <span className="max-w-60 truncate text-body-13 text-text-primary">{attachment.name}</span>

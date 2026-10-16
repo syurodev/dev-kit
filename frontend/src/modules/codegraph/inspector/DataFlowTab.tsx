@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useMemo, useState } from "react";
 import { Info, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -247,7 +248,7 @@ function UserSection({
                   ) : null}
                 </ItemTitle>
                 <ItemDescription className="truncate text-code-11 text-text-tertiary" title={u.filePath}>
-                  {fileName(u.filePath)}
+                  <FileIcon path={u.filePath} className="mr-1 size-3" />{fileName(u.filePath)}
                   {u.via ? <span className="font-sans"> · via {shortLabel(u.via, "method")}</span> : null}
                 </ItemDescription>
               </ItemContent>

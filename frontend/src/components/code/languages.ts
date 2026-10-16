@@ -82,7 +82,7 @@ export const LANGUAGES: LanguageDef[] = [
     label: "YAML",
     aliases: ["yml"],
     extensions: ["yaml", "yml"],
-    load: () => import("@codemirror/lang-yaml").then((m) => m.yaml()),
+    load: () => import("./grammars/yaml").then((m) => m.yamlSupport()),
   },
   {
     id: "sql",
@@ -145,11 +145,19 @@ export const LANGUAGES: LanguageDef[] = [
 
   // Stream modes: colour, no parse tree beyond the tokens.
   {
+    id: "makefile",
+    label: "Makefile",
+    aliases: ["make", "gnumake"],
+    extensions: ["mk", "mak", "make"],
+    filenames: ["makefile", "gnumakefile", "bsdmakefile"],
+    load: legacy(() => import("./grammars/makefile").then((m) => m.makefile as StreamParser<unknown>)),
+  },
+  {
     id: "shell",
     label: "Shell",
     aliases: ["sh", "bash", "zsh", "shellscript"],
     extensions: ["sh", "bash", "zsh"],
-    filenames: [".bashrc", ".zshrc", ".profile", ".bash_profile"],
+    filenames: [".bashrc", ".zshrc", ".profile", ".bash_profile", ".zprofile", ".envrc", "gradlew"],
     load: legacy(() => import("@codemirror/legacy-modes/mode/shell").then((m) => m.shell)),
   },
   {
@@ -368,9 +376,12 @@ export function languageForPath(path?: string | null): string | undefined {
   const base = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
   const named = byFilename.get(base);
   if (named) return named;
+  if (base.startsWith(".env.")) return "properties";
+  if (base.startsWith("containerfile.") || base.endsWith(".containerfile")) return "dockerfile";
   if (base.startsWith("dockerfile.") || base.endsWith(".dockerfile")) return "dockerfile";
   const dot = base.lastIndexOf(".");
-  return dot > 0 ? byExtension.get(base.slice(dot + 1)) : undefined;
+  const extension = dot > 0 ? byExtension.get(base.slice(dot + 1)) : undefined;
+  return extension ?? (/^(?:gnu|bsd)?makefile[.-]/.test(base) ? "makefile" : undefined);
 }
 
 /**

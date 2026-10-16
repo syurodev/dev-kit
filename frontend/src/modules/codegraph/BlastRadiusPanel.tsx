@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useId, useState } from "react";
 import { GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -117,9 +118,9 @@ function ImpactResult({ folderId, filePath, indexedAt, indexing, onOpenFile }: P
               type="button"
               title={path}
               onClick={() => onOpenFile(path)}
-              className="h-7 w-full truncate rounded px-2 text-left text-code-11 text-text-secondary transition-colors duration-(--motion-fast) hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-status-info"
+              className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-2 text-left text-code-11 text-text-secondary transition-colors duration-(--motion-fast) hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-status-info"
             >
-              {path}
+              <FileIcon path={path} className="size-3.5" /><span className="truncate">{path}</span>
             </button>
           </li>
         ))}

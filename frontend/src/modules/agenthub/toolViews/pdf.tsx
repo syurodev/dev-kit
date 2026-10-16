@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useId, useState } from "react";
 import { ChevronRight, FileSearch, FileText, Files, Images, Info } from "lucide-react";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
@@ -315,7 +316,7 @@ export function PdfListCard({ documents, heading }: { documents: PdfDocument[]; 
         {shown.map((doc) => (
           <FramedCardRow
             key={doc.id}
-            label={doc.name}
+            label={<span className="inline-flex min-w-0 items-center gap-1.5"><FileIcon path={doc.name} className="size-3" /><span className="truncate">{doc.name}</span></span>}
             trailing={doc.id}
             detail={[
               plural(doc.pages, "page"),

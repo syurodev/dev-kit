@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, LocateFixed, ChevronsDownUp } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { SidebarHeader, SidebarInset, SidebarSearch } from "@/components/ui/sidebar-shell";
+import { Button } from "@/components/ui/button";
+import { entryCollapseKeys, fileAncestorKeys } from "./sidebar/treeActions";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -164,6 +166,8 @@ export function CodeGraphSidebar() {
     doc.kind === "flow" && doc.folderId && doc.root ? s.flows[flowKey(doc.folderId, doc.root)]?.subgraph : undefined,
   );
   const [outlineOpen, setOutlineOpen] = useState(true);
+  const [revealRequest, setRevealRequest] = useState(0);
+  const [collapsedFile, setCollapsedFile] = useState<string | null>(null);
 
   const labels = useMemo(() => folderLabels(folders.map((f) => ({ id: f.id, name: f.name, path: f.path }))), [folders]);
   const inView = useMemo(() => scopeFolders(scope, folders), [scope, folders]);
@@ -207,6 +211,35 @@ export function CodeGraphSidebar() {
   );
   const tab: CodeGraphSidebarTab = activeTab;
   const symbolMode = tab === "entries" && query.startsWith("@");
+  const selectedFileKey = selectedFile ? docKey(workspaceId, selectedFile.folderId, selectedFile.path) : null;
+  useEffect(() => {
+    if (collapsedFile !== selectedFileKey) setCollapsedFile(null);
+  }, [collapsedFile, selectedFileKey]);
+
+  const revealCurrentFile = () => {
+    if (!selectedFile) return;
+    if (!inViewIds.includes(selectedFile.folderId)) setScope({ kind: "all" });
+    set({
+      activeTab: "files",
+      query: "",
+      fileFilter: { codeOnly: false, changed: false, inFlow: false },
+      collapsedRoots: collapsedRoots.filter((id) => id !== selectedFile.folderId),
+      fileExpanded: [...new Set([...fileExpanded, ...fileAncestorKeys(selectedFile.folderId, selectedFile.path)])],
+    });
+    setCollapsedFile(null);
+    setRevealRequest((n) => n + 1);
+  };
+  const collapseAll = () => {
+    setCollapsedFile(selectedFileKey);
+    set({
+      query: "",
+      verbFilter: [],
+      fileExpanded: [],
+      collapsedRoots: folders.map((f) => f.id),
+      collapsedGroups: entryCollapseKeys(folders.map((f) => ({ folderId: f.id, entries: data[f.id]?.entries?.entries ?? [] }))),
+    });
+    setOutlineOpen(false);
+  };
 
   useEffect(() => {
     // The Plan section follows the scope: a folder that left it is not the source any more.
@@ -266,6 +299,26 @@ export function CodeGraphSidebar() {
             placeholder={PLACEHOLDER[tab]}
             aria-label={tab === "entries" ? "Search entry points, or type @ for classes and methods" : PLACEHOLDER[tab]}
           />
+          {tab === "files" || tab === "entries" ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="Reveal active file" disabled={!selectedFile} onClick={revealCurrentFile}>
+                    <LocateFixed aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Reveal active file</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="Collapse all" onClick={collapseAll}>
+                    <ChevronsDownUp aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Collapse all folders and entries</TooltipContent>
+              </Tooltip>
+            </>
+          ) : null}
         </SidebarHeader>
       )}
 
@@ -337,6 +390,8 @@ export function CodeGraphSidebar() {
             data={data}
             query={query}
             selected={selectedFile}
+            revealRequest={revealRequest}
+            revealActive={!selectedFileKey || collapsedFile !== selectedFileKey}
             unsaved={unsaved}
             workspaceId={workspaceId}
             flow={flow}

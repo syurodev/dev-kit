@@ -80,6 +80,8 @@ export type CodeEditorProps = {
    * Whatever this says, ⌥Z flips it for that editor until it unmounts.
    */
   wrap?: boolean | "auto";
+  /** When provided, the caller owns wrapping, including the ⌥Z shortcut. */
+  onWrapChange?: (wrapped: boolean) => void;
   revealLine?: RevealTarget;
   /**
    * Reports the live EditorView on mount, and null on unmount, through a ref
@@ -103,7 +105,7 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine, onView, lineSeparator }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrapChange, revealLine, onView, lineSeparator }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
@@ -128,7 +130,10 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   // resize.
   const [narrow, setNarrow] = useState(false);
   const [wrapOverride, setWrapOverride] = useState<boolean | null>(null);
-  const wrapped = wrapOverride ?? (wrap === "auto" ? narrow : !!wrap);
+  const requestedWrap = wrap === "auto" ? narrow : !!wrap;
+  const wrapped = onWrapChange ? requestedWrap : wrapOverride ?? requestedWrap;
+  const onWrapChangeRef = useRef(onWrapChange);
+  onWrapChangeRef.current = onWrapChange;
   const wrappedRef = useRef(wrapped);
   wrappedRef.current = wrapped;
   const autoWrapRef = useRef(wrap === "auto");
@@ -152,7 +157,8 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
             {
               key: "Alt-z",
               run: () => {
-                setWrapOverride(!wrappedRef.current);
+                if (onWrapChangeRef.current) onWrapChangeRef.current(!wrappedRef.current);
+                else setWrapOverride(!wrappedRef.current);
                 return true;
               },
             },
@@ -283,5 +289,5 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   // then depends on stylesheet order to win, which it does not reliably. App
   // CSS is the supported way — style-mod deliberately injects CodeMirror's
   // styles as head's first child so later stylesheets can override them.
-  return <div ref={containerRef} className="cm-surfaceless h-full w-full overflow-auto" />;
+  return <div ref={containerRef} className="cm-surfaceless h-full w-full overflow-hidden" />;
 }

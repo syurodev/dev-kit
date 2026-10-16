@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { memo, useMemo, useState } from "react";
 import { ChevronRight, Copy, Ellipsis, FolderSearch, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -82,6 +83,7 @@ export const FileToolbar = memo(function FileToolbar({
           {segments.map((seg, i) => (
             <span key={`${i}:${seg.label}`} className={cn("flex items-center", seg.kind === "file" ? "min-w-0 shrink" : "min-w-0 shrink-[2]")}>
               {i > 0 ? <ChevronRight className="mx-0.5 size-3 shrink-0 text-text-tertiary" aria-hidden /> : null}
+              {seg.kind === "file" ? <FileIcon path={path} className="mr-1 size-3.5" /> : null}
               {seg.label === "…" ? (
                 <span title={hidden ? seg.dir : undefined} className="px-0.5 text-text-tertiary">…</span>
               ) : (
@@ -198,7 +200,7 @@ function SiblingMenu({
         <DropdownMenuLabel className="truncate">{dir || label}</DropdownMenuLabel>
         {entries.length === 0 ? <DropdownMenuItem disabled>No files here</DropdownMenuItem> : null}
         {entries.slice(0, MENU_LIMIT).map((p) => (
-          <DropdownMenuItem key={p} disabled={p === current} onSelect={() => void openFile({ workspaceId, folderId, path: p }, null, { preview: false })}>
+          <DropdownMenuItem icon={<FileIcon path={p} className="size-3.5" />} key={p} disabled={p === current} onSelect={() => void openFile({ workspaceId, folderId, path: p }, null, { preview: false })}>
             <span className="truncate">{baseName(p)}</span>
           </DropdownMenuItem>
         ))}
