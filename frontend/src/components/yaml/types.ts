@@ -7,7 +7,7 @@ export type Analysis = { problems: Problem[]; path: YamlPath; active: { from: nu
 export type Suggestion = { label: string; detail?: string; info?: string; insert: string; kind: "property" | "constant"; cursor?: number };
 export type Suggestions = { from: number; to: number; options: Suggestion[]; filter?: boolean } | null;
 export type Edit = { from: number; to: number; insert: string };
-export type Request = { text: string; file: string; schema: SchemaChoice } & (
+export type Request = { text: string; file: string; schema: SchemaChoice; indentSize?: number } & (
   | { type: "analyze"; position: number }
   | { type: "complete"; position: number; explicit: boolean }
   | { type: "format"; selection?: { from: number; to: number } }

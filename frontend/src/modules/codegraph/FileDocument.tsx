@@ -4,6 +4,7 @@ import { Code, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { EditingControls } from "@/components/code-editor/EditingControls";
 import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
 import { codeIntel, markCodeIntelBaseline, savedLineAt, type CodeIntelPanelRequest, type CodeLocation } from "@/components/code-editor/codeIntel";
 import { languageForPath } from "@/components/code/languages";
@@ -165,6 +166,7 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
   }, [key, path, folderId, provider, onNavigate, onPanel]);
   const languageId = languageForPath(path);
   const yaml = languageId === "yaml";
+  const indentStyle = yaml ? "spaces" as const : languageId === "makefile" ? "tabs" as const : undefined;
   const language = useLanguageExtension(languageId);
   const extensions = useMemo(() => [...language, ...fileExtensions], [language, fileExtensions]);
 
@@ -269,6 +271,7 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
     extensions,
     onView,
     lineSeparator: buffer.eol,
+    indentStyle,
   };
   const codeEditor = yaml
     ? <YamlEditor key={buffer.eol} {...editorProps} file={path} documentKey={key} active={front} />
@@ -306,6 +309,7 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
                 </Tabs>
               </>
             ) : null}
+            {!yaml && (!markdown || mode === "source") ? <EditingControls getView={() => viewRef.current} indentStyle={indentStyle} /> : null}
             {buffer.saving ? <SavingMark /> : null}
             {buffer.reloadedAt > 0 ? <ReloadedMark at={buffer.reloadedAt} /> : null}
             {buffer.dirty ? (

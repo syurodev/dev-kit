@@ -8,6 +8,8 @@ import { externalValue } from "./codeIntel";
 import { minimalChange } from "./minimalChange";
 import { devkitHighlight } from "./devkitHighlight";
 import { wrapBreaks } from "./wrapBreaks";
+import { editingExtensions, type IndentStyle } from "./editing";
+import { useEditorPreferences } from "./preferences";
 import { wrapIndent } from "./wrapIndent";
 
 // Settings > Appearance drives these two custom properties (stores/
@@ -97,6 +99,8 @@ export type CodeEditorProps = {
    * Applied when the editor is created: remount (change `key`) to change it.
    */
   lineSeparator?: "\n" | "\r\n";
+  /** Override the saved style for whitespace-sensitive languages. */
+  indentStyle?: IndentStyle;
 };
 
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
@@ -105,11 +109,15 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrapChange, revealLine, onView, lineSeparator }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrapChange, revealLine, onView, lineSeparator, indentStyle }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
+  const size = useEditorPreferences((s) => s.size);
+  const preferredStyle = useEditorPreferences((s) => s.style);
+  const style = indentStyle ?? preferredStyle;
+  const editingCompartment = useRef(new Compartment()).current;
   const wrapCompartment = useRef(new Compartment()).current;
 
   // onChange is very likely a new function identity on every parent render
@@ -164,6 +172,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrap
             },
           ]),
           basicSetup,
+          editingCompartment.of(editingExtensions(size, style)),
           ...(lineSeparator ? [EditorState.lineSeparator.of(lineSeparator)] : []),
           fontTheme,
           languageCompartment.of(extensions ?? []),
@@ -278,6 +287,10 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrap
       effects: wrapCompartment.reconfigure(wrapped ? wrapExtensions : []),
     });
   }, [wrapped, wrapCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: editingCompartment.reconfigure(editingExtensions(size, style)) });
+  }, [size, style, editingCompartment]);
 
   // A caller switching to "auto" after mount has no measurement yet.
   useEffect(() => {

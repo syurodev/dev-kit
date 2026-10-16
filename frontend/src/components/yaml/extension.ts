@@ -1,8 +1,9 @@
 import { EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
-import { indentLess, indentMore, insertNewlineAndIndent, isolateHistory } from "@codemirror/commands";
-import { syntaxTree } from "@codemirror/language";
+import { indentLess, insertNewlineAndIndent, isolateHistory } from "@codemirror/commands";
+import { getIndentUnit, syntaxTree } from "@codemirror/language";
 import { acceptCompletion, type CompletionSource } from "@codemirror/autocomplete";
+import { tabIndent } from "@/components/code-editor/editing";
 import { requestYaml } from "./client";
 import type { Edit, SchemaChoice } from "./types";
 import { YAML_LIMIT } from "./types";
@@ -37,14 +38,14 @@ export function applyYamlEdit(view: EditorView, edit: Edit) {
 }
 /** YAML snippets keep spaces as spaces; Tab never inserts YAML-invalid tabs. */
 export const yamlEditingKeys: Extension = Prec.highest(keymap.of([
-  { key: "Tab", run: (view) => acceptCompletion(view) || indentMore(view) },
+  { key: "Tab", run: tabIndent },
   { key: "Shift-Tab", run: indentLess },
   { key: "Enter", run: (view) => acceptCompletion(view) || insertNewlineAndIndent(view) },
 ]));
 export function yamlAssistance(config: { file: string; schema: SchemaChoice }): Extension {
   const source: CompletionSource = async (context) => {
     if (context.state.doc.length > YAML_LIMIT) return null;
-    const result = await requestYaml({ type: "complete", text: context.state.doc.toString(), file: config.file, schema: config.schema, position: context.pos, explicit: context.explicit }).catch(() => null);
+    const result = await requestYaml({ type: "complete", text: context.state.doc.toString(), file: config.file, schema: config.schema, position: context.pos, indentSize: getIndentUnit(context.state), explicit: context.explicit }).catch(() => null);
     if (context.aborted || !result) return null;
     return { from: result.from, to: result.to, filter: result.filter, options: result.options.map((option) => ({ ...option, type: option.kind,
       apply(view: EditorView, _completion: unknown, from: number, to: number) {

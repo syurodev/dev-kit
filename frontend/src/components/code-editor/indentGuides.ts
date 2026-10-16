@@ -1,3 +1,4 @@
+import { getIndentUnit, indentUnit } from "@codemirror/language";
 import { RangeSetBuilder } from "@codemirror/state";
 import { Decoration, ViewPlugin, type DecorationSet, type EditorView, type ViewUpdate } from "@codemirror/view";
 import { leadingIndentWidth } from "./wrapIndent";
@@ -11,7 +12,7 @@ function guides(view: EditorView): DecorationSet {
       if (line.from > last) {
         const width = leadingIndentWidth(line.text, view.state.tabSize);
         if (width > 0) builder.add(line.from, line.from, Decoration.line({
-          attributes: { class: "cm-indent-guides", style: `--cm-indent-width:${width}ch` },
+          attributes: { class: "cm-indent-guides", style: `--cm-indent-width:${width}ch;--cm-indent-step:${getIndentUnit(view.state)}ch` },
         }));
         last = line.from;
       }
@@ -26,6 +27,6 @@ export const indentGuides = ViewPlugin.fromClass(class {
   decorations: DecorationSet;
   constructor(view: EditorView) { this.decorations = guides(view); }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged) this.decorations = guides(update.view);
+    if (update.docChanged || update.viewportChanged || update.startState.tabSize !== update.state.tabSize || update.startState.facet(indentUnit) !== update.state.facet(indentUnit)) this.decorations = guides(update.view);
   }
 }, { decorations: (plugin) => plugin.decorations });

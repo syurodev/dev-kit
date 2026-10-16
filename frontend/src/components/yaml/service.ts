@@ -59,6 +59,7 @@ function quote(value: unknown): string {
 }
 async function complete(model: Parsed, request: Extract<Request, { type: "complete" }>): Promise<Suggestions> {
   const { position } = request;
+  const indentSize = [2, 4, 8].includes(request.indentSize ?? 2) ? request.indentSize ?? 2 : 2;
   const document = documentAt(model, position), doc = model.docs[document];
   let data;
   try { data = dataOf(doc); } catch { return null; }
@@ -111,7 +112,7 @@ async function complete(model: Parsed, request: Extract<Request, { type: "comple
       const rawType = definition.type ?? (definition.properties ? "object" : undefined);
       const type = Array.isArray(rawType) ? (rawType.includes("object") ? "object" : rawType[0]) : rawType;
       let insert = quote(key);
-      if (!/^\s*:/.test(suffix)) insert += type === "string" && (key === "sql" || key.endsWith(".sql")) ? `: |\n${" ".repeat(indent + 2)}` : type === "object" ? `:\n${" ".repeat(indent + 2)}` : type === "array" ? `:\n${" ".repeat(indent + 2)}- ` : ": ";
+      if (!/^\s*:/.test(suffix)) insert += type === "string" && (key === "sql" || key.endsWith(".sql")) ? `: |\n${" ".repeat(indent + indentSize)}` : type === "object" ? `:\n${" ".repeat(indent + indentSize)}` : type === "array" ? `:\n${" ".repeat(indent + indentSize)}- ` : ": ";
       options.set(key, { label: key, insert, kind: "property", detail: (schema.required ?? []).includes(key) ? "required" : type, info: defs.map((item) => item.description).find(Boolean) });
     }
   }
@@ -119,7 +120,7 @@ async function complete(model: Parsed, request: Extract<Request, { type: "comple
 }
 export async function handleYaml(request: Request): Promise<Response> {
   const model = parsed(request.text);
-  if (request.type === "format") return formatYaml(model, request.selection);
+  if (request.type === "format") return formatYaml(model, request.selection, request.indentSize);
   if (request.type === "applySql") return applySql(model, request.block, request.value);
   if (request.type === "complete") return complete(model, request);
   return analyze(model, request);

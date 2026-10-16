@@ -85,3 +85,11 @@ test("a key at the end of the previous scalar's range belongs to its own field",
   expect(structure(parseYaml(text), text.indexOf('sql')).path).toEqual(['sql']);
   expect(structure(parseYaml(text), text.indexOf('next')).path).toEqual(['next']);
 });
+
+test("formats YAML with the chosen width while preserving scalar values", () => {
+  const source = "# keep\nroot:\n  child:\n    sql: |\n      SELECT 1;\n      SELECT 2;\n";
+  const result = edited(source, formatYaml(parseYaml(source), undefined, 4));
+  expect(result).toContain("root:\n    child:\n        sql:");
+  expect(result).toContain("# keep");
+  expect(values(result)).toEqual(values(source));
+});

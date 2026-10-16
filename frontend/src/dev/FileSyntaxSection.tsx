@@ -2,6 +2,7 @@ import { YamlEditor } from "@/components/yaml/YamlEditor";
 import { useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { EditingControls } from "@/components/code-editor/EditingControls";
 import { StructureControls } from "@/components/code-editor/StructureControls";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { FileIcon } from "@/components/file-icon/FileIcon";
@@ -85,11 +86,11 @@ export function FileSyntaxSection() {
     <div className="max-w-full overflow-hidden rounded-control border border-border-subtle bg-surface-base" style={{ width }} data-testid="file-syntax-pane">
       <div className="flex min-w-0 items-center gap-2 border-b border-border-subtle px-2 py-1">
         <FileIcon path={name} className="size-3.5" /><span className="min-w-0 flex-1 truncate text-code-12 text-text-secondary">{name}</span>
-        {language !== "yaml" ? <StructureControls wrapped={wrapped} onWrapChange={setWrapped} getView={() => view.current} /> : null}
+        {language !== "yaml" ? <><EditingControls getView={() => view.current} indentStyle="tabs" /><StructureControls wrapped={wrapped} onWrapChange={setWrapped} getView={() => view.current} /></> : null}
       </div>
       <div className="h-160" data-testid="file-syntax-editor">
         {language === "yaml" ? <YamlEditor file="billing-statements.yaml" documentKey="gallery:yaml" value={sources.yaml} onChange={(yaml) => setSources((previous) => ({ ...previous, yaml }))} extensions={support} onView={(next) => { view.current = next; }} /> :
-          <CodeEditor value={sources.makefile} onChange={(makefile) => setSources((previous) => ({ ...previous, makefile }))} extensions={support} wrap={wrapped} onWrapChange={setWrapped} onView={(next) => { view.current = next; }} />}
+          <CodeEditor indentStyle="tabs" value={sources.makefile} onChange={(makefile) => setSources((previous) => ({ ...previous, makefile }))} extensions={support} wrap={wrapped} onWrapChange={setWrapped} onView={(next) => { view.current = next; }} />}
 
       </div>
     </div>

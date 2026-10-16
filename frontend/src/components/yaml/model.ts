@@ -75,7 +75,7 @@ function sameValues(before: Parsed, after: Parsed) {
   if (before.docs.length !== after.docs.length || after.docs.some((doc) => doc.errors.length)) return false;
   return before.docs.every((doc, i) => JSON.stringify(doc.toJS({ maxAliasCount: 100 })) === JSON.stringify(after.docs[i].toJS({ maxAliasCount: 100 })));
 }
-export function formatYaml(parsed: Parsed, selection?: { from: number; to: number }): Edit {
+export function formatYaml(parsed: Parsed, selection?: { from: number; to: number }, indentSize = 2): Edit {
   valid(parsed);
   if (!parsed.text.trim()) return { from: 0, to: parsed.text.length, insert: parsed.text };
   let from = 0, to = parsed.text.length, text = parsed.text, pad = "";
@@ -95,7 +95,7 @@ export function formatYaml(parsed: Parsed, selection?: { from: number; to: numbe
   }
   const source = parseYaml(text);
   valid(source);
-  let insert = source.docs.map((doc) => doc.toString({ indent: 2, lineWidth: 0, indentSeq: true })).join("");
+  let insert = source.docs.map((doc) => doc.toString({ indent: [2, 4, 8].includes(indentSize) ? indentSize : 2, lineWidth: 0, indentSeq: true })).join("");
   if (!sameValues(source, parseYaml(insert))) throw new Error("Formatting would change YAML values; the file was left unchanged.");
   if (!text.endsWith("\n")) insert = insert.replace(/\n$/, "");
   if (pad) insert = insert.split("\n").map((line) => line ? pad + line : line).join("\n");
