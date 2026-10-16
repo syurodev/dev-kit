@@ -119,6 +119,19 @@ func TestNewContainerGrantsEveryPullRequestToolItsCapability(t *testing.T) {
 	}
 }
 
+// Same lesson as git.fetch: the MCP tests call the handlers without the policy,
+// so only the container's real grants say whether an agent's listPeers or
+// sendMessage would be refused.
+func TestNewContainerGrantsTheMessagingTools(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range mcp.PeerMessageGrants() {
+		decision := container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]})
+		if !decision.Allowed {
+			t.Errorf("the messaging tools ask for %s %q on %q, which no default grant covers", grant[0], grant[1], grant[2])
+		}
+	}
+}
+
 func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
 	container := NewContainer()
 	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect", "sync:conflicts", "sync:resolve", "sync:devices"} {

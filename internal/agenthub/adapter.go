@@ -102,16 +102,23 @@ type VendorConfigCatalog interface {
 	ConfigCatalog(context.Context, OpenSpec) ([]ConfigOption, error)
 }
 
+// TurnSteerer is implemented by runtimes whose agent takes a message into the
+// turn it is running. Split from the goal extension because the vendors differ:
+// Codex steers a turn (turn/steer) and keeps no goal.
+type TurnSteerer interface {
+	// Steer injects a message into the running turn. The outcome says what
+	// happened to it: "injected", "startedNewTurn", or "promptRequired" — the
+	// session was idle and the message is still the caller's to send.
+	Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error)
+}
+
 // SessionSteerer is implemented by runtimes whose agent advertises the
 // steering and goal extensions. Optional for the same reason
 // RuntimeConfigurator is: whether an agent takes a message mid-turn, or keeps
 // an objective, is a fact about the vendor, and an interface every adapter had
 // to satisfy would force the ones that cannot into stubs that lie.
 type SessionSteerer interface {
-	// Steer injects a message into the running turn. The outcome says what
-	// happened to it: "injected", "startedNewTurn", or "promptRequired" — the
-	// session was idle and the message is still the caller's to send.
-	Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error)
+	TurnSteerer
 	// SetGoal sets the session's objective, or clears it when empty.
 	SetGoal(ctx context.Context, objective string) error
 }

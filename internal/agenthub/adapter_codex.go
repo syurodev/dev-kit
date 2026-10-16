@@ -778,6 +778,9 @@ type codexRuntime struct {
 	closed     bool
 	closing    bool
 	exitErr    error
+	// steerUnsupported is set when the app-server answers turn/steer with
+	// "method not found", so the next message does not ask again.
+	steerUnsupported bool
 }
 
 // codexTurn is the turn a Prompt is waiting on. id is empty until turn/start
@@ -1269,6 +1272,62 @@ func codexErrorKind(raw json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// Steer puts a message into the turn that is running (turn/steer). Codex
+// refuses it when the turn named is no longer the active one, which is a turn
+// that ended while the message was on its way: reported as promptRequired, the
+// same answer Claude gives an idle session, so the caller sends it as a prompt.
+// An app-server without the method answers "method not found": that is
+// ErrUnsupported, remembered for the process, and callers fall back to queueing.
+// The wire shape was read from the 0.162 schema; the pinned 0.147 has not been
+// driven with it.
+func (r *codexRuntime) Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+	input := codexInput(prompt)
+	if len(input) == 0 {
+		return "", fmt.Errorf("%w: nothing Codex can read", ErrInvalidPrompt)
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return "", ErrSessionNotFound
+	}
+	t, thread := r.turn, r.threadID
+	if r.steerUnsupported {
+		r.mu.Unlock()
+		return "", ErrUnsupported
+	}
+	if t == nil || t.ended || t.id == "" {
+		// No turn, or turn/start has not told us its id yet: there is nothing
+		// to name, and the message is the caller's to send.
+		r.mu.Unlock()
+		return string(SteerPromptRequired), nil
+	}
+	turnID := t.id
+	r.mu.Unlock()
+
+	var res codexapp.TurnSteerResponse
+	err := r.conn.Call(ctx, codexapp.MethodTurnSteer, codexapp.TurnSteerParams{ThreadID: thread, ExpectedTurnID: turnID, Input: input}, &res)
+	var rpc *codexapp.RPCError
+	switch {
+	case err == nil:
+		return string(SteerInjected), nil
+	case errors.As(err, &rpc) && rpc.Code == -32601:
+		r.mu.Lock()
+		r.steerUnsupported = true
+		r.mu.Unlock()
+		return "", ErrUnsupported
+	case errors.As(err, &rpc):
+		// The turn is not the active one any more (or Codex will not take input
+		// into it, e.g. a review turn): nothing was injected.
+		select {
+		case <-t.over:
+			return string(SteerPromptRequired), nil
+		default:
+			return "", fmt.Errorf("%w: turn/steer: %s", ErrUnsupported, rpc.Message)
+		}
+	}
+	return "", r.callFailure("turn/steer", err)
 }
 
 // interrupt asks Codex to stop the turn. Best effort: a process that does not

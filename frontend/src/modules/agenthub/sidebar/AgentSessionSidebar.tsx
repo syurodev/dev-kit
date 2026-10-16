@@ -35,6 +35,7 @@ const NO_STRINGS: string[] = [];
 const NO_ATTENTION: Record<string, Attention> = {};
 const NO_SUBAGENTS: Record<string, Subagent[]> = {};
 const NO_ASKS: Record<string, string> = {};
+const NO_COUNTS: Record<string, number> = {};
 const NO_SUBAGENT_LIST: readonly Subagent[] = [];
 
 export type AgentSessionSidebarProps = {
@@ -56,6 +57,11 @@ export type AgentSessionSidebarProps = {
   currentWorkspaceId?: string | null;
   /** The agents a session started inside itself, by session id. */
   subagents?: Record<string, Subagent[]>;
+  /**
+   * Messages from other sessions the person has not seen, by session id. Shown
+   * on the row; never part of "Needs you", because nothing waits on the person.
+   */
+  peerUnread?: Record<string, number>;
   pinnedIds?: string[];
   onTogglePin?: (sessionId: string) => void;
   /** Group keys the person folded shut. Absent means open — a new project shows. */
@@ -106,6 +112,7 @@ export function AgentSessionSidebar({
   asks = NO_ASKS,
   currentWorkspaceId = null,
   subagents = NO_SUBAGENTS,
+  peerUnread = NO_COUNTS,
   pinnedIds = NO_STRINGS,
   collapsedKeys = NO_STRINGS,
   expandedKeys = NO_STRINGS,
@@ -347,6 +354,7 @@ export function AgentSessionSidebar({
                       folder={rowFolder(session, byId, scratchRoot, workspaces)}
                       pinned={pinnedIds.includes(session.id)}
                       subagents={subagents[session.id] ?? NO_SUBAGENT_LIST}
+                      peerUnread={peerUnread[session.id]}
                       parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
                       now={now}
                     />
@@ -378,6 +386,7 @@ export function AgentSessionSidebar({
                 activeId={activeSessionId}
                 pinnedIds={pinnedIds}
                 subagents={subagents}
+                peerUnread={peerUnread}
                 now={now}
                 onToggleCollapsed={toggleCollapsed}
                 onToggleOlder={toggleOlder}

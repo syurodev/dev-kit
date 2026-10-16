@@ -6,6 +6,7 @@ import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { registerAttachIntent } from "@/workbench/intents";
 import { openNewAgentSession } from "./documents";
 import { registerPdfViews } from "./toolViews/registerPdfViews";
+import { registerMessageViews } from "./toolViews/registerMessageViews";
 
 function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
   useAgentSessionsStore.getState().requestAgentHubCommand(command);
@@ -88,3 +89,6 @@ registerAttachIntent("agent.attach", (refs, prompt) => {
 // pdf.* results read as pages, hits and text: a PDF is a document of the
 // session that attached it, so its tools' views are this module's.
 registerPdfViews();
+// A message this session sent another one reads as who it was for and what
+// became of it, not as JSON.
+registerMessageViews();

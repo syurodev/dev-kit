@@ -429,6 +429,19 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   the shell skips branch guards, the task trailer and the push rule. Other git commands
   are left alone. It reads plain spellings (`-C`, env prefixes, chains), not `sh -c`.
 
+- **Sessions message each other without blocking** (`internal/agenthub/peer.go`, MCP `agenthub.sendMessage` /
+  `agenthub.listPeers`; spec `docs/superpowers/specs/2026-10-16-agent-hub-peer-messages-design.md`). The answer is at
+  once `delivery` = `started` (idle: an ordinary `invoke` turn), `steered` (running: Claude `_session/steering` / Codex
+  `turn/steer`, the `TurnSteerer` interface), `queued` (in-memory; drained when a turn ends) or `refused` + `code`.
+  Reach = own workspace, sub-sessions, parents; another workspace is `not_found` unless the person approves the exact
+  text (the tool asks, `CrossWorkspaceApproved` is never a wire field); a closed session is never woken. The row is a
+  `user_message_chunk` with `source` (`MessageSource`, stored payload + `_devkit.source`), drawn by `PeerMessage` and
+  never as the person's bubble; the model gets an envelope (`peerEnvelope`) saying it is not the person's, framed by
+  lines carrying the message id. Loop/storm guards: hop count (replies count even without `replyTo`; the person's
+  prompt resets it; cap 6), 5/min per pair, 20/min per target. The window mirrors its own prompt queue to Go
+  (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
+  checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.
+
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
 and server mode's bridge has no authentication, so a session could approve itself.

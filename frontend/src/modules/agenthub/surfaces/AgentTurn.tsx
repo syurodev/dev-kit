@@ -23,6 +23,7 @@ import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivi
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
+import { PeerMessage } from "../transcript/PeerMessage";
 import { AgentTurnChanges } from "./AgentTurnChanges";
 
 export type AgentTurnProps = {
@@ -149,7 +150,13 @@ export const AgentTurn = React.memo(function AgentTurn({
       // A jump from the transcript's ticks lands the prompt clear of the glass header.
       style={{ scrollMarginTop: "calc(var(--header-inset, 0px) + var(--space-section))" }}
     >
-      {turn.prompt && (turn.prompt.text?.trim() || turn.prompt.attachments?.length) ? (
+      {turn.prompt?.source ? (
+        // Another session's (or the terminal's) words are not the person's: no
+        // bubble on the right, no edit or rewind — those act on what you said.
+        <div className="flex w-full justify-start">
+          <PeerMessage source={turn.prompt.source} text={turn.prompt.text ?? ""} at={turn.prompt.createdAt} onCopy={onCopy} />
+        </div>
+      ) : turn.prompt && (turn.prompt.text?.trim() || turn.prompt.attachments?.length) ? (
         <div className="flex w-full justify-end">
           <MessageActions
             align="end"

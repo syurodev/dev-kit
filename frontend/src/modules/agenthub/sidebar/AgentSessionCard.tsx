@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Ellipsis } from "lucide-react";
+import { Ellipsis, MessageSquareShare } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import { vendorInfo } from "../vendors";
 import { sessionTitle } from "../documents";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
 import { shortAge } from "@/lib/time";
-import { attentionKind, cardSummary, secondLine, type Attention } from "./model";
+import { attentionKind, cardSummary, peerUnreadLabel, secondLine, type Attention } from "./model";
 import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 
 const CONTEXT_KIT: MenuKit = {
@@ -54,6 +54,12 @@ export type AgentSessionCardProps = {
   subagents: readonly Subagent[];
   /** The parent's title, for a child session: where the lineage is said, since it is not drawn. */
   parentTitle?: string;
+  /**
+   * Messages other sessions sent it that the person has not looked at. A small
+   * mark beside the title, nothing more: the session is not waiting on the
+   * person, so it neither joins Needs you nor takes the waiting dot.
+   */
+  peerUnread?: number;
   /** The minute clock, so a card's age is the only thing a tick changes. */
   now: number;
 };
@@ -88,6 +94,7 @@ function AgentSessionCardView({
   pinned,
   subagents,
   parentTitle,
+  peerUnread,
   now,
 }: AgentSessionCardProps) {
   const actions = useSessionActions();
@@ -96,7 +103,7 @@ function AgentSessionCardView({
   const kind = attentionKind(session, attention);
   const waiting = kind !== null;
   const age = shortAge(session.updatedAt, now);
-  const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle });
+  const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle, peerUnread });
   const line = secondLine({ session, ask, folder });
   const avatarState: AvatarState = waiting
     ? "waiting"
@@ -169,6 +176,17 @@ function AgentSessionCardView({
               </span>
             </TooltipContent>
           </Tooltip>
+          {peerUnread ? (
+            <span
+              data-testid="agent-card-peer-unread"
+              role="img"
+              aria-label={peerUnreadLabel(peerUnread)}
+              className="relative z-10 flex shrink-0 items-center gap-0.5 text-caption-11 text-text-secondary tabular-nums"
+            >
+              <MessageSquareShare aria-hidden="true" className="size-3" />
+              {peerUnread > 9 ? "9+" : peerUnread}
+            </span>
+          ) : null}
           {age ? (
             <span
               data-testid="agent-card-age"

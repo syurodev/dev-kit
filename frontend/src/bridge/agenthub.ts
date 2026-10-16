@@ -486,6 +486,15 @@ export function agentHubScratchRoot(): Promise<string> {
 }
 
 /**
+ * Tells Go how many of the person's own prompts this window holds for a session
+ * and whether they paused them, so a message from another session waits behind
+ * them instead of starting work the person put on hold.
+ */
+export function agentHubSetPromptQueue(sessionId: string, waiting: number, paused: boolean): Promise<void> {
+  return callBridge(() => AppService.AgentHubSetPromptQueue(sessionId, waiting, paused) as Promise<void>);
+}
+
+/**
  * Puts a message into the turn the session is running, instead of queueing it
  * behind that turn — what the vendors' own apps do when you type while the
  * agent works. Resolves to the outcome: "injected", or "promptRequired" when

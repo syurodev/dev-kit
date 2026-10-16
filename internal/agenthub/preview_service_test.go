@@ -91,7 +91,8 @@ func TestInvokeWritesPreviewOnFailure(t *testing.T) {
 // A cancelled turn is the person's own doing; the line keeps saying what the
 // last finished turn ended on.
 func TestInvokeCancelledKeepsPreviousPreview(t *testing.T) {
-	svc, st := newServiceForPreviewTest(t, agenthub.NewMockAdapter())
+	adapter := agenthub.NewMockAdapter()
+	svc, st := newServiceForPreviewTest(t, adapter)
 	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -109,13 +110,15 @@ func TestInvokeCancelledKeepsPreviousPreview(t *testing.T) {
 		_, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "BLOCK"})
 		errCh <- err
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		got, err := svc.GetStatus(context.Background(), sess.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.Status == agenthub.SessionStatusRunning {
+		// Running is set before the vendor has the prompt; a Cancel in that gap
+		// reaches nothing, so wait until the runtime is in the turn.
+		if got.Status == agenthub.SessionStatusRunning && adapter.LastRuntime().InTurn() {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -131,7 +134,7 @@ func TestInvokeCancelledKeepsPreviousPreview(t *testing.T) {
 		if !errors.Is(err, agenthub.ErrCancelled) {
 			t.Fatalf("Invoke = %v, want ErrCancelled", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cancelled invoke never returned")
 	}
 	if got := previewOf(t, st, sess.ID); got != before {

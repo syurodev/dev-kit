@@ -343,6 +343,26 @@ func (s *AppService) AgentHubSteer(ctx context.Context, id, text string) (string
 	return result.(string), nil
 }
 
+// AgentHubSetPromptQueue tells the service how many of the person's own prompts
+// the window holds for a session and whether they paused them. The queue is the
+// window's; this lets a message from another session wait behind it, and never
+// start work on a session the person paused.
+func (s *AppService) AgentHubSetPromptQueue(ctx context.Context, id string, waiting int, paused bool) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "set_prompt_queue",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		svc.SetPromptQueue(id, waiting, paused)
+		return nil, nil
+	})
+	return err
+}
+
 // AgentHubSetGoal sets what a session is working towards, or clears it when the
 // objective is empty. The goal comes back on a session_info_update.
 func (s *AppService) AgentHubSetGoal(ctx context.Context, id, objective string) error {

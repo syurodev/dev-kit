@@ -212,6 +212,19 @@ func (w *ElicitationWaiter) CancelSession(sessionID string) int {
 	return len(gone)
 }
 
+// HasSession reports whether an agent of the session is waiting on the person
+// to answer a question.
+func (w *ElicitationWaiter) HasSession(sessionID string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, p := range w.pending {
+		if p.SessionID == sessionID && !p.finished {
+			return true
+		}
+	}
+	return false
+}
+
 // PendingList returns every open question, oldest first.
 func (w *ElicitationWaiter) PendingList() []PendingElicitation {
 	w.mu.Lock()

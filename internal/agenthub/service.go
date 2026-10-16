@@ -369,6 +369,19 @@ type Service struct {
 	restores restorePlans
 	rewinds  rewindPlans
 
+	// peers is the state of messages between sessions (peer.go).
+	peers peerState
+	// turnWork counts what is still working on the database after a turn: each
+	// invoke for its whole length, and the queue drains peer.go starts. For
+	// WaitQuiet.
+	turnWork atomic.Int64
+	// OnPeerMessage reports each outcome of SendMessage, and a queued message's
+	// later one. main.go audits it and tells the window. Never carries text.
+	OnPeerMessage func(PeerMessageEvent)
+	// HasPendingQuestion says an agent of the session is waiting on the person
+	// to answer a question. A message is not added to a turn parked on one.
+	HasPendingQuestion func(sessionID string) bool
+
 	// checkpoints takes the file snapshots around a turn. Never nil — an
 	// unconfigured service holds a no-op, so Invoke has one code path rather
 	// than a nil check at each of the four places it would need one. Set with
@@ -1247,6 +1260,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	// nothing left for a retry to land in.
 	for _, target := range ids {
 		s.recorder.Drop(target)
+		s.peers.forget(target) // messages waiting for a session that no longer exists
 	}
 	return nil
 }
@@ -1284,10 +1298,26 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 	return out
 }
 
-// Invoke runs a blocking prompt turn on an existing session.// Invoke runs a blocking prompt turn on an existing session.
+// Invoke runs a blocking prompt turn on an existing session.
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
+	return s.invoke(ctx, in, nil)
+}
+
+// invoke is Invoke, and the turn a message from another session starts (peer
+// non-nil; peer.go). That turn is not an agent calling Invoke: SendMessage has
+// already decided the sender may reach this session, so the descendant rule and
+// the cycle check do not apply, nobody waits on it so no time limit does, and
+// its echo is the sender's words with their label rather than a user prompt.
+func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (result InvokeResult, retErr error) {
+	s.turnWork.Add(1)
+	defer s.turnWork.Add(-1) // registered first, so it runs after every other defer
+	if peer != nil {
+		// A turn that never reached the point of running still owes the sender
+		// an answer. Only the first settle counts.
+		defer func() { peer.settle(retErr) }()
+	}
 	boundedByDefault := false
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 && !invokeUnbounded(ctx) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 && peer == nil && !invokeUnbounded(ctx) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, DefaultInvokeTimeout)
 		defer cancel()
@@ -1298,10 +1328,12 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	if err != nil {
 		return InvokeResult{}, err
 	}
-	if err := s.authorizeTarget(ctx, in.SessionID); err != nil {
-		return InvokeResult{}, err
+	if peer == nil {
+		if err := s.authorizeTarget(ctx, in.SessionID); err != nil {
+			return InvokeResult{}, err
+		}
 	}
-	if caller, _ := identity.FromContext(ctx); caller.IsAgent() {
+	if caller, _ := identity.FromContext(ctx); peer == nil && caller.IsAgent() {
 		if in.CallerSessionID != "" && in.CallerSessionID != caller.SessionID {
 			return InvokeResult{}, ErrCallerMismatch
 		}
@@ -1340,6 +1372,11 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// the frontend, which puts a refused prompt back in the queue, showed it
 	// twice once it was sent again.
 	invoker, _ := identity.FromContext(ctx)
+	if peer == nil && invokeUnbounded(ctx) {
+		// The person is talking to this session: whatever exchange with other
+		// sessions it was in is over, and its replies start counting afresh.
+		s.peers.resetChain(in.SessionID)
+	}
 	// PDFs are not read into the prompt: they are kept in the session's document
 	// store and the agent reads them with DevKit's PDF tools. The prompt carries
 	// what each is and how to read it.
@@ -1381,6 +1418,9 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// rewind names the turn by it. The live stream and a reloaded page agree on
 	// nothing else — a transcript item's own id differs between the two.
 	promptMessageID := uuid.NewString()
+	if peer != nil {
+		promptMessageID = peer.msg.id // the id the sender was given
+	}
 
 	// The opening snapshot starts here and is joined just before the prompt
 	// goes out, so it runs inside the time resuming a process already costs
@@ -1415,6 +1455,8 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	turnOutcome := "error"
 	defer func() {
 		release()
+		// Whatever waited for this turn to end can go now.
+		defer s.kickPeers(in.SessionID)
 		// The turn is over however it went: land the tail the recorder is
 		// still holding. WithoutCancel because the error paths reach here on
 		// a context that is already gone — the transcript of a failed turn is
@@ -1519,7 +1561,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// starts a turn in the transcript; a prompt without one folded into the turn
 	// before it and had no name to rewind to.
 	attachments := promptAttachmentsFor(in, files, docs)
-	if strings.TrimSpace(in.Prompt) != "" || len(attachments) > 0 {
+	if peer != nil {
+		// The sender's words under the sender's label, not the envelope the model
+		// reads. Recorded before the claim is reported, so a sender told "started"
+		// can rely on the message being in the target's transcript.
+		s.recordPeerEcho(recordCtx, in.SessionID, peer.msg)
+		peer.settle(nil)
+	} else if strings.TrimSpace(in.Prompt) != "" || len(attachments) > 0 {
 		userEcho := SessionUpdate{
 			Kind:        UpdateUserMessageChunk,
 			Content:     &ContentBlock{Type: "text", Text: in.Prompt},
@@ -1529,7 +1577,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		if err := s.recorder.Record(recordCtx, in.SessionID, userEcho); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(in.SessionID, err)
 		}
-		s.emit(in.SessionID, userEchoUpdate(in.Prompt, promptMessageID, attachments))
+		s.emit(in.SessionID, userEchoUpdate(in.Prompt, promptMessageID, attachments, nil))
 	}
 
 	// Join the opening snapshot. Past this line the prompt is about to go out,
@@ -1746,14 +1794,21 @@ func modeStateUpdate(modes *acp.SessionModeState) json.RawMessage {
 // The UI parses session/update notifications, not SessionUpdate values, so the
 // echo has to arrive looking like one or the open rail would show the prompt
 // only after a reload.
-func userEchoUpdate(text, messageID string, attachments []PromptAttachment) json.RawMessage {
+func userEchoUpdate(text, messageID string, attachments []PromptAttachment, source *MessageSource) json.RawMessage {
 	update := map[string]any{
 		"sessionUpdate": string(UpdateUserMessageChunk),
 		"content":       map[string]any{"type": "text", "text": text},
 		"messageId":     messageID,
 	}
+	extra := map[string]any{}
 	if len(attachments) > 0 {
-		update[DevKitWireKey] = map[string]any{"attachments": attachments}
+		extra["attachments"] = attachments
+	}
+	if source != nil {
+		extra["source"] = source
+	}
+	if len(extra) > 0 {
+		update[DevKitWireKey] = extra
 	}
 	body, err := json.Marshal(update)
 	if err != nil {
@@ -2130,7 +2185,7 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	if err != nil {
 		return "", err
 	}
-	steerer, ok := rt.(SessionSteerer)
+	steerer, ok := rt.(TurnSteerer)
 	if !ok {
 		return "", fmt.Errorf("%w: agent %q cannot take a message mid-turn", ErrUnsupported, sess.AgentType)
 	}
@@ -2151,7 +2206,10 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	if err := s.recorder.Record(recordCtx, id, echo); err != nil && s.OnRecordError != nil {
 		s.OnRecordError(id, err)
 	}
-	s.emit(id, userEchoUpdate(text, echo.MessageID, nil))
+	s.emit(id, userEchoUpdate(text, echo.MessageID, nil, nil))
+	if invokeUnbounded(ctx) {
+		s.peers.resetChain(id) // the person spoke to it: see invoke
+	}
 	return SteerOutcome(outcome), nil
 }
 

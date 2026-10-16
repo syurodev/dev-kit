@@ -32,6 +32,8 @@ const (
 	KindAPI Kind = "api"
 	// KindTask is an agent closing a task on a board with no verify command.
 	KindTask Kind = "task"
+	// KindAgent is an agent session's message to a session outside its workspace.
+	KindAgent Kind = "agent"
 	// KindGitAccount is a git remote that more than one account could
 	// authenticate: the person says which, because choosing the wrong identity
 	// is worse than asking once.

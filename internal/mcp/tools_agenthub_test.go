@@ -10,6 +10,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	"devkit/internal/interaction"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -24,6 +25,24 @@ type fakeAgentHub struct {
 	cancelID   string
 	statusID   string
 	listCalled bool
+
+	sendIn     agenthub.SendMessageInput
+	sendOut    agenthub.SendMessageResult
+	sendCalled bool
+	peers      []agenthub.PeerInfo
+	route      agenthub.PeerRelation
+	routeTo    agenthub.AgentSession
+}
+
+func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error) {
+	f.sendIn, f.sendCalled = in, true
+	return f.sendOut, nil
+}
+
+func (f *fakeAgentHub) ListPeers(context.Context) ([]agenthub.PeerInfo, error) { return f.peers, nil }
+
+func (f *fakeAgentHub) PeerRoute(context.Context, string) (agenthub.PeerRelation, agenthub.AgentSession, bool, error) {
+	return f.route, f.routeTo, f.route != "", nil
 }
 
 func (f *fakeAgentHub) ListSessions(context.Context) ([]agenthub.AgentSession, error) {
@@ -303,5 +322,152 @@ func TestAgentHubToolsDoNotLeakPreview(t *testing.T) {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("%s leaked the preview: %s", name, raw)
 		}
+	}
+}
+
+func TestAgentHubSendMessageTool(t *testing.T) {
+	caller := &fakeCaller{}
+	target := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	hub := &fakeAgentHub{
+		route:   agenthub.PeerSameWorkspace,
+		sendOut: agenthub.SendMessageResult{MessageID: "m1", Delivery: agenthub.DeliverySteered, SessionID: target},
+	}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+
+	_, v, err := srv.toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: target, Message: "héllo", ReplyTo: "m0"})
+	if err != nil {
+		t.Fatalf("agenthub.sendMessage: %v", err)
+	}
+	out, ok := unwrap(v).(agenthub.SendMessageResult)
+	if !ok || out.Delivery != agenthub.DeliverySteered || out.MessageID != "m1" {
+		t.Fatalf("output = %#v", v)
+	}
+	if hub.sendIn.SessionID != target || hub.sendIn.Message != "héllo" || hub.sendIn.ReplyTo != "m0" || hub.sendIn.CrossWorkspaceApproved {
+		t.Fatalf("SendMessageInput = %+v", hub.sendIn)
+	}
+	// A write on the session it names, audited without the text.
+	if caller.last.subject != "builtin.agenthub" || caller.last.capability != "agenthub:execute" || caller.last.scope != "session:"+target {
+		t.Fatalf("Call = %+v", caller.last)
+	}
+	if caller.last.metadata["action"] != "send_message" || caller.last.metadata["length"] != 5 || caller.last.metadata["session_id"] != target {
+		t.Fatalf("meta = %v", caller.last.metadata)
+	}
+	for k, v := range caller.last.metadata {
+		if str, ok := v.(string); ok && strings.Contains(str, "héllo") {
+			t.Fatalf("the audit metadata %q carries the message text", k)
+		}
+	}
+}
+
+func TestAgentHubSendMessageScopeNeverCarriesRawInput(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{route: agenthub.PeerSameWorkspace}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	if _, _, err := srv.toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: "x:*", Message: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if caller.last.scope != "session:invalid" {
+		t.Fatalf("scope = %q, want session:invalid for a malformed id", caller.last.scope)
+	}
+}
+
+func TestAgentHubSendMessageOutsideTheWorkspaceAsksThePerson(t *testing.T) {
+	target := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	title := "gamma"
+	newHub := func() *fakeAgentHub {
+		return &fakeAgentHub{
+			route:   agenthub.PeerElsewhere,
+			routeTo: agenthub.AgentSession{ID: target, Title: &title},
+			sendOut: agenthub.SendMessageResult{MessageID: "m1", Delivery: agenthub.DeliveryStarted},
+		}
+	}
+	answer := func(t *testing.T, h *interaction.Hub, choice string) {
+		t.Helper()
+		go func() {
+			waitForPending(t, h)
+			p := h.Pending()
+			if p.AllowAlwaysOffered || p.Tool != "agenthub.sendMessage" || !strings.Contains(p.Summary, "walk the dog") || !strings.Contains(p.Summary, "gamma") {
+				t.Errorf("pending = %+v: it must name the target, show the text and never offer allow-always", p)
+			}
+			if err := h.Complete(p.ID, choice); err != nil {
+				t.Errorf("complete: %v", err)
+			}
+		}()
+	}
+
+	t.Run("allowed", func(t *testing.T) {
+		hub := newHub()
+		deps := agentHubTestDeps(&fakeCaller{}, hub)
+		deps.Hub = interaction.NewHub(interaction.NoopPrompter{})
+		answer(t, deps.Hub, "allow")
+		_, v, err := NewServer(deps).toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: target, Message: "walk the dog"})
+		if err != nil || unwrap(v).(agenthub.SendMessageResult).Delivery != agenthub.DeliveryStarted {
+			t.Fatalf("v = %#v, err = %v", v, err)
+		}
+		if !hub.sendIn.CrossWorkspaceApproved {
+			t.Fatal("the person said yes and the service was not told")
+		}
+	})
+	t.Run("declined", func(t *testing.T) {
+		hub := newHub()
+		deps := agentHubTestDeps(&fakeCaller{}, hub)
+		deps.Hub = interaction.NewHub(interaction.NoopPrompter{})
+		answer(t, deps.Hub, "deny")
+		_, v, err := NewServer(deps).toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: target, Message: "walk the dog"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out := unwrap(v).(agenthub.SendMessageResult); out.Delivery != agenthub.DeliveryRefused || out.Code != agenthub.PeerDeclined {
+			t.Fatalf("out = %+v", out)
+		}
+		if hub.sendCalled {
+			t.Fatal("a declined message was sent anyway")
+		}
+	})
+	t.Run("headless", func(t *testing.T) {
+		hub := newHub()
+		deps := agentHubTestDeps(&fakeCaller{}, hub)
+		_, _, err := NewServer(deps).toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: target, Message: "walk the dog"})
+		if err == nil || hub.sendCalled {
+			t.Fatalf("with no one to ask the message must not go: err = %v, sent = %v", err, hub.sendCalled)
+		}
+	})
+}
+
+func TestAgentHubListPeersTool(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{peers: []agenthub.PeerInfo{{SessionID: "s1", Title: "alpha", Relation: agenthub.PeerSameWorkspace}}}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	_, v, err := srv.toolAgentHubListPeers(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := unwrap(v).([]agenthub.PeerInfo); !ok || len(got) != 1 || got[0].Title != "alpha" {
+		t.Fatalf("output = %#v", v)
+	}
+	if caller.last.capability != "agenthub:read" || caller.last.scope != "session:list" || caller.last.metadata["action"] != "list_peers" {
+		t.Fatalf("Call = %+v", caller.last)
+	}
+}
+
+// The grants the container is tested against are the ones the tools ask for.
+func TestPeerMessageGrantsAreWhatTheToolsAsk(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{route: agenthub.PeerSameWorkspace}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	grants := PeerMessageGrants()
+
+	if _, _, err := srv.toolAgentHubListPeers(context.Background(), &sdk.CallToolRequest{}, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := [3]string{caller.last.subject, caller.last.capability, caller.last.scope}; got != grants[0] {
+		t.Errorf("listPeers asked %v, grants say %v", got, grants[0])
+	}
+	if _, _, err := srv.toolAgentHubSendMessage(context.Background(), &sdk.CallToolRequest{}, agentHubSendMessageInput{SessionID: id, Message: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := [3]string{caller.last.subject, caller.last.capability, caller.last.scope}; got != grants[1] {
+		t.Errorf("sendMessage asked %v, grants say %v", got, grants[1])
 	}
 }
