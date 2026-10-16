@@ -49,6 +49,9 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 			Err:     fmt.Errorf("%w: the conversation no longer fits: too long", agenthub.ErrTurnFailed),
 			Message: "too long"},
 			"agent_turn_failed: Codex couldn't finish the turn. too long"},
+		// The model picker's own failure: what could not be read, not a crash.
+		{&agenthub.VendorError{Agent: agenthub.AgentTypeCodex, Err: fmt.Errorf("%w: %w", agenthub.ErrModelsUnavailable, agenthub.ErrProcessFailed)},
+			"connection_failed: Codex didn't report which models it offers. Try Refresh models, or check that it is signed in."},
 		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailableInServerMode, "validation_failed: Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts."},

@@ -321,6 +321,11 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		// What an agent reads before it picks a child's model: the vendors'
+		// model lists and the person's model profiles. Read-only; the profiles
+		// are edited through the window, which has its own grants.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "models:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "profiles:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "permission:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "elicitation:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
@@ -394,6 +399,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_sandbox"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_customization:*"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_customization:*"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_model_profiles"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_model_profiles"},
 		// Which Accounts token Codex signs in with: the id, never the key.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},

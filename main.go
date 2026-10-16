@@ -569,6 +569,9 @@ func main() {
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
+	// The person's "which model for which job" list, read on every call so an
+	// edit in Settings reaches the next session an agent starts.
+	agentSvc.ModelProfiles = container.Preferences.AgentModelProfiles
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
 	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a

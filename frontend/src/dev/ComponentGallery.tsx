@@ -8,6 +8,7 @@ import { AgentSessionSidebarSection } from "./AgentSessionSidebarSection";
 import { AgentComposerLayoutSection } from "./AgentComposerLayoutSection";
 import { AgentSummarySection } from "./AgentSummarySection";
 import { AgentPeerMessagesSection } from "./AgentPeerMessagesSection";
+import { AgentModelProfilesSection } from "./AgentModelProfilesSection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
 import { ApprovalBrokerSection } from "./ApprovalBrokerSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
@@ -1074,6 +1075,7 @@ export default function ComponentGallery() {
       <AgentComposerLayoutSection />
       <AgentSummarySection />
       <AgentPeerMessagesSection />
+      <AgentModelProfilesSection />
       <MCPInteractionSection />
       <ApprovalBrokerSection />
 

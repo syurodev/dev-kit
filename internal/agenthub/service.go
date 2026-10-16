@@ -62,6 +62,14 @@ type CreateInput struct {
 	ExtraReadWritePaths []string
 	// InitialConfig is applied before the first turn and recorded by attachUpdates.
 	InitialConfig map[string]string
+	// Profile names one of the person's model profiles (Settings → Agents) the
+	// agent chose by; its model and effort become the InitialConfig. Agent
+	// callers only — the window has its own pickers.
+	Profile string
+	// ModelChoiceApproved says the person agreed to a model or effort above
+	// the calling agent's own (PlanModelChoice). Only the MCP tool handler
+	// sets it, after asking; its input struct has no field to carry it.
+	ModelChoiceApproved bool
 }
 
 // cleanExtraReadWritePaths applies the same invariants resolveCwd holds Cwd
@@ -365,6 +373,14 @@ type Service struct {
 	// the UI reloads it from the store.
 	OnSessionRewound func(sessionID, promptText string)
 
+	// catalog caches each vendor's model list for callers who may not start a
+	// throw-away agent of their own (model_catalog.go).
+	catalog modelCatalogCache
+	// ModelProfiles reads the person's "which model for which job" list
+	// (Settings → Agents). nil means there are none. Read on every call, so an
+	// edit applies to the next session an agent starts.
+	ModelProfiles func() (preferences.AgentModelProfiles, error)
+
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
 	rewinds  rewindPlans
@@ -527,6 +543,19 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if err != nil {
 		return AgentSession{}, err
 	}
+	// An agent's model choice is checked here, not only by the tool that asked
+	// the person: this is where it would take effect, and it holds whoever calls.
+	inheritedConfig := false
+	if caller.IsAgent() {
+		plan, err := s.PlanModelChoice(ctx, ModelChoiceInput{Vendor: in.AgentType, Config: in.InitialConfig, Profile: in.Profile})
+		if err != nil {
+			return AgentSession{}, err
+		}
+		if plan.NeedsApproval && !in.ModelChoiceApproved {
+			return AgentSession{}, fmt.Errorf("%w: %s", ErrModelChoiceNeedsApproval, strings.Join(plan.Why, "; "))
+		}
+		in.InitialConfig, inheritedConfig = plan.Config, plan.Inherited
+	}
 	workspaceID := in.WorkspaceID
 	if parent != nil {
 		if workspaceID != "" && workspaceID != parent.WorkspaceID {
@@ -587,8 +616,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
-	if len(in.InitialConfig) > 0 {
-		configurator, ok := rt.(RuntimeConfigurator)
+	if configurator, ok := rt.(RuntimeConfigurator); len(in.InitialConfig) > 0 && (!inheritedConfig || ok) {
 		if !ok {
 			_ = rt.Close(ctx)
 			closeEndpoint()
@@ -598,6 +626,12 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		for _, key := range []string{"model", "reasoning_effort"} {
 			if value := in.InitialConfig[key]; value != "" {
 				if err := configurator.SetConfigOption(ctx, key, value); err != nil {
+					if inheritedConfig {
+						// The parent's own choice, not the agent's: a child that
+						// cannot take it starts on the vendor's default.
+						log.Printf("agenthub: %s child session: parent's %s %q not applied: %v", in.AgentType, key, value, err)
+						continue
+					}
 					_ = rt.Close(ctx)
 					closeEndpoint()
 					return AgentSession{}, err
@@ -1934,16 +1968,20 @@ type resumeCall struct {
 // died with its process, and the identity-bound socket is what ties the agent's
 // tool calls back to this session in the audit log.
 func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt SessionRuntime, err error) {
-	if sess.ACPSessionID == "" {
-		return nil, ErrUnavailable
-	}
 	adapter, ok := s.reg.Get(sess.AgentType)
 	if !ok {
 		return nil, ErrVendorUnknown
 	}
-	loader, ok := adapter.(SessionLoader)
-	if !ok {
-		return nil, ErrUnavailable
+	// A session nobody has prompted has no conversation to resume: Codex writes
+	// none before the first turn (a resume of such a thread answers "no rollout
+	// found" — measured against codex 0.163.0) and Claude keeps its file from the
+	// first message. It starts over instead, which loses nothing.
+	fresh := s.neverPrompted(ctx, sess)
+	loader, isLoader := adapter.(SessionLoader)
+	if !fresh {
+		if sess.ACPSessionID == "" || !isLoader {
+			return nil, ErrUnavailable
+		}
 	}
 	// A restart brings sessions back without going through CreateSession, so
 	// this is where an existing project's shadow repository gets warmed. A
@@ -2006,11 +2044,22 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	}
 	s.applySandboxExtras(&spec)
 
-	rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
+	if fresh {
+		rt, err = adapter.Open(ctx, spec)
+	} else {
+		rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
+	}
 	if err != nil {
 		log.Printf("agenthub: resume %s session %s: %v", sess.AgentType, sess.ID, err)
 		closeEndpoint()
 		return nil, err
+	}
+	if fresh && rt.ACPSessionID() != sess.ACPSessionID {
+		if err := s.store.UpdateSessionACPID(ctx, sess.ID, rt.ACPSessionID(), time.Now().UTC()); err != nil {
+			_ = rt.Close(ctx)
+			closeEndpoint()
+			return nil, err
+		}
 	}
 	// Restore the controls before publishing the newly loaded conversation.
 	if configurator, ok := rt.(RuntimeConfigurator); ok {
@@ -2045,6 +2094,19 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()
 	return rt, nil
+}
+
+// neverPrompted reports a session that has had no turn and shows no message of
+// the person's: nothing exists on the vendor's side that a resume could lose.
+// A store that cannot say counts as prompted — the old path, which fails loudly
+// rather than start a conversation over by mistake.
+func (s *Service) neverPrompted(ctx context.Context, sess AgentSession) bool {
+	turns, err := s.store.ListTurns(ctx, sess.ID)
+	if err != nil || len(turns) > 0 {
+		return false
+	}
+	_, found, err := s.store.FindTranscriptKind(ctx, sess.ID, UpdateUserMessageChunk)
+	return err == nil && !found
 }
 
 // Cancel requests cancellation of the in-flight prompt on a session.
@@ -2122,13 +2184,15 @@ func (s *Service) ConfigCatalog(ctx context.Context, vendor AgentType) ([]Config
 	if !ok {
 		return nil, ErrVendorUnknown
 	}
-	catalog, ok := adapter.(VendorConfigCatalog)
-	if !ok {
+	if _, ok := adapter.(VendorConfigCatalog); !ok {
 		return []ConfigOption{}, nil
 	}
-	spec := OpenSpec{}
-	s.applySandboxExtras(&spec)
-	return catalog.ConfigCatalog(ctx, spec)
+	options, err := s.readCatalog(ctx, vendor)
+	if err == nil {
+		// What the person just read is the freshest list there is.
+		s.catalog.put(vendorModelsOf(vendor, options, nil, s.catalog.clock()))
+	}
+	return options, err
 }
 
 // PrepareSession wakes the selected conversation and refreshes its controls,
@@ -2146,7 +2210,13 @@ func (s *Service) PrepareSession(ctx context.Context, id string) error {
 		return err
 	}
 	if refresh, ok := rt.(interface{ RefreshConfigOptions(context.Context) error }); ok {
-		return refresh.RefreshConfigOptions(ctx)
+		if err := refresh.RefreshConfigOptions(ctx); err != nil {
+			if errors.Is(err, ErrAgentAuthRequired) || errors.Is(err, ErrSessionNotFound) {
+				return err
+			}
+			log.Printf("agenthub: %s session %s: model list: %v", sess.AgentType, sess.ID, err)
+			return vendorError(sess.AgentType, fmt.Errorf("%w: %w", ErrModelsUnavailable, err))
+		}
 	}
 	return nil
 }

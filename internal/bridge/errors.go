@@ -236,6 +236,14 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrCustomizationConflict) {
 		return apperrors.New(codeValidationFailed, "Agent configuration changed. Refresh and apply your changes again.", true)
 	}
+	if errors.Is(err, preferences.ErrModelProfilesConflict) {
+		return apperrors.New(codeValidationFailed, "The model profiles changed. Refresh and apply your changes again.", true)
+	}
+	if errors.Is(err, preferences.ErrInvalidModelProfiles) {
+		// The validator's own sentence names the field and the limit; it holds
+		// nothing the person did not type.
+		return apperrors.New(codeValidationFailed, "Model profiles: "+strings.TrimPrefix(err.Error(), preferences.ErrInvalidModelProfiles.Error()+": "), true)
+	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}
@@ -372,6 +380,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "This agent doesn't support that.", true)
 		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
 			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
+		case errors.Is(err, agenthub.ErrModelsUnavailable):
+			return apperrors.New(codeConnectionFailed, agentDisplayName(agenthub.ErrorVendor(err))+" didn't report which models it offers. Try Refresh models, or check that it is signed in.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):

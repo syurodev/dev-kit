@@ -324,6 +324,9 @@ export function agentHubCreateSession(
       Title: input.title ?? null,
       ExtraReadWritePaths: input.extraReadWritePaths ?? [],
       InitialConfig: input.initialConfig ?? {},
+      // Only an agent choosing a child's model uses these (agenthub.createAgentSession).
+      Profile: "",
+      ModelChoiceApproved: false,
     });
     return toSession(created);
   });
@@ -1076,4 +1079,57 @@ export function onAgentHubFilesDropped(handler: (drop: FilesDropped) => void): (
     const drop = parseFilesDropped(ev?.data);
     if (drop) handler(drop);
   });
+}
+
+/** One of the person's "which model for which job" profiles (Settings → Agents). */
+export type ModelProfile = {
+  id: string;
+  name: string;
+  description: string;
+  vendor: string;
+  model: string;
+  effort: string;
+  notes: string;
+};
+
+/** A profile with whether its model is still on its vendor's list. */
+export type ModelProfileCheck = ModelProfile & {
+  /** "ok", or "unknownModel", "unknownEffort", "signInRequired", "notInstalled", "unavailable", "unknownVendor". */
+  status: string;
+  problem: string;
+};
+
+export type ModelProfilesState = { revision: number; profiles: ModelProfile[] };
+
+function profileOf(raw: { id?: string; name?: string; description?: string; vendor?: string; model?: string; effort?: string; notes?: string }): ModelProfile {
+  return {
+    id: raw.id ?? "",
+    name: raw.name ?? "",
+    description: raw.description ?? "",
+    vendor: raw.vendor ?? "",
+    model: raw.model ?? "",
+    effort: raw.effort ?? "",
+    notes: raw.notes ?? "",
+  };
+}
+
+export function agentHubGetModelProfiles(): Promise<ModelProfilesState> {
+  return callBridge(async () => {
+    const state = await AppService.AgentHubGetModelProfiles();
+    return { revision: state.revision, profiles: (state.profiles ?? []).map(profileOf) };
+  });
+}
+
+/** Replaces the list when `revision` is the stored one; the answer is what was stored. */
+export function agentHubSetModelProfiles(revision: number, profiles: ModelProfile[]): Promise<ModelProfilesState> {
+  return callBridge(async () => {
+    const state = await AppService.AgentHubSetModelProfiles(revision, profiles);
+    return { revision: state.revision, profiles: (state.profiles ?? []).map(profileOf) };
+  });
+}
+
+export function agentHubCheckModelProfiles(): Promise<ModelProfileCheck[]> {
+  return callBridge(async () =>
+    ((await AppService.AgentHubCheckModelProfiles()) ?? []).map((raw) => ({ ...profileOf(raw), status: raw.status ?? "", problem: raw.problem ?? "" })),
+  );
 }

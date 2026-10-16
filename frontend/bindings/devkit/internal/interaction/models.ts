@@ -39,7 +39,8 @@ export enum Kind {
     KindTask = "task",
 
     /**
-     * KindAgent is an agent session's message to a session outside its workspace.
+     * KindAgent is an agent session's message to a session outside its workspace,
+     * or its choice of a model or effort above its own for a session it starts.
      */
     KindAgent = "agent",
 

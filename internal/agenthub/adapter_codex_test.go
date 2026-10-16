@@ -213,6 +213,12 @@ func runFakeCodex(scenario, logPath string) {
 			thread = "th-new"
 			reply(map[string]any{"thread": map[string]any{"id": thread}, "model": "gpt-5.5"})
 		case "thread/resume":
+			if scenario == "noRollout" {
+				// What the real app-server says for a thread that never ran a
+				// turn: nothing was written to disk, so there is nothing to resume.
+				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "no rollout found for thread id " + p.ThreadID}})
+				continue
+			}
 			thread = p.ThreadID
 			reply(map[string]any{"thread": map[string]any{"id": thread}, "model": "gpt-5.5"})
 		case "model/list":

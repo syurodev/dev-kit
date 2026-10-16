@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -23,6 +24,9 @@ type AgentHubAPI interface {
 	SendMessage(ctx context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error)
 	ListPeers(ctx context.Context) ([]agenthub.PeerInfo, error)
 	PeerRoute(ctx context.Context, targetID string) (agenthub.PeerRelation, agenthub.AgentSession, bool, error)
+	ListModels(ctx context.Context, vendor agenthub.AgentType) (agenthub.ModelListing, error)
+	ListModelProfiles(ctx context.Context) agenthub.ModelProfilesListing
+	PlanModelChoice(ctx context.Context, in agenthub.ModelChoiceInput) (agenthub.ConfigPlan, error)
 }
 
 func (s *Server) requireAgentHub() error {
@@ -40,8 +44,24 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 	}, s.toolAgentHubListAgents)
 
 	sdk.AddTool(ms, &sdk.Tool{
-		Name:        "agenthub.createAgentSession",
-		Description: "Create a new Agent Hub session",
+		Name: "agenthub.listModels",
+		Description: "List the models each agent vendor offers, with the efforts each model takes, and the model and effort this session is on. " +
+			"Read before choosing `initialConfig` for agenthub.createAgentSession. The list is cached for 15 minutes.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolAgentHubListModels)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "agenthub.listModelProfiles",
+		Description: "List the person's model profiles: which model and effort they want for which kind of job (review, architecture, documentation…). " +
+			"Read before creating a child session, and pass the matching profile's name as `profile`. Read-only: only the person edits them.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolAgentHubListModelProfiles)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "agenthub.createAgentSession",
+		Description: "Create a new Agent Hub session, a child of this one. With no `profile` or `initialConfig` it runs on this session's model and effort. " +
+			"`profile` picks one of the person's model profiles (agenthub.listModelProfiles); `initialConfig` names a model and effort from agenthub.listModels. " +
+			"Choosing a model other than yours, or a higher effort, asks the person first unless it comes from a profile.",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -126,28 +146,80 @@ func (s *Server) toolAgentHubListAgents(ctx context.Context, _ *sdk.CallToolRequ
 	return nil, structured(v), nil
 }
 
+// agentHubInitialConfig is the model and effort an agent asks for. Effort is
+// named `effort` here and `reasoning_effort` inside DevKit, where one name
+// serves both vendors.
+type agentHubInitialConfig struct {
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+}
+
 type agentHubCreateInput struct {
 	AgentType       string  `json:"agentType"`
 	Cwd             string  `json:"cwd"`
 	WorkspaceID     string  `json:"workspaceId,omitempty"`
 	CallerSessionID string  `json:"callerSessionId"`
 	Title           *string `json:"title"`
+	// InitialConfig and Profile choose the child's model. There is deliberately
+	// no field that says "approved": only the person's answer to the question
+	// below sets that.
+	InitialConfig *agentHubInitialConfig `json:"initialConfig,omitempty"`
+	Profile       string                 `json:"profile,omitempty"`
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
 	if err := s.requireAgentHub(); err != nil {
 		return nil, nil, err
 	}
-	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", map[string]any{
-		"agent_type": in.AgentType,
-	}), func(callCtx context.Context) (any, error) {
-		sess, err := s.deps.AgentHub.CreateSession(callCtx, agenthub.CreateInput{
+	config := map[string]string{}
+	if in.InitialConfig != nil {
+		if model := strings.TrimSpace(in.InitialConfig.Model); model != "" {
+			config["model"] = model
+		}
+		if effort := strings.TrimSpace(in.InitialConfig.Effort); effort != "" {
+			config["reasoning_effort"] = effort
+		}
+	}
+	profile := strings.TrimSpace(in.Profile)
+	// The audit line says which profile the choice came from and what was
+	// asked — names and values, never a prompt.
+	audit := map[string]any{"agent_type": in.AgentType}
+	if profile != "" {
+		audit["profile"] = clipAudit(profile)
+	}
+	if model := config["model"]; model != "" {
+		audit["model"] = clipAudit(model)
+	}
+	if effort := config["reasoning_effort"]; effort != "" {
+		audit["effort"] = clipAudit(effort)
+	}
+	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
+		create := agenthub.CreateInput{
 			AgentType:       agenthub.AgentType(in.AgentType),
 			Cwd:             in.Cwd,
 			WorkspaceID:     in.WorkspaceID,
 			ParentSessionID: in.CallerSessionID,
 			Title:           in.Title,
-		})
+			InitialConfig:   config,
+			Profile:         profile,
+		}
+		// Ask before creating when the choice goes beyond the caller's own.
+		// CreateSession repeats the check and refuses without this answer.
+		plan, err := s.deps.AgentHub.PlanModelChoice(callCtx, agenthub.ModelChoiceInput{Vendor: create.AgentType, Config: config, Profile: profile})
+		if err != nil {
+			return nil, err
+		}
+		if plan.NeedsApproval {
+			summary := fmt.Sprintf("This agent wants to start a %s session with %s. That goes beyond what it runs on now, so DevKit is asking. %s",
+				in.AgentType, strings.Join(plan.Why, " and "), "A model profile in Settings → Agents would pre-approve a choice like this.")
+			if err := mapInteractErr(effectiveHub(s.deps.Hub).Confirm(callCtx, interaction.ConfirmRequest{
+				Tool: "agenthub.createAgentSession", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
+			})); err != nil {
+				return nil, err
+			}
+			create.ModelChoiceApproved = true
+		}
+		sess, err := s.deps.AgentHub.CreateSession(callCtx, create)
 		if err != nil {
 			return nil, err
 		}
@@ -158,6 +230,51 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	}
 	return nil, structured(v), nil
 }
+
+func clipAudit(s string) string {
+	if len(s) > 80 {
+		return s[:80]
+	}
+	return s
+}
+
+type agentHubListModelsInput struct {
+	AgentType string `json:"agentType,omitempty"`
+}
+
+func (s *Server) toolAgentHubListModels(ctx context.Context, _ *sdk.CallToolRequest, in agentHubListModelsInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
+	v, err := s.deps.Caller.Call(ctx, AgentHubModelsGrant[0], AgentHubModelsGrant[1], AgentHubModelsGrant[2], meta("list_models", map[string]any{"agent_type": in.AgentType}), func(callCtx context.Context) (any, error) {
+		return s.deps.AgentHub.ListModels(callCtx, agenthub.AgentType(strings.TrimSpace(in.AgentType)))
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+func (s *Server) toolAgentHubListModelProfiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
+	v, err := s.deps.Caller.Call(ctx, AgentHubProfilesGrant[0], AgentHubProfilesGrant[1], AgentHubProfilesGrant[2], meta("list_model_profiles", nil), func(callCtx context.Context) (any, error) {
+		return s.deps.AgentHub.ListModelProfiles(callCtx), nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+// The grants the two read tools ask the gateway for. Exported so the app's
+// test can check them against the policy the container really installs — the
+// MCP tests call handlers without one, which is how git.fetch shipped refused.
+var (
+	AgentHubModelsGrant   = [3]string{"builtin.agenthub", "agenthub:read", "models:list"}
+	AgentHubProfilesGrant = [3]string{"builtin.agenthub", "agenthub:read", "profiles:list"}
+)
 
 type agentHubInvokeInput struct {
 	SessionID       string `json:"sessionId"`

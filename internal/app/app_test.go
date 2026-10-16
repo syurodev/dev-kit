@@ -132,6 +132,24 @@ func TestNewContainerGrantsTheMessagingTools(t *testing.T) {
 	}
 }
 
+// agenthub.listModels and agenthub.listModelProfiles read through scopes of
+// their own. The MCP tests call the handlers with no policy, so only the
+// container's real grants can say whether an agent's call would be refused.
+func TestNewContainerGrantsTheModelReadTools(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range [][3]string{mcp.AgentHubModelsGrant, mcp.AgentHubProfilesGrant} {
+		decision := container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]})
+		if !decision.Allowed {
+			t.Errorf("a model tool asks for %s %q on %q, which no default grant covers", grant[0], grant[1], grant[2])
+		}
+	}
+	// Reading the lists must not stand in for starting a session or for
+	// editing the profiles: those are other capabilities.
+	if container.Permissions.Check(permissions.Request{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "profiles:list"}).Allowed {
+		t.Error("agenthub:execute must not be granted on profiles:list")
+	}
+}
+
 func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
 	container := NewContainer()
 	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect", "sync:conflicts", "sync:resolve", "sync:devices"} {

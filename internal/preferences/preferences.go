@@ -259,6 +259,8 @@ type Repository interface {
 	SetCodexAPIKeyAccount(accountID string) error
 	GetCallVisibility() (map[string]string, bool, error)
 	SetCallVisibility(overrides map[string]string) error
+	GetAgentModelProfiles() (AgentModelProfiles, bool, error)
+	SetAgentModelProfiles(profiles AgentModelProfiles) error
 }
 
 type Service struct {

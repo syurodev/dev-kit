@@ -43,6 +43,16 @@ var (
 	ErrWorkspaceMismatch       = errors.New("agenthub.workspaceMismatch")
 	ErrInvalidSessionTitle     = errors.New("agenthub.invalidSessionTitle")
 	ErrInvalidConfigOption     = errors.New("agenthub.invalidConfigOption")
+	// ErrModelChoiceNeedsApproval is an agent's pick of model or effort that goes
+	// beyond its parent's (model_choice.go), made without the person saying yes.
+	ErrModelChoiceNeedsApproval = errors.New("agenthub.modelChoiceNeedsApproval")
+	// ErrModelProfileUnknown: the profile named does not exist, or belongs to
+	// another vendor, or conflicts with the model asked for beside it.
+	ErrModelProfileUnknown = errors.New("agenthub.modelProfileUnknown")
+	// ErrModelsUnavailable is a running agent that would not say which models
+	// it offers. It rides beside the cause (and the vendor) so the picker can
+	// say that, instead of the process-failed sentence that told nothing.
+	ErrModelsUnavailable = errors.New("agenthub.modelsUnavailable")
 	// ErrInvalidPrompt is a prompt DevKit refuses to send: empty, or with an
 	// attachment or pasted image that is unreadable, unsupported or too large.
 	ErrInvalidPrompt  = errors.New("agenthub.invalidPrompt")

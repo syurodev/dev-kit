@@ -21,6 +21,8 @@ type MemoryRepository struct {
 	hasCodexAPIKeyAccount bool
 	callVisibility        map[string]string
 	hasCallVisibility     bool
+	modelProfiles         AgentModelProfiles
+	hasModelProfiles      bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -160,5 +162,19 @@ func (r *MemoryRepository) SetCallVisibility(overrides map[string]string) error 
 		r.callVisibility[k] = v
 	}
 	r.hasCallVisibility = true
+	return nil
+}
+
+func (r *MemoryRepository) GetAgentModelProfiles() (AgentModelProfiles, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.modelProfiles.clone(), r.hasModelProfiles, nil
+}
+
+func (r *MemoryRepository) SetAgentModelProfiles(profiles AgentModelProfiles) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.modelProfiles = profiles.clone()
+	r.hasModelProfiles = true
 	return nil
 }

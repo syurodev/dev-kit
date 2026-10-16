@@ -312,6 +312,20 @@ export interface CreateInput {
      * InitialConfig is applied before the first turn and recorded by attachUpdates.
      */
     "InitialConfig": { [_ in string]?: string } | null;
+
+    /**
+     * Profile names one of the person's model profiles (Settings → Agents) the
+     * agent chose by; its model and effort become the InitialConfig. Agent
+     * callers only — the window has its own pickers.
+     */
+    "Profile": string;
+
+    /**
+     * ModelChoiceApproved says the person agreed to a model or effort above
+     * the calling agent's own (PlanModelChoice). Only the MCP tool handler
+     * sets it, after asking; its input struct has no field to carry it.
+     */
+    "ModelChoiceApproved": boolean;
 }
 
 /**
@@ -452,6 +466,26 @@ export interface InvokeResult {
     "filesChanged": string[] | null;
     "turnCount": number;
     "stopReason": string;
+}
+
+/**
+ * ModelProfileInfo is a profile as an agent reads it: what the person wrote,
+ * and whether it still points at something the vendor offers.
+ */
+export interface ModelProfileInfo {
+    "id": string;
+    "name": string;
+    "description"?: string;
+    "vendor": string;
+    "model": string;
+    "effort"?: string;
+    "notes"?: string;
+
+    /**
+     * Status is "ok", or why choosing it would fail (ModelProfileStatus).
+     */
+    "status": string;
+    "problem"?: string;
 }
 
 /**
