@@ -189,7 +189,9 @@ function PdfPages({
   }, [viewport.height, saved]);
 
   const zoomRef = useRef<Zoom>(zoomSetting);
-  zoomRef.current = zoomSetting;
+  useEffect(() => {
+    zoomRef.current = zoomSetting;
+  }, [zoomSetting]);
   const frame = useRef(0);
   const onScroll = useCallback(() => {
     cancelAnimationFrame(frame.current);
