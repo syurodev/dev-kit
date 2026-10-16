@@ -1,10 +1,11 @@
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Bot, Check, Database, FileCode, FileText, Globe, Hourglass, PanelRight, Radio, Target, Terminal, type LucideIcon } from "lucide-react";
+import { Bot, Check, ChevronDown, Database, FileCode, FileText, Globe, Hourglass, PanelRight, Radio, Target, Terminal, type LucideIcon } from "lucide-react";
 
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { agentHubListDocuments, type AgentDocument } from "@/bridge/agenthub";
@@ -22,6 +23,7 @@ import { shortCount } from "../surfaces/AgentContextMeter";
 import { loadCheckpointFileDiff } from "../useSessionCheckpoints";
 import type { AsyncTask, Connector, PlanEntry, SessionGoal, Subagent, TranscriptItem, Usage } from "../types";
 import { asyncTaskSpent } from "../transcript/AgentAsyncTask";
+import { useSummarySectionOpen } from "./summaryFold";
 import {
   backgroundTasks,
   connectorRows,
@@ -284,15 +286,14 @@ function SummarySections({
       ) : null}
 
       {goal ? (
-        <section data-testid="summary-goal" className="flex flex-col border-t border-border-subtle first:border-t-0">
-          <h4 className="flex items-center px-3.5 pt-2 pb-1 text-body-13 text-text-secondary">Goal</h4>
+        <SectionShell name="goal" title="Goal">
           <div className="flex items-start gap-2.5 px-3.5 pt-0.5 pb-2 text-body-13 text-text-primary">
             <Target aria-hidden="true" className={cn(ICON, "mt-0.5")} />
             <span className="min-w-0 wrap-break-word" title={goal.objective}>
               {goal.objective}
             </span>
           </div>
-        </section>
+        </SectionShell>
       ) : null}
 
       {plan.length ? (
@@ -454,12 +455,7 @@ function SummarySection({
   const head = rows.slice(start, start + visibleRows);
   const rest = rows.slice(start + visibleRows);
   return (
-    <section data-testid={`summary-${name}`} className="flex flex-col border-t border-border-subtle first:border-t-0">
-      <h4 className="flex items-center px-3.5 pt-2 pb-1 text-body-13 text-text-secondary">
-        {title}
-        {count !== undefined ? <sup className="ml-0.5 text-caption-11 text-text-tertiary/70">{count}</sup> : null}
-        {aside}
-      </h4>
+    <SectionShell name={name} title={title} count={count} aside={aside}>
       {before.length ? (
         <AnimatedCollapse open={expanded}>
           <div className="flex flex-col">{before}</div>
@@ -486,7 +482,60 @@ function SummarySection({
           </button>
         </>
       ) : null}
-    </section>
+    </SectionShell>
+  );
+}
+
+/**
+ * A titled section the person can fold (shadcn Collapsible). The title row is
+ * the trigger; a total that belongs to the whole list sits beside the chevron.
+ * Folded sections are remembered (summaryFold), the same for the docked card
+ * and the corner popover.
+ */
+function SectionShell({
+  name,
+  title,
+  count,
+  aside,
+  children,
+}: {
+  name: string;
+  title: string;
+  count?: React.ReactNode;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useSummarySectionOpen(name);
+  return (
+    <Collapsible
+      asChild
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <section data-testid={`summary-${name}`} data-open={open} className="flex flex-col border-t border-border-subtle first:border-t-0">
+        <h4 className="flex">
+          <CollapsibleTrigger
+            data-testid={`summary-${name}-toggle`}
+            className="group flex h-8 w-full min-w-0 cursor-pointer items-center gap-1 px-3.5 text-left text-body-13 text-text-secondary transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
+          >
+            <span className="truncate">{title}</span>
+            {count !== undefined ? <sup className="text-caption-11 text-text-tertiary/70">{count}</sup> : null}
+            {aside}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-(--icon-14) shrink-0 text-text-tertiary transition-transform duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
+                aside ? "ml-2" : "ml-auto",
+                !open && "-rotate-90",
+              )}
+            />
+          </CollapsibleTrigger>
+        </h4>
+        <CollapsibleContent>
+          <div className="flex flex-col">{children}</div>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 
@@ -611,8 +660,7 @@ function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number 
   const tokens = tokenRows(usage.tokens);
   const limits = limitRows(usage.limits);
   return (
-    <section data-testid="summary-context" className="flex flex-col border-t border-border-subtle first:border-t-0">
-      <h4 className="flex items-center px-3.5 pt-2 pb-1 text-body-13 text-text-secondary">Context</h4>
+    <SectionShell name="context" title="Context">
       {percent !== null ? (
         <div
           className="flex flex-col gap-1.5 px-3.5 pt-1 pb-2"
@@ -645,7 +693,7 @@ function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number 
           ))}
         </>
       ) : null}
-    </section>
+    </SectionShell>
   );
 }
 

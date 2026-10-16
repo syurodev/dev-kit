@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { Connector, SessionGoal, TranscriptItem, Usage } from "../types";
 import type { SummaryRow } from "./summaryModel";
+import { resetSummaryFold, setSummarySectionOpen } from "./summaryFold";
 import {
   SessionSummaryBody as Body,
   SessionSummaryButton as Button,
@@ -288,5 +289,31 @@ describe("vendor-driven sections", () => {
 
   test("a session with nothing to say is still not a card", () => {
     expect(render(<SessionSummaryCard {...base} />)).not.toContain("session-summary-card");
+  });
+});
+
+describe("folding a section", () => {
+  test("every section has a toggle, open by default", () => {
+    resetSummaryFold();
+    const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={[{ key: "agent", label: "Agent", value: "Codex" }]} />);
+    for (const name of ["environment", "plan"]) {
+      expect(html).toContain(`data-testid="summary-${name}-toggle"`);
+    }
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-testid="summary-plan-row"');
+  });
+
+  test("a folded section keeps its title and count and hides its rows, the others stay", () => {
+    try {
+      setSummarySectionOpen("plan", false);
+      const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={[{ key: "agent", label: "Agent", value: "Codex" }]} />);
+      expect(html).toContain('data-testid="summary-plan-toggle"');
+      expect(html).toContain('data-open="false"');
+      expect(html).toContain("1/3");
+      expect(html).not.toContain('data-testid="summary-plan-row"');
+      expect(html).toContain('data-testid="summary-environment-row"');
+    } finally {
+      resetSummaryFold();
+    }
   });
 });
