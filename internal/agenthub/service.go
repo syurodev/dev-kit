@@ -616,7 +616,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
-	if configurator, ok := rt.(RuntimeConfigurator); len(in.InitialConfig) > 0 && !(inheritedConfig && !ok) {
+	if configurator, ok := rt.(RuntimeConfigurator); len(in.InitialConfig) > 0 && (!inheritedConfig || ok) {
 		if !ok {
 			_ = rt.Close(ctx)
 			closeEndpoint()

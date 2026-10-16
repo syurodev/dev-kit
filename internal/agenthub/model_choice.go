@@ -189,7 +189,7 @@ func (s *Service) PlanModelChoice(ctx context.Context, in ModelChoiceInput) (Con
 	if askedEffort != "" {
 		plan.Config["reasoning_effort"] = askedEffort
 	}
-	if askedModel != "" && !(sameVendor && askedModel == current.Model) {
+	if askedModel != "" && (!sameVendor || askedModel != current.Model) {
 		parent := current.Model
 		if !sameVendor {
 			parent = string(current.Vendor) + " " + current.Model
@@ -205,7 +205,7 @@ func (s *Service) PlanModelChoice(ctx context.Context, in ModelChoiceInput) (Con
 		base, baseKnown := effortRank[current.Effort]
 		switch {
 		case !sameVendor || !known || !baseKnown:
-			if !(askedEffort == current.Effort && sameVendor) {
+			if askedEffort != current.Effort || !sameVendor {
 				plan.NeedsApproval = true
 				plan.Why = append(plan.Why, fmt.Sprintf("effort %s (this session runs %s)", askedEffort, orUnknown(current.Effort)))
 			}

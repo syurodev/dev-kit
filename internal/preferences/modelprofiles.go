@@ -98,7 +98,7 @@ func NormalizeModelProfiles(in []AgentModelProfile) ([]AgentModelProfile, error)
 				return nil, fmt.Errorf("%w: %s is longer than %d bytes", ErrInvalidModelProfiles, field, limit.max)
 			}
 			if strings.IndexFunc(limit.value, func(r rune) bool {
-				return unicode.IsControl(r) && !(limit.multi && (r == '\n' || r == '\t'))
+				return unicode.IsControl(r) && (!limit.multi || (r != '\n' && r != '\t'))
 			}) >= 0 {
 				return nil, fmt.Errorf("%w: %s holds a control character", ErrInvalidModelProfiles, field)
 			}
