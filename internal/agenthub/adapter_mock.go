@@ -239,6 +239,15 @@ func (r *mockRuntime) SetGoal(ctx context.Context, objective string) error {
 	return nil
 }
 
+// InTurn says a prompt is being run: the turn is past the service's own set-up
+// and Cancel will reach it. A session's status turns running earlier than that,
+// so a test that cancels as soon as it reads "running" can cancel nothing at all.
+func (r *mockRuntime) InTurn() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cancelCh != nil
+}
+
 // Steered is what the mock was told mid-turn, for the tests.
 // Prompts is every prompt sent to the runtime, as content blocks.
 func (r *mockRuntime) Prompts() [][]acp.ContentBlock {

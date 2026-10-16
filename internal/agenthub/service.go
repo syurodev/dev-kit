@@ -371,6 +371,10 @@ type Service struct {
 
 	// peers is the state of messages between sessions (peer.go).
 	peers peerState
+	// turnWork counts what is still working on the database after a turn: each
+	// invoke for its whole length, and the queue drains peer.go starts. For
+	// WaitQuiet.
+	turnWork atomic.Int64
 	// OnPeerMessage reports each outcome of SendMessage, and a queued message's
 	// later one. main.go audits it and tells the window. Never carries text.
 	OnPeerMessage func(PeerMessageEvent)
@@ -1305,6 +1309,8 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 // the cycle check do not apply, nobody waits on it so no time limit does, and
 // its echo is the sender's words with their label rather than a user prompt.
 func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (result InvokeResult, retErr error) {
+	s.turnWork.Add(1)
+	defer s.turnWork.Add(-1) // registered first, so it runs after every other defer
 	if peer != nil {
 		// A turn that never reached the point of running still owes the sender
 		// an answer. Only the first settle counts.

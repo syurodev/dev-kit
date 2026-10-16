@@ -33,6 +33,7 @@ type peerRig struct {
 type mockRuntimeView interface {
 	Prompts() [][]acp.ContentBlock
 	Steered() []string
+	InTurn() bool
 }
 
 func newPeerRig(t *testing.T) *peerRig { return newPeerRigSteering(t, true) }
@@ -82,6 +83,25 @@ func newPeerRigSteering(t *testing.T, steering bool) *peerRig {
 		return sess
 	}
 	r.a, r.b, r.c = mk("ws1", "alpha"), mk("ws1", "beta"), mk("ws2", "gamma")
+	// Registered after the database's own cleanup, so it runs first: stop every
+	// turn still open, let what a message started or a queue drain started
+	// finish, and land the transcript, before the database goes away. Without it
+	// a goroutine still writing outlives the test and the temp directory is
+	// "not empty" when it is removed.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		for range 3 {
+			for _, s := range []agenthub.AgentSession{r.a, r.b, r.c} {
+				_ = svc.Cancel(uiCtx(), s.ID)
+			}
+			if err := svc.WaitQuiet(ctx); err != nil {
+				t.Errorf("a turn started by a message did not end: %v", err)
+				break
+			}
+		}
+		_ = svc.Shutdown(ctx)
+	})
 	return r
 }
 
@@ -106,7 +126,9 @@ func (r *peerRig) status(s agenthub.AgentSession) agenthub.SessionStatus {
 
 func (r *peerRig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	// A condition, not a timing: the bound is wide so a loaded machine is slow,
+	// not wrong.
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if ok() {
 			return
@@ -121,13 +143,34 @@ func (r *peerRig) waitIdle(s agenthub.AgentSession) {
 	r.waitFor("session to be idle", func() bool { return r.status(s) == agenthub.SessionStatusIdle })
 }
 
-// hold starts a turn that stays open until cancelled and waits until it runs.
+// hold starts a turn that stays open until cancelled and waits until it is in
+// the vendor's hands. "running" is not enough: the status turns running before
+// the prompt is handed over, and a Cancel in that gap reaches nothing — the
+// turn then never ends. Waiting for the runtime itself closes the gap.
 func (r *peerRig) hold(s agenthub.AgentSession) {
 	r.t.Helper()
 	go func() {
 		_, _ = r.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: s.ID, Prompt: "BLOCK"})
 	}()
-	r.waitFor("turn to run", func() bool { return r.status(s) == agenthub.SessionStatusRunning })
+	r.waitFor("turn to run", func() bool { return r.status(s) == agenthub.SessionStatusRunning && r.rt(s).InTurn() })
+}
+
+// waitEvent waits for a reported outcome that satisfies ok.
+func (r *peerRig) waitEvent(what string, ok func(agenthub.PeerMessageEvent) bool) agenthub.PeerMessageEvent {
+	r.t.Helper()
+	var found agenthub.PeerMessageEvent
+	r.waitFor(what, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for _, ev := range r.events {
+			if ok(ev) {
+				found = ev
+				return true
+			}
+		}
+		return false
+	})
+	return found
 }
 
 // userRows are the transcript's user messages, with their source.
@@ -253,9 +296,10 @@ func TestSendMessageQueuesWhenTheVendorCannotSteer(t *testing.T) {
 		rows := r.userRows(r.b)
 		return len(rows) == 2 && rows[1].Source != nil && r.status(r.b) == agenthub.SessionStatusIdle
 	})
-	if ev := r.lastEvent(); !ev.Drained || ev.Delivery != agenthub.DeliveryStarted || ev.MessageID != res.MessageID {
-		t.Fatalf("event = %+v", ev)
-	}
+	// The drain reports after the turn has started; the row can be read first.
+	r.waitEvent("the queued message's delivery to be reported", func(ev agenthub.PeerMessageEvent) bool {
+		return ev.Drained && ev.Delivery == agenthub.DeliveryStarted && ev.MessageID == res.MessageID
+	})
 }
 
 func TestSendMessageWaitsBehindThePersonsPausedQueue(t *testing.T) {
@@ -530,4 +574,33 @@ func TestConcurrentSendersBothGetThrough(t *testing.T) {
 	r.waitFor("both messages in the transcript", func() bool {
 		return len(r.userRows(r.b)) == 2 && r.status(r.b) == agenthub.SessionStatusIdle
 	})
+}
+
+// Several things can try to deliver a queued message at once — the person
+// resuming their queue, a turn ending. It must reach the agent once: a drain
+// takes the message out of the queue before the turn starts, because that turn
+// can end, and kick the next drain, before the first one has returned.
+func TestAQueuedMessageIsDeliveredOnceWhateverKicksTheQueue(t *testing.T) {
+	r := newPeerRig(t)
+	r.svc.SetPromptQueue(r.b.ID, 1, true)
+	r.send(r.a, r.b, "only once", "")
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.svc.SetPromptQueue(r.b.ID, 0, false)
+		}()
+	}
+	wg.Wait()
+	r.waitFor("the message", func() bool { return len(r.userRows(r.b)) >= 1 })
+	if err := r.svc.WaitQuiet(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if rows := r.userRows(r.b); len(rows) != 1 {
+		t.Fatalf("the message was delivered %d times", len(rows))
+	}
+	if got := len(r.rt(r.b).Prompts()); got != 1 {
+		t.Fatalf("the agent was prompted %d times", got)
+	}
 }

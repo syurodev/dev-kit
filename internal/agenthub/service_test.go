@@ -441,7 +441,8 @@ func TestInvokeBusy(t *testing.T) {
 }
 
 func TestCancelDuringInvoke(t *testing.T) {
-	svc := newTestService(t)
+	adapter := agenthub.NewMockAdapter()
+	svc := newTestServiceWith(t, adapter)
 	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
 		AgentType: agenthub.AgentTypeMock,
 		Cwd:       t.TempDir(),
@@ -456,13 +457,15 @@ func TestCancelDuringInvoke(t *testing.T) {
 		errCh <- err
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		st, err := svc.GetStatus(context.Background(), sess.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if st.Status == agenthub.SessionStatusRunning {
+		// Running is set before the prompt reaches the vendor; a Cancel in that
+		// gap reaches nothing, so wait until the runtime has it.
+		if st.Status == agenthub.SessionStatusRunning && adapter.LastRuntime().InTurn() {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -479,7 +482,7 @@ func TestCancelDuringInvoke(t *testing.T) {
 		if !errors.Is(err, agenthub.ErrCancelled) {
 			t.Fatalf("got %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timeout")
 	}
 

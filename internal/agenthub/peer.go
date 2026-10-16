@@ -661,7 +661,9 @@ func (s *Service) startPeerTurn(msg *peerMessage) error {
 	claimed := make(chan error, 1)
 	var once sync.Once
 	run := &peerRun{msg: msg, settle: func(err error) { once.Do(func() { claimed <- err }) }}
+	s.turnWork.Add(1)
 	go func() {
+		defer s.turnWork.Add(-1)
 		_, err := s.invoke(context.Background(), InvokeInput{SessionID: msg.to, Prompt: peerEnvelope(s.namingOf(msg.to), msg)}, run)
 		run.settle(err) // a turn that never claimed has an error to report
 		if err != nil && !errors.Is(err, ErrSessionBusy) && !errors.Is(err, ErrCancelled) {
@@ -686,8 +688,28 @@ func (s *Service) kickPeers(sessionID string) {
 	waiting := len(s.peers.queues[sessionID]) > 0
 	s.peers.mu.Unlock()
 	if waiting {
-		go s.drainPeers(sessionID)
+		s.turnWork.Add(1)
+		go func() {
+			defer s.turnWork.Add(-1)
+			s.drainPeers(sessionID)
+		}()
 	}
+}
+
+// WaitQuiet blocks until no turn is running through invoke (the person's, an
+// agent's or one a message started) and no queue drain is in flight, or ctx
+// ends. Not part of Shutdown: a turn may run as long as any other, and quitting
+// must not wait for it. Callers that need the database quiet (tests, before
+// closing it) stop the turns first.
+func (s *Service) WaitQuiet(ctx context.Context) error {
+	for s.turnWork.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Millisecond):
+		}
+	}
+	return nil
 }
 
 // drainPeers starts a turn on the oldest message that waits for a session, when
@@ -731,19 +753,30 @@ func (s *Service) drainPeers(sessionID string) {
 	if s.isInvoking(sessionID) || s.questionPending(sessionID) || s.peers.held(sessionID) {
 		return
 	}
-	err = s.startPeerTurn(msg)
-	if errors.Is(err, ErrSessionBusy) {
-		return
-	}
+	// Take the message out of the queue BEFORE the turn starts, not after: a turn
+	// on it can end (and kick the next drain) before this returns, and a message
+	// still queued then would be delivered twice. A drain that loses the race for
+	// the session gets ErrSessionBusy and puts it back at the front.
 	s.peers.mu.Lock()
 	queue = s.peers.queues[sessionID]
-	for i, m := range queue {
-		if m == msg {
-			s.peers.queues[sessionID] = append(queue[:i:i], queue[i+1:]...)
-			break
-		}
+	if len(queue) == 0 {
+		s.peers.mu.Unlock()
+		return // another drain took it
+	}
+	msg = queue[0]
+	if len(queue) == 1 {
+		delete(s.peers.queues, sessionID)
+	} else {
+		s.peers.queues[sessionID] = queue[1:]
 	}
 	s.peers.mu.Unlock()
+	err = s.startPeerTurn(msg)
+	if errors.Is(err, ErrSessionBusy) {
+		s.peers.mu.Lock()
+		s.peers.queues[sessionID] = append([]*peerMessage{msg}, s.peers.queues[sessionID]...)
+		s.peers.mu.Unlock()
+		return
+	}
 	if err != nil {
 		log.Printf("agenthub: queued message from another session could not start a turn on %s: %v", sessionID, err)
 		s.peerEvent(PeerMessageEvent{MessageID: msg.id, From: msg.from, To: msg.to, Length: msg.length, Delivery: DeliveryRefused, Code: PeerUndelivery, Drained: true})
