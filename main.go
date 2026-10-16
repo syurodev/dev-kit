@@ -905,15 +905,23 @@ func main() {
 	// this hub — none of which an ephemeral container has. Wired in one place
 	// so main does not have to know which module needs which collaborator.
 	app.WireCredentialsAndWork(container, db, container.Vault, app.Tables{
-		AccountSecrets:       storage.TableAccountSecrets,
-		AccountHostChoices:   storage.TableAccountHostChoices,
-		AccountRemoteChoices: storage.TableAccountRemoteChoices,
-		AccountIdentities:    storage.TableAccountIdentities,
-		APIRequestHistory:    storage.TableAPIRequestHistory,
-		CodexHookEvents:      storage.TableCodexHookEvents,
-		TaskVerifyRuns:       storage.TableTaskVerifyRuns,
-		TaskBoardBindings:    storage.TableTaskBoardBindings,
+		AccountSecrets:        storage.TableAccountSecrets,
+		AccountHostChoices:    storage.TableAccountHostChoices,
+		AccountRemoteChoices:  storage.TableAccountRemoteChoices,
+		AccountIdentities:     storage.TableAccountIdentities,
+		APIRequestHistory:     storage.TableAPIRequestHistory,
+		CodexHookEvents:       storage.TableCodexHookEvents,
+		TaskVerifyRuns:        storage.TableTaskVerifyRuns,
+		TaskBoardBindings:     storage.TableTaskBoardBindings,
+		SessionChangeRequests: storage.TableSessionChangeRequests,
 	})
+	// A pull request opened by pr.create, or attached by hand, must reach the
+	// summary card now, not at its next poll.
+	if container.PullRequests != nil {
+		container.PullRequests.OnChanged = func(sessionID string) {
+			emitAppEvent("prwatch:changed", map[string]any{"sessionId": sessionID})
+		}
+	}
 	// The board asks the hub whether a session is still alive before letting
 	// another take over its claim, and which boards a session may see at all.
 	// Separate because the hub is built above, after the vendor registry and
@@ -963,6 +971,13 @@ func main() {
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
+	// pr.*: the pull/merge request of an agent's branch. Assigned only when
+	// wired — a nil *prwatch.Service in this interface field would be the
+	// typed-nil trap (see CodexHook below).
+	var pullRequests mcp.PullRequestsAPI
+	if container.PullRequests != nil {
+		pullRequests = container.PullRequests
+	}
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
 		Caller:            bridge.NewCaller(appService),
 		Notes:             container.Notes,
@@ -987,8 +1002,9 @@ func main() {
 		// Each git tool acts on the caller's own repository (an agent's
 		// working directory, or the service it names), not only the one open
 		// in the Git view.
-		GitRepos: mcp.GitReposOf(container.Git),
-		Accounts: container.Accounts,
+		GitRepos:     mcp.GitReposOf(container.Git),
+		PullRequests: pullRequests,
+		Accounts:     container.Accounts,
 		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
 		// not import app, and apiclient must not import codegraph.
 		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),

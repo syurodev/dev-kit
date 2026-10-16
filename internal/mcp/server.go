@@ -207,8 +207,10 @@ type Deps struct {
 	// the app has open — an agent's own working directory, or a service it
 	// names. Optional nil: every tool then acts on Git alone.
 	GitRepos GitRepos
-	Accounts AccountsAPI  // optional nil until wired from main
-	API      APIClientAPI // optional nil until wired from main
+	// PullRequests backs the pr.* tools. Nil leaves them unregistered.
+	PullRequests PullRequestsAPI
+	Accounts     AccountsAPI  // optional nil until wired from main
+	API          APIClientAPI // optional nil until wired from main
 	// CodexHook records a lifecycle hook call from an external Codex CLI
 	// session — a session DevKit did not spawn. Optional nil until wired
 	// from main; codexsessions.Service is itself nil-safe, so a nil here
@@ -298,6 +300,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	s.registerCodeGraphPlan(ms)
 	s.registerTasks(ms)
 	s.registerGit(ms)
+	s.registerPullRequests(ms)
 	s.registerAccounts(ms)
 	s.registerAPIClient(ms)
 	s.registerCodexHook(ms)

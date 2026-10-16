@@ -188,6 +188,23 @@ func TestLayering(t *testing.T) {
 		}
 	}
 
+	// forge is a leaf: it talks to a code host (GitHub, later GitLab) with a
+	// token it is handed and knows nothing of sessions, accounts or git work
+	// trees. That is what lets a second platform plug in behind Provider.
+	for _, imp := range graph[pkg("forge")] {
+		t.Errorf("layering violation: forge must not import %s", short(imp))
+	}
+
+	// prwatch follows a session's pull request. It sees git, accounts and
+	// storage only through the Source, Credentials and Store it is handed, so
+	// the one thing it may import is forge.
+	for _, imp := range graph[pkg("prwatch")] {
+		if imp == pkg("forge") {
+			continue
+		}
+		t.Errorf("layering violation: prwatch must not import %s", short(imp))
+	}
+
 	// codexapp is a leaf transport for `codex app-server`, like acp: the
 	// adapter in agenthub owns the sandbox and the translation to ACP.
 	for _, imp := range graph[pkg("codexapp")] {
