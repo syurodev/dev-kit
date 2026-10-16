@@ -45,6 +45,7 @@ import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { UpdatesSetting } from "./UpdatesSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import { AgentSandboxSetting } from "./AgentSandboxSetting";
+import { AgentModelProfilesSetting } from "./AgentModelProfilesSetting";
 import {
   Select,
   SelectContent,
@@ -624,6 +625,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>CODEX</GroupLabel>
         <AgentRuntimeSetting vendor={CODEX_VENDOR} />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>MODELS BY JOB</GroupLabel>
+        <AgentModelProfilesSetting />
       </div>
       <div className="flex flex-col gap-3">
         <GroupLabel>FILE CHECKPOINTS</GroupLabel>

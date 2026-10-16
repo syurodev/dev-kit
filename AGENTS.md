@@ -367,6 +367,52 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `ErrAgentAPIKeyUnusable` → `agent_api_key_unusable`, which the UI sends to Settings
   rather than to a sign-in (the key wins at every spawn). `app.CodexAPIKey.Choose`
   refuses agent / user-terminal callers like sign-in does.
+- **A session nobody has prompted has no conversation to resume** (`Service.neverPrompted`, `resumeRuntime`).
+  Codex writes none before the first turn (measured with the real app-server 0.163.0: `thread/resume` of such a
+  thread answers "no rollout found for thread id"); Claude Code keeps its session file from the first message
+  (not measured here — reopening is harmless either way, since nothing is lost). So a session with
+  no turn row and no user message is reopened with `adapter.Open`, not `Load`, and its vendor id updated
+  (`UpdateSessionACPID`); the model/effort chosen at creation come back from the stored `config_option_update`.
+  Before this, every settings call on such a session after a restart failed, which the picker showed as
+  "Models unavailable". Tests of the resume path must say the session was prompted (`markPrompted`).
+- **A fresh Claude session carries its model list from the handshake.** claude-agent-acp sends the settings once,
+  in the answer to `session/new` / `session/load`, and never a `config_option_update` until one changes — and
+  DevKit used to drop that answer (only the catalog read it). `claudeRuntime` now keeps it (`options`), folds
+  every `set_config_option` answer into it, announces it to the first update handler (as `codexRuntime` does)
+  and re-publishes it on `PrepareSession`. A refused model list reaches the picker as
+  `agenthub.modelsUnavailable` ("Codex didn't report which models it offers…"), not "Agent process failed.".
+- **An agent chooses a child's model and effort, and the person's profiles guide it**
+  (`agenthub/model_catalog.go`, `model_choice.go`, `mcp/tools_agenthub.go`, `preferences/modelprofiles.go`,
+  `bridge/agenthub_modelprofiles.go`, Settings → Agents → "Models by job" in `settings/ModelProfilesEditor.tsx`).
+  - `agenthub.createAgentSession` takes `initialConfig {model, effort}` (effort is `reasoning_effort` inside)
+    and `profile` (a profile's name or id). Nothing said → the child inherits its parent's model and effort
+    when it is the same vendor (a value the runtime refuses is dropped). Values are checked against the
+    vendor's catalog; a wrong one is refused with what the vendor offers. The parent-only, parent-folder and
+    parent-workspace rules are untouched (`ErrCwdOutsideParent`, `ErrWorkspaceMismatch`).
+  - **Cost policy** (`PlanModelChoice`): a profile is the person's own choice and asks nothing. By hand, a model
+    other than the parent's asks the person — DevKit has no reliable price order for models, so cheaper asks
+    too — and an effort above the parent's asks (efforts are ranked: none < minimal < low < medium < high <
+    xhigh < max; "default" or an unknown name is unranked and asks). The question is the "DevKit tool gate"
+    (`KindAgent`, `EnvBlocks: true`: every time, no allow-always). `CreateSession` repeats the check and refuses
+    with `ErrModelChoiceNeedsApproval` unless `CreateInput.ModelChoiceApproved`, which only the tool handler
+    sets after the answer (its input struct has no field for it).
+  - `agenthub.listModels` / `agenthub.listModelProfiles` are read-only (`agenthub:read` on `models:list` /
+    `profiles:list`; `mcp.AgentHubModelsGrant` / `AgentHubProfilesGrant`, checked against the real policy in
+    `TestNewContainerGrantsTheModelReadTools`). The catalog is cached per vendor (`Service.ModelCatalog`: 15 min,
+    a failure 1 min, one throw-away agent at a time, detached from the asking call); the window's own
+    `ConfigCatalog` stays uncached and refreshes it. A vendor that cannot answer comes back with a status
+    (`signInRequired`, `notInstalled`, `unavailable`) instead of failing the call.
+  - **Profiles** are the preference `agent_model_profiles` (revision/CAS like `AgentCustomization`; ≤ 24, name 60,
+    description 400, notes 800 bytes; unique names; ids are slugs of the name). Get/set/check are UI-only
+    bridge methods (`AgentHubGetModelProfiles` / `SetModelProfiles` / `CheckModelProfiles`, grants
+    `preferences:* agent_model_profiles`); no MCP tool edits them (`TestPromptTeachesModelChoiceAndNoToolEditsProfiles`).
+    A profile whose model the vendor dropped is listed with `status` + `problem` and refused when chosen;
+    its text reaches an agent as the person's configuration (`ModelProfilesNote`), never an instruction. The
+    audit line of a child session names the profile, model and effort — never a prompt.
+  - Not verified against the real vendors in CI: Claude/Codex model lists come from fakes
+    (`TestFreshClaudeSession*`, `TestCodexSessionWithoutATurn*`, `choiceAdapter`); the Codex "no rollout" answer
+    was measured with the real app-server 0.163.0 under a throw-away `CODEX_HOME`. Gallery:
+    `?gallery#agenthub-model-profiles`.
 - **A person's turn has no time limit; an agent's or terminal's does.** `Service.Invoke` applies
   `DefaultInvokeTimeout` (10 min) only when the caller is not the UI or a remote human
   (`invokeUnbounded`). It used to cut every UI turn at 10:00 exactly, which looked like the vendor

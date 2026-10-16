@@ -1972,10 +1972,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	if !ok {
 		return nil, ErrVendorUnknown
 	}
-	// A session nobody has prompted has no conversation to resume: neither
-	// vendor writes one to disk before the first turn (Codex answers a resume of
-	// such a thread with "no rollout found", Claude Code with "no conversation
-	// found"). It starts over instead, which loses nothing.
+	// A session nobody has prompted has no conversation to resume: Codex writes
+	// none before the first turn (a resume of such a thread answers "no rollout
+	// found" — measured against codex 0.163.0) and Claude keeps its file from the
+	// first message. It starts over instead, which loses nothing.
 	fresh := s.neverPrompted(ctx, sess)
 	loader, isLoader := adapter.(SessionLoader)
 	if !fresh {

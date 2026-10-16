@@ -59,6 +59,48 @@ export interface AgentMCPConfig {
 }
 
 /**
+ * AgentModelProfile is one job and the model to run it on.
+ */
+export interface AgentModelProfile {
+    /**
+     * ID is stable once made (the name may be edited); an agent may name a
+     * profile by either. Generated from the name when empty.
+     */
+    "id": string;
+
+    /**
+     * Name is what the person calls the job — "Code review".
+     */
+    "name": string;
+
+    /**
+     * Description tells an agent when the profile applies. It is read as data
+     * the person wrote, never as an instruction to the agent.
+     */
+    "description": string;
+
+    /**
+     * Vendor is the agent type ("claude", "codex").
+     */
+    "vendor": string;
+
+    /**
+     * Model is the vendor's model id, as its picker lists it.
+     */
+    "model": string;
+
+    /**
+     * Effort is the reasoning effort; empty leaves the model's own default.
+     */
+    "effort"?: string;
+
+    /**
+     * Notes is for the person (and the agent) — why this model, what to avoid.
+     */
+    "notes"?: string;
+}
+
+/**
  * AgentSandboxSettings shapes the jail Agent Hub's vendor processes run
  * under, beyond what a session grants on its own (the devkit-mcp socket, the
  * vendor's own credential paths).

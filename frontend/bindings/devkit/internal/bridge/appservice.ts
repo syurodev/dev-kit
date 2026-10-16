@@ -344,6 +344,15 @@ export function AgentHubCancelSignIn(agent: string, loginID: string): $Cancellab
 }
 
 /**
+ * AgentHubCheckModelProfiles says, for each saved profile, whether its model
+ * is still on its vendor's list — or why that cannot be said (signed out, not
+ * installed). It reads the same cached lists an agent's tools read.
+ */
+export function AgentHubCheckModelProfiles(): $CancellablePromise<agenthub$0.ModelProfileInfo[] | null> {
+    return $Call.ByID(2168200549);
+}
+
+/**
  * AgentHubCheckpointAvailability is what Settings shows beside the switch:
  * whether the machine can do this at all, and which projects it could not.
  */
@@ -429,6 +438,13 @@ export function AgentHubEnvironment(agent: string, sessionID: string): $Cancella
 
 export function AgentHubGetCustomization(vendor: string): $CancellablePromise<preferences$0.AgentCustomization> {
     return $Call.ByID(2606780855, vendor);
+}
+
+/**
+ * AgentHubGetModelProfiles reads the "which model for which job" list.
+ */
+export function AgentHubGetModelProfiles(): $CancellablePromise<$models.AgentModelProfilesState> {
+    return $Call.ByID(1922042849);
 }
 
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
@@ -614,6 +630,14 @@ export function AgentHubSetGoal(id: string, objective: string): $CancellableProm
  */
 export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise<void> {
     return $Call.ByID(2776585725, id, modeID);
+}
+
+/**
+ * AgentHubSetModelProfiles replaces the list when revision is the stored one.
+ * Audit metadata carries the count, never a name, description or note.
+ */
+export function AgentHubSetModelProfiles(revision: number, profiles: preferences$0.AgentModelProfile[] | null): $CancellablePromise<$models.AgentModelProfilesState> {
+    return $Call.ByID(1285598605, revision, profiles);
 }
 
 /**

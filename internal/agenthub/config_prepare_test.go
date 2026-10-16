@@ -125,8 +125,9 @@ func TestFreshClaudeSessionShowsTheModelItWasCreatedWith(t *testing.T) {
 // "Models unavailable", Codex: a thread that never ran a turn has no rollout
 // on disk, so after the process is gone (a restart, an eviction) thread/resume
 // refuses it — and so did every settings call, for a session with nothing to
-// resume. It is measured, not assumed: the real app-server answers
-// "no rollout found for thread id" to a thread/start that no turn followed.
+// resume. Measured with the real app-server 0.163.0: thread/start, then a new
+// process, thread/resume → "no rollout found for thread id". This test drives
+// the real adapter against a fake app-server that answers the same.
 func TestCodexSessionWithoutATurnSurvivesALostProcess(t *testing.T) {
 	ctx := context.Background()
 	f := newCodexFixture(t, "noRollout")

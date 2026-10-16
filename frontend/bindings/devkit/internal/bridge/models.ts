@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as agenthub$0 from "../agenthub/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as workspace$0 from "../workspace/models.js";
 
 /**
@@ -10,6 +13,16 @@ import * as workspace$0 from "../workspace/models.js";
  */
 export interface ActiveProfileDTO {
     "profileId"?: string;
+}
+
+/**
+ * AgentModelProfilesState is the person's list as Settings edits it. Statuses
+ * are left empty here — checking one asks its vendor for the model list, which
+ * can take seconds — and AgentHubCheckModelProfiles fills them in.
+ */
+export interface AgentModelProfilesState {
+    "revision": number;
+    "profiles": agenthub$0.ModelProfileInfo[] | null;
 }
 
 /**

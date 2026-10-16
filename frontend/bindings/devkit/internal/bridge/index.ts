@@ -8,6 +8,7 @@ export {
 
 export type {
     ActiveProfileDTO,
+    AgentModelProfilesState,
     ApiExportSaved,
     AuthStatusDTO,
     ConsoleDirectory,

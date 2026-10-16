@@ -37,8 +37,9 @@ const BASELINE: Record<string, number> = {
   // primitives.
   "database -> codegraph": 1,
   // Settings' agent runtime tab reads agenthub's runtime types to render its
-  // install/version UI.
-  "settings -> agenthub": 1,
+  // install/version UI; the "Models by job" panel reads its vendor table
+  // (agenthub/vendors.ts) for the agents a profile can name.
+  "settings -> agenthub": 2,
 };
 
 const ROOT = join(import.meta.dir, "modules");
