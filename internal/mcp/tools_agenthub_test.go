@@ -32,6 +32,13 @@ type fakeAgentHub struct {
 	peers      []agenthub.PeerInfo
 	route      agenthub.PeerRelation
 	routeTo    agenthub.AgentSession
+
+	models    agenthub.ModelListing
+	profiles  agenthub.ModelProfilesListing
+	plan      agenthub.ConfigPlan
+	planErr   error
+	planIn    agenthub.ModelChoiceInput
+	modelsFor agenthub.AgentType
 }
 
 func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error) {
@@ -43,6 +50,20 @@ func (f *fakeAgentHub) ListPeers(context.Context) ([]agenthub.PeerInfo, error) {
 
 func (f *fakeAgentHub) PeerRoute(context.Context, string) (agenthub.PeerRelation, agenthub.AgentSession, bool, error) {
 	return f.route, f.routeTo, f.route != "", nil
+}
+
+func (f *fakeAgentHub) ListModels(_ context.Context, vendor agenthub.AgentType) (agenthub.ModelListing, error) {
+	f.modelsFor = vendor
+	return f.models, nil
+}
+
+func (f *fakeAgentHub) ListModelProfiles(context.Context) agenthub.ModelProfilesListing {
+	return f.profiles
+}
+
+func (f *fakeAgentHub) PlanModelChoice(_ context.Context, in agenthub.ModelChoiceInput) (agenthub.ConfigPlan, error) {
+	f.planIn = in
+	return f.plan, f.planErr
 }
 
 func (f *fakeAgentHub) ListSessions(context.Context) ([]agenthub.AgentSession, error) {
@@ -469,5 +490,119 @@ func TestPeerMessageGrantsAreWhatTheToolsAsk(t *testing.T) {
 	}
 	if got := [3]string{caller.last.subject, caller.last.capability, caller.last.scope}; got != grants[1] {
 		t.Errorf("sendMessage asked %v, grants say %v", got, grants[1])
+	}
+}
+func TestAgentHubCreateSessionCarriesTheModelChoice(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{created: agenthub.AgentSession{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	_, _, err := srv.toolAgentHubCreateAgentSession(context.Background(), &sdk.CallToolRequest{}, agentHubCreateInput{
+		AgentType: "codex", Cwd: "/tmp/proj",
+		InitialConfig: &agentHubInitialConfig{Model: " gpt-x ", Effort: "low"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hub.createIn.InitialConfig; got["model"] != "gpt-x" || got["reasoning_effort"] != "low" || len(got) != 2 {
+		t.Fatalf("InitialConfig = %v, want model and reasoning_effort", got)
+	}
+	if hub.createIn.ModelChoiceApproved {
+		t.Fatal("a choice that needs no approval was marked approved")
+	}
+	if caller.last.metadata["model"] != "gpt-x" || caller.last.metadata["effort"] != "low" {
+		t.Fatalf("audit = %v", caller.last.metadata)
+	}
+}
+
+func TestAgentHubCreateSessionByProfileRecordsTheProfileNotThePrompt(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{created: agenthub.AgentSession{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	if _, _, err := srv.toolAgentHubCreateAgentSession(context.Background(), &sdk.CallToolRequest{}, agentHubCreateInput{
+		AgentType: "claude", Cwd: "/tmp/proj", Profile: "Code review",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if hub.createIn.Profile != "Code review" || hub.planIn.Profile != "Code review" {
+		t.Fatalf("profile = %q / %q", hub.createIn.Profile, hub.planIn.Profile)
+	}
+	if caller.last.metadata["profile"] != "Code review" {
+		t.Fatalf("audit = %v, want the profile named", caller.last.metadata)
+	}
+}
+
+// A choice beyond the caller's own asks the person, with no allow_always, and
+// nothing is created if they say no.
+func TestAgentHubCreateSessionAsksBeforeAChoiceAboveTheCallers(t *testing.T) {
+	hub := &fakeAgentHub{
+		created: agenthub.AgentSession{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+		plan:    agenthub.ConfigPlan{Config: map[string]string{"model": "big"}, NeedsApproval: true, Why: []string{"model big (this session runs mid)"}},
+	}
+	for _, answer := range []string{"deny", "allow"} {
+		t.Run(answer, func(t *testing.T) {
+			hub.createIn = agenthub.CreateInput{}
+			h := interaction.NewHub(interaction.NoopPrompter{})
+			deps := agentHubTestDeps(&fakeCaller{}, hub)
+			deps.Hub = h
+			srv := NewServer(deps)
+			go func() {
+				waitForPending(t, h)
+				p := h.Pending()
+				if p.Kind != interaction.KindAgent || p.AllowAlwaysOffered || !strings.Contains(p.Summary, "model big") {
+					t.Errorf("pending = %+v: want an agent question without allow_always naming the choice", p)
+				}
+				_ = h.Complete(p.ID, answer)
+			}()
+			_, _, err := srv.toolAgentHubCreateAgentSession(context.Background(), &sdk.CallToolRequest{}, agentHubCreateInput{
+				AgentType: "mock", Cwd: "/tmp/proj", InitialConfig: &agentHubInitialConfig{Model: "big"},
+			})
+			if answer == "deny" {
+				if err == nil || hub.createIn.AgentType != "" {
+					t.Fatalf("a refused choice created a session (err %v, input %+v)", err, hub.createIn)
+				}
+				return
+			}
+			if err != nil || !hub.createIn.ModelChoiceApproved {
+				t.Fatalf("approved choice: err %v, approved %v", err, hub.createIn.ModelChoiceApproved)
+			}
+		})
+	}
+}
+
+func TestAgentHubCreateSessionPassesAPlanError(t *testing.T) {
+	hub := &fakeAgentHub{planErr: errors.New("agenthub.invalidConfigOption: mock has no model \"x\" (it offers: a, b)")}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+	_, _, err := srv.toolAgentHubCreateAgentSession(context.Background(), &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", InitialConfig: &agentHubInitialConfig{Model: "x"}})
+	if err == nil || !strings.Contains(err.Error(), "it offers: a, b") || hub.createIn.AgentType != "" {
+		t.Fatalf("err = %v, created %+v", err, hub.createIn)
+	}
+}
+
+func TestAgentHubModelToolsReadThroughTheirOwnGrants(t *testing.T) {
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{
+		models:   agenthub.ModelListing{Vendors: []agenthub.VendorModels{{Vendor: "claude", Status: agenthub.ModelsOK}}},
+		profiles: agenthub.ModelProfilesListing{Profiles: []agenthub.ModelProfileInfo{{Name: "Review"}}, Note: agenthub.ModelProfilesNote},
+	}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	_, v, err := srv.toolAgentHubListModels(context.Background(), &sdk.CallToolRequest{}, agentHubListModelsInput{AgentType: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := unwrap(v).(agenthub.ModelListing); !ok || len(got.Vendors) != 1 || hub.modelsFor != "claude" {
+		t.Fatalf("listModels = %#v for %q", v, hub.modelsFor)
+	}
+	if caller.last.capability != "agenthub:read" || caller.last.scope != "models:list" {
+		t.Fatalf("Call = %+v", caller.last)
+	}
+	_, v, err = srv.toolAgentHubListModelProfiles(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := unwrap(v).(agenthub.ModelProfilesListing); !ok || got.Profiles[0].Name != "Review" || got.Note == "" {
+		t.Fatalf("listModelProfiles = %#v", v)
+	}
+	if caller.last.capability != "agenthub:read" || caller.last.scope != "profiles:list" {
+		t.Fatalf("Call = %+v", caller.last)
 	}
 }

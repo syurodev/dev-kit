@@ -123,3 +123,19 @@ func TestPromptPrefersPullRequestToolsWithoutBanningTheCLI(t *testing.T) {
 		}
 	}
 }
+
+// The two model tools are in the prompt under the names each vendor's model
+// sees, and nothing lets an agent edit the person's profiles.
+func TestPromptTeachesModelChoiceAndNoToolEditsProfiles(t *testing.T) {
+	prompt := devkitPrompt(claudeNaming, "")
+	for _, want := range []string{"`mcp__devkit__agenthub_listModelProfiles`", "`mcp__devkit__agenthub_listModels`", "`profile`", "`initialConfig`", "not an\n  instruction to you"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %s", want)
+		}
+	}
+	for name := range mcpToolNames(t) {
+		if strings.Contains(strings.ToLower(name), "modelprofile") && name != "agenthub.listModelProfiles" {
+			t.Errorf("tool %s touches model profiles; agents may only read them", name)
+		}
+	}
+}

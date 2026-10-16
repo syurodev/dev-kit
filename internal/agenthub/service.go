@@ -62,6 +62,14 @@ type CreateInput struct {
 	ExtraReadWritePaths []string
 	// InitialConfig is applied before the first turn and recorded by attachUpdates.
 	InitialConfig map[string]string
+	// Profile names one of the person's model profiles (Settings → Agents) the
+	// agent chose by; its model and effort become the InitialConfig. Agent
+	// callers only — the window has its own pickers.
+	Profile string
+	// ModelChoiceApproved says the person agreed to a model or effort above
+	// the calling agent's own (PlanModelChoice). Only the MCP tool handler
+	// sets it, after asking; its input struct has no field to carry it.
+	ModelChoiceApproved bool
 }
 
 // cleanExtraReadWritePaths applies the same invariants resolveCwd holds Cwd
@@ -365,6 +373,14 @@ type Service struct {
 	// the UI reloads it from the store.
 	OnSessionRewound func(sessionID, promptText string)
 
+	// catalog caches each vendor's model list for callers who may not start a
+	// throw-away agent of their own (model_catalog.go).
+	catalog modelCatalogCache
+	// ModelProfiles reads the person's "which model for which job" list
+	// (Settings → Agents). nil means there are none. Read on every call, so an
+	// edit applies to the next session an agent starts.
+	ModelProfiles func() (preferences.AgentModelProfiles, error)
+
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
 	rewinds  rewindPlans
@@ -527,6 +543,19 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if err != nil {
 		return AgentSession{}, err
 	}
+	// An agent's model choice is checked here, not only by the tool that asked
+	// the person: this is where it would take effect, and it holds whoever calls.
+	inheritedConfig := false
+	if caller.IsAgent() {
+		plan, err := s.PlanModelChoice(ctx, ModelChoiceInput{Vendor: in.AgentType, Config: in.InitialConfig, Profile: in.Profile})
+		if err != nil {
+			return AgentSession{}, err
+		}
+		if plan.NeedsApproval && !in.ModelChoiceApproved {
+			return AgentSession{}, fmt.Errorf("%w: %s", ErrModelChoiceNeedsApproval, strings.Join(plan.Why, "; "))
+		}
+		in.InitialConfig, inheritedConfig = plan.Config, plan.Inherited
+	}
 	workspaceID := in.WorkspaceID
 	if parent != nil {
 		if workspaceID != "" && workspaceID != parent.WorkspaceID {
@@ -587,8 +616,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
-	if len(in.InitialConfig) > 0 {
-		configurator, ok := rt.(RuntimeConfigurator)
+	if configurator, ok := rt.(RuntimeConfigurator); len(in.InitialConfig) > 0 && !(inheritedConfig && !ok) {
 		if !ok {
 			_ = rt.Close(ctx)
 			closeEndpoint()
@@ -598,6 +626,12 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		for _, key := range []string{"model", "reasoning_effort"} {
 			if value := in.InitialConfig[key]; value != "" {
 				if err := configurator.SetConfigOption(ctx, key, value); err != nil {
+					if inheritedConfig {
+						// The parent's own choice, not the agent's: a child that
+						// cannot take it starts on the vendor's default.
+						log.Printf("agenthub: %s child session: parent's %s %q not applied: %v", in.AgentType, key, value, err)
+						continue
+					}
 					_ = rt.Close(ctx)
 					closeEndpoint()
 					return AgentSession{}, err
@@ -2150,13 +2184,15 @@ func (s *Service) ConfigCatalog(ctx context.Context, vendor AgentType) ([]Config
 	if !ok {
 		return nil, ErrVendorUnknown
 	}
-	catalog, ok := adapter.(VendorConfigCatalog)
-	if !ok {
+	if _, ok := adapter.(VendorConfigCatalog); !ok {
 		return []ConfigOption{}, nil
 	}
-	spec := OpenSpec{}
-	s.applySandboxExtras(&spec)
-	return catalog.ConfigCatalog(ctx, spec)
+	options, err := s.readCatalog(ctx, vendor)
+	if err == nil {
+		// What the person just read is the freshest list there is.
+		s.catalog.put(vendorModelsOf(vendor, options, nil, s.catalog.clock()))
+	}
+	return options, err
 }
 
 // PrepareSession wakes the selected conversation and refreshes its controls,

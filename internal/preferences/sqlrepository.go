@@ -17,6 +17,7 @@ const (
 	codexAPIKeyAccountKey = "agent_codex_api_key_account"
 	revealPasswordKey     = "accounts_reveal_requires_password"
 	callVisibilityKey     = "codegraph_call_visibility"
+	agentModelProfilesKey = "agent_model_profiles"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -265,5 +266,35 @@ func (r *SQLRepository) SetCallVisibility(overrides map[string]string) error {
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, callVisibilityKey, string(body))
+	return err
+}
+
+// GetAgentModelProfiles reads a value it cannot parse as unset: the profiles
+// are a convenience, and an agent without them inherits its parent's model.
+func (r *SQLRepository) GetAgentModelProfiles() (AgentModelProfiles, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentModelProfilesKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentModelProfiles{}, false, nil
+	}
+	if err != nil {
+		return AgentModelProfiles{}, false, err
+	}
+	var profiles AgentModelProfiles
+	if jsonErr := json.Unmarshal([]byte(value), &profiles); jsonErr != nil {
+		return AgentModelProfiles{}, false, nil
+	}
+	return profiles, true, nil
+}
+
+func (r *SQLRepository) SetAgentModelProfiles(profiles AgentModelProfiles) error {
+	body, err := json.Marshal(profiles)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentModelProfilesKey, string(body))
 	return err
 }
