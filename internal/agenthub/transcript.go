@@ -386,7 +386,7 @@ func isSessionState(kind UpdateKind) bool {
 	return slices.Contains(sessionStateKinds, kind)
 }
 
-var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands, UpdateUsage}
+var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands, UpdateUsage, UpdateConnectors}
 
 // recordSessionState keeps exactly one row per session-level kind so a reload
 // can restore the value without the transcript carrying its whole history.

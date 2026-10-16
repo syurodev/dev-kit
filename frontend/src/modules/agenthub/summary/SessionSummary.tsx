@@ -1,10 +1,11 @@
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Bot, Check, Database, FileCode, FileText, Globe, PanelRight, Radio, Terminal, type LucideIcon } from "lucide-react";
+import { Bot, Check, ChevronDown, Database, FileCode, FileText, Globe, Hourglass, PanelRight, Radio, Target, Terminal, type LucideIcon } from "lucide-react";
 
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { agentHubListDocuments, type AgentDocument } from "@/bridge/agenthub";
@@ -20,8 +21,24 @@ import { subagentName, subagentStateWord } from "../sidebar/model";
 import { ChangedFileRow } from "../surfaces/AgentTurnChanges";
 import { shortCount } from "../surfaces/AgentContextMeter";
 import { loadCheckpointFileDiff } from "../useSessionCheckpoints";
-import type { PlanEntry, Subagent, TranscriptItem, Usage } from "../types";
-import { latestPlan, linkHosts, sessionChanges, toolSources, type LinkHost, type SessionChange, type ToolSource } from "./summaryModel";
+import type { AsyncTask, Connector, PlanEntry, SessionGoal, Subagent, TranscriptItem, Usage } from "../types";
+import { asyncTaskSpent } from "../transcript/AgentAsyncTask";
+import { useSummarySectionOpen } from "./summaryFold";
+import {
+  backgroundTasks,
+  connectorRows,
+  isTaskRunning,
+  latestPlan,
+  limitRows,
+  linkHosts,
+  sessionChanges,
+  tokenRows,
+  toolSources,
+  type LinkHost,
+  type SessionChange,
+  type SummaryRow,
+  type ToolSource,
+} from "./summaryModel";
 import { ChangedSource, type ChangedFile } from "../../../../bindings/devkit/internal/agenthub/models";
 
 /** What the summary is derived from. */
@@ -40,6 +57,11 @@ export type SessionSummaryData = {
   docs: readonly AgentDocument[];
   /** Running first, then the ones that have finished. */
   subagents: Subagent[];
+  /**
+   * Background tasks the vendor reported, running first. Empty for a vendor
+   * that has no such notion; the section is then not drawn at all.
+   */
+  background?: AsyncTask[];
 };
 
 /** What the card draws: the derived data, plus what it reads as it is. */
@@ -49,6 +71,15 @@ export type SessionSummaryProps = {
   usage: Usage | null | undefined;
   turnCount: number;
   data: SessionSummaryData;
+  /**
+   * What the summary shows beyond the transcript, each of it present only when
+   * the session has it: where and how it runs, the objective it works towards,
+   * the MCP servers a vendor reported. A section a vendor has no data for is
+   * not drawn — never drawn empty, or with a placeholder.
+   */
+  environment?: readonly SummaryRow[];
+  goal?: SessionGoal | null;
+  connectors?: readonly Connector[];
 };
 
 /** PDFs attached to the session's own prompts — each one becomes a document of the session. */
@@ -105,22 +136,36 @@ export function useSessionSummaryData({ sessionId, items, checkpoints, live }: S
   }, [queryClient, queryKey, sessionId, attached]);
   const tracked = useAgentSessionsStore((s) => s.subagents[sessionId]);
   const subagents = React.useMemo(() => summarySubagents(items, tracked, live), [items, tracked, live]);
+  const background = React.useMemo(() => backgroundTasks(items), [items]);
   return React.useMemo(
-    () => ({ plan, changes, tools, links, docs, subagents }),
-    [plan, changes, tools, links, docs, subagents],
+    () => ({ plan, changes, tools, links, docs, subagents, background }),
+    [plan, changes, tools, links, docs, subagents, background],
   );
 }
 
+/** What a session's usage has to show: the context window, a token split, plan limits. */
+function usageShows(usage: Usage | null | undefined): boolean {
+  return Boolean(usage?.size) || Boolean(usage?.tokens && usage.tokens.session.total > 0) || Boolean(usage?.limits?.length);
+}
+
 /** Whether any section has something. A card with nothing in it is not drawn. */
-export function hasSummary(data: SessionSummaryData, usage: Usage | null | undefined): boolean {
+export function hasSummary(
+  data: SessionSummaryData,
+  usage: Usage | null | undefined,
+  extras: Pick<SessionSummaryProps, "environment" | "goal" | "connectors"> = {},
+): boolean {
   return (
+    Boolean(extras.environment?.length) ||
+    Boolean(extras.goal) ||
+    Boolean(extras.connectors?.length) ||
+    Boolean(data.background?.length) ||
     data.plan.length > 0 ||
     data.changes.length > 0 ||
     data.tools.length > 0 ||
     data.links.length > 0 ||
     data.docs.length > 0 ||
     data.subagents.length > 0 ||
-    Boolean(usage?.size)
+    usageShows(usage)
   );
 }
 
@@ -137,7 +182,7 @@ export function SessionSummaryBody(props: SessionSummaryProps) {
 
 /** Docked at the top-right of a wide document area. */
 export function SessionSummaryCard(props: SessionSummaryProps) {
-  if (!hasSummary(props.data, props.usage)) return null;
+  if (!hasSummary(props.data, props.usage, props)) return null;
   return (
     <section
       aria-label="Session summary"
@@ -154,7 +199,7 @@ export function SessionSummaryButton(props: SessionSummaryProps) {
   const [open, setOpen] = React.useState(false);
   const [diffOf, setDiffOf] = React.useState<SessionChange | null>(null);
   const trigger = React.useRef<HTMLButtonElement>(null);
-  if (!hasSummary(props.data, props.usage)) return null;
+  if (!hasSummary(props.data, props.usage, props)) return null;
   // The diff opens in a dialog outside the popover: the popover closes as the
   // dialog takes focus, and a dialog inside it would close with it. Focus then
   // comes back to the corner button, the one control still on screen.
@@ -214,14 +259,43 @@ function SummarySections({
   usage,
   turnCount,
   data,
+  environment = [],
+  goal = null,
+  connectors = [],
   onOpenChange,
 }: SessionSummaryProps & { onOpenChange: (change: SessionChange) => void }) {
-  if (!hasSummary(data, usage)) return null;
+  if (!hasSummary(data, usage, { environment, goal, connectors })) return null;
   const { plan, changes, tools, links, docs, subagents } = data;
+  const background = data.background ?? [];
   const done = plan.filter((entry) => entry.status === "completed").length;
+  const added = changes.reduce((sum, change) => sum + change.added, 0);
+  const removed = changes.reduce((sum, change) => sum + change.removed, 0);
+  const connectorList = connectorRows(connectors);
 
   return (
     <>
+      {environment.length ? (
+        <SummarySection
+          name="environment"
+          title="Environment"
+          rows={environment.map((row) => (
+            <ValueRow key={row.key} row={row} testId="summary-environment-row" />
+          ))}
+          visibleRows={environment.length}
+        />
+      ) : null}
+
+      {goal ? (
+        <SectionShell name="goal" title="Goal">
+          <div className="flex items-start gap-2.5 px-3.5 pt-0.5 pb-2 text-body-13 text-text-primary">
+            <Target aria-hidden="true" className={cn(ICON, "mt-0.5")} />
+            <span className="min-w-0 wrap-break-word" title={goal.objective}>
+              {goal.objective}
+            </span>
+          </div>
+        </SectionShell>
+      ) : null}
+
       {plan.length ? (
         <SummarySection
           name="plan"
@@ -240,8 +314,25 @@ function SummarySections({
           name="changes"
           title="Changes"
           count={changes.length}
+          aside={
+            <span className="ml-auto flex gap-1 text-caption-11 tabular-nums" data-testid="summary-changes-total">
+              <span className="text-status-success">{`+${added.toLocaleString("en-US")}`}</span>
+              <span className="text-status-danger">{`−${removed.toLocaleString("en-US")}`}</span>
+            </span>
+          }
           rows={changes.map((change) => (
             <ChangeRow key={change.path} change={change} onOpen={() => onOpenChange(change)} />
+          ))}
+        />
+      ) : null}
+
+      {background.length ? (
+        <SummarySection
+          name="background"
+          title="Background tasks"
+          count={background.length}
+          rows={background.map((task) => (
+            <BackgroundTaskRow key={task.id} task={task} />
           ))}
         />
       ) : null}
@@ -314,7 +405,18 @@ function SummarySections({
         />
       ) : null}
 
-      {usage?.size ? <ContextSection usage={usage} turnCount={turnCount} /> : null}
+      {connectorList.length ? (
+        <SummarySection
+          name="connectors"
+          title="Connectors"
+          count={connectorList.length}
+          rows={connectorList.map((row) => (
+            <ValueRow key={row.key} row={row} testId="summary-connector-row" />
+          ))}
+        />
+      ) : null}
+
+      {usageShows(usage) && usage ? <ContextSection usage={usage} turnCount={turnCount} /> : null}
     </>
   );
 }
@@ -329,29 +431,31 @@ function SummarySection({
   name,
   title,
   count,
+  aside,
   rows,
   windowStart = 0,
+  visibleRows = VISIBLE_ROWS,
 }: {
   name: string;
   title: string;
   count?: React.ReactNode;
+  /** Right-aligned in the heading — a total that belongs to the whole list. */
+  aside?: React.ReactNode;
   rows: React.ReactNode[];
   /** The first row shown while folded; the rows above it unfold above. */
   windowStart?: number;
+  /** How many rows show before the rest fold behind "See all". */
+  visibleRows?: number;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [listRef] = useAutoAnimate<HTMLDivElement>(LIST_MOTION);
   const [restRef] = useAutoAnimate<HTMLDivElement>(LIST_MOTION);
-  const start = Math.max(0, Math.min(windowStart, rows.length - VISIBLE_ROWS));
+  const start = Math.max(0, Math.min(windowStart, rows.length - visibleRows));
   const before = rows.slice(0, start);
-  const head = rows.slice(start, start + VISIBLE_ROWS);
-  const rest = rows.slice(start + VISIBLE_ROWS);
+  const head = rows.slice(start, start + visibleRows);
+  const rest = rows.slice(start + visibleRows);
   return (
-    <section data-testid={`summary-${name}`} className="flex flex-col border-t border-border-subtle first:border-t-0">
-      <h4 className="flex items-center px-3.5 pt-2 pb-1 text-body-13 text-text-secondary">
-        {title}
-        {count !== undefined ? <sup className="ml-0.5 text-caption-11 text-text-tertiary/70">{count}</sup> : null}
-      </h4>
+    <SectionShell name={name} title={title} count={count} aside={aside}>
       {before.length ? (
         <AnimatedCollapse open={expanded}>
           <div className="flex flex-col">{before}</div>
@@ -378,7 +482,60 @@ function SummarySection({
           </button>
         </>
       ) : null}
-    </section>
+    </SectionShell>
+  );
+}
+
+/**
+ * A titled section the person can fold (shadcn Collapsible). The title row is
+ * the trigger; a total that belongs to the whole list sits beside the chevron.
+ * Folded sections are remembered (summaryFold), the same for the docked card
+ * and the corner popover.
+ */
+function SectionShell({
+  name,
+  title,
+  count,
+  aside,
+  children,
+}: {
+  name: string;
+  title: string;
+  count?: React.ReactNode;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useSummarySectionOpen(name);
+  return (
+    <Collapsible
+      asChild
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <section data-testid={`summary-${name}`} data-open={open} className="flex flex-col border-t border-border-subtle first:border-t-0">
+        <h4 className="flex">
+          <CollapsibleTrigger
+            data-testid={`summary-${name}-toggle`}
+            className="group flex h-8 w-full min-w-0 cursor-pointer items-center gap-1 px-3.5 text-left text-body-13 text-text-secondary transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
+          >
+            <span className="truncate">{title}</span>
+            {count !== undefined ? <sup className="text-caption-11 text-text-tertiary/70">{count}</sup> : null}
+            {aside}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-(--icon-14) shrink-0 text-text-tertiary transition-transform duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
+                aside ? "ml-2" : "ml-auto",
+                !open && "-rotate-90",
+              )}
+            />
+          </CollapsibleTrigger>
+        </h4>
+        <CollapsibleContent>
+          <div className="flex flex-col">{children}</div>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 
@@ -389,6 +546,38 @@ function SummarySection({
 function planWindowStart(plan: readonly PlanEntry[]): number {
   const now = plan.findIndex((entry) => entry.status === "in_progress");
   return now < VISIBLE_ROWS ? 0 : Math.min(now - 1, plan.length - VISIBLE_ROWS);
+}
+
+const TONE_TEXT = { ok: "text-status-success", warning: "text-status-warning", danger: "text-status-danger" } as const;
+
+/** A name on the left and what it is on the right; the tone is how safe it is. */
+function ValueRow({ row, testId }: { row: SummaryRow; testId: string }) {
+  return (
+    <div data-testid={testId} data-tone={row.tone} title={row.title} className={ROW}>
+      <span className="shrink-0 text-text-secondary">{row.label}</span>
+      <span className={cn("ml-auto min-w-0 truncate text-right", row.tone ? TONE_TEXT[row.tone] : "text-text-primary")}>{row.value}</span>
+    </div>
+  );
+}
+
+/** One background task: its name, what it is doing or found, and what it has spent. */
+function BackgroundTaskRow({ task }: { task: AsyncTask }) {
+  const running = isTaskRunning(task);
+  const name = task.name || task.description || "Background task";
+  const detail = running ? task.lastToolName : task.summary;
+  const spent = asyncTaskSpent(task);
+  return (
+    <div
+      data-testid="summary-background-row"
+      data-state={task.state || "running"}
+      title={[name, detail, spent].filter(Boolean).join(" · ")}
+      className={ROW}
+    >
+      <Hourglass aria-hidden="true" className={ICON} />
+      <span className="min-w-0 truncate">{name}</span>
+      <span className={TRAILING}>{running ? spent || "running" : task.state}</span>
+    </div>
+  );
 }
 
 function PlanRow({ entry }: { entry: PlanEntry }) {
@@ -464,32 +653,47 @@ function formatCost(amount: number, currency?: string): string {
 }
 
 function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number }) {
-  const percent = Math.min(100, Math.round((usage.used / usage.size) * 100));
-  const parts = [`${percent}%`, `${turnCount} ${turnCount === 1 ? "turn" : "turns"}`];
+  const percent = usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
+  const parts = [`${turnCount} ${turnCount === 1 ? "turn" : "turns"}`];
+  if (percent !== null) parts.unshift(`${percent}%`);
   if (usage.amount > 0) parts.push(formatCost(usage.amount, usage.currency));
+  const tokens = tokenRows(usage.tokens);
+  const limits = limitRows(usage.limits);
   return (
-    <section data-testid="summary-context" className="flex flex-col border-t border-border-subtle first:border-t-0">
-      <h4 className="flex items-center px-3.5 pt-2 pb-1 text-body-13 text-text-secondary">Context</h4>
-      <div
-        className="flex flex-col gap-1.5 px-3.5 pt-1 pb-2"
-        title={`${shortCount(usage.used)} of ${shortCount(usage.size)} tokens`}
-      >
+    <SectionShell name="context" title="Context">
+      {percent !== null ? (
         <div
-          role="meter"
-          aria-label="Context window used"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          className="h-1 w-full overflow-hidden rounded-full bg-state-soft"
+          className="flex flex-col gap-1.5 px-3.5 pt-1 pb-2"
+          title={`${shortCount(usage.used)} of ${shortCount(usage.size)} tokens`}
         >
           <div
-            className="h-full w-full origin-left rounded-full bg-text-primary transition-transform duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none"
-            style={{ transform: `scaleX(${percent / 100})` }}
-          />
+            role="meter"
+            aria-label="Context window used"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            className="h-1 w-full overflow-hidden rounded-full bg-state-soft"
+          >
+            <div
+              className="h-full w-full origin-left rounded-full bg-text-primary transition-transform duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none"
+              style={{ transform: `scaleX(${percent / 100})` }}
+            />
+          </div>
+          <span className="text-caption-11 tabular-nums text-text-tertiary">{parts.join(" · ")}</span>
         </div>
-        <span className="text-caption-11 tabular-nums text-text-tertiary">{parts.join(" · ")}</span>
-      </div>
-    </section>
+      ) : null}
+      {tokens.map((row) => (
+        <ValueRow key={row.key} row={row} testId="summary-token-row" />
+      ))}
+      {limits.length ? (
+        <>
+          <h5 className="px-3.5 pt-1.5 pb-0.5 text-caption-11 text-text-tertiary">Plan limits</h5>
+          {limits.map((row) => (
+            <ValueRow key={row.key} row={row} testId="summary-limit-row" />
+          ))}
+        </>
+      ) : null}
+    </SectionShell>
   );
 }
 

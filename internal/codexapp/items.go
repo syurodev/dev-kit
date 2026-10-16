@@ -19,6 +19,8 @@ const (
 	MethodThreadNameUpdated     = "thread/name/updated"
 	MethodTurnCompleted         = "turn/completed"
 	MethodError                 = "error"
+	MethodRateLimitsUpdated     = "account/rateLimits/updated"
+	MethodMcpStartupStatus      = "mcpServer/startupStatus/updated"
 
 	// Server requests about an item.
 	MethodCommandApproval     = "item/commandExecution/requestApproval"
@@ -278,4 +280,38 @@ type McpElicitationResponse struct {
 	Action  string          `json:"action"`
 	Content json.RawMessage `json:"content"`
 	Meta    json.RawMessage `json:"_meta"`
+}
+
+// RateLimitWindow is one ceiling of the account's plan: how much of it is
+// used, how long the window is, and when it resets (a Unix second).
+type RateLimitWindow struct {
+	UsedPercent        int64  `json:"usedPercent"`
+	WindowDurationMins *int64 `json:"windowDurationMins"`
+	ResetsAt           *int64 `json:"resetsAt"`
+}
+
+// RateLimitSnapshot is the plan's limits at one moment. Primary is the short
+// window, Secondary the long one; either may be absent. LimitName is set for a
+// limit that belongs to one model rather than to the whole account.
+type RateLimitSnapshot struct {
+	LimitName            *string          `json:"limitName"`
+	Primary              *RateLimitWindow `json:"primary"`
+	Secondary            *RateLimitWindow `json:"secondary"`
+	RateLimitReachedType *string          `json:"rateLimitReachedType"`
+}
+
+// RateLimitsUpdatedNotification is account/rateLimits/updated.
+type RateLimitsUpdatedNotification struct {
+	RateLimits RateLimitSnapshot `json:"rateLimits"`
+}
+
+// McpStartupStatusNotification is mcpServer/startupStatus/updated: one MCP
+// server's start, per thread. Status is starting, ready, failed or cancelled;
+// FailureReason is "reauthenticationRequired" when it needs a sign-in.
+type McpStartupStatusNotification struct {
+	ThreadID      *string `json:"threadId"`
+	Name          string  `json:"name"`
+	Status        string  `json:"status"`
+	Error         *string `json:"error"`
+	FailureReason *string `json:"failureReason"`
 }

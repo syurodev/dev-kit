@@ -253,6 +253,57 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     });
   });
 
+  it("keeps the MCP server list as session state, replaced whole, live and on reload", () => {
+    let model = createInitialTranscriptModel();
+    expect(model.connectors).toEqual([]);
+    model = applySessionUpdate(model, {
+      kind: UpdateKind.UpdateConnectors,
+      connectors: [{ name: "devkit", state: "starting" }],
+    });
+    model = applySessionUpdate(model, {
+      kind: UpdateKind.UpdateConnectors,
+      connectors: [
+        { name: "devkit", state: "ready" },
+        { name: "github", state: "failed", needsLogin: true },
+      ],
+    });
+    expect(model.items.length).toBe(0);
+    expect(model.connectors.map((c) => [c.name, c.state])).toEqual([
+      ["devkit", "ready"],
+      ["github", "failed"],
+    ]);
+
+    const loaded = initTranscript([
+      {
+        ID: "db_row_1",
+        Seq: 1,
+        Kind: UpdateKind.UpdateConnectors,
+        Payload: { kind: UpdateKind.UpdateConnectors, connectors: model.connectors },
+      },
+    ]);
+    expect(loaded.connectors).toEqual(model.connectors);
+  });
+
+  it("carries a vendor's token split and plan windows on its usage, and nothing for one that has none", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, {
+      kind: UpdateKind.UpdateUsage,
+      usage: {
+        used: 10,
+        size: 100,
+        amount: 0,
+        tokens: { session: { total: 9, input: 5, cached: 2, output: 4, reasoning: 1 }, lastRequest: { total: 3, input: 2, cached: 0, output: 1, reasoning: 0 } },
+        limits: [{ label: "5-hour", usedPercent: 42 }],
+      },
+    });
+    expect(model.usage?.tokens?.session.input).toBe(5);
+    expect(model.usage?.limits?.[0].label).toBe("5-hour");
+    // A later update replaces the whole usage: a vendor that stops saying it stops showing it.
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, usage: { used: 11, size: 100, amount: 0 } });
+    expect(model.usage?.tokens).toBeUndefined();
+    expect(model.usage?.limits).toBeUndefined();
+  });
+
   it("updates session-level commands and mode without adding transcript rows", () => {
     let model = createInitialTranscriptModel();
 

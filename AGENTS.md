@@ -188,6 +188,19 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - The docked summary replaces the latest plan's card with one line (`Plan · 2 of 4 — in the summary`)
     only in the Hub (`planDocked`; the rail has no dock). At `@7xl/agent-conversation` the column grows to
     `max-w-220` (880px). A row's ask is `plainAsk` (ticks and word-wrapping `**` dropped, paths intact).
+- **The summary card is filled by what each vendor reports, not by one layout.** A section is drawn only
+  when the session has data for it — never empty, never a placeholder — so Claude and Codex differ on purpose.
+  Both: Environment (agent, model, effort, mode, workspace, folder, branch; `environmentRows`), Goal, Plan,
+  Changes (with a +/− total), Sources, Subagents, Context. Claude only (its ACP stream has them): Background
+  tasks (`AsyncTask`), cost, and one plan window from `_claude/rateLimit`. Codex only: the token split
+  (`Usage.tokens`), the plan's windows (`account/rateLimits/updated`) and Connectors (`mcpServer/startupStatus/updated`,
+  `UpdateConnectors`, a session-state kind kept as one row). Claude's context split by category and its MCP status
+  are **not** on the ACP wire (`getContextUsage` / `mcpServerStatus` exist in the SDK, the adapter does not forward
+  them) — adding them means an adapter extension, not a guess. `Usage` replaces whole on every update, so the Codex
+  translator keeps tokens, limits and the last meter together and re-sends them (`usageUpdateLocked`). Extras
+  travel on the wire's `_devkit` key (`wireDevKit`). Every section is a shadcn `Collapsible` (`SectionShell`); what the person
+  folded is remembered across sessions in `localStorage` (`summary/summaryFold.ts`, shared by the docked card and the
+  corner popover). Gallery: `?gallery#agenthub-summary`.
 - **References in agent prose resolve, preview and open** (spec
   `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;
   files under `frontend/src/modules/agenthub/transcript/`).

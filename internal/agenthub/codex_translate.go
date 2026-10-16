@@ -71,6 +71,15 @@ type codexTranslator struct {
 	// of those ids must be folded into the failed card rather than
 	// reconstructing a fresh in_progress one.
 	closedByClose map[string]bool
+
+	// What the summary reads about the session beyond its transcript. The
+	// usage_update that carries it replaces the last one whole, so the parts
+	// that arrive on their own notification are kept here and sent together.
+	usageUsed, usageSize int64
+	tokens               *TokenBreakdown
+	limits               []LimitWindow
+	connectors           map[string]Connector
+	connectorOrder       []string
 }
 
 func newCodexTranslator() *codexTranslator {
@@ -95,6 +104,8 @@ var codexNotifications = map[string]func(*codexTranslator, json.RawMessage) []co
 	codexapp.MethodTokenUsageUpdated:     (*codexTranslator).tokenUsage,
 	codexapp.MethodThreadNameUpdated:     (*codexTranslator).threadName,
 	codexapp.MethodTurnCompleted:         (*codexTranslator).turnCompleted,
+	codexapp.MethodRateLimitsUpdated:     (*codexTranslator).rateLimitsUpdated,
+	codexapp.MethodMcpStartupStatus:      (*codexTranslator).mcpStartupStatus,
 }
 
 // codexTranslates reports whether method has a translation.
@@ -476,21 +487,156 @@ func (t *codexTranslator) planUpdated(params json.RawMessage) []codexUpdate {
 }
 
 // tokenUsage feeds the composer's context meter: `used` is the last request's
-// tokens against the model's window. Codex reports no cost (subscription).
+// tokens against the model's window. Codex reports no cost (subscription), but
+// it does split the tokens, which the summary shows.
 func (t *codexTranslator) tokenUsage(params json.RawMessage) []codexUpdate {
 	var n codexapp.TokenUsageUpdatedNotification
 	if json.Unmarshal(params, &n) != nil {
 		return nil
 	}
-	var size int64
+	t.usageSize = 0
 	if n.TokenUsage.ModelContextWindow != nil {
-		size = *n.TokenUsage.ModelContextWindow
+		t.usageSize = *n.TokenUsage.ModelContextWindow
 	}
-	return []codexUpdate{{Update: marshalUpdate(map[string]any{
+	t.usageUsed = n.TokenUsage.Last.TotalTokens
+	t.tokens = &TokenBreakdown{
+		Session:     tokenCountsOf(n.TokenUsage.Total),
+		LastRequest: tokenCountsOf(n.TokenUsage.Last),
+	}
+	return []codexUpdate{{Update: t.usageUpdateLocked()}}
+}
+
+func tokenCountsOf(b codexapp.TokenUsageBreakdown) TokenCounts {
+	return TokenCounts{
+		Total: b.TotalTokens, Input: b.InputTokens, Cached: b.CachedInputTokens,
+		Output: b.OutputTokens, Reasoning: b.ReasoningOutputTokens,
+	}
+}
+
+// usageUpdateLocked is the usage_update for everything known so far. Called
+// with mu held.
+func (t *codexTranslator) usageUpdateLocked() json.RawMessage {
+	update := map[string]any{
 		"sessionUpdate": string(UpdateUsage),
-		"used":          n.TokenUsage.Last.TotalTokens,
-		"size":          size,
-	})}}
+		"used":          t.usageUsed,
+		"size":          t.usageSize,
+	}
+	extra := map[string]any{}
+	if t.tokens != nil {
+		extra["tokens"] = t.tokens
+	}
+	if len(t.limits) > 0 {
+		extra["limits"] = t.limits
+	}
+	if len(extra) > 0 {
+		update[DevKitWireKey] = extra
+	}
+	return marshalUpdate(update)
+}
+
+// rateLimitsUpdated keeps the plan's windows beside the usage it arrives
+// between, and sends them with it: a usage_update replaces the last whole, so
+// sending the windows alone would blank the context meter.
+func (t *codexTranslator) rateLimitsUpdated(params json.RawMessage) []codexUpdate {
+	var n codexapp.RateLimitsUpdatedNotification
+	if json.Unmarshal(params, &n) != nil {
+		return nil
+	}
+	t.limits = codexLimitWindows(n.RateLimits)
+	return []codexUpdate{{Update: t.usageUpdateLocked()}}
+}
+
+// codexLimitWindows reads a snapshot into the windows it has, short first.
+func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
+	prefix := ""
+	if s.LimitName != nil && strings.TrimSpace(*s.LimitName) != "" {
+		prefix = strings.TrimSpace(*s.LimitName) + " · "
+	}
+	var out []LimitWindow
+	for _, w := range []*codexapp.RateLimitWindow{s.Primary, s.Secondary} {
+		if w == nil {
+			continue
+		}
+		mins := int64(0)
+		if w.WindowDurationMins != nil {
+			mins = *w.WindowDurationMins
+		}
+		window := LimitWindow{Label: prefix + codexWindowLabel(mins), UsedPercent: float64(w.UsedPercent), Status: "ok"}
+		if w.ResetsAt != nil {
+			window.ResetsAt = *w.ResetsAt
+		}
+		switch {
+		case w.UsedPercent >= 100 || s.RateLimitReachedType != nil:
+			window.Status = "reached"
+		case w.UsedPercent >= 80:
+			window.Status = "warning"
+		}
+		out = append(out, window)
+	}
+	return out
+}
+
+// codexWindowLabel names a limit window by its length: Codex sends minutes and
+// no name, and "300 min" tells a person nothing.
+func codexWindowLabel(mins int64) string {
+	switch {
+	case mins <= 0:
+		return "Plan"
+	case mins == 300:
+		return "5-hour"
+	case mins == 10080:
+		return "Weekly"
+	case mins%1440 == 0:
+		return fmt.Sprintf("%d-day", mins/1440)
+	case mins%60 == 0:
+		return fmt.Sprintf("%d-hour", mins/60)
+	}
+	return fmt.Sprintf("%d-minute", mins)
+}
+
+// mcpStartupStatus keeps the state of each MCP server Codex starts for the
+// thread and sends the whole list, which is what the summary replaces its own
+// with. A server is listed from the moment it starts, in the order it did.
+func (t *codexTranslator) mcpStartupStatus(params json.RawMessage) []codexUpdate {
+	var n codexapp.McpStartupStatusNotification
+	if json.Unmarshal(params, &n) != nil || strings.TrimSpace(n.Name) == "" {
+		return nil
+	}
+	if t.connectors == nil {
+		t.connectors = map[string]Connector{}
+	}
+	if _, seen := t.connectors[n.Name]; !seen {
+		t.connectorOrder = append(t.connectorOrder, n.Name)
+	}
+	c := Connector{Name: n.Name, State: n.Status}
+	if n.Error != nil {
+		c.Error = strings.TrimSpace(*n.Error)
+	}
+	c.NeedsLogin = n.FailureReason != nil && *n.FailureReason == "reauthenticationRequired"
+	t.connectors[n.Name] = c
+	return []codexUpdate{{Update: t.connectorsUpdateLocked()}}
+}
+
+func (t *codexTranslator) connectorsUpdateLocked() json.RawMessage {
+	list := make([]Connector, 0, len(t.connectorOrder))
+	for _, name := range t.connectorOrder {
+		list = append(list, t.connectors[name])
+	}
+	return marshalUpdate(map[string]any{
+		"sessionUpdate": string(UpdateConnectors),
+		DevKitWireKey:   map[string]any{"connectors": list},
+	})
+}
+
+// connectorsUpdate is the list of MCP servers seen so far, or nil when none
+// has reported.
+func (t *codexTranslator) connectorsUpdate() json.RawMessage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.connectorOrder) == 0 {
+		return nil
+	}
+	return t.connectorsUpdateLocked()
 }
 
 func (t *codexTranslator) threadName(params json.RawMessage) []codexUpdate {

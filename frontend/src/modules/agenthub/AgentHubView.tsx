@@ -1157,6 +1157,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
               setDismissedFailure(activeFailure ? failureKey(activeFailure) : "")
             }
             goal={transcriptModel.goal}
+            connectors={transcriptModel.connectors}
             onSetGoal={(objective) => void handleSetGoal(objective)}
             pendingPermission={activePending}
             onResolvePermission={resolvePermission}

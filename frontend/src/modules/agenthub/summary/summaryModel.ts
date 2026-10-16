@@ -1,7 +1,17 @@
 import { toolNameOf } from "@/workbench/toolPayload";
 import { createToolRegistry, DEVKIT_WIRE_PREFIX } from "@/workbench/toolResultViews";
 import type { CheckpointIndex } from "../checkpoints";
-import type { PlanEntry, TranscriptItem } from "../types";
+import { shortCount } from "../surfaces/AgentContextMeter";
+import type {
+  AsyncTask,
+  ConfigOption,
+  Connector,
+  LimitWindow,
+  PlanEntry,
+  SessionMode,
+  TokenBreakdown,
+  TranscriptItem,
+} from "../types";
 import { CheckpointStatus } from "../../../../bindings/devkit/internal/agenthub/models";
 
 /** The agent's most recent plan in the session, or none. A subagent's plan is its own, not the session's. */
@@ -167,4 +177,151 @@ export function linkHosts(items: readonly TranscriptItem[]): LinkHost[] {
     for (const link of itemLinks(it)) if (!seen.has(link.host)) seen.set(link.host, link.url);
   }
   return [...seen].map(([host, url]) => ({ host, url }));
+}
+
+/**
+ * A line of a summary section that is a name and a value, and how it reads:
+ * `tone` is how safe it is (the chrome's status colours), never which kind.
+ */
+export type SummaryRow = {
+  key: string;
+  label: string;
+  value: string;
+  tone?: "ok" | "warning" | "danger";
+  title?: string;
+};
+
+/** What the Environment section is drawn from. */
+export type EnvironmentInput = {
+  vendorName: string;
+  folderPath: string;
+  workspaceName?: string | null;
+  /** The repositories this work spans, with the branch each is on. */
+  repos: readonly { name: string; branch: string; own: boolean }[];
+  configOptions: readonly ConfigOption[];
+  mode: string | null;
+  availableModes: readonly SessionMode[];
+};
+
+function lastSegment(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.slice(Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) + 1) || trimmed;
+}
+
+/** A select option's current value as the person reads it: its name, else the value. */
+function currentChoice(option: ConfigOption | undefined): string {
+  if (!option || typeof option.currentValue !== "string" || !option.currentValue) return "";
+  const match = option.options?.find((o) => o.value === option.currentValue);
+  return match?.name || option.currentValue;
+}
+
+/**
+ * Where and how the session runs. Only what the session actually has: a row is
+ * left out rather than drawn empty, so a vendor with no effort setting, or a
+ * folder outside a workspace, simply has fewer rows.
+ */
+export function environmentRows(input: EnvironmentInput): SummaryRow[] {
+  const rows: SummaryRow[] = [{ key: "agent", label: "Agent", value: input.vendorName }];
+  const model = currentChoice(input.configOptions.find((o) => o.id === "model"));
+  if (model) rows.push({ key: "model", label: "Model", value: model });
+  const effort = currentChoice(input.configOptions.find((o) => o.id === "reasoning_effort" || o.id === "effort"));
+  if (effort) rows.push({ key: "effort", label: "Effort", value: effort });
+  const mode = input.availableModes.find((m) => m.id === input.mode)?.name || input.mode;
+  if (mode) rows.push({ key: "mode", label: "Mode", value: mode });
+  if (input.workspaceName) rows.push({ key: "workspace", label: "Workspace", value: input.workspaceName });
+  if (input.folderPath) {
+    rows.push({ key: "folder", label: "Folder", value: lastSegment(input.folderPath), title: input.folderPath });
+  }
+  const repos = input.repos.filter((r) => r.branch);
+  if (repos.length === 1) {
+    rows.push({ key: "branch", label: "Branch", value: repos[0].branch, title: repos[0].name });
+  } else if (repos.length > 1) {
+    rows.push({
+      key: "branch",
+      label: "Branches",
+      value: `${repos.length} repositories`,
+      title: repos.map((r) => `${r.name}: ${r.branch}`).join("\n"),
+    });
+  }
+  return rows;
+}
+
+/** "resets in 42m" / "resets in 3h" / "resets in 2d": minutes until it is far enough out to count hours. */
+export function resetsIn(resetsAt: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((resetsAt * 1000 - now) / 60_000));
+  if (minutes < 90) return `resets in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `resets in ${hours}h` : `resets in ${Math.round(hours / 24)}d`;
+}
+
+/** The plan's windows, one row each, as the vendor labelled them. */
+export function limitRows(limits: readonly LimitWindow[] | null | undefined, now = Date.now()): SummaryRow[] {
+  return (limits ?? []).map((limit, i) => {
+    const parts = [`${Math.round(limit.usedPercent)}%`];
+    if (limit.resetsAt) parts.push(resetsIn(limit.resetsAt, now));
+    return {
+      key: `limit:${i}:${limit.label}`,
+      label: limit.label,
+      value: parts.join(" · "),
+      tone: limit.status === "reached" ? "danger" : limit.status === "warning" ? "warning" : undefined,
+    };
+  });
+}
+
+/** The token split, for a vendor that reports one; nothing for one that does not. */
+export function tokenRows(tokens: TokenBreakdown | null | undefined): SummaryRow[] {
+  if (!tokens || tokens.session.total <= 0) return [];
+  const s = tokens.session;
+  const rows: SummaryRow[] = [{ key: "input", label: "Input", value: shortCount(s.input) }];
+  if (s.input > 0 && s.cached > 0) {
+    rows[0].value += ` · ${Math.round((s.cached / s.input) * 100)}% cached`;
+  }
+  const output = s.reasoning > 0 ? `${shortCount(s.output)} · ${shortCount(s.reasoning)} reasoning` : shortCount(s.output);
+  rows.push({ key: "output", label: "Output", value: output });
+  if (tokens.lastRequest.total > 0) {
+    rows.push({ key: "last", label: "Last request", value: shortCount(tokens.lastRequest.total) });
+  }
+  return rows;
+}
+
+const CONNECTOR_STATE: Record<string, { word: string; tone?: SummaryRow["tone"] }> = {
+  ready: { word: "Ready" },
+  starting: { word: "Starting" },
+  failed: { word: "Failed", tone: "danger" },
+  cancelled: { word: "Cancelled", tone: "warning" },
+};
+
+/** The MCP servers the vendor started, one row each, in the order they started. */
+export function connectorRows(connectors: readonly Connector[] | null | undefined): SummaryRow[] {
+  return (connectors ?? []).map((c) => {
+    const state = CONNECTOR_STATE[c.state] ?? { word: c.state || "Unknown", tone: undefined };
+    return {
+      key: `connector:${c.name}`,
+      label: c.name,
+      value: c.needsLogin ? "Sign-in needed" : state.word,
+      tone: c.needsLogin ? "warning" : state.tone,
+      title: c.error || undefined,
+    };
+  });
+}
+
+const RUNNING_TASK_STATES = new Set(["running", "pending", ""]);
+
+/** Whether a background task is still going. */
+export function isTaskRunning(task: AsyncTask): boolean {
+  return RUNNING_TASK_STATES.has(task.state ?? "");
+}
+
+/**
+ * The background tasks the vendor reported, one per id, running first. Only a
+ * vendor that has the notion sends them (Claude does); for one that does not
+ * the list is empty and the section is not drawn.
+ */
+export function backgroundTasks(items: readonly TranscriptItem[]): AsyncTask[] {
+  const byId = new Map<string, AsyncTask>();
+  for (const item of items) {
+    if (item.asyncTask?.id && !item.origin) byId.set(item.asyncTask.id, item.asyncTask);
+  }
+  const all = [...byId.values()];
+  return [...all.filter(isTaskRunning), ...all.filter((t) => !isTaskRunning(t))];
 }

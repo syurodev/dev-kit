@@ -118,6 +118,8 @@ function folderName(path: string): string {
 export function useAgentTray(input: AgentTrayInput): {
   strip: React.ReactNode;
   panel: TrayPanel | null;
+  /** What the tray was built from, for anything else that wants where this work is. */
+  status: TrayStatus;
 } {
   const {
     size,
@@ -467,7 +469,7 @@ export function useAgentTray(input: AgentTrayInput): {
     />
   );
 
-  return { strip, panel };
+  return { strip, panel, status };
 }
 
 /**

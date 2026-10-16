@@ -4,6 +4,7 @@ import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
 import { AgentEnvironmentPreview } from "./AgentEnvironmentPreview";
 import { AgentSessionSidebarSection } from "./AgentSessionSidebarSection";
 import { AgentComposerLayoutSection } from "./AgentComposerLayoutSection";
+import { AgentSummarySection } from "./AgentSummarySection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
 import { ApprovalBrokerSection } from "./ApprovalBrokerSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
@@ -1067,6 +1068,7 @@ export default function ComponentGallery() {
       <AgentHubTranscriptSection />
       <AgentSessionSidebarSection />
       <AgentComposerLayoutSection />
+      <AgentSummarySection />
       <MCPInteractionSection />
       <ApprovalBrokerSection />
 

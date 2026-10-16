@@ -765,10 +765,13 @@ type codexRuntime struct {
 	effort    string
 	handlers  RuntimeHandlers
 	announced bool
-	mode      string
-	model     string
-	turn      *codexTurn
-	usage     codexapp.TokenUsageBreakdown // the thread's running total
+	// connectorsAnnounced says the kept MCP server list went out when the first
+	// handler attached; after that mcpStartupStatus emits each change itself.
+	connectorsAnnounced bool
+	mode                string
+	model               string
+	turn                *codexTurn
+	usage               codexapp.TokenUsageBreakdown // the thread's running total
 	// usageKnown says usage has been reported by this process at all; a
 	// resumed thread's first report already counts the turns before it.
 	usageKnown bool
@@ -938,9 +941,20 @@ func (r *codexRuntime) SetHandlers(h RuntimeHandlers) {
 		r.announced = true
 		announce = r.configOptionsLocked()
 	}
+	announceConnectors := h.OnUpdate != nil && !r.connectorsAnnounced
+	if announceConnectors {
+		r.connectorsAnnounced = true
+	}
 	r.mu.Unlock()
 	if announce != nil {
 		h.OnUpdate(announce, nil)
+	}
+	// The MCP servers start with the thread, before anyone is listening, and
+	// emit drops what it cannot deliver: say what the translator kept.
+	if announceConnectors {
+		if update := r.tr.connectorsUpdate(); update != nil {
+			h.OnUpdate(update, nil)
+		}
 	}
 }
 

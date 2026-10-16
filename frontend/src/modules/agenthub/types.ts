@@ -98,7 +98,37 @@ export type Usage = {
   currency?: string;
   /** The subscription's own ceiling, which the context window says nothing about. */
   rateLimit?: RateLimit | null;
+  /**
+   * What only some vendors report. Absent means "this vendor does not say",
+   * never zero: the summary draws a section for them only when they are here.
+   */
+  tokens?: TokenBreakdown | null;
+  limits?: LimitWindow[] | null;
 };
+
+/** One tally of tokens. Mirrors internal/agenthub/update.go: TokenCounts */
+export type TokenCounts = { total: number; input: number; cached: number; output: number; reasoning: number };
+
+/** The session's tokens split, and the last request's. Mirrors: TokenBreakdown */
+export type TokenBreakdown = { session: TokenCounts; lastRequest: TokenCounts };
+
+/**
+ * One ceiling a plan puts on the account (a window that resets, not the context
+ * window). resetsAt is Unix seconds. Mirrors: LimitWindow
+ */
+export type LimitWindow = {
+  label: string;
+  usedPercent: number;
+  resetsAt?: number;
+  /** "ok", "warning" or "reached". */
+  status?: string;
+};
+
+/**
+ * An MCP server the vendor started for the session. state is "starting",
+ * "ready", "failed" or "cancelled". Mirrors: Connector
+ */
+export type Connector = { name: string; state: string; error?: string; needsLogin?: boolean };
 
 /**
  * What a Claude subscription has left, from a usage_update's _meta.
@@ -180,6 +210,8 @@ export type SessionUpdate = {
   /** The goal was removed — which `goal: null` alone cannot say, since most
    * session_info_updates carry no goal at all. */
   goalCleared?: boolean;
+  /** The whole MCP server list, on a devkit_connectors_update. */
+  connectors?: Connector[];
   messageId?: string;
   /** The subagent session an update came from; empty for the session's own. */
   origin?: string;
@@ -328,6 +360,8 @@ export type TranscriptModel = {
    */
   failure: SessionFailure | null;
   goal: SessionGoal | null;
+  /** The MCP servers the vendor started, for a vendor that reports them; empty otherwise. */
+  connectors: Connector[];
   commands: AvailableCommand[];
   mode: string | null;
   /** The modes the agent advertised; empty when it listed none. */
