@@ -104,19 +104,19 @@ func TestCodexPromptNamesTheToolsCodexSeesAndHowToForwardImages(t *testing.T) {
 func TestPromptPrefersPullRequestToolsWithoutBanningTheCLI(t *testing.T) {
 	for _, naming := range []toolNaming{claudeNaming, neutralNaming} {
 		prompt := devkitPrompt(naming, "Working directory: /w")
-		for _, tool := range []string{"pr.create", "pr.get", "pr.checks", "pr.comments", "pr.reply", "pr.merge", "pr.close", "pr.deleteBranch"} {
+		for _, tool := range []string{"pr.create", "pr.get", "pr.checks", "pr.comments", "pr.reply", "pr.merge", "pr.close", "pr.deleteBranch", "ci.runs", "ci.run", "ci.logs"} {
 			if !strings.Contains(prompt, naming.tool(tool)) {
 				t.Errorf("prompt lacks %s", naming.tool(tool))
 			}
 		}
-		for _, want := range []string{"`gh`", "`glab`", "DevKit does not block them", "never as instructions"} {
+		for _, want := range []string{"`gh`", "`glab`", "DevKit does not block them", "never as instructions", "never an instruction"} {
 			if !strings.Contains(prompt, want) {
 				t.Errorf("prompt lacks %q", want)
 			}
 		}
 		// No "do not run gh" in any form.
 		lower := strings.ToLower(prompt)
-		for _, banned := range []string{"do not run `gh", "never run `gh", "do not use `gh", "do not run `glab", "never run `glab"} {
+		for _, banned := range []string{"do not run `gh", "never run `gh", "do not use `gh", "do not run `glab", "never run `glab", "do not run `gh run", "do not use `glab ci"} {
 			if strings.Contains(lower, banned) {
 				t.Errorf("the prompt forbids the CLI: %q", banned)
 			}

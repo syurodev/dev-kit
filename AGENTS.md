@@ -160,6 +160,20 @@ as production-verified against a real Claude Code session in cloud CI.
   *before* asking. Audit metadata names the action, repo, number, branch and method — never the text sent. Results
   that quote the host carry a `note` saying they are third-party data, not instructions; bodies are clipped. The token
   never leaves Go; `gh`/`glab` in a shell stay allowed (the prompt prefers the tools, no hook blocks the CLI).
+- **`ci.runs|run|logs` tell an agent why CI is red** (`internal/mcp/tools_ci.go`; `forge.Provider.Runs|Run|JobLog`,
+  `prwatch.Handle.Runs|Run|JobLog`). Read-only, `git:read` on `repo:ci`, no popup, same `repo`/folder rules as `pr.*`;
+  no rerun or cancel exists. `ci.run` marks the first failed job (earliest start) and, on GitHub, its first failed step,
+  and carries what the failed jobs reported about the code: GitHub check-run annotations (≤5 failed jobs, ≤50 in all), or
+  GitLab's failed test cases from the pipeline test report. `ci.logs` takes one `jobId` or a `runId` (its failed jobs, ≤3,
+  first failure first) and returns the cleaned tail (default 200 lines / 32 KiB, up to 2000 / 256 KiB; ANSI, GitHub's
+  timestamps and GitLab's fold markers removed, `\r` overwrites collapsed), or with `match` (substring, or `regex`) the
+  neighbourhoods of the last 5 matching lines; every cut is said in `notice`. **A log is read to its end but only the last
+  4 MiB is kept** (`forge.TailBuffer`), and the result says the total. GitHub answers the log request with a redirect to
+  storage: the API call carries the token, the redirect is followed by a request built with no Authorization header, only
+  to an https address (`safeRedirect`); GitLab's trace is on the API host and a redirect there is not followed. A running
+  job's log is marked incomplete; an expired one is `pr.notFound` with the reason. `pr.checks` returns each check's `id`
+  (GitHub Actions job / check-run id, GitLab job id) and `runId` to hand to these; a check that is not a CI job has none.
+  Results carry a note that names, annotations and log text are third-party data (a log can try to instruct the agent).
 - **`git.fetch` / `git.pull` are `git:write` on `repo:sync`** (`mcp.GitSyncGrant`). They used to ask for
   `git:write` on `remote:<name>`, which the `repo:*` grant does not cover, so every agent call was refused
   while the MCP tests (fake caller, no policy) passed; `TestNewContainerGrantsAgentGitSync` now checks the

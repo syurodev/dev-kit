@@ -338,3 +338,76 @@ func messageText(raw json.RawMessage) string {
 	}
 	return ""
 }
+
+// ---- streaming a large body (a job log) ----------------------------------
+
+const (
+	logKeep        = 4 << 20 // the tail kept of a log, before it is cleaned
+	logMaxTotal    = 512 << 20
+	logCallTimeout = 90 * time.Second
+	errBodyLimit   = 64 << 10
+)
+
+// tailResult is a response read to its end, with only the last bytes kept.
+type tailResult struct {
+	Status  int
+	Header  http.Header
+	Tail    *TailBuffer
+	ErrBody []byte
+}
+
+// streamClient is the HTTP client for a body that can be large: no overall
+// timeout (the call's context bounds it) and, when follow is false, redirects
+// are returned to the caller instead of followed — the caller decides whether a
+// credential may go where the redirect points, and by default it may not.
+func (g *client) streamClient(follow bool) *http.Client {
+	c := *g.http
+	c.Timeout = 0
+	if !follow {
+		c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	return &c
+}
+
+// fetchTail sends req and reads the whole body, keeping its end. A non-2xx
+// answer keeps up to errBodyLimit of its body for the error.
+func (g *client) fetchTail(ctx context.Context, req *http.Request, follow bool) (tailResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, logCallTimeout)
+	defer cancel()
+	req = req.WithContext(ctx)
+	select {
+	case g.slots <- struct{}{}:
+		defer func() { <-g.slots }()
+	case <-ctx.Done():
+		return tailResult{}, ctx.Err()
+	}
+	resp, err := g.streamClient(follow).Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tailResult{}, err
+		}
+		return tailResult{}, &Error{Kind: ErrUnavailable, Message: "could not reach " + req.URL.Host}
+	}
+	defer resp.Body.Close()
+	g.mu.Lock()
+	g.stats.Requests++
+	g.mu.Unlock()
+	out := tailResult{Status: resp.StatusCode, Header: resp.Header}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		out.ErrBody, _ = io.ReadAll(io.LimitReader(resp.Body, errBodyLimit))
+		return out, nil
+	}
+	out.Tail = &TailBuffer{Keep: logKeep}
+	if _, err := io.Copy(out.Tail, io.LimitReader(resp.Body, logMaxTotal)); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tailResult{}, err
+		}
+		return tailResult{}, &Error{Kind: ErrUnavailable, Message: "the connection to " + req.URL.Host + " broke while reading the log"}
+	}
+	return out, nil
+}
+
+// failure turns a non-2xx tailResult into the same *Error a normal call gives.
+func (r tailResult) failure() error {
+	return httpError(&http.Response{StatusCode: r.Status, Header: r.Header}, r.ErrBody)
+}

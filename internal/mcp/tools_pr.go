@@ -54,6 +54,7 @@ const (
 func PullRequestGrants() [][3]string {
 	return [][3]string{
 		{"builtin.git", "git:read", "repo:pr"},
+		{"builtin.git", "git:read", "repo:ci"},
 		{"builtin.git", "git:push", prRemoteScope},
 	}
 }
@@ -185,6 +186,7 @@ type prRead struct {
 	Checks        []forge.Check         `json:"checks,omitempty"`
 	Comments      []forge.Comment       `json:"comments,omitempty"`
 	Truncated     bool                  `json:"truncated,omitempty"`
+	Hint          string                `json:"hint,omitempty"`
 }
 
 func (s *Server) prRead(ctx context.Context, action, repo string, number int, fill func(*prwatch.Handle, *prRead) error) (*sdk.CallToolResult, any, error) {
@@ -235,6 +237,7 @@ func (s *Server) toolPRChecks(ctx context.Context, _ *sdk.CallToolRequest, in pr
 			return err
 		}
 		out.Checks = checks
+		out.Hint = "A failing check's `id` is a job id for ci.logs and its `runId` a run for ci.run (annotations, every job). Checks with no id are not CI jobs."
 		return nil
 	})
 }

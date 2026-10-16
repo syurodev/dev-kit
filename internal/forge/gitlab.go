@@ -297,6 +297,7 @@ func (g *GitLab) Checks(ctx context.Context, c Credential, repo Repo, number int
 }
 
 type glJob struct {
+	ID            int    `json:"id"`
 	Name          string `json:"name"`
 	Stage         string `json:"stage"`
 	Status        string `json:"status"`
@@ -332,7 +333,9 @@ func (g *GitLab) pipelineChecks(ctx context.Context, c Credential, repo Repo, m 
 	}
 	checks := make([]Check, 0, len(jobs))
 	for _, job := range jobs {
-		checks = append(checks, checkOfJob(job))
+		ch := checkOfJob(job)
+		ch.RunID = strconv.Itoa(m.HeadPipeline.ID)
+		checks = append(checks, ch)
 	}
 	if len(checks) == 0 {
 		switch m.HeadPipeline.Status {
@@ -351,6 +354,9 @@ func (g *GitLab) pipelineChecks(ctx context.Context, c Credential, repo Repo, m 
 
 func checkOfJob(job glJob) Check {
 	ch := Check{Name: job.Name, URL: job.WebURL, Conclusion: job.Status}
+	if job.ID != 0 {
+		ch.ID = strconv.Itoa(job.ID)
+	}
 	switch job.Status {
 	case "success":
 		ch.Status = CheckPassed
