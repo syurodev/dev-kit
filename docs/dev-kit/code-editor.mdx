@@ -104,6 +104,25 @@ Schema/provenance: `frontend/src/components/yaml/schemas/README.md`; bản quy�
 
 Gallery kiểm tra: `?gallery#file-syntax` dùng **YamlEditor thật**, với YAML/Makefile và pane 320/640/1000 px.
 
+## Chỉnh sửa và indentation
+
+Menu **Spaces: 2** (hoặc **Tab size**) trong file editor cho chọn 2/4/8 space,
+nhớ lựa chọn trong UI state và áp dụng cho các CodeEditor đang mở. Đổi thiết lập
+chỉ reconfigure compartment, giữ nguyên source, con trỏ và undo. YAML ép dùng
+space; Makefile dùng tab thật cho recipe, số chọn là chiều rộng hiển thị tab.
+`CodeEditor.indentStyle` cho consumer đặt quy tắc whitespace này mà primitive
+không cần biết ngôn ngữ.
+
+- Tab nhận completion đang mở; nếu không, chèn tới tab stop kế tiếp tại con trỏ.
+  Khi có vùng chọn, Tab/Shift+Tab tăng/giảm indent nguyên các dòng được chọn,
+  hỗ trợ nhiều con trỏ. Escape rồi Tab chuyển focus ra ngoài editor.
+- Enter giữ indent theo ngôn ngữ; sau key YAML rỗng (`root:`), dòng mới sâu thêm
+  một cấp. Dấu `:` trong comment, chuỗi và block scalar không mở cấp mới.
+- Gợi ý key YAML, format document/selection và guide dùng cùng số space đã chọn.
+- Menu có indent/outdent, toggle comment, di chuyển/nhân đôi dòng, undo/redo và
+  Find / Replace. Các phím tắt có sẵn của CodeMirror vẫn hoạt động (Cmd/Ctrl+/,
+  Alt+↑/↓, Shift+Alt+↓, Cmd/Ctrl+F, Cmd/Ctrl+Z).
+
 ## Theme — theo palette của app
 
 `devkitHighlight` và `devkitSyntax` dùng các token `--syntax-*` chung cho editor

@@ -4,6 +4,8 @@ import { EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
 import { Braces, Check, ChevronDown, CircleAlert, Code, X } from "lucide-react";
 import { CodeEditor, type CodeEditorProps } from "@/components/code-editor/CodeEditor";
+import { EditingControls } from "@/components/code-editor/EditingControls";
+import { useEditorPreferences } from "@/components/code-editor/preferences";
 import { StructureControls } from "@/components/code-editor/StructureControls";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ const wraps = new Map<string, boolean>();
 const labelOf = (path: (string | number)[]) => path.map((part) => typeof part === "number" ? `[${part}]` : part).join(" › ") || "Document";
 
 export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<CodeEditorProps, "wrap" | "onWrapChange"> & { file: string; documentKey: string; active?: boolean }) {
+  const indentSize = useEditorPreferences((s) => s.size);
   const viewRef = useRef<EditorView | null>(null);
   const alive = useRef(true);
   const [schema, setSchema] = useState<SchemaChoice>(() => choices.get(documentKey) ?? "auto");
@@ -95,7 +98,7 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
     if (selection && range.empty) { setError("Select complete YAML fields to format a selection."); return; }
     setBusy(true); setError("");
     try {
-      const edit = await requestYaml({ type: "format", text, file, schema, selection: selection ? { from: range.from, to: range.to } : undefined });
+      const edit = await requestYaml({ type: "format", text, file, schema, indentSize, selection: selection ? { from: range.from, to: range.to } : undefined });
       if (alive.current) apply(view, text, edit);
     } catch (error) { if (alive.current) setError(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) setBusy(false); }
@@ -129,6 +132,7 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
   const pathLabel = labelOf(analysis?.path ?? []);
   return <div className="flex h-full min-h-0 min-w-0 flex-col" data-testid="yaml-editor">
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border-subtle px-2 py-1">
+      <EditingControls getView={() => viewRef.current} indentStyle="spaces" readOnly={props.readOnly} />
       <StructureControls wrapped={wrapped} onWrapChange={setWrap} getView={() => viewRef.current} />
       <DropdownMenu><DropdownMenuTrigger asChild><Button size="xs" variant="ghost" disabled={busy}><Braces />Format<ChevronDown /></Button></DropdownMenuTrigger>
         <DropdownMenuContent><DropdownMenuItem onSelect={() => void format(false)}>Format document</DropdownMenuItem><DropdownMenuItem onSelect={() => void format(true)}>Format selection</DropdownMenuItem></DropdownMenuContent>
@@ -137,7 +141,7 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
     </div>
     {error ? <div role="alert" className="flex shrink-0 items-start gap-2 bg-status-danger/8 px-3 py-2 text-body-12 text-status-danger"><CircleAlert className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0 flex-1 wrap-anywhere">{error}</span><Button variant="ghost" size="icon-xs" aria-label="Dismiss YAML message" onClick={() => setError("")}><X /></Button></div> : null}
     <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-      <ResizablePanel id="yaml-source" defaultSize="60%" minSize="20%"><CodeEditor {...props} onView={onView} extensions={extensions} wrap={wrapped} onWrapChange={setWrap} /></ResizablePanel>
+      <ResizablePanel id="yaml-source" defaultSize="60%" minSize="20%"><CodeEditor {...props} indentStyle="spaces" onView={onView} extensions={extensions} wrap={wrapped} onWrapChange={setWrap} /></ResizablePanel>
       {draft?.open ? <><ResizableHandle withHandle /><ResizablePanel id="yaml-sql" defaultSize="40%" minSize="20%"><SqlEditor draft={draft} busy={busy} onChange={(code) => setDraft({ ...draft, code })} onApply={() => void applySql()} onClose={() => setDraft({ ...draft, open: false })} onDiscard={() => setDraft(null)} /></ResizablePanel></> : null}
     </ResizablePanelGroup>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-2 py-1 text-caption-11 text-text-tertiary">
@@ -153,14 +157,16 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
 
 function SqlEditor({ draft, busy, onChange, onApply, onClose, onDiscard }: { draft: Draft; busy: boolean; onChange: (value: string) => void; onApply: () => void; onClose: () => void; onDiscard: () => void }) {
   const extensions = useLanguageExtension("sql");
+  const viewRef = useRef<EditorView | null>(null);
   return <div className="flex h-full min-h-0 flex-col" data-testid="yaml-sql-pane">
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border-subtle px-2 py-1">
       <Code className="size-3.5 text-text-secondary" /><span title={draft.block.label} className="min-w-0 flex-1 truncate text-code-12 text-text-secondary">{draft.block.label}</span>
+      <EditingControls getView={() => viewRef.current} readOnly={busy} />
       <Button size="xs" variant="ghost" disabled={busy} onClick={onDiscard}>Discard</Button>
       <Button size="xs" variant="secondary" disabled={busy} onClick={onApply}>Apply to YAML</Button>
       <ActionTooltip label="Close SQL pane (keep draft)"><Button size="icon-xs" variant="ghost" onClick={onClose}><X /></Button></ActionTooltip>
     </div>
-    <div className="min-h-0 flex-1"><CodeEditor value={draft.code} onChange={onChange} extensions={extensions} readOnly={busy} wrap /></div>
+    <div className="min-h-0 flex-1"><CodeEditor onView={(view) => { viewRef.current = view; }} value={draft.code} onChange={onChange} extensions={extensions} readOnly={busy} wrap /></div>
     <p className="shrink-0 px-3 py-1 text-caption-11 text-text-tertiary">Apply updates this YAML block. Save the file from the main editor.</p>
   </div>;
 }

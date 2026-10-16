@@ -2061,7 +2061,7 @@
 
 /* YAML structure stays visible across long scalar bodies and folded sections. */
 .cm-surfaceless .cm-line.cm-indent-guides {
-  background-image: repeating-linear-gradient(to right, var(--border-subtle) 0 1px, transparent 1px 2ch);
+  background-image: repeating-linear-gradient(to right, var(--border-subtle) 0 1px, transparent 1px var(--cm-indent-step, 2ch));
   background-position: var(--space-code-line) 0;
   background-size: var(--cm-indent-width) 100%;
   background-repeat: no-repeat;

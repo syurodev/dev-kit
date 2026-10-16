@@ -76,3 +76,10 @@ test("a value suggestion replaces the complete quoted scalar", async () => {
   expect(updated).toContain('restart: always');
   expect((await analyze(updated, 'compose.yaml')).problems).toEqual([]);
 });
+
+test("uses the editor indent width in nested completion snippets", async () => {
+  const text = "services:\n    app:\n        ";
+  const result = await handleYaml({ type: "complete", text, file: "compose.yaml", schema: "auto", position: text.length, explicit: true, indentSize: 4 }) as Suggestions;
+  expect(result?.options.find((option) => option.label === "deploy")?.insert).toBe("deploy:\n            ");
+  expect(result?.options.find((option) => option.label === "ports")?.insert).toBe("ports:\n            - ");
+});
