@@ -1,4 +1,5 @@
-import { CodeXml, FileCode2, SquareFunction, Workflow } from "lucide-react";
+import { fileIconComponent } from "@/components/file-icon/FileIcon";
+import { CodeXml, SquareFunction, Workflow } from "lucide-react";
 import { rank } from "@/workbench/palette/match";
 import type { CodeGraphEntryPoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import type { PaletteSearchGroup } from "../registry";
@@ -87,7 +88,7 @@ export function buildGroups(
         id: `file:${f.folderId}:${f.path}`,
         title: fileName(f.path),
         subtitle: where(f.folderLabel, directoryOf(f.path)),
-        icon: FileCode2,
+        icon: fileIconComponent(f.path),
         run: () => actions.openFile(f.folderId, f.path),
       })),
     });

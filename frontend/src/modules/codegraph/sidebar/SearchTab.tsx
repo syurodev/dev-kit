@@ -1,6 +1,7 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CaseSensitive, ChevronDown, ChevronRight, Ellipsis, FileCode2, FolderGit2, Regex, TriangleAlert, WholeWord } from "lucide-react";
+import { CaseSensitive, ChevronDown, ChevronRight, Ellipsis, FolderGit2, Regex, TriangleAlert, WholeWord } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -315,7 +316,7 @@ function ResultRowView({ row, active, labels, identifier, onActivate }: { row: R
     return (
       <button type="button" onClick={onActivate} className={cn(base, "pl-5 pr-2")} title={`${labels[row.folderId] ?? ""} › ${row.path}`}>
         {row.collapsed ? <ChevronRight className="size-3 shrink-0" aria-hidden /> : <ChevronDown className="size-3 shrink-0" aria-hidden />}
-        <FileCode2 className="size-3.5 shrink-0 text-text-secondary" aria-hidden />
+        <FileIcon path={row.path} className="size-3.5" />
         <span className="shrink-0 text-body-13 text-text-primary">{baseName(row.path)}</span>
         <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary">
           {dirName(row.path)}

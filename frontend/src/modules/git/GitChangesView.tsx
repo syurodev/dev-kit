@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
@@ -305,6 +306,7 @@ function ChangeRow({
         <span className="size-(--icon-12) shrink-0" aria-hidden />
       )}
       <StatusMark kind={kind} />
+      <FileIcon path={path} className="size-3.5" />
       <span className="min-w-0 truncate text-code-12 text-text-primary">{name}</span>
       {dir ? <span className="min-w-0 truncate text-code-11 text-text-tertiary">{dir}</span> : null}
     </>

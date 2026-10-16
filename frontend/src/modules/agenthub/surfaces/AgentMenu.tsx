@@ -1,5 +1,6 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import type { ReactNode } from "react";
-import { Command as CommandIcon, FileText, Folder, FolderOpen, Bot } from "lucide-react";
+import { Command as CommandIcon, Folder, FolderOpen, Bot } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -60,7 +61,6 @@ export type AgentMenuProps = {
  */
 
 const CONTEXT_GLYPH = {
-  file: FileText,
   folder: Folder,
   agent: Bot,
 } as const;
@@ -140,14 +140,14 @@ export function AgentMenu({
               </DropdownMenuItem>
             ))
           : contextFiles.map((file) => {
-              const Glyph = CONTEXT_GLYPH[file.kind ?? "file"];
+              const Glyph = file.kind === "folder" ? CONTEXT_GLYPH.folder : CONTEXT_GLYPH.agent;
               return (
                 <DropdownMenuItem
                   key={file.path}
                   data-testid="agent-menu-context"
                   onSelect={() => onSelectContext?.(file.path)}
                   className="h-auto items-start rounded-sm py-1.5"
-                  icon={<Glyph className="mt-0.5 size-3 shrink-0" aria-hidden="true" />}
+                  icon={!file.kind || file.kind === "file" ? <FileIcon path={file.path} className="mt-0.5 size-3" /> : <Glyph className="mt-0.5 size-3 shrink-0" aria-hidden="true" />}
                 >
                   <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
                     <span className="truncate text-code-12 text-text-primary">

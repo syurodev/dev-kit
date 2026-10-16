@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { GitCommitHorizontal, TriangleAlert } from "lucide-react";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardPreview } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
@@ -37,8 +38,8 @@ export function GitHistoryResultCard({ result, heading, repo }: { result: Histor
         <FramedCardPreview>
           <ul className="flex min-w-0 flex-col gap-0.5">
             {shown.map((path) => (
-              <li key={path} className="min-w-0 truncate text-code-11 text-text-secondary" title={path}>
-                {path}
+              <li key={path} className="flex min-w-0 items-center gap-1.5 text-code-11 text-text-secondary" title={path}>
+                <FileIcon path={path} className="size-3" /><span className="truncate">{path}</span>
               </li>
             ))}
             {more > 0 ? <li className="text-caption-11 text-text-tertiary">{`and ${more} more`}</li> : null}

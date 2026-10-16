@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import * as React from "react";
 import { AlertTriangle, ChevronRight, FileDiff } from "lucide-react";
 
@@ -194,6 +195,7 @@ export function ChangedFileRow({
           canOpen ? "cursor-pointer hover:bg-surface-tinted" : "cursor-default",
         )}
       >
+        <FileIcon path={file.path} className="size-3.5" />
         <span className="min-w-0 flex-1 truncate text-code-12 text-text-secondary">{file.path}</span>
         <span
           className={cn(

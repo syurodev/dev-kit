@@ -72,11 +72,43 @@ dựng lại `EditorView`.
 phải giải pháp riêng của DevKit, primitive chỉ áp dụng đúng cách thư viện đã
 thiết kế sẵn.
 
-## Theme — ăn theo `useTheme()`
+## Syntax và YAML
 
-`resolvedTheme` (`"light"`/`"dark"`, từ `frontend/src/theme/ThemeProvider.tsx`)
-chọn CodeMirror theme extension tương ứng — đổi theme app tự đổi theo, không
-cần consumer tự xử lý riêng.
+`components/code/languages.ts` là registry dùng chung cho file editor, diff và
+code block của Agent Hub. Grammar tải lazy theo tên hoặc đuôi file. Makefile,
+GNUmakefile, BSDmakefile, `.mk`, `.mak` và `.make` dùng grammar Make riêng
+(target, biến, directive và shell recipe); `.env.*`, Containerfile biến thể và
+`gradlew` cũng được nhận diện.
+
+YAML giữ nguyên source và số dòng, thêm guide thụt lề, khoảng cách dòng dễ đọc
+và SQL highlight trong block scalar có key `sql` hoặc tên kết thúc bằng `.sql`.
+Các block `description`, `query`, `script` không bị đoán thành SQL. Những thay
+đổi này chỉ ảnh hưởng hiển thị, không format lại nội dung.
+
+Trong CodeGraph, YAML mặc định xuống dòng dài. Toolbar có Wrap, Collapse all và
+Expand all; ⌥Z đổi Wrap và cập nhật nút trên toolbar. `onWrapChange` là chế độ
+controlled của CodeEditor; các consumer không truyền callback vẫn giữ cơ chế
+wrap tự động và override cục bộ hiện có. Một scroller của CodeMirror sở hữu
+cuộn, tránh outer wrapper cuộn ngang cả gutter.
+
+YAML editing (`components/yaml/`) thêm các hỗ trợ chỉ chạy trên máy:
+
+- Một Web Worker parse YAML, báo lỗi cú pháp/trùng key và kiểm tra schema. Kiểm tra debounce theo văn bản/con trỏ; kết quả cũ bị loại theo generation, schema và nội dung nguồn. File trên 512 KiB nhận thông báo tạm dừng assistance, không hiện kết quả kiểm tra giả.
+- Schema đóng gói offline: Liquibase từ SchemaStore (kèm dạng map `preConditions`), Compose Specification và Kubernetes 1.35.0 OpenAPI. Auto nhận theo filename hoặc root key; footer cho chọn thủ công và Syntax only. CRD/kind ngoài snapshot có thông báo rõ. Không tải modeline/schema URL và không gửi nội dung YAML ra mạng.
+- Gợi ý key/value/mô tả theo vị trí, local `$ref`, `allOf`/`anyOf`/`oneOf`; không lặp key có sẵn. Enter/Tab nhận gợi ý đang mở; còn lại Enter giữ indent, Tab/Shift+Tab dùng dấu cách. SQL trong scalar vẫn dùng completion SQL riêng.
+- Footer hiện đường dẫn key, đánh dấu khối hiện tại và danh sách lỗi có thể nhảy tới dòng.
+- Format document/selection là thao tác chủ động (⌥⇧F cho cả document), một bước undo. Selection phải bao gồm field hoàn chỉnh. Formatter giữ comment/anchor và đối chiếu lại giá trị, gồm SQL/folded scalar; không áp dụng nếu giá trị đổi.
+- Nút SQL mở scalar tại con trỏ trong pane bên dưới, resize được. Apply thay đúng scalar, giữ phần còn lại của file và đi qua cùng transaction/onChange/undo của editor chính; Save vẫn là Save hiện có. Dạng chomp có thể đổi để giữ đúng SQL mới. Bản nháp SQL giữ theo document key khi đóng pane hoặc đổi tab; chỉ Apply/Discard xóa bản nháp. Apply kiểm tra raw scalar theo document + key path: đổi chỗ khác vẫn áp dụng được, đổi chính scalar thì từ chối và giữ nháp.
+
+Schema/provenance: `frontend/src/components/yaml/schemas/README.md`; bản quyền cũng nằm trong `public/licenses/yaml-schemas.txt`. Worker và các schema là chunk lazy, không vào JS khởi động.
+
+Gallery kiểm tra: `?gallery#file-syntax` dùng **YamlEditor thật**, với YAML/Makefile và pane 320/640/1000 px.
+
+## Theme — theo palette của app
+
+`devkitHighlight` và `devkitSyntax` dùng các token `--syntax-*` chung cho editor
+và code block. Đổi palette hoặc light/dark cập nhật màu qua CSS, không remount
+editor hoặc mất undo/caret.
 
 ## Vì sao tách khỏi `components/editor/` (Plate)
 
@@ -92,7 +124,7 @@ riêng `components/code-editor/` rõ ràng hơn.
   completion từ `db_schema_cache`. Xem
   [Database](/dev-kit/database#query-console-gợi-ý-cú-pháp--bảng--cột).
 - **Code Graph § File editing** — browse + edit file trong project đang mở,
-  Ctrl+S ghi thẳng xuống disk, highlight Java/JSON/YAML/Markdown ở v1. Xem
+  Ctrl+S ghi xuống disk qua kiểm tra revision; highlight theo registry chung. Xem
   [Code Graph](/dev-kit/codegraph#file-editing-add-on-v1).
 
 ## Non-goals

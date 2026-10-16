@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useMemo } from "react";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { dedent } from "@/components/code-editor/dedent";
@@ -53,6 +54,7 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-1.5">
         <div className="flex items-center gap-2">
+          {snippet ? <FileIcon path={snippet.filePath} className="size-3.5" /> : null}
           <span className="min-w-0 flex-1 truncate text-label-11-caps text-text-tertiary">
             {snippet ? `Source · ${snippet.filePath.split("/").pop()}:${snippet.line}` : "Source"}
           </span>

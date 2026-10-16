@@ -1,5 +1,6 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { useMemo, useRef } from "react";
-import { FileCode2, Folder, FolderCode, FolderGit2, GitBranch, Package, RotateCcw } from "lucide-react";
+import { Folder, FolderCode, FolderGit2, GitBranch, Package, RotateCcw } from "lucide-react";
 import { SidebarInset } from "@/components/ui/sidebar-shell";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -61,6 +62,8 @@ export function FilesTab({
   data,
   query,
   selected,
+  revealRequest,
+  revealActive = true,
   unsaved,
   workspaceId,
   flow,
@@ -75,6 +78,9 @@ export function FilesTab({
   data: Record<string, FolderData>;
   query: string;
   selected: { folderId: string; path: string } | null;
+  revealRequest?: number;
+  /** Collapse all suspends automatic reveal until a different file is selected. */
+  revealActive?: boolean;
   /** Keys (docKey) of buffers with unsaved edits. */
   unsaved: ReadonlySet<string>;
   workspaceId: string;
@@ -146,7 +152,7 @@ export function FilesTab({
             id: treeFileId(f.id, b.path),
             label: b.name,
             title: `${labels[f.id]} › ${b.path}`,
-            icon: <FileCode2 />,
+            icon: <FileIcon path={b.path} />,
             selected: selected?.folderId === f.id && selected.path === b.path,
             onSelect: () => actions.onSelectFile(f.id, b.path),
             onActivate: () => actions.onKeepFile(f.id, b.path),
@@ -302,7 +308,7 @@ export function FilesTab({
         </SidebarInset>
       ) : null}
       {nodes.length > 0 ? (
-        <TreeView nodes={nodes} keyboardNavigation revealNodeId={selected ? treeFileId(selected.folderId, selected.path) : null} className="min-h-0 flex-1 scrollbar-gutter-stable" />
+        <TreeView nodes={nodes} keyboardNavigation revealRequest={revealRequest} revealNodeId={selected && revealActive ? treeFileId(selected.folderId, selected.path) : null} className="min-h-0 flex-1 scrollbar-gutter-stable" />
       ) : (
         <p className="min-h-0 flex-1 px-2 py-3 text-center text-body-12 text-text-tertiary">
           {folders.length === 0 ? "No folders in view." : "No files match."}

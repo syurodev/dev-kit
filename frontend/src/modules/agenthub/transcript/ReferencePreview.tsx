@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import * as React from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Columns2, Copy, ExternalLink, FileText, FolderTree, Link2 } from "lucide-react";
@@ -265,6 +266,7 @@ function PreviewHeader({
   const pastEnd = line !== undefined && total !== undefined && line > total;
   return (
     <div className="flex min-w-0 items-baseline gap-2 border-b border-border-subtle p-2.5">
+      <FileIcon path={path} className="size-3.5" />
       <span className="flex min-w-0 flex-1 items-baseline text-code-12" title={path}>
         {dir ? (
           // rtl puts the ellipsis on the left, where the least telling part of a path is.

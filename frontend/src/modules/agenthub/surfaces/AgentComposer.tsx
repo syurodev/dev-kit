@@ -1,6 +1,7 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
-import { AtSign, Check, ChevronDown, Command as CommandIcon, FileCode, LoaderCircle, Paperclip, Pencil, Play, Plus, ShieldCheck, SlidersHorizontal, Target, X } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, LoaderCircle, Paperclip, Pencil, Play, Plus, ShieldCheck, SlidersHorizontal, Target, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -881,7 +882,7 @@ export function AgentComposer({
               title={file.description ?? file.path}
               onSelect={() => acceptMention(file)}
             >
-              <FileCode aria-hidden="true" className="text-text-tertiary" />
+              <FileIcon path={file.path} className="size-3.5" />
               <span className="max-w-[60%] shrink-0 truncate">{file.name || file.path}</span>
               {/* The folder, not the path again: the name is already beside it. */}
               <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">

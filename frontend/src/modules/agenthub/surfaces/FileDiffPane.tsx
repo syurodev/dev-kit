@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import * as React from "react";
 import { FileDiff, Maximize2 } from "lucide-react";
 
@@ -227,7 +228,8 @@ export function FileDiffPane({
       <FramedCardHeader
         icon={FileDiff}
         title={
-          <span className="text-code-11" title={diff.path}>
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-code-11" title={diff.path}>
+            <FileIcon path={diff.path} className="size-3" />
             {name || "diff"}
           </span>
         }

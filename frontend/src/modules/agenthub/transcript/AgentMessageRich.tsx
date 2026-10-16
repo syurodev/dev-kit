@@ -1,3 +1,5 @@
+import { FileLabel } from "@/components/file-icon/FileLabel";
+import { Badge } from "@/components/ui/badge";
 import * as React from "react";
 import { Eye, EyeOff, Square, SquareCheck } from "lucide-react";
 
@@ -173,9 +175,15 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
             }
             const ref = canOpen && !inLink ? fileRef(token.value) : null;
             if (ref) {
+              const suffix = token.value.match(/(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L\d+)?)$/)?.[0];
+              const label = suffix ? token.value.slice(0, -suffix.length) : token.value;
               return (
                 <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
-                  {refCode("agent-file-ref", token.value, `File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`)}
+                  <Badge asChild variant="secondary" className="h-6 max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-0 align-middle whitespace-nowrap text-code-12 cursor-pointer hover:bg-muted">
+                    <button type="button" data-testid="agent-file-ref" title={token.value} aria-label={`File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`}>
+                      <FileLabel path={ref.path} label={label} suffix={suffix} />
+                    </button>
+                  </Badge>
                 </FileReference>
               );
             }
@@ -268,7 +276,9 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
                 // code, and had no wrap protection of its own at all.
                 className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
               >
-                <InlineNodes tokens={token.children} inLink />
+                {target.kind === "file"
+                  ? <FileLabel path={target.ref.path} label={<InlineNodes tokens={token.children} inLink />} />
+                  : <InlineNodes tokens={token.children} inLink />}
               </a>
             );
             // The hover card says where it goes, so the link needs no tooltip of its own.
@@ -278,7 +288,9 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
               </UrlReference>
             ) : (
               <FileReference key={idx} path={target.ref.path} line={target.ref.line} content={content} link>
-                {anchor}
+                <Badge asChild variant="secondary" className="h-6 max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-0 align-middle whitespace-nowrap text-code-12 cursor-pointer hover:bg-muted [&_code]:bg-transparent [&_code]:p-0">
+                  {anchor}
+                </Badge>
               </FileReference>
             );
           }

@@ -219,7 +219,7 @@ export type PaletteSearchItem = {
   title: string;
   /** Where it lives or what it is, shown dimmer beside the title: a schema, a path. */
   subtitle?: string;
-  icon?: LucideIcon;
+  icon?: ComponentType<{ className?: string }>;
   run: () => void;
 };
 

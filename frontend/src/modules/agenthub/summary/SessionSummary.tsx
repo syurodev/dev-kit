@@ -1,7 +1,8 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Bot, Check, ChevronDown, Database, FileCode, FileText, Globe, Hourglass, PanelRight, Radio, Target, Terminal, type LucideIcon } from "lucide-react";
+import { Bot, Check, ChevronDown, Database, Globe, Hourglass, PanelRight, Radio, Target, Terminal, type LucideIcon } from "lucide-react";
 
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { Button } from "@/components/ui/button";
@@ -368,7 +369,7 @@ function SummarySections({
           rows={[
             ...docs.map((doc) => (
               <div key={`doc:${doc.id}`} data-testid="summary-source-row" className={ROW} title={doc.name}>
-                <FileText aria-hidden="true" className="size-(--icon-14) shrink-0 text-status-danger" />
+                <FileIcon path={doc.name} className="size-(--icon-14)" />
                 <span className="min-w-0 truncate">{doc.name}</span>
                 <span className={TRAILING}>{doc.pages === 1 ? "1 page" : `${doc.pages} pages`}</span>
               </div>
@@ -645,7 +646,7 @@ function ChangeRow({ change, onOpen }: { change: SessionChange; onOpen: () => vo
   const dir = cut >= 0 ? change.path.slice(0, cut) : "";
   const content = (
     <>
-      <FileCode aria-hidden="true" className={ICON} />
+      <FileIcon path={change.path} className={ICON} />
       <span className="shrink-0 truncate">{name}</span>
       {dir ? <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">{dir}</span> : <span className="flex-1" />}
       {change.binary ? (

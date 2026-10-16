@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { PaletteSearchGroup } from "@/modules/registry";
 import { rank } from "./match";
@@ -8,7 +9,7 @@ export type PaletteRow = {
   id: string;
   title: string;
   subtitle?: string;
-  icon?: LucideIcon;
+  icon?: ComponentType<{ className?: string }>;
   shortcut?: string;
   run: () => void;
 };

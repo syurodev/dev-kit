@@ -1,3 +1,5 @@
+import { FileSyntaxSection } from "./FileSyntaxSection";
+import { FileIconsSection } from "./FileIconsSection";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
 import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
@@ -1064,6 +1066,7 @@ export default function ComponentGallery() {
         <Step4bMeasurementsInspector />
       </Section>
 
+      <FileIconsSection />
       <AgentEnvironmentPreview />
       <AgentHubTranscriptSection />
       <AgentSessionSidebarSection />
@@ -1072,6 +1075,7 @@ export default function ComponentGallery() {
       <MCPInteractionSection />
       <ApprovalBrokerSection />
 
+      <FileSyntaxSection />
       <CodeEditorWrapSection />
 
       <CodeIntelSection />

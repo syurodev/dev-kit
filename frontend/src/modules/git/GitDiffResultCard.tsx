@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { FileDiff } from "lucide-react";
 import { FramedCard, FramedCardAction, FramedCardHeader, FramedCardMore, FramedCardPreview, FramedCardRow } from "@/components/ui/framed-card";
 import { dispatchIntent } from "@/workbench/intents";
@@ -63,7 +64,8 @@ export function GitDiffResultCard({ changes, rev }: { changes: DiffChange[]; rev
           <FramedCardRow
             key={change.path}
             label={
-              <span className="text-code-12" title={change.path}>
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-code-12" title={change.path}>
+                <FileIcon path={change.path} className="size-3" />
                 <span className="text-text-tertiary">{KIND_MARK[change.kind]}</span> {fileName(change.path)}
               </span>
             }

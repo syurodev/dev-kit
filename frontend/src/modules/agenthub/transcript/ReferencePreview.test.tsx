@@ -298,7 +298,8 @@ describe("AgentProse references", () => {
   test("a file ref sits in a hover card and a context menu", () => {
     const html = prose("Look at `auth/session.go:88`");
     expect(wrapped(html, "agent-file-ref")).toBe(true);
-    expect(html).toContain('role="button"');
+    expect(html).toContain('<button type="button" data-testid="agent-file-ref"');
+    expect(html).toContain('data-file-icon="go"');
   });
 
   test("a URL link and a file link do too", () => {

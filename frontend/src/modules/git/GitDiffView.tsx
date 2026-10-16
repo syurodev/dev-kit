@@ -1,3 +1,4 @@
+import { FileIcon } from "@/components/file-icon/FileIcon";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -304,6 +305,7 @@ export function GitDiffView({ params }: { params?: Record<string, unknown> }) {
                 </PopoverContent>
               </Popover>
             )}
+            <FileIcon path={path} className="size-3.5" />
             <span className="min-w-0 flex-1 truncate text-code-12" title={path}>
               {wide ? path : splitPath(path).name}
             </span>
@@ -417,6 +419,7 @@ function FileRow({ change, selected, onSelect }: { change: DiffEntry; selected: 
         className={cn("h-auto min-h-12 w-full justify-start gap-2 px-2 text-left", selected && "bg-state-soft")}
       >
         <StatusMark kind={change.untracked ? "untracked" : changeMarkKind(change.kind)} />
+        <FileIcon path={change.path} className="size-3.5" />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-code-12">{name}</span>
           {dir && <span className="truncate text-code-11 text-text-tertiary">{dir}</span>}

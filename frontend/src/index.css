@@ -2058,3 +2058,34 @@
         transition: none;
     }
 }
+
+/* YAML structure stays visible across long scalar bodies and folded sections. */
+.cm-surfaceless .cm-line.cm-indent-guides {
+  background-image: repeating-linear-gradient(to right, var(--border-subtle) 0 1px, transparent 1px 2ch);
+  background-position: var(--space-code-line) 0;
+  background-size: var(--cm-indent-width) 100%;
+  background-repeat: no-repeat;
+}
+
+/* Keep line numbers readable when a YAML line is deliberately not wrapped. */
+.cm-surfaceless .cm-editor.cm-yaml-source .cm-gutters {
+  background-color: var(--surface-base);
+}
+
+.cm-surfaceless .cm-line.cm-yaml-active-block {
+  box-shadow: inset 2px 0 0 var(--border-focus);
+}
+.cm-surfaceless .cm-diagnostic-error { border-left-color: var(--status-danger); }
+.cm-surfaceless .cm-diagnostic-warning { border-left-color: var(--status-warning); }
+.cm-surfaceless .cm-lintRange-error { background-image: none; text-decoration: underline wavy var(--status-danger); text-underline-offset: 3px; }
+.cm-surfaceless .cm-lintRange-warning { background-image: none; text-decoration: underline wavy var(--status-warning); text-underline-offset: 3px; }
+
+.cm-surfaceless .cm-tooltip {
+  background-color: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+.cm-surfaceless .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background-color: var(--state-soft);
+  color: var(--text-primary);
+}
