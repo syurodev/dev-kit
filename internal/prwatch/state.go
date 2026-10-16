@@ -43,7 +43,7 @@ type Item struct {
 	Source        string               `json:"source"`
 	ChangeRequest *forge.ChangeRequest `json:"changeRequest,omitempty"`
 	// RetryAt is when a rate limit lifts.
-	RetryAt time.Time `json:"retryAt,omitempty"`
+	RetryAt *time.Time `json:"retryAt,omitempty"`
 	// Platform names the host's platform ("GitHub") for a message, when known.
 	Platform string `json:"platform,omitempty"`
 }
@@ -240,9 +240,11 @@ func failure(item Item, terms forge.Terms, remote RemoteRef, err error) Item {
 			item.Message = fmt.Sprintf("%s cannot find %s — or the token cannot see it.", platform, where)
 		case forge.ErrRateLimited:
 			item.Status = StatusRateLimited
-			item.RetryAt = forge.RetryAtOf(err)
+			if at := forge.RetryAtOf(err); !at.IsZero() {
+				item.RetryAt = &at
+			}
 			item.Message = platform + " rate limit reached."
-			if !item.RetryAt.IsZero() {
+			if item.RetryAt != nil {
 				item.Message += " Resumes at " + item.RetryAt.Local().Format("15:04") + "."
 			}
 		default:
@@ -277,7 +279,10 @@ func nextPoll(items []Item, now time.Time) int {
 		case StatusUnavailable:
 			ask(pollRecover)
 		case StatusRateLimited:
-			wait := it.RetryAt.Sub(now)
+			var wait time.Duration
+			if it.RetryAt != nil {
+				wait = it.RetryAt.Sub(now)
+			}
 			if wait < pollRateFloor {
 				wait = pollRateFloor
 			}

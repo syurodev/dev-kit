@@ -292,17 +292,27 @@ func (h *Handle) Close(ctx context.Context) (forge.ChangeRequest, error) {
 	return cr, err
 }
 
-// DeleteBranch deletes a branch of the repository on the host. The default
-// branch and a protected one are refused here, before the host is asked to
-// delete anything: the host would refuse the protected one, but not the
-// default on every plan, and "the host would have said no" is not the rule.
-func (h *Handle) DeleteBranch(ctx context.Context, name string) error {
+// CheckDeletable refuses the default branch and a protected one. A caller
+// that asks the person first calls it before asking: there is no point in
+// putting a question to someone about something that will be refused.
+func (h *Handle) CheckDeletable(ctx context.Context, name string) error {
 	info, err := h.provider.Branch(ctx, h.cred, h.repo, name)
 	if err != nil {
 		return err
 	}
 	if info.Default || info.Protected {
 		return ErrProtectedBranch
+	}
+	return nil
+}
+
+// DeleteBranch deletes a branch of the repository on the host. The default
+// branch and a protected one are refused here, before the host is asked to
+// delete anything: the host would refuse the protected one, but not the
+// default on every plan, and "the host would have said no" is not the rule.
+func (h *Handle) DeleteBranch(ctx context.Context, name string) error {
+	if err := h.CheckDeletable(ctx, name); err != nil {
+		return err
 	}
 	if err := h.provider.DeleteBranch(ctx, h.cred, h.repo, name); err != nil {
 		return err

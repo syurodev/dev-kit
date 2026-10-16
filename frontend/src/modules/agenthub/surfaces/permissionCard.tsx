@@ -171,9 +171,12 @@ export function PermissionMarks({
   expired,
   testIdPrefix,
   environment,
+  untagged,
 }: {
   env: PermissionEnv;
   environment?: string;
+  /** A gate that always asks with no environment behind it (pr.merge): no tag to name. */
+  untagged?: boolean;
   secondsLeft?: number;
   expired?: boolean;
   testIdPrefix: string;
@@ -187,7 +190,7 @@ export function PermissionMarks({
           data-testid={`${testIdPrefix}-env${env === "locked" ? "-locked" : ""}`}
           className={cn("shrink-0 rounded-full px-2 py-0.5 text-caption-11-medium", env === "locked" ? "bg-(--feedback-danger-soft) text-status-danger" : "bg-state-soft text-text-secondary")}
         >
-          {environment || "prod"}
+          {untagged ? "always asks" : environment || "prod"}
         </span>
       ) : null}
       {timed ? (
@@ -210,11 +213,11 @@ export function PermissionMarks({
 }
 
 /** The line that says an environment asks every time. Locked only. */
-export function PermissionLockedNote({ env, environment }: { env: PermissionEnv; environment?: string }) {
+export function PermissionLockedNote({ env, environment, untagged }: { env: PermissionEnv; environment?: string; untagged?: boolean }) {
   if (env !== "locked") return null;
   return (
     <p className="w-full text-caption-11 text-text-tertiary">
-      {`${environment || "prod"} requires confirmation every time`}
+      {untagged ? "This always asks first: there is no “allow always” for it" : `${environment || "prod"} requires confirmation every time`}
     </p>
   );
 }

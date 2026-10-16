@@ -55,6 +55,9 @@ import * as notes$0 from "../notes/models.js";
 import * as preferences$0 from "../preferences/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as prwatch$0 from "../prwatch/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as ssh$0 from "../ssh/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -2117,6 +2120,35 @@ export function PreferencesSetThemeFamily(family: preferences$0.ThemeFamily): $C
  */
 export function PreferencesSetUpdateChecks(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(2245792128, enabled);
+}
+
+/**
+ * PullRequestAttach ties a pull request, named by its address, to a session:
+ * for a fork, or a request opened somewhere DevKit did not see. The request is
+ * read first; an address the account cannot read is refused with the reason.
+ */
+export function PullRequestAttach(sessionID: string, folder: string, url: string): $CancellablePromise<prwatch$0.Item> {
+    return $Call.ByID(915892631, sessionID, folder, url);
+}
+
+/**
+ * PullRequestDetach forgets an attachment. It closes and deletes nothing on
+ * the host.
+ */
+export function PullRequestDetach(sessionID: string, host: string, path: string, $number: number): $CancellablePromise<void> {
+    return $Call.ByID(2619449817, sessionID, host, path, $number);
+}
+
+/**
+ * PullRequestState reads, for each folder, the pull (or merge) request its
+ * branch became, plus the ones attached to the session by hand. The window
+ * polls it while the session is on screen and asks again after NextPollMs.
+ * 
+ * The token is chosen and used in Go; what returns is the request's state and,
+ * when there is none to show, the reason in words.
+ */
+export function PullRequestState(sessionID: string, folders: string[] | null): $CancellablePromise<prwatch$0.State> {
+    return $Call.ByID(4230584371, sessionID, folders);
 }
 
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

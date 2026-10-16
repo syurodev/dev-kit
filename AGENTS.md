@@ -144,6 +144,22 @@ as production-verified against a real Claude Code session in cloud CI.
   commit as the account identity. `git.fetch` / `git.pull` (ff-only) use the remote's bound
   account and answer ahead/behind. The Claude hook also refuses shell `git pull`,
   `rebase`, `cherry-pick` and `revert`.
+- **`pr.*` tools work with the pull request of an agent's branch** (`internal/mcp/tools_pr.go`; the host client is
+  `internal/forge`, the folder→repo→account→request logic `internal/prwatch`). Reads `pr.get|list|checks|comments`
+  (`git:read` on `repo:pr`); writes `pr.create|update|comment|reply|merge|close|deleteBranch` (`git:push` on
+  `remote:origin`, the same push-class capability as `git.push`; `mcp.PullRequestGrants` lists what they ask and
+  `TestNewContainerGrantsEveryPullRequestToolItsCapability` checks it against the real grants). Same `repo` argument
+  and granted-folder rule as `git.*`. A write on an agent's behalf needs the request's source branch recorded on a
+  task the session holds (not the default branch, not a fork's) — `pr.create` checks the current branch, the others
+  the request's head. Every write asks first through `Hub.Confirm` with the exact text in `Summary` (the "DevKit tool
+  gate" card; headless fails fast): `pr.create|update|merge|close|deleteBranch` **always** (`EnvBlocks: true`, so no
+  allow-always, whatever the remote's tag); `pr.comment|reply` follow `db.query`'s policy (allow-always unless the
+  remote's environment asks every time). `pr.merge` refuses a closed/merged/conflicting request without asking, shows
+  failing/running checks, a draft, a blocking rule or requested changes in the question, and passes the head SHA it
+  showed so the host refuses if the branch moved. `pr.deleteBranch` refuses the default and a protected branch
+  *before* asking. Audit metadata names the action, repo, number, branch and method — never the text sent. Results
+  that quote the host carry a `note` saying they are third-party data, not instructions; bodies are clipped. The token
+  never leaves Go; `gh`/`glab` in a shell stay allowed (the prompt prefers the tools, no hook blocks the CLI).
 - **`git.fetch` / `git.pull` are `git:write` on `repo:sync`** (`mcp.GitSyncGrant`). They used to ask for
   `git:write` on `remote:<name>`, which the `repo:*` grant does not cover, so every agent call was refused
   while the MCP tests (fake caller, no policy) passed; `TestNewContainerGrantsAgentGitSync` now checks the
@@ -205,6 +221,25 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   travel on the wire's `_devkit` key (`wireDevKit`). Every section is a shadcn `Collapsible` (`SectionShell`); what the person
   folded is remembered across sessions in `localStorage` (`summary/summaryFold.ts`, shared by the docked card and the
   corner popover). Gallery: `?gallery#agenthub-summary`.
+- **A session's pull request is tracked, not guessed** (`internal/forge`, `internal/prwatch`, bridge
+  `PullRequestState|Attach|Detach`, frontend `summary/usePullRequests.ts`, `pullRequestModel.ts`,
+  `PullRequestCards.tsx`; section "Pull requests" beside Changes). `forge` is a leaf: a platform-neutral `Provider`
+  (`ChangeRequest`, `Check`, `Comment`; `Terms` carries "PR"/"MR" and "checks"/"pipelines") with GitHub as the first
+  implementation — GitLab is a second `Provider` and a line in `NewRegistry`, no UI or data-shape change.
+  `prwatch` reads a folder through `Source` (git: branch, push remote, origin, default branch), a token through
+  `Credentials`, and finds the request by `head=<owner>:<branch>` in origin's repo (a fork's branch uses the fork's
+  owner). The account is the one bound to the remote if it is a token, else `Accounts.ForRemote(host, owner, …, https)`;
+  the background poll never asks the person (two fitting accounts → "ambiguous", say so), an agent's tool call may.
+  Every status without a card is stated (`no_account`, `unauthorized`, `rate_limited`, …) except the quiet ones
+  (no request yet, detached, default branch, not a repo, unsupported host). Polling is the window's: `State` returns
+  `nextPollMs` (15 s while a check runs or mergeability is unknown, 60 s settled, 90 s with no request, -1 when merged
+  or closed or when it needs a person); react-query pauses while the window is hidden; a turn ending, window focus
+  and the `prwatch:changed` event (pr.create, attach) refresh at once. Reads are conditional (ETag/`If-None-Match`,
+  a 304 costs no rate limit, the cache key holds a digest of the token, never the token); two calls within 3 s are
+  one round; 4 requests in flight. The unresolved-thread count (GraphQL, no ETag) is re-read when the request
+  changed or every 3 min. `session_change_requests` (migration 42) holds requests attached by hand or by `pr.create`.
+  Not done: GitHub Enterprise (no host→account mapping for it), GitLab (phase 2), waking a session when CI fails,
+  an entry point to attach by address when the branch lookup found nothing (the bridge method exists).
 - **References in agent prose resolve, preview and open** (spec
   `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;
   files under `frontend/src/modules/agenthub/transcript/`).

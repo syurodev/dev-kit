@@ -724,6 +724,9 @@ func (s *Server) toolPRDeleteBranch(ctx context.Context, _ *sdk.CallToolRequest,
 			} else if err := s.prBranchAllowed(ctx, h, branch); err != nil {
 				return nil, err
 			}
+			if err := h.CheckDeletable(ctx, branch); err != nil {
+				return nil, prError(err, h.Terms().Platform)
+			}
 			remote := h.Remote().Name
 			if remote == "" {
 				remote = "origin"

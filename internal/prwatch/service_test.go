@@ -571,8 +571,8 @@ func TestNextPollPureRules(t *testing.T) {
 		"settled":          {[]Item{{Status: StatusFound, ChangeRequest: &settled}, {Status: StatusFound, ChangeRequest: &merged}}, ms(pollSettled)},
 		"none":             {[]Item{{Status: StatusNone}}, ms(pollNone)},
 		"needs a person":   {[]Item{{Status: StatusNoAccount}, {Status: StatusUnauthorized}}, -1},
-		"rate limit floor": {[]Item{{Status: StatusRateLimited, RetryAt: now.Add(time.Second)}}, ms(pollRateFloor)},
-		"rate limit far":   {[]Item{{Status: StatusRateLimited, RetryAt: now.Add(10 * time.Minute)}}, ms(10 * time.Minute)},
+		"rate limit floor": {[]Item{{Status: StatusRateLimited, RetryAt: ptrTime(now.Add(time.Second))}}, ms(pollRateFloor)},
+		"rate limit far":   {[]Item{{Status: StatusRateLimited, RetryAt: ptrTime(now.Add(10 * time.Minute))}}, ms(10 * time.Minute)},
 	} {
 		if got := nextPoll(tc.items, now); got != tc.want {
 			t.Errorf("%s: %d, want %d", name, got, tc.want)
@@ -589,3 +589,5 @@ func TestSQLStoreRoundTrip(t *testing.T) {
 		t.Errorf("%+v", list)
 	}
 }
+
+func ptrTime(t time.Time) *time.Time { return &t }
