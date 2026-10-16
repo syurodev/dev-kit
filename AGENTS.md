@@ -90,6 +90,10 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
 - Go format/vet: `gofmt -l internal main.go` / `go vet -tags server ./...`. (`build/ios/*.go`
   and `internal/crypto/keyring.go` are not gofmt-clean upstream; ignore them.)
 - Frontend typecheck + build: `cd frontend && bun run build` (runs `tsc` then `vite build`).
+- Frontend tests: `cd frontend && bun run test` (= `bun test --isolate`, every file in its own global). Without
+  `--isolate`, `mock.module` leaks across files: `codegraph/fileActions.test.ts` + `flowActions.test.ts` in one run
+  spin forever (CI's frontend job then died at its 20-minute limit), and a file whose mock omits an export can pass only
+  because another file loaded the real module first. Spread the real module in a mock (`...(await import(...))`).
 - Frontend dev server (Vite only, no Go): `task dev:frontend` (port 9245).
 
 ### MCP (agent tools)

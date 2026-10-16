@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 // into a small tree, so no HTML string is ever built — raw HTML in a file shows
 // as the text it is, and an image shows as the name it points at (nothing is
 // fetched from a path or a URL the file chose).
-import { parseMarkdown, type InlineToken, type ListItem, type MarkdownBlock } from "@/modules/agenthub/transcript/agentMarkdown";
+import { parseMarkdown, type InlineToken, type ListItem, type MarkdownBlock } from "@/lib/agentMarkdown";
 import { headingSlugs, inlineText, type Slugs } from "./markdownHeadings";
 import { resolveDocLink } from "./markdownLinks";
 

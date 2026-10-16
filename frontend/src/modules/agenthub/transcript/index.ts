@@ -7,6 +7,6 @@ export * from "./AgentToolTerminal";
 export * from "./AgentFileChip";
 export * from "./AgentPlan";
 export * from "./AgentMessageRich";
-export * from "./agentMarkdown";
+export * from "@/lib/agentMarkdown";
 export * from "./AgentSubagent";
 export * from "./AgentAsyncTask";

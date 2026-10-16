@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 const calls: string[] = [];
 let failMode = false;
 let backend = { manual: false, open: false };
+// The real module is spread so every export the store's imports name exists
+// (consoleFiles needs deleteConsole); only what this file drives is faked.
+const realDatabase = await import("@/bridge/database");
 mock.module("@/bridge/database", () => ({
+  ...realDatabase,
   setTransactionMode: async (id: string, manual: boolean) => {
     calls.push(`mode:${id}:${manual}`);
     if (failMode) throw new Error("commit failed");
