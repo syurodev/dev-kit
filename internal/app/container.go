@@ -321,6 +321,14 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		// What the window reads about an agent before any session exists: its
+		// model list (the draft picker, Settings' "Models by job") and its
+		// environment. The bridge asked for these scopes since they were added
+		// and no grant covered them, so both reads were refused with a bare
+		// "Permission denied." — the picker's "Models unavailable". The service
+		// still answers only the window (ConfigCatalog, Environment).
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "catalog:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "environment:*"},
 		// What an agent reads before it picks a child's model: the vendors'
 		// model lists and the person's model profiles. Read-only; the profiles
 		// are edited through the window, which has its own grants.

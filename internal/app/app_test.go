@@ -55,6 +55,12 @@ func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:abc"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		// The window's reads before a session exists. Without these the draft
+		// picker and Settings → Agents were refused at the gateway.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "catalog:claude"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "catalog:codex"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "environment:claude"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "environment:codex"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:abc"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
