@@ -184,7 +184,7 @@ func TestPullRequestToolsTellTheAgentWhyThroughTheRealBridge(t *testing.T) {
 		PullRequests: prwatch.New(forge.NewRegistry(forge.NewGitHub()), gitlabCheckout{}, noToken{}, prwatch.NewMemoryStore()),
 	})
 
-	const sentence = "DevKit has no pull request support for this remote's host yet (GitHub only). Use the host's CLI in a shell."
+	const sentence = "DevKit has no pull request support for this remote's host yet (GitHub and gitlab.com only). Use the host's CLI in a shell."
 	for _, call := range []struct {
 		tool string
 		args map[string]any
