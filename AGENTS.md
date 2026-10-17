@@ -160,6 +160,7 @@ as production-verified against a real Claude Code session in cloud CI.
   *before* asking. Audit metadata names the action, repo, number, branch and method — never the text sent. Results
   that quote the host carry a `note` saying they are third-party data, not instructions; bodies are clipped. The token
   never leaves Go; `gh`/`glab` in a shell stay allowed (the prompt prefers the tools, no hook blocks the CLI).
+- **An error code an MCP tool raises for the agent must be published, or it reaches the agent as `internal_error`**: add it to `bridge.keptCodes` after reading where its message comes from (`pr.forbidden|notFound|rejected|invalid|unavailable` quote the host through `hostSaid`: one line, no control characters, 300 runes, marked as the host's text), or to `redactedOnPurpose` in `bridge/mcp_error_codes_test.go` with the reason; `TestEveryMCPErrorCodeIsPublishedOrRedactedOnPurpose` scans `internal/mcp` for both (`pr.*` and `git_repo.go` codes were redacted until then, so a GitLab `pr.create` told the agent nothing).
 - **`git.fetch` / `git.pull` are `git:write` on `repo:sync`** (`mcp.GitSyncGrant`). They used to ask for
   `git:write` on `remote:<name>`, which the `repo:*` grant does not cover, so every agent call was refused
   while the MCP tests (fake caller, no policy) passed; `TestNewContainerGrantsAgentGitSync` now checks the

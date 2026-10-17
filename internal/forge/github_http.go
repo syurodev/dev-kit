@@ -82,7 +82,9 @@ func (g *GitHub) send(ctx context.Context, c Credential, method, path string, in
 	if in != nil {
 		raw, err := json.Marshal(in)
 		if err != nil {
-			return &Error{Kind: ErrInvalid, Message: err.Error()}
+			// Fixed text: err's own wording can quote the value that failed
+			// and reaches an agent through pr.invalid.
+			return &Error{Kind: ErrInvalid, Message: "the request body could not be encoded"}
 		}
 		payload = bytes.NewReader(raw)
 	}
@@ -115,7 +117,8 @@ func (g *GitHub) newRequest(ctx context.Context, c Credential, method, target st
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		return nil, &Error{Kind: ErrInvalid, Message: err.Error()}
+		// Fixed text: a *url.Error quotes the whole request URL.
+		return nil, &Error{Kind: ErrInvalid, Message: "the request could not be built"}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/vnd.github+json")

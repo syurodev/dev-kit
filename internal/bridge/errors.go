@@ -627,6 +627,11 @@ func publicErrorForCode(subject string, err error, existing *apperrors.AppError)
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	case codeConnectionFailed:
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
+	case codeOperationCancelled:
+		// internal/mcp mapInteractErr: a confirmation that timed out. The
+		// original error is gone by now, so publicError's own check for it
+		// no longer fires.
+		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
 	case codePDFFailed:
 		// Carries the store's or engine's own text (paths, wazero detail).
 		logPDFCause(subject, existing)
@@ -664,11 +669,16 @@ func logPDFCause(subject string, existing *apperrors.AppError) {
 
 // keptCodes are AppError codes published with their own message. Each is
 // raised inside Caller.Call with a sentence written for the reader — fixed,
-// or built only from numbers and limits — never from an underlying error's
-// text: internal/mcp/tools_pdf.go (pdfScope, pdfProblem, parsePageSpec),
-// tools_workspace_memory.go and workspace_memory.go here. It is a list, not
-// a prefix: a new code is redacted to internal_error until someone has read
-// where its message comes from and added it.
+// or built only from numbers, limits, names the caller itself gave or the
+// workspace lists, or (pr.*) a code host's message that has been bounded and
+// marked as third-party text — never from an underlying error's text:
+// internal/mcp/tools_pdf.go (pdfScope, pdfProblem, parsePageSpec),
+// tools_workspace_memory.go, tools_pr.go (prError, hostSaid), git_repo.go and
+// workspace_memory.go here. It is a list, not a prefix: a new code is
+// redacted to internal_error until someone has read where its message comes
+// from and added it. TestEveryMCPErrorCodeIsPublishedOrRedactedOnPurpose
+// fails for a code in internal/mcp that is neither here, mapped above, nor on
+// its explicit redacted-on-purpose list.
 var keptCodes = map[string]bool{
 	"pdf.notFound":            true,
 	"pdf.sessionDenied":       true,
@@ -682,6 +692,37 @@ var keptCodes = map[string]bool{
 	// host's own message); a token is never part of any of them.
 	"pullrequests.attachFailed": true,
 	"pullrequests.unavailable":  true,
+	// internal/mcp/git_repo.go: which folder a `repo` argument meant, and why
+	// it may not be used. Names are the caller's own input and the workspace's
+	// folders — what workspace.list already tells that agent.
+	"git.repoAmbiguous":        true,
+	"git.repoOutsideWorkspace": true,
+	"git.repoNotGranted":       true,
+	"git.notARepository":       true,
+	// internal/mcp/tools_pr.go prError. Fixed sentences, the platform's name
+	// ("GitHub") or a time of day: the account/host/branch states.
+	"pr.noAccount":        true,
+	"pr.ambiguousAccount": true,
+	"pr.unsupportedHost":  true,
+	"pr.none":             true,
+	"pr.detached":         true,
+	"pr.protectedBranch":  true,
+	"pr.repoRequired":     true,
+	"pr.unauthorized":     true,
+	"pr.rateLimited":      true,
+	"pr.branchNotAllowed": true,
+	"pr.notYours":         true,
+	"pr.notMergeable":     true,
+	"pr.notOpen":          true,
+	// These quote the code host's own message, which prError passes through
+	// hostSaid: folded to one line, control characters gone, at most 300
+	// runes, said to be third-party text. forge builds none of them from a Go
+	// error's text (github_http.go words its ErrInvalid cases itself).
+	"pr.forbidden":   true,
+	"pr.notFound":    true,
+	"pr.rejected":    true,
+	"pr.invalid":     true,
+	"pr.unavailable": true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that
