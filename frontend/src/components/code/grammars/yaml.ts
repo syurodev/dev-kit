@@ -3,7 +3,6 @@ import { yamlLanguage } from "@codemirror/lang-yaml";
 import { sql } from "@codemirror/lang-sql";
 import { EditorView } from "@codemirror/view";
 import { parseMixed } from "@lezer/common";
-import { indentGuides } from "@/components/code-editor/indentGuides";
 
 /** Keep YAML's structure and folding, parsing only explicit SQL scalar bodies. */
 export function yamlSupport() {
@@ -37,7 +36,6 @@ export function yamlSupport() {
       const key = pair.getChild("Key");
       return key ? context.column(key.from) + getIndentUnit(context.state) : null;
     }),
-    indentGuides,
     EditorView.editorAttributes.of({ class: "cm-yaml-source" }),
     EditorView.theme({ ".cm-scroller": { lineHeight: "1.6" } }),
   ]);

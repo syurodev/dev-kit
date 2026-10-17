@@ -10,6 +10,7 @@ import { devkitHighlight } from "./devkitHighlight";
 import { wrapBreaks } from "./wrapBreaks";
 import { editingExtensions, type IndentStyle } from "./editing";
 import { useEditorPreferences } from "./preferences";
+import { indentGuides } from "./indentGuides";
 import { wrapIndent } from "./wrapIndent";
 
 // Settings > Appearance drives these custom properties (stores/
@@ -118,6 +119,8 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrap
   const size = useEditorPreferences((s) => s.size);
   const preferredStyle = useEditorPreferences((s) => s.style);
   const style = indentStyle ?? preferredStyle;
+  const showIndentGuides = useEditorPreferences((s) => s.showIndentGuides);
+  const guidesCompartment = useRef(new Compartment()).current;
   const editingCompartment = useRef(new Compartment()).current;
   const wrapCompartment = useRef(new Compartment()).current;
 
@@ -174,6 +177,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrap
           ]),
           basicSetup,
           editingCompartment.of(editingExtensions(size, style)),
+          guidesCompartment.of(showIndentGuides ? indentGuides : []),
           ...(lineSeparator ? [EditorState.lineSeparator.of(lineSeparator)] : []),
           fontTheme,
           languageCompartment.of(extensions ?? []),
@@ -292,6 +296,10 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, onWrap
   useEffect(() => {
     viewRef.current?.dispatch({ effects: editingCompartment.reconfigure(editingExtensions(size, style)) });
   }, [size, style, editingCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: guidesCompartment.reconfigure(showIndentGuides ? indentGuides : []) });
+  }, [showIndentGuides, guidesCompartment]);
 
   // A caller switching to "auto" after mount has no measurement yet.
   useEffect(() => {

@@ -4,8 +4,8 @@ import { Code, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { EditingControls } from "@/components/code-editor/EditingControls";
-import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
+import { SourceFileEditor } from "@/components/code-editor/EditorChrome";
+import type { RevealTarget } from "@/components/code-editor/CodeEditor";
 import { codeIntel, markCodeIntelBaseline, savedLineAt, type CodeIntelPanelRequest, type CodeLocation } from "@/components/code-editor/codeIntel";
 import { languageForPath } from "@/components/code/languages";
 import { useLanguageExtension } from "@/components/code/useLanguageExtension";
@@ -275,7 +275,7 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
   };
   const codeEditor = yaml
     ? <YamlEditor key={buffer.eol} {...editorProps} file={path} documentKey={key} active={front} />
-    : <CodeEditor key={buffer.eol} {...editorProps} wrap="auto" />;
+    : <SourceFileEditor key={buffer.eol} {...editorProps} language={languageId ?? ""} />;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
@@ -309,7 +309,6 @@ function TextFileDocument({ params, markdown }: { params?: Record<string, unknow
                 </Tabs>
               </>
             ) : null}
-            {!yaml && (!markdown || mode === "source") ? <EditingControls getView={() => viewRef.current} indentStyle={indentStyle} /> : null}
             {buffer.saving ? <SavingMark /> : null}
             {buffer.reloadedAt > 0 ? <ReloadedMark at={buffer.reloadedAt} /> : null}
             {buffer.dirty ? (

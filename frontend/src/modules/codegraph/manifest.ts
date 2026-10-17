@@ -16,8 +16,8 @@ export const codegraphModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Code,
-  // Keeps the shell's padding until this module owns its own chrome.
-  padded: true,
+  // Documents own their toolbars, scrolling and status bar; fill the shell card.
+  padded: false,
   // A flow, a file and the plan are documents you want side by side, so
   // each is a tab (documents.ts) and the strip is drawn.
   tabs: true,

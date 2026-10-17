@@ -24,6 +24,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
+import { useEditorPreferences } from "@/components/code-editor/preferences";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -350,6 +351,7 @@ function FontSettingRow({
 const THEME_OPTIONS = ["system", "light", "dark"] as const;
 
 function AppearanceTab() {
+  const showIndentGuides = useEditorPreferences((s) => s.showIndentGuides);
   const { theme, setTheme, resolvedTheme, family, setFamily } = useTheme();
   const { codeFont, codeSize, codeWeight, terminalFont, terminalSize, setAppearance } = useAppearanceStore(
     useShallow((s) => ({
@@ -456,6 +458,10 @@ function AppearanceTab() {
             onSize={(size) => setAppearance({ terminalSize: size })}
           />
         </div>
+        <label className="flex items-center gap-2 text-body-12 text-text-secondary">
+          <Checkbox checked={showIndentGuides} onCheckedChange={(checked) => useEditorPreferences.getState().setShowIndentGuides(checked === true)} />
+          Show indent guides in code editors
+        </label>
         {/* preview (763:1843): the chosen face at the chosen size, on a well. */}
         <p
           className="mt-1.5 rounded-md border border-border-subtle bg-surface-well px-4 py-3 text-text-secondary"
