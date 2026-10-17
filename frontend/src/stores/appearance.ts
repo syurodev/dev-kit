@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { uiStateStorage } from "@/bridge/uistate";
+import { DEFAULT_CODE_FONT_WEIGHT, normalizeCodeFontWeight, type CodeFontWeight } from "./codeFontWeight";
 
 /**
  * Font/size preferences for code surfaces (CodeMirror) and the terminal
@@ -42,10 +43,12 @@ export function monoFontStack(font: MonoFont): string {
 type AppearanceState = {
   codeFont: MonoFont;
   codeSize: number;
+  /** CodeMirror only; the terminal and the other mono surfaces keep their own weight. */
+  codeWeight: CodeFontWeight;
   terminalFont: MonoFont;
   terminalSize: number;
   setAppearance: (
-    patch: Partial<Pick<AppearanceState, "codeFont" | "codeSize" | "terminalFont" | "terminalSize">>,
+    patch: Partial<Pick<AppearanceState, "codeFont" | "codeSize" | "codeWeight" | "terminalFont" | "terminalSize">>,
   ) => void;
 };
 
@@ -54,6 +57,7 @@ export const useAppearanceStore = create<AppearanceState>()(
     (set) => ({
       codeFont: "Geist Mono",
       codeSize: 13,
+      codeWeight: DEFAULT_CODE_FONT_WEIGHT,
       terminalFont: "Geist Mono",
       terminalSize: 12,
       setAppearance: (patch) => set(patch),
@@ -73,13 +77,14 @@ export const useAppearanceStore = create<AppearanceState>()(
 // CodeMirror used to follow it: the result grid, a tree's column types, key
 // caps and every other text-code-* surface stayed on Geist Mono whatever the
 // setting said. The size stays CodeMirror's alone — those surfaces keep their
-// type scale.
+// type scale. The weight is CodeMirror's alone too, for the same reason.
 function applyCssVars(state: AppearanceState) {
   const root = document.documentElement;
   const stack = monoFontStack(state.codeFont);
   root.style.setProperty("--code-font-family", stack);
   root.style.setProperty("--font-mono-choice", stack);
   root.style.setProperty("--code-font-size", `${state.codeSize}px`);
+  root.style.setProperty("--code-font-weight", String(normalizeCodeFontWeight(state.codeWeight)));
 }
 if (typeof document !== "undefined") {
   applyCssVars(useAppearanceStore.getState());

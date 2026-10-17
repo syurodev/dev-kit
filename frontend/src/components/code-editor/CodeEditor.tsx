@@ -12,7 +12,7 @@ import { editingExtensions, type IndentStyle } from "./editing";
 import { useEditorPreferences } from "./preferences";
 import { wrapIndent } from "./wrapIndent";
 
-// Settings > Appearance drives these two custom properties (stores/
+// Settings > Appearance drives these custom properties (stores/
 // appearance.ts writes them on <html>). CodeMirror renders in the DOM, where
 // var() resolves live — so font changes apply to every open editor without a
 // remount or a Compartment.
@@ -20,6 +20,7 @@ const fontTheme = EditorView.theme({
   ".cm-scroller": {
     fontFamily: "var(--code-font-family, var(--font-mono))",
     fontSize: "var(--code-font-size, var(--type-compact-size))",
+    fontWeight: "var(--code-font-weight, 400)",
   },
 });
 

@@ -51,6 +51,7 @@ import {
   useAppearanceStore,
   type MonoFont,
 } from "@/stores/appearance";
+import { codeFontWeightLabel, codeFontWeights, normalizeCodeFontWeight, type CodeFontWeight } from "@/stores/codeFontWeight";
 import { TAB_WIDTH_LIMITS, useTabSettingsStore } from "@/stores/tabSettings";
 import {
   User,
@@ -287,12 +288,17 @@ function FontSettingRow({
   size,
   onFont,
   onSize,
+  weight,
+  onWeight,
 }: {
   label: string;
   font: MonoFont;
   size: number;
   onFont: (font: MonoFont) => void;
   onSize: (size: number) => void;
+  /** Offered only where the surface follows it (the code view). */
+  weight?: CodeFontWeight;
+  onWeight?: (weight: CodeFontWeight) => void;
 }) {
   return (
     <div className="flex flex-wrap items-end gap-4">
@@ -316,6 +322,23 @@ function FontSettingRow({
           </SelectContent>
         </Select>
       </div>
+      {weight !== undefined && onWeight ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-label-12 text-text-secondary">Weight</span>
+          <Select value={String(weight)} onValueChange={(value) => onWeight(normalizeCodeFontWeight(Number(value)))}>
+            <SelectTrigger aria-label={`${label} weight`} className="h-9 w-32 border-border bg-surface-raised text-code-12">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {codeFontWeights.map((option) => (
+                <SelectItem key={option} value={String(option)} className="text-code-12" style={{ fontWeight: option }}>
+                  {codeFontWeightLabel[option]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-1.5">
         <span className="text-label-12 text-text-secondary">Size</span>
         <SizeStepper value={size} min={10} max={24} label={`${label} size`} onChange={onSize} />
@@ -328,10 +351,11 @@ const THEME_OPTIONS = ["system", "light", "dark"] as const;
 
 function AppearanceTab() {
   const { theme, setTheme, resolvedTheme, family, setFamily } = useTheme();
-  const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore(
+  const { codeFont, codeSize, codeWeight, terminalFont, terminalSize, setAppearance } = useAppearanceStore(
     useShallow((s) => ({
       codeFont: s.codeFont,
       codeSize: s.codeSize,
+      codeWeight: s.codeWeight,
       terminalFont: s.terminalFont,
       terminalSize: s.terminalSize,
       setAppearance: s.setAppearance,
@@ -421,6 +445,8 @@ function AppearanceTab() {
             size={codeSize}
             onFont={(font) => setAppearance({ codeFont: font })}
             onSize={(size) => setAppearance({ codeSize: size })}
+            weight={normalizeCodeFontWeight(codeWeight)}
+            onWeight={(weight) => setAppearance({ codeWeight: weight })}
           />
           <FontSettingRow
             label="Terminal font"
@@ -433,9 +459,9 @@ function AppearanceTab() {
         {/* preview (763:1843): the chosen face at the chosen size, on a well. */}
         <p
           className="mt-1.5 rounded-md border border-border-subtle bg-surface-well px-4 py-3 text-text-secondary"
-          style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize }}
+          style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize, fontWeight: normalizeCodeFontWeight(codeWeight) }}
         >
-          {`const vault = unlock(masterKey); // ${codeSize}px preview`}
+          {`const vault = unlock(masterKey); // ${codeSize}px ${codeFontWeightLabel[normalizeCodeFontWeight(codeWeight)].toLowerCase()} preview`}
         </p>
       </div>
 
