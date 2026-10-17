@@ -9,13 +9,13 @@
   
   <Identity 
     Name="com.syuro.devkit"
-    Publisher="CN=syurodev"
+    Publisher="CN=SynX"
     Version="0.1.0.0" 
     ProcessorArchitecture="arm64" />
   
   <Properties>
     <DisplayName>DevKit</DisplayName>
-    <PublisherDisplayName>syurodev</PublisherDisplayName>
+    <PublisherDisplayName>SynX</PublisherDisplayName>
     <Description>Local-first developer toolkit</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>

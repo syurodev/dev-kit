@@ -5,11 +5,11 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "syurodev" # The name of the company
+  companyName: "SynX" # The name of the company
   productName: "DevKit" # The name of the application
   productIdentifier: "com.syuro.devkit" # The unique product identifier
   description: "Local-first developer toolkit" # The application description
-  copyright: "(c) 2026, syurodev" # Copyright text
+  copyright: "(c) 2026, SynX" # Copyright text
   comments: "Local-first developer toolkit" # Comments
   version: "0.0.1" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)

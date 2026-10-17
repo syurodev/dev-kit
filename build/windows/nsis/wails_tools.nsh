@@ -8,7 +8,7 @@
     !define INFO_PROJECTNAME "dev-kit"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "syurodev"
+    !define INFO_COMPANYNAME "SynX"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "DevKit"
@@ -17,7 +17,7 @@
     !define INFO_PRODUCTVERSION "0.1.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "© 2026, syurodev"
+    !define INFO_COPYRIGHT "© 2026, SynX"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

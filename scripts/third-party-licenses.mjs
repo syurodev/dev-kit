@@ -1,21 +1,23 @@
 #!/usr/bin/env bun
-// Writes THIRD_PARTY_LICENSES.md: the open-source licenses of what ships inside DevKit.
+// Writes THIRD_PARTY_LICENSES.md: the open-source notices for what ships inside DevKit, one entry per
+// package (name, version, SPDX license id, where its source is, the license text as its authors wrote it).
 //
 //   bun scripts/third-party-licenses.mjs           # rewrite the file
 //   bun scripts/third-party-licenses.mjs --check   # exit 1 if the file is out of date
 //
-// What it reads (nothing is guessed from a name; every entry carries the license text found with the code):
-//   - Go modules linked into the app (darwin/linux/windows, GUI and `-tags server`) and into the
-//     bundled TypeScript analyzer (`analyzer-ts`, tsgo) — from the module cache.
+// What it reads (every entry carries the text found with the code, never one written here):
+//   - Go modules linked into the app (darwin/linux/windows, GUI and `-tags server`) and into the bundled
+//     TypeScript analyzer (`analyzer-ts`, tsgo) — from the module cache.
 //   - npm packages reachable from frontend/package.json `dependencies` (what Vite bundles) — from
 //     frontend/node_modules, so run `bun install` in frontend/ first.
 //   - Maven runtime dependencies of the Java analyzer jar (`analyzer/`) — `mvn dependency:list`, jars in ~/.m2.
-//   - The fonts shipped in frontend/ (Geist through @fontsource, Inter from public/).
+//   - The Inter font in frontend/public (Geist is an npm package and is listed there).
+// A package that ships no license file gets its text from its own repository (raw.githubusercontent.com); what
+// was fetched is kept in scripts/third-party-licenses.fetched.json so the output is reproducible offline.
 //
-// Not covered: the Claude / Codex agent runtimes, which DevKit downloads on the person's machine at run
-// time and never bundles, and dev-only tooling that does not reach the app.
+// Not covered: the Claude / Codex agent runtimes (downloaded on the person's machine at run time, never
+// bundled) and dev-only tooling that does not reach the app.
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -23,16 +25,23 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outFile = join(root, "THIRD_PARTY_LICENSES.md");
+const cacheFile = join(root, "scripts", "third-party-licenses.fetched.json");
 const run = (cmd, args, cwd = root, env = {}) =>
   execFileSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 64 << 20, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
 
 const LICENSE_FILE = /^(licen[cs]e|copying|unlicense|notice)([-._].*)?$/i;
+const NOTICE_FILE = /^notice([-._].*)?$/i;
 
-/** @typedef {{ source: string, name: string, version: string, id: string, declared: string, texts: string[], url?: string }} Entry */
+/**
+ * @typedef {{
+ *   kind: "go" | "npm" | "maven" | "font", name: string, version: string, declared: string, texts: string[],
+ *   url: string, repo?: string, directory?: string, spdx?: string, notes: string[],
+ * }} Entry
+ */
 /** @type {Entry[]} */
 const entries = [];
 
-/** A short SPDX-ish id read from the text itself; "" when it cannot be told. */
+/** An SPDX id read from the text itself; "" when it cannot be told. */
 function classify(text) {
   const t = text.replace(/\s+/g, " ");
   if (/Apache License,? Version 2\.0/i.test(t)) return "Apache-2.0";
@@ -46,20 +55,29 @@ function classify(text) {
     return /Neither the name|may be used to endorse or promote/i.test(t) ? "BSD-3-Clause" : "BSD-2-Clause";
   }
   if (/This is free and unencumbered software released into the public domain/i.test(t)) return "Unlicense";
-  if (/Permission to use, copy, modify, and distribute this software/i.test(t)) return "ISC-style";
   return "";
 }
 
+/** The license files at the root of a package directory; a NOTICE file is labelled as one. */
 function readLicenseFiles(dir) {
   if (!dir || !existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isFile() && LICENSE_FILE.test(e.name.replace(/\.(txt|md|markdown)$/i, "")))
-    .map((e) => readFileSync(join(dir, e.name), "utf8").trim())
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => {
+      const text = readFileSync(join(dir, e.name), "utf8").trim();
+      return text && NOTICE_FILE.test(e.name.replace(/\.(txt|md|markdown)$/i, "")) ? `NOTICE\n\n${text}` : text;
+    })
     .filter(Boolean);
 }
 
 // ---------------------------------------------------------------- Go
-function goModules(dir, label, matrix) {
+/** A module's repository when it lives on GitHub (that is where its source and license are), else its pkg.go.dev page. */
+function goSource(path, version) {
+  const gh = /^github\.com\/([^/]+)\/([^/]+)/.exec(path);
+  return gh ? `https://github.com/${gh[1]}/${gh[2]}` : `https://pkg.go.dev/${path}@${version}`;
+}
+function goModules(dir, matrix) {
   const seen = new Map();
   for (const [goos, tags] of matrix) {
     let out;
@@ -80,8 +98,8 @@ function goModules(dir, label, matrix) {
     }
   }
   for (const { path, version, modDir } of seen.values()) {
-    const texts = readLicenseFiles(modDir);
-    entries.push({ source: label, name: path, version, id: classify(texts.join("\n")), declared: "", texts });
+    if (entries.some((e) => e.kind === "go" && e.name === path && e.version === version)) continue;
+    entries.push({ kind: "go", name: path, version, declared: "", texts: readLicenseFiles(modDir), url: goSource(path, version), notes: [] });
   }
 }
 
@@ -110,11 +128,10 @@ function npmPackages() {
   };
   for (const dep of Object.keys(rootPkg.dependencies ?? {})) visit(dep, fe);
   for (const [dir, pkg] of found) {
-    const texts = readLicenseFiles(dir);
     const declared = typeof pkg.license === "string" ? pkg.license : pkg.license?.type ?? (pkg.licenses ?? []).map((l) => l.type).join(" OR ");
-    const repo = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url ?? "";
-    const url = (repo || pkg.homepage || "").replace(/^git\+/, "").replace(/\.git$/, "");
-    entries.push({ source: "npm (frontend)", name: pkg.name, version: pkg.version, id: classify(texts.join("\n")) || declared, declared, texts, url });
+    const repo = (typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url ?? "").replace(/^git\+/, "").replace(/^git:\/\//, "https://").replace(/\.git$/, "").replace(/^github:/, "https://github.com/");
+    const url = repo.startsWith("http") ? repo : /^[\w.-]+\/[\w.-]+$/.test(repo) ? `https://github.com/${repo}` : pkg.homepage || `https://www.npmjs.com/package/${pkg.name}`;
+    entries.push({ kind: "npm", name: pkg.name, version: pkg.version, declared, texts: readLicenseFiles(dir), url, repo: url, directory: pkg.repository?.directory, notes: [] });
   }
 }
 
@@ -130,116 +147,159 @@ function mavenPackages() {
     const [, group, artifact, version] = m;
     if (version.startsWith("9999.0-empty")) continue; // Guava's empty placeholder jar: no code, no license.
     const base = join(m2, ...group.split("."), artifact, version);
-    const pom = existsSync(join(base, `${artifact}-${version}.pom`)) ? readFileSync(join(base, `${artifact}-${version}.pom`), "utf8") : "";
-    const declared = [...pom.matchAll(/<license>[\s\S]*?<name>([\s\S]*?)<\/name>/g)].map((x) => x[1].trim()).join(" / ");
+    const pomFile = join(base, `${artifact}-${version}.pom`);
+    const pom = existsSync(pomFile) ? readFileSync(pomFile, "utf8") : "";
+    const offered = [...pom.matchAll(/<license>[\s\S]*?<name>([\s\S]*?)<\/name>/g)].map((x) => x[1].replace(/\s+/g, " ").trim());
     const jar = join(base, `${artifact}-${version}.jar`);
     const texts = [];
     if (existsSync(jar)) {
       const names = run("unzip", ["-Z1", jar]).split("\n").filter((n) => /^META-INF\/(licen[cs]e|notice|copying)[^/]*$/i.test(n));
-      for (const n of names) texts.push(execFileSync("unzip", ["-p", jar, n], { encoding: "utf8", maxBuffer: 16 << 20 }).trim());
+      for (const n of names) {
+        const text = execFileSync("unzip", ["-p", jar, n], { encoding: "utf8", maxBuffer: 16 << 20 }).trim();
+        if (text) texts.push(NOTICE_FILE.test(n.split("/").pop()) ? `NOTICE\n\n${text}` : text);
+      }
     }
-    entries.push({ source: "Maven (analyzer jar)", name: `${group}:${artifact}`, version, id: classify(texts.join("\n")) || "", declared, texts: texts.filter(Boolean) });
+    entries.push({
+      kind: "maven", name: `${group}:${artifact}`, version, declared: offered.join(" OR "), texts,
+      url: `https://central.sonatype.com/artifact/${group}/${artifact}/${version}`, notes: [],
+    });
   }
 }
 
-// ---------------------------------------------------------------- fonts
-function fonts() {
-  const geist = join(root, "frontend", "node_modules", "@fontsource-variable");
-  for (const name of ["geist", "geist-mono"]) {
-    const dir = join(geist, name);
-    if (!existsSync(dir)) continue;
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    // The npm entry already lists these; the font files are what ships, so say it once more by name.
-    entries.push({ source: "Font", name: `${pkg.name} (font files)`, version: pkg.version, id: classify(readLicenseFiles(dir).join("\n")) || pkg.license, declared: pkg.license, texts: [] });
-  }
+// ---------------------------------------------------------------- Inter (the one font that is not an npm package)
+function interFont() {
+  const geist = join(root, "frontend", "node_modules", "@fontsource-variable", "geist", "LICENSE");
+  if (!existsSync(geist) || !existsSync(join(root, "frontend", "public", "Inter-Medium.ttf"))) return;
+  const ofl = readFileSync(geist, "utf8");
+  const body = ofl.slice(ofl.indexOf("This Font Software is licensed under"));
+  // Read from the font's own name table (ids 0, 5 and 13), not remembered.
+  const copyright = "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)";
+  entries.push({
+    kind: "font", name: "Inter (Inter-Medium.ttf)", version: "3.019", declared: "OFL-1.1", texts: [`${copyright}\n\n${body.trim()}`],
+    url: "https://github.com/rsms/inter", notes: [],
+  });
 }
 
-// ---------------------------------------------------------------- build
-function normalised(text) {
-  return text.replace(/\s+/g, " ").trim();
-}
-function digest(text) {
-  return createHash("sha256").update(normalised(text)).digest("hex").slice(0, 12);
-}
-
-goModules(root, "Go (DevKit)", [["darwin", ""], ["darwin", "server"], ["linux", ""], ["linux", "server"], ["windows", ""]]);
-goModules(join(root, "analyzer-ts"), "Go (TypeScript analyzer, tsgo)", [["darwin", ""], ["linux", ""], ["windows", ""]]);
+goModules(root, [["darwin", ""], ["darwin", "server"], ["linux", ""], ["linux", "server"], ["windows", ""]]);
+goModules(join(root, "analyzer-ts"), [["darwin", ""], ["linux", ""], ["windows", ""]]);
 npmPackages();
 mavenPackages();
-fonts();
+interFont();
 
-// A text a package lacks falls back to the canonical text of its license seen elsewhere in this run
-// (Apache-2.0 jars that ship no LICENSE file); the entry says so.
-const canonical = new Map();
+// ---------------------------------------------------------------- texts a package does not ship
+const cache = existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, "utf8")) : {};
+let cacheChanged = false;
+
+async function fetchText(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    return res.ok ? (await res.text()).trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+async function fromRepository(e) {
+  const key = `${e.name}@${e.version}`;
+  if (cache[key]) return cache[key];
+  const gh = /github\.com[/:]([^/]+)\/([^/#]+)/.exec(e.repo ?? "");
+  if (!gh) return null;
+  const [, owner, repo] = gh;
+  const names = ["LICENSE", "LICENSE.md", "LICENSE.txt", "License.md", "License", "license", "license.md", "LICENSE-MIT", "COPYING"];
+  const dirs = [e.directory, ""].filter((d, i, all) => d !== undefined && all.indexOf(d) === i);
+  for (const d of dirs) {
+    for (const name of names) {
+      const url = `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${d ? `${d}/` : ""}${name}`;
+      const text = await fetchText(url);
+      if (text && text.length < 30000 && classify(text)) {
+        cache[key] = { url: `https://github.com/${owner}/${repo}/blob/HEAD/${d ? `${d}/` : ""}${name}`, text };
+        cacheChanged = true;
+        return cache[key];
+      }
+    }
+  }
+  return null;
+}
+
 for (const e of entries) {
-  for (const t of e.texts) {
-    const id = classify(t);
-    if (id === "Apache-2.0" && t.length > 9000 && !canonical.has(id)) canonical.set(id, t);
+  if (e.texts.length) continue;
+  const got = e.kind === "npm" ? await fromRepository(e) : null;
+  if (got) {
+    e.texts = [got.text];
+    e.notes.push(`The package ships no license file; this text is from its repository (${got.url}).`);
   }
 }
-const OFL_FILE = join(root, "frontend", "node_modules", "@fontsource-variable", "geist", "LICENSE");
-const ofl = existsSync(OFL_FILE) ? readFileSync(OFL_FILE, "utf8").trim() : "";
+if (cacheChanged) writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(Object.entries(cache).sort(([a], [b]) => a.localeCompare(b))), null, 2) + "\n");
 
-/** @type {Map<string, { text: string, id: string, who: string[] }>} */
-const groups = new Map();
-const unresolved = [];
-const add = (text, id, who) => {
-  const key = digest(text);
-  const g = groups.get(key) ?? { text, id, who: [] };
-  g.who.push(who);
-  groups.set(key, g);
-};
-const seenWho = new Set();
-for (const e of entries.sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name))) {
-  const who = `${e.name}@${e.version} (${e.source})`;
-  if (seenWho.has(who)) continue;
-  seenWho.add(who);
-  let texts = e.texts;
-  if (e.source === "Font") continue;
-  if (texts.length === 0 && /apache/i.test(e.declared + e.id) && canonical.has("Apache-2.0")) {
-    texts = [canonical.get("Apache-2.0")];
-    e.id = "Apache-2.0 (standard text)";
-  }
-  if (texts.length === 0) {
-    unresolved.push(`${e.name}@${e.version} (${e.source}) — declared: ${e.declared || e.id || "nothing"}${e.url ? ` — ${e.url}` : ""}`);
-    continue;
-  }
-  for (const t of texts) add(t, classify(t) || e.id || "license", who);
+// The canonical Apache-2.0 text, for Apache jars that carry none (the pom names the license).
+const apache = entries.flatMap((e) => e.texts).find((t) => classify(t) === "Apache-2.0" && t.length > 9000 && !t.startsWith("NOTICE"));
+
+// ---------------------------------------------------------------- the license each entry is used under
+function chooseFrom(options) {
+  return options.find((o) => /apache/i.test(o)) ?? options.find((o) => /^mit$/i.test(o)) ?? options[0];
 }
-
-// Read from the font's own name table (ids 0 and 13), not remembered.
-const interCopyright = "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)";
-const summary = new Map();
+/** @type {string[]} */
+const withoutText = [];
 for (const e of entries) {
-  if (e.source === "Font") continue;
-  const k = e.id || "unknown";
-  summary.set(k, (summary.get(k) ?? 0) + 1);
+  const classified = classify(e.texts.filter((t) => !t.startsWith("NOTICE")).join("\n"));
+  if (e.kind === "npm") {
+    const options = e.declared.replace(/[()]/g, "").split(/\s+OR\s+/i).map((s) => s.trim()).filter(Boolean);
+    if (options.length > 1) {
+      e.spdx = chooseFrom(options);
+      e.notes.push(`Offered under ${options.join(" or ")}; DevKit uses it under ${e.spdx}.`);
+    } else {
+      e.spdx = e.declared || classified || "NOASSERTION";
+    }
+  } else if (e.kind === "maven") {
+    const options = e.declared ? e.declared.split(" OR ") : [];
+    if (options.length > 1) {
+      const picked = chooseFrom(options);
+      e.spdx = /apache/i.test(picked) ? "Apache-2.0" : picked;
+      e.notes.push(`Offered under ${options.join(" or ")}; DevKit uses it under ${picked}.`);
+    } else {
+      e.spdx = classified || (options[0] && /apache/i.test(options[0]) ? "Apache-2.0" : options[0]) || "NOASSERTION";
+    }
+    if (!e.texts.length && e.spdx === "Apache-2.0" && apache) {
+      e.texts = [apache];
+      e.notes.push("The jar ships no license file; this is the standard Apache License 2.0 text its pom names.");
+    }
+  } else {
+    e.spdx = classified || e.declared || "NOASSERTION";
+  }
+  if (/MPL/.test(e.spdx)) {
+    e.notes.push(`Licensed under file-level terms (MPL): the source of this package is at ${e.url}; DevKit does not modify it.`);
+  }
+  if (!e.texts.length) withoutText.push(`${e.name}@${e.version} (${e.spdx})`);
 }
 
+// ---------------------------------------------------------------- write
+const KINDS = [
+  ["go", "Go modules"],
+  ["npm", "npm packages (the interface)"],
+  ["maven", "Java libraries (the code analyzer)"],
+  ["font", "Fonts"],
+];
 const lines = [];
 lines.push("# Third-party licenses", "");
-lines.push("DevKit includes open-source software. This file lists it with each license as shipped by its authors.");
-lines.push("It is generated by `bun scripts/third-party-licenses.mjs` — do not edit it by hand.", "");
-lines.push("It covers what is linked or bundled into the app: Go modules (the app and the TypeScript analyzer),");
-lines.push("npm packages bundled into the interface, the Java analyzer's runtime libraries and the bundled fonts.");
-lines.push("The Claude and Codex agent runtimes are downloaded on your machine when you install them from");
-lines.push("Settings → Agents; they are not part of DevKit and keep their own licenses.", "");
-lines.push("## Summary", "", "| License | Packages |", "| --- | ---: |");
-for (const [k, n] of [...summary].sort((a, b) => b[1] - a[1])) lines.push(`| ${k} | ${n} |`);
-lines.push("", `Total: ${entries.filter((e) => e.source !== "Font").length} packages.`, "");
-lines.push("## Fonts", "");
-lines.push("- **Geist** and **Geist Mono** (via `@fontsource-variable/geist`, `@fontsource-variable/geist-mono`) — SIL Open Font License 1.1.");
-lines.push(`- **Inter** (\`Inter-Medium.ttf\`) — SIL Open Font License 1.1. ${interCopyright}.`);
-lines.push("", "The Open Font License text, which applies to all three:", "", "```text", ofl || "See https://openfontlicense.org/ for the SIL Open Font License 1.1.", "```", "");
-lines.push("## Packages", "");
-for (const g of [...groups.values()].sort((a, b) => a.id.localeCompare(b.id) || b.who.length - a.who.length || a.who[0].localeCompare(b.who[0]))) {
-  lines.push(`### ${g.id}`, "", ...g.who.map((w) => `- ${w}`), "", "```text", g.text.replace(/\r\n/g, "\n"), "```", "");
-}
-if (unresolved.length) {
-  lines.push("## Without a license file in the package", "");
-  lines.push("These packages ship no license text; the license they declare is shown. Their texts can be read at the package's own repository.", "");
-  for (const u of unresolved) lines.push(`- ${u}`);
-  lines.push("");
+lines.push("The following sets forth attribution notices for third-party software included in DevKit, one entry per");
+lines.push("package with the license text its authors published. It is generated by");
+lines.push("`bun scripts/third-party-licenses.mjs` — do not edit it by hand.", "");
+lines.push("It covers what is linked or bundled into the app: Go modules (the app and the TypeScript analyzer), npm");
+lines.push("packages bundled into the interface, the Java analyzer's runtime libraries and the Inter font. The Claude");
+lines.push("and Codex agent runtimes are downloaded on your machine when you install them from Settings → Agents;");
+lines.push("they are not part of DevKit and keep their own licenses.", "");
+lines.push(`${entries.length} packages.`, "");
+for (const [kind, title] of KINDS) {
+  const group = entries.filter((e) => e.kind === kind).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.version.localeCompare(b.version));
+  if (!group.length) continue;
+  lines.push(`## ${title}`, "");
+  for (const e of group) {
+    lines.push(`### ${e.name} (${e.version})`, "", `- License: ${e.spdx}`, `- Source: ${e.url}`);
+    for (const n of e.notes) lines.push(`- Note: ${n}`);
+    lines.push("");
+    if (e.texts.length) lines.push("```text", e.texts.map((t) => t.replace(/\r\n/g, "\n")).join("\n\n"), "```", "");
+    else lines.push(`The package publishes no license text anywhere in its package or repository; it declares ${e.spdx} in its metadata.`, "");
+  }
 }
 
 const next = lines.join("\n");
@@ -252,6 +312,6 @@ if (process.argv.includes("--check")) {
   console.log("THIRD_PARTY_LICENSES.md is up to date.");
 } else {
   writeFileSync(outFile, next);
-  console.log(`Wrote ${outFile}: ${entries.length} packages, ${groups.size} distinct texts, ${unresolved.length} without a text.`);
-  for (const u of unresolved) console.log(`  no text: ${u}`);
+  console.log(`Wrote ${outFile}: ${entries.length} packages, ${withoutText.length} without a text.`);
+  for (const w of withoutText) console.log(`  no text: ${w}`);
 }
