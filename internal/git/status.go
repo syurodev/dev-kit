@@ -165,7 +165,7 @@ func (s *Service) Diff(ctx context.Context, rev string, staged bool) ([]gitparse
 // comparison, including roots and merges. Options/ranges are not revisions.
 func commitComparison(ctx context.Context, r runner, rev string) (sha, parent string, err error) {
 	if rev == "" || strings.HasPrefix(rev, "-") {
-		return "", "", ErrNotAllowed
+		return "", "", fmt.Errorf("%w: name a single commit, not an option or a range", ErrNotAllowed)
 	}
 	out, err := r.run(ctx, nil, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
 	if err != nil {
@@ -244,7 +244,7 @@ func (s *Service) Show(ctx context.Context, rev string) (Commit, error) {
 		return Commit{}, err
 	}
 	if !revPattern.MatchString(rev) {
-		return Commit{}, ErrNotAllowed
+		return Commit{}, fmt.Errorf("%w: that is not a commit name", ErrNotAllowed)
 	}
 	out, err := r.run(ctx, nil, "show", "-s", commitFormat, rev)
 	if err != nil {
@@ -252,7 +252,7 @@ func (s *Service) Show(ctx context.Context, rev string) (Commit, error) {
 	}
 	commits := parseCommits(out)
 	if len(commits) == 0 {
-		return Commit{}, ErrNotAllowed
+		return Commit{}, fmt.Errorf("%w: git shows no commit for that name", ErrNotAllowed)
 	}
 	return commits[0], nil
 }
@@ -265,7 +265,7 @@ func (s *Service) RevPatch(ctx context.Context, rev, path string) (string, error
 		return "", err
 	}
 	if !revPattern.MatchString(rev) || path == "" {
-		return "", ErrNotAllowed
+		return "", fmt.Errorf("%w: name a commit and a file path", ErrNotAllowed)
 	}
 	sha, parent, err := commitComparison(ctx, r, rev)
 	if err != nil {
@@ -351,7 +351,7 @@ func (s *Service) filePatch(ctx context.Context, path string, staged bool) (stri
 		return "", err
 	}
 	if path == "" {
-		return "", ErrNotAllowed
+		return "", fmt.Errorf("%w: name a file path", ErrNotAllowed)
 	}
 	// --no-ext-diff: a repository configuring an external differ would return
 	// something that is not a patch at all.

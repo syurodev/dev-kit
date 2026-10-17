@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -84,11 +85,11 @@ func (s *Service) Commit(ctx context.Context, in CommitInput) (Commit, error) {
 		return Commit{}, err
 	}
 	if len(status.Conflicted) > 0 {
-		return Commit{}, ErrConflict
+		return Commit{}, fmt.Errorf("%w: resolve the conflicted files first", ErrConflict)
 	}
 	message := WithTaskTrailer(in.Message, in.TaskKey)
 	if strings.TrimSpace(message) == "" {
-		return Commit{}, ErrNotAllowed
+		return Commit{}, fmt.Errorf("%w: a commit needs a message", ErrNotAllowed)
 	}
 	if err := s.gate(ctx, status.Branch, "Commit", summarise(status.Staged)); err != nil {
 		return Commit{}, err
@@ -225,7 +226,7 @@ func (s *Service) CreateBranch(ctx context.Context, name, from string) (string, 
 		return "", err
 	}
 	if name == "" {
-		return "", ErrNotAllowed
+		return "", fmt.Errorf("%w: name the branch to create", ErrNotAllowed)
 	}
 	args := []string{"switch", "-c", name}
 	if from != "" {
@@ -252,7 +253,7 @@ func (s *Service) Checkout(ctx context.Context, name string) error {
 		return err
 	}
 	if len(status.Staged) > 0 || len(status.Unstaged) > 0 || len(status.Conflicted) > 0 {
-		return ErrNotAllowed
+		return fmt.Errorf("%w: the work tree has uncommitted changes — commit or stash them before switching branches", ErrNotAllowed)
 	}
 	_, err = r.run(ctx, nil, "switch", name)
 	return err

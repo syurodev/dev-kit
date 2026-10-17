@@ -87,7 +87,7 @@ func TestPushOnAGatedRemoteAsksAndARefusalSendsNothing(t *testing.T) {
 
 	refused := &stubConfirm{allow: false}
 	svc.SetConfirmer(refused)
-	if err := svc.Push(ctx, PushInput{Remote: "origin", Branch: "main"}); err != ErrNotAllowed {
+	if err := svc.Push(ctx, PushInput{Remote: "origin", Branch: "main"}); !errors.Is(err, ErrNotAllowed) {
 		t.Fatalf("a refused push = %v, want ErrNotAllowed", err)
 	}
 	if refused.asked != 1 {
@@ -114,7 +114,7 @@ func TestGatedPushFailsClosedWithoutAConfirmer(t *testing.T) {
 	svc.SetRemotes(stubRemotes{{Name: "origin", Env: "prod"}})
 	svc.SetEnvs(stubEnvs{"prod": true})
 
-	if err := svc.Push(context.Background(), PushInput{Remote: "origin", Branch: "main"}); err != ErrNotAllowed {
+	if err := svc.Push(context.Background(), PushInput{Remote: "origin", Branch: "main"}); !errors.Is(err, ErrNotAllowed) {
 		t.Fatalf("a headless gated push = %v, want ErrNotAllowed", err)
 	}
 	if refs := runGit(t, svc, bare, "for-each-ref", "--format=%(refname)"); strings.Contains(refs, "refs/heads/main") {

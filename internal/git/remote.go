@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -306,7 +307,7 @@ func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {
 	}
 	if env != "" && s.envs != nil && s.envs.RequiresConfirmation(env) {
 		if s.confirm == nil {
-			return ErrNotAllowed
+			return fmt.Errorf("%w: a push to %s (%s) needs the person's confirmation and nobody here can be asked", ErrNotAllowed, remote, env)
 		}
 		target, targetErr := s.remoteNamed(ctx, remote, true)
 		if targetErr != nil {
@@ -317,7 +318,7 @@ func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {
 			return err
 		}
 		if !allowed {
-			return ErrNotAllowed
+			return fmt.Errorf("%w: the person declined the push to %s/%s", ErrNotAllowed, remote, branch)
 		}
 		return nil
 	}

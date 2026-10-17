@@ -167,6 +167,7 @@ as production-verified against a real Claude Code session in cloud CI.
   real grants. A denial reaches an agent as `Permission denied: <what was missing>` (the window keeps the
   bare message, `bridge.publicErrorFor`), and a Codex row for a failed MCP call shows the tool's own text
   instead of `failed` (`codexMcpErrorText`).
+- **`internal/git` refusals (`ErrPushedHistory`, `ErrDirtyWorkTree`, `ErrInProgress`, `ErrNotAllowed`, `ErrProtectedBranch`, …) are plain sentinels, published by `bridge/git_errors.go`** (`gitRefusals`: code + the `fmt.Errorf("%w: sentence")` site's own text, never git's stderr; `TestEveryGitSentinelIsPublished` fails for a new sentinel, `TestGitRefusalsTellTheAgentWhyThroughTheRealBridge` runs `git.amend` etc. on a real repo) — wrap with a sentence, don't return a sentinel bare.
 - **What a tool puts in an agent's context is budgeted** (`internal/mcp/result_budget.go`, `tool_budget_test.go`). Anything a
   tool returns stays in the conversation for every later request, and Codex pulls tool definitions into context too. Results:
   `withResultBudget` (one receiving middleware, not per handler) cuts a text result over `ResultBudget` (24 KB) at item

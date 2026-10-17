@@ -552,6 +552,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, gitssh.ErrNotAKey), errors.Is(err, gitssh.ErrPassphraseRequired), errors.Is(err, gitssh.ErrBadPassphrase):
 			return apperrors.New(codeValidationFailed, "The SSH key of the account chosen for this remote can no longer be opened, so nothing was sent. Add the key again in Accounts.", true)
 		}
+		if refusal := gitRefusalError(err); refusal != nil {
+			return refusal
+		}
 		var authErr *gitservice.AuthError
 		if errors.As(err, &authErr) {
 			// The cause is git's own stderr, which can quote the remote's
