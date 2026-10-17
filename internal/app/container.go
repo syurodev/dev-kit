@@ -409,6 +409,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_customization:*"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_model_profiles"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_model_profiles"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_subagent_limits"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_subagent_limits"},
 		// Which Accounts token Codex signs in with: the id, never the key.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},

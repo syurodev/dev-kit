@@ -261,6 +261,8 @@ type Repository interface {
 	SetCallVisibility(overrides map[string]string) error
 	GetAgentModelProfiles() (AgentModelProfiles, bool, error)
 	SetAgentModelProfiles(profiles AgentModelProfiles) error
+	GetAgentSubagentLimits() (AgentSubagentLimits, bool, error)
+	SetAgentSubagentLimits(limits AgentSubagentLimits) error
 }
 
 type Service struct {

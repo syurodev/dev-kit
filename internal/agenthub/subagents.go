@@ -211,6 +211,7 @@ func (s *Service) homeShared() bool {
 // the translator's rules only and the list is fetched for the next one. It
 // never fails: a profile that cannot be offered is left out and logged.
 func (s *Service) applySubagents(spec *OpenSpec, vendor AgentType) {
+	s.applySubagentLimits(spec, vendor)
 	profiles := s.modelProfiles()
 	wanted := false
 	for _, p := range profiles {

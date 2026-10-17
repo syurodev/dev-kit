@@ -36,7 +36,7 @@ export const SETTINGS_GROUPS = [
   ] },
   { label: "Agents", items: [
     { id: "agents-runtimes", label: "Runtimes", keywords: "claude codex install version node sign in login api key observed sessions" },
-    { id: "agents-models", label: "Models & subagents", keywords: "model effort reasoning profiles jobs subagent delegate" },
+    { id: "agents-models", label: "Models & subagents", keywords: "model effort reasoning profiles jobs subagent delegate limit max nesting depth concurrent cost" },
     { id: "agents-skills", label: "Skills & MCP", keywords: "tools skills mcp servers import folders override disable customization" },
     { id: "agents-safety", label: "Safety", keywords: "sandbox checkpoints rollback docker home folder isolation permissions" },
     { id: "agents-notifications", label: "Notifications & remote", keywords: "notify alerts telegram bot pairing phone approvals remote control" },

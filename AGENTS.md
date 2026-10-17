@@ -462,6 +462,39 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `_NODE`, `_CODEX` are set — see its header): a new Claude and a new Codex session each show the subagent, the child
     runs on the profile's model/effort/instructions, and a Claude subagent's shell `git commit` is refused by DevKit's hook.
     The harness gateway allows everything, so a gated tool's confirm card is not exercised through a subagent.
+- **Codex subagent limits: one cap on how many, no depth** (`internal/preferences/subagentlimits.go`, preference
+  `agent_subagent_limits`, `internal/agenthub/codex_subagent_limits.go`, bridge `AgentHubGet|SetSubagentLimits`
+  (UI-only, revision/CAS, grants `preferences:* agent_subagent_limits`), Settings → Agents → Models & subagents →
+  "Subagent limits", gallery `?gallery#agenthub-subagent-limits`). Unset = DevKit writes nothing. A value (0–16; Go
+  rejects more, `codexSubagentLimitArgs` also clamps) is passed per process as `-c
+  features.multi_agent_v2.max_concurrent_threads_per_session=N+1 -c agents.max_threads=N` beside the role registration
+  (`applySubagentLimits` runs in `applySubagents`, so create, resume, rewind and Reload all re-read it; a running
+  session keeps its limit until Reload). Never config.toml. No MCP tool reads or edits it
+  (`TestNoToolTouchesSubagentLimits`). Claude: no control (its subagents cannot start subagents; DevKit sets no
+  count), said in one line in the UI.
+  **Measured with the real `codex app-server` 0.163.0** (`cmd/pdfe2e/subagent_limits_test.go`, scripted mock model,
+  fake HOME; env as `subagent_test.go`; `go test ./cmd/pdfe2e/ -run SubagentLimit -v`):
+  - **Slots**: the app-server runs multi_agent_v2 (`multi_agent_v2` is a stable, on feature; setting it false changes
+    nothing). The root's developer message says "There are N available concurrency slots … including you". Default
+    **N = 4** (the main agent + 3 subagents). `agents.max_threads=K` → K+1 slots (K subagents), and so does
+    `agents.max_concurrent_threads_per_session=K`; `features.multi_agent_v2.max_concurrent_threads_per_session=M` → M
+    slots (root included) and **wins over the agents.* keys when both are set** — hence DevKit sets both (the shared-home
+    import carries the user's `features` table, and a `-c` table over a user's bool/table `multi_agent_v2` is
+    accepted). Values up to 500 were accepted (no Codex cap; DevKit caps at 16). **`agents.max_threads=0` stops
+    Codex starting** ("agents.max_concurrent_threads_per_session must be at least 1"), so "none" is expressed as the
+    v2 key = 1 only (every spawn is refused). `agents.max_threads` is not the default 6 the docs suggest in this mode.
+  - **A finished subagent frees its slot** (three children answered, then a fourth and fifth spawned fine); one that is
+    still working keeps it. Nested spawns draw from the same pool: a chain root→a→b→c with 4 slots refused the c's child.
+  - **A refused spawn** reaches the model as the `spawn_agent` call's output, the plain text `collab spawn failed:
+    agent thread limit reached` — no error flag, the turn goes on.
+  - **`agents.max_depth` does nothing here.** With room for 20 slots, depth 0, 1, 2 and the default all let a chain
+    nest 4–7 levels (`/root/l0_w0/l1_w0/l2_w0/…`); `spawn_agent` stays offered to every level. ("Agent depth limit
+    reached. Solve the task yourself." is in the binary, but this mode never produces it.) So nesting is bounded only by
+    the slot count, and **DevKit offers no depth control** — a limit of 1 is the way to forbid nesting.
+  - **`agents.job_max_runtime_seconds`** belongs to Codex's agent-job (CSV batch) tool, which is not among the tools the
+    app-server offers (`exec wait … spawn_agent wait_agent`), so it is not exposed. `default_subagent_model` /
+    `default_subagent_reasoning_effort` are covered by profiles-as-subagents.
+  - Not verified: a real ChatGPT/API account may get different remote feature flags than the keyless runs above.
 - **A person's turn has no time limit; an agent's or terminal's does.** `Service.Invoke` applies
   `DefaultInvokeTimeout` (10 min) only when the caller is not the UI or a remote human
   (`invokeUnbounded`). It used to cut every UI turn at 10:00 exactly, which looked like the vendor

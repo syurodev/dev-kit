@@ -1151,3 +1151,21 @@ export function agentHubCheckModelProfiles(): Promise<ModelProfileCheck[]> {
     })),
   );
 }
+
+/** The cap on subagents. `codexMaxSubagents` is null while unset (DevKit passes Codex nothing). */
+export type SubagentLimitsState = { revision: number; codexMaxSubagents: number | null };
+
+export function agentHubGetSubagentLimits(): Promise<SubagentLimitsState> {
+  return callBridge(async () => {
+    const state = await AppService.AgentHubGetSubagentLimits();
+    return { revision: state.revision, codexMaxSubagents: state.codexMaxSubagents ?? null };
+  });
+}
+
+/** Replaces the cap when `revision` is the stored one; null clears it. The answer is what was stored. */
+export function agentHubSetSubagentLimits(revision: number, codexMaxSubagents: number | null): Promise<SubagentLimitsState> {
+  return callBridge(async () => {
+    const state = await AppService.AgentHubSetSubagentLimits(revision, codexMaxSubagents);
+    return { revision: state.revision, codexMaxSubagents: state.codexMaxSubagents ?? null };
+  });
+}

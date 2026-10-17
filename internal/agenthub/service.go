@@ -380,6 +380,10 @@ type Service struct {
 	// (Settings → Agents). nil means there are none. Read on every call, so an
 	// edit applies to the next session an agent starts.
 	ModelProfiles func() (preferences.AgentModelProfiles, error)
+	// SubagentLimits reads the person's cap on subagents (Settings → Agents →
+	// Models & subagents). nil means none. Read when a session's process is
+	// started, so a change applies to the next session and to a Reload.
+	SubagentLimits func() (preferences.AgentSubagentLimits, error)
 
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
