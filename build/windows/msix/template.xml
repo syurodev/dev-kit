@@ -10,15 +10,15 @@
     <Installer
         Path="dev-kit"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\syurodev\DevKit">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="DevKit"
+        PackageDisplayName="DevKit"
+        PublisherName="CN=syurodev"
+        PublisherDisplayName="syurodev"
         Version="0.1.0.0"
-        PackageDescription="A dev-kit application">
+        PackageDescription="Local-first developer toolkit">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
@@ -26,8 +26,8 @@
         <Applications>
             <Application
                 Id="com.syuro.devkit"
-                Description="A dev-kit application"
-                DisplayName="My Product"
+                Description="Local-first developer toolkit"
+                DisplayName="DevKit"
                 ExecutableName="dev-kit"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A dev-kit application</Description>
+            <DisplayName>DevKit</DisplayName>
+            <PublisherDisplayName>syurodev</PublisherDisplayName>
+            <Description>Local-first developer toolkit</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

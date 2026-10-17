@@ -200,3 +200,7 @@ build/               Wails/platform build configuration
 The security spine is `permissions` + `capabilities` + `audit`: every privileged
 call from the `bridge` passes through the capability gateway with an explicit
 `(subject, capability, scope)`, and sensitive fields are redacted before audit.
+
+## Open source licenses
+
+DevKit bundles open-source software. Its notices are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and in the app under Settings → Open source licenses. The file is generated: `bun scripts/third-party-licenses.mjs`.

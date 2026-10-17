@@ -1447,6 +1447,23 @@ from `DEVKIT_VERSION`, which `build-prod.yml` sets from the tag). Unstamped buil
 - Test: `go test ./internal/updater/ ./internal/bridge/ -run Update`; try a stamped build with
   `DEVKIT_VERSION=0.0.1 task build`.
 
+### Open source licenses (`THIRD_PARTY_LICENSES.md`)
+The notices for everything bundled into DevKit live in `THIRD_PARTY_LICENSES.md` at the repository root and in
+Settings → Personal → "Open source licenses" (`settings/LicensesSetting.tsx`, fetched on demand as an emitted
+`?url` asset, shown as plain text by `thirdPartyLicenses.ts`). The file is **generated**, never edited:
+`bun scripts/third-party-licenses.mjs` reads the Go module cache (app, all three OSes, GUI and `-tags server`; the
+`analyzer-ts` module), `frontend/node_modules` (the closure of `dependencies`), the Java analyzer's runtime jars
+(`mvn dependency:list` + `~/.m2`) and the two bundled fonts, groups identical license texts, and lists packages that
+ship no text with their declared license and repository. `--check` fails when it is stale; it needs those
+toolchains installed, so it is not a CI step. Re-run it after changing any dependency (`go.mod`, `package.json`,
+`analyzer/pom.xml`, `analyzer-ts/go.mod`) or a bundled font. The Claude / Codex runtimes are downloaded at run
+time, not bundled, and are not listed.
+- Product identity (name `DevKit`, company `syurodev`, id `com.syuro.devkit`) is in `build/config.yml` and the
+  generated build assets under `build/` (plists, `desktop`, `info.json`, NSIS, MSIX). The macOS menu-bar name is
+  `CFBundleName` in `Info.plist` / `Info.dev.plist`. `build/ios/` is scaffolding and still carries the template name.
+- `build/linux/nfpm/nfpm.yaml` still says `license: "MIT"` from the template; DevKit has no LICENSE of its own yet,
+  so that field is a placeholder to settle with the project's own license.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
