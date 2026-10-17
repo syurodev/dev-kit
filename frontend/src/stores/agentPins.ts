@@ -34,6 +34,13 @@ type AgentPinsState = {
   olderOpen: string[];
   toggleOlderOpen: (key: string) => void;
   /**
+   * Sessions whose children the person folded shut in the rail, by session id.
+   * Closed rather than open, like `collapsed`: a child that was just started
+   * shows under its parent until someone hides it.
+   */
+  foldedBranches: string[];
+  toggleBranchFolded: (sessionId: string) => void;
+  /**
    * Closed sessions left out of the tree. Off by default: a session you just
    * closed vanishing from under the pointer is a worse surprise than a long
    * list, and the list is what the toggle is for.
@@ -105,6 +112,13 @@ export const useAgentPinsStore = create<AgentPinsState>()(
             ? state.olderOpen.filter((k) => k !== key)
             : [...state.olderOpen, key],
         })),
+      foldedBranches: [],
+      toggleBranchFolded: (sessionId) =>
+        set((state) => ({
+          foldedBranches: state.foldedBranches.includes(sessionId)
+            ? state.foldedBranches.filter((id) => id !== sessionId)
+            : [...state.foldedBranches, sessionId],
+        })),
       hideClosed: false,
       toggleHideClosed: () => set((state) => ({ hideClosed: !state.hideClosed })),
       following: [],
@@ -128,6 +142,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         collapsed: state.collapsed,
         expanded: state.expanded,
         olderOpen: state.olderOpen,
+        foldedBranches: state.foldedBranches,
         hideClosed: state.hideClosed,
         recentProjects: state.recentProjects,
         following: state.following,

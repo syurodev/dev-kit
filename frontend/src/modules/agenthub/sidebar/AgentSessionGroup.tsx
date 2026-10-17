@@ -19,11 +19,10 @@ import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
 import { sessionTitle } from "../documents";
 import { useSessionActions } from "./actions";
-import { AgentSessionCard } from "./AgentSessionCard";
 import { projectLabel } from "./grouping";
-import { partitionGroup, sessionCount, type SidebarGroup } from "./model";
-
-const NO_SUBAGENTS: readonly Subagent[] = [];
+import { sessionCount, type SidebarGroup } from "./model";
+import { SessionBranch, type BranchContext } from "./SessionBranch";
+import { buildForest, heldBranches, partitionForest, type BranchSignals } from "./tree";
 
 export type AgentSessionGroupProps = {
   group: SidebarGroup;
@@ -38,6 +37,10 @@ export type AgentSessionGroupProps = {
   pinnedIds: readonly string[];
   subagents: Record<string, Subagent[]>;
   peerUnread: Record<string, number>;
+  /** What the sessions below each session are doing, over every session (tree.ts branchSignals). */
+  signals: Record<string, BranchSignals>;
+  /** Sessions whose children the person folded shut. */
+  folded: ReadonlySet<string>;
   now: number;
   onToggleCollapsed: (key: string) => void;
   onToggleOlder: (key: string) => void;
@@ -87,6 +90,8 @@ function AgentSessionGroupView({
   pinnedIds,
   subagents,
   peerUnread,
+  signals,
+  folded,
   now,
   onToggleCollapsed,
   onToggleOlder,
@@ -94,19 +99,21 @@ function AgentSessionGroupView({
 }: AgentSessionGroupProps) {
   const actions = useSessionActions();
 
-  // While the stack is open every card is on screen, so the session being
-  // viewed needs no exception: pulling it out of the stack on selection would
-  // move its card between the two lists, and React would remount it — losing
-  // the keyboard focus the person just used to choose it. It is drawn as an
-  // exception again the moment the stack folds.
+  // The group is a forest: a session with children draws them under it, and a
+  // whole tree counts as one of the five recent. While the stack is open every
+  // card is on screen, so the session being viewed needs no exception: pulling
+  // its tree out of the stack on selection would move it between the two lists,
+  // and React would remount the card — losing the keyboard focus the person
+  // just used to choose it. It is drawn as an exception again the moment the
+  // stack folds.
+  const forest = React.useMemo(() => buildForest(group.sessions), [group.sessions]);
   const { shown, stacked } = React.useMemo(
-    () =>
-      partitionGroup(group.sessions, {
-        activeId: olderOpen ? undefined : activeId,
-        pinnedIds,
-      }),
-    [group.sessions, activeId, olderOpen, pinnedIds],
+    () => partitionForest(forest, { activeId: olderOpen ? undefined : activeId, pinnedIds }),
+    [forest, activeId, olderOpen, pinnedIds],
   );
+  // A branch stays open over the session on screen and a pinned one.
+  const held = React.useMemo(() => heldBranches(forest, activeId, pinnedIds), [forest, activeId, pinnedIds]);
+  const pinnedSet = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
 
   const running = React.useMemo(() => group.sessions.filter((s) => s.status === "running").length, [group.sessions]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
@@ -128,21 +135,21 @@ function AgentSessionGroupView({
   // A workspace of several folders says which one each row works in.
   const severalFolders = Boolean(group.workspace && group.workspace.paths.length > 1);
 
-  const renderCard = (session: (typeof shown)[number]) => (
-    <AgentSessionCard
-      key={session.id}
-      session={session}
-      selected={session.id === activeId}
-      // Anything waiting on the person is drawn in Needs you, not here.
-      ask={null}
-      folder={severalFolders ? projectLabel(session.projectPath) : null}
-      pinned={pinnedIds.includes(session.id)}
-      subagents={subagents[session.id] ?? NO_SUBAGENTS}
-      peerUnread={peerUnread[session.id]}
-      parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
-      now={now}
-    />
-  );
+  const ctx: BranchContext = {
+    activeId,
+    pinned: pinnedSet,
+    folded,
+    held,
+    subagents,
+    peerUnread,
+    signals,
+    titles,
+    // Anything waiting on the person is drawn in Needs you, not here.
+    folderOf: (path) => (severalFolders ? projectLabel(path) : null),
+    now,
+  };
+  const renderTree = (nodes: typeof shown) =>
+    nodes.map((node) => <SessionBranch key={node.session.id} node={node} first={false} last={false} guided={false} ctx={ctx} />);
 
   // Folded with something running, that is the news; otherwise the total.
   const showRunning = compact && running > 0;
@@ -261,7 +268,7 @@ function AgentSessionGroupView({
         <CollapsibleContent>
           <SidebarInset className="pt-0.5 pb-2">
             <div ref={shownRef} role="list" aria-label={`${group.label} sessions`} className="flex flex-col gap-0.5">
-              {shown.map((session) => renderCard(session))}
+              {renderTree(shown)}
             </div>
             {stacked.length > 0 ? (
               <Collapsible open={olderOpen} onOpenChange={() => onToggleOlder(group.key)}>
@@ -273,7 +280,7 @@ function AgentSessionGroupView({
                     aria-label={`${group.label} older sessions`}
                     className="flex flex-col gap-0.5 pb-1"
                   >
-                    {stacked.map((session) => renderCard(session))}
+                    {renderTree(stacked)}
                   </div>
                 </CollapsibleContent>
               </Collapsible>

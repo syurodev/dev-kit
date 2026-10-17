@@ -821,3 +821,217 @@ describe("messages from other sessions on a row", () => {
     expect(cardHtml(html, "s1")).not.toContain("data-waiting");
   });
 });
+
+describe("children under their parent", () => {
+  const family = () => [
+    session("root", { updatedAt: 50, status: "idle" }),
+    session("a", { parentSessionId: "root", depth: 1, updatedAt: 40 }),
+    session("b", { parentSessionId: "root", depth: 1, updatedAt: 30 }),
+    session("b1", { parentSessionId: "b", depth: 2, updatedAt: 20 }),
+  ];
+  /** The part of the page from a node's opening to the next node's: its card and what it holds. */
+  const nodeHtml = (html: string, id: string) => {
+    const at = html.lastIndexOf('<div role="listitem"', html.indexOf(`data-session-id="${id}"`));
+    return html.slice(at);
+  };
+
+  it("draws a child inside its parent's list item, in a list of its own, in tree order", () => {
+    const html = render({ sessions: family() });
+    expect(cardIds(html)).toEqual(["root", "a", "b", "b1"]);
+    const root = nodeHtml(html, "root");
+    expect(root.indexOf('data-testid="agent-branch-list"')).toBeGreaterThan(root.indexOf('data-session-id="root"'));
+    expect(root.indexOf('data-session-id="a"')).toBeGreaterThan(root.indexOf('data-testid="agent-branch-list"'));
+    // Real levels, whatever is indented.
+    expect(html).toMatch(/role="listitem" aria-level="1"[^>]*data-level="0"/);
+    expect(html).toMatch(/role="listitem" aria-level="2"[^>]*data-level="1"/);
+    expect(html).toMatch(/role="listitem" aria-level="3"[^>]*data-level="2"/);
+    // Lists and list items, not a tree widget: the cards hold buttons and menus.
+    expect(html).not.toContain('role="tree"');
+  });
+
+  it("a parent says how many sessions are under it, and a child carries the branch mark", () => {
+    const html = render({ sessions: family() });
+    expect(cardHtml(html, "root")).toMatch(/data-testid="agent-branch-count">3</);
+    expect(cardHtml(html, "b")).toMatch(/data-testid="agent-branch-count">1</);
+    expect(cardHtml(html, "a")).not.toContain("agent-branch-toggle");
+    expect(cardHtml(html, "a")).toContain("agent-nested-mark");
+    expect(cardHtml(html, "root")).not.toContain("agent-nested-mark");
+  });
+
+  it("the toggle is a button that says what it does and whether it is open", () => {
+    const html = render({ sessions: family() });
+    const toggle = tagOf(html, "agent-branch-toggle");
+    expect(toggle).toContain('aria-expanded="true"');
+    expect(toggle).toContain('aria-label="Hide 3 child sessions"');
+    expect(toggle).toMatch(/aria-controls="[^"]+"/);
+    expect(buttonDepth(html)).toBe(1);
+  });
+
+  it("indents children and joins each to its parent with an elbow; the last has no line going on", () => {
+    const html = render({ sessions: family() });
+    expect(html).toContain("padding-left:28px");
+    // One guide per child: a, b, b1.
+    expect(html.match(/data-testid="agent-branch-guide"/g)).toHaveLength(3);
+    // a is not last: line + elbow. b is last under root: elbow only. b1: elbow only.
+    const guide = (id: string) => nodeHtml(html, id).slice(nodeHtml(html, id).indexOf('data-testid="agent-branch-guide"')).split("</span></span>")[0];
+    expect(guide("a").match(/border-left/g)?.length).toBe(2);
+    expect(guide("b").match(/border-left/g)?.length).toBe(1);
+  });
+
+  it("stops indenting after two levels but keeps the real level", () => {
+    const deep = [
+      session("r", { updatedAt: 9 }),
+      session("l1", { parentSessionId: "r", depth: 1, updatedAt: 8 }),
+      session("l2", { parentSessionId: "l1", depth: 2, updatedAt: 7 }),
+      session("l3", { parentSessionId: "l2", depth: 3, updatedAt: 6 }),
+      session("l4", { parentSessionId: "l3", depth: 4, updatedAt: 5 }),
+    ];
+    const html = render({ sessions: deep });
+    expect(cardIds(html)).toEqual(["r", "l1", "l2", "l3", "l4"]);
+    // r → l1 and l1 → l2 are indented; l2 → l3 and l3 → l4 are not.
+    expect(html.match(/padding-left:28px/g)).toHaveLength(2);
+    expect(html.match(/data-testid="agent-branch-guide"/g)).toHaveLength(2);
+    expect(html).toMatch(/aria-level="5"[^>]*data-level="4"/);
+  });
+
+  it("a folded branch draws no children, and says so", () => {
+    const html = render({ sessions: family(), foldedBranchIds: ["root"] });
+    expect(cardIds(html)).toEqual(["root"]);
+    expect(tagOf(html, "agent-branch-toggle")).toContain('aria-expanded="false"');
+    expect(tagOf(html, "agent-branch-toggle")).toContain('aria-label="Show 3 child sessions"');
+    expect(tagOf(html, "agent-branch-toggle")).not.toContain("aria-controls");
+  });
+
+  it("folding one branch leaves its siblings and the rest of the tree alone", () => {
+    const html = render({ sessions: family(), foldedBranchIds: ["b"] });
+    expect(cardIds(html)).toEqual(["root", "a", "b"]);
+  });
+
+  it("the session on screen holds its branch open, though it was folded, and the toggle cannot fold it", () => {
+    const html = render({ sessions: family(), foldedBranchIds: ["root", "b"], activeSessionId: "b1" });
+    expect(cardIds(html)).toEqual(["root", "a", "b", "b1"]);
+    expect(cardHtml(html, "root")).toContain("data-held");
+    expect(cardHtml(html, "root")).toContain('aria-disabled="true"');
+    expect(cardHtml(html, "a")).not.toContain("data-held");
+  });
+
+  it("a pinned child holds its branch open too", () => {
+    const html = render({ sessions: family(), foldedBranchIds: ["root"], pinnedIds: ["a"] });
+    expect(cardIds(html)).toEqual(["root", "a", "b", "b1"]);
+  });
+
+  it("a folded parent carries one mark for what runs below it, and an open one none", () => {
+    const sessions = [session("root", { updatedAt: 5 }), session("run", { parentSessionId: "root", depth: 1, status: "running" })];
+    const folded = render({ sessions, foldedBranchIds: ["root"] });
+    expect(cardHtml(folded, "root")).toMatch(/data-testid="agent-branch-hint" data-hint="running"/);
+    expect(cardHtml(folded, "root")).toContain("A child session is running");
+    expect(render({ sessions })).not.toContain("agent-branch-hint");
+  });
+
+  it("a folded parent carries a mark for unread messages below it", () => {
+    const sessions = [session("root", { updatedAt: 5 }), session("kid", { parentSessionId: "root", depth: 1 })];
+    const html = render({ sessions, foldedBranchIds: ["root"], peerUnread: { kid: 2 } });
+    expect(cardHtml(html, "root")).toMatch(/data-hint="unread"/);
+  });
+
+  it("a child waiting on the person is drawn in Needs you, and its parent is marked, open or not", () => {
+    const sessions = [
+      session("root", { updatedAt: 5 }),
+      session("ok", { parentSessionId: "root", depth: 1, updatedAt: 4 }),
+      session("ask", { parentSessionId: "root", depth: 1, updatedAt: 3, status: "awaiting_permission" }),
+    ];
+    for (const foldedBranchIds of [[], ["root"]]) {
+      const html = render({ sessions, foldedBranchIds });
+      expect(html).toContain('data-testid="agent-needs-you"');
+      expect(cardHtml(html, "root")).toMatch(/data-hint="waiting"/);
+      expect(cardHtml(html, "root")).toContain("A child session is waiting for you");
+    }
+    // Drawn once: in Needs you, not also under its parent.
+    expect(cardIds(render({ sessions })).filter((id) => id === "ask")).toHaveLength(1);
+    // The count is what is drawn under it.
+    expect(cardHtml(render({ sessions }), "root")).toMatch(/data-testid="agent-branch-count">1</);
+  });
+
+  it("a failed child is marked on its parent as well", () => {
+    const sessions = [session("root", { updatedAt: 5 }), session("bad", { parentSessionId: "root", depth: 1, status: "error" })];
+    const html = render({ sessions });
+    // Nothing is drawn under it, so the mark stands alone, with no fold.
+    expect(cardHtml(html, "root")).toMatch(/data-hint="failed"/);
+    expect(cardHtml(html, "root")).toContain("agent-branch-mark");
+    expect(cardHtml(html, "root")).not.toContain("agent-branch-toggle");
+  });
+
+  it("a tree is one of the five recent: six trees fold only one", () => {
+    const sessions = [
+      ...aged(6),
+      session("k1", { parentSessionId: "s0", depth: 1, updatedAt: 1 }),
+      session("k2", { parentSessionId: "s0", depth: 1, updatedAt: 1 }),
+      session("k3", { parentSessionId: "s1", depth: 1, updatedAt: 1 }),
+    ];
+    const html = render({ sessions });
+    expect(html).toContain("1 older session");
+    expect(cardIds(html)).toEqual(["s0", "k1", "k2", "s1", "k3", "s2", "s3", "s4"]);
+  });
+
+  it("a child on screen keeps its old tree out of the stack", () => {
+    const sessions = [
+      ...aged(7),
+      session("deep", { parentSessionId: "s6", depth: 1, updatedAt: 1 }),
+    ];
+    const html = render({ sessions, activeSessionId: "deep" });
+    expect(cardIds(html)).toContain("deep");
+    expect(cardIds(html)).toContain("s6");
+    expect(html).toContain("1 older session");
+  });
+
+  it("a child whose parent is gone, or hidden as closed, is drawn as a root and keeps its group", () => {
+    const orphan = render({ sessions: [session("kid", { parentSessionId: "deleted", depth: 1 })] });
+    expect(cardIds(orphan)).toEqual(["kid"]);
+    expect(orphan).not.toContain("agent-branch-list");
+    const hidden = render({
+      sessions: [session("p", { status: "closed" }), session("kid", { parentSessionId: "p", depth: 1 })],
+      hideClosed: true,
+    });
+    expect(cardIds(hidden)).toEqual(["kid"]);
+    expect(hidden).not.toContain("agent-branch-toggle");
+  });
+
+  it("data with a cycle still draws every session once", () => {
+    const html = render({
+      sessions: [
+        session("a", { parentSessionId: "b", updatedAt: 1 }),
+        session("b", { parentSessionId: "a", updatedAt: 2 }),
+        session("self", { parentSessionId: "self", updatedAt: 3 }),
+      ],
+    });
+    expect(cardIds(html).sort()).toEqual(["a", "b", "self"]);
+  });
+
+  it("a child stays in its parent's group, drawn under it", () => {
+    const html = render({
+      sessions: [
+        inWs("p", "1", { updatedAt: 2 }),
+        session("kid", { parentSessionId: "p", depth: 1, projectPath: "/elsewhere", workspaceId: "", updatedAt: 1 }),
+      ],
+      workspaces: [ws("1")],
+    });
+    expect(html).not.toContain('data-group-key="project:/elsewhere"');
+    expect(cardIds(html)).toEqual(["p", "kid"]);
+    expect(nodeHtml(html, "p")).toContain('data-session-id="kid"');
+  });
+
+  it("folding is remembered per session in the store, and persists", () => {
+    const { toggleBranchFolded } = useAgentPinsStore.getState();
+    toggleBranchFolded("root");
+    toggleBranchFolded("other");
+    expect(useAgentPinsStore.getState().foldedBranches).toEqual(["root", "other"]);
+    toggleBranchFolded("root");
+    expect(useAgentPinsStore.getState().foldedBranches).toEqual(["other"]);
+    toggleBranchFolded("other");
+  });
+
+  it("a row in Needs you keeps the list item of its own", () => {
+    const html = render({ sessions: [session("w", { status: "awaiting_permission" })] });
+    expect(html).toMatch(/<div role="listitem" data-slot="agent-session-card"/);
+  });
+});

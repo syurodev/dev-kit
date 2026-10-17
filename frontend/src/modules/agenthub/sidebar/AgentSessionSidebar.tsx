@@ -18,6 +18,7 @@ import { AgentSessionCard } from "./AgentSessionCard";
 import { AgentSessionGroup } from "./AgentSessionGroup";
 import { countDescendants, type SidebarWorkspace } from "./grouping";
 import { useMinuteClock } from "./hooks";
+import { branchSignals } from "./tree";
 import {
   groupCollapsed,
   groupSessions,
@@ -70,6 +71,12 @@ export type AgentSessionSidebarProps = {
   /** Groups outside the current workspace that the person opened. Absent means folded. */
   expandedKeys?: string[];
   onToggleExpanded?: (key: string) => void;
+  /**
+   * Sessions whose children the person folded shut. Absent means open: a child
+   * is drawn under its parent until someone hides it, and a new one shows.
+   */
+  foldedBranchIds?: string[];
+  onToggleBranch?: (sessionId: string) => void;
   /** Group keys whose stack of older sessions is open. Absent means folded. */
   olderOpenKeys?: string[];
   onToggleOlder?: (key: string) => void;
@@ -94,7 +101,9 @@ export type AgentSessionSidebarProps = {
 
 /**
  * Agent Hub's rail: collapsible groups, and in each a short list of two-line
- * session cards.
+ * session cards. A session started by another draws under it, indented and
+ * joined by a line (tree.ts, SessionBranch); a tree counts as one of the five
+ * recent.
  *
  * The shell owns the column — width, resize, toggle, clipping — and this is the
  * content of it (ModuleManifest.sidebar): no aside, no background, border or
@@ -117,11 +126,13 @@ export function AgentSessionSidebar({
   collapsedKeys = NO_STRINGS,
   expandedKeys = NO_STRINGS,
   olderOpenKeys = NO_STRINGS,
+  foldedBranchIds = NO_STRINGS,
   hideClosed = false,
   onToggleHideClosed,
   onToggleCollapsed,
   onToggleExpanded,
   onToggleOlder,
+  onToggleBranch,
   onSelectSession,
   onNewSession,
   className,
@@ -133,6 +144,7 @@ export function AgentSessionSidebar({
     onToggleCollapsed,
     onToggleExpanded,
     onToggleOlder,
+    onToggleBranch,
     currentWorkspaceId,
     ...handlers,
   };
@@ -177,6 +189,7 @@ export function AgentSessionSidebar({
       cancelTurn: has.cancel ? (session) => latest.current.onCancelTurn?.(session) : undefined,
       closeSession: has.close ? (session) => latest.current.onCloseSession?.(session) : undefined,
       deleteSession: has.del ? (session, n) => latest.current.onDeleteSession?.(session, n) : undefined,
+      toggleBranch: (id) => latest.current.onToggleBranch?.(id),
       descendantCount: (id) => descendantsRef.current[id] ?? 0,
       hold: held.hold,
       release: held.release,
@@ -217,6 +230,10 @@ export function AgentSessionSidebar({
   const drawnWaiting = waiting.length > 0 ? waiting : lastWaiting.current;
   const [needsRef] = useAutoAnimate<HTMLDivElement>({ duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS });
   const olderOpen = React.useMemo(() => new Set(olderOpenKeys), [olderOpenKeys]);
+  const foldedBranches = React.useMemo(() => new Set(foldedBranchIds), [foldedBranchIds]);
+  // What is going on below each session, from every session: a child waiting
+  // is drawn in Needs you, so its parent is where it is marked.
+  const signals = React.useMemo(() => branchSignals(allSessions, attention, peerUnread), [allSessions, attention, peerUnread]);
 
   const viewportRef = React.useRef<HTMLDivElement>(null);
 
@@ -262,6 +279,27 @@ export function AgentSessionSidebar({
   // the key came from one of those: Radix menus and popovers bubble their keys
   // through React's tree, and arrows inside them are theirs.
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    // Right opens a session's children and Left folds them, as in a tree; Left
+    // on a child, or on a row with nothing to fold, goes up to its parent.
+    if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const row = event.target as HTMLElement;
+      if (row.dataset.testid !== "agent-card-open") return;
+      const toggle = row.closest("[data-slot='agent-session-card']")?.querySelector<HTMLButtonElement>("[data-testid='agent-branch-toggle']");
+      const open = toggle?.getAttribute("aria-expanded") === "true";
+      const held = toggle?.hasAttribute("data-held");
+      if (toggle && !held && open === (event.key === "ArrowLeft")) {
+        event.preventDefault();
+        toggle.click();
+      } else if (event.key === "ArrowLeft") {
+        const parent = row.closest("[data-slot='agent-session-card']")?.parentElement?.parentElement?.closest("[role='listitem']");
+        const up = parent?.querySelector<HTMLElement>("[data-testid='agent-card-open']");
+        if (up && up !== row) {
+          event.preventDefault();
+          up.focus();
+        }
+      }
+      return;
+    }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     const target = event.target as HTMLElement;
     if (!target.hasAttribute("data-sidebar-nav")) return;
@@ -387,6 +425,8 @@ export function AgentSessionSidebar({
                 pinnedIds={pinnedIds}
                 subagents={subagents}
                 peerUnread={peerUnread}
+                signals={signals}
+                folded={foldedBranches}
                 now={now}
                 onToggleCollapsed={toggleCollapsed}
                 onToggleOlder={toggleOlder}

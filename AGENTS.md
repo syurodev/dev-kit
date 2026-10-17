@@ -180,14 +180,32 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 `docs/superpowers/HANDOFF-codex.md`. Gemini is **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
 
-- **The rail is flat cards in collapsible groups, not a tree** (`frontend/src/modules/agenthub/sidebar/`;
-  `AgentHubSidebar` is the container, `AgentSessionSidebar` the presentation). Groups keep the old
-  membership (`sidebar/grouping.ts`: scratch → workspace id → folder; a child stays in its parent's
-  group, drawn as its own card). A group draws its 5 most recent sessions plus exceptions — the one on
-  screen, any waiting on the person, pinned — and folds the rest into a stack; exceptions are added to
-  the recent set, never counted against it. Order is `AgentSession.updatedAt` (bridge: the row time, not
-  touched by transcript chunks) then id. "Waiting" reads `pendingQueue`/`elicitationQueue` as well as
-  `status`. `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
+- **The rail is collapsible groups of cards, and a child session draws under its parent**
+  (`frontend/src/modules/agenthub/sidebar/`; `AgentHubSidebar` is the container, `AgentSessionSidebar` the presentation). Groups keep the old membership (`sidebar/grouping.ts`: scratch → workspace id → folder; a
+  child stays in its parent's group, whatever folder it was opened in). Inside a group the sessions are a **forest**
+  (`sidebar/tree.ts`, pure: `buildForest`, `partitionForest`, `branchSignals`; `SessionBranch.tsx` draws it). A child
+  hangs under its parent, indented 28px a level with a guide line leaving the parent's face and an elbow into each row
+  (`TREE_GUIDE` from `components/tree-guides.tsx`); only two levels are indented (`INDENT_LEVELS`), deeper ones keep
+  the last indent and draw no line, and `aria-level` still says the real depth. The markup is nested `list` /
+  `listitem` (the parent's list item holds the card and the children's list), not `role="tree"`: a card holds buttons
+  and menus, which a tree widget's rules do not allow.
+  - A group draws its 5 most recent **trees** plus exceptions — a tree is as recent as its newest session, counts
+    as one entry however many sessions it holds, and is kept when it holds the session on screen or a pinned one — and
+    folds the rest into a stack. Order is `AgentSession.updatedAt` (bridge: the row time, not touched by transcript chunks; children newest first) then id.
+    "Waiting" reads `pendingQueue`/`elicitationQueue` as well as `status`. A child whose parent is missing
+    from the group (deleted, another group, closed and hidden, waiting in Needs you) is a root; a cycle in the data
+    puts its newest member at the top and loses nobody.
+  - A parent with children draws a button (branch glyph, the count of sessions under it, a chevron; Left/Right on the
+    row's title also fold/open, Left on a child goes to its parent). Children are **open by default**; what the person
+    folded is remembered per session id (`agentPins.foldedBranches`, `foldedBranchIds` / `onToggleBranch`). A branch
+    cannot be folded while the session on screen or a pinned one is in it (`heldBranches`).
+  - A parent carries one small dot for what is below it (`branchHint`): a waiting or failed child **always** (those
+    are drawn in Needs you, never under the parent, so the parent is where they are marked — with no fold button if
+    nothing else is under it), a running child or unread messages (`peerUnread`, the only unread mark Agent Hub has)
+    only while the branch is folded. Signals are counted over every session, not just the drawn ones.
+  - The rail's Subagents (the vendor's own) are a different thing and stay in the row menu.
+  `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
+  Gallery: `?gallery#agenthub-session-rail` (the "branches-folded" rail shows the folded dots).
 - **The rail and the main view are a quiet list and a column with a summary card**
   (spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`, its last section lists
   what Phase 1 changed from it).

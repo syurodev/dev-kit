@@ -7,7 +7,9 @@ import type { Attention } from "@/modules/agenthub/sidebar/model";
 /**
  * The real Agent Hub rail (AgentSessionSidebar), fed fixtures: groups of 1, 3,
  * 7 and 26 sessions, long titles, a crowd of subagents, and every state a card
- * can be in. Interactive, so folding, the stack, pinning and selection can be
+ * can be in, and parents with children drawn under them (a tree is one of the
+ * five recent; a folded parent marks what runs, waits or is unread below it).
+ * Interactive, so folding, the stack, pinning and selection can be
  * tried without a bridge. `?gallery#agenthub-session-rail`.
  */
 const NOW = Date.now();
@@ -61,6 +63,24 @@ const sessions: AgentSession[] = [
   s("ask", WEB, "Which pricing tier should the banner show?", 4, { workspaceId: "ws-billing", status: "running", agentType: "codex" }),
   s("err", API, "Crashed: vendor process exited", 9, { workspaceId: "ws-billing", status: "error" }),
   s("kid", API, "Child: write the failing test first", 6, { workspaceId: "ws-billing", parentSessionId: "run", depth: 1 }),
+  // A parent with four children, one of them with two of its own and one that is
+  // waiting (drawn in Needs you, marked on the parent), as the Claude desktop rail.
+  s("fam", API, "Codex stopped abruptly in devkit", 2, { workspaceId: "ws-billing", agentType: "codex" }),
+  s("fam1", API, "Model/effort for agent-created sessions", 1, { workspaceId: "ws-billing", parentSessionId: "fam", depth: 1, status: "running", agentType: "codex" }),
+  s("fam2", API, "Cross-session messaging in Agent Hub", 3, { workspaceId: "ws-billing", parentSessionId: "fam", depth: 1 }),
+  s("fam3", API, "PR status tracking in the Agent Hub rail", 5, { workspaceId: "ws-billing", parentSessionId: "fam", depth: 1 }),
+  s("fam3a", API, "Poll the forge, conditional reads", 4, { workspaceId: "ws-billing", parentSessionId: "fam3", depth: 2, status: "running" }),
+  s("fam3b", API, "Write the card for a failing check", 6, { workspaceId: "ws-billing", parentSessionId: "fam3", depth: 2 }),
+  s("fam3c", API, "Level three, still indented", 7, { workspaceId: "ws-billing", parentSessionId: "fam3b", depth: 3 }),
+  s("fam3d", API, "Level four keeps the indent of level three, and its title is long enough to truncate", 8, { workspaceId: "ws-billing", parentSessionId: "fam3c", depth: 4 }),
+  s("fam4", API, "UI viewer for Markdown and PDF", 9, { workspaceId: "ws-billing", parentSessionId: "fam", depth: 1 }),
+  s("famw", API, "Wants to run `git push` for the rail work", 10, { workspaceId: "ws-billing", parentSessionId: "fam", depth: 1, status: "awaiting_permission" }),
+  // A second tree, folded in the "folded" rail: running and unread children show on the parent.
+  s("lone", WEB, "Review the checkout redesign", 12, { workspaceId: "ws-billing" }),
+  s("lone1", WEB, "Check the empty states", 11, { workspaceId: "ws-billing", parentSessionId: "lone", depth: 1, status: "running" }),
+  s("lone2", WEB, "Check keyboard order", 13, { workspaceId: "ws-billing", parentSessionId: "lone", depth: 1 }),
+  // A child whose parent is not in the list is drawn as a root.
+  s("orphan", DOCS, "Child of a session that was deleted", 40, { parentSessionId: "deleted", depth: 1 }),
   // An old session that is waiting must show even though it is far down.
   s("old-wait", API, "Old session that still needs an answer", 60 * 24 * 9, { workspaceId: "ws-billing", status: "awaiting_permission" }),
   // A folder with one session, one with three, and the scratch group.
@@ -87,22 +107,28 @@ const attention: Record<string, Attention> = {
   perm: { permissions: 1, questions: 0 },
   ask: { permissions: 0, questions: 2 },
   "old-wait": { permissions: 1, questions: 0 },
+  famw: { permissions: 1, questions: 0 },
 };
+
+const peerUnread: Record<string, number> = { fam2: 2, lone2: 1 };
 
 const workspaces = [{ id: "ws-billing", name: "billing-platform", paths: [API, WEB] }];
 
 /** `collapsed` / `older` start as given, so a capture can open on any of them. */
-function Rail({ width, extraAttention, initialCollapsed = [] as string[], initialOlder = [] as string[], initialActive = "b2" }: {
+function Rail({ width, extraAttention, initialCollapsed = [] as string[], initialOlder = [] as string[], initialFolded = [] as string[], initialActive = "b2" }: {
   width: number;
   /** Merged over the fixture's own: lets a capture make one more session start waiting. */
   extraAttention?: Record<string, Attention>;
   initialCollapsed?: string[];
   initialOlder?: string[];
+  /** Sessions whose children start folded. */
+  initialFolded?: string[];
   initialActive?: string;
 }) {
   const [active, setActive] = useState(initialActive);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [older, setOlder] = useState(initialOlder);
+  const [folded, setFolded] = useState(initialFolded);
   const [pinned, setPinned] = useState<string[]>(["b11"]);
   const [hideClosed, setHideClosed] = useState(false);
   const toggle = (list: string[], set: (v: string[]) => void) => (key: string) =>
@@ -118,6 +144,9 @@ function Rail({ width, extraAttention, initialCollapsed = [] as string[], initia
         activeSessionId={active}
         attention={waiting}
         subagents={subagents}
+        peerUnread={peerUnread}
+        foldedBranchIds={folded}
+        onToggleBranch={toggle(folded, setFolded)}
         pinnedIds={pinned}
         onTogglePin={(id) => toggle(pinned, setPinned)(id)}
         collapsedKeys={collapsed}
@@ -158,8 +187,9 @@ export function AgentSessionSidebarSection() {
       </div>
       <div className="flex flex-wrap items-start gap-6">
         <div data-testid="rail-default"><Rail width={280} extraAttention={asked} /></div>
-        <div data-testid="rail-narrow"><Rail width={200} initialActive="run" /></div>
-        <div data-testid="rail-wide"><Rail width={360} initialOlder={["workspace:ws-billing"]} /></div>
+        <div data-testid="rail-narrow"><Rail width={240} initialActive="fam3b" /></div>
+        <div data-testid="rail-wide"><Rail width={360} initialOlder={["workspace:ws-billing"]} initialFolded={["fam3"]} /></div>
+        <div data-testid="rail-branches-folded"><Rail width={280} initialFolded={["fam", "lone"]} initialActive="run" /></div>
         <div data-testid="rail-folded"><Rail width={280} initialCollapsed={["workspace:ws-billing", "project:/work/solo"]} initialActive="d1" /></div>
       </div>
     </section>
