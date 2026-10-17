@@ -1,18 +1,73 @@
-import { describe, expect, test } from "bun:test";
-import { filterSettingsNavigation, SETTINGS_GROUPS } from "./settingsNavigation";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { filterSettingsNavigation, resolveSettingsTab, SETTINGS_GROUPS } from "./settingsNavigation";
+import { AGENT_VENDOR_KEY, readAgentVendor, writeAgentVendor } from "./agentVendorChoice";
+
+const OFFERED = ["claude", "codex"];
+const idsOf = (query: string) => filterSettingsNavigation(query).flatMap((group) => group.items.map((item) => item.id));
 
 describe("Settings navigation", () => {
-  test("keeps existing deep links and gives security, updates and MCP their own destinations", () => {
+  test("has unique pages and keeps the non-agent deep links", () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ["account", "appearance", "sync", "environments", "database", "agents", "keyboard", "security", "updates", "mcp", "remote"]) expect(ids).toContain(id);
+    for (const id of ["account", "appearance", "sync", "environments", "database", "keyboard", "security", "updates"]) expect(ids).toContain(id);
+  });
+  test("Agents is its own group of six pages, and Services no longer holds agent settings", () => {
+    const agents = SETTINGS_GROUPS.find((group) => group.label === "Agents")!;
+    expect(agents.items.map((item) => item.id)).toEqual([
+      "agents-runtimes", "agents-models", "agents-skills", "agents-safety", "agents-notifications", "agents-mcp",
+    ]);
+    expect(SETTINGS_GROUPS.find((group) => group.label === "Services")!.items.map((item) => item.id)).toEqual(["account", "sync"]);
+  });
+  test("old ids still open the page that took their content over", () => {
+    expect(resolveSettingsTab("agents")).toBe("agents-runtimes");
+    expect(resolveSettingsTab("remote")).toBe("agents-notifications");
+    expect(resolveSettingsTab("mcp")).toBe("agents-mcp");
+    expect(resolveSettingsTab("appearance")).toBe("appearance");
+    expect(resolveSettingsTab("agents-safety")).toBe("agents-safety");
   });
   test("finds a section from its contents, including multiple search words", () => {
-    expect(filterSettingsNavigation("terminal font").flatMap((group) => group.items.map((item) => item.id))).toEqual(["appearance"]);
-    expect(filterSettingsNavigation("credentials").flatMap((group) => group.items.map((item) => item.id))).toEqual(["security"]);
-    expect(filterSettingsNavigation("telegram").flatMap((group) => group.items.map((item) => item.id))).toEqual(["remote"]);
-    expect(filterSettingsNavigation("phone pairing").flatMap((group) => group.items.map((item) => item.id))).toEqual(["remote"]);
-    expect(filterSettingsNavigation("not a setting")).toEqual([]);
-    expect(filterSettingsNavigation("  ")).toHaveLength(3);
+    expect(idsOf("terminal font")).toEqual(["appearance"]);
+    expect(idsOf("credentials")).toEqual(["security"]);
+    expect(idsOf("telegram")).toEqual(["agents-notifications"]);
+    expect(idsOf("phone pairing")).toEqual(["agents-notifications"]);
+    expect(idsOf("not a setting")).toEqual([]);
+    expect(filterSettingsNavigation("  ")).toHaveLength(4);
+  });
+  test("an agent topic lands on the one page that holds it", () => {
+    expect(idsOf("sandbox")).toEqual(["agents-safety"]);
+    expect(idsOf("checkpoints")).toEqual(["agents-safety"]);
+    expect(idsOf("subagent")).toEqual(["agents-models"]);
+    expect(idsOf("api key")).toEqual(["agents-runtimes"]);
+    expect(idsOf("skills")).toEqual(["agents-skills"]);
+    expect(idsOf("proxy install")).toEqual(["agents-mcp"]);
+    expect(idsOf("notifications")).toEqual(["agents-notifications"]);
+    expect(idsOf("agents")).toHaveLength(6);
+  });
+});
+
+describe("Agent vendor switch memory", () => {
+  const store = new Map<string, string>();
+  beforeEach(() => {
+    store.clear();
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    };
+  });
+  test("starts on Claude, remembers the last vendor and ignores junk", () => {
+    expect(readAgentVendor(OFFERED)).toBe("claude");
+    writeAgentVendor("codex");
+    expect(store.get(AGENT_VENDOR_KEY)).toBe("codex");
+    expect(readAgentVendor(OFFERED)).toBe("codex");
+    store.set(AGENT_VENDOR_KEY, "gemini");
+    expect(readAgentVendor(OFFERED)).toBe("claude");
+  });
+  test("works when storage throws", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => { throw new Error("blocked"); },
+      setItem: () => { throw new Error("blocked"); },
+    };
+    expect(readAgentVendor(OFFERED)).toBe("claude");
+    expect(() => writeAgentVendor("codex")).not.toThrow();
   });
 });

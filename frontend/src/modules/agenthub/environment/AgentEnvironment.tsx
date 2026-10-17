@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { agentHubEnvironment, agentHubResumeSession, agentHubGetStatus, type EnvironmentReport } from "@/bridge/agenthub";
@@ -103,19 +102,10 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
   );
 }
 
-export function AgentEnvironmentSetting({ vendor }: { vendor: string }) {
-  const [open, setOpen] = useState(false);
+/** Settings → Agents → Skills & MCP: one vendor's tools, skills and MCP servers, and DevKit's overrides on them. */
+export function AgentEnvironmentPanel({ vendor }: { vendor: string }) {
   const visible = useModuleVisibility();
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <Button type="button" variant="outline" size="sm"><ChevronDown /> Tools, skills and MCP</Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pt-4">
-        {open && visible ? <EnvironmentCheck vendor={vendor} enabled /> : null}
-      </CollapsibleContent>
-    </Collapsible>
-  );
+  return visible ? <EnvironmentCheck vendor={vendor} enabled /> : null;
 }
 
 export function AgentEnvironmentDialog({ vendor, sessionId, open, onClose }: { vendor: string; sessionId: string; open: boolean; onClose: () => void }) {

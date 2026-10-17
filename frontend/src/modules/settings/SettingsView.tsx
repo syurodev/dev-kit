@@ -34,18 +34,9 @@ import {
 } from "@/components/ui/dialog";
 import { SecurityNotice } from "@/components/ui/security-notice";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
-import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
-import { CODEX_VENDOR } from "@/bridge/agenthub";
-import { TelegramSetting } from "./TelegramSetting";
-import { AgentNotificationSetting } from "./AgentNotificationSetting";
-import { CodexSessionsSetting } from "./CodexSessionsSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { UpdatesSetting } from "./UpdatesSetting";
-import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
-import { AgentSandboxSetting } from "./AgentSandboxSetting";
-import { AgentModelProfilesSetting } from "./AgentModelProfilesSetting";
 import {
   Select,
   SelectContent,
@@ -73,7 +64,16 @@ import { KeyboardTab } from "./KeyboardTab";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 import { SettingsLayout } from "./SettingsLayout";
-import type { SettingsTab } from "./settingsNavigation";
+import { resolveSettingsTab, type SettingsPage, type SettingsTab } from "./settingsNavigation";
+import { GroupLabel, SectionHeader, TabColumn } from "./SettingsPrimitives";
+import {
+  AgentMcpPage,
+  AgentModelsPage,
+  AgentNotificationsPage,
+  AgentRuntimesPage,
+  AgentSafetyPage,
+  AgentSkillsPage,
+} from "./AgentsPages";
 export type { SettingsTab } from "./settingsNavigation";
 
 export interface SettingsModalProps {
@@ -87,12 +87,12 @@ export interface SettingsModalProps {
  * and searchable; only the selected section mounts its queries and controls.
  * Dialog owns focus trapping, Escape and the shared theme material. */
 export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance");
+  const [activeTab, setActiveTab] = useState<SettingsPage>(resolveSettingsTab(initialTab ?? "appearance"));
 
   // On every opening, not only the first: the modal stays mounted while
   // closed, so a useState initial value would be read once and never again.
   useEffect(() => {
-    if (open && initialTab) setActiveTab(initialTab);
+    if (open && initialTab) setActiveTab(resolveSettingsTab(initialTab));
   }, [open, initialTab]);
 
   return (
@@ -139,12 +139,15 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "appearance" && <AppearanceTab />}
               {activeTab === "security" && <SecurityTab />}
               {activeTab === "updates" && <UpdatesTab />}
-              {activeTab === "mcp" && <McpTab />}
               {activeTab === "sync" && <SyncDevicesTab />}
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
-              {activeTab === "agents" && <AgentsTab />}
-              {activeTab === "remote" && <RemoteControlTab />}
+              {activeTab === "agents-runtimes" && <AgentRuntimesPage />}
+              {activeTab === "agents-models" && <AgentModelsPage />}
+              {activeTab === "agents-skills" && <AgentSkillsPage />}
+              {activeTab === "agents-safety" && <AgentSafetyPage />}
+              {activeTab === "agents-notifications" && <AgentNotificationsPage />}
+              {activeTab === "agents-mcp" && <AgentMcpPage />}
               {activeTab === "keyboard" && (
                 <KeyboardTab
                   intro={
@@ -167,39 +170,6 @@ export function SettingsView() {
   return <SettingsModal open={true} onClose={() => {}} />;
 }
 
-/** Every section opens the same way (765:2000–2003): Heading/24 (Figma draws
- * 22 SemiBold, snapped up to the scale), 6px, Body/13 tertiary, 28px. */
-/**
- * The column every tab's content sits in: 656 wide, which is the Figma
- * shell's 940 less the 220 nav and the 32 gutters.
- *
- * Declared once because it was declared five times, and five copies of a
- * measurement is five chances for one of them to be 640 after somebody
- * nudges a tab.
- */
-function TabColumn({ gap = 6, children }: { gap?: 6 | 7; children: React.ReactNode }) {
-  return (
-    <div className={cn("flex w-full max-w-164 flex-col", gap === 7 ? "gap-7" : "gap-6")}>
-      {children}
-    </div>
-  );
-}
-
-function SectionHeader({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <h2 className="text-heading-24 text-text-primary">{title}</h2>
-      <p className="text-body-14 text-text-tertiary">{description}</p>
-    </div>
-  );
-}
-
-/** THEME / CODE & TERMINAL — Label/11 Caps, tertiary, 10px above its control. */
-function GroupLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-label-11-caps text-text-tertiary">{children}</p>;
-}
-
-/** The signed-in line: when the session runs out, if the provider said. */
 function sessionLine(expiresAt: string): string {
   const at = expiresAt ? new Date(expiresAt) : null;
   if (!at || Number.isNaN(at.getTime())) return "Session active";
@@ -601,54 +571,6 @@ function SecurityTab() {
 
 function UpdatesTab() {
   return <TabColumn><SectionHeader title="Updates" description="Installed version and release checks. Choose when DevKit checks for new releases." /><UpdatesSetting /></TabColumn>;
-}
-
-function McpTab() {
-  return <TabColumn><SectionHeader title="MCP integrations" description="Connect external agents to DevKit tools through its local MCP proxy." /><McpInstallPanel /></TabColumn>;
-}
-
-function RemoteControlTab() {
-  return <TabColumn><SectionHeader title="Remote control" description="Connect your phone to this DevKit and choose what it can access." /><TelegramSetting /></TabColumn>;
-}
-
-function AgentsTab() {
-  return (
-    <TabColumn>
-      <SectionHeader
-        title="Agents"
-        description="The agents Agent Hub runs. DevKit installs each into its own folder — never on your PATH — at a version it has tested."
-      />
-      <div className="flex flex-col gap-3">
-        <GroupLabel>CLAUDE AGENT</GroupLabel>
-        <AgentRuntimeSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>CODEX</GroupLabel>
-        <AgentRuntimeSetting vendor={CODEX_VENDOR} />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>MODELS BY JOB</GroupLabel>
-        <AgentModelProfilesSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>FILE CHECKPOINTS</GroupLabel>
-        <AgentCheckpointSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>NOTIFICATIONS</GroupLabel>
-        <AgentNotificationSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>CODEX (OBSERVED)</GroupLabel>
-        <CodexSessionsSetting />
-      </div>
-      <div className="flex flex-col gap-3">
-        <GroupLabel>SANDBOX</GroupLabel>
-        <AgentSandboxSetting />
-      </div>
-
-    </TabColumn>
-  );
 }
 
 // ----------------------------------------------------------------------
