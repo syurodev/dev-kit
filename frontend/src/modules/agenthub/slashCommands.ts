@@ -81,3 +81,17 @@ export function promptWithCommand(value: string, name: string): string {
 export function promptWithoutCommand(value: string): string {
   return commandQuery(value) === null ? value : "";
 }
+
+/**
+ * Whether the context meter may offer "Compact session".
+ *
+ * Only when the agent announced a `/compact` — a button that sends a prompt the
+ * agent does not understand is a button that makes it reply "?" — and not while a
+ * turn is running: Codex ends the running turn when a compaction starts on its
+ * thread, and Claude would only queue the command behind it. Both vendors
+ * announce the same way (Codex's list is DevKit's own, Claude's is the
+ * vendor's), so nothing here asks which one it is.
+ */
+export function compactOffered(commands: AvailableCommand[], running: boolean): boolean {
+  return !running && commands.some((command) => bareName(command.name) === "compact");
+}

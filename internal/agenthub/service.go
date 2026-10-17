@@ -1570,7 +1570,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	// Past the resume, which forgets what a process had been sent: an agent that
 	// has this exact block in its conversation is not sent it again.
-	carriesContext := workspaceContext != "" && s.workspaceContextDue(in.SessionID, contextFingerprint)
+	// A slash command is the whole prompt: the block in front would make it a
+	// sentence the vendor does not recognise as one (Claude reads a command from
+	// the start of the turn; Codex's runtime matches the prompt exactly).
+	command, _, _ := slashCommandOf(prompt)
+	carriesContext := workspaceContext != "" && command == "" && s.workspaceContextDue(in.SessionID, contextFingerprint)
 	if carriesContext {
 		prompt = append([]acp.ContentBlock{{Type: "text", Text: workspaceContext}}, prompt...)
 	}
@@ -1765,6 +1769,13 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	if workspaceContext != "" {
 		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
+	}
+	if command == "compact" {
+		// What the agent kept of the block is for the vendor to say: a
+		// compaction can summarise it away, so the next real prompt carries it again.
+		s.mu.Lock()
+		s.forgetWorkspaceContextLocked(in.SessionID)
+		s.mu.Unlock()
 	}
 
 	usage, err := adapter.NormalizeUsage(outcome.Meta)

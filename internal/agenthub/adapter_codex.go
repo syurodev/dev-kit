@@ -66,6 +66,11 @@ var codexInterruptWait = 10 * time.Second
 // itself. A var so a test need not wait it out.
 var codexErrorGrace = 10 * time.Second
 
+// codexAdoptWait is how long a command whose answer names no turn
+// (thread/compact/start) waits for the turn/started that does. Measured at
+// about 50 ms; a var so a test need not wait it out.
+var codexAdoptWait = 15 * time.Second
+
 // CodexOptions configures the Codex vendor adapter.
 type CodexOptions struct {
 	// Command is an absolute codex binary that overrides the managed runtime —
@@ -776,10 +781,12 @@ type codexRuntime struct {
 	// connectorsAnnounced says the kept MCP server list went out when the first
 	// handler attached; after that mcpStartupStatus emits each change itself.
 	connectorsAnnounced bool
-	mode                string
-	model               string
-	turn                *codexTurn
-	usage               codexapp.TokenUsageBreakdown // the thread's running total
+	// commandsAnnounced is the same for the session commands (codex_commands.go).
+	commandsAnnounced bool
+	mode              string
+	model             string
+	turn              *codexTurn
+	usage             codexapp.TokenUsageBreakdown // the thread's running total
 	// usageKnown says usage has been reported by this process at all; a
 	// resumed thread's first report already counts the turns before it.
 	usageKnown bool
@@ -809,6 +816,9 @@ type codexTurn struct {
 	stopping   bool
 	startUsage codexapp.TokenUsageBreakdown
 	baseKnown  bool // startUsage is a real baseline, not a guess
+	// adopt says the turn's id is not in the answer to the call that started
+	// it, and is the one the next turn/started names (a compaction).
+	adopt bool
 }
 
 type codexTurnEnd struct {
@@ -956,9 +966,18 @@ func (r *codexRuntime) SetHandlers(h RuntimeHandlers) {
 	if announceConnectors {
 		r.connectorsAnnounced = true
 	}
+	announceCommands := h.OnUpdate != nil && !r.commandsAnnounced
+	if announceCommands {
+		r.commandsAnnounced = true
+	}
 	r.mu.Unlock()
 	if announce != nil {
 		h.OnUpdate(announce, nil)
+	}
+	// Claude's commands come from the vendor; Codex has none to send, so the
+	// ones DevKit runs itself are announced the same way, once per process.
+	if announceCommands {
+		h.OnUpdate(codexCommandsUpdate(), nil)
 	}
 	// The MCP servers start with the thread, before anyone is listening, and
 	// emit drops what it cannot deliver: say what the translator kept.
@@ -1033,32 +1052,43 @@ func codexInput(prompt []acp.ContentBlock) []codexapp.UserInput {
 
 // Prompt runs one turn: turn/start answers at once with the turn in
 // progress, and the turn ends on its turn/completed (spec §5.1).
+//
+// A prompt that is exactly a session command (/compact, /review) is run through
+// the RPC behind it instead: see codex_commands.go.
 func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ json.RawMessage) (PromptOutcome, error) {
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
+	}
+	if cmd, args, ok := codexCommandOf(prompt); ok {
+		call, err := cmd.prepare(args)
+		if err != nil {
+			return PromptOutcome{}, err
+		}
+		r.mu.Lock()
+		t, err := r.beginTurnLocked(call.adopt)
+		thread := r.threadID
+		r.mu.Unlock()
+		if err != nil {
+			return PromptOutcome{}, err
+		}
+		defer r.endTurn(t)
+		log.Printf("agenthub: codex /%s (thread %s)", cmd.Name, thread)
+		out, err := r.driveTurn(ctx, t, thread, call)
+		if err == nil && call.after != nil {
+			call.after(r)
+		}
+		return out, err
 	}
 	input := codexInput(prompt)
 	if len(input) == 0 {
 		return PromptOutcome{}, fmt.Errorf("%w: nothing Codex can read", ErrInvalidPrompt)
 	}
 	r.mu.Lock()
-	if r.closed {
+	t, err := r.beginTurnLocked(false)
+	if err != nil {
 		r.mu.Unlock()
-		return PromptOutcome{}, ErrSessionNotFound
+		return PromptOutcome{}, err
 	}
-	if r.turn != nil {
-		r.mu.Unlock()
-		return PromptOutcome{}, ErrSessionBusy
-	}
-	t := &codexTurn{
-		done:       make(chan codexTurnEnd, 1),
-		over:       make(chan struct{}),
-		early:      map[string]codexTurnEnd{},
-		earlyErr:   map[string]codexapp.TurnError{},
-		startUsage: r.usage,
-		baseKnown:  r.usageKnown,
-	}
-	r.turn = t
 	sandboxPolicy := codexapp.ExternalSandbox(r.network)
 	params := codexapp.TurnStartParams{
 		ThreadID:          r.threadID,
@@ -1070,38 +1100,58 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 		Effort:            r.effort,
 	}
 	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		// Ended however Prompt leaves: Cancel's watchdog waits on it, and must
-		// not kill a process a turn never got going on.
-		t.abandon()
-		if r.turn == t {
-			r.turn = nil
-		}
-		r.mu.Unlock()
-	}()
-
-	// turn/start answers at once with the turn in progress. Its own bound,
-	// not the prompt's ctx: a Stop that lands while it is in flight still
-	// needs the turn id it answers with, or Codex runs a turn nobody can
-	// interrupt and the next prompt starts beside it.
+	defer r.endTurn(t)
 	log.Printf("agenthub: codex turn/start sent (thread %s, policy %s)", params.ThreadID, params.ApprovalPolicy)
-	startCtx, cancelStart := context.WithTimeout(context.Background(), handshakeTimeout)
-	go func() {
-		select {
-		case <-r.serveDone:
-			cancelStart()
-		case <-startCtx.Done():
-		}
-	}()
-	var res codexapp.TurnStartResponse
-	err := r.conn.Call(startCtx, codexapp.MethodTurnStart, params, &res)
-	cancelStart()
-	if err != nil {
-		return PromptOutcome{}, r.callFailure("turn/start", err)
+	return r.driveTurn(ctx, t, params.ThreadID, codexTurnCall{
+		stage: codexapp.MethodTurnStart,
+		do: func(ctx context.Context, rt *codexRuntime, _ string) (string, error) {
+			var res codexapp.TurnStartResponse
+			err := rt.conn.Call(ctx, codexapp.MethodTurnStart, params, &res)
+			return res.Turn.ID, err
+		},
+	})
+}
+
+// beginTurnLocked claims the thread for a turn: one at a time, and Codex takes
+// a second start as an interrupt of the first (a compaction or review started
+// beside a running turn ends that turn — measured), so the refusal is ours.
+// Called with mu held.
+func (r *codexRuntime) beginTurnLocked(adopt bool) (*codexTurn, error) {
+	if r.closed {
+		return nil, ErrSessionNotFound
 	}
+	if r.turn != nil {
+		return nil, ErrSessionBusy
+	}
+	t := &codexTurn{
+		done:       make(chan codexTurnEnd, 1),
+		over:       make(chan struct{}),
+		early:      map[string]codexTurnEnd{},
+		earlyErr:   map[string]codexapp.TurnError{},
+		startUsage: r.usage,
+		baseKnown:  r.usageKnown,
+		adopt:      adopt,
+	}
+	r.turn = t
+	return t, nil
+}
+
+// endTurn releases the thread however Prompt leaves.
+func (r *codexRuntime) endTurn(t *codexTurn) {
 	r.mu.Lock()
-	t.id = res.Turn.ID
+	// Ended however Prompt leaves: Cancel's watchdog waits on it, and must
+	// not kill a process a turn never got going on.
+	t.abandon()
+	if r.turn == t {
+		r.turn = nil
+	}
+	r.mu.Unlock()
+}
+
+// settleEarlyLocked applies what arrived before the turn's id was known:
+// an error that names it, and a turn/completed. Reports whether a Stop is
+// waiting for the id. Called with mu held.
+func (r *codexRuntime) settleEarlyLocked(t *codexTurn) (interrupt bool) {
 	for _, key := range []string{t.id, ""} {
 		if e, ok := t.earlyErr[key]; ok {
 			r.failLocked(t, e)
@@ -1110,43 +1160,148 @@ func (r *codexRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ 
 	if end, ok := t.early[t.id]; ok {
 		t.finish(end)
 	}
-	interrupt := t.interrupt && !t.ended
+	return t.interrupt && !t.ended
+}
+
+// driveTurn makes the call that starts t and waits for the turn to end.
+func (r *codexRuntime) driveTurn(ctx context.Context, t *codexTurn, thread string, call codexTurnCall) (PromptOutcome, error) {
+	// The call answers at once with the turn in progress. Its own bound,
+	// not the prompt's ctx: a Stop that lands while it is in flight still
+	// needs the turn id it answers with, or Codex runs a turn nobody can
+	// interrupt and the next prompt starts beside it.
+	startCtx, cancelStart := context.WithTimeout(context.Background(), handshakeTimeout)
+	go func() {
+		select {
+		case <-r.serveDone:
+			cancelStart()
+		case <-startCtx.Done():
+		}
+	}()
+	id, err := call.do(startCtx, r, thread)
+	cancelStart()
+	if err != nil {
+		return PromptOutcome{}, r.callRefused(call, err)
+	}
+	r.mu.Lock()
+	if id != "" {
+		t.id = id
+	}
+	interrupt := false
+	if t.id != "" {
+		interrupt = r.settleEarlyLocked(t)
+	}
+	id = t.id
 	r.mu.Unlock()
 	if interrupt {
-		r.interrupt(t.id)
+		r.interrupt(id)
 	}
 
-	select {
-	case end := <-t.done:
-		log.Printf("agenthub: codex turn %s ended %s (thread %s)", t.id, end.status, params.ThreadID)
-		return r.outcome(t, end)
-	case <-r.serveDone:
-		r.emit(r.tr.closeOpen("Codex stopped before the turn finished."))
-		r.mu.Lock()
-		stopping := t.stopping
-		r.mu.Unlock()
-		if stopping {
-			// Stop had to kill it: still a Stop, not a crash.
+	// A turn whose id the answer did not give must announce itself soon: the
+	// app-server accepted the request, so a silence is a build that runs it
+	// some other way, and waiting for it would hang the session.
+	var announced <-chan time.Time
+	if call.adopt {
+		timer := time.NewTimer(codexAdoptWait)
+		defer timer.Stop()
+		announced = timer.C
+	}
+	for {
+		select {
+		case end := <-t.done:
+			log.Printf("agenthub: codex turn %s ended %s (thread %s)", r.turnID(t), end.status, thread)
+			return r.outcome(t, end)
+		case <-announced:
+			announced = nil
+			if r.turnID(t) == "" {
+				return PromptOutcome{}, vendorMessageError(AgentTypeCodex,
+					fmt.Errorf("%w: %s was accepted but no turn started", ErrTurnFailed, call.stage),
+					"Codex accepted the command but did not start it.")
+			}
+		case <-r.serveDone:
+			r.emit(r.tr.closeOpen("Codex stopped before the turn finished."))
+			r.mu.Lock()
+			stopping := t.stopping
+			r.mu.Unlock()
+			if stopping {
+				// Stop had to kill it: still a Stop, not a crash.
+				return PromptOutcome{}, ErrCancelled
+			}
+			return PromptOutcome{}, r.callFailure("turn", codexapp.ErrClosed)
+		case <-ctx.Done():
+			r.mu.Lock()
+			t.stopping = true
+			if t.id == "" {
+				t.interrupt = true
+			}
+			r.mu.Unlock()
+			r.interrupt(r.turnID(t))
+			select {
+			case <-t.over:
+			case <-r.serveDone:
+			case <-time.After(codexInterruptWait):
+				// Codex did not stop. The next prompt must not start a turn
+				// beside this one, so the process goes; the session resumes
+				// on a fresh one.
+				log.Printf("agenthub: codex: turn did not stop after interrupt; killing the process (thread %s)", thread)
+				_ = r.proc.Kill()
+				r.emit(r.tr.closeOpen("Cancelled."))
+			}
 			return PromptOutcome{}, ErrCancelled
 		}
-		return PromptOutcome{}, r.callFailure("turn", codexapp.ErrClosed)
-	case <-ctx.Done():
-		r.mu.Lock()
-		t.stopping = true
+	}
+}
+
+func (r *codexRuntime) turnID(t *codexTurn) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return t.id
+}
+
+// callRefused explains a call that failed. A session command the app-server
+// refuses with a reason of its own (a thread it will not compact, a request it
+// cannot read) is that one request declined: the process is fine, so the
+// session stays idle and the reason reaches the person. Everything else is a
+// failed call on the connection.
+func (r *codexRuntime) callRefused(call codexTurnCall, err error) error {
+	var rpc *codexapp.RPCError
+	if call.command && errors.As(err, &rpc) {
+		message := strings.TrimSpace(rpc.Message)
+		return vendorMessageError(AgentTypeCodex, fmt.Errorf("%w: %s: %s", ErrTurnFailed, call.stage, message), message)
+	}
+	return r.callFailure(call.stage, err)
+}
+
+// onTurnStarted gives a command turn its id. thread/compact/start answers
+// before the turn exists, so the turn that starts next on this thread is the
+// compaction (the thread runs one turn at a time, and beginTurnLocked keeps a
+// second from starting beside it).
+func (r *codexRuntime) onTurnStarted(params json.RawMessage) {
+	var n codexapp.TurnStartedNotification
+	if json.Unmarshal(params, &n) != nil || !r.ownThread(n.ThreadID) || n.Turn.ID == "" {
+		return
+	}
+	r.mu.Lock()
+	t := r.turn
+	if t == nil || !t.adopt || t.id != "" || t.ended {
 		r.mu.Unlock()
-		r.interrupt(t.id)
-		select {
-		case <-t.over:
-		case <-r.serveDone:
-		case <-time.After(codexInterruptWait):
-			// Codex did not stop. The next prompt must not start a turn
-			// beside this one, so the process goes; the session resumes
-			// on a fresh one.
-			log.Printf("agenthub: codex: turn did not stop after interrupt; killing the process (thread %s)", params.ThreadID)
-			_ = r.proc.Kill()
-			r.emit(r.tr.closeOpen("Cancelled."))
-		}
-		return PromptOutcome{}, ErrCancelled
+		return
+	}
+	t.id = n.Turn.ID
+	interrupt := r.settleEarlyLocked(t)
+	r.mu.Unlock()
+	if interrupt {
+		// A Stop that came before the id did. Calls cannot be made from the
+		// read loop.
+		go r.interrupt(n.Turn.ID)
+	}
+}
+
+// republishUsage sends the context meter again once a compaction ended: the
+// figure it shows is the window as it is now, and the meter should not wait for
+// the next turn to say so.
+func (r *codexRuntime) republishUsage() {
+	if update := r.tr.usageUpdate(); update != nil {
+		r.emit([]codexUpdate{{Update: update}})
 	}
 }
 
@@ -1420,6 +1575,8 @@ func (h *codexConnHandler) Notification(_ context.Context, method string, params
 	r := h.rt
 	r.emit(r.tr.Translate(method, params))
 	switch method {
+	case codexapp.MethodTurnStarted:
+		r.onTurnStarted(params)
 	case codexapp.MethodTurnCompleted:
 		r.onTurnCompleted(params)
 	case codexapp.MethodError:

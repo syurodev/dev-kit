@@ -17,6 +17,8 @@ const (
 	MethodTurnStart             = "turn/start"
 	MethodTurnInterrupt         = "turn/interrupt"
 	MethodTurnSteer             = "turn/steer"
+	MethodThreadCompactStart    = "thread/compact/start"
+	MethodReviewStart           = "review/start"
 	MethodAccountRead           = "account/read"
 	MethodAccountLoginStart     = "account/login/start"
 	MethodAccountLoginCancel    = "account/login/cancel"
@@ -250,4 +252,46 @@ type ModelListResponse struct {
 type ServerRequestResolvedNotification struct {
 	ThreadID  string          `json:"threadId"`
 	RequestID json.RawMessage `json:"requestId"`
+}
+
+// ThreadCompactStartParams is thread/compact/start. The answer is `{}` at once;
+// the compaction runs as a turn of its own (turn/started, an item of type
+// contextCompaction, turn/completed) whose id the answer does not give.
+// Measured with 0.163.0 — see AGENTS.md, "Codex session commands".
+type ThreadCompactStartParams struct {
+	ThreadID string `json:"threadId"`
+}
+
+// Review target types.
+const (
+	ReviewUncommitted = "uncommittedChanges"
+	ReviewBaseBranch  = "baseBranch"
+	ReviewCommit      = "commit"
+	ReviewCustom      = "custom"
+)
+
+// ReviewTarget is review/start's target: Type picks the fields that apply.
+type ReviewTarget struct {
+	Type         string `json:"type"`
+	Branch       string `json:"branch,omitempty"`       // baseBranch
+	SHA          string `json:"sha,omitempty"`          // commit
+	Instructions string `json:"instructions,omitempty"` // custom
+}
+
+// ReviewDeliveryInline runs the review on the thread itself. "detached" is
+// deprecated by Codex and was refused in 0.163.0, so it is not modelled.
+const ReviewDeliveryInline = "inline"
+
+type ReviewStartParams struct {
+	ThreadID string       `json:"threadId"`
+	Target   ReviewTarget `json:"target"`
+	Delivery string       `json:"delivery,omitempty"`
+}
+
+// ReviewStartResponse names the turn that ends when the review does. Its
+// turn/started notification names a different, inner turn that never gets a
+// turn/completed of its own (measured, 0.163.0).
+type ReviewStartResponse struct {
+	Turn           Turn   `json:"turn"`
+	ReviewThreadID string `json:"reviewThreadId"`
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { AvailableCommand } from "./types";
 import {
   commandName,
+  compactOffered,
   commandQuery,
   filterCommands,
   promptWithCommand,
@@ -88,5 +89,45 @@ describe("clearing the command once it has been sent on its own", () => {
   it("leaves a real message alone", () => {
     // A command picked from the pill mid-message must not eat the message.
     expect(promptWithoutCommand("half a thought")).toBe("half a thought");
+  });
+});
+
+// What a Codex session announces: DevKit's own list (internal/agenthub/codex_commands.go),
+// in the same shape Claude's arrive in — bare names, a hint only where text follows.
+const codexCommands: AvailableCommand[] = [
+  { name: "compact", description: "Summarize the conversation to free up context" },
+  { name: "review", description: "Review code changes", input: { hint: "[base <branch> | commit <sha> | what to look for]" } },
+];
+
+describe("the commands a Codex session announces", () => {
+  it("fill the slash menu like any agent's", () => {
+    expect(commandQuery("/")).toBe("");
+    expect(filterCommands(codexCommands, "").map((c) => c.name)).toEqual(["compact", "review"]);
+    expect(filterCommands(codexCommands, "re").map((c) => c.name)).toEqual(["review"]);
+    expect(filterCommands(codexCommands, "comp").map((c) => c.name)).toEqual(["compact"]);
+  });
+
+  it("leave /review ready for its target and /compact ready to send", () => {
+    expect(promptWithCommand("/rev", "review")).toBe("/review ");
+    expect(promptWithCommand("/co", "compact")).toBe("/compact ");
+    expect(promptWithoutCommand("/compact")).toBe("");
+  });
+});
+
+describe("offering Compact session", () => {
+  it("appears once the agent announces /compact, in either spelling", () => {
+    expect(compactOffered(codexCommands, false)).toBe(true);
+    expect(compactOffered([{ name: "/compact" }], false)).toBe(true);
+  });
+
+  it("is not offered before the announcement, or for an agent without the command", () => {
+    // A Codex session before its commands arrive, and one that never lists /compact.
+    expect(compactOffered([], false)).toBe(false);
+    expect(compactOffered([{ name: "review" }, { name: "compact-all" }], false)).toBe(false);
+  });
+
+  it("is not offered while a turn is running", () => {
+    // Codex ends the running turn when a compaction starts on its thread.
+    expect(compactOffered(codexCommands, true)).toBe(false);
   });
 });

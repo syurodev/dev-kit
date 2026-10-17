@@ -534,6 +534,59 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     app-server offers (`exec wait … spawn_agent wait_agent`), so it is not exposed. `default_subagent_model` /
     `default_subagent_reasoning_effort` are covered by profiles-as-subagents.
   - Not verified: a real ChatGPT/API account may get different remote feature flags than the keyless runs above.
+- **Codex sessions have session commands, DevKit's own** (`internal/agenthub/codex_commands.go`, `codexRuntime.Prompt`;
+  `codexapp` `MethodThreadCompactStart` / `MethodReviewStart`). Claude announces its commands (`available_commands_update`)
+  and runs them itself; `codex app-server` does neither — the TUI's slash commands are TUI features — so "/compact" used to
+  reach the model as a sentence and the composer had no menu and no Compact button. Now the runtime announces `compact` and
+  `review` once per process (same wire shape and session-state kind as Claude's, `SetHandlers` beside the model picker and
+  connectors) and a prompt that is **exactly** `/name [text]` — one text block, nothing attached, name in `codexCommands` —
+  runs through its RPC instead of `turn/start`. `see /compact`, `/etc/hosts`, an unknown `/x`, or a command with an
+  attachment are ordinary prompts. Adding `/goal`, `/rename`, `/fork` later is one `codexCommands` entry + its `prepare`.
+  - `/compact` → `thread/compact/start`; takes no text (the RPC has no instructions field: `/compact foo` is refused with
+    `ErrInvalidPrompt`, not sent to the model). `/review [base <branch> | commit <sha> | instructions]` → `review/start`,
+    `delivery: "inline"`; exactly two words `base X` / `commit <hex>` name a target, anything else is the person's own
+    instructions (so "base on the style guide" is not a branch), a branch outside `[A-Za-z0-9._/@~^-]` is refused because
+    Codex puts the name into a prompt whose model runs it in a shell. Nothing → `uncommittedChanges`.
+  - **Busy is refused by DevKit, because Codex does not**: `thread/compact/start` and `review/start` on a thread with a
+    running turn *interrupt that turn* and start theirs (measured). `beginTurnLocked` answers `ErrSessionBusy` first, shared
+    with `Prompt`; the Compact button is hidden while the session runs (`compactOffered`, `slashCommands.ts`).
+  - A command is a turn like any other: `r.turn` holds the thread, Stop → `turn/interrupt`, an app-server refusal of the
+    request (bad thread, unreadable params) is `ErrTurnFailed` with Codex's sentence and an idle session, not
+    `ErrProcessFailed` (`callRefused`). `thread/compact/start` answers `{}` without a turn id, so the turn is `adopt`ed from
+    the next `turn/started` on the thread (`onTurnStarted`); no `turn/started` within `codexAdoptWait` (15 s) is an error,
+    not a hang. After a compaction the translator's last token report is republished (`republishUsage`).
+  - Transcript: `contextCompaction` → the **same card as Claude's** (`tool_call` name `compact`, kind `think`, title
+    "Compact conversation"); `enteredReviewMode` → a `review` card ("Review: current changes"); `exitedReviewMode` → nothing
+    (its text is the agent message that follows, measured identical). Before, all three drew the generic unknown-item card.
+  - **Workspace context** (`Service.Invoke`): `slashCommandOf` (exactly one text block whose first word is `/name`, not a
+    path) means the block is **not** prepended — it would turn "/compact" into a sentence for either vendor (Claude Code reads a
+    command from the start of the turn, so this was very likely a latent bug there whenever the block was due: first turn,
+    a change, every 20th turn — read from the code, not run against the real Claude) — and a successful `/compact` forgets what the session was sent (`forgetWorkspaceContextLocked`), so the next
+    real prompt carries the block again. A failed compaction changes nothing. Not done: auto-compaction (either vendor)
+    is not seen by `Service`, so the 20-turn refresh stays the only cover for it.
+  - **Measured with the real `codex app-server` 0.163.0**, fake HOME, scripted mock Responses API (raw JSON-RPC probe; the
+    DevKit path end to end is `cmd/pdfe2e/codex_commands_test.go`, run with `DEVKIT_SUBAGENT_E2E_CODEX=<binary>`):
+    | | `thread/compact/start {threadId}` | `review/start {threadId, target, delivery}` |
+    | --- | --- | --- |
+    | answer | `{}` in ~50 ms, no turn id | `{turn, reviewThreadId}`; `reviewThreadId` = the thread itself for `inline` |
+    | stream | `turn/started` (new turn) → `item/started contextCompaction` → `thread/tokenUsage/updated` → `item/completed` → `turn/completed completed` | `item/started+completed enteredReviewMode {review:"current changes"}` → `turn/started` of a *different inner turn* → userMessage (Codex's own review prompt) → `exitedReviewMode {review:<rendered findings>}` → agentMessage (same text) → `turn/completed` |
+    | what ends it | `turn/completed` of the turn named by `turn/started` | `turn/completed` of the turn **in the answer**; the inner turn never completes and reads `interrupted` in `thread/read` |
+    | model traffic | one `/responses` request ending in `compaction_trigger` (remote compaction v2); the reply must hold exactly one `compaction` output item or the turn fails ("expected exactly one compaction output item") | one request with a fresh context (developer + environment + Codex's review prompt), not the conversation; the result is appended to the thread afterwards |
+    | tokens | `total` unchanged, `last.totalTokens` = ~7000 with 0 input (the new window's estimate; the context meter reads `last`) | an ordinary usage update |
+    | busy thread | **interrupts the running turn** (it ends `interrupted`) and compacts | **interrupts the running turn** and reviews |
+    | during it | `turn/start` fails `ActiveTurnNotSteerable { turn_kind: Compact }`; a second `thread/compact/start` interrupts the first | — |
+    | fresh thread | works, no model request, `last` ≈ 7000 | works |
+    | errors | `-32600 invalid thread id` for a bad id | same; `-32600` unknown target variant; `detached` delivery refused ("paginated threads do not support detached review") and deprecated |
+    | notifications | **no `thread/compacted`** — the deprecated `ContextCompactedNotification` is not sent; the item is the signal | no `review/*` notification; raw model deltas are **not** streamed in review mode |
+    `ReviewTarget`: `{type:"uncommittedChanges"}`, `{type:"baseBranch", branch}`, `{type:"commit", sha, title?}`, `{type:"custom",
+    instructions}`. A branch or sha that does not exist is **not** validated by Codex (the review prompt just names it).
+    Structured findings (`findings[]`, `overall_*`) render as "<explanation>\n\nReview comment:\n\n- [P1] title — path:lines\n  body".
+    Not verified: a real model's review quality or token counts (mock only), 0.147 (the version named in older comments;
+    only 0.162.1/0.163.0 were available), a ChatGPT account's remote feature flags.
+  - **Deliberately not done**: `thread/fork`, `thread/revert`, `thread/goal/*`, `thread/name/set`, `thread/shellCommand`,
+    `thread/inject_items` and `mcpServerStatus/list` have RPCs but no command — none was measured here and each needs its own
+    decision (goal and name overlap Agent Hub's own goal/title; fork/revert overlap rewind). `delivery: "detached"` is
+    refused by the app-server and deprecated. Codex's own `/model`, `/approvals` and the like are DevKit's pickers.
 - **A person's turn has no time limit; an agent's or terminal's does.** `Service.Invoke` applies
   `DefaultInvokeTimeout` (10 min) only when the caller is not the UI or a remote human
   (`invokeUnbounded`). It used to cut every UI turn at 10:00 exactly, which looked like the vendor

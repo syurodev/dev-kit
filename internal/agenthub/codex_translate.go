@@ -31,6 +31,9 @@ type codexUpdate struct {
 type codexOpenItem struct {
 	Title string
 	Kind  string
+	// Name is the tool's own name when the title cannot say it: a compaction
+	// is a `compact` call whatever vendor ran it (see ToolCall.Name).
+	Name string
 	// McpServer is the server of an mcpToolCall item, so an approval for it —
 	// which names the server but not the item — can find the card it is about.
 	McpServer string
@@ -192,6 +195,7 @@ func (t *codexTranslator) openItem(id string) (codexOpenItem, bool) {
 type codexToolCallWire struct {
 	SessionUpdate string             `json:"sessionUpdate"`
 	ToolCallID    string             `json:"toolCallId"`
+	Name          string             `json:"name,omitempty"`
 	Title         string             `json:"title,omitempty"`
 	Kind          string             `json:"kind,omitempty"`
 	Status        string             `json:"status,omitempty"`
@@ -247,6 +251,7 @@ func (t *codexTranslator) itemStarted(params json.RawMessage) []codexUpdate {
 	return []codexUpdate{{Update: marshalUpdate(codexToolCallWire{
 		SessionUpdate: string(UpdateToolCall),
 		ToolCallID:    h.ID,
+		Name:          it.Name,
 		Title:         it.Title,
 		Kind:          it.Kind,
 		Status:        "in_progress",
@@ -294,6 +299,16 @@ func codexToolItem(itemType string, item json.RawMessage) (codexOpenItem, bool) 
 		}
 		raw, _ := json.Marshal(map[string]string{"query": w.Query})
 		return codexOpenItem{Title: title, Kind: "fetch", RawInput: raw}, true
+	case codexapp.ItemContextCompaction:
+		// The same card Claude's compaction draws: a `compact` call on the
+		// `think` kind, so the transcript reads one way for both vendors.
+		return codexOpenItem{Title: "Compact conversation", Kind: "think", Name: "compact"}, true
+	case codexapp.ItemEnteredReview:
+		var r codexapp.ReviewModeItem
+		if json.Unmarshal(item, &r) != nil {
+			return codexOpenItem{}, false
+		}
+		return codexOpenItem{Title: codexReviewTitle(r.Review), Kind: "think", Name: "review"}, true
 	}
 	return codexOpenItem{}, false
 }
@@ -335,6 +350,11 @@ func (t *codexTranslator) itemCompleted(params json.RawMessage) []codexUpdate {
 		// hooks are disabled, so neither produces an update — and neither's
 		// raw item is kept as meta, for the same reason streamed text above
 		// carries none.
+		return nil
+	case codexapp.ItemExitedReview:
+		// The findings arrive twice: here, and as the agent message that
+		// follows in the same turn (measured, 0.163.0). The message is the one
+		// drawn; this item would repeat it as an "exitedReviewMode" card.
 		return nil
 	}
 
@@ -422,10 +442,24 @@ func codexToolResult(itemType string, item json.RawMessage) (status string, cont
 			return "failed", nil, rawOutput, true
 		}
 		return "completed", nil, codexCapRawOutput(m.Result, ""), true
-	case codexapp.ItemWebSearch:
+	case codexapp.ItemWebSearch, codexapp.ItemContextCompaction, codexapp.ItemEnteredReview:
 		return "completed", nil, nil, true
 	}
 	return "", nil, nil, false
+}
+
+// codexReviewTitle is the review card's title: what is being reviewed, as
+// Codex words it ("current changes", "commit 52d4e2c: second"), or the
+// person's own instructions — clipped, they can be a paragraph.
+func codexReviewTitle(label string) string {
+	label = strings.Join(strings.Fields(label), " ")
+	if r := []rune(label); len(r) > 100 {
+		label = string(r[:100]) + "…"
+	}
+	if label == "" {
+		return "Review"
+	}
+	return "Review: " + label
 }
 
 func (t *codexTranslator) forget(id string) {
@@ -504,6 +538,17 @@ func (t *codexTranslator) tokenUsage(params json.RawMessage) []codexUpdate {
 		LastRequest: tokenCountsOf(n.TokenUsage.Last),
 	}
 	return []codexUpdate{{Update: t.usageUpdateLocked()}}
+}
+
+// usageUpdate is the usage_update for what is known so far, or nil before any
+// token report.
+func (t *codexTranslator) usageUpdate() json.RawMessage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.tokens == nil {
+		return nil
+	}
+	return t.usageUpdateLocked()
 }
 
 func tokenCountsOf(b codexapp.TokenUsageBreakdown) TokenCounts {

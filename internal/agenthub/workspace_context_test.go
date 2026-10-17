@@ -338,3 +338,70 @@ func TestWorkspaceContextIsResentAfterAFailedTurn(t *testing.T) {
 		t.Fatal(adapter.prompts[len(adapter.prompts)-2])
 	}
 }
+
+// A slash command is the whole prompt. The context block in front of it would
+// turn "/compact" into a sentence the vendor no longer reads as a command, so
+// the block waits; and a compaction can summarise the block away, so it goes
+// out again with the next real prompt even though its text is unchanged.
+func TestSlashCommandIsNotWrappedAndCompactionResendsTheContext(t *testing.T) {
+	for _, vendor := range []agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeCodex} {
+		t.Run(string(vendor), func(t *testing.T) {
+			svc, adapter := contextService(t)
+			svc.WorkspaceInstructions = func(string) (string, error) { return "rules", nil }
+			ctx := context.Background()
+			sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: vendor, Cwd: t.TempDir(), WorkspaceID: "a"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			send := func(text string) []acp.ContentBlock {
+				t.Helper()
+				if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: text}); err != nil {
+					t.Fatal(err)
+				}
+				return adapter.prompts[len(adapter.prompts)-1]
+			}
+			// First turn of the session: the block is due, and a command is still bare.
+			if p := send("/review"); len(p) != 1 || p[0].Text != "/review" {
+				t.Fatalf("/review was wrapped: %+v", p)
+			}
+			if p := send("hello"); len(p) != 2 {
+				t.Fatalf("the first real prompt must carry the block: %+v", p)
+			}
+			if p := send("again"); len(p) != 1 {
+				t.Fatalf("unchanged context was sent again: %+v", p)
+			}
+			if p := send("/compact"); len(p) != 1 || p[0].Text != "/compact" {
+				t.Fatalf("/compact was wrapped: %+v", p)
+			}
+			p := send("after the compaction")
+			if len(p) != 2 || !strings.Contains(p[0].Text, "rules") {
+				t.Fatalf("the block was not sent again after /compact: %+v", p)
+			}
+			// A sentence that merely mentions a command, and a path, are ordinary prompts.
+			if p := send("/etc/hosts is odd"); len(p) != 1 {
+				t.Fatalf("a path was read as a command: %+v", p)
+			}
+		})
+	}
+}
+
+// A failed /compact changed nothing: the agent still has the block.
+func TestFailedCompactDoesNotResendTheContext(t *testing.T) {
+	svc, adapter := contextService(t)
+	svc.WorkspaceInstructions = func(string) (string, error) { return "rules", nil }
+	ctx := context.Background()
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeCodex, Cwd: t.TempDir(), WorkspaceID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 1); !slices.Equal(got, []bool{true}) {
+		t.Fatalf("carried=%v", got)
+	}
+	adapter.failNext = true
+	if _, err = svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "/compact"}); err == nil {
+		t.Fatal("the failing compaction succeeded")
+	}
+	if got := invokeTurns(t, svc, adapter, sess.ID, 1); !slices.Equal(got, []bool{false}) {
+		t.Fatalf("after a failed compaction carried=%v", got)
+	}
+}
