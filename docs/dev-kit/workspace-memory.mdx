@@ -52,10 +52,10 @@ action, workspace/entry ID và revision, không ghi query hay nội dung memory.
 | `workspace.memory.list` | Danh sách metadata và summary, bỏ body |
 | `workspace.memory.search` | Tìm các từ/tiền tố trong title, summary hoặc body; trả summary |
 | `workspace.memory.get` | Đọc toàn bộ mục cùng revision, kể cả mục đã soft delete |
-| `workspace.memory.create` | Thêm mục mới |
-| `workspace.memory.update` | Thay nội dung với expectedRevision |
-| `workspace.memory.delete` | Soft delete với expectedRevision |
-| `workspace.memory.history` | Đọc các snapshot phiên bản |
+| `workspace.memory.create` | Thêm mục mới; trả id/kind/title/summary/revision/updatedAt, không kèm body trừ khi `includeBody: true` |
+| `workspace.memory.update` | Thay nội dung với expectedRevision; trả như `create` |
+| `workspace.memory.delete` | Soft delete với expectedRevision; trả mục không kèm body |
+| `workspace.memory.history` | Đọc các phiên bản (revision, operation, title, summary, updatedAt); body chỉ khi `includeBody: true` |
 | `workspace.memory.restore` | Khôi phục targetRevision thành revision mới |
 
 Agent Hub luôn lấy workspace ID đã lưu của session. `workspaceId` khác workspace
@@ -67,8 +67,8 @@ capability `workspace-memory:read` / `workspace-memory:write`.
 List/search dùng limit (mặc định 20, tối đa 100), trả `hasMore` và `nextCursor`.
 Truyền `cursor` của trang trước để lấy trang tiếp theo. Cursor gắn với workspace,
 query, kind và trạng thái deleted; đổi bộ lọc phải bắt đầu lại. Offset vẫn được hỗ
-trợ để tương thích, nhưng không được kết hợp với cursor. MCP history giữ API snapshot
-cũ với limit/offset; UI dùng cursor và metadata lịch sử riêng, chỉ tải snapshot khi mở.
+trợ để tương thích, nhưng không được kết hợp với cursor. MCP history dùng limit/offset
+và chỉ trả metadata (thêm `includeBody` để lấy body); UI dùng cursor và metadata lịch sử riêng, chỉ tải snapshot khi mở.
 Thứ tự danh sách là `updatedAt` giảm dần rồi ID giảm dần; lịch sử theo revision giảm dần.
 Dữ liệu thay đổi giữa hai trang có thể làm kết quả thay đổi; Refresh đọc lại từ đầu.
 

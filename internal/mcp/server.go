@@ -295,6 +295,7 @@ func NewServer(d Deps) *Server {
 func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
 	ms.AddReceivingMiddleware(withCaller(caller))
+	ms.AddReceivingMiddleware(withResultBudget(ResultBudget))
 	s.registerVault(ms)
 	s.registerNotes(ms)
 	s.registerTools(ms)

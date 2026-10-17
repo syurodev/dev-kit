@@ -21,49 +21,49 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listEndpoints",
-		Description: "List the entry points detected in the active CodeGraph project — where a flow starts because something outside the code calls in. kind says which: http (verb GET/POST…, target a URL), plugin (a Kong plugin phase: verb ACCESS/LOG…, target the plugin), message, rpc, graphql, socket, schedule. owner/group say what declares each one; order is the run order within a group where it means something (Kong phases). (The tool keeps its old name.) Paged: the answer is {result, total, nextCursor} — total counts every match, and while nextCursor is set, pass it back (with the same filters) for the next page. Narrow with kind, service, verb, pathPrefix (the target starts with it) or contains; a large project does not fit one page.",
+		Description: "List the entry points of the active project: where a flow starts because something outside the code calls in. kind: http (verb GET/POST…, target a URL), plugin (a Kong phase), message, rpc, graphql, socket or schedule. Paged: {result, total, nextCursor}; pass nextCursor back with the same filters. Narrow with kind, service, verb, pathPrefix (the target starts with it) or contains.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListEndpoints)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getApiFlow",
-		Description: "Get the call chain below one entry point (Controller -> Service -> Repository for an HTTP route). endpointId is an id from codegraph.listEndpoints. Steps are depth-first; depth rebuilds the tree (a step's caller is the nearest step above it that is one level shallower). guard, when present, is the condition the caller reaches that step under, as the source writes it (e.g. \"moduleBasedAccessEnabled\", \"!moduleBasedAccessEnabled\"): two siblings with opposite guards are the two sides of one branch. Read from the code, never evaluated, so it says what the flag is called, not what it is set to. Java projects only; a step with no guard is called whenever its caller runs.",
+		Description: "Get the call chain below one entry point (endpointId from codegraph.listEndpoints). Steps are depth-first; depth rebuilds the tree. guard is the condition the caller reaches a step under, as the source writes it, read and never evaluated: two siblings with opposite guards are the two sides of one branch. Java projects only.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetApiFlow)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.searchSymbol",
-		Description: "Search classes/methods by name in the active CodeGraph project. Paged: the answer is {result, total, nextCursor} — total counts every match, and while nextCursor is set, pass it back (with the same query and filters) for the next page. match: contains (default) | prefix (a dot-separated part of the name starts with query) | exact (the name or its last part equals query). Narrow with kind (class|method), layer (controller|service|repository|unknown) and pathPrefix (the file path starts with it).",
+		Description: "Search classes/methods by name in the active project. Paged: {result, total, nextCursor}; pass nextCursor back with the same query and filters. match: contains (default), prefix or exact. Narrow with kind, layer and pathPrefix.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphSearchSymbol)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.findConfigUsage",
-		Description: "Where a setting matters: the answer to \"if I turn this flag on, what changes?\". key is an environment variable (FSAP_ACCESS_MODULE_BASED_ENABLED), a property (fsap.access.module-based-enabled) or, with match=prefix, a property prefix; case and separators are ignored, as Spring ignores them. Returns the config files that set it (keys: file, line, value per profile — a secret's value is never returned), the environment variables behind it, the code that uses it (usages: @Value fields, @ConfigurationProperties bindings, @ConditionalOnProperty beans, Environment.getProperty, System.getenv) with what each touches (readers of the field, gated: methods that exist only when the condition holds, guarded: calls written under a condition naming the field), and entryPoints whose flow reaches any of that (via: the first touched method, depth: calls from the entry point to it). Read from the source, never evaluated: it says which code depends on the flag, not what the flag is set to. Java projects only. With an empty key it lists the switches that name no key: @Profile and @ConditionalOnMissingBean-style bean conditions.",
+		Description: "Where a setting matters: \"if I turn this flag on, what changes?\". key is an environment variable, a property or, with match=prefix, a property prefix; case and separators are ignored. Returns the files that set it (a secret's value is never returned), the code that uses it (@Value, @ConfigurationProperties, @ConditionalOnProperty, Environment, System.getenv) with its readers, gated methods and guarded calls, and the entryPoints whose flow reaches them. Read from source, never evaluated. Java only. An empty key lists the switches that name no key (@Profile, bean conditions).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphFindConfigUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.findTableUsage",
-		Description: "Who reads or writes a database table — the question before dropping or changing one. table is the table (organization_api_enablement), the JPQL entity name or the class (OrganizationApiEnablement); case and separators are ignored. When the name is also one of an entity's tables it asks about that table only; an entity name that differs from its table (@Entity(name=...)) brings all of the entity's tables (join/collection ones included). Returns the entities stored in it, every access (accesses: the method that makes it, read|write, via repository-query (@Query, JPQL or native), repository-derived (findByX), repository-crud (save/findById… inherited from Spring Data, recorded where called), jdbc (a SQL string passed to JdbcTemplate query/update/execute) or entity-manager (createQuery/createNativeQuery), the statement, and calledBy: its nearest callers), and entryPoints whose flow reaches an access (access says read, write or both; via: the first method on the way; depth: calls from the entry point to it). access=write narrows to the writers. Read from the source: a table named only by a variable, a trigger, a cascade or a view is not seen. Java projects only.",
+		Description: "Who reads or writes a database table. table is the table name, the JPQL entity or the class (case and separators ignored); an entity whose name differs from its table brings all its tables. Returns the entities, every access (method, read|write, how it is made, the statement, calledBy) and the entryPoints whose flow reaches one (access, via, depth). access=write narrows to writers. Read from source: a table named by a variable, a trigger, a cascade or a view is not seen. Java only.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphFindTableUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.findServiceCalls",
-		Description: "Which services a service calls over HTTP, and which call it — across the workspace's services. For servicePath (default: the service the session works in): outbound lists each HTTP call it makes (client: feign, http-interface, rest-template, web-client, rest-client, resty-http for a Kong plugin) and where it goes; inbound lists the calls from other services that land on its routes (endpointId narrows it to one route from codegraph.listEndpoints — \"who calls this endpoint\"). Each edge has a status: linked (callee: the service, route and method behind it; provenance: feign-name, literal or property say the code or config named the host, port is a guess from a localhost setup, path-unique means no host was known but exactly one service serves a route that specific), or why it stopped short: endpoint-gone (the service is known, no route of it matches), dynamic-url (the host is only known at run time), unknown-service, ambiguous-service / ambiguous-path (candidates lists them), not-indexed, external. Read from each service's index, not its source now: services[].indexedAt says how old, and a service the workspace has but that has no index is named in notes. Java (Feign, HTTP interfaces, RestTemplate, WebClient, RestClient) and Lua (resty.http) callers; routes are Java's.",
+		Description: "Which services a service calls over HTTP, and which call it, across the workspace. servicePath defaults to the session's service: outbound lists each HTTP call and where it goes; inbound lists calls from other services onto its routes (endpointId narrows to one route). Each edge is linked (callee service, route, method, provenance) or says why it stopped short: endpoint-gone, dynamic-url, unknown-service, ambiguous-service/ambiguous-path (candidates), not-indexed, external. Read from each service's index, not its source now: services[].indexedAt says how old, and unindexed services are in notes. Java and Lua callers; routes are Java's.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphFindServiceCalls)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.findRedisKeyUsage",
-		Description: "Which Redis keys services of the workspace share: one writes fsap:access:{org}:{api}, another reads fsap:access:*. key is a pattern (a {hole} or * is any run of characters; at least 3 fixed characters before the first wildcard); two patterns are one resource when some string matches both. Returns each matching pattern with writers and readers (service, method, file:line, the key as written, the Redis command), the services touching it or anything overlapping it, and crossService — true when one service writes what a different one reads, so changing the key's shape or its writer is felt elsewhere. With no key it lists every key two or more services touch, cross-service ones first. Read from each service's index: keys given by a literal or constant to Spring Data Redis (opsForValue()… / RedisTemplate), Jedis/Lettuce command objects or Lua resty.redis; a key built elsewhere, Spring cache annotations, Lua scripts and pub/sub channels are not seen. servicePath names the workspace (default: the session's); services without an index are named in notes.",
+		Description: "Which Redis keys services of the workspace share. key is a pattern ({hole} or * is any run of characters; at least 3 fixed characters first); two patterns are one resource when some string matches both. Returns each pattern with writers and readers (service, method, file:line, command) and crossService: one service writes what another reads. With no key, lists every key two or more services touch. Not seen: keys built elsewhere, Spring cache annotations, Lua scripts, pub/sub. servicePath names the workspace; unindexed services are in notes.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphFindRedisKeyUsage)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.findKafkaTopicUsage",
-		Description: "Who produces to and consumes from Kafka topics across the workspace's services — which service consumes the topic this one publishes to, and what a topic's producers are. topic is a name or a pattern (* or {hole} is any run of characters; at least 3 fixed characters before the first wildcard). Each topic lists producers and consumers (service, method, file:line, the topic as written, resolved: the name after folding the writing service's own config — @KafkaListener(topics = \"${app.kafka.topic.access}\") is read against that service's application.yml, default profile only — client, a consumer's groupId, and pattern for a regex topicPattern, which matches every topic whose name it fits), the services touching it or one that overlaps it, crossService (one service produces what a different one consumes) and gap: no-consumer (produced, nothing in the workspace consumes it — it may be read outside the workspace) or no-producer. gaps=true lists only topics with a gap; no topic lists every topic two or more services touch, cross-service first. Uses whose property is not set in their service's config are listed under unresolved, not dropped. Seen: @KafkaListener, KafkaTemplate.send, ProducerRecord, consumer.subscribe, Kafka Streams, Lua resty.kafka.producer; not seen: Spring Cloud Stream bindings, @SendTo, sendDefault, a topic built elsewhere and passed in.",
+		Description: "Who produces to and consumes from Kafka topics across the workspace's services. topic is a name or a pattern ({hole} or * is any run of characters; at least 3 fixed characters first). Each topic lists producers and consumers (service, method, file:line, resolved name folded against the writing service's own config — default profile —, client, groupId), crossService and gap: no-consumer (may be read outside the workspace) or no-producer. gaps=true lists only gaps; no topic lists every shared topic. Unset properties go under unresolved. Not seen: Spring Cloud Stream bindings, @SendTo, sendDefault, topics built elsewhere.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphFindKafkaTopicUsage)
 
@@ -216,7 +216,7 @@ type codeGraphListEndpointsInput struct {
 	Verb        string `json:"verb,omitempty" jsonschema:"optional; only this verb, e.g. GET, POST, ACCESS (case-insensitive)"`
 	PathPrefix  string `json:"pathPrefix,omitempty" jsonschema:"optional; only entry points whose target starts with this, e.g. /v1/internal"`
 	Contains    string `json:"contains,omitempty" jsonschema:"optional; only entry points whose target or owner contains this text (case-insensitive)"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"optional; rows per page (default 100, at most 300)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; rows per page (default 50, at most 300)"`
 	Cursor      string `json:"cursor,omitempty" jsonschema:"optional; nextCursor of the previous page, with the same filters"`
 	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
 }
@@ -228,7 +228,7 @@ func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallTool
 		if err != nil {
 			return nil, err
 		}
-		q := codegraph.EntryPointQuery{Kind: in.Kind, Service: in.Service, Verb: in.Verb, PathPrefix: in.PathPrefix, Contains: in.Contains, Limit: in.Limit, Cursor: in.Cursor}
+		q := codegraph.EntryPointQuery{Kind: in.Kind, Service: in.Service, Verb: in.Verb, PathPrefix: in.PathPrefix, Contains: in.Contains, Limit: pageDefault(in.Limit, mcpEntryPointPage), Cursor: in.Cursor}
 		return whenIndexReady(ctx, cg, func() (codegraph.EntryPointPage, error) { return cg.ListEntryPointsPage(ctx, q) })
 	})
 	if err != nil {
@@ -262,9 +262,26 @@ type codeGraphSearchSymbolInput struct {
 	Kind        string `json:"kind,omitempty" jsonschema:"optional; class or method"`
 	Layer       string `json:"layer,omitempty" jsonschema:"optional; controller, service, repository or unknown"`
 	PathPrefix  string `json:"pathPrefix,omitempty" jsonschema:"optional; only symbols whose file path starts with this"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"optional; matches per page (default 50, at most 200)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"optional; matches per page (default 25, at most 200)"`
 	Cursor      string `json:"cursor,omitempty" jsonschema:"optional; nextCursor of the previous page, with the same query and filters"`
 	ServicePath string `json:"servicePath,omitempty" jsonschema:"optional; absolute path of a workspace service to read instead of the focused project — opened on first use, and indexed first if it never was"`
+}
+
+// What a page of codegraph.searchSymbol / listEndpoints holds when the agent
+// names no limit. The codegraph package's own defaults (50 / 100) are the
+// window's; an agent's page stays in its context for every later request, and
+// one search of 200 matches cost 47 KB. The agent can still ask for more, up to
+// the same maximum, and result_budget.go cuts anything that outgrows the budget.
+const (
+	mcpSymbolPage     = 25
+	mcpEntryPointPage = 50
+)
+
+func pageDefault(limit, def int) int {
+	if limit == 0 {
+		return def
+	}
+	return limit
 }
 
 func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphSearchSymbolInput) (*sdk.CallToolResult, any, error) {
@@ -273,7 +290,7 @@ func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolR
 		if err != nil {
 			return nil, err
 		}
-		q := codegraph.SymbolQuery{Query: in.Query, Match: in.Match, Kind: in.Kind, Layer: in.Layer, PathPrefix: in.PathPrefix, Limit: in.Limit, Cursor: in.Cursor}
+		q := codegraph.SymbolQuery{Query: in.Query, Match: in.Match, Kind: in.Kind, Layer: in.Layer, PathPrefix: in.PathPrefix, Limit: pageDefault(in.Limit, mcpSymbolPage), Cursor: in.Cursor}
 		return whenIndexReady(ctx, cg, func() (codegraph.SymbolPage, error) { return cg.SearchSymbolsPage(ctx, q) })
 	})
 	if err != nil {

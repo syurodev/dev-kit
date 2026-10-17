@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -357,7 +358,7 @@ func TestMemoryCursorPagination(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, ok := unwrap(v).(workspacememory.BrowsePage)
+			page, ok := unwrap(v).(memoryPageOut)
 			if !ok || !page.HasMore || page.NextCursor != "next cursor" || len(page.Entries) != 1 {
 				t.Fatalf("page=%#v", unwrap(v))
 			}
@@ -392,7 +393,7 @@ func TestMemoryCursorValidationAndLegacyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := unwrap(v).(workspacememory.Page); !ok {
+	if _, ok := unwrap(v).(memoryPageOut); !ok {
 		t.Fatalf("legacy page=%#v", v)
 	}
 	if browser.calls != 1 || browser.browseCalls != 0 {
@@ -412,5 +413,77 @@ func TestMemoryCursorValidationAndLegacyFallback(t *testing.T) {
 	}
 	if legacy.calls != 1 {
 		t.Fatal("legacy API no longer works")
+	}
+}
+
+func TestMemoryWriteAnswersWithoutTheBodyUnlessAsked(t *testing.T) {
+	body := strings.Repeat("a long note ", 500)
+	entry := workspacememory.Entry{ID: "e1", WorkspaceID: memoryWorkspaceID, Kind: "decision", Title: "T", Summary: "S", Body: body, Revision: 4, UpdatedAt: "2026-10-17T00:00:00Z", Source: workspacememory.Source{Caller: "agent", SessionID: "s"}}
+	whole, _ := json.Marshal(entry)
+
+	compact, _ := json.Marshal(compactMemoryEntry(entry, false))
+	if strings.Contains(string(compact), "a long note") || strings.Contains(string(compact), "workspaceId") || strings.Contains(string(compact), "source") {
+		t.Fatalf("compact write carries the body, workspace or source: %s", compact)
+	}
+	for _, field := range []string{`"id":"e1"`, `"revision":4`, `"title":"T"`, `"updatedAt"`, `"kind":"decision"`, `"summary":"S"`} {
+		if !strings.Contains(string(compact), field) {
+			t.Errorf("compact write lost %s: %s", field, compact)
+		}
+	}
+	if len(compact)*20 > len(whole) {
+		t.Errorf("compact answer is %d bytes of %d; expected under 5%% of a 6 KB note", len(compact), len(whole))
+	}
+	t.Logf("memory write answer: %d -> %d bytes", len(whole), len(compact))
+
+	withBody, _ := json.Marshal(compactMemoryEntry(entry, true))
+	if !strings.Contains(string(withBody), "a long note") {
+		t.Fatal("includeBody did not return the body")
+	}
+}
+
+func TestMemoryWriteToolsHonourIncludeBody(t *testing.T) {
+	session := agenthub.AgentSession{ID: "session", WorkspaceID: memoryWorkspaceID, AgentType: agenthub.AgentTypeClaude}
+	ctx := identity.WithCaller(context.Background(), identity.Agent("session"))
+	s := memoryTestServer(&fakeCaller{}, &fakeMemory{}, session)
+	for _, include := range []bool{false, true} {
+		_, v, err := s.toolMemoryCreate(ctx, nil, memoryCreateInput{Kind: "knowledge", Title: "t", Summary: "s", Body: "b", IncludeBody: include})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := unwrap(v).(memoryEntryOut); !ok {
+			t.Fatalf("create answered %T, want the compact entry", unwrap(v))
+		}
+		_, v, err = s.toolMemoryUpdate(ctx, nil, memoryUpdateInput{ID: "e", ExpectedRevision: 1, Kind: "knowledge", Title: "t", Summary: "s", Body: "b", IncludeBody: include})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := unwrap(v).(memoryEntryOut); !ok {
+			t.Fatalf("update answered %T", unwrap(v))
+		}
+	}
+}
+
+func TestMemoryHistoryAndListAreCompact(t *testing.T) {
+	rows := []workspacememory.Revision{
+		{Operation: "update", Entry: workspacememory.Entry{Revision: 3, Title: "T", Summary: "S", Body: strings.Repeat("x", 6000), UpdatedAt: "u", WorkspaceID: "w"}},
+		{Operation: "create", Entry: workspacememory.Entry{Revision: 2, Title: "T", Summary: "S", Body: strings.Repeat("y", 6000), UpdatedAt: "u"}},
+	}
+	short, _ := json.Marshal(compactMemoryHistory(rows, false))
+	if len(short) > 400 || strings.Contains(string(short), "xxx") {
+		t.Errorf("history without includeBody is %d bytes: %s", len(short), short)
+	}
+	full, _ := json.Marshal(compactMemoryHistory(rows, true))
+	if !strings.Contains(string(full), "yyy") {
+		t.Error("history with includeBody lost the bodies")
+	}
+	t.Logf("history of 2 revisions of a 6 KB note: %d -> %d bytes", len(full), len(short))
+
+	page := compactMemoryPage(workspacememory.BrowsePage{HasMore: true, NextCursor: "c", Entries: []workspacememory.Summary{{ID: "a", WorkspaceID: "w", Kind: "k", Title: "t", Summary: "s", Revision: 1, UpdatedAt: "u", CreatedAt: "c0", Source: workspacememory.Source{Caller: "x"}}}})
+	raw, _ := json.Marshal(page)
+	if strings.Contains(string(raw), "workspaceId") || strings.Contains(string(raw), "createdAt") || strings.Contains(string(raw), "source") {
+		t.Errorf("list row carries fields the caller knows: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"nextCursor":"c"`) || !strings.Contains(string(raw), `"hasMore":true`) {
+		t.Errorf("list lost its paging: %s", raw)
 	}
 }

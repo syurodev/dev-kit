@@ -60,10 +60,67 @@ type gitRepoInput struct {
 }
 
 // gitStatusResult is git.status's answer, naming the repository it read so an
-// agent never has to guess which one "the work tree" was.
+// agent never has to guess which one "the work tree" was. It is the compact
+// form of gitservice.Status: that one lists a path in `files` and again in
+// `staged`/`unstaged`/`untracked`, and spells every empty field out — about
+// 2.2 KB a call, 62 calls in the stored sessions. Here a path appears once
+// per category it is in, with its one-letter state in front, and an empty
+// field is absent (no `upstream` = no upstream; no `ahead` = 0; no lists = a
+// clean tree, which `clean` says).
 type gitStatusResult struct {
-	Repo string `json:"repo,omitempty"`
-	gitservice.Status
+	Repo     string `json:"repo,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Upstream string `json:"upstream,omitempty"`
+	Ahead    int    `json:"ahead,omitempty"`
+	Behind   int    `json:"behind,omitempty"`
+	Detached bool   `json:"detached,omitempty"`
+	Clean    bool   `json:"clean,omitempty"`
+	// Each entry is "<state> <path>": M modified, A added, D deleted, R
+	// renamed, ? untracked (no letter is kept for those — they are listed
+	// under untracked).
+	Staged     []string `json:"staged,omitempty"`
+	Unstaged   []string `json:"unstaged,omitempty"`
+	Untracked  []string `json:"untracked,omitempty"`
+	Conflicted []string `json:"conflicted,omitempty"`
+	// Omitted counts the paths a category was cut to statusListCap, by
+	// category name: git.diff names the files of a large change.
+	Omitted map[string]int `json:"omitted,omitempty"`
+}
+
+// statusListCap bounds one category of git.status. A tree with a build output
+// not in .gitignore has thousands of untracked paths; the first hundred say
+// what kind of mess it is, and `omitted` says how much more there is.
+const statusListCap = 100
+
+func compactGitStatus(repo string, st gitservice.Status) gitStatusResult {
+	out := gitStatusResult{Repo: repo, Branch: st.Branch, Upstream: st.Upstream, Ahead: st.Ahead, Behind: st.Behind, Detached: st.Detached}
+	lettered := func(name string, paths []string, withState bool) []string {
+		if len(paths) == 0 {
+			return nil
+		}
+		if len(paths) > statusListCap {
+			if out.Omitted == nil {
+				out.Omitted = map[string]int{}
+			}
+			out.Omitted[name] = len(paths) - statusListCap
+			paths = paths[:statusListCap]
+		}
+		rows := make([]string, len(paths))
+		for i, p := range paths {
+			if withState && st.Files[p] != "" {
+				rows[i] = st.Files[p] + " " + p
+			} else {
+				rows[i] = p
+			}
+		}
+		return rows
+	}
+	out.Staged = lettered("staged", st.Staged, true)
+	out.Unstaged = lettered("unstaged", st.Unstaged, true)
+	out.Untracked = lettered("untracked", st.Untracked, false)
+	out.Conflicted = lettered("conflicted", st.Conflicted, false)
+	out.Clean = len(st.Files) == 0 && len(st.Staged)+len(st.Unstaged)+len(st.Untracked)+len(st.Conflicted) == 0
+	return out
 }
 
 // repoMeta adds the repository asked for to an audit line.
@@ -94,7 +151,8 @@ func (s *Server) registerGit(ms *sdk.Server) {
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "git.status",
 		Description: "What changed in the work tree, the branch, and how far ahead or behind it is. " +
-			"`repo` in the answer says which repository that was",
+			"`repo` in the answer says which repository that was. Lists are staged/unstaged/untracked/conflicted, " +
+			"each entry \"<state> <path>\" (M, A, D, R); an absent field is empty or zero, and `clean` means nothing changed",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolGitStatus)
 
@@ -239,7 +297,7 @@ func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, in g
 			return nil, err
 		}
 		status, err := git.Status(ctx)
-		return gitStatusResult{Repo: repo, Status: status}, err
+		return compactGitStatus(repo, status), err
 	})
 	if err != nil {
 		return nil, nil, err

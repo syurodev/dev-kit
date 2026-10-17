@@ -80,19 +80,17 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.listPeers",
-		Description: "List the Agent Hub sessions you can message: your own workspace's sessions, your sub-sessions and your parent. " +
-			"Use the sessionId with agenthub.sendMessage.",
+		Description: "List the Agent Hub sessions you can message: your own workspace's sessions, your sub-sessions and your parent " +
+			"(closed ones are counted, not listed). Use the sessionId with agenthub.sendMessage.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubListPeers)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.sendMessage",
 		Description: "Send a message to another Agent Hub session without waiting for its answer. " +
-			"The result says at once what became of it: started (the session was idle and began a turn on it), " +
-			"steered (it was working and the message went into that turn), queued (it waits until the session can take it) " +
-			"or refused (with a code: not_found, self, closed, loop, rate, queue_full, too_long, declined). " +
-			"The other session reads it as a message from you, not from the user, and may reply with this same tool (replyTo). " +
-			"Replies and exchanges are capped; do not message just to acknowledge.",
+			"The result says at once what became of it: started (it was idle and began a turn), steered (it was working; the message went into that turn), " +
+			"queued (waits until it can take it) or refused (with a code: not_found, self, closed, loop, rate, queue_full, too_long, declined). " +
+			"It reads the message as from you, not from the user, and may reply with this tool (replyTo). Exchanges are capped; do not message just to acknowledge.",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -309,12 +307,51 @@ func (s *Server) toolAgentHubListPeers(ctx context.Context, _ *sdk.CallToolReque
 	}
 	subject, capability, scope := peerListGrant()
 	v, err := s.deps.Caller.Call(ctx, subject, capability, scope, meta("list_peers", nil), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.ListPeers(callCtx)
+		peers, err := s.deps.AgentHub.ListPeers(callCtx)
+		return compactPeers(peers), err
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	return nil, structured(v), nil
+}
+
+// peerTitleRunes clips a session title in a peer listing: a title is a label
+// to pick a recipient by, and some are a whole first prompt.
+const peerTitleRunes = 80
+
+type peerOut struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
+	AgentType string `json:"agentType"`
+	Status    string `json:"status"`
+	Relation  string `json:"relation"`
+}
+
+type peerListOut struct {
+	Peers []peerOut `json:"peers"`
+	// Closed counts the sessions left out because they are closed: a closed
+	// session is never woken, so it cannot be a recipient.
+	Closed int `json:"closed,omitempty"`
+}
+
+// compactPeers is agenthub.listPeers' answer: who a message can reach, with
+// no parent id (the relation says parent/child) and no closed sessions. The
+// list repeated every session of the workspace on each call, 1.8–3.1 KB a time.
+func compactPeers(peers []agenthub.PeerInfo) peerListOut {
+	out := peerListOut{Peers: make([]peerOut, 0, len(peers))}
+	for _, p := range peers {
+		if p.Status == agenthub.SessionStatusClosed {
+			out.Closed++
+			continue
+		}
+		title := p.Title
+		if r := []rune(title); len(r) > peerTitleRunes {
+			title = string(r[:peerTitleRunes-1]) + "…"
+		}
+		out.Peers = append(out.Peers, peerOut{SessionID: p.SessionID, Title: title, AgentType: string(p.AgentType), Status: string(p.Status), Relation: string(p.Relation)})
+	}
+	return out
 }
 
 type agentHubSendMessageInput struct {

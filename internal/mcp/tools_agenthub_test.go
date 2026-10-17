@@ -464,11 +464,41 @@ func TestAgentHubListPeersTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := unwrap(v).([]agenthub.PeerInfo); !ok || len(got) != 1 || got[0].Title != "alpha" {
+	if got, ok := unwrap(v).(peerListOut); !ok || len(got.Peers) != 1 || got.Peers[0].Title != "alpha" {
 		t.Fatalf("output = %#v", v)
 	}
 	if caller.last.capability != "agenthub:read" || caller.last.scope != "session:list" || caller.last.metadata["action"] != "list_peers" {
 		t.Fatalf("Call = %+v", caller.last)
+	}
+}
+
+// listPeers answers the compact form: no closed sessions (counted), no parent
+// id, titles clipped — the full list was re-read into context on every call.
+func TestAgentHubListPeersIsCompact(t *testing.T) {
+	long := strings.Repeat("é", 200)
+	hub := &fakeAgentHub{peers: []agenthub.PeerInfo{
+		{SessionID: "s1", Title: long, AgentType: agenthub.AgentTypeClaude, Status: agenthub.SessionStatusIdle, Relation: agenthub.PeerChild, ParentID: "me"},
+		{SessionID: "s2", Title: "done", Status: agenthub.SessionStatusClosed, Relation: agenthub.PeerSameWorkspace},
+		{SessionID: "s3", Title: "me", Status: agenthub.SessionStatusRunning, Relation: agenthub.PeerSelfRelation},
+	}}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+	_, v, err := srv.toolAgentHubListPeers(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := unwrap(v).(peerListOut)
+	if len(got.Peers) != 2 || got.Closed != 1 {
+		t.Fatalf("peers = %+v closed = %d, want the closed session counted not listed", got.Peers, got.Closed)
+	}
+	if n := len([]rune(got.Peers[0].Title)); n != peerTitleRunes {
+		t.Errorf("title is %d runes, want it clipped to %d", n, peerTitleRunes)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "parentSessionId") {
+		t.Errorf("answer carries a parent id: %s", raw)
+	}
+	if got.Peers[0].SessionID != "s1" || got.Peers[0].Relation != "child" || got.Peers[1].Status != "running" {
+		t.Errorf("fields the caller needs to pick a recipient are missing: %+v", got.Peers)
 	}
 }
 

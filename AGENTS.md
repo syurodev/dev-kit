@@ -166,6 +166,21 @@ as production-verified against a real Claude Code session in cloud CI.
   real grants. A denial reaches an agent as `Permission denied: <what was missing>` (the window keeps the
   bare message, `bridge.publicErrorFor`), and a Codex row for a failed MCP call shows the tool's own text
   instead of `failed` (`codexMcpErrorText`).
+- **What a tool puts in an agent's context is budgeted** (`internal/mcp/result_budget.go`, `tool_budget_test.go`). Anything a
+  tool returns stays in the conversation for every later request, and Codex pulls tool definitions into context too. Results:
+  `withResultBudget` (one receiving middleware, not per handler) cuts a text result over `ResultBudget` (24 KB) at item
+  boundaries (the largest array keeps the leading items that fit; a lone long string is shortened; plain text is cut at a
+  line), adds `_truncated` saying how much was left out and how to get it (`resultHints`), drops a `nextCursor` that would
+  skip the cut rows and sets `truncated` on row sets. Never cut: results with an image/non-text block, errors, and the
+  tools in `budgetExempt` (`pdf.*` have their own budget, `codegraph.readFile` is "the whole file") — a new exemption needs a
+  reason there. Lists and writes return compact shapes (`tasks.*` without history/description except `tasks.get`,
+  `workspace.memory` writes without body unless `includeBody`, `git.status` as `"<state> <path>"` lists, `agenthub.listPeers`
+  without closed sessions); a ToolResultView must not read a field those dropped — add a shape test beside the view.
+  MCP default page sizes are smaller than the window's (`mcpSymbolPage` 25, `mcpEntryPointPage` 50). Definitions:
+  `TestToolDefinitionsStayWithinBudget` fails when one description passes 700 bytes, one definition 2200, or the sums grow
+  (descriptions 25 KB, with schemas 70 KB); shorten before raising, and never trim a sentence that tells the agent the
+  person will be asked (`TestGateOwnedToolsStillSayTheyAsk`). Measured on fixtures in the tests' logs
+  (`go test ./internal/mcp -run 'Compact|Measured|Memory|Cut' -v`), not with a real model.
 - Profile-scoped tools that reach a server (`db.explain`, `db.listForeignKeys`,
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.
