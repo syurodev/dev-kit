@@ -262,6 +262,12 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	customizationPaths = append(customizationPaths, importedRoots...)
 	denyWrite = append(denyWrite, importedRoots...)
 
+	subagentArgs, subagentDeny, err := writeCodexSubagents(home, spec.Subagents)
+	if err != nil {
+		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: Codex %v", ErrProcessFailed, err)
+	}
+	denyWrite = append(denyWrite, subagentDeny...)
+
 	pol := sandbox.Policy{
 		WorkDir:                workDir,
 		Network:                sandbox.NetworkHost,
@@ -283,6 +289,7 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	}
 	args := append(append([]string(nil), l.args...), codexArgs(store, spec.McpServers)...)
 	args = append(args, customizationArgs...)
+	args = append(args, subagentArgs...)
 	return pol, sandbox.Cmd{Path: l.path, Args: args}, nil
 }
 

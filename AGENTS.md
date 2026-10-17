@@ -437,6 +437,31 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     (`TestFreshClaudeSession*`, `TestCodexSessionWithoutATurn*`, `choiceAdapter`); the Codex "no rollout" answer
     was measured with the real app-server 0.163.0 under a throw-away `CODEX_HOME`. Gallery:
     `?gallery#agenthub-model-profiles`.
+- **A profile can also be a vendor subagent** (`internal/agenthub/subagents.go`, `claude_subagents.go`,
+  `codex_subagents.go`; fields `subagent` + `prompt` on `AgentModelProfile`, off by default, so an old list changes nothing).
+  A subagent is the vendor's feature (Claude's Agent tool, Codex's `spawn_agent`) running inside the session — not
+  `agenthub.createAgentSession`. `applySubagents` runs beside `applySandboxExtras` at create, resume and rewind (never inside
+  it: the catalog read calls that) and puts the vendor's own profiles in `OpenSpec.Subagents`; a running session keeps its set
+  until Reload (Environment → Reload session). `planSubagents` leaves a profile out, with the reason, when its model/effort is
+  not on the vendor's (cached) list, when Claude's effort is not `low|medium|high|xhigh|max`, or when the person already has a
+  subagent of that name (`.claude/agents`, `.codex/agents`, `[agents.<n>]`; the programmatic definition would shadow theirs).
+  `preferences.SubagentNames` derives the name from the profile **id** (ASCII slug, unique, never a vendor built-in).
+  - Claude: `_meta.claudeCode.options.agents[<name>] = {description, prompt, model?, effort?}` and nothing else — no tools,
+    permissionMode, mcpServers or skills (`TestClaudeSubagentsMetaWritesOnlyWhatCarriesNoPermission`). `model: "default"` is omitted.
+  - Codex (**schema read from the 0.163.0 binary and run for real**): a role is `agents.<name>` = `{description, config_file}`
+    (`AgentRoleToml`, + `nickname_candidates`); the role file needs `developer_instructions` and takes `model`,
+    `model_reasoning_effort` (and `sandbox_mode`, which DevKit never writes). DevKit writes the file under
+    `<codex home>/devkit-agents/<name>-<hash>.toml` (content-named so a running session keeps its file; jail may not write the
+    dir; files unreferenced for 24 h are swept) and registers it per process with `-c agents.<name>.description=… -c
+    agents.<name>.config_file=<abs>`, never in the shared config.toml. In the app-server (`multi_agent_v2`) the role appears in
+    `collaboration.spawn_agent`'s `agent_type` with the description and "model … effort … cannot be changed". Codex only
+    delegates when the person or an AGENTS.md asks for sub-agents — its own rule, stated in the UI.
+  - `agenthub.listModelProfiles` also returns `subagent`, `subagentName`, `subagentStatus` (`active|skipped`) and
+    `subagentProblem` (never `prompt`; only the window's own list carries it). No new tool or bridge method, so no new grant.
+  - Real runtimes, mock model API, fake HOME: `cmd/pdfe2e/subagent_test.go` (skipped unless `DEVKIT_SUBAGENT_E2E_CLAUDE`,
+    `_NODE`, `_CODEX` are set — see its header): a new Claude and a new Codex session each show the subagent, the child
+    runs on the profile's model/effort/instructions, and a Claude subagent's shell `git commit` is refused by DevKit's hook.
+    The harness gateway allows everything, so a gated tool's confirm card is not exercised through a subagent.
 - **A person's turn has no time limit; an agent's or terminal's does.** `Service.Invoke` applies
   `DefaultInvokeTimeout` (10 min) only when the caller is not the UI or a remote human
   (`invokeUnbounded`). It used to cut every UI turn at 10:00 exactly, which looked like the vendor

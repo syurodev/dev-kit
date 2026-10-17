@@ -16,20 +16,29 @@ const vendors: ProfileVendor[] = [
 
 const profile = (extra: Partial<ModelProfile>): ModelProfile => ({
   id: "code-review", name: "Code review", description: "Reading or reviewing a lot of code; summarising a diff.",
-  vendor: "claude", model: "haiku", effort: "low", notes: "", ...extra,
+  vendor: "claude", model: "haiku", effort: "low", notes: "", subagent: false, prompt: "", ...extra,
 });
 
 const profiles: ModelProfile[] = [
-  profile({}),
+  profile({ subagent: true, prompt: "You review diffs. List findings by severity, quote the line, and do not edit files." }),
   profile({ id: "architecture", name: "Architecture", description: "Design, trade-offs, anything hard to undo.", model: "opus", effort: "high" }),
   profile({ id: "docs", name: "Documentation", description: "", vendor: "codex", model: "gpt-5.5-mini", effort: "" }),
+  profile({ id: "triage", name: "Triage", description: "Sorting issues and reading logs.", vendor: "codex", model: "gpt-5.5-mini", effort: "low", subagent: true, prompt: "Sort by user impact." }),
+  profile({ id: "explorer", name: "Explorer", description: "Exploring an unfamiliar folder.", subagent: true, prompt: "Map the folder." }),
 ];
 
-const check = (p: ModelProfile, status: string, problem = ""): ModelProfileCheck => ({ ...p, status, problem });
+const check = (p: ModelProfile, status: string, problem = "", subagent: Partial<ModelProfileCheck> = {}): ModelProfileCheck => ({
+  ...p, status, problem, subagentName: "", subagentStatus: "", subagentProblem: "", ...subagent,
+});
 const checks: Record<string, ModelProfileCheck> = {
-  "code-review": check(profiles[0]!, "ok"),
+  "code-review": check(profiles[0]!, "ok", "", { subagentName: "code-review", subagentStatus: "active" }),
   architecture: check(profiles[1]!, "unknownModel", 'claude no longer offers "opus" (it offers: sonnet, haiku).'),
   docs: check(profiles[2]!, "signInRequired", "not signed in"),
+  triage: check(profiles[3]!, "ok", "", { subagentName: "triage", subagentStatus: "active" }),
+  explorer: check(profiles[4]!, "ok", "", {
+    subagentName: "explorer-job", subagentStatus: "skipped",
+    subagentProblem: 'you already have a subagent called "explorer-job" of your own; rename this job, or that agent',
+  }),
 };
 
 const claudeModels: VendorModelChoices = {
@@ -53,14 +62,21 @@ export function AgentModelProfilesSection() {
         <ModelProfilesEditor profiles={[]} checks={{}} vendors={vendors} choices={{}} saving={false} error="" onVendorWanted={() => {}} onSave={noop} />
       </div>
       <div className={frame}>
-        <p className="mb-2 text-label-12 text-text-tertiary">A list: one fine, one whose model is gone, one whose vendor is signed out</p>
+        <p className="mb-2 text-label-12 text-text-tertiary">A list: a Claude and a Codex subagent, one skipped because the person has an agent of that name, one whose model is gone, one whose vendor is signed out</p>
         <ModelProfilesEditor profiles={profiles} checks={checks} vendors={vendors} choices={{}} saving={false} error="" onVendorWanted={() => {}} onSave={noop} />
       </div>
       <div className={frame}>
-        <p className="mb-2 text-label-12 text-text-tertiary">Editing, with the vendor's models</p>
+        <p className="mb-2 text-label-12 text-text-tertiary">Editing a subagent, with the vendor's models</p>
         <ModelProfilesEditor
           profiles={profiles} checks={checks} vendors={vendors} choices={{ claude: claudeModels }} saving={false} error=""
           onVendorWanted={() => {}} onSave={noop} initialDraft={profiles[0]}
+        />
+      </div>
+      <div className={frame}>
+        <p className="mb-2 text-label-12 text-text-tertiary">Editing a Codex subagent (note about when Codex delegates)</p>
+        <ModelProfilesEditor
+          profiles={profiles} checks={checks} vendors={vendors} choices={{}} saving={false} error=""
+          onVendorWanted={() => {}} onSave={noop} initialDraft={profiles[3]}
         />
       </div>
       <div className={frame}>

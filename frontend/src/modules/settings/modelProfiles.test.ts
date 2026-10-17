@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelProfile, ModelProfileCheck } from "../../bridge/agenthub";
-import { blankProfile, checkNotice, effortChoicesOf, modelChoicesOf, profileProblem, withProfile } from "./modelProfiles";
+import { blankProfile, checkNotice, effortChoicesOf, modelChoicesOf, profileProblem, subagentNotice, withProfile } from "./modelProfiles";
 
-const review: ModelProfile = { id: "code-review", name: "Code review", description: "", vendor: "claude", model: "haiku", effort: "low", notes: "" };
+const review: ModelProfile = { id: "code-review", name: "Code review", description: "", vendor: "claude", model: "haiku", effort: "low", notes: "", subagent: false, prompt: "" };
 
 describe("model profiles", () => {
   test("reads the model option's choices and each model's efforts", () => {
@@ -37,7 +37,7 @@ describe("model profiles", () => {
   });
 
   test("a check says so only when something is wrong, and names who skips it", () => {
-    const check = (status: string, problem = ""): ModelProfileCheck => ({ ...review, status, problem });
+    const check = (status: string, problem = ""): ModelProfileCheck => ({ ...review, status, problem, subagentName: "", subagentStatus: "", subagentProblem: "" });
     expect(checkNotice(undefined)).toBeNull();
     expect(checkNotice(check("ok"))).toBeNull();
     const gone = checkNotice(check("unknownModel", 'claude no longer offers "haiku".'));
@@ -46,5 +46,21 @@ describe("model profiles", () => {
     expect(checkNotice(check("signInRequired"))?.text).toContain("not signed in");
     expect(checkNotice(check("notInstalled"))?.text).toContain("not installed");
     expect(checkNotice(check("unavailable"))?.tone).toBe("info");
+  });
+
+  test("a subagent needs the description and the instructions; the notice follows the check", () => {
+    const sub = { ...review, subagent: true, description: "Reading code", prompt: "Be brief." };
+    expect(profileProblem(sub, [])).toBe("");
+    expect(profileProblem({ ...sub, description: " " }, [])).toContain("description");
+    expect(profileProblem({ ...sub, prompt: "" }, [])).toContain("instructions");
+    expect(profileProblem({ ...sub, subagent: false, prompt: "" }, [])).toBe("");
+    expect(profileProblem({ ...sub, prompt: "x".repeat(8001) }, [])).toContain("8000");
+    expect(withProfile([], { ...sub, prompt: "  Be brief.  " })[0]?.prompt).toBe("Be brief.");
+
+    expect(subagentNotice(review, undefined, "Claude")).toBeNull();
+    expect(subagentNotice(sub, undefined, "Claude")?.tone).toBe("info");
+    const active = { subagentName: "code-review", subagentStatus: "active", subagentProblem: "" };
+    expect(subagentNotice(sub, active, "Claude")).toEqual({ tone: "ok", text: "Subagent “code-review” in Claude sessions you start from now on." });
+    expect(subagentNotice(sub, { ...active, subagentStatus: "skipped", subagentProblem: "gone" }, "Claude")).toEqual({ tone: "warn", text: "Not offered as a subagent: gone" });
   });
 });

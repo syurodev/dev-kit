@@ -486,6 +486,24 @@ export interface ModelProfileInfo {
      */
     "status": string;
     "problem"?: string;
+
+    /**
+     * Subagent is the person's switch: the profile is also offered to its
+     * vendor's own agents as a subagent called SubagentName. SubagentStatus is
+     * "active" (sessions of that vendor started from now have it) or "skipped"
+     * with SubagentProblem saying why; empty when the switch is off. A running
+     * session keeps the set it started with until it is reloaded.
+     */
+    "subagent"?: boolean;
+    "subagentName"?: string;
+    "subagentStatus"?: string;
+    "subagentProblem"?: string;
+
+    /**
+     * Prompt is the subagent's instructions. Only the window's own list
+     * carries it (bridge); an agent's listing leaves it out.
+     */
+    "prompt"?: string;
 }
 
 /**

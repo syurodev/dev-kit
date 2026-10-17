@@ -4,7 +4,7 @@ import type { ModelProfile, ModelProfileCheck } from "../../bridge/agenthub";
 import { ModelProfilesEditor } from "./ModelProfilesEditor";
 
 const vendors = [{ id: "claude", name: "Claude" }, { id: "codex", name: "Codex" }];
-const base: ModelProfile = { id: "review", name: "Code review", description: "Reading a lot of code", vendor: "claude", model: "haiku", effort: "low", notes: "" };
+const base: ModelProfile = { id: "review", name: "Code review", description: "Reading a lot of code", vendor: "claude", model: "haiku", effort: "low", notes: "", subagent: false, prompt: "" };
 const render = (extra: Partial<Parameters<typeof ModelProfilesEditor>[0]> = {}) =>
   renderToStaticMarkup(
     <ModelProfilesEditor profiles={[base]} checks={{}} vendors={vendors} choices={{}} saving={false} error="" onVendorWanted={() => {}} onSave={async () => true} {...extra} />,
@@ -22,7 +22,7 @@ describe("ModelProfilesEditor", () => {
   });
 
   test("a profile whose model is gone is flagged, one whose vendor is signed out is only noted", () => {
-    const check = (status: string, problem: string): Record<string, ModelProfileCheck> => ({ review: { ...base, status, problem } });
+    const check = (status: string, problem: string): Record<string, ModelProfileCheck> => ({ review: { ...base, status, problem, subagentName: "", subagentStatus: "", subagentProblem: "" } });
     const gone = render({ checks: check("unknownModel", 'claude no longer offers "haiku".') });
     expect(gone).toContain('role="alert"');
     expect(gone).toContain("Agents skip");
@@ -62,5 +62,32 @@ describe("ModelProfilesEditor", () => {
 
   test("a save error shows under the list when no form is open", () => {
     expect(render({ error: "The model profiles changed." })).toContain("The model profiles changed.");
+  });
+
+  test("a switched-on profile says what becomes of it, and a skipped one is flagged", () => {
+    const on = { ...base, subagent: true, prompt: "Be brief." };
+    const checked = (extra: Partial<ModelProfileCheck>): Record<string, ModelProfileCheck> => ({
+      review: { ...on, status: "ok", problem: "", subagentName: "review", subagentStatus: "active", subagentProblem: "", ...extra },
+    });
+    const active = render({ profiles: [on], checks: checked({}) });
+    expect(active).toContain("Subagent");
+    expect(active).toContain("Subagent “review” in Claude sessions you start from now on.");
+    expect(active).not.toContain('data-subagent="warn"');
+    const skipped = render({ profiles: [on], checks: checked({ subagentStatus: "skipped", subagentProblem: 'claude no longer offers "haiku".' }) });
+    expect(skipped).toContain("Not offered as a subagent");
+    expect(skipped).toContain('data-subagent="warn"');
+    expect(render({ profiles: [base], checks: {} })).not.toContain("as a subagent");
+  });
+
+  test("the form has the switch off by default and shows the instructions only when it is on", () => {
+    const off = render({ initialDraft: base });
+    expect(off).toContain("Also use as a subagent");
+    expect(off).not.toContain("Subagent instructions");
+    expect(off).toContain("keeps what it had until you reload it");
+    const on = render({ initialDraft: { ...base, subagent: true, prompt: "Be brief." } });
+    expect(on).toContain("Subagent instructions");
+    expect(on).toContain("Be brief.");
+    expect(render({ initialDraft: { ...base, vendor: "codex", subagent: true, prompt: "x" } })).toContain("Codex delegates only when");
+    expect(on).not.toContain("Codex delegates only when");
   });
 });

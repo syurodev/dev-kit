@@ -53,7 +53,7 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.listModelProfiles",
 		Description: "List the person's model profiles: which model and effort they want for which kind of job (review, architecture, documentation…). " +
-			"Read before creating a child session, and pass the matching profile's name as `profile`. Read-only: only the person edits them.",
+			"Read before creating a child session, and pass the matching profile's name as `profile`. A profile with `subagent` set is also a subagent of your own agent (`subagentName`, when `subagentStatus` is active): call it through your own subagent tool; it is not a child session. Read-only: only the person edits them.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubListModelProfiles)
 

@@ -167,6 +167,19 @@ shows the memory.
   and effort it lists. Another model than yours, or a higher effort, asks
   the person every time — do not pick a dearer model or more effort without
   a reason the job gives, and prefer the cheaper end for reading and review.
+- **A subagent or a child session.** A profile that lists ` + "`subagent`" + ` is also
+  set up as a subagent of your own agent, under its ` + "`subagentName`" + `: call it
+  through your own subagent tool (Claude's Agent tool, Codex's spawn_agent with
+  that name as agent_type) and the vendor runs it on the profile's model and
+  the person's instructions inside your session. Reach for a subagent when the
+  job is bounded and you need its answer back in this turn. Reach for
+  {{agenthub.createAgentSession}} when the person should be able to open, follow
+  and steer the work as a session of its own, or when it needs the other
+  vendor — a subagent only ever runs on its own vendor's models. A subagent has
+  your tools and your permissions and nothing more: DevKit's gates apply to what
+  it does, exactly as to you. It exists only in sessions started after the
+  person turned it on, and only when its status is active; if your tool does
+  not list it, say so instead of guessing a name.
 - **Messages between sessions.** {{agenthub.listPeers}} lists the sessions you
   can reach — your workspace's, your sub-sessions, your parent — and
   {{agenthub.sendMessage}} sends one a message without waiting for the answer.

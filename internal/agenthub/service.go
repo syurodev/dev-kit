@@ -608,6 +608,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
+	s.applySubagents(&spec, in.AgentType)
 
 	rt, err := adapter.Open(ctx, spec)
 	if err != nil {
@@ -2043,6 +2044,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
+	s.applySubagents(&spec, sess.AgentType)
 
 	if fresh {
 		rt, err = adapter.Open(ctx, spec)

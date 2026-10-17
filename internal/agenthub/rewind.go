@@ -468,6 +468,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
+	s.applySubagents(&spec, r.session.AgentType)
 
 	// Nothing before this turn to branch from: the session starts a fresh
 	// conversation rather than a branch of one.
