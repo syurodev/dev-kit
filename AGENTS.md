@@ -405,6 +405,19 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   every `set_config_option` answer into it, announces it to the first update handler (as `codexRuntime` does)
   and re-publishes it on `PrepareSession`. A refused model list reaches the picker as
   `agenthub.modelsUnavailable` ("Codex didn't report which models it offers…"), not "Agent process failed.".
+- **A child session may write what its parent may write, never more** (`Service.CreateSession`, `inheritedExtraPaths`,
+  `resolveCwd`, `checkChildFolderInWorkspace`). An agent-created child gets its parent's stored `ExtraReadWritePaths`
+  (cleaned; read from the parent's row, never from the tool input — `agentHubCreateInput` has no path field,
+  `TestCreateAgentSessionHasNoPathGrantInput`, and an agent caller's own `CreateInput.ExtraReadWritePaths` is still
+  ignored) and persists them on its own row, so resume/rewind/reload rebuild the same jail, the brief and
+  `workspace.list`/`git.*` `granted` (all read project path + stored extras) list them, and a grandchild inherits from
+  its own parent: authority only narrows or stays equal along a chain. Its cwd may be inside the parent's project **or**
+  inside one of the parent's extra folders (symlinks resolved on both sides; else `ErrCwdOutsideParent`), and a cwd in an
+  extra folder must also be a folder of the parent's workspace when the workspace and a lookup exist. The child does not
+  receive the parent's *project* folder as an extra (a child opened in an extra folder cannot write the parent's cwd; one
+  opened in a subfolder stays in it). Before this a child had no extras, so a Codex child refused work in folders its
+  parent could write. A person-created session is unchanged. Not run against the real vendors' sandboxes: the tests read
+  the `OpenSpec` a fake adapter received.
 - **An agent chooses a child's model and effort, and the person's profiles guide it**
   (`agenthub/model_catalog.go`, `model_choice.go`, `mcp/tools_agenthub.go`, `preferences/modelprofiles.go`,
   `bridge/agenthub_modelprofiles.go`, Settings → Agents → "Models by job" in `settings/ModelProfilesEditor.tsx`).
