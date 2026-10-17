@@ -8,16 +8,17 @@ import (
 )
 
 const (
-	themeKey              = "theme"
-	themeFamilyKey        = "theme_family"
-	agentNotificationsKey = "agent_notifications"
-	updateChecksKey       = "update_checks"
-	agentCheckpointsKey   = "agent_checkpoints"
-	agentSandboxKey       = "agent_sandbox"
-	codexAPIKeyAccountKey = "agent_codex_api_key_account"
-	revealPasswordKey     = "accounts_reveal_requires_password"
-	callVisibilityKey     = "codegraph_call_visibility"
-	agentModelProfilesKey = "agent_model_profiles"
+	themeKey               = "theme"
+	themeFamilyKey         = "theme_family"
+	agentNotificationsKey  = "agent_notifications"
+	updateChecksKey        = "update_checks"
+	agentCheckpointsKey    = "agent_checkpoints"
+	agentSandboxKey        = "agent_sandbox"
+	codexAPIKeyAccountKey  = "agent_codex_api_key_account"
+	revealPasswordKey      = "accounts_reveal_requires_password"
+	callVisibilityKey      = "codegraph_call_visibility"
+	agentModelProfilesKey  = "agent_model_profiles"
+	agentSubagentLimitsKey = "agent_subagent_limits"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -296,5 +297,35 @@ func (r *SQLRepository) SetAgentModelProfiles(profiles AgentModelProfiles) error
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentModelProfilesKey, string(body))
+	return err
+}
+
+// GetAgentSubagentLimits reads a value it cannot parse as unset: a limit is a
+// cap, and without one Codex keeps its own default.
+func (r *SQLRepository) GetAgentSubagentLimits() (AgentSubagentLimits, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentSubagentLimitsKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentSubagentLimits{}, false, nil
+	}
+	if err != nil {
+		return AgentSubagentLimits{}, false, err
+	}
+	var limits AgentSubagentLimits
+	if jsonErr := json.Unmarshal([]byte(value), &limits); jsonErr != nil {
+		return AgentSubagentLimits{}, false, nil
+	}
+	return limits, true, nil
+}
+
+func (r *SQLRepository) SetAgentSubagentLimits(limits AgentSubagentLimits) error {
+	body, err := json.Marshal(limits)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentSubagentLimitsKey, string(body))
 	return err
 }

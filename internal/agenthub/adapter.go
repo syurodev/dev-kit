@@ -63,6 +63,9 @@ type OpenSpec struct {
 	// this session's vendor only (Service.applySubagents). Each adapter turns
 	// them into its vendor's shape; none of it carries a permission.
 	Subagents []SubagentSpec
+	// SubagentLimits is the person's cap on subagents (Service.applySubagentLimits);
+	// only the Codex adapter acts on it.
+	SubagentLimits SubagentLimits
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).

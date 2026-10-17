@@ -23,6 +23,8 @@ type MemoryRepository struct {
 	hasCallVisibility     bool
 	modelProfiles         AgentModelProfiles
 	hasModelProfiles      bool
+	subagentLimits        AgentSubagentLimits
+	hasSubagentLimits     bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -176,5 +178,19 @@ func (r *MemoryRepository) SetAgentModelProfiles(profiles AgentModelProfiles) er
 	defer r.mu.Unlock()
 	r.modelProfiles = profiles.clone()
 	r.hasModelProfiles = true
+	return nil
+}
+
+func (r *MemoryRepository) GetAgentSubagentLimits() (AgentSubagentLimits, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.subagentLimits.clone(), r.hasSubagentLimits, nil
+}
+
+func (r *MemoryRepository) SetAgentSubagentLimits(limits AgentSubagentLimits) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.subagentLimits = limits.clone()
+	r.hasSubagentLimits = true
 	return nil
 }

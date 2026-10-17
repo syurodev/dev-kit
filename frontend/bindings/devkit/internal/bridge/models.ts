@@ -26,6 +26,15 @@ export interface AgentModelProfilesState {
 }
 
 /**
+ * AgentSubagentLimitsState is the cap on subagents as Settings edits it.
+ * CodexMaxSubagents is nil when unset (DevKit passes Codex nothing).
+ */
+export interface AgentSubagentLimitsState {
+    "revision": number;
+    "codexMaxSubagents": number | null;
+}
+
+/**
  * ApiExportSaved is an export written to disk. Path is empty when the person
  * cancelled the save dialog.
  */

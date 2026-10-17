@@ -452,6 +452,14 @@ export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.Ag
 }
 
 /**
+ * AgentHubGetSubagentLimits reads the cap on subagents. UI only: it steers what
+ * an agent can spend, so the person alone reads and edits it.
+ */
+export function AgentHubGetSubagentLimits(): $CancellablePromise<$models.AgentSubagentLimitsState> {
+    return $Call.ByID(2751174609);
+}
+
+/**
  * AgentHubInterruptedRewinds lists the rewinds that never finished, so the
  * session can offer to put its files back.
  */
@@ -648,6 +656,15 @@ export function AgentHubSetModelProfiles(revision: number, profiles: preferences
  */
 export function AgentHubSetPromptQueue(id: string, waiting: number, paused: boolean): $CancellablePromise<void> {
     return $Call.ByID(2051873875, id, waiting, paused);
+}
+
+/**
+ * AgentHubSetSubagentLimits replaces the cap when revision is the stored one.
+ * codexMaxSubagents nil clears it. A session that is already running keeps the
+ * limit it started with until it is reloaded.
+ */
+export function AgentHubSetSubagentLimits(revision: number, codexMaxSubagents: number | null): $CancellablePromise<$models.AgentSubagentLimitsState> {
+    return $Call.ByID(3038308941, revision, codexMaxSubagents);
 }
 
 /**

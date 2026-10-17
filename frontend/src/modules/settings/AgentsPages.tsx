@@ -4,6 +4,7 @@ import { AgentEnvironmentPanel } from "@/modules/agenthub/environment/AgentEnvir
 import { CODEX_INFO, SHIPPED_VENDORS, vendorInfo } from "@/modules/agenthub/vendors";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentModelProfilesSetting } from "./AgentModelProfilesSetting";
+import { AgentSubagentLimitsSetting } from "./AgentSubagentLimitsSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import { AgentSandboxSetting } from "./AgentSandboxSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
@@ -76,6 +77,7 @@ export function AgentModelsPage() {
         description="Which model and effort each kind of job uses, and which profiles agents can delegate to as subagents."
       />
       <AgentModelProfilesSetting />
+      <AgentSubagentLimitsSetting />
     </TabColumn>
   );
 }

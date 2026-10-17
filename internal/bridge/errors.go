@@ -244,6 +244,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 		// nothing the person did not type.
 		return apperrors.New(codeValidationFailed, "Model profiles: "+strings.TrimPrefix(err.Error(), preferences.ErrInvalidModelProfiles.Error()+": "), true)
 	}
+	if errors.Is(err, preferences.ErrSubagentLimitsConflict) {
+		return apperrors.New(codeValidationFailed, "The subagent limits changed. Refresh and apply your change again.", true)
+	}
+	if errors.Is(err, preferences.ErrInvalidSubagentLimits) {
+		return apperrors.New(codeValidationFailed, "Subagent limits: "+strings.TrimPrefix(err.Error(), preferences.ErrInvalidSubagentLimits.Error()+": "), true)
+	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}
