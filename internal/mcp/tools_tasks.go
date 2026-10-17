@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"time"
 
 	"devkit/internal/identity"
 	"devkit/internal/tasks"
@@ -44,6 +45,67 @@ func taskCaller(ctx context.Context) tasks.Caller {
 		return tasks.Caller{SessionID: caller.SessionID}
 	}
 	return tasks.Caller{}
+}
+
+// taskOut is a task as a list or a write answers it. tasks.get alone returns
+// the whole record: a list carried every task's transition history (up to 50
+// entries each) and a write echoed the description it was just given. Empty
+// fields are absent, so no `priority` means none was set.
+type taskOut struct {
+	ID         string    `json:"id"`
+	BoardID    string    `json:"boardId"`
+	Key        string    `json:"key"`
+	Title      string    `json:"title"`
+	Status     string    `json:"status"`
+	Priority   string    `json:"priority,omitempty"`
+	Labels     []string  `json:"labels,omitempty"`
+	Assignee   string    `json:"assignee,omitempty"`
+	ParentID   string    `json:"parentId,omitempty"`
+	BlockedBy  []string  `json:"blockedBy,omitempty"`
+	PlanNodeID string    `json:"planNodeId,omitempty"`
+	SessionID  string    `json:"sessionId,omitempty"`
+	Branch     string    `json:"branch,omitempty"`
+	ArchivedAt string    `json:"archivedAt,omitempty"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+func compactTask(t tasks.Task) taskOut {
+	return taskOut{
+		ID: t.ID, BoardID: t.BoardID, Key: t.Key, Title: t.Title, Status: t.Status, Priority: t.Priority,
+		Labels: t.Labels, Assignee: t.Assignee, ParentID: t.ParentID, BlockedBy: t.BlockedBy,
+		PlanNodeID: t.PlanNodeID, SessionID: t.SessionID, Branch: t.Branch, ArchivedAt: t.ArchivedAt, UpdatedAt: t.UpdatedAt,
+	}
+}
+
+func compactTaskResult(t tasks.Task, err error) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	return compactTask(t), nil
+}
+
+func compactTaskList(list []tasks.Task, err error) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	out := make([]taskOut, len(list))
+	for i, t := range list {
+		out[i] = compactTask(t)
+	}
+	return out, nil
+}
+
+type transitionOut struct {
+	Task      taskOut `json:"task"`
+	Verifying bool    `json:"verifying,omitempty"`
+	RunID     string  `json:"runId,omitempty"`
+}
+
+func compactTransition(r tasks.TransitionResult, err error) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	return transitionOut{Task: compactTask(r.Task), Verifying: r.Verifying, RunID: r.RunID}, nil
 }
 
 func (s *Server) registerTasks(ms *sdk.Server) {
@@ -225,10 +287,10 @@ type tasksListInput struct {
 
 func (s *Server) toolTasksList(ctx context.Context, _ *sdk.CallToolRequest, in tasksListInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:list", meta("list", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.List(taskCaller(ctx), tasks.ListInput{
+		return compactTaskList(s.deps.Tasks.List(taskCaller(ctx), tasks.ListInput{
 			BoardID: in.BoardID, Status: in.Status, Assignee: in.Assignee,
 			Label: in.Label, Limit: in.Limit,
-		})
+		}))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -261,10 +323,10 @@ type tasksCreateInput struct {
 
 func (s *Server) toolTasksCreate(ctx context.Context, _ *sdk.CallToolRequest, in tasksCreateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:new", meta("create", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Create(taskCaller(ctx), tasks.CreateInput{
+		return compactTaskResult(s.deps.Tasks.Create(taskCaller(ctx), tasks.CreateInput{
 			BoardID: in.BoardID, Title: in.Title, Description: in.Description,
 			Priority: in.Priority, ParentID: in.ParentID, Labels: in.Labels,
-		})
+		}))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -280,7 +342,7 @@ type tasksUpdateInput struct {
 
 func (s *Server) toolTasksUpdate(ctx context.Context, _ *sdk.CallToolRequest, in tasksUpdateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("update", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Update(taskCaller(ctx), in.TaskID, in.Title, in.Description)
+		return compactTaskResult(s.deps.Tasks.Update(taskCaller(ctx), in.TaskID, in.Title, in.Description))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -315,7 +377,7 @@ func (s *Server) toolTasksSetFields(ctx context.Context, _ *sdk.CallToolRequest,
 		if in.Labels != nil {
 			fields.Labels = &in.Labels
 		}
-		return s.deps.Tasks.SetFields(taskCaller(ctx), in.TaskID, fields)
+		return compactTaskResult(s.deps.Tasks.SetFields(taskCaller(ctx), in.TaskID, fields))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -325,7 +387,7 @@ func (s *Server) toolTasksSetFields(ctx context.Context, _ *sdk.CallToolRequest,
 
 func (s *Server) toolTasksClaim(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("claim", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Claim(taskCaller(ctx), in.TaskID)
+		return compactTaskResult(s.deps.Tasks.Claim(taskCaller(ctx), in.TaskID))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -335,7 +397,7 @@ func (s *Server) toolTasksClaim(ctx context.Context, _ *sdk.CallToolRequest, in 
 
 func (s *Server) toolTasksRelease(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("release", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Release(taskCaller(ctx), in.TaskID)
+		return compactTaskResult(s.deps.Tasks.Release(taskCaller(ctx), in.TaskID))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -355,9 +417,9 @@ func (s *Server) toolTasksTransition(ctx context.Context, _ *sdk.CallToolRequest
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("transition", map[string]any{
 		"to": in.To,
 	}), func(ctx context.Context) (any, error) {
-		return s.deps.Tasks.Transition(ctx, taskCaller(ctx), tasks.TransitionInput{
+		return compactTransition(s.deps.Tasks.Transition(ctx, taskCaller(ctx), tasks.TransitionInput{
 			TaskID: in.TaskID, To: in.To, ExpectedStatus: in.ExpectedStatus,
-		})
+		}))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -402,7 +464,7 @@ func (s *Server) toolTasksProgress(ctx context.Context, _ *sdk.CallToolRequest, 
 
 func (s *Server) toolTasksArchive(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("archive", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Archive(taskCaller(ctx), in.TaskID)
+		return compactTaskResult(s.deps.Tasks.Archive(taskCaller(ctx), in.TaskID))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -417,7 +479,7 @@ type tasksSearchInput struct {
 
 func (s *Server) toolTasksSearch(ctx context.Context, _ *sdk.CallToolRequest, in tasksSearchInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:search", meta("search", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Search(taskCaller(ctx), in.BoardID, in.Query)
+		return compactTaskList(s.deps.Tasks.Search(taskCaller(ctx), in.BoardID, in.Query))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -433,7 +495,7 @@ type tasksLinkPlanNodeInput struct {
 
 func (s *Server) toolTasksLinkPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in tasksLinkPlanNodeInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+in.TaskID, meta("link_plan_node", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.LinkPlanNode(taskCaller(ctx), in.TaskID, in.PlanNodeID)
+		return compactTaskResult(s.deps.Tasks.LinkPlanNode(taskCaller(ctx), in.TaskID, in.PlanNodeID))
 	})
 	if err != nil {
 		return nil, nil, err
@@ -447,7 +509,7 @@ type tasksCreateFromPlanInput struct {
 
 func (s *Server) toolTasksCreateFromPlan(ctx context.Context, _ *sdk.CallToolRequest, in tasksCreateFromPlanInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:new", meta("create_from_plan", nil), func(ctx context.Context) (any, error) {
-		return s.deps.PlanBacklog.CreateTasksFromPlan(ctx, taskCaller(ctx), in.BoardID)
+		return compactTaskList(s.deps.PlanBacklog.CreateTasksFromPlan(ctx, taskCaller(ctx), in.BoardID))
 	})
 	if err != nil {
 		return nil, nil, err

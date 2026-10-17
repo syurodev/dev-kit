@@ -293,6 +293,14 @@ above" mở phần gập ở bước ẩn đầu tiên. Trong phần gập, call
 | `pdf.viewPages` / `search` / `readText` / `info` / `list` | Ảnh trang (từ `content`; hàng đã tải lại: khung giữ tỉ lệ + ghi chú); hit có `<mark>`; text theo trang; dòng định nghĩa | Bấm ảnh → full size |
 | `workspace.memory.*` | Card entry (kind, title, summary, body 6 dòng, revision) hoặc danh sách `[kind] title — summary` | — |
 
+Kết quả tool không còn là "cả bản ghi": `workspace.memory.create|update|delete|restore`
+trả entry không kèm `body` (card lấy body từ `rawInput`, `parseMemoryEntry(rawOutput, rawInput)`),
+`tasks.*` trả task không kèm `history`/`description` (trừ `tasks.get`), `git.status` và
+`agenthub.listPeers` trả dạng gọn. Mọi kết quả văn bản vượt `ResultBudget` (24 KB,
+`internal/mcp/result_budget.go`) bị cắt ở ranh giới phần tử và có khoá `_truncated` — card đọc
+phần còn lại như bình thường (`db.query` được đặt `truncated: true`). View mới không được đòi
+một trường mà tool đã bỏ đi: thêm test shape cho cả dạng gọn.
+
 Card `db.*`/`kafka.*`/`ssh.*` do module đó đăng ký (`modules/<module>/toolViews`),
 `pdf.*` do Agent Hub (`agenthub/toolViews` — PDF thuộc về session),
 `workspace.memory.*` do workbench (`workbench/registerViews.ts` — không module

@@ -40,12 +40,21 @@ function parseSummary(value: unknown): MemorySummary | null {
   };
 }
 
-/** `workspace.memory.get|create|update` → an Entry (a summary plus its body). */
-export function parseMemoryEntry(rawOutput: unknown): MemoryEntry | null {
+/**
+ * `workspace.memory.get|create|update|delete|restore` → an Entry (a summary
+ * plus its body). A write answers without the body unless it asked for it
+ * (`includeBody`; internal/mcp/tools_workspace_memory.go), so the body the card
+ * shows is the answer's when it has one, else the one the call sent — the text
+ * the agent just wrote is in `rawInput`. A delete and a restore sent none, and
+ * show a card without a body.
+ */
+export function parseMemoryEntry(rawOutput: unknown, rawInput?: unknown): MemoryEntry | null {
   const value = parseToolOutput(rawOutput);
-  if (!isRecord(value) || typeof value.body !== "string") return null;
+  if (!isRecord(value)) return null;
+  const sent = isRecord(rawInput) && typeof rawInput.body === "string" ? rawInput.body : "";
+  const body = typeof value.body === "string" ? value.body : sent;
   const summary = parseSummary(value);
-  return summary ? { ...summary, body: value.body } : null;
+  return summary ? { ...summary, body } : null;
 }
 
 /** `workspace.memory.list|search` → `{entries, hasMore, nextCursor?}`. */
@@ -80,8 +89,8 @@ export function registerMemoryResultViews(): (() => void)[] {
   const disposers: (() => void)[] = [];
   for (const tool of ENTRY_TOOLS) {
     disposers.push(
-      registerToolResultView(tool, ({ rawOutput, heading }) => {
-        const entry = parseMemoryEntry(rawOutput);
+      registerToolResultView(tool, ({ rawInput, rawOutput, heading }) => {
+        const entry = parseMemoryEntry(rawOutput, rawInput);
         return entry ? createElement(LazyMemoryEntryCard, { entry, heading }) : null;
       }),
     );

@@ -46,6 +46,7 @@ type memoryCreateInput struct {
 	Title       string `json:"title"`
 	Summary     string `json:"summary"`
 	Body        string `json:"body"`
+	IncludeBody bool   `json:"includeBody,omitempty"`
 }
 type memoryUpdateInput struct {
 	WorkspaceID      string `json:"workspaceId,omitempty"`
@@ -55,6 +56,7 @@ type memoryUpdateInput struct {
 	Title            string `json:"title"`
 	Summary          string `json:"summary"`
 	Body             string `json:"body"`
+	IncludeBody      bool   `json:"includeBody,omitempty"`
 }
 type memoryDeleteInput struct {
 	WorkspaceID      string `json:"workspaceId,omitempty"`
@@ -66,26 +68,112 @@ type memoryHistoryInput struct {
 	ID          string `json:"id"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
+	IncludeBody bool   `json:"includeBody,omitempty"`
 }
 type memoryRestoreInput struct {
 	WorkspaceID      string `json:"workspaceId,omitempty"`
 	ID               string `json:"id"`
 	ExpectedRevision int64  `json:"expectedRevision"`
 	TargetRevision   int64  `json:"targetRevision"`
+	IncludeBody      bool   `json:"includeBody,omitempty"`
+}
+
+// memoryEntryOut is what a memory write answers: the entry without the body
+// the caller just sent (or is about to read with get), and without the
+// workspace and source it already knows. Every earlier answer carried the
+// whole note back — 5–6 KB re-entering the context for each save. The body
+// comes back only when includeBody asks; memory.get always returns it.
+type memoryEntryOut struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary"`
+	Body      string `json:"body,omitempty"`
+	Revision  int64  `json:"revision"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+func compactMemoryEntry(e workspacememory.Entry, withBody bool) memoryEntryOut {
+	out := memoryEntryOut{ID: e.ID, Kind: e.Kind, Title: e.Title, Summary: e.Summary, Revision: e.Revision, Deleted: e.Deleted, UpdatedAt: e.UpdatedAt}
+	if withBody {
+		out.Body = e.Body
+	}
+	return out
+}
+
+// memorySummaryOut is one row of list/search: no workspace id (it is the
+// caller's own), no creation time, no source.
+type memorySummaryOut struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary"`
+	Revision  int64  `json:"revision"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type memoryPageOut struct {
+	Entries    []memorySummaryOut `json:"entries"`
+	HasMore    bool               `json:"hasMore"`
+	NextCursor string             `json:"nextCursor,omitempty"`
+}
+
+func compactMemoryPage(v any) any {
+	var rows []workspacememory.Summary
+	out := memoryPageOut{}
+	switch page := v.(type) {
+	case workspacememory.BrowsePage:
+		rows, out.HasMore, out.NextCursor = page.Entries, page.HasMore, page.NextCursor
+	case workspacememory.Page:
+		rows, out.HasMore = page.Entries, page.HasMore
+	default:
+		return v
+	}
+	out.Entries = make([]memorySummaryOut, 0, len(rows))
+	for _, r := range rows {
+		out.Entries = append(out.Entries, memorySummaryOut{ID: r.ID, Kind: r.Kind, Title: r.Title, Summary: r.Summary, Revision: r.Revision, Deleted: r.Deleted, UpdatedAt: r.UpdatedAt})
+	}
+	return out
+}
+
+// memoryRevisionOut is one history row: which revision, what was done, and the
+// entry as it stood — its body only when includeBody asks for it.
+type memoryRevisionOut struct {
+	Revision  int64  `json:"revision"`
+	Operation string `json:"operation"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary"`
+	Body      string `json:"body,omitempty"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+func compactMemoryHistory(rows []workspacememory.Revision, withBody bool) []memoryRevisionOut {
+	out := make([]memoryRevisionOut, 0, len(rows))
+	for _, r := range rows {
+		row := memoryRevisionOut{Revision: r.Entry.Revision, Operation: r.Operation, Title: r.Entry.Title, Summary: r.Entry.Summary, Deleted: r.Entry.Deleted, UpdatedAt: r.Entry.UpdatedAt}
+		if withBody {
+			row.Body = r.Entry.Body
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func (s *Server) registerWorkspaceMemory(ms *sdk.Server) {
-	scope := " Agent Hub sessions always use their selected workspace; terminal callers must supply workspaceId."
+	scope := " Terminal callers pass workspaceId; agents use their session's workspace."
 	read := &sdk.ToolAnnotations{ReadOnlyHint: true}
 	write := &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)}
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.list", Description: "List shared workspace memory summaries. Prefer cursor pagination: pass nextCursor from the previous result; keep query unchanged. Offset is supported for legacy clients and cannot be combined with cursor." + scope, Annotations: read}, s.toolMemoryList)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.search", Description: "Search shared workspace memory using literal word prefixes: all words must match (AND), case and diacritics are ignored. Prefer cursor pagination: pass nextCursor from the previous result; keep query unchanged. Offset is supported for legacy clients and cannot be combined with cursor." + scope, Annotations: read}, s.toolMemorySearch)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.list", Description: "List shared workspace memory summaries (no bodies). Page with nextCursor from the previous result and the same query; offset is legacy and cannot be combined with cursor." + scope, Annotations: read}, s.toolMemoryList)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.search", Description: "Search shared workspace memory by word prefix: all words must match, case and diacritics ignored. Page with nextCursor from the previous result and the same query." + scope, Annotations: read}, s.toolMemorySearch)
 	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.get", Description: "Read a shared workspace memory entry including its full body and revision. Deleted entries return a tombstone with deleted=true for recovery." + scope, Annotations: read}, s.toolMemoryGet)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.create", Description: "Save durable shared workspace knowledge. Kind is decision, convention, knowledge or handoff. Provide a concise summary for turn context and detail in body. Authorship comes from your session." + scope, Annotations: write}, s.toolMemoryCreate)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.update", Description: "Replace a memory entry using expectedRevision from its last read. On a revision conflict, refetch before editing." + scope, Annotations: write}, s.toolMemoryUpdate)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.create", Description: "Save durable shared workspace knowledge. kind: decision, convention, knowledge or handoff. summary is short (it rides in turn context); detail goes in body. Answers without the body unless includeBody is set. Authorship comes from your session." + scope, Annotations: write}, s.toolMemoryCreate)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.update", Description: "Replace a memory entry using expectedRevision from its last read; on a revision conflict, refetch first. Answers without the body unless includeBody is set." + scope, Annotations: write}, s.toolMemoryUpdate)
 	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.delete", Description: "Soft-delete a memory entry using expectedRevision. History remains available for recovery." + scope, Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(true)}}, s.toolMemoryDelete)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.history", Description: "Read version history, including deleted entries, with pagination." + scope, Annotations: read}, s.toolMemoryHistory)
-	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.restore", Description: "Restore targetRevision as a new revision, including deleted entries. Supply the current expectedRevision from history." + scope, Annotations: write}, s.toolMemoryRestore)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.history", Description: "Read version history, deleted entries included, with limit/offset. Bodies only when includeBody is set." + scope, Annotations: read}, s.toolMemoryHistory)
+	sdk.AddTool(ms, &sdk.Tool{Name: "workspace.memory.restore", Description: "Restore targetRevision as a new revision, deleted entries included; expectedRevision is the current one from history." + scope, Annotations: write}, s.toolMemoryRestore)
 }
 
 // memoryScope never derives an identity from cwd, UI selection or tool input.
@@ -185,7 +273,8 @@ func (s *Server) memoryBrowse(ctx context.Context, ws string, in memoryListInput
 
 func (s *Server) toolMemoryList(ctx context.Context, _ *sdk.CallToolRequest, in memoryListInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_list", "", 0, false, func(c context.Context, ws string, _ workspacememory.Source) (any, error) {
-		return s.memoryBrowse(c, ws, in)
+		v, err := s.memoryBrowse(c, ws, in)
+		return compactMemoryPage(v), err
 	})
 }
 func (s *Server) toolMemorySearch(ctx context.Context, _ *sdk.CallToolRequest, in memoryListInput) (*sdk.CallToolResult, any, error) {
@@ -193,7 +282,8 @@ func (s *Server) toolMemorySearch(ctx context.Context, _ *sdk.CallToolRequest, i
 		return nil, nil, apperrors.New("validation_failed", "A search query is required.", true)
 	}
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_search", "", 0, false, func(c context.Context, ws string, _ workspacememory.Source) (any, error) {
-		return s.memoryBrowse(c, ws, in)
+		v, err := s.memoryBrowse(c, ws, in)
+		return compactMemoryPage(v), err
 	})
 }
 func (s *Server) toolMemoryGet(ctx context.Context, _ *sdk.CallToolRequest, in memoryGetInput) (*sdk.CallToolResult, any, error) {
@@ -203,27 +293,32 @@ func (s *Server) toolMemoryGet(ctx context.Context, _ *sdk.CallToolRequest, in m
 }
 func (s *Server) toolMemoryCreate(ctx context.Context, _ *sdk.CallToolRequest, in memoryCreateInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_create", "", 0, true, func(c context.Context, ws string, source workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.Create(c, ws, workspacememory.Input{Kind: in.Kind, Title: in.Title, Summary: in.Summary, Body: in.Body}, source)
+		e, err := s.deps.WorkspaceMemory.Create(c, ws, workspacememory.Input{Kind: in.Kind, Title: in.Title, Summary: in.Summary, Body: in.Body}, source)
+		return compactMemoryEntry(e, in.IncludeBody), err
 	})
 }
 func (s *Server) toolMemoryUpdate(ctx context.Context, _ *sdk.CallToolRequest, in memoryUpdateInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_update", in.ID, in.ExpectedRevision, true, func(c context.Context, ws string, source workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.Update(c, ws, in.ID, in.ExpectedRevision, workspacememory.Input{Kind: in.Kind, Title: in.Title, Summary: in.Summary, Body: in.Body}, source)
+		e, err := s.deps.WorkspaceMemory.Update(c, ws, in.ID, in.ExpectedRevision, workspacememory.Input{Kind: in.Kind, Title: in.Title, Summary: in.Summary, Body: in.Body}, source)
+		return compactMemoryEntry(e, in.IncludeBody), err
 	})
 }
 func (s *Server) toolMemoryDelete(ctx context.Context, _ *sdk.CallToolRequest, in memoryDeleteInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_delete", in.ID, in.ExpectedRevision, true, func(c context.Context, ws string, source workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.Delete(c, ws, in.ID, in.ExpectedRevision, source)
+		e, err := s.deps.WorkspaceMemory.Delete(c, ws, in.ID, in.ExpectedRevision, source)
+		return compactMemoryEntry(e, false), err
 	})
 }
 func (s *Server) toolMemoryHistory(ctx context.Context, _ *sdk.CallToolRequest, in memoryHistoryInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_history", in.ID, 0, false, func(c context.Context, ws string, _ workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.History(c, ws, in.ID, in.Limit, in.Offset)
+		rows, err := s.deps.WorkspaceMemory.History(c, ws, in.ID, in.Limit, in.Offset)
+		return compactMemoryHistory(rows, in.IncludeBody), err
 	})
 }
 func (s *Server) toolMemoryRestore(ctx context.Context, _ *sdk.CallToolRequest, in memoryRestoreInput) (*sdk.CallToolResult, any, error) {
 	return s.memoryCall(ctx, in.WorkspaceID, "memory_restore", in.ID, in.ExpectedRevision, true, func(c context.Context, ws string, source workspacememory.Source) (any, error) {
-		return s.deps.WorkspaceMemory.Restore(c, ws, in.ID, in.ExpectedRevision, in.TargetRevision, source)
+		e, err := s.deps.WorkspaceMemory.Restore(c, ws, in.ID, in.ExpectedRevision, in.TargetRevision, source)
+		return compactMemoryEntry(e, in.IncludeBody), err
 	})
 }
 

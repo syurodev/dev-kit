@@ -32,6 +32,17 @@ describe("workspace.memory entry", () => {
     expect(parseMemoryEntry("text")).toBeNull();
   });
 
+  it("a write answers without the body: the card shows the one the call sent", () => {
+    // What create/update return now (internal/mcp/tools_workspace_memory.go memoryEntryOut).
+    const { body, workspaceId: _w, createdAt: _c, source: _s, deleted: _d, ...compact } = ENTRY;
+    expect(parseMemoryEntry(compact, { body })?.body).toBe(body);
+    expect(parseMemoryEntry(compact, { body })?.revision).toBe(3);
+    // An answer that carries the body (includeBody, or get) wins over the input's.
+    expect(parseMemoryEntry({ ...compact, body: "from answer" }, { body })?.body).toBe("from answer");
+    // A delete or restore sent no body: a card without one, not a JSON fallback.
+    expect(parseMemoryEntry(compact, { id: "m1", expectedRevision: 2 })?.body).toBe("");
+  });
+
   it("kind chip, title, summary, body clamped to 6 lines with Show all, revision and age", () => {
     const html = renderToString(<MemoryEntryCard entry={parseMemoryEntry(ENTRY)!} now={NOW} />);
     expect(html).toContain("decision");
@@ -130,6 +141,11 @@ describe("registration", () => {
     expect(renderToolResult({ name: "workspace.memory.get", rawInput: {}, rawOutput: { entries: [] } })).toBeNull();
     expect(renderToolResult({ name: "workspace.memory.list", rawInput: {}, rawOutput: ENTRY })).toBeNull();
     expect(renderToolResult({ name: "workspace.memory.restore", rawInput: {}, rawOutput: ENTRY })).not.toBeNull();
+    // A compact write (no body in the answer) is still the entry card, not the JSON fallback.
+    const { body, workspaceId: _w, createdAt: _c, source: _s, deleted: _d, ...compact } = ENTRY;
+    for (const tool of ["create", "update"]) {
+      expect(renderToolResult({ name: `workspace.memory.${tool}`, rawInput: { body }, rawOutput: compact })).not.toBeNull();
+    }
     expect(workbenchViews).toHaveLength(7);
     for (const unregister of workbenchViews) unregister();
     expect(hasToolResultView("workspace.memory.delete")).toBe(false);
