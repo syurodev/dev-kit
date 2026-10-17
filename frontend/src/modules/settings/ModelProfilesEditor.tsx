@@ -245,6 +245,7 @@ function ProfileForm({
           <label htmlFor={`${prefix}-agent`} className="text-body-13 text-text-primary">Agent</label>
           <NativeSelect
             id={`${prefix}-agent`}
+            size="lg"
             className="w-full"
             value={draft.vendor}
             onChange={(e) => set({ vendor: e.target.value, model: "", effort: "" })}
@@ -260,6 +261,7 @@ function ProfileForm({
           {available.state === "ready" ? (
             <NativeSelect
               id={`${prefix}-model`}
+              size="lg"
               className="w-full"
               value={draft.model}
               onChange={(e) => {
@@ -288,6 +290,7 @@ function ProfileForm({
           {available.state === "ready" ? (
             <NativeSelect
               id={`${prefix}-effort`}
+              size="lg"
               className="w-full"
               value={draft.effort}
               disabled={efforts.length === 0 && draft.effort === ""}

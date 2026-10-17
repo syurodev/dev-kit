@@ -46,6 +46,20 @@ describe("ModelProfilesEditor", () => {
     expect(html).toContain("retired (no longer offered)");
   });
 
+  // The form's text inputs are the default Input (--control-height-xl). A NativeSelect's default is
+  // --control-height-md, 8px shorter, so side by side the fields looked misaligned: the selects ask for
+  // size="lg", which is the same height token.
+  test("the selects are as tall as the inputs beside them", () => {
+    const ready = render({ initialDraft: base, choices: { claude: { state: "ready", models: [{ value: "haiku" }] } } });
+    const selects = [...ready.matchAll(/<select[^>]*data-slot="native-select"[^>]*>/g)].map((m) => m[0]);
+    expect(selects.length).toBe(3);
+    for (const select of selects) expect(select).toContain('data-size="lg"');
+    const typed = render({ initialDraft: base, choices: { claude: { state: "unavailable", reason: "x" } } });
+    const agent = [...typed.matchAll(/<select[^>]*data-slot="native-select"[^>]*>/g)].map((m) => m[0]);
+    expect(agent.length).toBe(1);
+    expect(agent[0]).toContain('data-size="lg"');
+  });
+
   test("a save error shows under the list when no form is open", () => {
     expect(render({ error: "The model profiles changed." })).toContain("The model profiles changed.");
   });
