@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/app"
+	"devkit/internal/apperrors"
 	"devkit/internal/storage"
 )
 
@@ -56,6 +58,30 @@ func TestAgentHubListEmpty(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("%v", list)
+	}
+}
+
+// The window reads an agent's models and environment before any session
+// exists. Both asked the gateway for scopes ("catalog:<agent>",
+// "environment:<agent>") that no default grant covered, so each was refused with
+// a bare "Permission denied." and the draft picker said "Models unavailable".
+// This goes through the real default grants: what comes back may be anything
+// but a refusal at the gateway.
+func TestAgentHubPreSessionReadsAreNotRefusedByTheGateway(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	for _, vendor := range []string{"claude", "codex"} {
+		_, err := svc.AgentHubConfigCatalog(context.Background(), vendor)
+		assertNotPermissionDenied(t, "AgentHubConfigCatalog("+vendor+")", err)
+		_, err = svc.AgentHubEnvironment(context.Background(), vendor, "")
+		assertNotPermissionDenied(t, "AgentHubEnvironment("+vendor+")", err)
+	}
+}
+
+func assertNotPermissionDenied(t *testing.T, call string, err error) {
+	t.Helper()
+	var public *apperrors.AppError
+	if errors.As(err, &public) && public.Code == "permission_denied" {
+		t.Fatalf("%s was refused at the gateway: %v", call, err)
 	}
 }
 

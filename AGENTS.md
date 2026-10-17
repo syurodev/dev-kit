@@ -363,6 +363,12 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.
+- **The window's pre-session reads need their own grants** (`catalog:*` for `AgentHubConfigCatalog`, `environment:*` for
+  `AgentHubEnvironment` without a session). They were asked for since #30fedee3 / #231 with no grant covering them, so the
+  gateway refused every call with a bare "Permission denied." — the draft picker's "Models unavailable" and the empty model
+  list in Settings → Agents → "Models by job" (which then fell back to typing a model id). The service still answers only
+  the window. `TestNewContainerGrantsAgentHubScopes` and `TestAgentHubPreSessionReadsAreNotRefusedByTheGateway` pin it;
+  when a bridge method asks for a new scope, add its grant and a line to the former.
 - **Both vendors pick model and effort before the session exists.** `VendorConfigCatalog`
   (`ConfigCatalog`) is implemented by Codex (`codex_config.go`) and Claude (`claude_config.go`):
   a short-lived agent in a scratch folder, no prompt. Claude only lists the effort levels of the
