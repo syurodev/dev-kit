@@ -321,6 +321,22 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     expect(model.mode).toBe("architect");
   });
 
+  it("takes the commands a Codex session announces, without a slash, as they are", () => {
+    // DevKit announces /compact and /review for Codex in Claude's wire shape;
+    // the model keeps them for the slash menu and the Compact button.
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, {
+      kind: UpdateKind.UpdateAvailableCommands,
+      commands: [
+        { name: "compact", description: "Summarize the conversation to free up context" },
+        { name: "review", description: "Review code changes", input: { hint: "[base <branch> | commit <sha> | what to look for]" } },
+      ],
+    });
+    expect(model.items.length).toBe(0);
+    expect(model.commands.map((command) => command.name)).toEqual(["compact", "review"]);
+    expect(model.commands[1].input?.hint).toContain("base <branch>");
+  });
+
   it("preserves unknown and unmodelled kinds as intact rows with raw payload", () => {
     let model = createInitialTranscriptModel();
 

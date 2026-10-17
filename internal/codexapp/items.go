@@ -17,6 +17,7 @@ const (
 	MethodTurnPlanUpdated       = "turn/plan/updated"
 	MethodTokenUsageUpdated     = "thread/tokenUsage/updated"
 	MethodThreadNameUpdated     = "thread/name/updated"
+	MethodTurnStarted           = "turn/started"
 	MethodTurnCompleted         = "turn/completed"
 	MethodError                 = "error"
 	MethodRateLimitsUpdated     = "account/rateLimits/updated"
@@ -59,6 +60,10 @@ const (
 	ItemMcpToolCall      = "mcpToolCall"
 	ItemWebSearch        = "webSearch"
 	ItemHookPrompt       = "hookPrompt"
+	// Compaction and review run as items of their own turn.
+	ItemContextCompaction = "contextCompaction"
+	ItemEnteredReview     = "enteredReviewMode"
+	ItemExitedReview      = "exitedReviewMode"
 )
 
 // Statuses shared by command, file-change and MCP items.
@@ -205,6 +210,17 @@ type TokenUsageUpdatedNotification struct {
 type ThreadNameUpdatedNotification struct {
 	ThreadID   string `json:"threadId"`
 	ThreadName string `json:"threadName,omitempty"`
+}
+
+type TurnStartedNotification struct {
+	ThreadID string `json:"threadId"`
+	Turn     Turn   `json:"turn"`
+}
+
+// ReviewModeItem is enteredReviewMode / exitedReviewMode: review is the
+// target's label going in, and the rendered findings coming out.
+type ReviewModeItem struct {
+	Review string `json:"review"`
 }
 
 type TurnCompletedNotification struct {

@@ -251,6 +251,48 @@ func runFakeCodex(scenario, logPath string) {
 			}
 			reply(map[string]any{"turn": map[string]any{"id": turn, "status": "inProgress"}})
 			go playTurn()
+		case "thread/compact/start":
+			// What the real app-server 0.163.0 does: `{}` at once, then a turn of
+			// its own whose only item is a contextCompaction.
+			if scenario == "compactRefused" {
+				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "invalid thread id: nope"}})
+				continue
+			}
+			turns++
+			turn = "tu-c" + string(rune('0'+turns))
+			reply(map[string]any{})
+			if scenario == "compactSilent" {
+				continue
+			}
+			compactTurn := turn
+			go func() {
+				notify("turn/started", map[string]any{"threadId": thread, "turn": map[string]any{"id": compactTurn, "status": "inProgress"}})
+				notify("item/started", map[string]any{"threadId": thread, "turnId": compactTurn, "item": map[string]any{"type": "contextCompaction", "id": "cc-1"}})
+				if scenario == "compactHangs" {
+					return
+				}
+				notify("thread/tokenUsage/updated", map[string]any{"threadId": thread, "turnId": compactTurn, "tokenUsage": map[string]any{
+					"total": map[string]any{"inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
+					"last":  map[string]any{"inputTokens": 0, "outputTokens": 0, "totalTokens": 70}, "modelContextWindow": 1000}})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": compactTurn, "item": map[string]any{"type": "contextCompaction", "id": "cc-1"}})
+				notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": compactTurn, "status": "completed"}})
+			}()
+		case "review/start":
+			// The answer names an outer turn, whose turn/completed ends the review;
+			// the turn/started that follows names an inner turn that never completes.
+			turns++
+			turn = "tu-r" + string(rune('0'+turns))
+			outer := turn
+			reply(map[string]any{"turn": map[string]any{"id": outer, "status": "inProgress"}, "reviewThreadId": thread})
+			go func() {
+				notify("item/started", map[string]any{"threadId": thread, "turnId": outer, "item": map[string]any{"type": "enteredReviewMode", "id": "er-1", "review": "current changes"}})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": outer, "item": map[string]any{"type": "enteredReviewMode", "id": "er-1", "review": "current changes"}})
+				notify("turn/started", map[string]any{"threadId": thread, "turn": map[string]any{"id": outer + "-inner", "status": "inProgress"}})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": outer, "item": map[string]any{"type": "userMessage", "id": "um-1", "content": []any{}}})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": outer, "item": map[string]any{"type": "exitedReviewMode", "id": "xr-1", "review": "One blocking issue."}})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": outer, "item": map[string]any{"type": "agentMessage", "id": "msg-r", "text": "One blocking issue."}})
+				notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": outer, "status": "completed"}})
+			}()
 		case "turn/interrupt":
 			reply(map[string]any{})
 			if scenario != "stubborn" {

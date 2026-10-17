@@ -28,6 +28,7 @@ import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
 import { vendorInfo } from "../vendors";
+import { compactOffered } from "../slashCommands";
 import { SessionSummaryButton, SessionSummaryCard, useSessionSummaryData } from "../summary/SessionSummary";
 import { useSessionPullRequests } from "../summary/usePullRequests";
 import { environmentRows } from "../summary/summaryModel";
@@ -404,9 +405,8 @@ export function AgentHubContent({
         : "Conversation";
   const isError = effectiveState === "Error";
 
-  // Offered only when the agent says it has the command: a button that sends a
-  // prompt the agent does not understand is a button that makes it reply "?".
-  const canCompact = commands.some((command) => command.name.replace(/^\//, "") === "compact");
+  // Offered only when the agent says it has the command, and not mid-turn.
+  const canCompact = compactOffered(commands, streaming);
 
   const displayTitle = draft
     ? "New session"
