@@ -846,12 +846,22 @@ func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
 	})
 
 	t.Run("set_mode says modeId", func(t *testing.T) {
+		handshake := &acp.SessionModeState{CurrentModeID: "auto", AvailableModes: []acp.SessionMode{{ID: "auto"}, {ID: "plan"}}}
+		var after *acp.SessionModeState
 		probe := call(t, func(rt *claudeRuntime) error {
-			return rt.SetMode(context.Background(), "plan")
+			rt.modes = handshake
+			err := rt.SetMode(context.Background(), "plan")
+			after = rt.Modes()
+			return err
 		})
 
 		if probe.method != "session/set_mode" || probe.params["modeId"] != "plan" {
 			t.Fatalf("method = %q, params = %v", probe.method, probe.params)
+		}
+		// Modes() is what a resumed session is re-seeded from: it must name the
+		// mode the agent is in now, and the handshake's own answer stays as read.
+		if after.CurrentModeID != "plan" || len(after.AvailableModes) != 2 || handshake.CurrentModeID != "auto" {
+			t.Fatalf("after set_mode, Modes() = %+v (handshake %+v)", after, handshake)
 		}
 	})
 }

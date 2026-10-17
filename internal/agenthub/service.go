@@ -560,6 +560,15 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		}
 		in.InitialConfig, inheritedConfig = plan.Config, plan.Inherited
 	}
+	// The mode an agent's child starts in is its parent's current one, read
+	// from the parent's recorded state: not from the tool input (it has no mode
+	// field) and not from the parent's say-so. See mode_inherit.go.
+	var inheritedMode *parentMode
+	if caller.IsAgent() && parent != nil {
+		if m, ok := s.currentMode(ctx, *parent); ok {
+			inheritedMode = &m
+		}
+	}
 	workspaceID := in.WorkspaceID
 	if parent != nil {
 		if workspaceID != "" && workspaceID != parent.WorkspaceID {
@@ -642,6 +651,14 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 					return AgentSession{}, err
 				}
 			}
+		}
+	}
+
+	if inheritedMode != nil {
+		if err := applyInheritedMode(ctx, rt, in.AgentType, *inheritedMode); err != nil {
+			_ = rt.Close(ctx)
+			closeEndpoint()
+			return AgentSession{}, err
 		}
 	}
 

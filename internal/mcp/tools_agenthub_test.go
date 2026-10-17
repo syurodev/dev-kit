@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -604,5 +605,20 @@ func TestAgentHubModelToolsReadThroughTheirOwnGrants(t *testing.T) {
 	}
 	if caller.last.capability != "agenthub:read" || caller.last.scope != "profiles:list" {
 		t.Fatalf("Call = %+v", caller.last)
+	}
+}
+
+// A child's permission mode comes from its parent (agenthub.Service), never
+// from the agent that creates it: the create tool must have no input that could
+// name one, directly or inside initialConfig.
+func TestCreateAgentSessionHasNoModeInput(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeOf(agentHubCreateInput{}), reflect.TypeOf(agentHubInitialConfig{})} {
+		for i := 0; i < typ.NumField(); i++ {
+			name := strings.ToLower(strings.Split(typ.Field(i).Tag.Get("json"), ",")[0] + " " + typ.Field(i).Name)
+			if strings.Contains(strings.ReplaceAll(name, "model", ""), "mode") ||
+				strings.Contains(name, "permission") || strings.Contains(name, "approv") || strings.Contains(name, "sandbox") {
+				t.Errorf("%s.%s lets an agent choose its child's permissions", typ.Name(), typ.Field(i).Name)
+			}
+		}
 	}
 }

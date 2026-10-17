@@ -46,6 +46,9 @@ var (
 	// ErrModelChoiceNeedsApproval is an agent's pick of model or effort that goes
 	// beyond its parent's (model_choice.go), made without the person saying yes.
 	ErrModelChoiceNeedsApproval = errors.New("agenthub.modelChoiceNeedsApproval")
+	// ErrModeNotInherited: a child session could not be put in a permission
+	// mode as strict as its parent's, so it was not started (mode_inherit.go).
+	ErrModeNotInherited = errors.New("agenthub.modeNotInherited")
 	// ErrModelProfileUnknown: the profile named does not exist, or belongs to
 	// another vendor, or conflicts with the model asked for beside it.
 	ErrModelProfileUnknown = errors.New("agenthub.modelProfileUnknown")

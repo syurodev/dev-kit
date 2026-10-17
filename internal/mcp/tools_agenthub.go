@@ -61,7 +61,8 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 		Name: "agenthub.createAgentSession",
 		Description: "Create a new Agent Hub session, a child of this one. With no `profile` or `initialConfig` it runs on this session's model and effort. " +
 			"`profile` picks one of the person's model profiles (agenthub.listModelProfiles); `initialConfig` names a model and effort from agenthub.listModels. " +
-			"Choosing a model other than yours, or a higher effort, asks the person first unless it comes from a profile.",
+			"Choosing a model other than yours, or a higher effort, asks the person first unless it comes from a profile. " +
+			"The new session starts in your permission mode (never a more permissive one); there is no input to choose another.",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
