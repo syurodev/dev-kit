@@ -58,7 +58,9 @@ type CreateInput struct {
 	Title           *string
 	// ExtraReadWritePaths widen the jail beyond Cwd — see OpenSpec. Only the
 	// bridge (UI) path sets this; the MCP tool's own input struct has no such
-	// field, so an agent-created session never gets one.
+	// field, and CreateSession ignores it for an agent caller. An
+	// agent-created session gets its parent's stored list instead
+	// (inheritedExtraPaths): never more than the parent may write.
 	ExtraReadWritePaths []string
 	// InitialConfig is applied before the first turn and recorded by attachUpdates.
 	InitialConfig map[string]string
@@ -547,6 +549,11 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if err != nil {
 		return AgentSession{}, err
 	}
+	if caller.IsAgent() && parent != nil {
+		if err := s.checkChildFolderInWorkspace(cwd, *parent); err != nil {
+			return AgentSession{}, err
+		}
+	}
 	// An agent's model choice is checked here, not only by the tool that asked
 	// the person: this is where it would take effect, and it holds whoever calls.
 	inheritedConfig := false
@@ -600,11 +607,14 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	id := uuid.NewString()
 	spec := OpenSpec{Cwd: cwd, WorkspaceID: workspaceID}
 	// Belt: the MCP tool handler's own input struct has no field to carry
-	// this, so an agent caller cannot reach it in practice. Suspenders: reject
-	// it explicitly here too, so the guarantee holds even if that ever changes
-	// without whoever changes it noticing this needs to move with it.
+	// paths, so an agent caller cannot reach it in practice. Suspenders: an
+	// agent caller's own list is ignored here too, so the guarantee holds even
+	// if that ever changes without whoever changes it noticing this needs to
+	// move with it. What an agent's child gets is its parent's stored list.
 	if !caller.IsAgent() {
 		spec.ExtraReadWritePaths = cleanExtraReadWritePaths(in.ExtraReadWritePaths)
+	} else if parent != nil {
+		spec.ExtraReadWritePaths = inheritedExtraPaths(*parent)
 	}
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
@@ -706,9 +716,19 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	return sess, nil
 }
 
+// inheritedExtraPaths is the jail widening an agent's child starts with: its
+// parent's, read from the parent's stored row (what the person granted at
+// creation, or what the parent itself inherited), never from the tool input.
+// A chain therefore only ever keeps or narrows what a session may write.
+func inheritedExtraPaths(parent AgentSession) []string {
+	return cleanExtraReadWritePaths(parent.ExtraReadWritePaths)
+}
+
 // resolveCwd applies the cwd rules. Nobody gets "/" or the home directory.
 // An agent caller with no cwd inherits its parent's project; with one, it
-// must stay inside the parent's project (symlinks resolved on both sides).
+// must stay inside a folder its parent may write — the parent's project or
+// one of the parent's extra read-write paths (symlinks resolved on all
+// sides).
 func resolveCwd(cwd string, parent *AgentSession, agentCaller bool) (string, error) {
 	if agentCaller && cwd == "" && parent != nil {
 		cwd = parent.ProjectPath
@@ -732,12 +752,59 @@ func resolveCwd(cwd string, parent *AgentSession, agentCaller bool) (string, err
 		if err != nil {
 			return "", ErrInvalidCwd
 		}
-		rel, err := filepath.Rel(parentResolved, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if !underResolved(resolved, parentResolved) && !underAnyResolved(resolved, parent.ExtraReadWritePaths) {
 			return "", ErrCwdOutsideParent
 		}
 	}
 	return clean, nil
+}
+
+// underResolved reports whether resolved (already symlink-free) is root or
+// inside it; root is the symlink-free path of the folder.
+func underResolved(resolved, root string) bool {
+	rel, err := filepath.Rel(root, resolved)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// underAnyResolved is underResolved against each of roots after resolving
+// their symlinks; a root that no longer resolves grants nothing.
+func underAnyResolved(resolved string, roots []string) bool {
+	for _, root := range cleanExtraReadWritePaths(roots) {
+		r, err := filepath.EvalSymlinks(root)
+		if err == nil && underResolved(resolved, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkChildFolderInWorkspace holds a child opened outside its parent's
+// project (in one of the parent's extra folders) to the parent's workspace:
+// the folder must be one of the workspace's own, as a root session's cwd
+// must be, not just any path somebody once granted. A cwd inside the parent's
+// project is the parent's own ground and is not asked again. No lookup wired,
+// or a parent with no workspace, has nothing to check against.
+func (s *Service) checkChildFolderInWorkspace(cwd string, parent AgentSession) error {
+	if s.MatchingWorkspaces == nil || parent.WorkspaceID == "" {
+		return nil
+	}
+	resolved, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return ErrInvalidCwd
+	}
+	if root, err := filepath.EvalSymlinks(parent.ProjectPath); err == nil && underResolved(resolved, root) {
+		return nil
+	}
+	matches, err := s.MatchingWorkspaces(cwd)
+	if err != nil {
+		return err
+	}
+	for _, id := range matches {
+		if id == parent.WorkspaceID {
+			return nil
+		}
+	}
+	return ErrCwdOutsideParent
 }
 
 // sessionsByID loads every session keyed by id (for ancestry walks).

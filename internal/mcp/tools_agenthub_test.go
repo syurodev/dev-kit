@@ -622,3 +622,21 @@ func TestCreateAgentSessionHasNoModeInput(t *testing.T) {
 		}
 	}
 }
+
+// An agent supplies no path but its child's cwd: the folders a child may write
+// beyond it are its parent's, inherited by the service (agenthub.CreateSession).
+func TestCreateAgentSessionHasNoPathGrantInput(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeOf(agentHubCreateInput{}), reflect.TypeOf(agentHubInitialConfig{})} {
+		for i := 0; i < typ.NumField(); i++ {
+			name := strings.ToLower(strings.Split(typ.Field(i).Tag.Get("json"), ",")[0] + " " + typ.Field(i).Name)
+			if name == "cwd cwd" {
+				continue
+			}
+			for _, word := range []string{"path", "folder", "dir", "readwrite", "extra", "grant", "writable"} {
+				if strings.Contains(name, word) {
+					t.Errorf("%s.%s lets an agent name folders its child may write", typ.Name(), typ.Field(i).Name)
+				}
+			}
+		}
+	}
+}
