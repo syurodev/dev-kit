@@ -14,7 +14,7 @@ import (
 // NewPullRequests builds the pull-request tracker over the Git module and
 // Accounts. store may be nil (attachments then last until the process ends).
 func NewPullRequests(git *gitservice.Service, accountSvc *accounts.Service, picker remotePicker, store prwatch.Store) *prwatch.Service {
-	providers := forge.NewRegistry(forge.NewGitHub())
+	providers := forge.NewRegistry(forge.NewGitHub(), forge.NewGitLab())
 	return prwatch.New(providers, gitCheckout{git: git}, prCredentials{accounts: accountSvc, picker: picker}, store)
 }
 

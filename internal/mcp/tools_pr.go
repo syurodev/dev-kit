@@ -135,7 +135,7 @@ func prError(err error, platform string) error {
 	case errors.Is(err, prwatch.ErrAmbiguousAccount):
 		return apperrors.New("pr.ambiguousAccount", "More than one account fits this remote and none was chosen.", true)
 	case errors.Is(err, prwatch.ErrUnsupportedHost):
-		return apperrors.New("pr.unsupportedHost", "DevKit has no pull request support for this remote's host yet (GitHub only). Use the host's CLI in a shell.", false)
+		return apperrors.New("pr.unsupportedHost", "DevKit has no pull request support for this remote's host yet (GitHub and gitlab.com only). Use the host's CLI in a shell.", false)
 	case errors.Is(err, prwatch.ErrNotRepository):
 		return apperrors.New("git.notARepository", "That folder is not a git repository.", true)
 	case errors.Is(err, prwatch.ErrNoChangeRequest):
@@ -562,6 +562,9 @@ func (s *Server) toolPRMerge(ctx context.Context, _ *sdk.CallToolRequest, in prM
 			h, cr, err := s.prWritable(ctx, in.Repo, in.Number)
 			if err != nil {
 				return nil, err
+			}
+			if err := h.CheckMergeMethod(method); err != nil {
+				return nil, prError(err, h.Terms().Platform)
 			}
 			refusal, concerns := mergeConcerns(cr)
 			if refusal != "" {

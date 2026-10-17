@@ -49,6 +49,14 @@ type Provider interface {
 	DeleteBranch(ctx context.Context, c Credential, repo Repo, name string) error
 }
 
+// MergeMethodChecker is implemented by a provider that cannot honour every
+// MergeMethod (GitLab merges by the project's own setting and cannot rebase on
+// request). A caller asks before putting a question to the person, so a
+// method that will be refused is refused first.
+type MergeMethodChecker interface {
+	CheckMergeMethod(m MergeMethod) error
+}
+
 // Registry finds the provider for a host.
 type Registry struct{ providers []Provider }
 
