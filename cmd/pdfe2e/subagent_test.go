@@ -293,7 +293,7 @@ func codexSubagentMock(rec *recorder) http.Handler {
 			http.Error(w, "websocket transport is not offered", http.StatusUpgradeRequired)
 			return
 		}
-		if !(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/responses")) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
 			_, _ = io.Copy(io.Discard, r.Body)
 			w.Header().Set("Content-Type", "application/json")
 			if strings.HasSuffix(r.URL.Path, "/models") {
