@@ -437,6 +437,17 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     (`TestFreshClaudeSession*`, `TestCodexSessionWithoutATurn*`, `choiceAdapter`); the Codex "no rollout" answer
     was measured with the real app-server 0.163.0 under a throw-away `CODEX_HOME`. Gallery:
     `?gallery#agenthub-model-profiles`.
+- **A child session starts in its parent's permission mode, never a more permissive one**
+  (`agenthub/mode_inherit.go`; `Service.CreateSession`, agent callers with a parent only). The parent's mode is read from
+  its stored `current_mode_update` row (seeded from the handshake, moved by every change — the Claude runtime now keeps
+  `Modes()` current after `set_mode`, so a resume re-seeds the live mode, not the handshake's), not from the tool input:
+  `agenthub.createAgentSession` has no mode field and `TestCreateAgentSessionHasNoModeInput` keeps it so. Same vendor →
+  the parent's id. Another vendor → the same id if it advertises it (`auto`, `bypassPermissions`), else the pair Claude
+  `default` ↔ Codex `ask`; a parent stricter than `auto` with no match (`plan`, `acceptEdits`) gets the child's asking
+  mode, anything else stays on the child's default (logged). A mode the runtime refuses does not fail the creation —
+  unless the parent is Ask / `default` / `plan` and the child would be more permissive: then the child is closed and
+  `ErrModeNotInherited` returned. A person-created session keeps the vendor default. Not run against the real vendors:
+  the tests use fakes.
 - **A profile can also be a vendor subagent** (`internal/agenthub/subagents.go`, `claude_subagents.go`,
   `codex_subagents.go`; fields `subagent` + `prompt` on `AgentModelProfile`, off by default, so an old list changes nothing).
   A subagent is the vendor's feature (Claude's Agent tool, Codex's `spawn_agent`) running inside the session — not

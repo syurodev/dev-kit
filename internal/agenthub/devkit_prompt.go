@@ -167,6 +167,8 @@ shows the memory.
   and effort it lists. Another model than yours, or a higher effort, asks
   the person every time — do not pick a dearer model or more effort without
   a reason the job gives, and prefer the cheaper end for reading and review.
+  A child's mode (Ask, Auto, Full auto…) is your own at that moment, never a
+  more permissive one; you cannot choose it.
 - **A subagent or a child session.** A profile that lists ` + "`subagent`" + ` is also
   set up as a subagent of your own agent, under its ` + "`subagentName`" + `: call it
   through your own subagent tool (Claude's Agent tool, Codex's spawn_agent with

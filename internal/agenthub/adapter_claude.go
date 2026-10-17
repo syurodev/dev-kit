@@ -1157,8 +1157,10 @@ type claudeRuntime struct {
 	proc         *sandbox.Proc
 	killer       acp.ProcessKiller
 	acpSessionID string
-	// modes is the handshake's answer; set before the runtime is returned and
-	// never written again. steering and goal are read from the same answer:
+	// modes is the handshake's answer, guarded by mu: set before the runtime is
+	// returned, then only its CurrentModeID follows a successful SetMode (a
+	// copy is swapped in, never mutated), so Modes() names the mode the agent
+	// is in now rather than the one it started in. steering and goal are read from the same answer:
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
 	modes *acp.SessionModeState
@@ -1224,7 +1226,11 @@ func (r *claudeRuntime) Dead() (bool, error) {
 func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }
 
 // Modes satisfies RuntimeModes.
-func (r *claudeRuntime) Modes() *acp.SessionModeState { return r.modes }
+func (r *claudeRuntime) Modes() *acp.SessionModeState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.modes
+}
 
 func (r *claudeRuntime) SetMode(ctx context.Context, modeID string) error {
 	r.mu.Lock()
@@ -1237,6 +1243,13 @@ func (r *claudeRuntime) SetMode(ctx context.Context, modeID string) error {
 	if err := conn.Call(ctx, "session/set_mode", acp.SessionSetModeRequest{SessionID: sid, ModeID: modeID}, &result); err != nil {
 		return fmt.Errorf("%w: session/set_mode: %v", ErrProcessFailed, err)
 	}
+	r.mu.Lock()
+	if r.modes != nil {
+		next := *r.modes
+		next.CurrentModeID = modeID
+		r.modes = &next
+	}
+	r.mu.Unlock()
 	return nil
 }
 
