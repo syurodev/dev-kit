@@ -2,8 +2,9 @@ import { setDiagnostics } from "@codemirror/lint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
-import { Braces, Check, ChevronDown, CircleAlert, Code, X } from "lucide-react";
+import { Braces, Check, ChevronDown, ChevronRight, CircleAlert, Code, X } from "lucide-react";
 import { CodeEditor, type CodeEditorProps } from "@/components/code-editor/CodeEditor";
+import { EditorTools, EditorStatusBar, SourceFileEditor, useEditorStatus } from "@/components/code-editor/EditorChrome";
 import { EditingControls } from "@/components/code-editor/EditingControls";
 import { useEditorPreferences } from "@/components/code-editor/preferences";
 import { StructureControls } from "@/components/code-editor/StructureControls";
@@ -26,6 +27,7 @@ const wraps = new Map<string, boolean>();
 const labelOf = (path: (string | number)[]) => path.map((part) => typeof part === "number" ? `[${part}]` : part).join(" › ") || "Document";
 
 export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<CodeEditorProps, "wrap" | "onWrapChange"> & { file: string; documentKey: string; active?: boolean }) {
+  const status = useEditorStatus(props.value);
   const indentSize = useEditorPreferences((s) => s.size);
   const viewRef = useRef<EditorView | null>(null);
   const alive = useRef(true);
@@ -71,12 +73,13 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
   }, []);
   const extensions = useMemo(() => [
     ...(props.extensions ?? []),
+    status.extension,
     yamlAssistance({ file, schema }),
     EditorView.updateListener.of((update) => {
       if (update.docChanged || update.selectionSet) schedule();
     }),
     Prec.highest(keymap.of([{ key: "Alt-Shift-f", run: () => { formatRef.current(false); return true; } }])),
-  ], [props.extensions, file, schema, receive, schedule]);
+  ], [props.extensions, status.extension, file, schema, receive, schedule]);
   const onView = useCallback((view: EditorView | null) => {
     viewRef.current = view;
     props.onView?.(view);
@@ -130,43 +133,46 @@ export function YamlEditor({ file, documentKey, active = true, ...props }: Omit<
   };
   const problems = analysis?.problems ?? [];
   const pathLabel = labelOf(analysis?.path ?? []);
-  return <div className="flex h-full min-h-0 min-w-0 flex-col" data-testid="yaml-editor">
-    <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border-subtle px-2 py-1">
+  return <div className="@container/editor-chrome relative flex h-full min-h-0 min-w-0 flex-col" data-testid="yaml-editor">
+    <EditorTools>
       <EditingControls getView={() => viewRef.current} indentStyle="spaces" readOnly={props.readOnly} />
       <StructureControls wrapped={wrapped} onWrapChange={setWrap} getView={() => viewRef.current} />
       <DropdownMenu><DropdownMenuTrigger asChild><Button size="xs" variant="ghost" disabled={busy}><Braces />Format<ChevronDown /></Button></DropdownMenuTrigger>
         <DropdownMenuContent><DropdownMenuItem onSelect={() => void format(false)}>Format document</DropdownMenuItem><DropdownMenuItem onSelect={() => void format(true)}>Format selection</DropdownMenuItem></DropdownMenuContent>
       </DropdownMenu>
       <ActionTooltip label={draft && !draft.open ? "Resume SQL draft" : "Edit SQL block"}><Button size="xs" variant={draft?.open ? "secondary" : "ghost"} onClick={() => void openSql()}><Code />SQL{draft && draft.code !== draft.block.value ? " · draft" : ""}</Button></ActionTooltip>
-    </div>
+      <Select value={schema} onValueChange={(value) => { const choice = value as SchemaChoice; choices.set(documentKey, choice); schemaRef.current = choice; ++generation.current; setSchema(choice); if (viewRef.current) viewRef.current.dispatch(setDiagnostics(viewRef.current.state, [])); setAnalysis(null); setError(""); }}><SelectTrigger size="sm" aria-label="YAML schema" className="h-6 w-auto max-w-48 px-2 text-caption-11"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(SCHEMA_LABELS).map(([id, label]) => <SelectItem key={id} value={id}>{label}</SelectItem>)}</SelectContent></Select>
+    </EditorTools>
     {error ? <div role="alert" className="flex shrink-0 items-start gap-2 bg-status-danger/8 px-3 py-2 text-body-12 text-status-danger"><CircleAlert className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0 flex-1 wrap-anywhere">{error}</span><Button variant="ghost" size="icon-xs" aria-label="Dismiss YAML message" onClick={() => setError("")}><X /></Button></div> : null}
     <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
       <ResizablePanel id="yaml-source" defaultSize="60%" minSize="20%"><CodeEditor {...props} indentStyle="spaces" onView={onView} extensions={extensions} wrap={wrapped} onWrapChange={setWrap} /></ResizablePanel>
       {draft?.open ? <><ResizableHandle withHandle /><ResizablePanel id="yaml-sql" defaultSize="40%" minSize="20%"><SqlEditor draft={draft} busy={busy} onChange={(code) => setDraft({ ...draft, code })} onApply={() => void applySql()} onClose={() => setDraft({ ...draft, open: false })} onDiscard={() => setDraft(null)} /></ResizablePanel></> : null}
     </ResizablePanelGroup>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-2 py-1 text-caption-11 text-text-tertiary">
-      <span className="min-w-0 flex-1 truncate" title={pathLabel}>{pathLabel}</span>
-      <Select value={schema} onValueChange={(value) => { const choice = value as SchemaChoice; choices.set(documentKey, choice); schemaRef.current = choice; ++generation.current; setSchema(choice); if (viewRef.current) viewRef.current.dispatch(setDiagnostics(viewRef.current.state, [])); setAnalysis(null); setError(""); }}><SelectTrigger size="sm" aria-label="YAML schema" className="h-6 w-auto max-w-48 px-2 text-caption-11"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(SCHEMA_LABELS).map(([id, label]) => <SelectItem key={id} value={id}>{label}</SelectItem>)}</SelectContent></Select>
-      <DropdownMenu><DropdownMenuTrigger asChild><Button size="xs" variant="ghost" className="h-6 px-2" disabled={!problems.length} aria-label="YAML problems">{problems.length ? <CircleAlert /> : <Check />}{!analysis ? "Checking…" : problems.length ? `${problems.length} ${problems.length === 1 ? "problem" : "problems"}` : "No problems"}</Button></DropdownMenuTrigger>
+    <EditorStatusBar language="yaml" status={status} trailing={
+      <DropdownMenu><DropdownMenuTrigger asChild><Button size="xs" variant="ghost" className="h-5 gap-1 px-1 text-caption-11 disabled:opacity-100" disabled={!problems.length} aria-label={problems.length ? "YAML problems" : !analysis ? "Checking YAML" : "No YAML problems"} title={!analysis ? "Checking YAML…" : problems.length ? `${problems.length} YAML problems` : "No YAML problems"}>{problems.length ? <CircleAlert className="size-3 text-status-warning" /> : <Check className="size-3" />}{problems.length || null}</Button></DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-h-72 w-96 max-w-[90vw] overflow-y-auto">{problems.map((problem, index) => <DropdownMenuItem key={index} className="h-auto whitespace-normal" onSelect={() => { const view = viewRef.current; if (view) { const pos = Math.min(problem.from, view.state.doc.length); view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) }); view.focus(); } }}><span className="text-body-12">Line {viewRef.current?.state.doc.lineAt(Math.min(problem.from, viewRef.current.state.doc.length)).number ?? 1}: {problem.message}</span></DropdownMenuItem>)}</DropdownMenuContent>
       </DropdownMenu>
-      {analysis?.notice ? <span className="w-full text-status-warning">{analysis.notice}</span> : analysis && schema === "auto" ? <span className="max-w-64 truncate" title={analysis.schema}>{analysis.schema}</span> : null}
-    </div>
+    }>
+      <Braces className="size-3 shrink-0" aria-hidden />
+      <span className="flex min-w-0 flex-1 items-center text-text-secondary" title={pathLabel}>
+        {analysis && analysis.path.length > 1 ? <><span className="min-w-0 truncate">{labelOf(analysis.path.slice(0, -1))}</span><ChevronRight className="mx-0.5 size-3 shrink-0 text-text-tertiary" aria-hidden /></> : null}
+        <span className="max-w-full shrink-0 truncate text-text-primary">{labelOf(analysis?.path.slice(-1) ?? [])}</span>
+      </span>
+      {analysis?.notice ? <span className="min-w-0 truncate text-status-warning" title={analysis.notice}>{analysis.notice}</span> : analysis && schema === "auto" ? <span className="hidden shrink-0 items-center gap-2 @min-2xl/editor-chrome:flex" title={analysis.schema}><span aria-hidden className="text-text-tertiary">·</span>{analysis.schema.split(" · ")[0]}</span> : null}
+    </EditorStatusBar>
   </div>;
 }
 
 function SqlEditor({ draft, busy, onChange, onApply, onClose, onDiscard }: { draft: Draft; busy: boolean; onChange: (value: string) => void; onApply: () => void; onClose: () => void; onDiscard: () => void }) {
   const extensions = useLanguageExtension("sql");
-  const viewRef = useRef<EditorView | null>(null);
   return <div className="flex h-full min-h-0 flex-col" data-testid="yaml-sql-pane">
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border-subtle px-2 py-1">
       <Code className="size-3.5 text-text-secondary" /><span title={draft.block.label} className="min-w-0 flex-1 truncate text-code-12 text-text-secondary">{draft.block.label}</span>
-      <EditingControls getView={() => viewRef.current} readOnly={busy} />
       <Button size="xs" variant="ghost" disabled={busy} onClick={onDiscard}>Discard</Button>
       <Button size="xs" variant="secondary" disabled={busy} onClick={onApply}>Apply to YAML</Button>
       <ActionTooltip label="Close SQL pane (keep draft)"><Button size="icon-xs" variant="ghost" onClick={onClose}><X /></Button></ActionTooltip>
     </div>
-    <div className="min-h-0 flex-1"><CodeEditor onView={(view) => { viewRef.current = view; }} value={draft.code} onChange={onChange} extensions={extensions} readOnly={busy} wrap /></div>
+    <div className="min-h-0 flex-1"><SourceFileEditor language="sql" value={draft.code} onChange={onChange} extensions={extensions} readOnly={busy} /></div>
     <p className="shrink-0 px-3 py-1 text-caption-11 text-text-tertiary">Apply updates this YAML block. Save the file from the main editor.</p>
   </div>;
 }

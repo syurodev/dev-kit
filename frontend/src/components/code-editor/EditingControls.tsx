@@ -4,7 +4,7 @@ import { copyLineDown, indentLess, indentMore, moveLineDown, moveLineUp, redo, t
 import { openSearchPanel } from "@codemirror/search";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { INDENT_SIZES, indentSize, type IndentStyle } from "./editing";
 import { useEditorPreferences } from "./preferences";
 
@@ -26,6 +26,7 @@ export function EditingControls({ getView, indentStyle, readOnly = false }: {
   indentStyle?: IndentStyle;
   readOnly?: boolean;
 }) {
+  const showIndentGuides = useEditorPreferences((s) => s.showIndentGuides);
   const size = useEditorPreferences((s) => s.size);
   const preferredStyle = useEditorPreferences((s) => s.style);
   const style = indentStyle ?? preferredStyle;
@@ -50,6 +51,8 @@ export function EditingControls({ getView, indentStyle, readOnly = false }: {
           <DropdownMenuRadioItem value="tabs">Insert tabs</DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </>}
+      <DropdownMenuSeparator />
+      <DropdownMenuCheckboxItem checked={showIndentGuides} onCheckedChange={(checked) => useEditorPreferences.getState().setShowIndentGuides(checked)}>Indent guides</DropdownMenuCheckboxItem>
       <DropdownMenuSeparator />
       {actions.map((action) => <DropdownMenuItem key={action.label} shortcut={action.shortcut} disabled={readOnly && action.edit} onSelect={() => { pending.current = action.run; }}>{action.label}</DropdownMenuItem>)}
       <DropdownMenuSeparator />
