@@ -18,6 +18,12 @@ describe("Settings navigation", () => {
     ]);
     expect(SETTINGS_GROUPS.find((group) => group.label === "Services")!.items.map((item) => item.id)).toEqual(["account", "sync"]);
   });
+  test("the open-source notices are a Personal page found by what people call them", () => {
+    expect(SETTINGS_GROUPS.find((group) => group.label === "Personal")!.items.map((item) => item.id)).toContain("licenses");
+    expect(idsOf("third-party")).toEqual(["licenses"]);
+    expect(idsOf("open source")).toEqual(["licenses"]);
+    expect(resolveSettingsTab("licenses")).toBe("licenses");
+  });
   test("old ids still open the page that took their content over", () => {
     expect(resolveSettingsTab("agents")).toBe("agents-runtimes");
     expect(resolveSettingsTab("remote")).toBe("agents-notifications");

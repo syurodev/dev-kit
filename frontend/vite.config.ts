@@ -1,12 +1,17 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { materialFileIcons } from "./scripts/material-file-icons.ts";
 import wails from "@wailsio/runtime/plugins/vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// The generated open-source notices live at the repository root (GitHub shows them there);
+// Settings imports that one file as text (`?url`, fetched on demand). The dev server may serve exactly it, not the
+// whole parent folder.
+const thirdPartyLicenses = path.resolve(__dirname, "../THIRD_PARTY_LICENSES.md");
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -20,6 +25,7 @@ export default defineConfig({
     host: "127.0.0.1",
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
+    fs: { allow: [searchForWorkspaceRoot(__dirname), thirdPartyLicenses] },
   },
   plugins: [
     materialFileIcons(),
