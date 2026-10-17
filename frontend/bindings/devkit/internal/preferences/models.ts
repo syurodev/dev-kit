@@ -98,6 +98,24 @@ export interface AgentModelProfile {
      * Notes is for the person (and the agent) — why this model, what to avoid.
      */
     "notes"?: string;
+
+    /**
+     * Subagent also offers the profile to the vendor's own agents as a
+     * subagent (Claude's Agent tool, Codex's spawn_agent) running on this
+     * model and effort with Prompt as its instructions. Off by default, so a
+     * profile made before this existed changes nothing. Description is what
+     * the agent reads to decide to call it. A subagent is the vendor's
+     * feature, a different thing from a session an agent starts through
+     * agenthub.createAgentSession.
+     */
+    "subagent"?: boolean;
+
+    /**
+     * Prompt is the person's instructions for the subagent — text they wrote,
+     * handed to the vendor as is. It carries no permission: the subagent runs
+     * under the same gates as the session that calls it.
+     */
+    "prompt"?: string;
 }
 
 /**

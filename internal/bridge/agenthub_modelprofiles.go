@@ -18,10 +18,16 @@ type AgentModelProfilesState struct {
 
 func modelProfilesState(value preferences.AgentModelProfiles) AgentModelProfilesState {
 	out := AgentModelProfilesState{Revision: value.Revision, Profiles: make([]agenthub.ModelProfileInfo, 0, len(value.Profiles))}
-	for _, p := range value.Profiles {
-		out.Profiles = append(out.Profiles, agenthub.ModelProfileInfo{
+	names := preferences.SubagentNames(value.Profiles)
+	for i, p := range value.Profiles {
+		info := agenthub.ModelProfileInfo{
 			ID: p.ID, Name: p.Name, Description: p.Description, Vendor: p.Vendor, Model: p.Model, Effort: p.Effort, Notes: p.Notes,
-		})
+			Subagent: p.Subagent, Prompt: p.Prompt,
+		}
+		if p.Subagent {
+			info.SubagentName = names[i]
+		}
+		out.Profiles = append(out.Profiles, info)
 	}
 	return out
 }

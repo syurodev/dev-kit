@@ -59,6 +59,10 @@ type OpenSpec struct {
 	// of them it may write — for the prompt (devkitPrompt). Service.SessionBrief
 	// fills it; empty, the prompt tells the agent to look instead.
 	Brief string
+	// Subagents are the person's model profiles switched on as subagents, for
+	// this session's vendor only (Service.applySubagents). Each adapter turns
+	// them into its vendor's shape; none of it carries a permission.
+	Subagents []SubagentSpec
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).

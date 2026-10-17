@@ -52,3 +52,34 @@ func TestModelProfilesBridgeIsUIOnlyAndChecksRevision(t *testing.T) {
 		t.Fatal("an agent used the window's check")
 	}
 }
+
+// The switch and the instructions are the window's to set: they come back in the
+// list the window edits, with the name the vendor will know the subagent by, and
+// a half-written subagent is refused in words.
+func TestModelProfilesBridgeCarriesTheSubagentFields(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	svc.container.Preferences = preferences.NewService(preferences.NewMemoryRepository())
+	ctx := context.Background()
+
+	saved, err := svc.AgentHubSetModelProfiles(ctx, 0, []preferences.AgentModelProfile{
+		{Name: "Đánh giá mã", Description: "reading diffs", Vendor: "mock", Model: "m-small", Subagent: true, Prompt: "Be brief."},
+		{Name: "Docs", Vendor: "mock", Model: "m-mid"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.AgentHubGetModelProfiles(ctx)
+	if err != nil || len(got.Profiles) != 2 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if p := got.Profiles[0]; !p.Subagent || p.Prompt != "Be brief." || p.SubagentName != "danh-gia-ma" {
+		t.Errorf("subagent profile = %+v", p)
+	}
+	if p := got.Profiles[1]; p.Subagent || p.SubagentName != "" {
+		t.Errorf("a profile that is off carries no subagent: %+v", p)
+	}
+	_, err = svc.AgentHubSetModelProfiles(ctx, saved.Revision, []preferences.AgentModelProfile{{Name: "A", Vendor: "mock", Model: "m", Subagent: true}})
+	if err == nil || !strings.Contains(err.Error(), "subagent needs") {
+		t.Errorf("a subagent with no instructions: %v", err)
+	}
+}

@@ -9,7 +9,7 @@ export type ConfigSelectOption = { value: string; name?: string; description?: s
 export type ConfigOption = { id: string; category?: string; options?: ConfigSelectOption[] };
 
 /** The limits Go holds the list to (internal/preferences/modelprofiles.go). */
-export const PROFILE_LIMITS = { profiles: 24, name: 60, description: 400, notes: 800 } as const;
+export const PROFILE_LIMITS = { profiles: 24, name: 60, description: 400, notes: 800, prompt: 8000 } as const;
 
 /** What a vendor's picker offers, as the profile form needs it. */
 export type VendorModelChoices =
@@ -30,7 +30,7 @@ export function effortChoicesOf(models: ConfigSelectOption[], model: string): Co
 }
 
 export function blankProfile(vendor: string): ModelProfile {
-  return { id: "", name: "", description: "", vendor, model: "", effort: "", notes: "" };
+  return { id: "", name: "", description: "", vendor, model: "", effort: "", notes: "", subagent: false, prompt: "" };
 }
 
 /**
@@ -46,6 +46,9 @@ export function profileProblem(draft: ModelProfile, others: readonly ModelProfil
   if (!draft.model.trim()) return "Choose a model.";
   if (draft.description.length > PROFILE_LIMITS.description) return `Keep the description under ${PROFILE_LIMITS.description} characters.`;
   if (draft.notes.length > PROFILE_LIMITS.notes) return `Keep the notes under ${PROFILE_LIMITS.notes} characters.`;
+  if (draft.prompt.length > PROFILE_LIMITS.prompt) return `Keep the instructions under ${PROFILE_LIMITS.prompt} characters.`;
+  if (draft.subagent && !draft.description.trim()) return "A subagent needs the description above: it is what the agent reads to decide to call it.";
+  if (draft.subagent && !draft.prompt.trim()) return "Write the subagent's instructions, or turn the subagent off.";
   if (others.some((p) => p.id !== draft.id && p.name.trim().toLowerCase() === name.toLowerCase())) {
     return "Another profile already has that name.";
   }
@@ -54,7 +57,7 @@ export function profileProblem(draft: ModelProfile, others: readonly ModelProfil
 
 /** The list after saving `draft`: replaces the profile with its id, or adds it. */
 export function withProfile(profiles: readonly ModelProfile[], draft: ModelProfile): ModelProfile[] {
-  const trimmed = { ...draft, name: draft.name.trim(), description: draft.description.trim(), notes: draft.notes.trim() };
+  const trimmed = { ...draft, name: draft.name.trim(), description: draft.description.trim(), notes: draft.notes.trim(), prompt: draft.prompt.trim() };
   if (draft.id && profiles.some((p) => p.id === draft.id)) {
     return profiles.map((p) => (p.id === draft.id ? trimmed : p));
   }
@@ -80,4 +83,25 @@ export function checkNotice(check: ModelProfileCheck | undefined): { tone: "warn
 
 export function effortLabel(value: string): string {
   return ({ xhigh: "Extra high", max: "Max" } as Record<string, string>)[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * What becomes of a profile switched on as a subagent, for the list: nothing
+ * when the switch is off. "active" is a promise about sessions started from now,
+ * never about one that is running — it keeps the set it started with until it is
+ * reloaded — and only for the profile's own vendor.
+ */
+export function subagentNotice(
+  profile: Pick<ModelProfile, "subagent" | "vendor">,
+  check: Pick<ModelProfileCheck, "subagentName" | "subagentStatus" | "subagentProblem"> | undefined,
+  vendorName: string,
+): { tone: "ok" | "warn" | "info"; text: string } | null {
+  if (!profile.subagent) return null;
+  if (!check || check.subagentStatus === "") {
+    return { tone: "info", text: `Subagent for ${vendorName} sessions you start from now on. Not checked yet.` };
+  }
+  if (check.subagentStatus === "skipped") {
+    return { tone: "warn", text: `Not offered as a subagent: ${check.subagentProblem}` };
+  }
+  return { tone: "ok", text: `Subagent “${check.subagentName}” in ${vendorName} sessions you start from now on.` };
 }

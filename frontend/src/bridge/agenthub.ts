@@ -1090,6 +1090,10 @@ export type ModelProfile = {
   model: string;
   effort: string;
   notes: string;
+  /** Also offer the profile to its vendor's own agents as a subagent (Claude's Agent tool, Codex's spawn_agent). */
+  subagent: boolean;
+  /** The subagent's instructions, in the person's words. */
+  prompt: string;
 };
 
 /** A profile with whether its model is still on its vendor's list. */
@@ -1097,11 +1101,16 @@ export type ModelProfileCheck = ModelProfile & {
   /** "ok", or "unknownModel", "unknownEffort", "signInRequired", "notInstalled", "unavailable", "unknownVendor". */
   status: string;
   problem: string;
+  /** What the vendor will call the subagent; empty when the switch is off. */
+  subagentName: string;
+  /** "active" (new sessions of the vendor have it), "skipped" (see subagentProblem), or "" when off. */
+  subagentStatus: string;
+  subagentProblem: string;
 };
 
 export type ModelProfilesState = { revision: number; profiles: ModelProfile[] };
 
-function profileOf(raw: { id?: string; name?: string; description?: string; vendor?: string; model?: string; effort?: string; notes?: string }): ModelProfile {
+function profileOf(raw: { id?: string; name?: string; description?: string; vendor?: string; model?: string; effort?: string; notes?: string; subagent?: boolean; prompt?: string }): ModelProfile {
   return {
     id: raw.id ?? "",
     name: raw.name ?? "",
@@ -1110,6 +1119,8 @@ function profileOf(raw: { id?: string; name?: string; description?: string; vend
     model: raw.model ?? "",
     effort: raw.effort ?? "",
     notes: raw.notes ?? "",
+    subagent: raw.subagent ?? false,
+    prompt: raw.prompt ?? "",
   };
 }
 
@@ -1130,6 +1141,13 @@ export function agentHubSetModelProfiles(revision: number, profiles: ModelProfil
 
 export function agentHubCheckModelProfiles(): Promise<ModelProfileCheck[]> {
   return callBridge(async () =>
-    ((await AppService.AgentHubCheckModelProfiles()) ?? []).map((raw) => ({ ...profileOf(raw), status: raw.status ?? "", problem: raw.problem ?? "" })),
+    ((await AppService.AgentHubCheckModelProfiles()) ?? []).map((raw) => ({
+      ...profileOf(raw),
+      status: raw.status ?? "",
+      problem: raw.problem ?? "",
+      subagentName: raw.subagentName ?? "",
+      subagentStatus: raw.subagentStatus ?? "",
+      subagentProblem: raw.subagentProblem ?? "",
+    })),
   );
 }

@@ -1,6 +1,7 @@
 package preferences
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -63,5 +64,55 @@ func TestModelProfilesAreStoredWithARevision(t *testing.T) {
 	got.Profiles[0].Name = "changed"
 	if again, _ := svc.AgentModelProfiles(); again.Profiles[0].Name != "Docs" {
 		t.Fatal("the stored list was reachable through a returned copy")
+	}
+}
+
+func TestSubagentProfilesNeedADescriptionAndInstructionsAndOldOnesStillRead(t *testing.T) {
+	ok := AgentModelProfile{Name: "Review", Description: "when", Vendor: "claude", Model: "haiku", Subagent: true, Prompt: " Be brief. "}
+	got, err := NormalizeModelProfiles([]AgentModelProfile{ok})
+	if err != nil || got[0].Prompt != "Be brief." || !got[0].Subagent {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	for name, p := range map[string]AgentModelProfile{
+		"no prompt":      {Name: "A", Description: "d", Vendor: "c", Model: "m", Subagent: true},
+		"no description": {Name: "A", Vendor: "c", Model: "m", Subagent: true, Prompt: "x"},
+		"long prompt":    {Name: "A", Description: "d", Vendor: "c", Model: "m", Subagent: true, Prompt: strings.Repeat("x", 8001)},
+		"control":        {Name: "A", Description: "d", Vendor: "c", Model: "m", Subagent: true, Prompt: "x\x00"},
+	} {
+		if _, err := NormalizeModelProfiles([]AgentModelProfile{p}); !errors.Is(err, ErrInvalidModelProfiles) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// Instructions are kept while the switch is off, so turning it back on loses nothing.
+	if got, err := NormalizeModelProfiles([]AgentModelProfile{{Name: "A", Vendor: "c", Model: "m", Prompt: "kept"}}); err != nil || got[0].Prompt != "kept" || got[0].Subagent {
+		t.Errorf("off: %+v, %v", got, err)
+	}
+	// A list stored before the fields existed decodes with the switch off.
+	var old AgentModelProfiles
+	if err := json.Unmarshal([]byte(`{"revision":3,"profiles":[{"id":"docs","name":"Docs","description":"d","vendor":"codex","model":"m"}]}`), &old); err != nil || old.Profiles[0].Subagent || old.Profiles[0].Prompt != "" {
+		t.Errorf("old = %+v, %v", old, err)
+	}
+}
+
+func TestSubagentNamesAreSafeUniqueAndStable(t *testing.T) {
+	names := SubagentNames([]AgentModelProfile{
+		{ID: "đánh-giá-mã", Name: "Đánh giá mã"},
+		{ID: "default", Name: "Default"},
+		{ID: "review", Name: "Review"},
+		{ID: "Review!", Name: "Review again"},
+		{ID: "日本語", Name: "日本語"},
+		{ID: "", Name: "Fallback to name"},
+	})
+	want := []string{"danh-gia-ma", "default-job", "review", "review-2", "job", "fallback-to-name"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("names[%d] = %q, want %q (all: %v)", i, names[i], want[i], names)
+		}
+	}
+	// The name comes from the id, so renaming a job keeps its subagent's name.
+	a := SubagentNames([]AgentModelProfile{{ID: "review", Name: "Review"}})
+	b := SubagentNames([]AgentModelProfile{{ID: "review", Name: "Totally different"}})
+	if a[0] != b[0] {
+		t.Errorf("renamed: %q vs %q", a[0], b[0])
 	}
 }

@@ -750,7 +750,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		}
 	}
 	mcpServers = append(mcpServers, customizationMCP(customization, pol.Env)...)
-	meta := claudeCustomizationMeta(sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief), delegatedClaudeTools(spec)...), customization, plugin)
+	meta := claudeSubagentsMeta(claudeCustomizationMeta(sessionNewMeta(devkitHookCommand(spec), devkitPrompt(claudeNaming, spec.Brief), delegatedClaudeTools(spec)...), customization, plugin), spec.Subagents)
 
 	if plan.forkFrom != "" {
 		var forkRes acp.SessionForkResult

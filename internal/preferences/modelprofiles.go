@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Model profiles are the person's answer to "which model fits which job":
@@ -20,6 +22,7 @@ const (
 	maxModelProfileDesc       = 400
 	maxModelProfileNotes      = 800
 	maxModelProfileValue      = 120
+	maxModelProfilePrompt     = 8000
 	maxModelProfileVendorSize = 40
 )
 
@@ -48,6 +51,18 @@ type AgentModelProfile struct {
 	Effort string `json:"effort,omitempty"`
 	// Notes is for the person (and the agent) — why this model, what to avoid.
 	Notes string `json:"notes,omitempty"`
+	// Subagent also offers the profile to the vendor's own agents as a
+	// subagent (Claude's Agent tool, Codex's spawn_agent) running on this
+	// model and effort with Prompt as its instructions. Off by default, so a
+	// profile made before this existed changes nothing. Description is what
+	// the agent reads to decide to call it. A subagent is the vendor's
+	// feature, a different thing from a session an agent starts through
+	// agenthub.createAgentSession.
+	Subagent bool `json:"subagent,omitempty"`
+	// Prompt is the person's instructions for the subagent — text they wrote,
+	// handed to the vendor as is. It carries no permission: the subagent runs
+	// under the same gates as the session that calls it.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // AgentModelProfiles is the whole list, versioned like AgentCustomization so
@@ -80,6 +95,7 @@ func NormalizeModelProfiles(in []AgentModelProfile) ([]AgentModelProfile, error)
 			ID: strings.TrimSpace(raw.ID), Name: strings.TrimSpace(raw.Name),
 			Description: strings.TrimSpace(raw.Description), Vendor: strings.TrimSpace(raw.Vendor),
 			Model: strings.TrimSpace(raw.Model), Effort: strings.TrimSpace(raw.Effort), Notes: strings.TrimSpace(raw.Notes),
+			Subagent: raw.Subagent, Prompt: strings.TrimSpace(raw.Prompt),
 		}
 		for field, limit := range map[string]struct {
 			value string
@@ -93,6 +109,7 @@ func NormalizeModelProfiles(in []AgentModelProfile) ([]AgentModelProfile, error)
 			"id":          {p.ID, maxModelProfileName, false},
 			"description": {p.Description, maxModelProfileDesc, true},
 			"notes":       {p.Notes, maxModelProfileNotes, true},
+			"prompt":      {p.Prompt, maxModelProfilePrompt, true},
 		} {
 			if len(limit.value) > limit.max {
 				return nil, fmt.Errorf("%w: %s is longer than %d bytes", ErrInvalidModelProfiles, field, limit.max)
@@ -105,6 +122,9 @@ func NormalizeModelProfiles(in []AgentModelProfile) ([]AgentModelProfile, error)
 		}
 		if p.Name == "" || p.Vendor == "" || p.Model == "" {
 			return nil, fmt.Errorf("%w: a profile needs a name, an agent and a model", ErrInvalidModelProfiles)
+		}
+		if p.Subagent && (p.Description == "" || p.Prompt == "") {
+			return nil, fmt.Errorf("%w: a subagent needs the description that says when to use it and its instructions", ErrInvalidModelProfiles)
 		}
 		key := strings.ToLower(p.Name)
 		if names[key] {
@@ -190,4 +210,65 @@ func (s *Service) SetAgentModelProfiles(value AgentModelProfiles) (AgentModelPro
 		return AgentModelProfiles{}, err
 	}
 	return next.clone(), nil
+}
+
+// reservedSubagentNames are the names a vendor gives its own built-in agents.
+// A profile never takes one: it would shadow, or be shadowed by, the vendor's.
+var reservedSubagentNames = map[string]bool{
+	"default": true, "explorer": true, "worker": true, // Codex roles
+	"general-purpose": true, "explore": true, "plan": true, "statusline-setup": true, "claude-code-guide": true, // Claude Code
+}
+
+// SubagentNames gives each profile the name its subagent goes by: its id folded
+// to lower-case ASCII letters, digits and dashes (a key both vendors take), made
+// unique across the list in order and never one a vendor reserves. The id is
+// stable once made, so renaming a job does not rename its subagent. The result
+// is aligned with the list; a profile that is not a subagent still gets one, so
+// turning the switch on cannot shuffle the others.
+func SubagentNames(profiles []AgentModelProfile) []string {
+	names := make([]string, len(profiles))
+	used := map[string]bool{}
+	for i, p := range profiles {
+		base := asciiSlug(p.ID)
+		if base == "" {
+			base = asciiSlug(p.Name)
+		}
+		if base == "" {
+			base = "job"
+		}
+		if reservedSubagentNames[base] {
+			base += "-job"
+		}
+		name := base
+		for n := 2; used[name]; n++ {
+			name = fmt.Sprintf("%s-%d", base, n)
+		}
+		used[name] = true
+		names[i] = name
+	}
+	return names
+}
+
+// asciiSlug lower-cases s, strips accents (đ and Đ have none to strip) and keeps
+// letters and digits a-z0-9, joining runs with single dashes.
+func asciiSlug(s string) string {
+	s = strings.NewReplacer("đ", "d", "Đ", "d").Replace(s)
+	var b strings.Builder
+	dash := false
+	for _, r := range norm.NFD.String(strings.ToLower(s)) {
+		switch {
+		case r < unicode.MaxASCII && (unicode.IsLower(r) || unicode.IsDigit(r)):
+			b.WriteRune(r)
+			dash = false
+		case unicode.Is(unicode.Mn, r):
+		case !dash && b.Len() > 0:
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if len(slug) > 40 {
+		slug = strings.Trim(slug[:40], "-")
+	}
+	return slug
 }
