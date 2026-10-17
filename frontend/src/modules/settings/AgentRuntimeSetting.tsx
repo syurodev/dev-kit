@@ -51,7 +51,6 @@ import {
   type Requirement,
   compareVersions,
 } from "@/bridge/agentRuntime";
-import { AgentEnvironmentSetting } from "@/modules/agenthub/environment/AgentEnvironment";
 import { ClaudeSignInSection } from "@/modules/agenthub/ClaudeSignIn";
 import { CodexAccountSection } from "@/modules/agenthub/CodexAccountSection";
 import { CLAUDE_INFO, vendorInfo, type VendorInfo } from "@/modules/agenthub/vendors";
@@ -64,7 +63,7 @@ const runningInstalls = new Map<string, CancellableCall<AgentRuntimeStatus>>();
 
 /**
  * One agent runtime's status, its actions, and the install log — shared by the
- * Settings tab and Agent Hub's "not installed" panel so both say the same thing.
+ * Settings page and Agent Hub's "not installed" panel so both say the same thing.
  */
 export function useAgentRuntime(agent: string = CLAUDE_AGENT) {
   const client = useQueryClient();
@@ -130,7 +129,7 @@ export function useAgentRuntime(agent: string = CLAUDE_AGENT) {
 export type AgentRuntimeController = ReturnType<typeof useAgentRuntime>;
 
 /**
- * Settings → Agents: one agent's runtime and sign-in — Claude's by default,
+ * Settings → Agents → Runtimes: one agent's runtime and sign-in — Claude's by default,
  * any vendor in the table by `vendor`. What differs between them is read from
  * the table: Claude's adapter runs on Node and can use a Claude Code binary
  * of the machine's; Codex is one native binary and signs in inside DevKit.
@@ -156,7 +155,6 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
 
   return (
     <div className="flex flex-col gap-6">
-      <AgentEnvironmentSetting vendor={info.id} />
       <div className="flex flex-col gap-3 rounded-control border border-border-subtle bg-surface-raised p-3.5">
         <div className="flex items-start gap-2.5">
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">

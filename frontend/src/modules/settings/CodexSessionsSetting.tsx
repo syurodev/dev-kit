@@ -92,8 +92,8 @@ export function CodexSessionsSetting() {
 
       {sessions === null ? null : sessions.length === 0 ? (
         <p className="rounded-control border border-border-subtle bg-surface-raised px-3.5 py-2.5 text-body-13 text-text-tertiary">
-          No Codex sessions observed yet. Install Codex support from the MCP
-          panel, then run <code className="text-code-12">codex</code> in a
+          No Codex sessions observed yet. Install Codex support on the DevKit
+          as MCP page, then run <code className="text-code-12">codex</code> in a
           project — its first prompt shows up here.
         </p>
       ) : (

@@ -38,8 +38,10 @@ const BASELINE: Record<string, number> = {
   "database -> codegraph": 1,
   // Settings' agent runtime tab reads agenthub's runtime types to render its
   // install/version UI; the "Models by job" panel reads its vendor table
-  // (agenthub/vendors.ts) for the agents a profile can name.
-  "settings -> agenthub": 2,
+  // (agenthub/vendors.ts) for the agents a profile can name; the Agents pages
+  // draw the Claude | Codex switch from the same table and put agenthub's
+  // tools/skills/MCP panel on the Skills & MCP page.
+  "settings -> agenthub": 3,
 };
 
 const ROOT = join(import.meta.dir, "modules");

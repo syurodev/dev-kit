@@ -1,20 +1,23 @@
 import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search, Smartphone } from "lucide-react";
+import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search, Cpu, Puzzle, ShieldCheck, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EASE_OUT, MOTION_BASE, noMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { filterSettingsNavigation, type SettingsTab } from "./settingsNavigation";
+import { filterSettingsNavigation, type SettingsPage } from "./settingsNavigation";
 
-const ICONS = { account: User, appearance: Sun, sync: Monitor, environments: SlidersHorizontal, database: Database, agents: Bot, keyboard: Command, security: LockKeyhole, updates: RefreshCw, mcp: Plug, remote: Smartphone };
+const ICONS = {
+  account: User, appearance: Sun, sync: Monitor, environments: SlidersHorizontal, database: Database, keyboard: Command, security: LockKeyhole, updates: RefreshCw,
+  "agents-runtimes": Bot, "agents-models": Cpu, "agents-skills": Puzzle, "agents-safety": ShieldCheck, "agents-notifications": Bell, "agents-mcp": Plug,
+} satisfies Record<SettingsPage, unknown>;
 
 /** Internal preferences navigation, independent of workbench document tabs. */
-export function SettingsLayout({ activeTab, onSelect, children }: { activeTab: SettingsTab; onSelect: (tab: SettingsTab) => void; children: ReactNode }) {
+export function SettingsLayout({ activeTab, onSelect, children }: { activeTab: SettingsPage; onSelect: (tab: SettingsPage) => void; children: ReactNode }) {
   const [query, setQuery] = useState("");
   const reduced = useReducedMotion();
   const groups = filterSettingsNavigation(query);
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
-    <nav aria-label="Settings sections" className="flex max-h-52 w-full shrink-0 flex-col gap-4 border-b border-border-subtle p-3 sm:max-h-none sm:w-52 sm:border-r sm:border-b-0">
+    <nav aria-label="Settings sections" className="flex max-h-52 w-full shrink-0 flex-col gap-4 border-b border-border-subtle p-3 sm:max-h-none sm:w-56 sm:border-r sm:border-b-0">
       <div className="relative shrink-0"><Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-3.5 -translate-y-1/2 text-text-tertiary" /><Input aria-label="Search settings" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a setting…" className="h-8 pl-8 text-body-12" /></div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
         {groups.map((group) => <div key={group.label}><p className="mb-1 px-2 text-label-11-caps text-text-tertiary">{group.label}</p><div className="space-y-0.5">

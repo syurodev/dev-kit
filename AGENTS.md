@@ -549,6 +549,17 @@ DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexR
 ```
 
 ### Agent customization and recovery
+- **Settings → Agents is its own nav group of six one-topic pages**, not one tab
+  (`frontend/src/modules/settings/settingsNavigation.ts` is the model, `AgentsPages.tsx` the pages):
+  Runtimes (`agents-runtimes`, + Codex observed sessions), Models & subagents (`agents-models`),
+  Skills & MCP (`agents-skills`, the tools/skills/MCP report and `AgentCustomization` overrides,
+  `AgentEnvironmentPanel`), Safety (`agents-safety`, sandbox + file checkpoints), Notifications & remote
+  (`agents-notifications`, + Telegram) and DevKit as MCP (`agents-mcp`). Runtimes and Skills & MCP carry a shadcn
+  `Tabs` Claude | Codex switch whose last choice is shared and kept in `localStorage`
+  (`agentVendorChoice.ts`, guarded); the other pages are vendor-neutral. The old ids `agents`, `remote` and `mcp`
+  stay valid for callers (`requestSettings("agents")`): `resolveSettingsTab` maps them to Runtimes, Notifications &
+  remote and DevKit as MCP. A new agent setting is a panel on the page whose topic it is, plus keywords on that
+  page's `SETTINGS_GROUPS` entry — not a new stacked section.
 - Settings → Agents → Tools, skills and MCP manages local imports and per-vendor
   overrides (`preferences.AgentCustomization`, in the existing sandbox preference
   JSON). Dedicated UI-only get/set bridge methods use revision/CAS. General sandbox

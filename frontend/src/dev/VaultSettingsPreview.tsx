@@ -2,14 +2,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { SettingsLayout } from "@/modules/settings/SettingsLayout";
-import { SETTINGS_GROUPS, type SettingsTab } from "@/modules/settings/settingsNavigation";
+import { SETTINGS_GROUPS, type SettingsPage } from "@/modules/settings/settingsNavigation";
 import { VaultStage, VaultPasswordField } from "@/workbench/VaultStage";
 
 /** Local layout fixtures. No vault, preference or authentication calls. */
 export function VaultSettingsPreview() {
   const [settings, setSettings] = useState(false);
   const [vault, setVault] = useState(false);
-  const [tab, setTab] = useState<SettingsTab>("appearance");
+  const [tab, setTab] = useState<SettingsPage>("appearance");
   const [step, setStep] = useState(false);
   const [password, setPassword] = useState("");
   const item = SETTINGS_GROUPS.flatMap((group) => [...group.items]).find((item) => item.id === tab)!;

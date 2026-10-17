@@ -30,6 +30,6 @@ function Preview() {
   }, []);
   return <QueryClientProvider client={client}><ThemeProvider><Dialog open><DialogContent showCloseButton={false} aria-describedby={undefined} className="flex w-[calc(100vw-2rem)] max-w-235 flex-col gap-0 overflow-hidden p-0 text-text-primary sm:max-w-235">
     <div className="flex h-settings max-h-[90svh] flex-col"><div className="flex h-14 shrink-0 items-center border-b border-border-subtle px-6"><DialogTitle>Settings</DialogTitle></div>
-      <SettingsLayout activeTab="remote" onSelect={() => {}}><div className="space-y-7"><div><h2 className="text-heading-24">Remote control</h2><p className="mt-2 text-body-14 text-text-tertiary">Connect your phone to this DevKit and choose what it can access.</p></div><TelegramSetting api={api} loadWorkspaces={async () => [{ id: "preview-workspace", name: "DevKit", root: "/Users/alex/Projects/devkit", instructions: "" }]} /></div></SettingsLayout>
+      <SettingsLayout activeTab="agents-notifications" onSelect={() => {}}><div className="space-y-7"><div><h2 className="text-heading-24">Remote control</h2><p className="mt-2 text-body-14 text-text-tertiary">Connect your phone to this DevKit and choose what it can access.</p></div><TelegramSetting api={api} loadWorkspaces={async () => [{ id: "preview-workspace", name: "DevKit", root: "/Users/alex/Projects/devkit", instructions: "" }]} /></div></SettingsLayout>
     </div></DialogContent></Dialog></ThemeProvider></QueryClientProvider>;
 }
