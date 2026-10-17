@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { RevealPasswordSetting } from "./RevealPasswordSetting";
 import { UpdatesSetting } from "./UpdatesSetting";
+import { LicensesSetting } from "./LicensesSetting";
 import {
   Select,
   SelectContent,
@@ -139,6 +140,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "appearance" && <AppearanceTab />}
               {activeTab === "security" && <SecurityTab />}
               {activeTab === "updates" && <UpdatesTab />}
+              {activeTab === "licenses" && <LicensesTab />}
               {activeTab === "sync" && <SyncDevicesTab />}
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
@@ -567,6 +569,10 @@ function SecurityTab() {
     <div className="rounded-xl border border-border-subtle bg-surface-raised p-4"><GroupLabel>Saved credentials</GroupLabel><div className="mt-3"><RevealPasswordSetting /></div></div>
     <SecurityNotice type="secure" title="Your vault stays local" description="DevKit starts locked. Unlocking keeps the decrypted key in memory for the current session." />
   </TabColumn>;
+}
+
+function LicensesTab() {
+  return <TabColumn><SectionHeader title="Open source licenses" description="Third-party notices for software included in DevKit." /><LicensesSetting /></TabColumn>;
 }
 
 function UpdatesTab() {

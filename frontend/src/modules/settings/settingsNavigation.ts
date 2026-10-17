@@ -1,6 +1,6 @@
 /** A page in the left nav: one concern each. */
 export type SettingsPage =
-  | "account" | "appearance" | "sync" | "environments" | "database" | "keyboard" | "security" | "updates"
+  | "account" | "appearance" | "sync" | "environments" | "database" | "keyboard" | "security" | "updates" | "licenses"
   | "agents-runtimes" | "agents-models" | "agents-skills" | "agents-safety" | "agents-notifications" | "agents-mcp";
 
 /**
@@ -29,6 +29,7 @@ export const SETTINGS_GROUPS = [
     { id: "keyboard", label: "Keyboard", keywords: "shortcuts keys" },
     { id: "security", label: "Security", keywords: "vault password credentials reveal" },
     { id: "updates", label: "Updates", keywords: "version release application" },
+    { id: "licenses", label: "Open source licenses", keywords: "third-party notices attribution dependencies mit apache copyright credits" },
   ] },
   { label: "Workspace", items: [
     { id: "environments", label: "Environments", keywords: "prod staging confirmation tags" },

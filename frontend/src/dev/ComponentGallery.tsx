@@ -10,6 +10,7 @@ import { AgentSummarySection } from "./AgentSummarySection";
 import { AgentPeerMessagesSection } from "./AgentPeerMessagesSection";
 import { AgentModelProfilesSection } from "./AgentModelProfilesSection";
 import { SubagentLimitsSection } from "./SubagentLimitsSection";
+import { LicensesSection } from "./LicensesSection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
 import { ApprovalBrokerSection } from "./ApprovalBrokerSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
@@ -1078,6 +1079,7 @@ export default function ComponentGallery() {
       <AgentPeerMessagesSection />
       <AgentModelProfilesSection />
       <SubagentLimitsSection />
+      <LicensesSection />
       <MCPInteractionSection />
       <ApprovalBrokerSection />
 
