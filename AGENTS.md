@@ -145,7 +145,7 @@ as production-verified against a real Claude Code session in cloud CI.
   account and answer ahead/behind. The Claude hook also refuses shell `git pull`,
   `rebase`, `cherry-pick` and `revert`.
 - **`pr.*` tools work with the pull request of an agent's branch** (`internal/mcp/tools_pr.go`; the host client is
-  `internal/forge`, the folder→repo→account→request logic `internal/prwatch`). Reads `pr.get|list|checks|comments`
+  `internal/forge` — GitHub and gitlab.com, see "GitLab is the second provider" below — the folder→repo→account→request logic `internal/prwatch`). Reads `pr.get|list|checks|comments`
   (`git:read` on `repo:pr`); writes `pr.create|update|comment|reply|merge|close|deleteBranch` (`git:push` on
   `remote:origin`, the same push-class capability as `git.push`; `mcp.PullRequestGrants` lists what they ask and
   `TestNewContainerGrantsEveryPullRequestToolItsCapability` checks it against the real grants). Same `repo` argument
@@ -272,8 +272,53 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   a 304 costs no rate limit, the cache key holds a digest of the token, never the token); two calls within 3 s are
   one round; 4 requests in flight. The unresolved-thread count (GraphQL, no ETag) is re-read when the request
   changed or every 3 min. `session_change_requests` (migration 42) holds requests attached by hand or by `pr.create`.
-  Not done: GitHub Enterprise (no host→account mapping for it), GitLab (phase 2), waking a session when CI fails,
-  an entry point to attach by address when the branch lookup found nothing (the bridge method exists).
+  Not done: GitHub Enterprise and a self-hosted GitLab (no host→account mapping: `Registry.For` picks a provider from a
+  bare host, and the account registry knows only github.com / gitlab.com — `forge.WithGitLabHosts` is where a mapping
+  would plug in, nothing calls it), waking a session when CI fails, an entry point to attach by address when the
+  branch lookup found nothing (the bridge method exists).
+- **GitLab is the second provider** (`internal/forge/gitlab*.go`, `NewRegistry(NewGitHub(), NewGitLab())` in
+  `app/prwatch.go`; nothing above `Provider` changed, no frontend change). **Written against GitLab's documented REST v4
+  and a fake (`httptest`); no real gitlab.com call has been made** — not by the tests, not by the author. What is
+  therefore unverified: every real response shape, `detailed_merge_status` values on the person's GitLab version, the
+  GraphQL stats query, and which endpoints honour `If-None-Match`.
+  - Serves `gitlab.com` only. A project is addressed by its whole path in one segment (`acme%2Fplatform%2Frepo`, nested
+    groups work, `Repo.Path` keeps all segments); a request is its project-scoped `iid` ("!7"), found by `source_branch`
+    in the target project (a fork's branch is told apart by `source_project_id ≠ target_project_id`; `HeadRepo` is the
+    fork's path from one extra `GET /projects/:id`, and `project:<id>` when that fails — never empty, so `prAgentOwns`
+    still sees a fork). Auth is the `PRIVATE-TOKEN` header only (a PAT, project or group token; an OAuth access token
+    would need `Bearer` and is not handled). Redirects are never followed (Go forwards a custom header across hosts) and
+    a paging link to another host is refused; an error message has the token replaced if a host echoes it.
+  - Mapping: `Terms` = GitLab/MR/merge request/pipelines. `detailed_merge_status` → clean (`mergeable`), conflicting
+    (`conflict`), behind (`need_rebase`), unknown (`checking|unchecked|preparing|approvals_syncing`), anything else
+    blocked; an older host falls back to `merge_status`/`has_conflicts`/`blocking_discussions_resolved`. Draft =
+    `draft`/`work_in_progress`; `locked` counts as open. Checks = the jobs of `head_pipeline` (a manual or
+    allowed-to-fail job counts as skipped=passed; a pipeline with no jobs is one check named `pipeline`, so "starting"
+    and "failed before any job" are not silence). Review decision = `requested_changes`, else non-empty `approved_by`
+    (a tier without approvals answers 403/404, read as "no decision"). Comments = `/discussions`, system notes dropped,
+    ≤ 3 pages of 100; a resolvable discussion (on a diff line or on the request) is a `review` thread with `resolved`;
+    unresolved count = discussions with an open resolvable note. A `reply` takes a note id (from `pr.comments`) or a
+    discussion id; a plain conversation comment cannot be replied to (use `pr.comment`).
+  - Errors → `forge.Error`: 401 unauthorized, 403 forbidden (403 + `RateLimit-Remaining: 0` rate limited), 404 not
+    found, 429 rate limited (`Retry-After`, else `RateLimit-Reset` as Unix time), 400/405/406/409/422 validation (a
+    merge of a moved branch is 409 "SHA does not match HEAD"), the rest unavailable.
+  - Differences a caller can see: **line counts** are not in REST, so `Get` asks GraphQL `diffStatsSummary` once per head
+    commit (cached by sha) and, if that fails, leaves 0 with a note "line counts unavailable"; **`rebase` is refused**
+    (GitLab merges by the project's own method; `forge.MergeMethodChecker` → `Handle.CheckMergeMethod` makes `pr.merge`
+    refuse it before asking the person) and `squash` is the request's `squash`; `should_remove_source_branch` and
+    `merge_when_pipeline_succeeds` are never sent (deleting the branch is `pr.deleteBranch`); a draft is the title's
+    `Draft:` prefix (added on create, kept by `pr.update`); creating from a fork is refused; `Branch` also checks the
+    project's `default_branch`, so a host that omits `default` cannot make the default branch deletable.
+  - Polling cost: the same `nextPollMs` rules. A settled GitLab poll is MR + jobs + approvals (+ discussions every 3 min
+    or when `updated_at` moves) — about three requests per round against gitlab.com's documented 2,000 authenticated
+    requests per minute per user. Conditional requests are sent only when the host itself issued an `ETag` for that address and token; whether
+    gitlab.com does for these endpoints is unknown, and nothing depends on it.
+  - Manual check with the person's own token (read-only first): add a GitLab token in Accounts (a PAT with `read_api`;
+    `api` for the writes), open a session in a repository whose branch has an MR, and look at the "Pull requests"
+    card (MR, pipelines, unresolved count, +/− lines); then `pr.get`, `pr.checks`, `pr.comments` from the agent. Only
+    after those match GitLab's page, try `pr.comment` (asks first), then `pr.create`/`pr.merge`. The fake-host tests:
+    `go test ./internal/forge/ ./internal/prwatch/ ./internal/mcp/ -run 'GitLab' -count=1`.
+  - A GitLab error's own text reaches an agent only once `internal/bridge/errors.go` `keptCodes` keeps the `pr.*` codes
+    (a separate change); until then the agent sees the code's generic message.
 - **References in agent prose resolve, preview and open** (spec
   `docs/superpowers/specs/2026-10-14-agent-hub-references-design.md`, last section = what changed;
   files under `frontend/src/modules/agenthub/transcript/`).

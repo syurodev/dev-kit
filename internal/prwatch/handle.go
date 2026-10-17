@@ -268,6 +268,15 @@ func (h *Handle) Reply(ctx context.Context, commentID, body string) (forge.Comme
 	return c, err
 }
 
+// CheckMergeMethod refuses, before anyone is asked, a merge method the host
+// cannot honour (GitLab and "rebase"). nil when the host takes any of them.
+func (h *Handle) CheckMergeMethod(m forge.MergeMethod) error {
+	if c, ok := h.provider.(forge.MergeMethodChecker); ok {
+		return c.CheckMergeMethod(m)
+	}
+	return nil
+}
+
 func (h *Handle) Merge(ctx context.Context, in forge.MergeInput) (forge.MergeResult, error) {
 	n, err := h.resolve(ctx)
 	if err != nil {

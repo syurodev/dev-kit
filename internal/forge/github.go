@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,9 +343,7 @@ func (g *GitHub) headChecks(ctx context.Context, c Credential, repo Repo, sha st
 		}
 		checks = append(checks, ch)
 	}
-	// Failures first, then what is still running: the order a person reads in.
-	rank := map[CheckStatus]int{CheckFailed: 0, CheckRunning: 1, CheckPassed: 2, CheckSkipped: 3}
-	sort.SliceStable(checks, func(i, j int) bool { return rank[checks[i].Status] < rank[checks[j].Status] })
+	sortChecks(checks)
 	return checks, nil
 }
 
