@@ -25,6 +25,8 @@ export type SessionActions = {
   cancelTurn?: (session: AgentSession) => void;
   closeSession?: (session: AgentSession) => void;
   deleteSession?: (session: AgentSession, descendants: number) => void;
+  /** Folds or opens the children drawn under a session. */
+  toggleBranch?: (sessionId: string) => void;
   /** Sessions that go with this one if it is deleted. */
   descendantCount: (sessionId: string) => number;
   /**

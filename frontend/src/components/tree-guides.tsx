@@ -21,7 +21,7 @@ export const TREE_ROW_HEIGHT = 28;
 /**
  * 16 a level. A guide needs room for its elbow between the parent's chevron
  * and the child's, and at 16 that elbow is 8px wide on a row with a chevron —
- * the full ELBOW_RADIUS, where 14 left it 6px and capped the corner there.
+ * the full TREE_ELBOW_RADIUS, where 14 left it 6px and capped the corner there.
  * The guides carry depth, which is what keeps five levels readable in a rail.
  */
 export const TREE_INDENT = 16;
@@ -39,13 +39,13 @@ export const TREE_CHEVRON = 12;
  * the line it leaves, and two translucent borders on one pixel draw it twice
  * as dark. Opaque, the overlap does not show.
  */
-const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
+export const TREE_GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
 /**
  * Elbow corner radius, well under the elbow's size so the corner has a straight
  * run on both sides of it. At 8 in an 8px-wide elbow the whole thing was one arc
  * and read as a diagonal slash rather than a rounded corner.
  */
-const ELBOW_RADIUS = 6;
+export const TREE_ELBOW_RADIUS = 6;
 
 /**
  * A selected row's highlight, from its chevron to the right edge. Tinted, and
@@ -98,7 +98,7 @@ export function TreeGuides({ level, lasts, open, leaf, rowHeight }: TreeGuidesPr
       // last few px curving away and every row left that much of a gap.
       if (continues) {
         lines.push(
-          <span key={`line-${depth}`} style={{ position: "absolute", left: treeLineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,
+          <span key={`line-${depth}`} style={{ position: "absolute", left: treeLineX(depth), top: 0, bottom: 0, borderLeft: TREE_GUIDE }} />,
         );
       }
       lines.push(
@@ -112,21 +112,21 @@ export function TreeGuides({ level, lasts, open, leaf, rowHeight }: TreeGuidesPr
             // this still clears the arrow, and the extra 2px is the straight run.
             width: treeContentX(level) - treeLineX(depth) + (reachesIcon ? TREE_CHEVRON : 0),
             height: half,
-            borderLeft: GUIDE,
-            borderBottom: GUIDE,
-            borderBottomLeftRadius: ELBOW_RADIUS,
+            borderLeft: TREE_GUIDE,
+            borderBottom: TREE_GUIDE,
+            borderBottomLeftRadius: TREE_ELBOW_RADIUS,
           }}
         />,
       );
     } else if (continues) {
       lines.push(
-        <span key={`line-${depth}`} style={{ position: "absolute", left: treeLineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,
+        <span key={`line-${depth}`} style={{ position: "absolute", left: treeLineX(depth), top: 0, bottom: 0, borderLeft: TREE_GUIDE }} />,
       );
     }
   }
   if (open) {
     lines.push(
-      <span key="stub" style={{ position: "absolute", left: treeLineX(level), top: half + TREE_CHEVRON / 2, bottom: 0, borderLeft: GUIDE }} />,
+      <span key="stub" style={{ position: "absolute", left: treeLineX(level), top: half + TREE_CHEVRON / 2, bottom: 0, borderLeft: TREE_GUIDE }} />,
     );
   }
   return <span aria-hidden>{lines}</span>;

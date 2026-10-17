@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Ellipsis, MessageSquareShare } from "lucide-react";
+import { ChevronRight, Ellipsis, GitBranch, MessageSquareShare } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import { sessionTitle } from "../documents";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
 import { shortAge } from "@/lib/time";
 import { attentionKind, cardSummary, peerUnreadLabel, secondLine, type Attention } from "./model";
+import { branchHintLabel, childCountLabel, type BranchHint } from "./tree";
 import { SessionAvatar, type AvatarState } from "./SessionAvatar";
 
 const CONTEXT_KIT: MenuKit = {
@@ -39,6 +40,27 @@ const DROPDOWN_KIT: MenuKit = {
   Separator: DropdownMenuSeparator as MenuKit["Separator"],
   Label: DropdownMenuLabel as MenuKit["Label"],
 };
+
+/** The dot that says what is going on below a session: the one mark of its branch. */
+function HintDot({ hint }: { hint: BranchHint }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="agent-branch-hint"
+      data-hint={hint.kind}
+      className={cn(
+        "ml-0.5 size-1.5 rounded-full",
+        hint.kind === "waiting"
+          ? "bg-status-warning"
+          : hint.kind === "failed"
+            ? "bg-status-danger"
+            : hint.kind === "running"
+              ? "bg-text-primary"
+              : "bg-status-info",
+      )}
+    />
+  );
+}
 
 export type AgentSessionCardProps = {
   session: AgentSession;
@@ -62,6 +84,24 @@ export type AgentSessionCardProps = {
   peerUnread?: number;
   /** The minute clock, so a card's age is the only thing a tick changes. */
   now: number;
+  /**
+   * Drawn inside a tree row (SessionBranch), which is the list item and holds
+   * the children: the card then has no role of its own.
+   */
+  inTree?: boolean;
+  /** A child drawn under its parent: marked with the branch glyph. */
+  nested?: boolean;
+  /** Sessions below this one that are drawn under it. Above 0, the row has the fold button. */
+  childCount?: number;
+  /** The children are drawn. */
+  branchOpen?: boolean;
+  /** The branch cannot be folded: the session on screen or a pinned one is in it. */
+  branchHeld?: boolean;
+  /** What is going on below, when it is worth a mark on this row (tree.ts branchHint). */
+  hintKind?: BranchHint["kind"];
+  hintCount?: number;
+  /** Id of the list the fold button controls. */
+  branchId?: string;
 };
 
 /**
@@ -96,6 +136,14 @@ function AgentSessionCardView({
   parentTitle,
   peerUnread,
   now,
+  inTree = false,
+  nested = false,
+  childCount = 0,
+  branchOpen = false,
+  branchHeld = false,
+  hintKind,
+  hintCount = 0,
+  branchId,
 }: AgentSessionCardProps) {
   const actions = useSessionActions();
   const vendor = vendorInfo(session.agentType);
@@ -103,7 +151,10 @@ function AgentSessionCardView({
   const kind = attentionKind(session, attention);
   const waiting = kind !== null;
   const age = shortAge(session.updatedAt, now);
+  const hint = hintKind ? ({ kind: hintKind, count: hintCount } as BranchHint) : null;
   const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle, peerUnread });
+  if (childCount > 0) summary.push(childCountLabel(childCount));
+  if (hint) summary.push(branchHintLabel(hint));
   const line = secondLine({ session, ask, folder });
   const avatarState: AvatarState = waiting
     ? "waiting"
@@ -120,7 +171,7 @@ function AgentSessionCardView({
 
   const card = (
     <div
-      role="listitem"
+      role={inTree ? undefined : "listitem"}
       data-slot="agent-session-card"
       data-testid="agent-session-card"
       data-session-id={session.id}
@@ -186,6 +237,53 @@ function AgentSessionCardView({
               <MessageSquareShare aria-hidden="true" className="size-3" />
               {peerUnread > 9 ? "9+" : peerUnread}
             </span>
+          ) : null}
+          {childCount > 0 ? (
+            <button
+              type="button"
+              // Not an arrow-key stop: Left/Right on the row's title fold and
+              // open it (AgentSessionSidebar), and Tab still reaches this.
+              data-testid="agent-branch-toggle"
+              data-open={branchOpen || undefined}
+              data-held={branchHeld || undefined}
+              aria-expanded={branchOpen}
+              aria-controls={branchOpen ? branchId : undefined}
+              aria-label={`${branchOpen ? "Hide" : "Show"} ${childCountLabel(childCount)}`}
+              aria-disabled={branchHeld || undefined}
+              title={branchHeld ? "Holds the open or pinned session" : undefined}
+              onClick={branchHeld ? undefined : () => actions.toggleBranch?.(session.id)}
+              className={cn(
+                "relative z-10 flex h-5 shrink-0 items-center gap-0.5 rounded-md px-1 text-caption-11 text-text-tertiary tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50",
+                branchHeld ? "cursor-default" : "cursor-pointer hover:bg-state-soft hover:text-text-secondary",
+              )}
+            >
+              <GitBranch aria-hidden="true" className="size-3" />
+              <span data-testid="agent-branch-count">{childCount}</span>
+              {hint ? <HintDot hint={hint} /> : null}
+              {branchHeld ? null : (
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3 transition-transform duration-(--motion-fast) ease-(--ease-out-strong) motion-reduce:transition-none",
+                    branchOpen && "rotate-90",
+                  )}
+                />
+              )}
+            </button>
+          ) : hint ? (
+            // Nothing drawn under it (its children wait in Needs you): the
+            // mark alone, with no fold to offer.
+            <span
+              role="img"
+              aria-label={branchHintLabel(hint)}
+              data-testid="agent-branch-mark"
+              className="relative z-10 flex h-5 shrink-0 items-center gap-0.5 px-1 text-text-tertiary"
+            >
+              <GitBranch aria-hidden="true" className="size-3" />
+              <HintDot hint={hint} />
+            </span>
+          ) : nested ? (
+            <GitBranch aria-hidden="true" data-testid="agent-nested-mark" className="size-3 shrink-0 self-center text-text-tertiary" />
           ) : null}
           {age ? (
             <span

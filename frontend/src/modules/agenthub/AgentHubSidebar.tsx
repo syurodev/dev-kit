@@ -98,6 +98,8 @@ export function AgentHubSidebar() {
   const currentWorkspaceId = useWorkspaceSwitcherStore((s) => s.currentId);
   const olderOpen = useAgentPinsStore((state) => state.olderOpen);
   const toggleOlderOpen = useAgentPinsStore((state) => state.toggleOlderOpen);
+  const foldedBranches = useAgentPinsStore((state) => state.foldedBranches);
+  const toggleBranchFolded = useAgentPinsStore((state) => state.toggleBranchFolded);
   const hideClosed = useAgentPinsStore((state) => state.hideClosed);
   const toggleHideClosed = useAgentPinsStore((state) => state.toggleHideClosed);
   const workspaces = useSidebarWorkspaces();
@@ -207,6 +209,8 @@ export function AgentHubSidebar() {
         onToggleExpanded={toggleExpanded}
         olderOpenKeys={olderOpen}
         onToggleOlder={toggleOlderOpen}
+        foldedBranchIds={foldedBranches}
+        onToggleBranch={toggleBranchFolded}
         hideClosed={hideClosed}
         onToggleHideClosed={toggleHideClosed}
         onSelectSession={(id) => {
