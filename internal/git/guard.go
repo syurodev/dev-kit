@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"strings"
 )
@@ -72,7 +73,7 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 		return nil
 	}
 	if s.confirm == nil {
-		return ErrNotAllowed
+		return fmt.Errorf("%w: %s on %s needs the person's confirmation and nobody here can be asked", ErrNotAllowed, what, branch)
 	}
 	title := what + " on " + branch
 	if guard.Env != "" {
@@ -92,7 +93,7 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 		return err
 	}
 	if !allowed {
-		return ErrNotAllowed
+		return fmt.Errorf("%w: the person declined %s on %s", ErrNotAllowed, what, branch)
 	}
 	return nil
 }
@@ -105,17 +106,17 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 // only.
 func protectedForAgent(branch, defaultBranch string, taskBranches []string) error {
 	if branch == "" {
-		return ErrProtectedBranch
+		return fmt.Errorf("%w: HEAD is not on a branch, so there is nothing to push", ErrProtectedBranch)
 	}
 	if branch == defaultBranch || branch == "main" || branch == "master" {
-		return ErrProtectedBranch
+		return fmt.Errorf("%w: %s is the default branch, which an agent never pushes to — push a branch written on a task you hold", ErrProtectedBranch, branch)
 	}
 	for _, allowed := range taskBranches {
 		if allowed == branch {
 			return nil
 		}
 	}
-	return ErrProtectedBranch
+	return fmt.Errorf("%w: %s is not a branch recorded on a task you hold — an agent pushes only those", ErrProtectedBranch, branch)
 }
 
 // BranchNameFor turns a task key and title into a branch name. Slugging keeps

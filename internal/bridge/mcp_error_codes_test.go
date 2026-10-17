@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -207,5 +209,139 @@ func TestPullRequestToolsTellTheAgentWhyThroughTheRealBridge(t *testing.T) {
 	text, isError := callMCPTool(t, server, "pr.get", map[string]any{"repo": "/somewhere/else"})
 	if !isError || !strings.Contains(text, "git.repoOutsideWorkspace") || !strings.Contains(text, "is not a folder of your workspace") {
 		t.Errorf("an unknown repo reached the agent as %q", text)
+	}
+}
+
+// ---- internal/git refusals ----------------------------------------------
+
+// onePushedRepo is At for a real repository, so the refusals under test come
+// from internal/git's own checks and not from a stand-in.
+type onePushedRepo struct{ git *gitservice.Service }
+
+func (o onePushedRepo) At(context.Context, string) (mcp.GitAPI, error) { return o.git, nil }
+func (o onePushedRepo) Summaries(context.Context, []string) ([]gitservice.Repository, error) {
+	return nil, nil
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-c", "user.name=T", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"}, args...)...)
+	command.Dir = dir
+	if out, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// A refusal of internal/git's own is a plain sentinel, so it used to reach an
+// agent as internal_error and be logged as unclassified. This runs the real
+// gateway and error mapping in front of a real repository whose only commit is
+// already on a remote.
+func TestGitRefusalsTellTheAgentWhyThroughTheRealBridge(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	folder := t.TempDir()
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare", "--initial-branch=main")
+	runGit(t, folder, "init", "--initial-branch=main")
+	if err := os.WriteFile(filepath.Join(folder, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, folder, "add", "a.txt")
+	runGit(t, folder, "commit", "-m", "first")
+	runGit(t, folder, "remote", "add", "origin", remote)
+	runGit(t, folder, "push", "-u", "origin", "main")
+
+	repo := gitservice.NewService(context.Background())
+	if err := repo.Open(context.Background(), folder); err != nil {
+		t.Fatal(err)
+	}
+	server := mcp.NewServer(mcp.Deps{
+		Caller:    NewCaller(NewAppService(app.NewContainer())),
+		Workspace: oneFolder{path: folder},
+		Git:       repo,
+		GitRepos:  onePushedRepo{git: repo},
+	})
+
+	for _, call := range []struct {
+		tool, code, sentence string
+		args                 map[string]any
+	}{
+		{"git.amend", "git.pushedHistory", "the last commit is already on a remote, and DevKit never force-pushes", map[string]any{"repo": folder, "message": "again"}},
+		{"git.squash", "git.pushedHistory", "only the newest 0 commit(s) are not on a remote", map[string]any{"repo": folder, "count": 2}},
+		{"git.rebase", "git.notAllowed", "not-a-ref is not a commit here", map[string]any{"repo": folder, "onto": "not-a-ref"}},
+		{"git.rebase", "git.nothingInProgress", "no rebase is under way", map[string]any{"repo": folder, "action": "continue"}},
+		{"git.cherryPick", "git.notAllowed", "name at least one commit", map[string]any{"repo": folder}},
+		{"git.revert", "git.notAllowed", "nope is not a commit here", map[string]any{"repo": folder, "commits": []string{"nope"}}},
+		{"git.commit", "git.notAllowed", "a commit needs a message", map[string]any{"repo": folder, "message": " "}},
+	} {
+		text, isError := callMCPTool(t, server, call.tool, call.args)
+		if !isError || !strings.Contains(text, call.code) || !strings.Contains(text, call.sentence) {
+			t.Errorf("%s: agent was told %q (error=%v), want %s with %q", call.tool, text, isError, call.code, call.sentence)
+		}
+		if strings.Contains(text, "internal_error") || strings.Contains(text, unexpectedMessage) {
+			t.Errorf("%s: still redacted: %q", call.tool, text)
+		}
+	}
+
+	// A dirty tree stops a rebase before it starts.
+	if err := os.WriteFile(filepath.Join(folder, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text, isError := callMCPTool(t, server, "git.rebase", map[string]any{"repo": folder, "onto": "main"})
+	if !isError || !strings.Contains(text, "git.dirtyWorkTree") || !strings.Contains(text, "commit or stash the changes first") {
+		t.Errorf("git.rebase on a dirty tree: %q", text)
+	}
+	if strings.Contains(logged.String(), "unclassified error") {
+		t.Errorf("the audit log still reports an unclassified error:\n%s", logged.String())
+	}
+}
+
+// Every refusal sentinel internal/git declares is published by gitRefusals;
+// a new one fails here until someone words it for the reader.
+func TestEveryGitSentinelIsPublished(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	files, err := filepath.Glob(filepath.Join("..", "git", "*.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no internal/git sources found: %v", err)
+	}
+	declared := regexp.MustCompile(`(?m)^\s*(Err[A-Za-z]+)\s*=\s*errors\.New\(`)
+	names := map[string]bool{}
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range declared.FindAllSubmatch(source, -1) {
+			names[string(match[1])] = true
+		}
+	}
+	if len(names) < 10 {
+		t.Fatalf("found only %v — the scan no longer reads the sources", names)
+	}
+	// The remaining sentinels are not refusals an agent can act on.
+	notRefusals := map[string]bool{}
+	published := len(gitRefusals)
+	if published+len(notRefusals) < len(names) {
+		t.Errorf("internal/git declares %d error sentinels (%v) and gitRefusals lists %d: map the new one in internal/bridge/git_errors.go", len(names), names, published)
+	}
+	for _, refusal := range gitRefusals {
+		got := publicError("builtin.git", fmt.Errorf("outer: %w", refusal.sentinel))
+		if got.Code != refusal.code || got.Message != refusal.fallback {
+			t.Errorf("%v bare = %s %q, want %s %q", refusal.sentinel, got.Code, got.Message, refusal.code, refusal.fallback)
+		}
+		got = publicError("builtin.git", fmt.Errorf("outer: %w", fmt.Errorf("%w: a\nsentence", refusal.sentinel)))
+		if got.Code != refusal.code || got.Message != "a sentence" {
+			t.Errorf("%v wrapped = %s %q, want its own sentence", refusal.sentinel, got.Code, got.Message)
+		}
 	}
 }
