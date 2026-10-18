@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
 import { sessionTitle } from "../documents";
 import { useSessionActions } from "./actions";
+import type { DismissedFailures } from "./dismissed";
 import { sessionCount, type SidebarGroup } from "./model";
 import { SessionBranch, type BranchContext } from "./SessionBranch";
 import { buildForest, heldBranches, partitionForest, type BranchSignals } from "./tree";
@@ -38,6 +39,8 @@ export type AgentSessionGroupProps = {
   peerUnread: Record<string, number>;
   /** What the sessions below each session are doing, over every session (tree.ts branchSignals). */
   signals: Record<string, BranchSignals>;
+  /** Failures the person dismissed: those rows draw quietly. */
+  dismissed?: DismissedFailures;
   /** Sessions whose children the person folded shut. */
   folded: ReadonlySet<string>;
   now: number;
@@ -90,6 +93,7 @@ function AgentSessionGroupView({
   subagents,
   peerUnread,
   signals,
+  dismissed,
   folded,
   now,
   onToggleCollapsed,
@@ -141,6 +145,7 @@ function AgentSessionGroupView({
     subagents,
     peerUnread,
     signals,
+    dismissed,
     titles,
     // Anything waiting on the person is drawn in Needs you, not here.
     now,

@@ -16,6 +16,7 @@ import type { Subagent } from "../types";
 import { SessionActionsContext, type SessionActions } from "./actions";
 import { AgentSessionCard } from "./AgentSessionCard";
 import { AgentSessionGroup } from "./AgentSessionGroup";
+import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { countDescendants, type SidebarWorkspace } from "./grouping";
 import { useMinuteClock } from "./hooks";
 import { branchSignals } from "./tree";
@@ -23,6 +24,7 @@ import {
   groupCollapsed,
   groupSessions,
   drawnWhenHidingClosed,
+  failureDismissable,
   needsYou,
   sessionCount,
   type Attention,
@@ -37,6 +39,7 @@ const NO_SUBAGENTS: Record<string, Subagent[]> = {};
 const NO_ASKS: Record<string, string> = {};
 const NO_COUNTS: Record<string, number> = {};
 const NO_SUBAGENT_LIST: readonly Subagent[] = [];
+const NO_DISMISSED: DismissedFailures = {};
 
 export type AgentSessionSidebarProps = {
   sessions: AgentSession[];
@@ -62,6 +65,15 @@ export type AgentSessionSidebarProps = {
    * on the row; never part of "Needs you", because nothing waits on the person.
    */
   peerUnread?: Record<string, number>;
+  /**
+   * Failures the person dismissed, by session id → the row's updatedAt then
+   * (dismissed.ts). A dismissed session is drawn in its group, quietly, and
+   * stays out of Needs you and out of its parent's failed dot until it fails
+   * again.
+   */
+  dismissed?: DismissedFailures;
+  /** "Dismiss from Needs you": hides a failed session's failure; it is not closed. */
+  onDismissFailure?: (session: AgentSession) => void;
   pinnedIds?: string[];
   onTogglePin?: (sessionId: string) => void;
   /** Group keys the person folded shut. Absent means open — a new project shows. */
@@ -122,6 +134,7 @@ export function AgentSessionSidebar({
   subagents = NO_SUBAGENTS,
   peerUnread = NO_COUNTS,
   pinnedIds = NO_STRINGS,
+  dismissed = NO_DISMISSED,
   collapsedKeys = NO_STRINGS,
   expandedKeys = NO_STRINGS,
   olderOpenKeys = NO_STRINGS,
@@ -169,6 +182,7 @@ export function AgentSessionSidebar({
     copy: Boolean(handlers.onCopy),
     cancel: Boolean(handlers.onCancelTurn),
     close: Boolean(handlers.onCloseSession),
+    dismiss: Boolean(handlers.onDismissFailure),
     del: Boolean(handlers.onDeleteSession),
   };
   const actions = React.useMemo<SessionActions>(
@@ -187,17 +201,18 @@ export function AgentSessionSidebar({
       copy: has.copy ? (text) => latest.current.onCopy?.(text) : undefined,
       cancelTurn: has.cancel ? (session) => latest.current.onCancelTurn?.(session) : undefined,
       closeSession: has.close ? (session) => latest.current.onCloseSession?.(session) : undefined,
+      dismissFailure: has.dismiss ? (session) => latest.current.onDismissFailure?.(session) : undefined,
       deleteSession: has.del ? (session, n) => latest.current.onDeleteSession?.(session, n) : undefined,
       toggleBranch: (id) => latest.current.onToggleBranch?.(id),
       descendantCount: (id) => descendantsRef.current[id] ?? 0,
       hold: held.hold,
       release: held.release,
     }),
-    [held, has.environment, has.newChild, has.pin, has.rename, has.transcript, has.copy, has.cancel, has.close, has.del],
+    [held, has.environment, has.newChild, has.pin, has.rename, has.transcript, has.copy, has.cancel, has.close, has.dismiss, has.del],
   );
 
   // What waits on the person, from every workspace, is drawn once, on top.
-  const waiting = React.useMemo(() => needsYou(allSessions, attention), [allSessions, attention]);
+  const waiting = React.useMemo(() => needsYou(allSessions, attention, dismissed), [allSessions, attention, dismissed]);
   // Keyed on who is in it, not on the list: a queue change that leaves the same
   // sessions waiting must not regroup (and rerender) every group.
   const waitingKey = waiting.map((x) => x.id).join("\u0000");
@@ -231,7 +246,7 @@ export function AgentSessionSidebar({
   const foldedBranches = React.useMemo(() => new Set(foldedBranchIds), [foldedBranchIds]);
   // What is going on below each session, from every session: a child waiting
   // is drawn in Needs you, so its parent is where it is marked.
-  const signals = React.useMemo(() => branchSignals(allSessions, attention, peerUnread), [allSessions, attention, peerUnread]);
+  const signals = React.useMemo(() => branchSignals(allSessions, attention, peerUnread, dismissed), [allSessions, attention, peerUnread, dismissed]);
 
   const viewportRef = React.useRef<HTMLDivElement>(null);
 
@@ -390,6 +405,8 @@ export function AgentSessionSidebar({
                       pinned={pinnedIds.includes(session.id)}
                       subagents={subagents[session.id] ?? NO_SUBAGENT_LIST}
                       peerUnread={peerUnread[session.id]}
+                      dismissed={failureDismissed(session, dismissed)}
+                      dismissable={failureDismissable(session, attention[session.id], dismissed)}
                       parentTitle={session.parentSessionId ? titles.get(session.parentSessionId) : undefined}
                       now={now}
                     />
@@ -423,6 +440,7 @@ export function AgentSessionSidebar({
                 subagents={subagents}
                 peerUnread={peerUnread}
                 signals={signals}
+                dismissed={dismissed}
                 folded={foldedBranches}
                 now={now}
                 onToggleCollapsed={toggleCollapsed}

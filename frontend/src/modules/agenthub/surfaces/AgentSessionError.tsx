@@ -51,6 +51,13 @@ export type AgentSessionErrorProps = {
   /** The real identifier and what happened, e.g. "agenthub.processFailed — ..." */
   reason?: string;
   onClose?: () => void;
+  /**
+   * "Dismiss": the person does not need this failure any more. It only takes
+   * the session out of the rail's Needs you (sidebar/dismissed.ts); the session
+   * is not closed and the way out beside it stays. Absent when there is nothing
+   * to dismiss.
+   */
+  onDismiss?: () => void;
   onRetry?: () => void;
   /** Replaces Retry for notInstalled/requirement/apiKey: the fix is in Settings → Agents. */
   onOpenSettings?: () => void;
@@ -98,6 +105,7 @@ export function AgentSessionError({
   meta,
   reason,
   onClose,
+  onDismiss,
   onRetry,
   onOpenSettings,
   children,
@@ -126,6 +134,18 @@ export function AgentSessionError({
           className="h-8 border-border-subtle text-text-secondary"
         >
           Close session
+        </Button>
+      ) : null}
+      {onDismiss ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="session-error-dismiss"
+          onClick={onDismiss}
+          className="h-8 text-text-secondary"
+        >
+          Dismiss
         </Button>
       ) : null}
       {setupCause && onOpenSettings ? (

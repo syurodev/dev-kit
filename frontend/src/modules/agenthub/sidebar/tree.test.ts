@@ -191,6 +191,14 @@ describe("branchSignals and branchHint", () => {
     expect(signals.loner).toBeUndefined();
   });
 
+  it("a dismissed failure no longer marks the parent; a new one does", () => {
+    const failed = (updatedAt: number) => [session("p"), kid("err", "p", { status: "error", updatedAt })];
+    expect(branchSignals(failed(10), {}, {}).p.failed).toBe(1);
+    expect(branchSignals(failed(10), {}, {}, { err: 10 }).p.failed).toBe(0);
+    expect(branchHint(branchSignals(failed(10), {}, {}, { err: 10 }).p, true)).toBeNull();
+    expect(branchSignals(failed(11), {}, {}, { err: 10 }).p.failed).toBe(1);
+  });
+
   it("a question counts as waiting though the turn is still running, and is not also running", () => {
     const signals = branchSignals([session("p"), kid("q", "p", { status: "running" })], { q: { permissions: 0, questions: 1 } }, {});
     expect(signals.p).toEqual({ running: 0, waiting: 1, failed: 0, unread: 0 });

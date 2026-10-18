@@ -2,6 +2,7 @@ import type { AgentSession } from "@/bridge/agenthub";
 import type { PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { providerRetryLine } from "../providerRetry";
 import type { ProviderRetry, Subagent } from "../types";
+import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { projectLabel, sessionGroup, type SidebarWorkspace } from "./grouping";
 
 /**
@@ -59,10 +60,17 @@ export type CardIndicator = "permission" | "question" | "error" | "running" | nu
  * The one state glyph a card shows. Idle and closed show none: a dot on every
  * card is decoration, and the glyphs that remain have to stand out.
  */
-export function cardIndicator(session: Pick<AgentSession, "status">, attention?: Attention): CardIndicator {
+export function cardIndicator(
+  session: Pick<AgentSession, "id" | "status" | "updatedAt">,
+  attention?: Attention,
+  dismissed?: DismissedFailures,
+): CardIndicator {
   const waiting = attentionKind(session, attention);
   if (waiting) return waiting;
-  if (session.status === "error") return "error";
+  // A dismissed failure shows the quiet idle look: the person said it needs
+  // nothing from them, and a red dot on a row that asks for nothing is the
+  // alarm they just turned off. The tooltip still says it stopped.
+  if (session.status === "error") return failureDismissed(session, dismissed) ? null : "error";
   if (session.status === "running") return "running";
   return null;
 }
@@ -187,13 +195,36 @@ export function compareRecent(a: AgentSession, b: AgentSession): number {
 
 /**
  * The sessions that wait on the person, across every workspace: a pending
- * permission or question, or a failed turn. Newest first. They are drawn
- * once, here, and left out of their own group.
+ * permission or question, or a failed turn the person has not dismissed.
+ * Newest first. They are drawn once, here, and left out of their own group.
+ * A dismissed failure goes back to its group; a pending ask never leaves.
  */
-export function needsYou(sessions: readonly AgentSession[], attention: Record<string, Attention>): AgentSession[] {
+export function needsYou(
+  sessions: readonly AgentSession[],
+  attention: Record<string, Attention>,
+  dismissed?: DismissedFailures,
+): AgentSession[] {
   return sessions
-    .filter((x) => x.status !== "closed" && (x.status === "error" || attentionKind(x, attention[x.id]) !== null))
+    .filter(
+      (x) =>
+        x.status !== "closed" &&
+        ((x.status === "error" && !failureDismissed(x, dismissed)) || attentionKind(x, attention[x.id]) !== null),
+    )
     .sort(compareRecent);
+}
+
+/**
+ * Whether the person may dismiss this session's failure now: it failed, it is
+ * not dismissed already, and nothing is waiting on them in it — a permission
+ * or a question is actionable on the card and blocks an agent, so it is never
+ * dismissed this way.
+ */
+export function failureDismissable(
+  session: Pick<AgentSession, "id" | "status" | "updatedAt">,
+  attention: Attention | undefined,
+  dismissed: DismissedFailures | undefined,
+): boolean {
+  return session.status === "error" && attentionKind(session, attention) === null && !failureDismissed(session, dismissed);
 }
 
 /**
@@ -240,11 +271,13 @@ export type SecondLine = { text: string; tone: "plain" | "warning" | "danger" };
 export function secondLine(input: {
   session: Pick<AgentSession, "status" | "preview">;
   ask: string | null;
+  /** The failure was dismissed: its words stay, its alarm colour goes. */
+  dismissed?: boolean;
 }): SecondLine {
   const { session, ask } = input;
   if (ask) return { text: ask, tone: "warning" };
   const text = session.preview ?? "";
-  if (session.status === "error") return { text, tone: "danger" };
+  if (session.status === "error" && !input.dismissed) return { text, tone: "danger" };
   return { text, tone: "plain" };
 }
 
@@ -416,11 +449,15 @@ export function cardSummary(input: {
   parentTitle?: string;
   /** Messages from other sessions the person has not seen. */
   peerUnread?: number;
+  /** The person dismissed its failure: said as such, not as an alarm. */
+  dismissed?: boolean;
 }): string[] {
   const { session, attention } = input;
   const parts = [input.vendorName];
-  const state = indicatorLabel(cardIndicator(session, attention), attention);
+  const quiet = Boolean(input.dismissed) && session.status === "error" && attentionKind(session, attention) === null;
+  const state = quiet ? "" : indicatorLabel(cardIndicator(session, attention), attention);
   if (state) parts.push(state);
+  else if (quiet) parts.push("Stopped with an error, dismissed");
   else if (session.status === "closed") parts.push("Closed");
   // A question waits behind a permission in the indicator; say both.
   if (attention && attention.permissions > 0 && attention.questions > 0) parts.push(indicatorLabel("question", attention));

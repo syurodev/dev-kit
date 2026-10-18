@@ -3,6 +3,7 @@ import * as React from "react";
 import { TREE_ELBOW_RADIUS, TREE_GUIDE } from "@/components/tree-guides";
 import type { Subagent } from "../types";
 import { AgentSessionCard } from "./AgentSessionCard";
+import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { branchHint, branchOpen, indented, type BranchSignals, type SessionNode } from "./tree";
 
 const NO_SUBAGENTS: readonly Subagent[] = [];
@@ -29,6 +30,8 @@ export type BranchContext = {
   subagents: Record<string, Subagent[]>;
   peerUnread: Record<string, number>;
   signals: Record<string, BranchSignals>;
+  /** Failures the person dismissed (dismissed.ts): such a row draws quietly. */
+  dismissed?: DismissedFailures;
   titles: ReadonlyMap<string, string>;
   /** A workspace of several folders says which one each row works in. */
   now: number;
@@ -105,6 +108,7 @@ export function SessionBranch({
         pinned={ctx.pinned.has(session.id)}
         subagents={ctx.subagents[session.id] ?? NO_SUBAGENTS}
         peerUnread={ctx.peerUnread[session.id]}
+        dismissed={failureDismissed(session, ctx.dismissed)}
         parentTitle={session.parentSessionId ? ctx.titles.get(session.parentSessionId) : undefined}
         now={ctx.now}
         childCount={node.descendants}

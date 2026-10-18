@@ -26,6 +26,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { AgentSessionSidebar } from "./sidebar/AgentSessionSidebar";
+import { dismissSessionFailure } from "./sidebar/dismissFailure";
 import { askBySession, attentionBySession, retryLines } from "./sidebar/model";
 import { AgentEnvironmentDialog } from "./environment/AgentEnvironment";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
@@ -90,6 +91,7 @@ export function AgentHubSidebar() {
   const pinned = useAgentPinsStore((state) => state.pinned);
   const togglePin = useAgentPinsStore((state) => state.togglePin);
   const unpin = useAgentPinsStore((state) => state.unpin);
+  const dismissedFailures = useAgentPinsStore((state) => state.dismissedFailures);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
   const toggleCollapsed = useAgentPinsStore((state) => state.toggleCollapsed);
   const expanded = useAgentPinsStore((state) => state.expanded);
@@ -208,6 +210,8 @@ export function AgentHubSidebar() {
         subagents={subagents}
         peerUnread={peerUnread}
         pinnedIds={pinned}
+        dismissed={dismissedFailures}
+        onDismissFailure={dismissSessionFailure}
         onTogglePin={togglePin}
         collapsedKeys={collapsed}
         onToggleCollapsed={toggleCollapsed}

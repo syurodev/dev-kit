@@ -62,6 +62,17 @@ type AgentPinsState = {
    */
   following: string[];
   toggleFollowing: (sessionId: string) => void;
+  /**
+   * Failures the person said they no longer need, by session id: the session's
+   * `updatedAt` when they dismissed it. A failure is dismissed while the row is
+   * not newer than that (sidebar/dismissed.ts), so the session comes back to
+   * Needs you only by failing again. Small on purpose — one number per failed
+   * session — and pruned once a session recovers or is gone.
+   */
+  dismissedFailures: Record<string, number>;
+  dismissFailure: (sessionId: string, at: number) => void;
+  /** Replaces the whole map; the caller hands back the same object when nothing changed. */
+  setDismissedFailures: (next: Record<string, number>) => void;
 };
 
 /** How many folders the project picker remembers. */
@@ -128,6 +139,11 @@ export const useAgentPinsStore = create<AgentPinsState>()(
             ? state.following.filter((id) => id !== sessionId)
             : [...state.following, sessionId],
         })),
+      dismissedFailures: {},
+      dismissFailure: (sessionId, at) =>
+        set((state) => ({ dismissedFailures: { ...state.dismissedFailures, [sessionId]: at } })),
+      setDismissedFailures: (next) =>
+        set((state) => (next === state.dismissedFailures ? state : { dismissedFailures: next })),
       recentProjects: [],
       rememberProject: (path) =>
         set((state) => ({
@@ -146,6 +162,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         hideClosed: state.hideClosed,
         recentProjects: state.recentProjects,
         following: state.following,
+        dismissedFailures: state.dismissedFailures,
       }),
     },
   ),

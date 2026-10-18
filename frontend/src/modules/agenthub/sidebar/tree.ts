@@ -1,4 +1,5 @@
 import type { AgentSession } from "@/bridge/agenthub";
+import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { attentionKind, compareRecent, partitionGroup, type Attention, type GroupView, type PartitionOptions } from "./model";
 
 /**
@@ -180,6 +181,7 @@ export function branchSignals(
   sessions: readonly AgentSession[],
   attention: Record<string, Attention>,
   peerUnread: Record<string, number>,
+  dismissed?: DismissedFailures,
 ): Record<string, BranchSignals> {
   const kids = new Map<string, AgentSession[]>();
   for (const session of sessions) {
@@ -195,7 +197,8 @@ export function branchSignals(
     return {
       running: s.status === "running" && !waiting ? 1 : 0,
       waiting: waiting ? 1 : 0,
-      failed: s.status === "error" ? 1 : 0,
+      // A failure the person dismissed no longer marks the parent.
+      failed: s.status === "error" && !failureDismissed(s, dismissed) ? 1 : 0,
       unread: (peerUnread[s.id] ?? 0) > 0 ? 1 : 0,
     };
   };

@@ -19,7 +19,9 @@ import {
   type AgentTurnFinishedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
+import { useAgentPinsStore } from "../stores/agentPins";
 import { useAgentSessionsStore } from "../stores/agentSessions";
+import { pruneDismissed } from "../modules/agenthub/sidebar/dismissed";
 import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { agentSessionOnScreen, showAgentSession, syncAgentSessionTabTitles } from "../modules/agenthub/documents";
 import { groupTurns, workedFor } from "../modules/agenthub/turns";
@@ -210,6 +212,40 @@ export function handleAgentTurnStarted(sessionId: string): void {
 }
 
 /**
+ * Forgets the failures the person dismissed (sidebar/dismissed.ts) whose
+ * session recovered or is gone, so its next failure is news again. Never before
+ * the list has loaded — an empty list then means "not yet", not "all gone" —
+ * and run on every change to a session, because a session that leaves `error`
+ * and fails again within one render must not inherit the old dismissal.
+ */
+export function pruneDismissedFailures(): void {
+  const { sessionsLoaded, sessionsById } = useAgentSessionsStore.getState();
+  if (!sessionsLoaded) return;
+  const pins = useAgentPinsStore.getState();
+  pins.setDismissedFailures(pruneDismissed(pins.dismissedFailures, sessionsById));
+}
+
+/**
+ * Prunes now and on every change to the sessions or to the dismissals (the
+ * pins arrive from disk after this mounts). Returns the unsubscribe.
+ */
+export function watchDismissedFailures(): () => void {
+  pruneDismissedFailures();
+  const offSessions = useAgentSessionsStore.subscribe((state, previous) => {
+    if (state.sessionsById !== previous.sessionsById || state.sessionsLoaded !== previous.sessionsLoaded) {
+      pruneDismissedFailures();
+    }
+  });
+  const offPins = useAgentPinsStore.subscribe((state, previous) => {
+    if (state.dismissedFailures !== previous.dismissedFailures) pruneDismissedFailures();
+  });
+  return () => {
+    offSessions();
+    offPins();
+  };
+}
+
+/**
  * A session another caller created (an agent's child) is not in the list this
  * window loaded at start. Read its row and add it, unless it is already there —
  * the rail then draws it under its parent, and a tab that was waiting on it
@@ -275,6 +311,9 @@ export function AgentSessionsSubscriber() {
       }),
     [],
   );
+
+  // A dismissed failure is forgotten when its session recovers.
+  useEffect(() => watchDismissedFailures(), []);
 
   useEffect(() => {
     syncAgentSessionTabTitles(useAgentSessionsStore.getState().sessionsById);

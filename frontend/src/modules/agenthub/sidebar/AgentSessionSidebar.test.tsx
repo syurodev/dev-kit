@@ -739,6 +739,83 @@ describe("subagents in a row's menu", () => {
   });
 });
 
+describe("dismissing a failure from Needs you", () => {
+  const failed = (id: string, over: Partial<AgentSession> = {}) =>
+    session(id, { status: "error", preview: "Stopped.", updatedAt: 10, ...over });
+  const needsIds = (html: string) =>
+    cardIds(html.slice(html.indexOf('data-testid="agent-needs-you"'), html.indexOf('data-testid="agent-session-group"')));
+
+  it("a failed row offers Dismiss as a button that names itself and is a Tab stop", () => {
+    const html = render({ sessions: [failed("a")], onDismissFailure: noop });
+    expect(needsIds(html)).toEqual(["a"]);
+    const tag = tagOf(html, "agent-card-dismiss");
+    expect(tag).toContain('aria-label="Dismiss from Needs you"');
+    expect(tag).toContain('type="button"');
+    expect(tag).not.toContain('tabindex="-1"');
+  });
+
+  it("offers nothing without a handler, for a healthy row and while something waits", () => {
+    expect(render({ sessions: [failed("a")] })).not.toContain("agent-card-dismiss");
+    const withHandler = { onDismissFailure: noop };
+    expect(render({ sessions: [session("a")], ...withHandler })).not.toContain("agent-card-dismiss");
+    const html = render({ sessions: [failed("a")], attention: { a: { permissions: 1, questions: 0 } }, ...withHandler });
+    expect(needsIds(html)).toEqual(["a"]);
+    expect(html).not.toContain("agent-card-dismiss");
+  });
+
+  it("a dismissed failure leaves Needs you for its group, quiet, and is not offered again", () => {
+    const html = render({ sessions: [failed("a"), failed("b")], dismissed: { a: 10 }, onDismissFailure: noop });
+    expect(needsIds(html)).toEqual(["b"]);
+    expect(html.indexOf('data-session-id="a"')).toBeGreaterThan(html.indexOf('data-testid="agent-session-group"'));
+    const card = cardHtml(html, "a");
+    expect(card).toContain('data-dismissed="true"');
+    // Quiet: no error mark on the face, and the line is not the alarm colour.
+    expect(card).not.toContain("text-status-danger");
+    expect(card).not.toContain("agent-card-dismiss");
+    expect(card).toContain("Stopped with an error, dismissed");
+  });
+
+  it("comes back to Needs you when it fails again", () => {
+    const html = render({ sessions: [failed("a", { updatedAt: 11 })], dismissed: { a: 10 } });
+    expect(needsIds(html)).toEqual(["a"]);
+  });
+
+  it("stops marking the parent, and no Needs you is drawn when it was the only reason", () => {
+    const parent = session("p");
+    const child = failed("k", { parentSessionId: "p", depth: 1 });
+    const marked = render({ sessions: [parent, child] });
+    expect(marked).toContain('data-hint="failed"');
+    const quiet = render({ sessions: [parent, child], dismissed: { k: 10 } });
+    expect(quiet).not.toContain('data-hint="failed"');
+    expect(quiet).not.toContain('data-testid="agent-needs-you"');
+    expect(cardIds(quiet).sort()).toEqual(["k", "p"]);
+  });
+
+  it("the menu offers Dismiss before Close session, only when it applies", () => {
+    const kit: MenuKit = {
+      Item: ({ children }) => <button type="button">{children}</button>,
+      Separator: () => <hr />,
+      Label: ({ children }) => <p>{children}</p>,
+    };
+    const menu = (dismissable: boolean, actions: SessionActions) =>
+      renderToString(
+        <QueryClientProvider client={new QueryClient()}>
+          <SessionActionsContext.Provider value={actions}>
+            <SessionMenuItems kit={kit} session={failed("a")} pinned={false} subagents={[]} dismissable={dismissable} />
+          </SessionActionsContext.Provider>
+        </QueryClientProvider>,
+      );
+    const actions: SessionActions = { ...NO_ACTIONS, dismissFailure: noop, closeSession: noop };
+    const html = menu(true, actions);
+    expect(html).toContain("Dismiss from Needs you");
+    expect(html.indexOf("Dismiss from Needs you")).toBeLessThan(html.indexOf("Close session"));
+    expect(menu(false, actions)).not.toContain("Dismiss from Needs you");
+    expect(menu(true, { ...NO_ACTIONS, closeSession: noop })).not.toContain("Dismiss from Needs you");
+    // Close is still there, whatever happens to Dismiss.
+    expect(menu(false, actions)).toContain("Close session");
+  });
+});
+
 describe("after needs-you", () => {
   it("a waiting row in a workspace of several folders does not say its folder", () => {
     const html = render({

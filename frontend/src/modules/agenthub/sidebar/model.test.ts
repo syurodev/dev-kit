@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentSession } from "@/bridge/agenthub";
+import { dismissalAt, failureDismissed, pruneDismissed } from "./dismissed";
 import type { SidebarWorkspace } from "./grouping";
 import {
   RECENT_LIMIT,
@@ -17,6 +18,7 @@ import {
   subagentsLabel,
   drawnWhenHidingClosed,
   groupCollapsed,
+  failureDismissable,
   needsYou,
   plainAsk,
   secondLine,
@@ -489,5 +491,70 @@ describe("plainAsk", () => {
   it("is applied where asks are built", () => {
     expect(askBySession([{ sessionId: "a", title: "Run `rm -rf build`?" }], [])).toEqual({ a: "Run rm -rf build?" });
     expect(askBySession([], [{ sessionId: "a", message: "Use **npm** or `bun`?" }])).toEqual({ a: "Use npm or bun?" });
+  });
+});
+
+describe("dismissing a failure", () => {
+  const failed = (id: string, updatedAt: number, over: Partial<AgentSession> = {}) =>
+    session(id, { status: "error", updatedAt, ...over });
+
+  it("a dismissed failure leaves Needs you until the row is newer than the dismissal", () => {
+    const list = [failed("a", 10), failed("b", 20)];
+    expect(needsYou(list, {}, { a: 10 }).map((x) => x.id)).toEqual(["b"]);
+    // It failed again: the row moved on.
+    expect(needsYou([failed("a", 11), failed("b", 20)], {}, { a: 10 }).map((x) => x.id)).toEqual(["b", "a"]);
+  });
+
+  it("is a dismissal of a failure only: a session that is no longer failed is not dismissed", () => {
+    expect(failureDismissed(session("a", { status: "idle", updatedAt: 5 }), { a: 10 })).toBe(false);
+    expect(failureDismissed(failed("a", 5), { a: 10 })).toBe(true);
+    expect(failureDismissed(failed("a", 5), undefined)).toBe(false);
+    expect(failureDismissed(failed("a", 5), { b: 10 })).toBe(false);
+  });
+
+  it("a pending permission or question is never dismissed: the session stays in Needs you", () => {
+    const list = [failed("a", 10), session("p", { status: "awaiting_permission", updatedAt: 5 })];
+    const attention = { a: { permissions: 0, questions: 1 }, p: { permissions: 1, questions: 0 } };
+    expect(needsYou(list, attention, { a: 10, p: 5 }).map((x) => x.id)).toEqual(["a", "p"]);
+    expect(failureDismissable(failed("a", 10), attention.a, {})).toBe(false);
+    expect(failureDismissable(session("p", { status: "awaiting_permission" }), attention.p, {})).toBe(false);
+  });
+
+  it("only a failed, undismissed session with nothing waiting can be dismissed", () => {
+    expect(failureDismissable(failed("a", 10), undefined, {})).toBe(true);
+    expect(failureDismissable(failed("a", 10), undefined, { a: 10 })).toBe(false);
+    expect(failureDismissable(failed("a", 11), undefined, { a: 10 })).toBe(true);
+    expect(failureDismissable(session("a", { status: "idle" }), undefined, {})).toBe(false);
+    expect(failureDismissable(session("a", { status: "running" }), undefined, {})).toBe(false);
+  });
+
+  it("remembers the row's time, 0 when the row has none", () => {
+    expect(dismissalAt({ updatedAt: 42 })).toBe(42);
+    expect(dismissalAt({})).toBe(0);
+    expect(failureDismissed(failed("a", 0, { updatedAt: undefined }), { a: dismissalAt({}) })).toBe(true);
+  });
+
+  it("the face goes quiet, the line loses its alarm colour and the tooltip says what happened", () => {
+    expect(cardIndicator(failed("a", 5), undefined, {})).toBe("error");
+    expect(cardIndicator(failed("a", 5), undefined, { a: 5 })).toBeNull();
+    // A pending ask still wins over a dismissed failure.
+    expect(cardIndicator(failed("a", 5), { permissions: 1, questions: 0 }, { a: 5 })).toBe("permission");
+    expect(secondLine({ session: failed("a", 5, { preview: "Broke." }), ask: null, dismissed: true })).toEqual({
+      text: "Broke.",
+      tone: "plain",
+    });
+    const base = { vendorName: "Claude", subagents: [], pinned: false, age: "" };
+    expect(cardSummary({ ...base, session: failed("a", 5) })).toContain("Stopped with an error");
+    expect(cardSummary({ ...base, session: failed("a", 5), dismissed: true })).toContain("Stopped with an error, dismissed");
+    expect(cardSummary({ ...base, session: failed("a", 5), dismissed: true })).not.toContain("Stopped with an error");
+  });
+
+  it("forgets a dismissal once the session recovered or is gone, and keeps the same object otherwise", () => {
+    const dismissed = { a: 1, b: 2, c: 3 };
+    const sessions = { a: { status: "error" }, b: { status: "idle" } } as const;
+    expect(pruneDismissed(dismissed, sessions)).toEqual({ a: 1 });
+    const kept = { a: 1 };
+    expect(pruneDismissed(kept, sessions)).toBe(kept);
+    expect(pruneDismissed({}, sessions)).toEqual({});
   });
 });

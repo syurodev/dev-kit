@@ -8,7 +8,9 @@ import {
 } from "../bridge/agenthub";
 import { isAgentAuthRequiredError, isAgentNotInstalledError, isRuntimeRequirementError } from "../bridge/agentRuntime";
 import { toAppError } from "../bridge/errors";
+import { useAgentPinsStore } from "../stores/agentPins";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
+import { failureDismissed } from "../modules/agenthub/sidebar/dismissed";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { encodeEntityRef } from "./entityRef";
 import { AGENTHUB_MODULE, tabSessionId } from "../modules/agenthub/documents";
@@ -138,8 +140,15 @@ export function noteTurnFinishedDuringOurs(sessionId: string): void {
  */
 export function setAgentHubTabsStatus(sessionId: string, status: TabStatus): void {
   const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
+  // A failure the person dismissed (sidebar/dismissed.ts) settles to idle: the
+  // red dot says "look at this", and they said not to.
+  const session = useAgentSessionsStore.getState().sessionsById[sessionId];
+  const settled =
+    status === "error" && session && failureDismissed(session, useAgentPinsStore.getState().dismissedFailures)
+      ? "idle"
+      : status;
   for (const tab of moduleTabs(modules, AGENTHUB_MODULE).openTabs) {
-    if (tabSessionId(tab) === sessionId) setTabStatus(tab.id, status);
+    if (tabSessionId(tab) === sessionId) setTabStatus(tab.id, settled);
   }
 }
 
