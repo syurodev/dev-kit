@@ -66,6 +66,8 @@ type choiceAdapter struct {
 	failing atomic.Bool
 	mu      sync.Mutex
 	opened  []*choiceRuntime
+	// extra models are listed after the three fixed ones (a vendor with a long list).
+	extra []ConfigSelectOption
 }
 
 func (a *choiceAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
@@ -98,11 +100,13 @@ func (a *choiceAdapter) ConfigCatalog(context.Context, OpenSpec) ([]ConfigOption
 		}
 		return out
 	}
-	return []ConfigOption{{ID: "model", Category: "model", Type: "select", DefaultValue: "m-mid", CurrentValue: json.RawMessage(`"m-mid"`), Options: []ConfigSelectOption{
+	options := []ConfigSelectOption{
 		{Value: "m-small", Name: "Small", DefaultEffort: "low", SupportedEfforts: level("low", "medium")},
 		{Value: "m-mid", Name: "Mid", DefaultEffort: "medium", SupportedEfforts: level("low", "medium", "high")},
 		{Value: "m-big", Name: "Big", DefaultEffort: "high", SupportedEfforts: level("medium", "high", "xhigh")},
-	}}}, nil
+	}
+	options = append(options, a.extra...)
+	return []ConfigOption{{ID: "model", Category: "model", Type: "select", DefaultValue: "m-mid", CurrentValue: json.RawMessage(`"m-mid"`), Options: options}}, nil
 }
 
 type choiceFixture struct {
@@ -168,7 +172,7 @@ func TestModelCatalogIsCachedAndFailuresAreShortLived(t *testing.T) {
 
 func TestListModelsNamesTheCallersOwnChoice(t *testing.T) {
 	f := newChoiceFixture(t)
-	listing, err := f.svc.ListModels(f.ctx, "")
+	listing, err := f.svc.ListModels(f.ctx, ModelQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +182,7 @@ func TestListModelsNamesTheCallersOwnChoice(t *testing.T) {
 	if listing.Current == nil || listing.Current.Model != "m-mid" || listing.Current.Effort != "medium" {
 		t.Fatalf("current = %+v, want the parent's m-mid / medium", listing.Current)
 	}
-	if _, err := f.svc.ListModels(f.ctx, "nope"); !errors.Is(err, ErrVendorUnknown) {
+	if _, err := f.svc.ListModels(f.ctx, ModelQuery{Vendor: "nope"}); !errors.Is(err, ErrVendorUnknown) {
 		t.Fatalf("unknown vendor: %v", err)
 	}
 }

@@ -56,6 +56,12 @@ type VendorModels struct {
 	Models       []ModelChoice `json:"models,omitempty"`
 	// FetchedAt is when the list was read; a cached answer is that old.
 	FetchedAt time.Time `json:"fetchedAt"`
+	// Total, NextOffset and Hint describe a page of Models (ListModels): how
+	// many models match the query, where the next page starts and how to ask
+	// for the rest. Zero in the cached list itself.
+	Total      int    `json:"total,omitempty"`
+	NextOffset *int   `json:"nextOffset,omitempty"`
+	Hint       string `json:"hint,omitempty"`
 }
 
 // Model finds a model by its value.
@@ -249,19 +255,41 @@ func (s *Service) catalogVendors() []AgentType {
 	return out
 }
 
+const (
+	// DefaultModelPage and MaxModelPage bound how many models one vendor puts
+	// in a listModels answer. opencode offers hundreds across its providers; the
+	// whole list is tens of KB, which the MCP result budget would cut blindly.
+	DefaultModelPage = 40
+	MaxModelPage     = 100
+	// modelDescriptionClip bounds a description in a listing.
+	modelDescriptionClip = 120
+)
+
+// ModelQuery narrows agenthub.listModels.
+type ModelQuery struct {
+	// Vendor limits the answer to one vendor; empty asks all.
+	Vendor AgentType
+	// Query keeps the models whose id or name holds every word (case, spaces
+	// and punctuation ignored): "glm flash" finds "opencode/glm-5.3-flash-free".
+	Query string
+	// Limit is models per vendor (DefaultModelPage when 0, at most MaxModelPage);
+	// Offset skips that many of the matches, for the next page.
+	Limit, Offset int
+}
+
 // ListModels answers agenthub.listModels: every vendor's models (or why it
-// cannot say) and what the calling session is on. vendor narrows it to one.
-func (s *Service) ListModels(ctx context.Context, vendor AgentType) (ModelListing, error) {
+// cannot say), narrowed and paged by q, and what the calling session is on.
+func (s *Service) ListModels(ctx context.Context, q ModelQuery) (ModelListing, error) {
 	vendors := s.catalogVendors()
-	if vendor != "" {
-		if _, ok := s.reg.Get(vendor); !ok {
+	if q.Vendor != "" {
+		if _, ok := s.reg.Get(q.Vendor); !ok {
 			return ModelListing{}, ErrVendorUnknown
 		}
-		vendors = []AgentType{vendor}
+		vendors = []AgentType{q.Vendor}
 	}
 	var listing ModelListing
 	for _, v := range vendors {
-		listing.Vendors = append(listing.Vendors, s.ModelCatalog(ctx, v))
+		listing.Vendors = append(listing.Vendors, pageModels(s.ModelCatalog(ctx, v), q))
 	}
 	if caller, ok := identity.FromContext(ctx); ok && caller.IsAgent() {
 		if current, found := s.currentChoice(ctx, caller.SessionID); found {
@@ -269,6 +297,72 @@ func (s *Service) ListModels(ctx context.Context, vendor AgentType) (ModelListin
 		}
 	}
 	return listing, nil
+}
+
+// pageModels is a copy of one vendor's list narrowed to the query and cut to a
+// page. The cached list is never touched.
+func pageModels(all VendorModels, q ModelQuery) VendorModels {
+	out := all
+	if all.Status != ModelsOK {
+		return out
+	}
+	words := strings.Fields(q.Query)
+	for i := range words {
+		words[i] = normalizeModelText(words[i])
+	}
+	var matched []ModelChoice
+	for _, m := range all.Models {
+		if modelHasWords(m, words) {
+			matched = append(matched, m)
+		}
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = DefaultModelPage
+	}
+	limit = min(limit, MaxModelPage)
+	offset := min(max(q.Offset, 0), len(matched))
+	end := min(offset+limit, len(matched))
+	out.Total = len(matched)
+	out.Models = make([]ModelChoice, 0, end-offset)
+	for _, m := range matched[offset:end] {
+		out.Models = append(out.Models, compactModel(m))
+	}
+	switch {
+	case len(matched) == 0 && len(words) > 0:
+		out.Hint = fmt.Sprintf("No model of %d matches %q. Try fewer or shorter words.", len(all.Models), strings.TrimSpace(q.Query))
+	case end < len(matched):
+		next := end
+		out.NextOffset = &next
+		out.Hint = fmt.Sprintf("Showing %d-%d of %d. Pass offset %d for the next page, or `query` (words from the id or name) to narrow. Use the `value` of a model as initialConfig.model.", offset+1, end, len(matched), next)
+	}
+	return out
+}
+
+// modelHasWords reports whether every word (already normalized) is in the
+// model's id or name.
+func modelHasWords(m ModelChoice, words []string) bool {
+	if len(words) == 0 {
+		return true
+	}
+	text := normalizeModelText(m.Value) + " " + normalizeModelText(m.Name)
+	for _, w := range words {
+		if w != "" && !strings.Contains(text, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// compactModel is a model as a listing carries it: a name only when it says
+// more than the id, a short one-line description.
+func compactModel(m ModelChoice) ModelChoice {
+	if m.Name == m.Value {
+		m.Name = ""
+	}
+	m.Name = clipRunes(oneLine(m.Name), modelSuggestionClip)
+	m.Description = clipRunes(oneLine(m.Description), modelDescriptionClip)
+	return m
 }
 
 // currentChoice reads a session's model and effort from the settings its

@@ -34,12 +34,13 @@ type fakeAgentHub struct {
 	route      agenthub.PeerRelation
 	routeTo    agenthub.AgentSession
 
-	models    agenthub.ModelListing
-	profiles  agenthub.ModelProfilesListing
-	plan      agenthub.ConfigPlan
-	planErr   error
-	planIn    agenthub.ModelChoiceInput
-	modelsFor agenthub.AgentType
+	models      agenthub.ModelListing
+	modelsQuery agenthub.ModelQuery
+	profiles    agenthub.ModelProfilesListing
+	plan        agenthub.ConfigPlan
+	planErr     error
+	planIn      agenthub.ModelChoiceInput
+	modelsFor   agenthub.AgentType
 }
 
 func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error) {
@@ -53,8 +54,9 @@ func (f *fakeAgentHub) PeerRoute(context.Context, string) (agenthub.PeerRelation
 	return f.route, f.routeTo, f.route != "", nil
 }
 
-func (f *fakeAgentHub) ListModels(_ context.Context, vendor agenthub.AgentType) (agenthub.ModelListing, error) {
-	f.modelsFor = vendor
+func (f *fakeAgentHub) ListModels(_ context.Context, q agenthub.ModelQuery) (agenthub.ModelListing, error) {
+	f.modelsFor = q.Vendor
+	f.modelsQuery = q
 	return f.models, nil
 }
 
@@ -616,11 +618,11 @@ func TestAgentHubModelToolsReadThroughTheirOwnGrants(t *testing.T) {
 		profiles: agenthub.ModelProfilesListing{Profiles: []agenthub.ModelProfileInfo{{Name: "Review"}}, Note: agenthub.ModelProfilesNote},
 	}
 	srv := NewServer(agentHubTestDeps(caller, hub))
-	_, v, err := srv.toolAgentHubListModels(context.Background(), &sdk.CallToolRequest{}, agentHubListModelsInput{AgentType: "claude"})
+	_, v, err := srv.toolAgentHubListModels(context.Background(), &sdk.CallToolRequest{}, agentHubListModelsInput{AgentType: "claude", Query: " glm flash ", Limit: 10, Offset: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := unwrap(v).(agenthub.ModelListing); !ok || len(got.Vendors) != 1 || hub.modelsFor != "claude" {
+	if got, ok := unwrap(v).(agenthub.ModelListing); !ok || len(got.Vendors) != 1 || hub.modelsFor != "claude" || hub.modelsQuery.Query != " glm flash " || hub.modelsQuery.Limit != 10 || hub.modelsQuery.Offset != 20 {
 		t.Fatalf("listModels = %#v for %q", v, hub.modelsFor)
 	}
 	if caller.last.capability != "agenthub:read" || caller.last.scope != "models:list" {
