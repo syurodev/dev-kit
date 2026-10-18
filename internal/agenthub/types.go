@@ -43,7 +43,11 @@ type AgentSession struct {
 	// the agent's last message, or why the turn failed. Written when a turn
 	// ends. Agent output, stored like the transcript; MCP results blank it
 	// (internal/mcp/tools_agenthub.go), the UI shows it under the title.
-	Preview      string `json:"Preview,omitempty"`
+	Preview string `json:"Preview,omitempty"`
+	// Stop is why the last turn did not complete, when it did not (see
+	// SessionStop). Set when a turn ends in a failure, cleared when the next turn
+	// starts; nil on a session whose last turn completed.
+	Stop         *SessionStop `json:"Stop,omitempty"`
 	ACPSessionID string
 	// ExtraReadWritePaths is the jail widening CreateSession was given (a
 	// workspace's other services — see CreateInput). Stored with the session

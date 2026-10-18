@@ -9,6 +9,7 @@ export {
     RestoreMode,
     RewindMode,
     SessionStatus,
+    StopKind,
     UpdateKind
 } from "./models.js";
 
@@ -42,6 +43,7 @@ export type {
     RewindPreview,
     RewindRequest,
     RewindResult,
+    SessionStop,
     SignInFlow,
     SignInStatus,
     TranscriptEntry,

@@ -21,7 +21,13 @@ func (s *Service) ResumeSession(ctx context.Context, id string, reload bool) err
 // reloads (that is the person's, to pick up new customization), never reaches
 // the caller itself or a session outside its tree, and leaves a session that
 // was closed closed: somebody chose that, and only the person reopens it.
-func (s *Service) ResumeChild(ctx context.Context, id string) error {
+//
+// It is not a retry loop either. A child whose last turn stopped for a reason a
+// restart does not fix (the provider is down, the allowance is spent, there is
+// no sign-in) or whose stored retry time has not come is refused with the
+// reason, unless the parent passes force. A stop caused by the app's own
+// restart is exactly what a resume is for and is never refused.
+func (s *Service) ResumeChild(ctx context.Context, id string, force bool) error {
 	caller, ok := identity.FromContext(ctx)
 	if !ok || !caller.IsAgent() {
 		return ErrPermissionDenied
@@ -38,6 +44,9 @@ func (s *Service) ResumeChild(ctx context.Context, id string) error {
 	}
 	if sess.Status == SessionStatusClosed {
 		return ErrSessionClosed
+	}
+	if now := time.Now(); !force && sess.Stop != nil && sess.Stop.BlocksResume(now) {
+		return &ResumeRefusedError{Stop: *sess.Stop, Now: now}
 	}
 	return s.resumeSession(ctx, id, false)
 }

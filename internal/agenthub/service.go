@@ -510,6 +510,10 @@ func (s *Service) RecoverStaleSessions(ctx context.Context) error {
 		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
 			continue
 		}
+		interrupted := InterruptedStop(time.Now())
+		if err := s.store.UpdateSessionStop(ctx, sess.ID, &interrupted, time.Now().UTC()); err != nil {
+			return err
+		}
 		notice := SessionUpdate{Kind: UpdateSessionInfo, Failure: &SessionFailure{
 			ID: "interrupted:" + sess.ID, Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
 			Details: "The app stopped before this turn finished. Its earlier changes may already exist. Resume this conversation, then send your next instruction; no prompt or command is replayed automatically.", Actions: []string{"resume"},
@@ -1638,6 +1642,12 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if err := s.setSessionStatus(ctx, in.SessionID, SessionStatusRunning); err != nil {
 		return InvokeResult{}, err
 	}
+	if sess.Stop != nil {
+		// A new turn is a new attempt: the last one's stop no longer describes
+		// the session. Written before the turn runs, so a parent that reads the
+		// status mid-turn is not told the session is stopped.
+		_ = s.store.UpdateSessionStop(recordCtx, in.SessionID, nil, time.Now().UTC())
+	}
 	if s.OnTurnStarted != nil {
 		s.OnTurnStarted(in.SessionID)
 	}
@@ -1763,8 +1773,10 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// Status "denied" rather than "completed" so a caller that has to know —
 	// an agent that invoked this session through MCP — still can.
 	if promptErr != nil {
+		timedOut := false
 		finalStatus := SessionStatusError
 		if boundedByDefault && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			timedOut = true
 			failure := invokeTimeoutFailure(DefaultInvokeTimeout, time.Now())
 			log.Printf("agenthub: invoke %s session %s: stopped at the %s time limit", sess.AgentType, in.SessionID, DefaultInvokeTimeout)
 			s.handleUpdate(recordCtx, in.SessionID, sessionFailureUpdate(failure))
@@ -1792,10 +1804,16 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		if !errors.Is(promptErr, ErrCancelled) && !errors.Is(promptErr, ErrSessionBusy) {
 			writePreview(PreviewFromError(promptErr))
 		}
+		// A cancel is recorded too (kind "cancelled"; the parent is not told: the
+		// one who cancelled knows). A busy refusal ran nothing, so it stops nothing.
+		if !errors.Is(promptErr, ErrSessionBusy) {
+			s.recordStop(recordCtx, sess, promptErr, timedOut, invoker)
+		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
 	}
 
+	s.stopRecovered(in.SessionID)
 	if workspaceContext != "" {
 		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
 	}

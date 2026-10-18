@@ -39,6 +39,9 @@ type fakeAgentHub struct {
 	route      agenthub.PeerRelation
 	routeTo    agenthub.AgentSession
 
+	resumeForce bool
+	resumeErr   error
+
 	models      agenthub.ModelListing
 	modelsQuery agenthub.ModelQuery
 	profiles    agenthub.ModelProfilesListing
@@ -53,9 +56,9 @@ func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInp
 	return f.sendOut, nil
 }
 
-func (f *fakeAgentHub) ResumeChild(_ context.Context, id string) error {
-	f.resumeID = id
-	return nil
+func (f *fakeAgentHub) ResumeChild(_ context.Context, id string, force bool) error {
+	f.resumeID, f.resumeForce = id, force
+	return f.resumeErr
 }
 
 func (f *fakeAgentHub) CloseSession(_ context.Context, id string) error {
@@ -700,7 +703,7 @@ func TestAgentHubChildControlTools(t *testing.T) {
 	srv := NewServer(agentHubTestDeps(caller, hub))
 	ctx := context.Background()
 
-	if _, _, err := srv.toolAgentHubResumeSession(ctx, &sdk.CallToolRequest{}, agentHubSessionIDInput{SessionID: sessionID}); err != nil {
+	if _, _, err := srv.toolAgentHubResumeSession(ctx, &sdk.CallToolRequest{}, agentHubResumeInput{SessionID: sessionID}); err != nil {
 		t.Fatal(err)
 	}
 	if hub.resumeID != sessionID || caller.last.capability != "agenthub:execute" || caller.last.scope != "session:"+sessionID || caller.last.metadata["action"] != "resume_child" {
@@ -737,5 +740,75 @@ func TestOnlyTheReadOfOwnTreeIsPreApproved(t *testing.T) {
 	got := strings.Join(srv.PreApprovedTools(), " ")
 	if !strings.Contains(got, "agenthub.readSession") || strings.Contains(got, "agenthub.resumeSession") || strings.Contains(got, "agenthub.closeSession") {
 		t.Fatalf("pre-approved = %q", got)
+	}
+}
+
+// A parent decides from the stop whether to resume, so its shape is the
+// contract: the kind, whether a retry is worth it, when, the vendor's sentence
+// marked as third-party — and still no Preview.
+func TestAgentHubStatusCarriesTheStopButNotThePreview(t *testing.T) {
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	since := time.Date(2026, 10, 18, 20, 0, 0, 0, time.UTC)
+	retry := since.Add(90 * time.Minute)
+	stopped := agenthub.AgentSession{ID: id, AgentType: agenthub.AgentTypeOpenCode, Status: agenthub.SessionStatusError, Preview: "preview text",
+		Stop: &agenthub.SessionStop{Kind: agenthub.StopProviderUnavailable, Message: "Upstream request failed: Endpoint is unavailable.", Note: "n", Retryable: false, RetryAfter: &retry, Since: since, Attempts: 11}}
+	hub := &fakeAgentHub{status: stopped, peers: []agenthub.PeerInfo{{SessionID: id, Stop: stopped.Stop.Brief()}}}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+
+	_, status, err := srv.toolAgentHubGetSessionStatus(context.Background(), &sdk.CallToolRequest{}, agentHubSessionIDInput{SessionID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(status)
+	var got struct {
+		Preview string
+		Stop    map[string]any
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"kind": "provider_unavailable", "message": "Upstream request failed: Endpoint is unavailable.", "note": "n",
+		"retryable": false, "retryAfter": "2026-10-18T21:30:00Z", "since": "2026-10-18T20:00:00Z", "attempts": float64(11),
+	}
+	if !reflect.DeepEqual(got.Stop, want) || got.Preview != "" {
+		t.Fatalf("status = %s", raw)
+	}
+
+	// The list carries the stop without the vendor's sentence.
+	_, peers, err := srv.toolAgentHubListPeers(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, _ := json.Marshal(peers)
+	if !strings.Contains(string(listed), `"stop":{"kind":"provider_unavailable","retryable":false,"retryAfter":"2026-10-18T21:30:00Z"}`) || strings.Contains(string(listed), "Endpoint is unavailable") {
+		t.Fatalf("listPeers = %s", listed)
+	}
+}
+
+func TestAgentHubResumeRefusalIsPublishedAndForceIsPassedOn(t *testing.T) {
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	now := time.Now()
+	hub := &fakeAgentHub{resumeErr: &agenthub.ResumeRefusedError{Now: now, Stop: agenthub.SessionStop{
+		Kind: agenthub.StopProviderUnavailable, Message: "Endpoint is unavailable.", Since: now.Add(-time.Hour)}}}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+
+	_, _, err := srv.toolAgentHubResumeSession(context.Background(), &sdk.CallToolRequest{}, agentHubResumeInput{SessionID: id})
+	var app *apperrors.AppError
+	if !errors.As(err, &app) || app.Code != "agenthub.resumeRefused" {
+		t.Fatalf("err = %v", err)
+	}
+	for _, part := range []string{"model provider is unavailable", "Endpoint is unavailable.", "third-party", "force=true"} {
+		if !strings.Contains(app.Message, part) {
+			t.Fatalf("refusal lacks %q: %s", part, app.Message)
+		}
+	}
+	if hub.resumeForce {
+		t.Fatal("force defaulted to true")
+	}
+
+	hub.resumeErr = nil
+	if _, _, err := srv.toolAgentHubResumeSession(context.Background(), &sdk.CallToolRequest{}, agentHubResumeInput{SessionID: id, Force: true}); err != nil || !hub.resumeForce {
+		t.Fatalf("forced resume: err %v, force %v", err, hub.resumeForce)
 	}
 }

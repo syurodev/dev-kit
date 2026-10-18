@@ -160,3 +160,21 @@ func TestPromptStatesTheMessageLimitsTheServiceEnforces(t *testing.T) {
 		}
 	}
 }
+
+// A parent that resumes a child blindly loops on a provider that is down. The
+// rule names the kinds the service stores, so a renamed kind cannot leave the
+// prompt describing one that no longer exists.
+func TestPromptTellsAParentToReadTheStopBeforeResuming(t *testing.T) {
+	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "")), " ")
+	for _, want := range []string{
+		"Before you resume or message a child that stopped, read",
+		"retryAfter",
+		"tells you once",
+		"do not loop on it",
+		string(StopProviderUnavailable), string(StopRateLimited), string(StopUsageLimit), string(StopAuthRequired), string(StopInterruptedByRestart),
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the prompt lacks %q", want)
+		}
+	}
+}

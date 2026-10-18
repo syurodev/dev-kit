@@ -29,16 +29,16 @@ func TestAParentControlsItsChildrenOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.svc.ResumeChild(f.ctx, child.ID); err != nil {
+	if err := f.svc.ResumeChild(f.ctx, child.ID, false); err != nil {
 		t.Fatalf("resume a child: %v", err)
 	}
 	for name, id := range map[string]string{"itself": f.parent.ID, "a stranger": stranger.ID} {
-		if err := f.svc.ResumeChild(f.ctx, id); !errors.Is(err, ErrNotDescendant) {
+		if err := f.svc.ResumeChild(f.ctx, id, false); !errors.Is(err, ErrNotDescendant) {
 			t.Errorf("resume %s: %v, want ErrNotDescendant", name, err)
 		}
 	}
 	// The person's own caller has Resume; this is the agent's.
-	if err := f.svc.ResumeChild(identity.WithCaller(context.Background(), identity.UI()), child.ID); !errors.Is(err, ErrPermissionDenied) {
+	if err := f.svc.ResumeChild(identity.WithCaller(context.Background(), identity.UI()), child.ID, false); !errors.Is(err, ErrPermissionDenied) {
 		t.Errorf("resume as the window: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestAParentControlsItsChildrenOnly(t *testing.T) {
 	if err := f.svc.CloseSession(f.ctx, child.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.ResumeChild(f.ctx, child.ID); !errors.Is(err, ErrSessionClosed) {
+	if err := f.svc.ResumeChild(f.ctx, child.ID, false); !errors.Is(err, ErrSessionClosed) {
 		t.Errorf("resume a closed child: %v, want ErrSessionClosed", err)
 	}
 }

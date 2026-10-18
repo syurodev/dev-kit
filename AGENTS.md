@@ -833,6 +833,46 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   each, `beforeSeq` pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
   (`TestNewContainerGrantsTheChildControlTools`); only `readSession` is pre-approved. The UI's Resume on the "interrupted" notice
   now dismisses the notice and toasts, because it used to succeed silently (the row's `updated_at` moved, nothing on screen did).
+- **A parent knows why a child stopped, and is not left to resume it blindly** (`internal/agenthub/stop.go`, `stop_service.go`,
+  migration 43 `agent_sessions.stop`). Evidence: a child whose provider returned 503 eleven times read as `status: error`;
+  the parent called `agenthub.resumeSession` over and over into the same failure.
+  - **`AgentSession.Stop`** (`SessionStop`: `kind`, `message`, `note`, `retryable`, `retryAfter`, `since`, `attempts`) is written
+    when a turn ends without completing (`Service.recordStop`, from `invoke`'s error branch) and cleared when the next turn
+    starts; a completed turn leaves none. Kinds: `provider_unavailable`, `rate_limited`, `usage_limit`, `auth_required`,
+    `process_exited`, `interrupted_by_restart` (`RecoverStaleSessions` writes it), `cancelled`, `timeout`, `failed`.
+    `StopFromError` decides: an adapter's `WithStopHint(err, StopHint{Kind, Attempts, RetryAfter, Retryable})` first (errors.Is/As
+    see through it; opencode's `turnRefusal` sets one from its last retry notice — HTTP status 429 / 5xx and the attempt it
+    announced, 11 in the recorded outage — and ignores `nextRetryAt`, a retry the ended turn will not make), then the sentinels (`ErrAgentUsageLimit`, `ErrAgentAuthRequired`, `ErrProcessFailed`,
+    `ErrCancelled`, the turn limit), then the words of the vendor's sentence (`429`/rate limit → `rate_limited`;
+    `5xx`/unavailable/overloaded/gateway/upstream → `provider_unavailable`, even under `ErrProcessFailed`, since opencode
+    reported a provider failure as a dead process). `retryable` is false for provider, rate-limit, usage-limit and sign-in
+    stops; a usage limit's `retryAfter` is read from "try again at 3:10 PM" / "in 2 hours" (next occurrence in the machine's zone;
+    a sentence that says neither leaves it empty — never a guess). `message` is the vendor's sentence from a `VendorError`,
+    one line, ≤ 300 runes, with `note` saying it is third-party text. Heuristics are on text: a vendor that changes its wording
+    falls back to `failed` (retryable), not to a wrong confident kind.
+  - **Agents see it**: `forAgent` keeps `Stop` (and still blanks `Preview`) in `agenthub.getSessionStatus` / `resumeSession` /
+    `createAgentSession`; `listPeers` carries `stop: {kind, retryable, retryAfter}` only. Shape tests:
+    `TestAgentHubStatusCarriesTheStopButNotThePreview`, `TestUpdateSessionStopRoundTripsAndClears`.
+  - **The parent is told once** (`notifyParentOfStop`): when a child's turn ends in a stop that is not `cancelled` /
+    `interrupted_by_restart`, its parent gets a message with `MessageSource.Kind = "devkit"` (`SessionID` = the child, drawn as
+    "DevKit notice about …" by `PeerMessage`). It goes through `deliverPeer` (started / steered / queued) but **not through
+    `SendMessage`**, so it is not a hop of any exchange and the hop and rate caps neither count nor refuse it; the envelope says
+    DevKit wrote it, not the person and not the child, and asks for no reply. Deduplicated per failure (`peerState.stopNoticed`:
+    child → kind + sentence; a completed turn or a different failure resets it; a refused delivery frees it). Not sent when
+    the parent itself invoked the child and waits (the error is its call's result), on a cancel, or when the parent is closed.
+    Not durable across a restart, like the rest of peer state.
+  - **`agenthub.resumeSession` is not a retry loop**: `ResumeChild(ctx, id, force)` returns `*ResumeRefusedError`
+    (`ErrResumeRefused`) when the stored stop is non-retryable or its `retryAfter` is in the future; the MCP tool turns it into
+    the published code `agenthub.resumeRefused` (in `bridge.keptCodes`) with `Sentence()` — kind, since, the vendor's text
+    marked third-party, when to try again, `force=true`. `force: true` overrides; `interrupted_by_restart`, `cancelled`,
+    `process_exited`, `timeout` and `failed` resume as before. Sending a message to a stopped child is not guarded (the prompt
+    tells the agent to read the status first). The DevKit prompt's "Controlling a child" carries the rule
+    (`TestPromptTellsAParentToReadTheStopBeforeResuming`).
+  - **Not verified against the real vendors**: the 503 / usage-limit sentences come from stored examples (opencode
+    `{type:'provider.internal', status:503, message:'Upstream request failed: Endpoint is unavailable.'}`, Codex's "You've hit
+    your usage limit. Try again at 3:10 PM."), driven through the mock runtime (`FAIL_PROVIDER_503`, `FAIL_USAGE_LIMIT`
+    markers). A real provider's wording, Claude Code's own error text, and whether a woken parent behaves well on the notice were
+    not exercised.
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
   `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
   by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"

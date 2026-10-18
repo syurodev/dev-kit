@@ -287,6 +287,25 @@ func (r *ProviderRetry) Sentence() string {
 	return message
 }
 
+// stopHint is what the retry notice adds to the stop of a turn that ended after
+// it: the kind its HTTP status names and how many attempts the agent last
+// announced. Nothing for a notice that carries neither; the sentence classifier
+// still reads the message. The agent's own next-retry time is not used: the turn
+// has ended, so it describes a retry that will not happen.
+func (r *ProviderRetry) stopHint() StopHint {
+	if r == nil {
+		return StopHint{}
+	}
+	hint := StopHint{Attempts: r.Attempt}
+	switch {
+	case r.Status == 429:
+		hint.Kind = StopRateLimited
+	case r.Status >= 500:
+		hint.Kind = StopProviderUnavailable
+	}
+	return hint
+}
+
 // SessionGoal is the objective a session is working towards, from the goal
 // extension: set with /goal or through _session/goal, cleared the same way,
 // and published on a session_info_update's _meta whenever it changes.

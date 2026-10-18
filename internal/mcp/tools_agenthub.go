@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"devkit/internal/agenthub"
@@ -28,7 +29,7 @@ type AgentHubAPI interface {
 	ListModels(ctx context.Context, q agenthub.ModelQuery) (agenthub.ModelListing, error)
 	ListModelProfiles(ctx context.Context) agenthub.ModelProfilesListing
 	PlanModelChoice(ctx context.Context, in agenthub.ModelChoiceInput) (agenthub.ConfigPlan, error)
-	ResumeChild(ctx context.Context, id string) error
+	ResumeChild(ctx context.Context, id string, force bool) error
 	CloseSession(ctx context.Context, id string) error
 	ReadSessionMessages(ctx context.Context, id string, beforeSeq int64, limit int) (agenthub.SessionMessages, error)
 }
@@ -104,7 +105,7 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.getSessionStatus",
-		Description: "Get Agent Hub session status by id",
+		Description: "Get Agent Hub session status by id; `Stop` says why a turn failed.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubGetSessionStatus)
 
@@ -119,8 +120,8 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.resumeSession",
-		Description: "Bring back a session below you that has no process (for example after the app restarted and its turn was interrupted), without sending it anything. " +
-			"Then send it a message to continue. A closed session stays closed; only the person reopens it.",
+		Description: "Bring back a session below you that has no process (e.g. after an app restart), sending it nothing; then message it to continue. " +
+			"A closed one stays closed. Refused if its Stop says it would fail again (`force` overrides).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false)},
 	}, s.toolAgentHubResumeSession)
 
@@ -140,7 +141,9 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 }
 
 // forAgent is a session as an MCP caller sees it. Preview is the agent's own
-// words for the person's sidebar; agents read the transcript, not this.
+// words for the person's sidebar; agents read the transcript, not this. Stop is
+// kept: it is the structured reason a turn did not complete (kind, whether a
+// retry is worth it, when), with the vendor's sentence marked as third-party.
 func forAgent(s agenthub.AgentSession) agenthub.AgentSession {
 	s.Preview = ""
 	return s
@@ -358,6 +361,15 @@ type peerOut struct {
 	AgentType string `json:"agentType"`
 	Status    string `json:"status"`
 	Relation  string `json:"relation"`
+	// Stop is why its last turn did not complete, in three fields; the vendor's
+	// sentence is in agenthub.getSessionStatus.
+	Stop *peerStopOut `json:"stop,omitempty"`
+}
+
+type peerStopOut struct {
+	Kind       string `json:"kind"`
+	Retryable  bool   `json:"retryable"`
+	RetryAfter string `json:"retryAfter,omitempty"`
 }
 
 type peerListOut struct {
@@ -381,7 +393,14 @@ func compactPeers(peers []agenthub.PeerInfo) peerListOut {
 		if r := []rune(title); len(r) > peerTitleRunes {
 			title = string(r[:peerTitleRunes-1]) + "…"
 		}
-		out.Peers = append(out.Peers, peerOut{SessionID: p.SessionID, Title: title, AgentType: string(p.AgentType), Status: string(p.Status), Relation: string(p.Relation)})
+		row := peerOut{SessionID: p.SessionID, Title: title, AgentType: string(p.AgentType), Status: string(p.Status), Relation: string(p.Relation)}
+		if p.Stop != nil {
+			row.Stop = &peerStopOut{Kind: string(p.Stop.Kind), Retryable: p.Stop.Retryable}
+			if p.Stop.RetryAfter != nil {
+				row.Stop.RetryAfter = p.Stop.RetryAfter.UTC().Format(time.RFC3339)
+			}
+		}
+		out.Peers = append(out.Peers, row)
 	}
 	return out
 }
@@ -471,6 +490,19 @@ type agentHubSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 
+type agentHubResumeInput struct {
+	SessionID string `json:"sessionId"`
+	// Force resumes a session whose stored stop says a resume would fail the
+	// same way (provider down, usage limit, no sign-in, retry time not reached).
+	Force bool `json:"force,omitempty"`
+}
+
+// codeResumeRefused is ResumeChild declining a session that stopped for a reason
+// a resume does not fix. Its message is worded by ResumeRefusedError.Sentence
+// from the kind, the times and the vendor's clipped sentence (marked as theirs);
+// published in bridge keptCodes.
+const codeResumeRefused = "agenthub.resumeRefused"
+
 func (s *Server) toolAgentHubGetSessionStatus(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSessionIDInput) (*sdk.CallToolResult, any, error) {
 	if err := s.requireAgentHub(); err != nil {
 		return nil, nil, err
@@ -507,15 +539,20 @@ func (s *Server) toolAgentHubCancelAgent(ctx context.Context, _ *sdk.CallToolReq
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolAgentHubResumeSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSessionIDInput) (*sdk.CallToolResult, any, error) {
+func (s *Server) toolAgentHubResumeSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubResumeInput) (*sdk.CallToolResult, any, error) {
 	if err := s.requireAgentHub(); err != nil {
 		return nil, nil, err
 	}
 	opaqueID := hubSessionID(in.SessionID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, meta("resume_child", map[string]any{
 		"session_id": opaqueID,
+		"force":      in.Force,
 	}), func(callCtx context.Context) (any, error) {
-		if err := s.deps.AgentHub.ResumeChild(callCtx, in.SessionID); err != nil {
+		if err := s.deps.AgentHub.ResumeChild(callCtx, in.SessionID, in.Force); err != nil {
+			var refused *agenthub.ResumeRefusedError
+			if errors.As(err, &refused) {
+				return nil, apperrors.New(codeResumeRefused, refused.Sentence(), true)
+			}
 			return nil, err
 		}
 		sess, err := s.deps.AgentHub.GetStatus(callCtx, in.SessionID)

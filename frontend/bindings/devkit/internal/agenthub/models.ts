@@ -30,6 +30,13 @@ export interface AgentSession {
      * (internal/mcp/tools_agenthub.go), the UI shows it under the title.
      */
     "Preview"?: string;
+
+    /**
+     * Stop is why the last turn did not complete, when it did not (see
+     * SessionStop). Set when a turn ends in a failure, cleared when the next turn
+     * starts; nil on a session whose last turn completed.
+     */
+    "Stop"?: SessionStop | null;
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;
@@ -834,6 +841,49 @@ export enum SessionStatus {
 };
 
 /**
+ * SessionStop is the stored reason a session's last turn did not complete. It
+ * is written when the turn ends, cleared when the next one starts, and read by
+ * agents through agenthub.getSessionStatus. Nothing in it is the agent's own
+ * output; Message is the vendor's sentence, clipped.
+ */
+export interface SessionStop {
+    "kind": StopKind;
+
+    /**
+     * Message is the vendor's sentence, one line, at most 300 runes ("Upstream
+     * request failed: Endpoint is unavailable."). Empty when the vendor said none.
+     */
+    "message"?: string;
+
+    /**
+     * Note marks Message as third-party text.
+     */
+    "note"?: string;
+
+    /**
+     * Retryable says whether an immediate resume or retry plausibly works. False
+     * for a provider that keeps failing, a spent allowance, a missing sign-in.
+     */
+    "retryable": boolean;
+
+    /**
+     * RetryAfter is when it is worth trying again, when that is known: a usage
+     * limit's reset time, a provider's scheduled next attempt.
+     */
+    "retryAfter"?: string | null;
+
+    /**
+     * Since is when the turn stopped.
+     */
+    "since": string;
+
+    /**
+     * Attempts is how many times the vendor tried before giving up, where it says.
+     */
+    "attempts"?: number;
+}
+
+/**
  * SignInFlow is a sign-in in progress: a page to open (browser) or a code to
  * type on one (device code). LoginID names it to CancelSignIn.
  */
@@ -858,6 +908,62 @@ export interface SignInStatus {
     "email"?: string;
     "plan"?: string;
 }
+
+/**
+ * StopKind names why a turn or a session stopped.
+ */
+export enum StopKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * StopProviderUnavailable: the model provider could not be reached or kept
+     * failing (5xx, overloaded, a gateway error) after the vendor's own retries.
+     */
+    StopProviderUnavailable = "provider_unavailable",
+
+    /**
+     * StopRateLimited: the provider throttled the requests (HTTP 429).
+     */
+    StopRateLimited = "rate_limited",
+
+    /**
+     * StopUsageLimit: the account's allowance is spent; it lifts at a time.
+     */
+    StopUsageLimit = "usage_limit",
+
+    /**
+     * StopAuthRequired: no working sign-in or API key. Only the person fixes it.
+     */
+    StopAuthRequired = "auth_required",
+
+    /**
+     * StopProcessExited: the vendor's process died.
+     */
+    StopProcessExited = "process_exited",
+
+    /**
+     * StopInterruptedByRestart: the app stopped while the turn ran.
+     */
+    StopInterruptedByRestart = "interrupted_by_restart",
+
+    /**
+     * StopCancelled: somebody stopped the turn.
+     */
+    StopCancelled = "cancelled",
+
+    /**
+     * StopTimeout: the turn hit the time limit it runs under.
+     */
+    StopTimeout = "timeout",
+
+    /**
+     * StopFailed: the vendor ended the turn with an error DevKit has no name for.
+     */
+    StopFailed = "failed",
+};
 
 /**
  * TranscriptEntry is one persisted row of a session's conversation.
