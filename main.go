@@ -631,6 +631,10 @@ func main() {
 	if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
 		log.Printf("agenthub: recover stale sessions: %v", err)
 	}
+	// Codex and opencode never name their sessions; the first prompt does.
+	if err := agentSvc.BackfillSessionTitles(context.Background()); err != nil {
+		log.Printf("agenthub: backfill session titles: %v", err)
+	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
 	// A message between sessions is audited with who, to whom, how long and what
