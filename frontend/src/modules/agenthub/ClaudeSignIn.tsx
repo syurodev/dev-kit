@@ -14,6 +14,8 @@ import {
   type AuthMethod,
   type SignInOutcome,
 } from "@/bridge/agentRuntime";
+import { toast } from "sonner";
+import { closeSettings } from "@/workbench/settingsRequest";
 import { vendorInfo } from "./vendors";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { useTerminalTabsStore } from "@/stores/terminalTabs";
@@ -155,8 +157,16 @@ export function ClaudeSignIn({
   );
 }
 
-/** Settings → Agents: sign-in with its own state, nothing to retry. */
+/**
+ * Settings → Agents: sign-in with nothing to retry. The login runs in a terminal
+ * tab under the modal, so starting one closes Settings; the section is gone when
+ * the login ends, so the outcome is told in a toast instead of under the button.
+ */
 export function ClaudeSignInSection({ vendor = CLAUDE_VENDOR }: { vendor?: string } = {}) {
-  const signIn = useClaudeSignIn(undefined, vendor);
-  return <ClaudeSignIn signIn={signIn} vendor={vendor} />;
+  const name = vendorInfo(vendor).name;
+  const signIn = useClaudeSignIn(
+    (outcome) => (outcome.signedIn ? toast.success(`${name}: ${outcome.message}`) : toast.error(`${name}: ${outcome.message}`)),
+    vendor,
+  );
+  return <ClaudeSignIn signIn={signIn} vendor={vendor} onStart={closeSettings} />;
 }

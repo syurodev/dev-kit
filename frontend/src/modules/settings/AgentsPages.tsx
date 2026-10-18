@@ -47,7 +47,7 @@ export function AgentRuntimesPage() {
     <TabColumn>
       <SectionHeader
         title="Runtimes"
-        description="The agents Agent Hub runs. DevKit installs each into its own folder — never on your PATH — at a version it has tested."
+        description="The agents Agent Hub runs. DevKit installs each into its own folder — never on your PATH. Claude and Codex at a version it has tested; opencode at its latest release."
       />
       <VendorSwitch
         label="Agent runtime"

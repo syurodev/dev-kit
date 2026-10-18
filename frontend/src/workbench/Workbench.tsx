@@ -20,7 +20,7 @@ import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
 import { ConfirmHost } from "./ConfirmHost";
-import { onSettingsRequested, requestSettings } from "./settingsRequest";
+import { onSettingsCloseRequested, onSettingsRequested, requestSettings } from "./settingsRequest";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
@@ -308,6 +308,14 @@ export function Workbench() {
       onSettingsRequested((tab) => {
         setSettingsTab(tab);
         setSettingsOpen(true);
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      onSettingsCloseRequested(() => {
+        setSettingsOpen(false);
+        setSettingsTab(undefined);
       }),
     [],
   );

@@ -45,6 +45,7 @@ import {
   formatBytes,
   hintCommands,
   onAgentRuntimeInstallOutput,
+  runtimeDetail,
   runtimeStatusLine,
   type AgentRuntimeStatus,
   type ClaudeBinarySource,
@@ -167,10 +168,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
             {latest ? <span className="text-body-12 text-status-warning">{latest}</span> : null}
             <span className="text-caption-11 text-text-tertiary">
               {current
-                ? current.nodeVersion
-                  ? `SDK ${current.sdkVersion} · Node ${current.nodeVersion} · ${formatBytes(s.diskBytes)} on disk`
-                  : // A native binary (Codex): no SDK, and Node was only for the install.
-                    `${formatBytes(s.diskBytes)} on disk`
+                ? runtimeDetail(current, s.diskBytes)
                 : pinned
                   ? `DevKit has tested ${testedVersion}. ${formatBytes(s.diskBytes)} on disk.`
                   : `DevKit installs the latest release. ${formatBytes(s.diskBytes)} on disk.`}

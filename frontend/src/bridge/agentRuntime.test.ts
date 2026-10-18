@@ -13,6 +13,7 @@ import {
   signInOutcome,
   isRuntimeRequirementError,
   runtimeBlocked,
+  runtimeDetail,
   runtimeStatusLine,
   type AgentRuntimeStatus,
   type InstalledRuntime,
@@ -96,6 +97,14 @@ describe("runtimeStatusLine", () => {
   });
 });
 
+test("runtimeDetail: a native binary has no SDK to show", () => {
+  const sdk = { ...installed("0.78.0"), sdkVersion: "0.3.270", nodeVersion: "24.14.1" };
+  expect(runtimeDetail(sdk, 2048)).toBe("SDK 0.3.270 · Node 24.14.1 · 2.0 KB on disk");
+  // Node was only there to install it.
+  expect(runtimeDetail({ ...installed("2.0.32"), nodeVersion: "24.14.1" }, 2048)).toBe("2.0 KB on disk");
+  expect(runtimeDetail(installed("0.163.0"), 0)).toBe("0 B on disk");
+});
+
 test("runtimeBlocked: no install, or an unmet requirement", () => {
   const node = { name: "node", minVersion: "22", met: true, found: "24", path: "/n", problem: "", installHint: "" };
   expect(runtimeBlocked(status({}))).toBe(true);
@@ -141,6 +150,8 @@ describe("sign-in", () => {
       "Sign in with Anthropic Console",
     );
     expect(signInLabel({ id: "sso-login", name: "Company SSO" })).toBe("Sign in with Company SSO");
+    // opencode names its own method "Login with opencode".
+    expect(signInLabel({ id: "opencode-login", name: "Login with opencode" })).toBe("Sign in to opencode");
   });
 
   test("only exit 0 is signed in, and so only exit 0 retries", () => {
