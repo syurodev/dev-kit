@@ -2229,7 +2229,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### github.com/wailsapp/wails/v3 (v3.0.0-beta.30)
+### github.com/wailsapp/wails/v3 (v3.0.0-beta.31)
 
 - License: MIT
 - Source: https://github.com/wailsapp/wails
@@ -2320,10 +2320,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### golang.org/x/crypto (v0.55.0)
+### golang.org/x/crypto (v0.57.0)
 
 - License: BSD-3-Clause
-- Source: https://pkg.go.dev/golang.org/x/crypto@v0.55.0
+- Source: https://pkg.go.dev/golang.org/x/crypto@v0.57.0
 
 ```text
 Copyright 2009 The Go Authors.
@@ -9801,7 +9801,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @wailsio/runtime (3.0.0-beta.30)
+### @wailsio/runtime (3.0.0-beta.31)
 
 - License: MIT
 - Source: https://github.com/wailsapp/wails
