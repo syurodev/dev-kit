@@ -1,36 +1,94 @@
 package agenthub
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestHopCountsWhatTheSenderWasHandedAndForgetsIt(t *testing.T) {
+func TestHopCountsTheExchangeOfOnePairAndForgetsIt(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	p := &peerState{now: func() time.Time { return now }}
 	p.init()
-	if got := p.hopFor("a", ""); got != 1 {
+	if got := p.hopFor("a", "b", ""); got != 1 {
 		t.Fatalf("fresh hop = %d, want 1", got)
 	}
-	// a was handed a step-3 message: whatever it sends now is step 4, named or not.
-	p.chain["a"] = peerChain{hop: 3, at: now}
-	if got := p.hopFor("a", ""); got != 4 {
+	// b sent a a step-3 message: a's answer is step 4, named or not.
+	p.noteHop("b", "a", 3)
+	if got := p.hopFor("a", "b", ""); got != 4 {
 		t.Fatalf("reply hop = %d, want 4", got)
 	}
-	// replyTo can raise the count, and only for a message that was addressed to the sender.
-	p.remember("m-to-a", peerRecord{from: "b", to: "a", hop: 5})
-	p.remember("m-to-c", peerRecord{from: "b", to: "c", hop: 5})
-	if got := p.hopFor("a", "m-to-a"); got != 6 {
-		t.Fatalf("hop naming its own message = %d, want 6", got)
+	// Direction does not matter for the key, and a's repeated sends do not
+	// deepen it: nobody answered.
+	p.noteHop("a", "b", 4)
+	if got := p.hopFor("a", "b", ""); got != 4 {
+		t.Fatalf("second message in a row = %d, want 4 (unanswered)", got)
 	}
-	if got := p.hopFor("a", "m-to-c"); got != 4 {
-		t.Fatalf("hop naming someone else's message = %d, want 4 (not raised)", got)
+	if got := p.hopFor("b", "a", ""); got != 5 {
+		t.Fatalf("b answering = %d, want 5", got)
+	}
+	// Another pair is another exchange, whatever a and b said.
+	if got := p.hopFor("a", "c", ""); got != 1 {
+		t.Fatalf("a -> c = %d, want 1", got)
+	}
+	if got := p.hopFor("c", "a", ""); got != 1 {
+		t.Fatalf("c -> a = %d, want 1", got)
+	}
+	// replyTo can raise the count, and only for a message the target sent to the sender.
+	p.remember("m-b-a", peerRecord{from: "b", to: "a", hop: 7})
+	p.remember("m-b-c", peerRecord{from: "b", to: "c", hop: 7})
+	p.remember("m-c-a", peerRecord{from: "c", to: "a", hop: 7})
+	if got := p.hopFor("a", "b", "m-b-a"); got != 8 {
+		t.Fatalf("hop naming the target's message = %d, want 8", got)
+	}
+	if got := p.hopFor("a", "b", "m-b-c"); got != 4 {
+		t.Fatalf("hop naming a message to someone else = %d, want 4 (not raised)", got)
+	}
+	if got := p.hopFor("a", "b", "m-c-a"); got != 4 {
+		t.Fatalf("hop naming another pair's message = %d, want 4 (not raised)", got)
 	}
 	// After the decay the exchange is over.
 	now = now.Add(peerChainDecay + time.Second)
-	if got := p.hopFor("a", ""); got != 1 {
+	if got := p.hopFor("a", "b", ""); got != 1 {
 		t.Fatalf("hop after the decay = %d, want 1", got)
+	}
+}
+
+func TestEndingASessionsChainsLeavesOtherPairsAlone(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	p := &peerState{now: func() time.Time { return now }}
+	p.init()
+	p.noteHop("a", "b", 2)
+	p.noteHop("c", "a", 2)
+	p.noteHop("b", "c", 2)
+	p.resetChain("a")
+	if got := p.hopFor("b", "a", ""); got != 1 {
+		t.Fatalf("b -> a after a was reset = %d, want 1", got)
+	}
+	if got := p.hopFor("a", "c", ""); got != 1 {
+		t.Fatalf("a -> c after a was reset = %d, want 1", got)
+	}
+	if got := p.hopFor("c", "b", ""); got != 3 {
+		t.Fatalf("c -> b = %d, want 3 (untouched)", got)
+	}
+	p.forget("b")
+	if got := p.hopFor("c", "b", ""); got != 1 {
+		t.Fatalf("c -> b after b was forgotten = %d, want 1", got)
+	}
+}
+
+func TestExpiredChainsAreSwept(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	p := &peerState{now: func() time.Time { return now }}
+	p.init()
+	for i := 0; i < peerPairSweep; i++ {
+		p.noteHop("a", fmt.Sprintf("s%d", i), 1)
+	}
+	now = now.Add(peerChainDecay + time.Second)
+	p.noteHop("a", "fresh", 1)
+	if len(p.chain) != 1 {
+		t.Fatalf("%d chains kept, want only the fresh one", len(p.chain))
 	}
 }
 

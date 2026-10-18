@@ -808,16 +808,19 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   text (the tool asks, `CrossWorkspaceApproved` is never a wire field); a closed session is never woken. The row is a
   `user_message_chunk` with `source` (`MessageSource`, stored payload + `_devkit.source`), drawn by `PeerMessage` and
   never as the person's bubble; the model gets an envelope (`peerEnvelope`) saying it is not the person's, framed by
-  lines carrying the message id. Loop/storm guards: hop count (replies count even without `replyTo`; the person's
-  prompt resets it; cap 6), 5/min per pair, 20/min per target. `chain[session]` is the highest hop the session was
-  handed in the last 15 min; a reply is chain+1. **A hop-1 message starts an exchange, so it resets the target's chain
-  to 1** (the terminal's deletes it) instead of being ignored — a sender with nothing handed (or decayed) is never part
-  of a loop, and without this a parent re-prompted by the person left each child at its old 5, so the child's answer was
-  hop 6/7 and refused. **A message to the sender's own PARENT is never refused by the hop cap** (it still counts the
-  hop, raising the parent's chain, and stays under the 5/min pair and 20/min target limits); the cap and its `loop`
+  lines carrying the message id. Loop/storm guards: hop count (**per pair of sessions**, below; the person's prompt
+  resets it; cap 6), 5/min per pair, 20/min per target. `peerState.chain` is keyed by the unordered pair `{A,B}` (`peerPair`),
+  not by session: it holds the hop of the last message either sent the other, who sent it and when. A message A→B is
+  step 1 with no exchange in the last 15 min (`peerChainDecay`); one step deeper than the last when B spoke last (an
+  answer, `replyTo` or not); the *same* step when A spoke last (a second progress report is not a conversation, nobody
+  answered); `replyTo` naming a message B sent A can only raise it. So what either says to a third session never moves
+  the pair — a parent hearing from three children counts each child apart (before: one shared `chain[parent]`, and the
+  parent's next message to a child was "step 7") — and never resets it either, so interleaving other messages is no way
+  past the cap. The person's prompt to a session (`resetChain`), closing/deleting it (`forget`) and the terminal sending
+  to it end every pair containing it. **A message to the sender's own PARENT is never refused by the hop cap** (it is
+  still recorded in its own pair, and stays under the 5/min pair and 20/min target limits); the cap and its `loop`
   refusal stay for parent→child, sibling↔sibling (4) and every other pair, so a parent↔child ping-pong stops on the
-  parent's side. Before this, in a parent with three children every message raised someone's chain and a child's final
-  report was refused 4 times in a row (seen in the person's database). Tests: `peer_hops_test.go`. Not run with real
+  parent's side. The test rig's `hold` starts its turn as the terminal, because a window prompt would end the pair. Tests: `peer_hops_test.go`. Not run with real
   models: the tests drive the mock runtime. The window mirrors its own prompt queue to Go
   (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
   checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.
