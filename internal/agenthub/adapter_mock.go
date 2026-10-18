@@ -429,6 +429,17 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		}
 	}
 
+	// A turn the vendor refuses, with the sentences the real vendors gave: an
+	// opencode provider that returned 503 on every retry, and Codex's usage limit.
+	if strings.Contains(text, "FAIL_PROVIDER_503") {
+		const said = "Upstream request failed: Endpoint is unavailable."
+		return PromptOutcome{}, WithStopHint(vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said), StopHint{Attempts: 11})
+	}
+	if strings.Contains(text, "FAIL_USAGE_LIMIT") {
+		const said = "You've hit your usage limit. Try again at 3:10 PM."
+		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrAgentUsageLimit, said), said)
+	}
+
 	update, err := json.Marshal(map[string]any{
 		"sessionUpdate": "agent_message_chunk",
 		"content": map[string]any{

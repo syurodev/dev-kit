@@ -733,6 +733,10 @@ var keptCodes = map[string]bool{
 	"pr.rejected":    true,
 	"pr.invalid":     true,
 	"pr.unavailable": true,
+	// internal/mcp/tools_agenthub.go codeResumeRefused: ResumeRefusedError.Sentence —
+	// a fixed sentence per stop kind, the stop's time, and the vendor's text folded
+	// to one line, clipped to 300 runes and said to be third-party.
+	"agenthub.resumeRefused": true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that

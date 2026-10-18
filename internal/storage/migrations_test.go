@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 42 {
-		t.Fatalf("migration version = %d, want 42", version)
+	if version != 43 {
+		t.Fatalf("migration version = %d, want 43", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -886,5 +886,24 @@ func TestMigration41AddsSessionPreview(t *testing.T) {
 	}
 	if notNull != 1 || dflt.String != "''" {
 		t.Fatalf("preview: notnull=%d default=%q", notNull, dflt.String)
+	}
+}
+
+func TestMigration43AddsSessionStop(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var dflt sql.NullString
+	var notNull int
+	if err := db.QueryRow(`SELECT dflt_value, "notnull" FROM pragma_table_info('agent_sessions') WHERE name = 'stop'`).Scan(&dflt, &notNull); err != nil {
+		t.Fatalf("agent_sessions.stop missing: %v", err)
+	}
+	if notNull != 1 || dflt.String != "''" {
+		t.Fatalf("stop: notnull=%d default=%q", notNull, dflt.String)
 	}
 }

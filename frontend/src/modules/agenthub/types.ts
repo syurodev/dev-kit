@@ -247,12 +247,13 @@ export type SessionUpdate = {
 
 /**
  * Where a user message came from when it was not the person at the composer:
- * another Agent Hub session, or the person's terminal CLI. Mirrors
+ * another Agent Hub session, the person's terminal CLI, or a DevKit notice about
+ * a session ("devkit": why a child stopped; sessionId is that session). Mirrors
  * peer.go: MessageSource. The label is stored with the row, so a reload draws
  * the same thing the live message did.
  */
 export type MessageSource = {
-  kind: "session" | "terminal" | string;
+  kind: "session" | "terminal" | "devkit" | string;
   sessionId?: string;
   agentType?: string;
   /** The sender's title when the message was sent; the live title wins. */

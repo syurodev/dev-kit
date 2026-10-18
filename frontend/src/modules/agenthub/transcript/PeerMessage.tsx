@@ -18,6 +18,7 @@ const LONG_MESSAGE = 220;
 export function peerSourceLabel(source: MessageSource, liveName?: string): string {
   if (source.kind === "terminal") return "From a CLI in your terminal";
   const name = (liveName || source.name || "another session").trim();
+  if (source.kind === "devkit") return `DevKit notice about ${name}`;
   return `From ${name}`;
 }
 
@@ -79,6 +80,8 @@ export function PeerMessageView({ source, text, at, onCopy, sender, onOpenSessio
   const textId = React.useId();
   const long = useClampOverflow(paragraph, text, expanded);
   const terminal = source.kind === "terminal";
+  // DevKit's own notice about a session (why a child stopped); sessionId is the session it is about.
+  const notice = source.kind === "devkit";
   const name = terminal ? "a CLI in your terminal" : (sender?.title || source.name || "another session").trim();
   const open = source.sessionId && sender && onOpenSession ? () => onOpenSession(source.sessionId!) : undefined;
   const vendor = sender?.agentType ?? source.agentType;
@@ -89,7 +92,7 @@ export function PeerMessageView({ source, text, at, onCopy, sender, onOpenSessio
         <FramedCardHeader
           title={
             <PeerParty
-              prefix="From"
+              prefix={notice ? "DevKit notice about" : "From"}
               title={name}
               vendor={vendor}
               terminal={terminal}

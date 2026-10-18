@@ -25,6 +25,8 @@ type Store interface {
 	UpdateSessionStatus(ctx context.Context, id string, status SessionStatus, at time.Time) error
 	UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error
 	UpdateSessionPreview(ctx context.Context, id, preview string, at time.Time) error
+	// UpdateSessionStop records why the last turn did not complete; nil clears it.
+	UpdateSessionStop(ctx context.Context, id string, stop *SessionStop, at time.Time) error
 	// UpdateSessionACPID points a session at another vendor session — the
 	// fork a rewind made. Its own writer, like status and title.
 	UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error
@@ -78,15 +80,15 @@ func nullableWorkspaceID(id string) sql.NullString {
 	return sql.NullString{String: id, Valid: id != ""}
 }
 
-const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, preview, created_at, updated_at`
+const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, preview, stop, created_at, updated_at`
 
 func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var s AgentSession
 	var parent, title, workspaceID sql.NullString
 	var createdAt, updatedAt string
-	var agentType, status, extraRW string
+	var agentType, status, extraRW, stopJSON string
 	if err := scan(
-		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &s.Preview, &createdAt, &updatedAt,
+		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &s.Preview, &stopJSON, &createdAt, &updatedAt,
 	); err != nil {
 		return AgentSession{}, err
 	}
@@ -95,6 +97,14 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 		return AgentSession{}, err
 	}
 	s.ExtraReadWritePaths = paths
+	if stopJSON != "" {
+		var stop SessionStop
+		// A row this build cannot read is a session with no recorded stop, not a
+		// session that cannot be listed.
+		if json.Unmarshal([]byte(stopJSON), &stop) == nil && stop.Kind != "" {
+			s.Stop = &stop
+		}
+	}
 	s.AgentType = AgentType(agentType)
 	s.Status = SessionStatus(status)
 	s.ParentSessionID = stringPtr(parent)
@@ -181,6 +191,19 @@ func (st *SQLStore) UpdateSessionTitle(ctx context.Context, id, title string, at
 // UpdateSessionPreview writes the preview line alone, for the same reason.
 func (st *SQLStore) UpdateSessionPreview(ctx context.Context, id, preview string, at time.Time) error {
 	return st.updateSessionColumn(ctx, `preview = ?`, id, preview, at)
+}
+
+// UpdateSessionStop writes the stop alone (nil clears it), for the same reason.
+func (st *SQLStore) UpdateSessionStop(ctx context.Context, id string, stop *SessionStop, at time.Time) error {
+	encoded := ""
+	if stop != nil {
+		raw, err := json.Marshal(stop)
+		if err != nil {
+			return err
+		}
+		encoded = string(raw)
+	}
+	return st.updateSessionColumn(ctx, `stop = ?`, id, encoded, at)
 }
 
 // UpdateSessionACPID writes the vendor session id alone, for the same reason.

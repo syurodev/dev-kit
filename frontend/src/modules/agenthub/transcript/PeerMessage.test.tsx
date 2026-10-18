@@ -46,6 +46,15 @@ describe("a message from another session", () => {
     expect(html).toContain('data-slot="status-chip"');
   });
 
+  it("introduces a DevKit notice as DevKit's, about the session it names", () => {
+    const source: MessageSource = { ...FROM, kind: "devkit" };
+    expect(peerSourceLabel(source)).toBe("DevKit notice about alpha (then)");
+    const html = renderToString(<PeerMessageView source={source} text="Session stopped" sender={alive} onOpenSession={() => {}} />);
+    expect(html).toContain('data-source-kind="devkit"');
+    expect(html).toContain('aria-label="DevKit notice about alpha (now). Open this session"');
+    expect(html).not.toContain("From alpha");
+  });
+
   it("introduces the terminal as the person's CLI, not as a session", () => {
     const source: MessageSource = { kind: "terminal", hop: 1 };
     expect(peerSourceLabel(source)).toBe("From a CLI in your terminal");

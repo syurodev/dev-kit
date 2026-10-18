@@ -1539,7 +1539,11 @@ func (r *claudeRuntime) turnRefusal(err error) error {
 	if on := r.handlersSnapshot().OnUpdate; on != nil {
 		on(sessionFailureUpdate(failure), nil)
 	}
-	return vendorMessageError(r.vendorType(), fmt.Errorf("%w: session/prompt: %s", ErrTurnFailed, message), message)
+	failed := vendorMessageError(r.vendorType(), fmt.Errorf("%w: session/prompt: %s", ErrTurnFailed, message), message)
+	r.retryMu.Lock()
+	retry := r.lastRetry
+	r.retryMu.Unlock()
+	return WithStopHint(failed, retry.stopHint())
 }
 
 // lastRetrySentence is what the provider said the last time the agent retried
