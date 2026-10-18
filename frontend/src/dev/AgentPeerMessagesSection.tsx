@@ -84,6 +84,12 @@ export function AgentPeerMessagesSection() {
           <MessageSentCard message={sent({ messageId: "e", delivery: "refused", code: "not_found", reason: "No session with that id is reachable from yours. agenthub.listPeers lists the sessions of your workspace." })} />
         </div>
 
+        <div className="flex w-full max-w-240 flex-col gap-3" data-testid="peer-wide">
+          <h3 className="text-label-12 text-text-tertiary">A wide column (960px): both cards fill it, like the tool result cards</h3>
+          <PeerMessageView source={alpha} sender={sender("Refactor invoice rounding", "claude")} onOpenSession={setOpened} text={LONG} />
+          <MessageSentCard message={sent({ messageId: "w", delivery: "queued", sessionId: "gamma", title: "Why does the retry test flake on CI?", hop: 1 })} recipient={sender("Why does the retry test flake on CI?", "claude")} onOpenSession={setOpened} />
+        </div>
+
         <div className="flex w-70 flex-col gap-3" data-testid="peer-narrow">
           <h3 className="text-label-12 text-text-tertiary">Rail width (280px), a long name and a long report</h3>
           <PeerMessageView source={CHIRO} sender={sender("CHIRO-fa9e88 QA khôi phục ca — kiểm thử hủy hàng loạt", "opencode")} onOpenSession={setOpened} text={VIETNAMESE} />

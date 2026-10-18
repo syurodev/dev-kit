@@ -53,6 +53,7 @@ import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
 import { GettingStarted } from "@/workbench/GettingStarted";
+import { providerRetryFailure } from "./providerRetry";
 import { rateLimitFailure } from "./surfaces/AgentContextMeter";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -1056,7 +1057,8 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // rate-limit rejection through that channel (only through usage_update's
   // rateLimit), so without this a rejected turn had no banner at all — just
   // the composer's context-meter popover, which nobody opens unprompted.
-  const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
+  const activeFailure =
+    transcriptModel.failure ?? providerRetryFailure(transcriptModel.retry) ?? rateLimitFailure(transcriptModel.usage);
 
   // A tab restored for a session the list does not have yet is still loading;
   // once the list is in, the session is gone (deleted elsewhere, or with its

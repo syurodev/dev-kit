@@ -160,6 +160,27 @@ export type SessionFailure = {
   reason?: string;
   /** "login" | "retry" | "new_session", as the vendor names them. */
   actions?: string[];
+  /**
+   * Set only on the notice DevKit derives from a ProviderRetry (never sent by
+   * Go): when the agent will try again. The banner counts down to it, and it
+   * has no Dismiss — the next attempt or the turn ending replaces it.
+   */
+  retryAt?: string;
+};
+
+/**
+ * The model provider failed and the agent is waiting to try again (opencode's
+ * retry notice). Transient: the next attempt replaces it and null clears it.
+ * Mirrors internal/agenthub/update.go: ProviderRetry
+ */
+export type ProviderRetry = {
+  attempt: number;
+  /** RFC 3339, the vendor's own time. */
+  nextRetryAt?: string;
+  message?: string;
+  /** The provider's HTTP status, when it gave one. */
+  status?: number;
+  type?: string;
 };
 
 /**
@@ -210,6 +231,8 @@ export type SessionUpdate = {
   /** The goal was removed — which `goal: null` alone cannot say, since most
    * session_info_updates carry no goal at all. */
   goalCleared?: boolean;
+  /** On a provider_retry_update: the outage being waited out; null/absent clears it. */
+  retry?: ProviderRetry | null;
   /** The whole MCP server list, on a devkit_connectors_update. */
   connectors?: Connector[];
   messageId?: string;
@@ -382,6 +405,13 @@ export type TranscriptModel = {
    */
   failure: SessionFailure | null;
   goal: SessionGoal | null;
+  /**
+   * The provider outage the agent is retrying through right now. Session
+   * state like the failure, but cleared explicitly (the next attempt's null,
+   * the turn ending) — a new prompt does not clear it, because the single row
+   * the recorder keeps sits above that prompt on a reload.
+   */
+  retry: ProviderRetry | null;
   /** The MCP servers the vendor started, for a vendor that reports them; empty otherwise. */
   connectors: Connector[];
   commands: AvailableCommand[];

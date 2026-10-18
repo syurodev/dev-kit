@@ -66,6 +66,12 @@ describe("an Agent Hub tab when a turn finishes", () => {
     });
   });
 
+  it("clears the rail's provider-retry line when the turn ends", () => {
+    useAgentSessionsStore.getState().setProviderRetry("s1", { attempt: 11, message: "Endpoint is unavailable.", status: 503 });
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "error" });
+    expect(useAgentSessionsStore.getState().providerRetries.s1).toBeUndefined();
+  });
+
   it("marks a completed turn finished, beside the unread badge", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
 

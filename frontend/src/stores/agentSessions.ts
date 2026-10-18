@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AgentImageAttachment, AgentSession, PendingElicitation, PendingPermission } from "../bridge/agenthub";
 import type {
+  ProviderRetry,
   Subagent,
   TranscriptModel,
   TranscriptPaging,
@@ -12,6 +13,7 @@ export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
   items: [],
   usage: null,
   failure: null,
+  retry: null,
   goal: null,
   connectors: [],
   commands: [],
@@ -94,6 +96,12 @@ type AgentSessionsState = {
    * one from last week is not what the rail is for.
    */
   subagents: Record<string, Subagent[]>;
+  /**
+   * The provider outage each session's agent is retrying through right now, for
+   * the rail's row (a transcript is loaded only for the open session). Live
+   * updates only, and gone when the notice clears or the turn ends.
+   */
+  providerRetries: Record<string, ProviderRetry>;
   pending: PendingPermission | null;
   pendingQueue: PendingPermission[];
   /**
@@ -136,6 +144,8 @@ type AgentSessionsState = {
   setTranscriptLoading: (sessionId: string, loading: boolean) => void;
   setTranscriptError: (sessionId: string, error: Error | null) => void;
   setTranscriptPaging: (sessionId: string, paging: TranscriptPaging) => void;
+  /** Null clears the session's retry notice. */
+  setProviderRetry: (sessionId: string, retry: ProviderRetry | null) => void;
   /**
    * Records a subagent_spawned or subagent_state_update. Neither message is
    * complete — the spawn names it, the state update only says how it ended —
@@ -192,6 +202,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   transcriptPagingById: {},
   promptBySession: {},
   subagents: {},
+  providerRetries: {},
   pending: null,
   pendingQueue: [],
   elicitation: null,
@@ -226,6 +237,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       // The session's subagents go with it. Nothing reads them once the session
       // is gone, so leaving them behind is a map that only ever grows.
       const { [id]: _gone, ...subagents } = state.subagents;
+      const { [id]: _retry, ...providerRetries } = state.providerRetries;
       const { [id]: _session, ...sessionsById } = state.sessionsById;
       const { [id]: _transcript, ...transcriptsById } = state.transcriptsById;
       const { [id]: _loading, ...transcriptLoadingById } = state.transcriptLoadingById;
@@ -253,6 +265,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
         queuePausedBySession,
         queuePauseReasonBySession,
         subagents,
+        providerRetries,
       };
     }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
@@ -272,6 +285,15 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     set((state) => ({
       transcriptPagingById: { ...state.transcriptPagingById, [sessionId]: paging },
     })),
+  setProviderRetry: (sessionId, retry) =>
+    set((state) => {
+      if (!retry) {
+        if (!(sessionId in state.providerRetries)) return {};
+        const { [sessionId]: _gone, ...providerRetries } = state.providerRetries;
+        return { providerRetries };
+      }
+      return { providerRetries: { ...state.providerRetries, [sessionId]: retry } };
+    }),
   trackSubagent: (sessionId, subagent) =>
     set((state) => {
       const current = state.subagents[sessionId] ?? [];
