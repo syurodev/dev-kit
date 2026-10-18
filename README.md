@@ -1,206 +1,140 @@
 # DevKit
 
-DevKit is a local-first developer toolkit built with **Wails v3** — a Go backend
-(`internal/`, `main.go`) and a React + TypeScript + Vite frontend (`frontend/`).
-Secrets live in a zero-knowledge vault (mandatory Master Password); built-in
-modules cover notes, database connections, SSH, Kafka, and hashing tools, plus a
-local-first encrypted sync client with Git-style conflict resolution. Design
-specs live under `docs/`.
+DevKit is a local-first desktop workbench for developers. It puts the things you reach for
+every day in one window: coding agents (Claude, Codex, opencode), a code browser that
+understands your services, Git and pull requests, an API client, notes, and clients for
+databases, Kafka and SSH. Your credentials and notes live in an encrypted vault unlocked by a
+Master Password, everything works offline, and sync is optional and zero-knowledge. It is built
+with [Wails v3](https://v3.wails.io): a Go backend and a React + TypeScript frontend.
 
-For module UI work, start with the [sidebar and workbench tab integration guide](docs/design/module-shell-integration.md).
-It defines shell ownership, the integration recipe, lifecycle rules and the review checklist.
+DevKit is early and under active development. Parts of it are marked "not verified" below;
+[`AGENTS.md`](AGENTS.md) records what has and has not been checked against real services.
 
-## Quickstart
+## What you can do with it
 
-Prerequisites: Go (>= 1.25), [bun](https://bun.sh), `task`
-([go-task](https://taskfile.dev)), and — only to compile the Wails CLI / native
-GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
+**Work with several coding agents at once (Agent Hub).** Run Claude Code, Codex and opencode as
+sessions side by side. Each session runs inside an OS sandbox (Seatbelt on macOS, bubblewrap on
+Linux) and refuses to start without one. Pick the model and effort per session, and keep named
+model profiles, which can also serve as subagents. A session can start child sessions, and
+sessions can message each other. Attach files (text, images, PDF, `.docx`, `.xlsx`), give a
+workspace shared instructions and memory, see each turn's file changes, restore them, or rewind
+the conversation.
 
-| Task | Command |
-| --- | --- |
-| Desktop dev (native window) | `task dev` |
-| Headless / server mode (HTTP, loopback only) | `task run:server` |
-| Production desktop build | `task build` |
-| Go tests | `go test ./internal/... ./cmd/...` |
-| Architecture layering gate | `go test ./internal/arch/` |
-| Two-device sync E2E | `go test ./cmd/mocksyncserver/` |
-| Deployed sync matrix (opt-in Compose) | `set -a; . .superpowers/sdd/deployed-e2e.env; set +a; go test ./cmd/synce2e/ -count=1 -timeout 15m` |
-| Go format check | `gofmt -l internal main.go` |
-| Go vet | `go vet -tags server ./...` |
-| Go lint (errcheck off; see `.golangci.yml`) | `golangci-lint run` |
-| Frontend tests (incl. module boundary + design-system ratchets) | `cd frontend && bun run test` |
-| Frontend build + typecheck | `cd frontend && bun run build` |
-| Frontend-only dev server (Vite, no Go backend) | `cd frontend && bun run dev` |
-| Regenerate Wails bindings (after Go bridge changes) | `wails3 generate bindings` |
-| MCP stdio proxy (needs desktop + unlocked vault) | `task mcp` |
-| Install DevKit MCP into an agent | `task mcp:install AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
-| Uninstall DevKit MCP from an agent | `task mcp:uninstall AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
-| Agent Hub (Partial: Claude + Codex; see `AGENTS.md`) | `go test ./internal/acp/ ./internal/codexapp/ ./internal/agenthub/` |
+**Understand code across a workspace (CodeGraph).** A workspace is a set of folders. CodeGraph
+indexes Java, TypeScript and Lua projects and shows entry points (HTTP, messages, schedules,
+Kong plugin phases), call flows, the configuration a flow depends on, and the database tables it
+touches. It also links services through the HTTP calls, Kafka topics and Redis keys they share.
+Markdown and PDF files open in the same editor.
 
-Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
+**Ship changes (Git, pull requests, accounts).** Stage by hunk, resolve conflicts in a
+three-pane view, and commit as the identity of the account bound to the remote. Pushes are gated
+by the remote's environment tag and there is no force push. DevKit tracks the pull request of a
+branch (GitHub and GitLab) with its checks and review comments. Tokens and SSH keys live in
+Accounts, and Git uses them without showing them to anyone.
 
-### MCP (agent tools)
+**Call and inspect services.** The API client has collections, three scopes of variables,
+environments, pasted cURL and Postman import/export. The database module browses schemas, runs
+queries in consoles, edits table data and explains plans for PostgreSQL and MySQL/MariaDB. The
+Kafka module browses topics and consumer groups, peeks at messages and publishes. The SSH module
+manages host profiles with host-key checks, an interactive terminal and port forwards.
 
-**Implemented runtime** (stdio tools + install; Resources / Streamable HTTP deferred).
-Not claimed as production-tested end-to-end against a real Claude Code / Codex session
-in CI — verify locally on a desktop build.
+**Keep track of work.** Notes (rich-text editor, folders, tags, backlinks, history, trash) are
+encrypted. Tasks live on boards that can run a verify command before a task may be closed. Small
+developer tools (hashes, Base64, UUIDs, JSON, JWT decode) are one command away.
 
-- The **desktop app** hosts the MCP tool server over a Unix domain socket (`mcp.sock`
-  under the app config dir) after unlock. Agents do not talk to that socket directly.
-- `task mcp` / `cmd/devkit-mcp` is a **stdio ↔ socket proxy** that MCP clients spawn.
-- Install writes local agent config only (no network):
-  `task mcp:install AGENT=claude-code|codex SCOPE=global|project PROJECT=.`
-  (`claude-code` / `codex` only in v1; Cursor deferred).
-- Gated tools (SSH / Database / Kafka) use sticky active targets plus env-tag
-  confirmation. Dialog choices are `allow` / `allow_always` / `deny`. When the env
-  tag `requiresConfirmation` (including fail-closed / locked `prod`), **env wins**:
-  prompt every call, ignore prior `allow_always`, and do not offer Allow always.
-- Headless / server mode / no GUI prompter: selection and confirmation **fail fast**
-  (`selection_required` / `confirmation_required`) — they do not hang waiting for UI.
+**Let agents use all of it, safely (MCP).** DevKit is an MCP server. An agent can read notes,
+query a database, run a command over SSH, walk the CodeGraph, commit, open a pull request or
+create a task, but only through tools that go through DevKit's permission checks. Tools that reach
+a database, SSH host or Kafka cluster ask according to the environment's tag; pull-request writes
+and pushes to protected branches always ask.
 
-### Remote config + OIDC (Sync login)
+## Principles
 
-Local-first: vault and local modules work with no network. Sync login needs OIDC
-settings from the pinned API host (`https://api.synx.io.vn/v1/desktop/config`) or
-from disk cache after a successful fetch. `internal/cloudconfig` fetches on
-startup, caches under app-private storage, and refreshes when connectivity returns.
+- **Local-first.** The vault, notes and every module work offline. Data lives in a local
+  SQLite database.
+- **Encrypted at rest.** Secrets and note bodies are sealed with a key derived from your
+  Master Password (Argon2id, XChaCha20-Poly1305). The vault is locked every time the app starts.
+- **Zero-knowledge sync, optional.** The sync client encrypts before upload and resolves
+  conflicts Git-style, with no automatic winner. The server only stores opaque encrypted envelopes.
+- **Secrets stay out of agents.** No tool returns a credential to an agent. DevKit resolves
+  tokens, keys and passwords itself at the moment of use.
+- **Every action is gated and audited.** Calls pass one capability gateway that records an
+  audit event. Environment tags (`dev`, `stg`, `prod`, your own) decide when you are asked, and
+  on a tag that asks, every call asks.
+- **Agents are sandboxed.** Agent processes write only where the session is allowed to, and
+  `~/.ssh`, `~/.gnupg`, `~/.aws` and DevKit's own data directory stay hidden from them.
 
-`DEVKIT_OIDC_*` env vars **override** remote/cache when set (local dev / alternate IdP).
-OIDC protocol code lives in `internal/auth` (wired from `main.go`).
+## How it fits together
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `DEVKIT_OIDC_ISSUER` | for Sync auth | Keycloak realm issuer, e.g. `https://auth.example/realms/devkit` |
-| `DEVKIT_OIDC_CLIENT_ID` | no | Default `devkit-desktop` |
-| `DEVKIT_OIDC_SCOPES` | no | Default `openid profile email roles` |
-| `DEVKIT_OIDC_AUTH_URL` | no | Override authorize URL |
-| `DEVKIT_OIDC_TOKEN_URL` | no | Override token URL |
-
-Example (local Keycloak from companion backend Compose):
-
-`export DEVKIT_OIDC_ISSUER=https://localhost:…/realms/devkit`  
-(use the real HTTPS issuer your realm publishes; loopback callback stays `http://127.0.0.1:62364/callback`.)
-
-## Server mode security
-
-`go build -tags server` creates a local headless convenience mode that binds
-only to `127.0.0.1` (or another loopback address). It is not a remote API or a
-production web-server deployment option. Public binding, TLS, authentication,
-and authorization are unsupported until a separate server design provides
-those controls.
-
-Because the bridge has no authentication, server mode cannot tell a person's
-"Allow" from any other local process's. So in server mode:
-
-- **Agent Hub does not start sessions** (`ErrUnavailableInServerMode`); use the
-  desktop app.
-- **Every confirmation fails fast**: MCP tools on the active target (any env), and
-  actions that need a confirmation from the UI (push to a prod remote, commit on a
-  guarded branch, sending to a prod API environment, task gates).
-
-Planned: ask for these through the OS's notifications instead, answered outside the
-HTTP bridge.
-
-## Code organization
-
-DevKit follows the **standard Go module layout** described in the official guide
-[Organizing a Go module](https://go.dev/doc/modules/layout). The conventions we
-hold ourselves to:
-
-### Directory layout
-
-- `cmd/<binary>/` — one directory per executable, each declaring `package main`
-  (e.g. `cmd/mocksyncserver`, `cmd/devkit-mcp` stdio proxy + install CLI).
-- `internal/` — all application logic. The `internal/` path is import-restricted
-  by the Go toolchain, so nothing here is a public API and we can refactor freely.
-- `main.go` (repo root) — the Wails entry point and composition wiring.
-- `frontend/`, `docs/`, `build/` — non-Go assets.
-- Keep server logic in `internal/`; only extract a separate Go module if code
-  becomes genuinely useful to other projects.
-
-### Packages
-
-- One package per directory; the package name is the directory name.
-- Group a package's files by concept (e.g. `aead.go`, `kdf.go`, `envelope.go`) —
-  a package may span many files, all declaring the same `package`.
-- Keep packages small and focused on a single responsibility; add sub-packages
-  only when a distinct responsibility emerges. Prefer flat over deeply nested.
-
-### Naming
-
-Per the Go blog [Package names](https://go.dev/blog/package-names) and
-[Effective Go](https://go.dev/doc/effective_go#names):
-
-- Package names are short, lowercase, single words — no `under_scores`, no
-  `camelCase`. Prefer singular. Established collection/registry packages may stay
-  plural (`permissions`, `capabilities`, `commands`, `modules`). The name should
-  describe what the package provides so call sites read well (`crypto.SealV2`,
-  `vault.Service`).
-- Avoid catch-all packages: `util`, `common`, `helpers`, `misc`, `base`.
-- Avoid stutter — prefer `bridge.AppService` over `bridge.Bridge`.
-- Name files after the concept they hold; co-locate tests as `<file>_test.go`.
-  Bridge DTOs live next to their handlers (not in a shared `dto.go`).
-- Name adapters by role and prefix concrete implementations by their technology,
-  applying the **same** convention everywhere (e.g. an in-memory store in
-  `memory.go`, a SQLite implementation named `SQL…`).
-
-### Dependencies
-
-- Dependencies stay acyclic and flow one way: lower-level packages (`crypto`,
-  `sync`) never import higher-level ones (`app`, `bridge`).
-- "Accept interfaces, return structs" — define narrow interfaces in the consumer
-  package, not the implementer.
-- Enforced by `go test ./internal/arch/` (`TestLayering`, `TestNoImportCycles`).
-  Any production import that breaks the layering fails CI.
-
-> The community `golang-standards/project-layout` repository (with `pkg/`, etc.)
-> is **not** an official Go standard and the Go team does not endorse it. We
-> follow the `go.dev` guidance above.
-
-## Current layout
-
-```text
-main.go              Wails entry point + dependency wiring
-cmd/
-  mocksyncserver/    In-memory zero-knowledge mock sync server (dev + E2E testing)
-internal/
-  app/               Composition root: DI container, module/command registries, permission grants
-  bridge/            Wails boundary: DTOs, capability-gated calls, error redaction, opaque IDs
-  cloudconfig/       Remote desktop config fetch, disk cache, semver gate, reconnect refresh
-  auth/              OIDC PKCE browser flow + OS-keychain refresh-token rotation
-  capabilities/      Capability gateway — authorizes every privileged call, emits audit events
-  permissions/       Permission policy + request model
-  audit/             Audit event sink + field redaction
-  commands/          Command registry
-  modules/           Module manifest registry
-  crypto/            Primitives: XChaCha20-Poly1305 AEAD, Argon2id KDF, versioned envelope
-  vault/             Master-password keyring + in-memory DEK (seal/open)
-  vaultitem/         Vault-item substrate: Record + Repository (memory/SQL) + seal/open + schema
-  environments/      Env tag registry (dev/stg/prod + custom) + Repository (memory/SQL)
-  notes/             Notes module
-  database/          Database-connection module (pgx)
-  ssh/               SSH module (profiles, host keys, port forwarding)
-  kafka/             Kafka module (profiles, connect, topics, peek, groups, publish)
-  mcp/               MCP server (Unix socket host, tools, active-target gate) + install/
-  interaction/       Selection + env confirmation hub (MCP/UI; headless fail-fast)
-  tools/             Hashing tools module
-  syncclient/        Sync application service (service / connect / syncnow / conflicts)
-  syncconflict/      Conflict-resolution application service (detail + resolve strategies)
-  sync/              Replication protocol: contract, envelope, HTTP transport, runner, outbox port
-  storage/           SQLite kernel: open / KV / migrations / schema (owns all table names)
-  syncstore/         Sync persistence adapters: outbox, cursors, remote apply, conflicts, identity, local mutations
-  arch/              Architecture-enforcement tests (no runtime code)
-  servermode/        Loopback-only bind guard for server mode
-  apperrors/         Structured, redactable application errors
-frontend/            React + TypeScript + Vite UI (generated Go↔JS bindings under frontend/bindings/)
-docs/                Design specs and plans
-build/               Wails/platform build configuration
+```mermaid
+flowchart LR
+  UI["Desktop shell (React + TypeScript)"] -->|Wails bridge| GW["Capability gateway + audit"]
+  GW --> SVC["Go services: git, api, database, ssh, kafka, codegraph, tasks, notes"]
+  SVC --> DB[("Encrypted vault + SQLite")]
+  SVC -->|optional, encrypted| SYNC[Sync server]
+  GW --> AH[Agent Hub]
+  AH -->|OS sandbox| AG["Claude, Codex, opencode"]
+  AG -->|MCP over a local socket| GW
 ```
 
-The security spine is `permissions` + `capabilities` + `audit`: every privileged
-call from the `bridge` passes through the capability gateway with an explicit
-`(subject, capability, scope)`, and sensitive fields are redacted before audit.
+The shell owns the sidebar, tabs and command palette; each module contributes views and
+commands. Files, keys and network access live in Go; the frontend reaches them through the
+bridge. Layering between Go packages is enforced by `go test ./internal/arch/`.
 
-## Open source licenses
+## Getting started
 
-DevKit bundles open-source software. Its notices are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and in the app under Settings → Open source licenses. The file is generated: `bun scripts/third-party-licenses.mjs`.
+DevKit is developed macOS-first. Linux is supported (GTK 4 and WebKitGTK 6). The release
+workflow builds macOS (arm64) and Linux (amd64) packages; Windows build tasks exist but are not
+part of releases, and agent sandboxing is unavailable there. Agent Hub also needs the vendor's
+runtime and an account (Claude, Codex or opencode); DevKit can install the runtimes itself.
+
+Prerequisites: Go 1.25 or newer, [bun](https://bun.sh), [task](https://taskfile.dev) and the
+`wails3` CLI. On Linux add `libgtk-4-dev` and `libwebkitgtk-6.0-dev`. CodeGraph for Java needs a
+JDK; TypeScript and Lua need nothing extra at run time.
+
+```bash
+task dev            # native window with hot reload
+task run:server     # no window: HTTP on loopback, without Agent Hub (see AGENTS.md)
+task build          # production build of the desktop app
+```
+
+On first launch you create a Master Password; after that you unlock the vault each time. Sync
+login needs an identity-provider config that DevKit fetches from its pinned API host or reads
+from `DEVKIT_OIDC_*` variables; without it, everything else still works.
+
+Checks used by CI:
+
+```bash
+go test ./internal/... ./cmd/...   # Go tests (the root package needs a GUI toolchain)
+go test ./internal/arch/           # architecture layering
+cd frontend && bun run test        # frontend tests
+cd frontend && bun run build       # typecheck + build
+```
+
+To let an agent use DevKit's tools, run `task mcp:install AGENT=claude-code|codex SCOPE=global|project PROJECT=.`
+or use Settings → Agents.
+
+## Where to read more
+
+- [`AGENTS.md`](AGENTS.md): developer and agent internals, run caveats, and what is verified.
+- [`docs/dev-kit/`](docs/dev-kit/): product and architecture docs, written in Vietnamese.
+  Start with [`implementation-status.mdx`](docs/dev-kit/implementation-status.mdx),
+  [`security.mdx`](docs/dev-kit/security.mdx), [`agent-hub.mdx`](docs/dev-kit/agent-hub.mdx) and
+  [`mcp-agent.mdx`](docs/dev-kit/mcp-agent.mdx).
+- [`docs/design/`](docs/design/): design notes, including
+  [module shell integration](docs/design/module-shell-integration.md) (read before adding a
+  module) and [code organization](docs/design/code-organization.md).
+- [`docs/design/running-and-configuration.md`](docs/design/running-and-configuration.md): every
+  command, MCP setup, sync-login (`DEVKIT_OIDC_*`) settings and server-mode rules.
+- [`docs/superpowers/`](docs/superpowers/): specs and plans for recent work.
+
+## Status and license
+
+- Not verified against real services: GitLab pull requests (tested against a fake host only),
+  the full MCP path with a live Claude Code or Codex session in CI, and Windows.
+- Not built yet: external plugins, a marketplace, team vaults. Gemini is not a supported agent.
+- The sync server is a separate project and is not in this repository; `cmd/mocksyncserver` is
+  an in-memory stand-in for development and tests.
+- There is no `LICENSE` file yet, so no license has been chosen for DevKit itself. Bundled
+  open-source notices are in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and in the app
+  under Settings → Open source licenses.
