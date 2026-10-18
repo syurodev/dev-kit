@@ -401,6 +401,13 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, agenthub.ErrWorkspaceMismatch):
 			return apperrors.New(codeValidationFailed, "The chosen workspace does not contain this session's folder.", true)
 		case errors.Is(err, agenthub.ErrInvalidConfigOption):
+			// A model or effort that the vendor does not offer carries the
+			// sentence that says what would work (agenthub.ModelChoiceError:
+			// built from the vendor's list and the caller's own words). Any
+			// other invalid setting stays the generic line.
+			if detail, ok := agenthub.ModelChoiceDetail(err); ok && validModelChoiceDetail(detail) {
+				return apperrors.New(codeValidationFailed, "Choose a valid agent setting: "+detail, true)
+			}
 			return apperrors.New(codeValidationFailed, "Choose a valid agent setting.", true)
 		case errors.Is(err, agenthub.ErrInvalidPrompt):
 			return apperrors.New(codeValidationFailed, invalidPromptMessage(err), true)
@@ -881,6 +888,12 @@ const invalidPromptGeneric = "The prompt is empty, or an attachment is unreadabl
 // left a person staring at a prompt that would not send with no way to tell
 // which of their files was the problem. Only the sentence DevKit itself wrote
 // after the sentinel is shown, and only when it is short enough to be one.
+// validModelChoiceDetail accepts the sentence of a ModelChoiceError when it is
+// one bounded line; anything else falls back to the generic message.
+func validModelChoiceDetail(detail string) bool {
+	return detail != "" && len(detail) <= 900 && !strings.ContainsAny(detail, "\n\r")
+}
+
 func invalidPromptMessage(err error) string {
 	detail := strings.TrimPrefix(err.Error(), agenthub.ErrInvalidPrompt.Error()+": ")
 	if detail == err.Error() || detail == "" || len(detail) > 240 || strings.Contains(detail, "\n") {

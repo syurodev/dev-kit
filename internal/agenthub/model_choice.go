@@ -104,6 +104,21 @@ func (s *Service) CheckModelProfile(ctx context.Context, p preferences.AgentMode
 	return ModelProfileStatus{Status: "ok"}
 }
 
+// matchEffort finds the vendor's spelling of an effort ("High" -> "high").
+func matchEffort(efforts []string, asked string) (string, bool) {
+	for _, e := range efforts {
+		if e == asked {
+			return e, true
+		}
+	}
+	for _, e := range efforts {
+		if strings.EqualFold(e, asked) {
+			return e, true
+		}
+	}
+	return "", false
+}
+
 func containsString(list []string, v string) bool {
 	for _, item := range list {
 		if item == v {
@@ -166,7 +181,7 @@ func (s *Service) PlanModelChoice(ctx context.Context, in ModelChoiceInput) (Con
 	// Something asked: it must be a real model of that vendor.
 	catalog := s.ModelCatalog(ctx, in.Vendor)
 	if catalog.Status != ModelsOK {
-		return ConfigPlan{}, fmt.Errorf("%w: cannot check the model against %s — %s", ErrInvalidConfigOption, in.Vendor, catalog.Reason)
+		return ConfigPlan{}, modelChoiceErrorf("cannot check the model against %s — %s", in.Vendor, catalog.Reason)
 	}
 	model := askedModel
 	if model == "" {
@@ -177,12 +192,23 @@ func (s *Service) PlanModelChoice(ctx context.Context, in ModelChoiceInput) (Con
 			model = catalog.DefaultModel
 		}
 	}
-	choice, ok := catalog.Model(model)
-	if !ok {
-		return ConfigPlan{}, fmt.Errorf("%w: %s has no model %q (it offers: %s)", ErrInvalidConfigOption, in.Vendor, model, valuesText(catalog.ModelValues()))
+	// The model the words meant. From here on the vendor's own id is used —
+	// for the cost comparison, the question to the person and the session.
+	match := catalog.Resolve(model)
+	if !match.Found {
+		return ConfigPlan{}, unknownModelError(in.Vendor, catalog, model, match)
 	}
-	if askedEffort != "" && !containsString(choice.Efforts, askedEffort) {
-		return ConfigPlan{}, fmt.Errorf("%w: %q takes no effort %q (it takes: %s)", ErrInvalidConfigOption, model, askedEffort, valuesText(choice.Efforts))
+	choice := match.Model
+	model = choice.Value
+	if askedModel != "" {
+		askedModel = model
+	}
+	if askedEffort != "" {
+		if canonical, ok := matchEffort(choice.Efforts, askedEffort); ok {
+			askedEffort = canonical
+		} else {
+			return ConfigPlan{}, modelChoiceErrorf("%q takes no effort %q (it takes: %s)", model, askedEffort, valuesText(choice.Efforts))
+		}
 	}
 
 	plan := ConfigPlan{Config: map[string]string{"model": model}}

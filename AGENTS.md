@@ -501,6 +501,16 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     a failure 1 min, one throw-away agent at a time, detached from the asking call); the window's own
     `ConfigCatalog` stays uncached and refreshes it. A vendor that cannot answer comes back with a status
     (`signInRequired`, `notInstalled`, `unavailable`) instead of failing the call.
+  - **A long list is paged, a name is resolved** (`model_catalog.go` `pageModels`, `model_match.go`). `agenthub.listModels`
+    takes `query` (words from the id or name, case/punctuation ignored), `limit` (default 40, max 100, per vendor) and
+    `offset`; a vendor with hundreds of models (opencode) used to blow the 24 KB result budget and be cut blindly. A page
+    carries `total`, `nextOffset` and a `hint`, names equal to the id and long descriptions are dropped. `PlanModelChoice`
+    resolves what the agent wrote (`VendorModels.Resolve`: id, id in another case, display name, same letters/digits, a
+    fragment naming exactly one model) to the vendor's id, and the cost comparison, the question to the person and the
+    session use that id. A guess is never taken: an unknown or ambiguous name is a `ModelChoiceError` (an
+    `ErrInvalidConfigOption`) whose sentence lists the whole list (≤ 12 models) or the closest few, and the bridge
+    publishes it (`ModelChoiceDetail`) instead of "Choose a valid agent setting.". opencode lists efforts only for the model
+    it is on, so an effort asked for another opencode model is refused as "takes no effort" — not fixed here.
   - **Profiles** are the preference `agent_model_profiles` (revision/CAS like `AgentCustomization`; ≤ 24, name 60,
     description 400, notes 800 bytes; unique names; ids are slugs of the name). Get/set/check are UI-only
     bridge methods (`AgentHubGetModelProfiles` / `SetModelProfiles` / `CheckModelProfiles`, grants

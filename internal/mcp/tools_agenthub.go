@@ -24,7 +24,7 @@ type AgentHubAPI interface {
 	SendMessage(ctx context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error)
 	ListPeers(ctx context.Context) ([]agenthub.PeerInfo, error)
 	PeerRoute(ctx context.Context, targetID string) (agenthub.PeerRelation, agenthub.AgentSession, bool, error)
-	ListModels(ctx context.Context, vendor agenthub.AgentType) (agenthub.ModelListing, error)
+	ListModels(ctx context.Context, q agenthub.ModelQuery) (agenthub.ModelListing, error)
 	ListModelProfiles(ctx context.Context) agenthub.ModelProfilesListing
 	PlanModelChoice(ctx context.Context, in agenthub.ModelChoiceInput) (agenthub.ConfigPlan, error)
 }
@@ -46,7 +46,8 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.listModels",
 		Description: "List the models each agent vendor offers, with the efforts each model takes, and the model and effort this session is on. " +
-			"Read before choosing `initialConfig` for agenthub.createAgentSession. The list is cached for 15 minutes.",
+			"Read before choosing `initialConfig` for agenthub.createAgentSession; use a model's `value` as `initialConfig.model`. " +
+			"A vendor may offer hundreds: pages of 40 per vendor (`limit` up to 100, `offset`), narrowed by `agentType` and `query` (words from the id or name). Cached for 15 minutes.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubListModels)
 
@@ -239,6 +240,9 @@ func clipAudit(s string) string {
 
 type agentHubListModelsInput struct {
 	AgentType string `json:"agentType,omitempty"`
+	Query     string `json:"query,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Offset    int    `json:"offset,omitempty"`
 }
 
 func (s *Server) toolAgentHubListModels(ctx context.Context, _ *sdk.CallToolRequest, in agentHubListModelsInput) (*sdk.CallToolResult, any, error) {
@@ -246,7 +250,10 @@ func (s *Server) toolAgentHubListModels(ctx context.Context, _ *sdk.CallToolRequ
 		return nil, nil, err
 	}
 	v, err := s.deps.Caller.Call(ctx, AgentHubModelsGrant[0], AgentHubModelsGrant[1], AgentHubModelsGrant[2], meta("list_models", map[string]any{"agent_type": in.AgentType}), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.ListModels(callCtx, agenthub.AgentType(strings.TrimSpace(in.AgentType)))
+		return s.deps.AgentHub.ListModels(callCtx, agenthub.ModelQuery{
+			Vendor: agenthub.AgentType(strings.TrimSpace(in.AgentType)),
+			Query:  in.Query, Limit: in.Limit, Offset: in.Offset,
+		})
 	})
 	if err != nil {
 		return nil, nil, err
