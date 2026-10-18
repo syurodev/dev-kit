@@ -205,6 +205,7 @@ const PERMISSION_EVENT = "agenthub:permission";
 const ELICITATION_EVENT = "agenthub:elicitation";
 const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
+const TURN_STARTED_EVENT = "agenthub:turnStarted";
 const SESSION_CREATED_EVENT = "agenthub:sessionCreated";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
@@ -807,6 +808,14 @@ function parseSessionEvent(data: unknown): { sessionId: string; status?: Session
  */
 export function onAgentHubSessionCreated(handler: (sessionId: string) => void): () => void {
   return Events.On(SESSION_CREATED_EVENT, (ev) => {
+    const parsed = parseSessionEvent(ev?.data);
+    if (parsed) handler(parsed.sessionId);
+  });
+}
+
+/** A turn began, whoever started it — the window's own turns included. */
+export function onAgentHubTurnStarted(handler: (sessionId: string) => void): () => void {
+  return Events.On(TURN_STARTED_EVENT, (ev) => {
     const parsed = parseSessionEvent(ev?.data);
     if (parsed) handler(parsed.sessionId);
   });

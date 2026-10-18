@@ -348,6 +348,11 @@ type Service struct {
 	// The window loads its list once, so without this a child an agent starts
 	// never shows in the rail, and its tab says "Session not available".
 	OnSessionCreated func(AgentSession)
+	// OnTurnStarted fires when a turn begins and the session row says running.
+	// The window learns of its own turns from the call it made; a turn started
+	// by an agent's message or by the terminal reached it only when it ended, so
+	// the rail showed a working session as idle.
+	OnTurnStarted func(sessionID string)
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
 	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
@@ -1625,6 +1630,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	if err := s.setSessionStatus(ctx, in.SessionID, SessionStatusRunning); err != nil {
 		return InvokeResult{}, err
+	}
+	if s.OnTurnStarted != nil {
+		s.OnTurnStarted(in.SessionID)
 	}
 
 	var (
