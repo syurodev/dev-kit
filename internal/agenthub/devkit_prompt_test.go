@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -136,6 +137,26 @@ func TestPromptTeachesModelChoiceAndNoToolEditsProfiles(t *testing.T) {
 	for name := range mcpToolNames(t) {
 		if strings.Contains(strings.ToLower(name), "modelprofile") && name != "agenthub.listModelProfiles" {
 			t.Errorf("tool %s touches model profiles; agents may only read them", name)
+		}
+	}
+}
+
+// The prompt states the limits in numbers; they must be the ones the service
+// enforces, or a model plans around a cap that is not there.
+func TestPromptStatesTheMessageLimitsTheServiceEnforces(t *testing.T) {
+	// Lines are wrapped in the template; read it as one run of words.
+	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "")), " ")
+	for _, want := range []string{
+		fmt.Sprintf("at most %d messages", MaxPeerHops),
+		fmt.Sprintf("at most **%d between siblings**", MaxSiblingHops),
+		fmt.Sprintf("after %d messages", MaxSiblingHops),
+		fmt.Sprintf("at most %d messages a minute", peerPairPerMinute),
+		"ONE message",
+		"ask your parent",
+		"never refused by the exchange cap",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the prompt lacks %q", want)
 		}
 	}
 }
