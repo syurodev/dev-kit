@@ -126,6 +126,18 @@ func TestPromptFailureUsesWhatTheProviderSaidWhileRetrying(t *testing.T) {
 	}
 }
 
+// The error opencode 2.0.32 answered when its provider kept returning 503 and
+// its eleven attempts were spent (recorded against the real binary).
+func TestPromptFailureOfOpenCodeAfterItsRetries(t *testing.T) {
+	err, _ := promptAgent(t, nil, rpcFailure(-32603, "Internal error: Upstream request failed: Endpoint is unavailable.", `{"service":"session","errorName":"provider.internal"}`))
+	if !errors.Is(err, ErrTurnFailed) || errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := PreviewFromError(err); got != "Upstream request failed: Endpoint is unavailable." {
+		t.Fatalf("preview = %q", got)
+	}
+}
+
 func TestPromptFailureReadsTheReasonFromData(t *testing.T) {
 	err, _ := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"details":"The context window is full."}`))
 	if !errors.Is(err, ErrTurnFailed) || ErrorVendorMessage(err) != "The context window is full." {

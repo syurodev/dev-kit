@@ -1586,7 +1586,9 @@ func rpcSentence(err error) string {
 		}
 		return false
 	}
-	message := oneLine(rpcErr.Message)
+	// opencode words it "Internal error: <reason>" (measured against 2.0.32 with
+	// a provider answering 503): the prefix is JSON-RPC's code, not information.
+	message := strings.TrimSpace(strings.TrimPrefix(oneLine(rpcErr.Message), "Internal error:"))
 	if !generic(message) {
 		return clipRunes(message, 300)
 	}
