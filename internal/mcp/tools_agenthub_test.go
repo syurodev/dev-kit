@@ -11,21 +11,26 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	"devkit/internal/identity"
 	"devkit/internal/interaction"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type fakeAgentHub struct {
-	list       []agenthub.AgentSession
-	created    agenthub.AgentSession
-	status     agenthub.AgentSession
-	invokeOut  agenthub.InvokeResult
-	createIn   agenthub.CreateInput
-	invokeIn   agenthub.InvokeInput
-	cancelID   string
-	statusID   string
-	listCalled bool
+	list                      []agenthub.AgentSession
+	created                   agenthub.AgentSession
+	status                    agenthub.AgentSession
+	invokeOut                 agenthub.InvokeResult
+	createIn                  agenthub.CreateInput
+	invokeIn                  agenthub.InvokeInput
+	resumeID, closeID, readID string
+	readBefore                int64
+	readLimit                 int
+	read                      agenthub.SessionMessages
+	cancelID                  string
+	statusID                  string
+	listCalled                bool
 
 	sendIn     agenthub.SendMessageInput
 	sendOut    agenthub.SendMessageResult
@@ -46,6 +51,21 @@ type fakeAgentHub struct {
 func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error) {
 	f.sendIn, f.sendCalled = in, true
 	return f.sendOut, nil
+}
+
+func (f *fakeAgentHub) ResumeChild(_ context.Context, id string) error {
+	f.resumeID = id
+	return nil
+}
+
+func (f *fakeAgentHub) CloseSession(_ context.Context, id string) error {
+	f.closeID = id
+	return nil
+}
+
+func (f *fakeAgentHub) ReadSessionMessages(_ context.Context, id string, before int64, limit int) (agenthub.SessionMessages, error) {
+	f.readID, f.readBefore, f.readLimit = id, before, limit
+	return f.read, nil
 }
 
 func (f *fakeAgentHub) ListPeers(context.Context) ([]agenthub.PeerInfo, error) { return f.peers, nil }
@@ -670,5 +690,52 @@ func TestCreateAgentSessionHasNoPathGrantInput(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAgentHubChildControlTools(t *testing.T) {
+	sessionID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	caller := &fakeCaller{}
+	hub := &fakeAgentHub{read: agenthub.SessionMessages{SessionID: sessionID, Messages: []agenthub.SessionMessage{{Seq: 3, Role: "agent", Text: "done"}}}}
+	srv := NewServer(agentHubTestDeps(caller, hub))
+	ctx := context.Background()
+
+	if _, _, err := srv.toolAgentHubResumeSession(ctx, &sdk.CallToolRequest{}, agentHubSessionIDInput{SessionID: sessionID}); err != nil {
+		t.Fatal(err)
+	}
+	if hub.resumeID != sessionID || caller.last.capability != "agenthub:execute" || caller.last.scope != "session:"+sessionID || caller.last.metadata["action"] != "resume_child" {
+		t.Fatalf("resume: id %q, call %+v", hub.resumeID, caller.last)
+	}
+
+	if _, _, err := srv.toolAgentHubCloseSession(ctx, &sdk.CallToolRequest{}, agentHubSessionIDInput{SessionID: sessionID}); err != nil {
+		t.Fatal(err)
+	}
+	if hub.closeID != sessionID || caller.last.metadata["action"] != "close_child" {
+		t.Fatalf("close: id %q, call %+v", hub.closeID, caller.last)
+	}
+	// An agent cannot close itself: that would stop the process asking.
+	self := identity.WithCaller(ctx, identity.Agent(sessionID))
+	hub.closeID = ""
+	if _, _, err := srv.toolAgentHubCloseSession(self, &sdk.CallToolRequest{}, agentHubSessionIDInput{SessionID: sessionID}); !errors.Is(err, agenthub.ErrNotDescendant) || hub.closeID != "" {
+		t.Fatalf("close itself: err %v, closed %q", err, hub.closeID)
+	}
+
+	_, v, err := srv.toolAgentHubReadSession(ctx, &sdk.CallToolRequest{}, agentHubReadInput{SessionID: sessionID, Limit: 3, BeforeSeq: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hub.readID != sessionID || hub.readLimit != 3 || hub.readBefore != 9 || caller.last.capability != "agenthub:read" {
+		t.Fatalf("read: %q %d %d, call %+v", hub.readID, hub.readLimit, hub.readBefore, caller.last)
+	}
+	if got, ok := unwrap(v).(agenthub.SessionMessages); !ok || len(got.Messages) != 1 {
+		t.Fatalf("read answer = %#v", v)
+	}
+}
+
+func TestOnlyTheReadOfOwnTreeIsPreApproved(t *testing.T) {
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, &fakeAgentHub{}))
+	got := strings.Join(srv.PreApprovedTools(), " ")
+	if !strings.Contains(got, "agenthub.readSession") || strings.Contains(got, "agenthub.resumeSession") || strings.Contains(got, "agenthub.closeSession") {
+		t.Fatalf("pre-approved = %q", got)
 	}
 }

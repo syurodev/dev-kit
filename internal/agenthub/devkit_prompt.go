@@ -182,6 +182,11 @@ shows the memory.
   it does, exactly as to you. It exists only in sessions started after the
   person turned it on, and only when its status is active; if your tool does
   not list it, say so instead of guessing a name.
+- **Controlling a child.** {{agenthub.readSession}} reads what a session of yours
+  was asked and answered; {{agenthub.cancelAgent}} stops its turn;
+  {{agenthub.resumeSession}} brings back one whose process is gone (the app
+  restarted) before you message it; {{agenthub.closeSession}} ends it. These
+  reach only sessions below you, and a session the person closed stays closed.
 - **Messages between sessions.** {{agenthub.listPeers}} lists the sessions you
   can reach — your workspace's, your sub-sessions, your parent — and
   {{agenthub.sendMessage}} sends one a message without waiting for the answer.

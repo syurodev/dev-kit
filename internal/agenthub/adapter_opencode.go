@@ -613,6 +613,7 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 			cleanup()
 			return nil, fmt.Errorf("%w: %s returned %q, asked for %q", ErrProcessFailed, method, loadRes.SessionID, resume)
 		}
+		log.Printf("agenthub: opencode: session resumed (acp session %s)", resume)
 		base.acpSessionID = resume
 		options = loadRes.ConfigOptions
 	} else {

@@ -256,6 +256,7 @@ func (s *Server) gateOwnedTool(tool *sdk.Tool) *sdk.Tool {
 // documents. Reading a document the user attached is what attaching it is for;
 // a prompt per page would make the feature unusable. agenthub.listPeers is the
 // other: it names the sessions of the caller's own workspace and nothing else.
+// agenthub.readSession reads only the caller's own tree.
 // agenthub.sendMessage is not on the list — what an agent says to another
 // session is the person's to approve through the vendor's own permission flow.
 func (s *Server) PreApprovedTools() []string {
@@ -264,7 +265,7 @@ func (s *Server) PreApprovedTools() []string {
 		names = append(names, "pdf.list", "pdf.info", "pdf.search", "pdf.readText", "pdf.viewPages")
 	}
 	if s.deps.AgentHub != nil {
-		names = append(names, "agenthub.listPeers")
+		names = append(names, "agenthub.listPeers", "agenthub.readSession")
 	}
 	return names
 }

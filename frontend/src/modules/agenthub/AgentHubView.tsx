@@ -939,6 +939,11 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       await agentHubResumeSession(activeSession.id);
       upsertSession(await agentHubGetStatus(activeSession.id));
       setErrorCause(undefined);
+      // The notice that offered Resume ("Previous turn was interrupted") stays
+      // in the transcript until the next prompt, so without this the button
+      // seemed to do nothing. Said once, where the button was.
+      if (activeFailure) setDismissedFailure(failureKey(activeFailure));
+      toast.success("Session resumed. Send your next instruction to continue.");
       await queryClient.invalidateQueries({ queryKey: ["agenthub", "sessionConfig", activeSession.id] });
     } catch (e) { reportError(e); }
     finally { recoveryPending.current = false; }
