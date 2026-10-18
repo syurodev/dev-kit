@@ -85,7 +85,7 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
             aria-label={`Model and effort: ${triggerLabel}`}
             className={cn("min-w-0 shrink gap-1 px-2 text-text-secondary", compact && "h-7 rounded-md px-2 hover:bg-state-soft")}
           >
-            <span className={cn("truncate @max-xs:max-w-16", compact ? "max-w-44 text-caption-11-medium" : "max-w-28 text-body-13")}>{triggerLabel}</span>
+            <span className={cn("truncate @max-xs:max-w-16", compact ? "max-w-48 text-caption-11-medium" : "max-w-28 text-body-13")}>{triggerLabel}</span>
             <ChevronDown aria-hidden className={cn("size-3 shrink-0 text-text-tertiary", compact && "@max-xs:hidden")} />
           </Button>
         </ActionTooltip>
@@ -93,7 +93,7 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
       {/* Choosing a model needs the width: opencode's names are provider/model
           ("openrouter/Nemotron 3 Super (free)") and were cut off at 256px. The
           effort view keeps its narrow card. */}
-      <PopoverContent side="top" align="start" className={cn("rounded-2xl p-3", modelsOpen ? "w-[min(26rem,calc(100vw-2rem))]" : "w-64")} onCloseAutoFocus={onCloseAutoFocus}>
+      <PopoverContent side="top" align="start" className={cn("rounded-2xl p-3", modelsOpen ? "w-96" : "w-64")} onCloseAutoFocus={onCloseAutoFocus}>
         <motion.div key={modelsOpen ? "models" : "effort"} initial={reduced ? false : { opacity: 0, x: modelsOpen ? 6 : -6 }} animate={{ opacity: 1, x: 0 }} transition={reduced ? noMotion : { duration: MOTION_BASE, ease: EASE_OUT }}>
         {modelsOpen ? (
           <div role="group" aria-label="Select model">
