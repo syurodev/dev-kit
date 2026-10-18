@@ -33,6 +33,7 @@ import {
   agentHubListContextFiles,
   agentHubListDraftContextFiles,
   CLAUDE_VENDOR,
+  OPENCODE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
   type AgentSession,
@@ -286,6 +287,9 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // One per way of signing in (vendors.ts): Claude's runs its login in a
   // terminal, Codex's inside DevKit. Both retry the same way.
   const claudeSignIn = useClaudeSignIn(retryAfterSignIn);
+  const openCodeSignIn = useClaudeSignIn(retryAfterSignIn, OPENCODE_VENDOR);
+  /** The terminal sign-in controller of a vendor that signs in that way. */
+  const terminalSignIn = (vendor: string | undefined) => (vendor === OPENCODE_VENDOR ? openCodeSignIn : claudeSignIn);
   const codexSignIn = useCodexSignIn(retryAfterSignIn);
   const queryClient = useQueryClient();
   // Asked while the draft has an agent picked, not after a send fails: the
@@ -943,12 +947,13 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       return;
     }
     if (action === "login") {
-      const methods = claudeSignIn.methods.data ?? [];
+      const terminal = terminalSignIn(activeSession?.agentType);
+      const methods = terminal.methods.data ?? [];
       // One way in: take it. Several: the error card's panel names them, and
       // picking for the user would be guessing. An agent that signs in
       // inside DevKit shows its panel, where the browser is the first button.
       if (vendorInfo(activeSession?.agentType).signIn === "terminal" && methods.length === 1) {
-        claudeSignIn.start(methods[0]);
+        terminal.start(methods[0]);
       } else {
         setErrorCause("authRequired");
       }
@@ -971,7 +976,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   function signInFor(vendor: string) {
     switch (vendorInfo(vendor).signIn) {
       case "terminal":
-        return <ClaudeSignIn signIn={claudeSignIn} />;
+        return <ClaudeSignIn signIn={terminalSignIn(vendor)} vendor={vendor} />;
       case "inApp":
         return <CodexSignIn signIn={codexSignIn} />;
       default:

@@ -14,13 +14,15 @@ import {
   type AuthMethod,
   type SignInOutcome,
 } from "@/bridge/agentRuntime";
+import { vendorInfo } from "./vendors";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { useTerminalTabsStore } from "@/stores/terminalTabs";
 
 export const agentAuthMethodsQueryKey = (agent: string) => ["agentAuthMethods", agent] as const;
 
 /**
- * Sign in to Claude, as a state its owner keeps.
+ * Sign in to an agent that signs in with its own login in a terminal (Claude,
+ * opencode), as a state its owner keeps. Claude unless `vendor` says otherwise.
  *
  * Owned above the buttons because the buttons do not outlive the sign-in: the
  * new-session dialog closes while the login runs (a modal would sit on top of
@@ -29,10 +31,10 @@ export const agentAuthMethodsQueryKey = (agent: string) => ["agentAuthMethods", 
  * `onDone` is read through a ref so it sees the render the exit arrives in,
  * not the one the button was pressed in.
  */
-export function useClaudeSignIn(onDone?: (outcome: SignInOutcome) => void) {
+export function useClaudeSignIn(onDone?: (outcome: SignInOutcome) => void, vendor: string = CLAUDE_VENDOR) {
   const methods = useQuery({
-    queryKey: agentAuthMethodsQueryKey(CLAUDE_VENDOR),
-    queryFn: () => agentHubAuthMethods(CLAUDE_VENDOR),
+    queryKey: agentAuthMethodsQueryKey(vendor),
+    queryFn: () => agentHubAuthMethods(vendor),
     // The list only changes with the installed runtime; the backend caches the
     // probe per install anyway.
     staleTime: Infinity,
@@ -50,7 +52,7 @@ export function useClaudeSignIn(onDone?: (outcome: SignInOutcome) => void) {
     useTerminalTabsStore.getState().openTab({
       title: method.label || signInLabel(method),
       start: (rows, cols) =>
-        agentHubStartSignIn(CLAUDE_VENDOR, method.id, rows, cols).catch((e: unknown) => {
+        agentHubStartSignIn(vendor, method.id, rows, cols).catch((e: unknown) => {
           setRunning("");
           setStartError(errorMessage(e));
           throw e;
@@ -80,10 +82,12 @@ export type ClaudeSignInController = ReturnType<typeof useClaudeSignIn>;
 export function ClaudeSignIn({
   signIn,
   onStart,
+  vendor = CLAUDE_VENDOR,
 }: {
   signIn: ClaudeSignInController;
   /** Called as the terminal opens, e.g. to get a dialog out of its way. */
   onStart?: () => void;
+  vendor?: string;
 }) {
   const { methods, running, outcome, startError } = signIn;
 
@@ -117,8 +121,17 @@ export function ClaudeSignIn({
       )}
       <p className="text-caption-11 text-text-tertiary">
         {running ? "Finish signing in in the terminal. " : ""}
-        Or set <code className="text-code-11">ANTHROPIC_API_KEY</code>. Sign-in runs Claude
-        Code&apos;s own login; DevKit never sees your password.
+        {vendor === CLAUDE_VENDOR ? (
+          <>
+            Or set <code className="text-code-11">ANTHROPIC_API_KEY</code>. Sign-in runs Claude
+            Code&apos;s own login; DevKit never sees your password.
+          </>
+        ) : (
+          <>
+            Sign-in runs {vendorInfo(vendor).name}&apos;s own login in DevKit&apos;s own copy of its
+            settings, apart from any {vendorInfo(vendor).name} you use yourself; DevKit never sees your password.
+          </>
+        )}
       </p>
       {outcome?.signedIn ? (
         <p className="flex items-center gap-1.5 text-body-12 text-text-primary">
@@ -134,7 +147,7 @@ export function ClaudeSignIn({
 }
 
 /** Settings → Agents: sign-in with its own state, nothing to retry. */
-export function ClaudeSignInSection() {
-  const signIn = useClaudeSignIn();
-  return <ClaudeSignIn signIn={signIn} />;
+export function ClaudeSignInSection({ vendor = CLAUDE_VENDOR }: { vendor?: string } = {}) {
+  const signIn = useClaudeSignIn(undefined, vendor);
+  return <ClaudeSignIn signIn={signIn} vendor={vendor} />;
 }

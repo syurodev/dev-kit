@@ -47,6 +47,11 @@ export enum AgentType {
     AgentTypeMock = "mock",
     AgentTypeClaude = "claude",
     AgentTypeCodex = "codex",
+
+    /**
+     * AgentTypeOpenCode is opencode (https://opencode.ai), run as `opencode acp`.
+     */
+    AgentTypeOpenCode = "opencode",
 };
 
 /**
@@ -304,7 +309,9 @@ export interface CreateInput {
     /**
      * ExtraReadWritePaths widen the jail beyond Cwd — see OpenSpec. Only the
      * bridge (UI) path sets this; the MCP tool's own input struct has no such
-     * field, so an agent-created session never gets one.
+     * field, and CreateSession ignores it for an agent caller. An
+     * agent-created session gets its parent's stored list instead
+     * (inheritedExtraPaths): never more than the parent may write.
      */
     "ExtraReadWritePaths": string[] | null;
 

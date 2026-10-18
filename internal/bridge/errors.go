@@ -749,6 +749,8 @@ func agentNotInstalledMessage(agent agenthub.AgentType) string {
 		return "Claude Agent is not installed. Install it in Settings → Agents."
 	case agenthub.AgentTypeCodex:
 		return "Codex is not installed. Install it in Settings → Agents."
+	case agenthub.AgentTypeOpenCode:
+		return "opencode is not installed. Install it in Settings → Agents."
 	}
 	return "The agent is not installed. Install it in Settings → Agents."
 }
@@ -763,6 +765,8 @@ func agentAuthRequiredMessage(agent agenthub.AgentType) string {
 		return "Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."
 	case agenthub.AgentTypeCodex:
 		return "Codex isn't signed in, or the sign-in expired. Sign in under Settings → Agents → Codex, or check the API key chosen there."
+	case agenthub.AgentTypeOpenCode:
+		return "opencode isn't signed in, or the sign-in expired. Sign in under Settings → Agents → opencode."
 	}
 	return "The agent isn't signed in, or the sign-in expired."
 }
@@ -783,6 +787,8 @@ func agentDisplayName(agent agenthub.AgentType) string {
 		return "Claude"
 	case agenthub.AgentTypeCodex:
 		return "Codex"
+	case agenthub.AgentTypeOpenCode:
+		return "opencode"
 	}
 	return "The agent"
 }

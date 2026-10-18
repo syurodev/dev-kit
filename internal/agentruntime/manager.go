@@ -26,10 +26,14 @@ const DefaultRegistryURL = "https://cdn.agentclientprotocol.com/registry/v1/late
 // DefaultCodexRegistryURL resolves npm's stable latest tag for Codex.
 const DefaultCodexRegistryURL = "https://registry.npmjs.org/@openai%2Fcodex/latest"
 
+// DefaultNPMRegistry is where an unpinned agent's latest release is looked up.
+const DefaultNPMRegistry = "https://registry.npmjs.org"
+
 // Manager owns <dataDir>/runtimes:
 //
 //	registry.json, registry.etag   cached ACP registry
 //	codex-latest.json              cached npm latest package metadata (+ .etag)
+//	<agent>-latest.json            the same for an unpinned agent (opencode)
 //	.npm-cache/                    npm's cache, so a failed install never touches ~/.npm
 //	<agent>/current.json           {"version", "previous"}
 //	<agent>/settings.json          {"claudeBinary"}
@@ -51,7 +55,10 @@ type Manager struct {
 
 	RegistryURL      string
 	CodexRegistryURL string
-	HTTPClient       *http.Client
+	// NPMRegistry is the base URL an unpinned agent's latest release is read
+	// from (<base>/<package>/latest).
+	NPMRegistry string
+	HTTPClient  *http.Client
 
 	// Seams for tests: npm and managed Node without the network, and optional
 	// machine Claude without probing the host.
@@ -74,6 +81,7 @@ func New(root string) *Manager {
 		root:             root,
 		RegistryURL:      DefaultRegistryURL,
 		CodexRegistryURL: DefaultCodexRegistryURL,
+		NPMRegistry:      DefaultNPMRegistry,
 		runNPM:           runStreaming,
 		findClaude:       locateMachineClaude,
 		installing:       map[string]bool{},
@@ -168,6 +176,12 @@ func (m *Manager) Status(ctx context.Context, agentID string) (Status, error) {
 				st.LatestVersion = &latest
 			}
 		}
+	} else if agent.Unpinned {
+		if body, err := os.ReadFile(m.unpinnedLatestPath(agent)); err == nil {
+			if latest := npmLatestVersion(body, agent); latest != "" {
+				st.LatestVersion = &latest
+			}
+		}
 	} else if body, err := os.ReadFile(m.registryPath()); err == nil {
 		if latest, license := registryEntry(body, agent); latest != "" {
 			st.LatestVersion = &latest
@@ -219,6 +233,15 @@ func (m *Manager) Install(ctx context.Context, agentID, version string) error {
 	}
 	if version == "" {
 		version = agent.TestedVersion
+	}
+	if version == "" && agent.Unpinned {
+		// Resolved before the install lock is taken: it is a network call, and
+		// an install that cannot even learn what "latest" is has changed nothing.
+		latest, err := m.resolveLatest(ctx, agent)
+		if err != nil {
+			return err
+		}
+		version = latest
 	}
 	if !validVersion(version) {
 		return fail(ErrInvalidInput, "the version must look like 1.2.3")
@@ -733,6 +756,9 @@ func (m *Manager) CheckLatest(ctx context.Context, agentID string) error {
 	if agentID == CodexCLI {
 		registryURL, cachePath = m.CodexRegistryURL, m.codexRegistryPath()
 	}
+	if agent := agents[agentID]; agent.Unpinned {
+		registryURL, cachePath = m.npmLatestURL(agent), m.unpinnedLatestPath(agent)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
@@ -765,6 +791,9 @@ func (m *Manager) CheckLatest(ctx context.Context, agentID string) error {
 	if agentID == CodexCLI && codexRegistryVersion(body) == "" {
 		return nil
 	}
+	if agent := agents[agentID]; agent.Unpinned && npmLatestVersion(body, agent) == "" {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := os.MkdirAll(m.root, 0o700); err != nil {
@@ -783,6 +812,76 @@ func (m *Manager) CheckLatest(ctx context.Context, agentID string) error {
 func (m *Manager) registryPath() string { return filepath.Join(m.root, "registry.json") }
 
 func (m *Manager) codexRegistryPath() string { return filepath.Join(m.root, "codex-latest.json") }
+
+func (m *Manager) unpinnedLatestPath(agent Agent) string {
+	return filepath.Join(m.root, agent.ID+"-latest.json")
+}
+
+// npmLatestURL is npm's metadata for the package's latest dist-tag. The scope's
+// slash is escaped the way npm's own client writes it.
+func (m *Manager) npmLatestURL(agent Agent) string {
+	base := strings.TrimRight(m.NPMRegistry, "/")
+	if base == "" {
+		base = DefaultNPMRegistry
+	}
+	return base + "/" + strings.ReplaceAll(agent.Package, "/", "%2F") + "/latest"
+}
+
+// npmLatestVersion reads a stable version of agent's own package from an npm
+// "latest" document, or "". A different package, an unparseable version and a
+// prerelease are all refused: the latest tag is what DevKit installs, and it
+// should not install something that is not plainly a release.
+func npmLatestVersion(body []byte, agent Agent) string {
+	var pkg struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(body, &pkg) != nil || pkg.Name != agent.Package || !validVersion(pkg.Version) || strings.Contains(pkg.Version, "-") {
+		return ""
+	}
+	return pkg.Version
+}
+
+// resolveLatest asks npm which release an unpinned agent's latest tag points
+// at, and keeps the answer where Status reads it. Unlike CheckLatest, failing
+// to reach npm is an error here: the caller wanted a version to install.
+func (m *Manager) resolveLatest(ctx context.Context, agent Agent) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.npmLatestURL(agent), nil)
+	if err != nil {
+		return "", fail(ErrInstallFailed, "could not look up the latest version")
+	}
+	client := m.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled) {
+			return "", ctx.Err()
+		}
+		return "", fail(ErrInstallFailed, "could not look up the latest version; check the network and try again")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fail(ErrInstallFailed, fmt.Sprintf("npm answered %d when asked for the latest version", resp.StatusCode))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return "", fail(ErrInstallFailed, "could not read the latest version")
+	}
+	version := npmLatestVersion(body, agent)
+	if version == "" {
+		return "", fail(ErrInstallFailed, "npm's latest release of "+agent.Package+" is not one DevKit can install")
+	}
+	m.mu.Lock()
+	if err := os.MkdirAll(m.root, 0o700); err == nil {
+		_ = writeFileAtomic(m.unpinnedLatestPath(agent), body)
+	}
+	m.mu.Unlock()
+	return version, nil
+}
 
 func codexRegistryVersion(body []byte) string {
 	var pkg struct {

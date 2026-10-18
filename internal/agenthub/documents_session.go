@@ -61,6 +61,8 @@ func namingFor(agent AgentType) toolNaming {
 		return claudeNaming
 	case AgentTypeCodex:
 		return codexNaming
+	case AgentTypeOpenCode:
+		return opencodeNaming
 	}
 	return neutralNaming
 }

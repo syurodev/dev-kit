@@ -634,6 +634,53 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `thread/inject_items` and `mcpServerStatus/list` have RPCs but no command — none was measured here and each needs its own
     decision (goal and name overlap Agent Hub's own goal/title; fork/revert overlap rewind). `delivery: "detached"` is
     refused by the app-server and deprecated. Codex's own `/model`, `/approvals` and the like are DevKit's pickers.
+- **opencode is the third vendor, and the first with no pinned version** (`adapter_opencode.go`, `agentruntime.OpenCodeCLI`,
+  `Agent.Unpinned`; measured against opencode V2 2.0.32 with a scripted model, not a real one). Research and plan:
+  the conversation that added it; upstream state: `anomalyco/opencode` issues labelled `acp`.
+  - **No pin.** `Install(ctx, "opencode", "")` asks npm for `@opencode/cli`'s latest tag (`Manager.resolveLatest`, stable
+    versions only, `<NPMRegistry>/@opencode%2Fcli/latest`), installs it and activates it only if `OpenCodeAdapter.Probe` passes
+    under the jail (initialize, and the agent can reopen a session). `Status.TestedVersion` is empty, so the UI says
+    "Install latest" / "Update to X" and never "untested"; `Previous` is the rollback. DevKit knows what the agent can do from
+    what it says (initialize, config options, `-32601` answers), never from a version number — Claude and Codex are meant to
+    move to the same rule. `adapter_opencode_live_test.go` is the conformance check to run against a new release
+    (`DEVKIT_OPENCODE_COMMAND=<native binary> go test ./internal/agenthub/ -run OpenCodeLive -v`; the binary is
+    `node_modules/@opencode/cli-<platform>/bin/opencode`; `DEVKIT_OPENCODE_INSTALL_LIVE=1 … -run OpenCodeInstallLive` installs from npm).
+  - **`opencode acp`, one process per session.** opencode registers a session's MCP servers per *directory* on its private
+    server, so sessions sharing a process (or a directory) see each other's tools (upstream #40978). The process serves a private
+    HTTP API on loopback (`AllowLoopbackListeners`) and ends when stdin closes. It reuses the generic ACP runtime
+    (`claudeRuntime`, now carrying `vendor`) and wraps it in `openCodeRuntime`.
+  - **Its home is DevKit's, like Codex's**: `<data>/agent-homes/opencode`, handed over as `XDG_{CONFIG,DATA,STATE,CACHE}_HOME`
+    (opencode has no variable of its own). The user's `~/.config/opencode` and sign-in are never read. `config/opencode/` is not
+    reset (a person may add providers there) but is read-only to the jail, as is `prompts/`. DevKit's settings ride on
+    `OPENCODE_CONFIG_CONTENT`, which measurably beats every file: `permissions` (shell and edit **ask**), `update: disable`,
+    `share: disabled`, and `instructions` (the DevKit prompt, a content-named file in `prompts/`). A private-home session gets
+    `HOME=<home>/home`: opencode resolves `~/.claude` and `~/.agents` when it opens a session and, where the jail hides a real
+    `~/.claude`, `realPath` fails and every `session/new` with it. `OPENCODE_DISABLE_CLAUDE_CODE=1`. XDG_CONFIG_HOME moves gh's and
+    glab's login, so a shared home sets `GH_CONFIG_DIR`/`GLAB_CONFIG_DIR` back. Sign-in is `opencode acp --login` in a terminal
+    tab (`AuthProvider`, the Claude path), run with the same XDG roots.
+  - **Permission modes are DevKit's** (`ask`, `auto`, `bypassPermissions`, the ids Codex uses so a child inherits across vendors).
+    opencode's own `mode` is an agent (build/plan) and `plan` does **not** stop writes (measured), so that option is dropped from
+    the settings and `SetMode` refuses it. opencode is told to ask and `permissionBeforeAsk` answers: Full auto allows everything,
+    Auto allows edits and puts commands to the person, Ask puts everything to the person. The person is never offered "always":
+    opencode keeps that rule for the whole project, past the session (a later session ran the command unasked), so the option is
+    removed from the card and an `always` answer becomes `once`. A refusal ends the turn (`stopReason: cancelled`). MCP tools are not in the
+    ask list: DevKit's own gate asks after dispatch.
+  - **What opencode does not have, and what DevKit does about it** (each is an interface the runtime/adapter does not implement
+    or an error it answers, so nothing errors): steering mid-turn (`Steer` → `ErrUnsupported` → peer messages queue; the PR is
+    upstream #54394) and goals; forking at a message (no `RuntimeForker`: a rewind restores files only); subagent profiles
+    (`subagentProblem`: skipped with a reason); skills/MCP overrides and the environment report ("unavailable"); compaction cards
+    (`session.compaction` is not declared, so opencode sends a plain marker). Unknown methods answer `-32601`.
+  - **DevKit's tools are called through opencode's Code Mode**: its system prompt lists MCP tools as
+    `tools.devkit.git_status()` (dots → underscores) and they only run inside the `execute` tool; past ~20 tools the catalog is
+    cut to ~12 KB and the rest is found with `search` (`opencodeNaming`). It registers a session's MCP servers asynchronously: a
+    prompt sent right after `session/new` was built without them (5 of 5), 100 ms after the server answered `tools/list` it had them
+    (upstream #53299). `openCodeMCPSettle` (1.5 s) holds the first prompt; waiting for the MCP host to see `tools/list` would be exact.
+  - Catalog: `ConfigCatalog` reads `model`/`effort` from a scratch session and **deletes it** (opencode persists a session when it is
+    created); the efforts of the current model only, since every model switch reloads the agent. The scratch directory is not
+    resolved through symlinks (`/private/var/…` makes opencode resolve `/private`, which the jail does not show it).
+  - Not verified: a real model, `auth_required` as opencode really answers it, a subagent that calls tools (child-session
+    updates are declared via `_meta["opencode/child-session-updates"]`, untested), `/compact` with a model that obeys its template,
+    bwrap on Linux, Windows, and V1 (ACP is there too; only V2 was run).
 - **A person's turn has no time limit; an agent's or terminal's does.** `Service.Invoke` applies
   `DefaultInvokeTimeout` (10 min) only when the caller is not the UI or a remote human
   (`invokeUnbounded`). It used to cut every UI turn at 10:00 exactly, which looked like the vendor
@@ -727,7 +774,7 @@ DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexR
   Skills & MCP (`agents-skills`, the tools/skills/MCP report and `AgentCustomization` overrides,
   `AgentEnvironmentPanel`), Safety (`agents-safety`, sandbox + file checkpoints), Notifications & remote
   (`agents-notifications`, + Telegram) and DevKit as MCP (`agents-mcp`). Runtimes and Skills & MCP carry a shadcn
-  `Tabs` Claude | Codex switch whose last choice is shared and kept in `localStorage`
+  `Tabs` Claude | Codex | opencode switch whose last choice is shared and kept in `localStorage`
   (`agentVendorChoice.ts`, guarded); the other pages are vendor-neutral. The old ids `agents`, `remote` and `mcp`
   stay valid for callers (`requestSettings("agents")`): `resolveSettingsTab` maps them to Runtimes, Notifications &
   remote and DevKit as MCP. A new agent setting is a panel on the page whose topic it is, plus keywords on that

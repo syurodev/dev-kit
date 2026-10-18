@@ -42,8 +42,12 @@ type SessionNewRequest struct {
 	// McpServers is required by schema v1 even when empty: omitempty made an
 	// endpoint-less session/new fail with -32602 Invalid params. Always send a
 	// non-nil slice.
-	McpServers []any           `json:"mcpServers"`
-	Meta       json.RawMessage `json:"_meta,omitempty"`
+	McpServers []any `json:"mcpServers"`
+	// AdditionalDirectories are extra absolute roots the agent may work in
+	// beside Cwd (the ACP "additional directories" RFD). Only an agent that
+	// advertises sessionCapabilities.additionalDirectories reads them.
+	AdditionalDirectories []string        `json:"additionalDirectories,omitempty"`
+	Meta                  json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionNewResult is the result object for session/new
@@ -78,10 +82,13 @@ type SessionMode struct {
 // the agent replays the session's history as session/update notifications
 // before the call returns.
 type SessionLoadRequest struct {
-	SessionID  string          `json:"sessionId"`
-	Cwd        string          `json:"cwd"`
-	McpServers []any           `json:"mcpServers"`
-	Meta       json.RawMessage `json:"_meta,omitempty"`
+	SessionID  string `json:"sessionId"`
+	Cwd        string `json:"cwd"`
+	McpServers []any  `json:"mcpServers"`
+	// AdditionalDirectories: see SessionNewRequest. A load or resume replaces
+	// the session's earlier list, so it is sent again every time.
+	AdditionalDirectories []string        `json:"additionalDirectories,omitempty"`
+	Meta                  json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionLoadResult is the result object for session/load. Measured against

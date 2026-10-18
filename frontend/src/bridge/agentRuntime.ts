@@ -22,6 +22,12 @@ export const CLAUDE_AGENT = "claude-acp";
 /** OpenAI's Codex CLI, run as `codex app-server` for the "codex" vendor. */
 export const CODEX_AGENT = "codex";
 
+/**
+ * opencode, run as `opencode acp` for the "opencode" vendor. The one runtime
+ * with no tested version: DevKit installs npm's latest.
+ */
+export const OPENCODE_AGENT = "opencode";
+
 function normalize(status: Status): AgentRuntimeStatus {
   return { ...status, requirements: status.requirements ?? [] };
 }
@@ -153,14 +159,17 @@ export function runtimeStatusLine(
   latest: string | null;
 } {
   const { current, testedVersion, latestVersion } = status;
+  // An agent with no tested version (opencode) is always the latest DevKit could
+  // install; "tested" and "not tested" would both be untrue of it.
+  const pinned = testedVersion !== "";
   const headline = !current
     ? "Not installed"
-    : `${name} ${current.version}${current.version === testedVersion ? " · tested" : " · not tested by DevKit"}`;
-  const latest =
-    latestVersion && compareVersions(latestVersion, testedVersion) > 0 &&
-      (!current || compareVersions(latestVersion, current.version) > 0)
-      ? `${latestVersion} available (not tested by DevKit)`
-      : null;
+    : `${name} ${current.version}${pinned ? (current.version === testedVersion ? " · tested" : " · not tested by DevKit") : ""}`;
+  const newer =
+    latestVersion &&
+    (!pinned || compareVersions(latestVersion, testedVersion) > 0) &&
+    (!current || compareVersions(latestVersion, current.version) > 0);
+  const latest = newer ? (pinned ? `${latestVersion} available (not tested by DevKit)` : `${latestVersion} available`) : null;
   return { headline, latest };
 }
 
