@@ -24,7 +24,6 @@ import {
   groupSessions,
   drawnWhenHidingClosed,
   needsYou,
-  rowFolder,
   sessionCount,
   type Attention,
   type SidebarGroup,
@@ -219,7 +218,6 @@ export function AgentSessionSidebar({
   }, [allSessions, scratchRoot, workspaces, hideClosed, activeSessionId, waitingIds, currentWorkspaceId]);
   const hiddenCount = allSessions.length - waiting.length - groups.reduce((n, g) => n + g.sessions.length, 0);
   const titles = React.useMemo(() => new Map(allSessions.map((s) => [s.id, sessionTitle(s)])), [allSessions]);
-  const byId = React.useMemo(() => new Map(allSessions.map((s) => [s.id, s])), [allSessions]);
   const needsLabelId = React.useId();
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   const expanded = React.useMemo(() => new Set(expandedKeys), [expandedKeys]);
@@ -389,7 +387,6 @@ export function AgentSessionSidebar({
                       selected={session.id === activeSessionId}
                       attention={attention[session.id]}
                       ask={asks[session.id] ?? null}
-                      folder={rowFolder(session, byId, scratchRoot, workspaces)}
                       pinned={pinnedIds.includes(session.id)}
                       subagents={subagents[session.id] ?? NO_SUBAGENT_LIST}
                       peerUnread={peerUnread[session.id]}

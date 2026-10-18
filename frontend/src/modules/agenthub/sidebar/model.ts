@@ -94,21 +94,6 @@ export function lineageRoot(session: AgentSession, byId: ReadonlyMap<string, Age
 }
 
 /**
- * The folder label a row shows before its second line: only when the
- * workspace the session is filed in (by groupSessions' rule, through its
- * lineage) has more than one folder. Null otherwise.
- */
-export function rowFolder(
-  session: AgentSession,
-  byId: ReadonlyMap<string, AgentSession>,
-  scratchRoot: string,
-  workspaces: SidebarWorkspace[],
-): string | null {
-  const { workspace } = sessionGroup(lineageRoot(session, byId), scratchRoot, workspaces);
-  return workspace && workspace.paths.length > 1 ? projectLabel(session.projectPath) : null;
-}
-
-/**
  * Sessions by workspace / folder.
  *
  * Membership is the existing rule (sessionGroup), applied to a session's
@@ -241,19 +226,18 @@ export function askBySession(
   return out;
 }
 
-export type SecondLine = { text: string; tone: "plain" | "warning" | "danger"; folder: string | null };
+export type SecondLine = { text: string; tone: "plain" | "warning" | "danger" };
 
 /** What a row says under its title: a pending ask, else the preview (danger on error). */
 export function secondLine(input: {
   session: Pick<AgentSession, "status" | "preview">;
   ask: string | null;
-  folder: string | null;
 }): SecondLine {
-  const { session, ask, folder } = input;
-  if (ask) return { text: ask, tone: "warning", folder };
+  const { session, ask } = input;
+  if (ask) return { text: ask, tone: "warning" };
   const text = session.preview ?? "";
-  if (session.status === "error") return { text, tone: "danger", folder };
-  return { text, tone: "plain", folder };
+  if (session.status === "error") return { text, tone: "danger" };
+  return { text, tone: "plain" };
 }
 
 /**

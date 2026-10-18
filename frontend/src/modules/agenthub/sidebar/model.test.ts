@@ -398,31 +398,28 @@ describe("needsYou", () => {
 
 describe("secondLine", () => {
   it("a pending ask wins and is a warning", () => {
-    expect(secondLine({ session: session("a", { status: "running", preview: "old" }), ask: "Allow migrate up?", folder: null })).toEqual({
+    expect(secondLine({ session: session("a", { status: "running", preview: "old" }), ask: "Allow migrate up?" })).toEqual({
       text: "Allow migrate up?",
       tone: "warning",
-      folder: null,
     });
   });
 
   it("an error shows the preview as danger", () => {
-    expect(secondLine({ session: session("a", { status: "error", preview: "Usage limit." }), ask: null, folder: "api" })).toEqual({
+    expect(secondLine({ session: session("a", { status: "error", preview: "Usage limit." }), ask: null })).toEqual({
       text: "Usage limit.",
       tone: "danger",
-      folder: "api",
     });
   });
 
   it("otherwise the preview, plain", () => {
-    expect(secondLine({ session: session("a", { preview: "Done." }), ask: null, folder: null })).toEqual({
+    expect(secondLine({ session: session("a", { preview: "Done." }), ask: null })).toEqual({
       text: "Done.",
       tone: "plain",
-      folder: null,
     });
   });
 
   it("nothing to say", () => {
-    expect(secondLine({ session: session("a"), ask: null, folder: null })).toEqual({ text: "", tone: "plain", folder: null });
+    expect(secondLine({ session: session("a"), ask: null })).toEqual({ text: "", tone: "plain" });
   });
 });
 

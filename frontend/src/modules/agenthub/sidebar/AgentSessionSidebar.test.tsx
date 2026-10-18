@@ -61,7 +61,7 @@ function renderCard(over: Partial<AgentSessionCardProps> & Pick<AgentSessionCard
   return renderToString(
     <TooltipProvider>
       <SessionActionsContext.Provider value={NO_ACTIONS}>
-        <AgentSessionCard selected={false} pinned={false} subagents={[]} ask={null} folder={null} now={Date.now()} {...over} />
+        <AgentSessionCard selected={false} pinned={false} subagents={[]} ask={null} now={Date.now()} {...over} />
       </SessionActionsContext.Provider>
     </TooltipProvider>,
   );
@@ -169,17 +169,12 @@ describe("groups", () => {
     expect(header(render({ sessions: aged(3) }), "project:/work/api")).not.toContain("group-hover/header:opacity-0");
   });
 
-  it("a workspace of several folders says each row's folder; of one, it does not", () => {
+  it("a row never says its folder, whatever the workspace holds", () => {
     const several = render({
       sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
       workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
     });
-    expect(cardHtml(several, "a")).toMatch(/opacity-70">web · <\/span>Done\./);
-    const one = render({
-      sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", preview: "Done." })],
-      workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/web"] }],
-    });
-    expect(cardHtml(one, "a")).not.toContain("opacity-70");
+    expect(cardHtml(several, "a")).toMatch(/agent-card-line[^>]*>Done\.<\/span>/);
   });
 
   it("names the workspace, and puts no-project last", () => {
@@ -378,10 +373,9 @@ describe("a card", () => {
     expect(cardHtml(html, "a")).toMatch(/agent-card-line[^>]*text-status-warning[^>]*>[^<]*Allow migrate up\?/);
   });
 
-  it("a failed row says where it stopped, in the danger tone, and a folder goes first", () => {
-    const html = renderCard({ session: session("a", { status: "error", preview: "Build broke." }), folder: "web" });
-    expect(html).toMatch(/agent-card-line[^>]*text-status-danger/);
-    expect(html).toMatch(/opacity-70">web · <\/span>Build broke\./);
+  it("a failed row says where it stopped, in the danger tone", () => {
+    const html = renderCard({ session: session("a", { status: "error", preview: "Build broke." }) });
+    expect(html).toMatch(/agent-card-line[^>]*text-status-danger[^>]*>Build broke\./);
   });
 
   it("draws nothing for idle: no state on the face, no turn count", () => {
@@ -746,19 +740,13 @@ describe("subagents in a row's menu", () => {
 });
 
 describe("after needs-you", () => {
-  it("a folder with nothing after it has no dangling dot", () => {
-    const html = renderCard({ session: session("a"), folder: "web" });
-    expect(html).toContain('opacity-70">web</span>');
-    expect(html).not.toContain("web · ");
-  });
-
-  it("a waiting row in a workspace of several folders says its folder too", () => {
+  it("a waiting row in a workspace of several folders does not say its folder", () => {
     const html = render({
       sessions: [session("a", { projectPath: "/work/web", workspaceId: "ws1", status: "error", preview: "Broke." })],
       workspaces: [{ id: "ws1", name: "Billing", paths: ["/work/api", "/work/web"] }],
     });
     expect(html).toContain('data-testid="agent-needs-you"');
-    expect(cardHtml(html, "a")).toMatch(/opacity-70">web · <\/span>Broke\./);
+    expect(cardHtml(html, "a")).toMatch(/agent-card-line[^>]*>Broke\.<\/span>/);
   });
 
   it("the face's ring colour is the stylesheet's, not an inline style", () => {

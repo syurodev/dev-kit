@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
 import { sessionTitle } from "../documents";
 import { useSessionActions } from "./actions";
-import { projectLabel } from "./grouping";
 import { sessionCount, type SidebarGroup } from "./model";
 import { SessionBranch, type BranchContext } from "./SessionBranch";
 import { buildForest, heldBranches, partitionForest, type BranchSignals } from "./tree";
@@ -133,7 +132,6 @@ function AgentSessionGroupView({
   const hint = group.kind === "scratch" ? undefined : group.workspace ? group.workspace.paths.join("\n") : group.path || undefined;
 
   // A workspace of several folders says which one each row works in.
-  const severalFolders = Boolean(group.workspace && group.workspace.paths.length > 1);
 
   const ctx: BranchContext = {
     activeId,
@@ -145,7 +143,6 @@ function AgentSessionGroupView({
     signals,
     titles,
     // Anything waiting on the person is drawn in Needs you, not here.
-    folderOf: (path) => (severalFolders ? projectLabel(path) : null),
     now,
   };
   const renderTree = (nodes: typeof shown) =>
