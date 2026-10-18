@@ -31,7 +31,6 @@ export type BranchContext = {
   signals: Record<string, BranchSignals>;
   titles: ReadonlyMap<string, string>;
   /** A workspace of several folders says which one each row works in. */
-  folderOf: (projectPath: string) => string | null;
   now: number;
 };
 
@@ -103,7 +102,6 @@ export function SessionBranch({
         selected={session.id === ctx.activeId}
         // Anything waiting on the person is drawn in Needs you, not here.
         ask={null}
-        folder={ctx.folderOf(session.projectPath)}
         pinned={ctx.pinned.has(session.id)}
         subagents={ctx.subagents[session.id] ?? NO_SUBAGENTS}
         peerUnread={ctx.peerUnread[session.id]}

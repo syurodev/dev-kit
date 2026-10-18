@@ -69,8 +69,6 @@ export type AgentSessionCardProps = {
   attention?: Attention;
   /** What the session waits on the person for, in its own words (a permission's title, a question). */
   ask: string | null;
-  /** The folder it works in, when its workspace has more than one; null otherwise. */
-  folder: string | null;
   pinned: boolean;
   /** Said in the tooltip and the description only; the row draws no avatars for them. */
   subagents: readonly Subagent[];
@@ -110,8 +108,9 @@ export type AgentSessionCardProps = {
  * The face (SessionAvatar) carries the vendor and the state — an arc while it
  * runs, a dot when it waits on the person or failed. Beside it, the title and
  * its age, then one line: what it is waiting for (warning), else the last thing
- * it said (danger when it failed), behind the folder when the workspace has
- * several. Nothing else is drawn: pinned, child-of and subagents are said in
+ * it said (danger when it failed). The folder it works in is not said: the
+ * rail is already one workspace's, and a repository name told the person
+ * nothing the group did not. Nothing else is drawn: pinned, child-of and subagents are said in
  * the tooltip and the description.
  *
  * Structure: the card is a `div`, never a button. The title is the open button;
@@ -130,7 +129,6 @@ function AgentSessionCardView({
   selected,
   attention,
   ask,
-  folder,
   pinned,
   subagents,
   parentTitle,
@@ -155,7 +153,7 @@ function AgentSessionCardView({
   const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle, peerUnread });
   if (childCount > 0) summary.push(childCountLabel(childCount));
   if (hint) summary.push(branchHintLabel(hint));
-  const line = secondLine({ session, ask, folder });
+  const line = secondLine({ session, ask });
   const avatarState: AvatarState = waiting
     ? "waiting"
     : session.status === "error"
@@ -307,9 +305,8 @@ function AgentSessionCardView({
                 : "text-text-tertiary",
           )}
         >
-          {line.folder ? <span className="opacity-70">{line.text ? `${line.folder} · ` : line.folder}</span> : null}
           {/* A blank line still takes its height, so every row is the same two lines. */}
-          {line.text || (line.folder ? null : "\u00a0")}
+          {line.text || "\u00a0"}
         </span>
       </div>
 
