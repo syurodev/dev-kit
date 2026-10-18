@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import {
+  adoptCreatedSession,
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
   handleSessionUpdateTabs,
@@ -15,7 +16,7 @@ import {
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 import { sendAgentTurn, setAgentHubTabsStatus, type TurnBridge } from "./agentPromptQueue";
-import type { InvokeResult } from "../bridge/agenthub";
+import type { AgentSession, InvokeResult } from "../bridge/agenthub";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
 useWorkbenchTabsStore.persist.setOptions({
@@ -271,5 +272,36 @@ describe("messages from other sessions and the person's own queue", () => {
     // Deleting a session takes its count with it.
     store.getState().removeSession("s2");
     expect(store.getState().peerUnreadBySession).toEqual({});
+  });
+});
+
+describe("a session another caller created", () => {
+  const child = { id: "child-1", agentType: "opencode", status: "running", parentSessionId: "p" } as unknown as AgentSession;
+
+  beforeEach(() => {
+    useAgentSessionsStore.setState({ sessionsById: {}, sessionsLoaded: true });
+  });
+
+  it("is added to the list this window loaded before it existed", async () => {
+    await adoptCreatedSession("child-1", async () => child);
+    expect(useAgentSessionsStore.getState().sessionsById["child-1"]?.parentSessionId).toBe("p");
+  });
+
+  it("is not read again when the window already has it", async () => {
+    useAgentSessionsStore.setState({ sessionsById: { "child-1": { ...child, status: "idle" } as AgentSession } });
+    let reads = 0;
+    await adoptCreatedSession("child-1", async () => {
+      reads += 1;
+      return child;
+    });
+    expect(reads).toBe(0);
+    expect(useAgentSessionsStore.getState().sessionsById["child-1"]?.status).toBe("idle");
+  });
+
+  it("is left out quietly when the row cannot be read", async () => {
+    await adoptCreatedSession("child-1", async () => {
+      throw new Error("gone");
+    });
+    expect(useAgentSessionsStore.getState().sessionsById["child-1"]).toBeUndefined();
   });
 });

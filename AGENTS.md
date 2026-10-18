@@ -775,6 +775,12 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
   checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.
 
+- **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
+  `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
+  by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"
+  until the app restarted. The event carries only the id; the window reads the row (`AgentHubGetStatus`) and upserts it.
+  Sessions the window creates itself (UI / remote human callers) do not fire it.
+
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
 and server mode's bridge has no authentication, so a session could approve itself.

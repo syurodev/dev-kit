@@ -325,3 +325,27 @@ func TestAModelChoiceDoesNotWidenWhereTheChildMayRun(t *testing.T) {
 		t.Fatalf("a folder outside the parent: %v", err)
 	}
 }
+
+// The window loads its session list once, so a child an agent starts has to be
+// announced; the window's own sessions come back in the call's answer.
+func TestOnlyASessionSomeoneElseCreatedIsAnnounced(t *testing.T) {
+	f := newChoiceFixture(t)
+	var announced []string
+	f.svc.OnSessionCreated = func(s AgentSession) { announced = append(announced, s.ID) }
+
+	child, err := f.svc.CreateSession(f.ctx, CreateInput{AgentType: AgentTypeMock, Cwd: f.parent.ProjectPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(announced) != 1 || announced[0] != child.ID {
+		t.Fatalf("an agent's child: announced %v, want [%s]", announced, child.ID)
+	}
+
+	ui := identity.WithCaller(context.Background(), identity.UI())
+	if _, err := f.svc.CreateSession(ui, CreateInput{AgentType: AgentTypeMock, Cwd: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if len(announced) != 1 {
+		t.Fatalf("the window's own session was announced too: %v", announced)
+	}
+}
