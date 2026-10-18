@@ -287,9 +287,6 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // One per way of signing in (vendors.ts): Claude's runs its login in a
   // terminal, Codex's inside DevKit. Both retry the same way.
   const claudeSignIn = useClaudeSignIn(retryAfterSignIn);
-  const openCodeSignIn = useClaudeSignIn(retryAfterSignIn, OPENCODE_VENDOR);
-  /** The terminal sign-in controller of a vendor that signs in that way. */
-  const terminalSignIn = (vendor: string | undefined) => (vendor === OPENCODE_VENDOR ? openCodeSignIn : claudeSignIn);
   const codexSignIn = useCodexSignIn(retryAfterSignIn);
   const queryClient = useQueryClient();
   // Asked while the draft has an agent picked, not after a send fails: the
@@ -350,6 +347,18 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     () => (tabSessionId ? sessions.find((s) => s.id === tabSessionId) ?? null : null),
     [sessions, tabSessionId],
   );
+  // opencode's sign-in methods are listed by starting opencode, so they are only
+  // asked for once opencode is what the person is working with (the draft's
+  // agent, this tab's session, or a create waiting on a sign-in).
+  const openCodeSignIn = useClaudeSignIn(
+    retryAfterSignIn,
+    OPENCODE_VENDOR,
+    (draft !== null && draftAgent === OPENCODE_VENDOR) ||
+      activeSession?.agentType === OPENCODE_VENDOR ||
+      (authRetry?.kind === "create" && authRetry.params.vendor === OPENCODE_VENDOR),
+  );
+  /** The terminal sign-in controller of a vendor that signs in that way. */
+  const terminalSignIn = (vendor: string | undefined) => (vendor === OPENCODE_VENDOR ? openCodeSignIn : claudeSignIn);
   const sessionConfig = useQuery({
     queryKey: ["agenthub", "sessionConfig", activeSession?.id],
     queryFn: async () => { await agentHubPrepareSession(activeSession!.id); return true; },

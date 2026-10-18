@@ -81,7 +81,7 @@ describe("runtimeStatusLine", () => {
       latest: "2.0.33 available",
     });
     // Not installed yet: nothing to update from, so no offer next to "Install latest".
-    expect(runtimeStatusLine(status({ ...none, latestVersion: "2.0.33" }), "opencode").latest).toBe("2.0.33 available");
+    expect(runtimeStatusLine(status({ ...none, latestVersion: "2.0.33" }), "opencode").latest).toBeNull();
     // A cached catalog older than what is installed is not an update.
     expect(runtimeStatusLine(status({ ...none, current: installed("2.0.40"), latestVersion: "2.0.33" }), "opencode").latest).toBeNull();
   });

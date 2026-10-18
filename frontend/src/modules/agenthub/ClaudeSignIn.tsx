@@ -31,10 +31,19 @@ export const agentAuthMethodsQueryKey = (agent: string) => ["agentAuthMethods", 
  * `onDone` is read through a ref so it sees the render the exit arrives in,
  * not the one the button was pressed in.
  */
-export function useClaudeSignIn(onDone?: (outcome: SignInOutcome) => void, vendor: string = CLAUDE_VENDOR) {
+export function useClaudeSignIn(
+  onDone?: (outcome: SignInOutcome) => void,
+  vendor: string = CLAUDE_VENDOR,
+  /**
+   * Listing the methods can start the agent in its jail (the backend caches the
+   * answer per install), so a vendor nobody is using yet leaves it off.
+   */
+  enabled = true,
+) {
   const methods = useQuery({
     queryKey: agentAuthMethodsQueryKey(vendor),
     queryFn: () => agentHubAuthMethods(vendor),
+    enabled,
     // The list only changes with the installed runtime; the backend caches the
     // probe per install anyway.
     staleTime: Infinity,

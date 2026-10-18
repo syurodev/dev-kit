@@ -165,10 +165,13 @@ export function runtimeStatusLine(
   const headline = !current
     ? "Not installed"
     : `${name} ${current.version}${pinned ? (current.version === testedVersion ? " · tested" : " · not tested by DevKit") : ""}`;
+  // Unpinned: there is only something to update when something is installed;
+  // with nothing installed "Install latest" is the one action.
   const newer =
     latestVersion &&
-    (!pinned || compareVersions(latestVersion, testedVersion) > 0) &&
-    (!current || compareVersions(latestVersion, current.version) > 0);
+    (pinned
+      ? compareVersions(latestVersion, testedVersion) > 0 && (!current || compareVersions(latestVersion, current.version) > 0)
+      : current !== null && compareVersions(latestVersion, current.version) > 0);
   const latest = newer ? (pinned ? `${latestVersion} available (not tested by DevKit)` : `${latestVersion} available`) : null;
   return { headline, latest };
 }

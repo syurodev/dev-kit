@@ -677,9 +677,9 @@ func (r *openCodeRuntime) SetMode(_ context.Context, modeID string) error {
 	if !known {
 		return fmt.Errorf("%w: unknown mode %q", ErrInvalidConfigOption, modeID)
 	}
-	r.claudeRuntime.mu.Lock()
-	closed := r.claudeRuntime.closed
-	r.claudeRuntime.mu.Unlock()
+	r.mu.Lock()
+	closed := r.closed
+	r.mu.Unlock()
 	if closed {
 		return ErrSessionNotFound
 	}
@@ -701,15 +701,15 @@ func (r *openCodeRuntime) SetConfigOption(ctx context.Context, optionID, value s
 	if err := r.claudeRuntime.SetConfigOption(ctx, optionID, value); err != nil {
 		return err
 	}
-	r.claudeRuntime.mu.Lock()
-	kept := r.claudeRuntime.options[:0]
-	for _, o := range r.claudeRuntime.options {
+	r.mu.Lock()
+	kept := r.options[:0]
+	for _, o := range r.options {
 		if o.ID != "mode" && o.Category != "mode" {
 			kept = append(kept, o)
 		}
 	}
-	r.claudeRuntime.options = kept
-	r.claudeRuntime.mu.Unlock()
+	r.options = kept
+	r.mu.Unlock()
 	return nil
 }
 
