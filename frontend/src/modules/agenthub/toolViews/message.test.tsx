@@ -34,6 +34,13 @@ describe("agenthub.sendMessage", () => {
     expect(deliveryLine(parseSentMessage({ delivery: "queued" })!)).toContain("Waiting");
   });
 
+  it("fills the transcript column like the received message and the other result cards", () => {
+    const html = renderToString(<MessageSentCard message={parseSentMessage(STEERED)!} onOpenSession={() => {}} />);
+    const card = html.match(/<div[^>]*data-testid="tool-result-card"[^>]*>/)?.[0] ?? "";
+    expect(card).toContain("w-full");
+    expect(card).not.toMatch(/max-w-/);
+  });
+
   it("links the recipient when the message went somewhere", () => {
     const html = renderToString(<MessageSentCard message={parseSentMessage(STEERED)!} onOpenSession={() => {}} />);
     expect(html).toContain("Message to");

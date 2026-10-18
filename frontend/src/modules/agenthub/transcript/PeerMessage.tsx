@@ -63,6 +63,10 @@ function useClampOverflow(ref: React.RefObject<HTMLElement | null>, text: string
  * session. The person did not write it, and the agent was told so; the
  * transcript says the same thing the agent heard.
  *
+ * The card has no width of its own: it fills the transcript column like the tool
+ * result cards beside it (FramedCard is w-full min-w-0). A max width here once
+ * stopped it at 640px while those ran the whole column.
+ *
  * The name is the sender's live title when the session still exists (a renamed
  * session reads as renamed) and the title it had when sending when it does not.
  * The text is exactly what was sent, not the envelope the model received, and
@@ -81,7 +85,7 @@ export function PeerMessageView({ source, text, at, onCopy, sender, onOpenSessio
 
   return (
     <MessageActions align="start" text={text} at={at} onCopy={onCopy}>
-      <FramedCard data-testid="peer-message" data-source-kind={source.kind} data-hop={source.hop} className="max-w-160">
+      <FramedCard data-testid="peer-message" data-source-kind={source.kind} data-hop={source.hop}>
         <FramedCardHeader
           title={
             <PeerParty

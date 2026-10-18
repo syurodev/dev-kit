@@ -35,7 +35,7 @@ export function MessageSentCard({
   const open = message.sessionId && !refused ? () => onOpenSession(message.sessionId) : undefined;
   const title = live?.title || message.title;
   return (
-    <FramedCard data-testid="tool-result-card" data-delivery={message.delivery} className="max-w-160">
+    <FramedCard data-testid="tool-result-card" data-delivery={message.delivery}>
       <FramedCardHeader
         icon={MessageSquareShare}
         title={

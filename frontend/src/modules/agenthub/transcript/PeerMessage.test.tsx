@@ -26,6 +26,13 @@ describe("a message from another session", () => {
     expect(html).not.toContain("step ");
   });
 
+  it("fills the transcript column like the tool result cards, with no width of its own", () => {
+    const html = renderToString(<PeerMessageView source={FROM} text="hi" sender={alive} onOpenSession={() => {}} />);
+    const card = html.match(/<div[^>]*data-testid="peer-message"[^>]*>/)?.[0] ?? "";
+    expect(card).toContain("w-full");
+    expect(card).not.toMatch(/max-w-/);
+  });
+
   it("keeps the name it was sent under when the sender is gone, and says so", () => {
     const html = renderToString(<PeerMessageView source={FROM} text="hi" onOpenSession={() => {}} />);
     expect(html).toContain("alpha (then)");
