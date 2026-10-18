@@ -782,7 +782,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `agenthub.listPeers`; spec `docs/superpowers/specs/2026-10-16-agent-hub-peer-messages-design.md`). The answer is at
   once `delivery` = `started` (idle: an ordinary `invoke` turn), `steered` (running: Claude `_session/steering` / Codex
   `turn/steer`, the `TurnSteerer` interface), `queued` (in-memory; drained when a turn ends) or `refused` + `code`.
-  Reach = own workspace, sub-sessions, parents; another workspace is `not_found` unless the person approves the exact
+  Reach = own workspace, sub-sessions, parents and siblings — a child reaches the other children of its parent
+  (`PeerSibling`, hop cap `MaxSiblingHops` = 4, general `MaxPeerHops` = 6; the refusal and the envelope tell it to report
+  to its parent) but not a child of another parent (`PeerOtherBranch`, `not_found`: the parent passes it on; the DevKit
+  prompt's "Report to your parent" says so); another workspace is `not_found` unless the person approves the exact
   text (the tool asks, `CrossWorkspaceApproved` is never a wire field); a closed session is never woken. The row is a
   `user_message_chunk` with `source` (`MessageSource`, stored payload + `_devkit.source`), drawn by `PeerMessage` and
   never as the person's bubble; the model gets an envelope (`peerEnvelope`) saying it is not the person's, framed by
