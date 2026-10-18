@@ -675,6 +675,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     cut to ~12 KB and the rest is found with `search` (`opencodeNaming`). It registers a session's MCP servers asynchronously: a
     prompt sent right after `session/new` was built without them (5 of 5), 100 ms after the server answered `tools/list` it had them
     (upstream #53299). `openCodeMCPSettle` (1.5 s) holds the first prompt; waiting for the MCP host to see `tools/list` would be exact.
+  - **The jail must let opencode read the directories above the project** (`sandbox.Policy.ReadAncestors`, Seatbelt only): to open
+    a session it resolves every ancestor of the project (and `<ancestor>/.claude`, `.agents`, `.opencode`, `opencode.json…`), and a
+    stat-only grant on the ancestors made `session/new` fail with `EPERM: lstat '/Users'` — **for every project under /Users**, which
+    no test caught because they all used a temp dir under /var (`TestOpenCodeLiveProjectUnderHome` is the one that does). Measured by
+    editing the generated profile: `file-read-data` on the `/Users` literal is what it needs (`file-read-metadata`/`-xattr` are not
+    enough), so ancestors are listable (names, never contents) for opencode only. A **private home** inside the home folder cannot
+    be fixed that way — stat-ing the hidden `~/.claude` needs read access to that directory too, i.e. listing the home — so
+    `openCodeNeedsSharedHome` refuses it up front with the reason ("turn on Share home folder in Settings → Agents → Safety, or open a
+    project outside your home"). Linux/bwrap: not measured.
   - Catalog: `ConfigCatalog` reads `model`/`effort` from a scratch session and **deletes it** (opencode persists a session when it is
     created); the efforts of the current model only, since every model switch reloads the agent. The scratch directory is not
     resolved through symlinks (`/private/var/…` makes opencode resolve `/private`, which the jail does not show it).

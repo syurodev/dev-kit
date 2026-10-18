@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -52,6 +53,9 @@ func TestOpenCodeSandboxPolicy(t *testing.T) {
 	}
 	if pol.Network != sandbox.NetworkHost || !pol.AllowLoopbackListeners {
 		t.Fatalf("policy = %+v: opencode acp serves a private API on loopback", pol)
+	}
+	if !pol.ReadAncestors {
+		t.Fatal("opencode walks up through every directory above the project; a stat-only grant fails every session/new under /Users")
 	}
 
 	// Its home is DevKit's, never the user's.
@@ -619,5 +623,52 @@ func TestSubagentProfilesForOpenCodeAreSkippedWithAReason(t *testing.T) {
 	specs, states := planSubagents(profiles, AgentTypeOpenCode, nil, nil)
 	if len(specs) != 0 || states[0].Status != SubagentSkipped || !strings.Contains(states[0].Reason, "opencode") {
 		t.Fatalf("specs=%v states=%+v, want the profile skipped and named", specs, states)
+	}
+}
+
+// opencode walks up through every directory above the project and stats what is
+// inside each. On macOS the jail can only let that through for the home folder
+// when the home is shared; a private-home session in a project inside it says so
+// instead of failing session/new with "Agent process failed".
+func TestOpenCodeInPrivateHomeNeedsAProjectOutsideTheHomeOnMacOS(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the restriction is Seatbelt's")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	inside := filepath.Join(home, "Workspace", "app")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	shared, private := false, true
+
+	for name, tc := range map[string]struct {
+		cwd     string
+		private *bool
+		refused bool
+	}{
+		"private home, project inside the home":  {inside, &private, true},
+		"default (private), project inside":      {inside, nil, true},
+		"shared home, project inside the home":   {inside, &shared, false},
+		"private home, project outside the home": {outside, &private, false},
+		// The jail grants the whole working directory, so the home as the project
+		// is readable (and is not "inside" itself).
+		"the home folder itself": {home, &private, false},
+	} {
+		err := openCodeNeedsSharedHome(tc.cwd, OpenSpec{Cwd: tc.cwd, PrivateHome: tc.private})
+		if tc.refused {
+			if !errors.Is(err, ErrProcessFailed) || !strings.Contains(err.Error(), "Share home folder") {
+				t.Errorf("%s: err = %v, want a refusal that says what to turn on", name, err)
+			}
+		} else if err != nil {
+			t.Errorf("%s: err = %v, want none", name, err)
+		}
+	}
+
+	// Open refuses before it starts anything.
+	a, _ := newOpenCodeTestAdapter(t, nil)
+	if _, err := a.Open(context.Background(), OpenSpec{Cwd: inside, PrivateHome: &private}); !errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("Open = %v", err)
 	}
 }
