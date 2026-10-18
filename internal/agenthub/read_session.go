@@ -10,9 +10,13 @@ const (
 	// of another session puts in the reader's context.
 	DefaultReadMessages = 6
 	MaxReadMessages     = 20
-	// readMessageClip bounds one message: a child's long report is read from
-	// its end, where the summary is, by asking for it again with a smaller page.
+	// readMessageClip bounds one message. A clipped message keeps its end,
+	// where a report's summary is; its beginning is the prompt's own echo.
 	readMessageClip = 3000
+	// readTextBudget bounds the text of one answer, in bytes, below the MCP
+	// result budget so that the tool's own cut — which keeps the OLDEST items —
+	// never has to happen and BeforeSeq stays true.
+	readTextBudget = 16 * 1024
 	// readTranscriptRows is how many transcript rows one read looks through;
 	// tool calls are most of them.
 	readTranscriptRows = 120
@@ -75,20 +79,35 @@ func (s *Service) ReadSessionMessages(ctx context.Context, id string, beforeSeq 
 		}
 		msg := SessionMessage{Seq: entry.Seq, Role: role, Text: entry.Text}
 		if utf8.RuneCountInString(msg.Text) > readMessageClip {
-			msg.Text, msg.Clipped = string([]rune(msg.Text)[:readMessageClip]), true
+			runes := []rune(msg.Text)
+			msg.Text, msg.Clipped = string(runes[len(runes)-readMessageClip:]), true
 		}
 		found = append(found, msg)
 	}
+	more := page.HasMore
 	if len(found) > limit {
-		found = found[len(found)-limit:]
+		found, more = found[len(found)-limit:], true
+	}
+	// The newest messages that fit; the newest always comes back. Older ones
+	// wait behind BeforeSeq.
+	start, used := len(found), 0
+	for start > 0 {
+		size := len(found[start-1].Text)
+		if start < len(found) && used+size > readTextBudget {
+			break
+		}
+		used += size
+		start--
+	}
+	if start > 0 {
+		found, more = found[start:], true
 	}
 	out.Messages = found
-	if page.HasMore || len(found) > 0 && len(page.Entries) > 0 && found[0].Seq > page.Entries[0].Seq {
-		if len(found) > 0 {
-			out.BeforeSeq = found[0].Seq
-		} else if len(page.Entries) > 0 {
-			out.BeforeSeq = page.Entries[0].Seq
-		}
+	switch {
+	case more && len(found) > 0:
+		out.BeforeSeq = found[0].Seq
+	case more && len(page.Entries) > 0:
+		out.BeforeSeq = page.Entries[0].Seq
 	}
 	return out, nil
 }

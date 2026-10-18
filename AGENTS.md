@@ -779,8 +779,9 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `invokeAgent`, `sendMessage`). `agenthub.resumeSession` (`Service.ResumeChild`: reopens a session's process without a prompt,
   never reloads, refuses itself/outside its tree with `ErrNotDescendant` and a closed session with `ErrSessionClosed` — only the
   person reopens one that was closed; `ResumeSession` stays UI-only), `agenthub.closeSession` (`CloseSession`; an agent cannot close
-  itself) and `agenthub.readSession` (`ReadSessionMessages`: newest user/agent messages, no tool calls, ≤ 20 per read, 3000 runes
-  each, `beforeSeq` pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
+  itself) and `agenthub.readSession` (`ReadSessionMessages`: newest user/agent messages, no tool calls, ≤ 20 per read, a message keeps its last 3000
+  runes, the newest that fit 16 KiB come back (below the 24 KB MCP budget, whose own cut would keep the oldest), `beforeSeq` is the
+  oldest returned and pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
   (`TestNewContainerGrantsTheChildControlTools`); only `readSession` is pre-approved. The UI's Resume on the "interrupted" notice
   now dismisses the notice and toasts, because it used to succeed silently (the row's `updated_at` moved, nothing on screen did).
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
