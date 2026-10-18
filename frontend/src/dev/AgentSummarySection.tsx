@@ -1,5 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { Button } from "@/components/ui/button";
+import { setSummarySectionOpen } from "@/modules/agenthub/summary/summaryFold";
+import type { CheckpointIndex } from "@/modules/agenthub/checkpoints";
+
 import { SessionSummaryBody, useSessionSummaryData } from "@/modules/agenthub/summary/SessionSummary";
 import { environmentRows } from "@/modules/agenthub/summary/summaryModel";
 import { pullRequestsView } from "@/modules/agenthub/summary/pullRequestModel";
@@ -11,8 +15,14 @@ import type { TranscriptItem, Usage } from "@/modules/agenthub/types";
  * The session summary as two vendors fill it: what each one reports decides
  * which sections it has — Claude has background tasks, cost and a plan window;
  * Codex has the token split, two plan windows and its MCP servers. Neither is
- * drawn with a section it has no data for. `?gallery#agenthub-summary`.
+ * drawn with a section it has no data for. Sections start folded, each with a
+ * line saying what is inside; "Open all" / "Fold all" are the gallery's own
+ * buttons (the fold is remembered like the app's). The third card is the case
+ * that prompted the folding: a workspace of fifteen repositories, long file
+ * names, and six repositories that all lack a GitLab account.
+ * `?gallery#agenthub-summary`.
  */
+const SECTIONS = ["environment", "goal", "plan", "changes", "pullRequests", "background", "sources", "subagents", "connectors", "context"];
 
 const client = new QueryClient();
 
@@ -61,6 +71,54 @@ const pullRequests: PullRequestsPanel = {
   detach: async () => {},
 };
 
+const CHIRO_REPOS = ["his-connector", "db-migrations", "log-service", "project-docs", "web-dashboard", "workload", "billing", "gateway", "auth", "notify", "reports", "scheduler", "search", "storage", "ui-kit"];
+const chiroItems = CHIRO_REPOS.slice(0, 6).map((name) =>
+  prItem({
+    status: "no_account",
+    folder: `/work/chiro/${name}`,
+    message: `No GitLab account for this remote (chiro5893506/${name} on gitlab.com). Add a token in Accounts.`,
+  }),
+);
+const chiroPullRequests: PullRequestsPanel = {
+  ...pullRequestsView([
+    prItem({
+      status: "found",
+      folder: "/work/chiro/gateway",
+      changeRequest: request({
+        repo: { host: "gitlab.com", path: "chiro5893506/gateway" },
+        number: 31,
+        title: "Cancel bookings in bulk without recalculating",
+        url: "https://gitlab.com/chiro5893506/gateway/-/merge_requests/31",
+        terms: { platform: "GitLab", short: "MR", long: "merge request", checks: "pipelines" },
+        checks: { total: 4, passed: 4, failed: 0, running: 0, skipped: 0 },
+        unresolvedThreads: 0,
+      }),
+    }),
+    ...chiroItems,
+  ]),
+  attach: async () => {},
+  detach: async () => {},
+};
+const chiroChanges = [
+  ["src/database/entities/customer.entity.ts", 0, 3],
+  ["src/v2/booking/booking-medical-examination-note.spec.ts", 0, 212],
+  ["src/v2/booking/booking.service.ts", 2, 21],
+  ["src/v2/booking/dto/create-booking.dto.ts", 0, 7],
+  ["src/v2/booking/response/booking-detail.response.ts", 0, 7],
+  ["Makefile", 4, 0],
+] as const;
+const chiroCheckpoints = new Map([
+  [
+    "p1",
+    {
+      id: "c1",
+      createdAt: "2026-10-13T10:00:00Z",
+      status: "done",
+      changed: chiroChanges.map(([path, added, removed]) => ({ path, kind: "modified", added, removed, binary: false, source: "agent" })),
+    },
+  ],
+]) as unknown as CheckpointIndex;
+
 const plan = {
   id: "plan",
   kind: "plan",
@@ -103,15 +161,30 @@ const codexUsage: Usage = {
   ],
 };
 
-function Card({ vendorName, items, usage, ...rest }: { vendorName: string; items: TranscriptItem[]; usage: Usage } & Pick<Parameters<typeof SessionSummaryBody>[0], "connectors" | "goal" | "pullRequests">) {
-  const data = useSessionSummaryData({ sessionId: "gallery", items, checkpoints: new Map(), live: false });
+function Card({
+  vendorName,
+  items,
+  usage,
+  checkpoints = new Map(),
+  repos = [{ name: "his-connector", branch: "feat/receipt-manual-selection", own: true }],
+  model,
+  ...rest
+}: {
+  vendorName: string;
+  items: TranscriptItem[];
+  usage: Usage;
+  checkpoints?: CheckpointIndex;
+  repos?: { name: string; branch: string; own: boolean }[];
+  model?: string;
+} & Pick<Parameters<typeof SessionSummaryBody>[0], "connectors" | "goal" | "pullRequests">) {
+  const data = useSessionSummaryData({ sessionId: "gallery", items, checkpoints, live: false });
   const environment = environmentRows({
     vendorName,
     folderPath: "/work/chiro/his-connector",
     workspaceName: "CHIRO",
-    repos: [{ name: "his-connector", branch: "feat/receipt-manual-selection", own: true }],
+    repos,
     configOptions: [
-      { id: "model", currentValue: "m", options: [{ value: "m", name: vendorName === "Codex" ? "GPT-6.1" : "Opus 5.5" }] },
+      { id: "model", currentValue: "m", options: [{ value: "m", name: model ?? (vendorName === "Codex" ? "GPT-6.1" : "Opus 5.5") }] },
       { id: "reasoning_effort", currentValue: "medium", options: [{ value: "medium", name: "Medium" }] },
     ],
     mode: "auto",
@@ -121,7 +194,7 @@ function Card({ vendorName, items, usage, ...rest }: { vendorName: string; items
     <div className="w-70 rounded-2xl bg-surface-base py-1.5 shadow-canvas-popover ring-1 ring-border-subtle" data-testid={`summary-${vendorName.toLowerCase()}`}>
       <SessionSummaryBody
         sessionId="gallery"
-        checkpoints={new Map()}
+        checkpoints={checkpoints}
         usage={usage}
         turnCount={9}
         data={data}
@@ -137,8 +210,25 @@ export function AgentSummarySection() {
     <QueryClientProvider client={client}>
       <section id="agenthub-summary" className="flex flex-col gap-4 p-6">
         <h2 className="text-title-16 text-text-primary">Agent Hub — session summary by vendor</h2>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" data-testid="summary-open-all" onClick={() => SECTIONS.forEach((name) => setSummarySectionOpen(name, true))}>
+            Open all
+          </Button>
+          <Button size="sm" variant="outline" data-testid="summary-fold-all" onClick={() => SECTIONS.forEach((name) => setSummarySectionOpen(name, false))}>
+            Fold all
+          </Button>
+        </div>
         <div className="flex flex-wrap items-start gap-6">
           <Card vendorName="Claude" items={claudeItems} usage={claudeUsage} goal={{ objective: "Let a person pick the receipts that count by hand" }} pullRequests={pullRequests} />
+          <Card
+            vendorName="opencode"
+            model="opencode/GLM-5.3-Flash Free"
+            items={[]}
+            usage={{ used: 0, size: 0, amount: 0 }}
+            checkpoints={chiroCheckpoints}
+            repos={CHIRO_REPOS.map((name, i) => ({ name, branch: i === 3 ? "docs/refresh" : "main", own: i === 0 }))}
+            pullRequests={chiroPullRequests}
+          />
           <Card
             vendorName="Codex"
             items={[plan]}

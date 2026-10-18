@@ -26,7 +26,7 @@ import type { AsyncTask, Connector, PlanEntry, SessionGoal, Subagent, Transcript
 import { asyncTaskSpent } from "../transcript/AgentAsyncTask";
 import { useSummarySectionOpen } from "./summaryFold";
 import { PullRequestCards } from "./PullRequestCards";
-import { hasPullRequests } from "./pullRequestModel";
+import { hasPullRequests, pullRequestsHint } from "./pullRequestModel";
 import type { PullRequestsPanel } from "./usePullRequests";
 import {
   backgroundTasks,
@@ -36,6 +36,7 @@ import {
   limitRows,
   linkHosts,
   sessionChanges,
+  splitFileName,
   tokenRows,
   toolSources,
   type LinkHost,
@@ -256,7 +257,7 @@ export function SessionSummaryButton(props: SessionSummaryProps) {
 
 const VISIBLE_ROWS = 5;
 const LIST_MOTION = { duration: MOTION_BASE * 1000, easing: EASE_OUT_CSS };
-const ROW = "flex h-7.5 w-full min-w-0 shrink-0 items-center gap-2.5 px-3.5 text-left text-body-13 text-text-primary";
+const ROW = "@container flex h-7.5 w-full min-w-0 shrink-0 items-center gap-2.5 px-3.5 text-left text-body-13 text-text-primary";
 const BUTTON_ROW = cn(
   ROW,
   "cursor-pointer transition-control hover:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50",
@@ -289,6 +290,7 @@ function SummarySections({
         <SummarySection
           name="environment"
           title="Environment"
+          hint={environmentHint(environment)}
           rows={environment.map((row) => (
             <ValueRow key={row.key} row={row} testId="summary-environment-row" />
           ))}
@@ -297,7 +299,7 @@ function SummarySections({
       ) : null}
 
       {goal ? (
-        <SectionShell name="goal" title="Goal">
+        <SectionShell name="goal" title="Goal" hint={goal.objective}>
           <div className="flex items-start gap-2.5 px-3.5 pt-0.5 pb-2 text-body-13 text-text-primary">
             <Target aria-hidden="true" className={cn(ICON, "mt-0.5")} />
             <span className="min-w-0 wrap-break-word" title={goal.objective}>
@@ -344,7 +346,7 @@ function SummarySections({
         <SectionShell
           name="pullRequests"
           title={pullRequestsTitle(pullRequests)}
-          count={pullRequests.cards.length || undefined}
+          hint={pullRequestsHint(pullRequests)}
         >
           <PullRequestCards panel={pullRequests} several={new Set(pullRequests.cards.map((c) => c.repo)).size > 1} />
         </SectionShell>
@@ -451,6 +453,12 @@ function pullRequestsTitle(panel: PullRequestsPanel): string {
   return shorts.size === 1 && shorts.has("MR") ? "Merge requests" : "Pull requests";
 }
 
+/** What a folded Environment says: the model if the session has one, else the agent. */
+function environmentHint(rows: readonly SummaryRow[]): string | undefined {
+  const pick = (key: string) => rows.find((row) => row.key === key)?.value;
+  return pick("model") ?? pick("agent");
+}
+
 const TOOL_ICON: Record<string, LucideIcon> = { database: Database, kafka: Radio, ssh: Terminal };
 
 /**
@@ -462,6 +470,7 @@ function SummarySection({
   title,
   count,
   aside,
+  hint,
   rows,
   windowStart = 0,
   visibleRows = VISIBLE_ROWS,
@@ -471,6 +480,8 @@ function SummarySection({
   count?: React.ReactNode;
   /** Right-aligned in the heading — a total that belongs to the whole list. */
   aside?: React.ReactNode;
+  /** One dimmed line in the heading while the section is folded. */
+  hint?: string;
   rows: React.ReactNode[];
   /** The first row shown while folded; the rows above it unfold above. */
   windowStart?: number;
@@ -485,7 +496,7 @@ function SummarySection({
   const head = rows.slice(start, start + visibleRows);
   const rest = rows.slice(start + visibleRows);
   return (
-    <SectionShell name={name} title={title} count={count} aside={aside}>
+    <SectionShell name={name} title={title} count={count} aside={aside} hint={hint}>
       {before.length ? (
         <AnimatedCollapse open={expanded}>
           <div className="flex flex-col">{before}</div>
@@ -518,21 +529,25 @@ function SummarySection({
 
 /**
  * A titled section the person can fold (shadcn Collapsible). The title row is
- * the trigger; a total that belongs to the whole list sits beside the chevron.
- * Folded sections are remembered (summaryFold), the same for the docked card
- * and the corner popover.
+ * the trigger; a total that belongs to the whole list sits beside the chevron,
+ * and a section with no such total says what is inside in one dimmed line
+ * while it is folded (`hint`) — sections start folded, so the closed card has
+ * to read. Opened sections are remembered (summaryFold), the same for the
+ * docked card and the corner popover.
  */
 function SectionShell({
   name,
   title,
   count,
   aside,
+  hint,
   children,
 }: {
   name: string;
   title: string;
   count?: React.ReactNode;
   aside?: React.ReactNode;
+  hint?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useSummarySectionOpen(name);
@@ -548,14 +563,19 @@ function SectionShell({
             data-testid={`summary-${name}-toggle`}
             className="group flex h-8 w-full min-w-0 cursor-pointer items-center gap-1 px-3.5 text-left text-body-13 text-text-secondary transition-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus/50"
           >
-            <span className="truncate">{title}</span>
+            <span className={hint && !open ? "shrink-0" : "truncate"}>{title}</span>
             {count !== undefined ? <sup className="text-caption-11 text-text-tertiary/70">{count}</sup> : null}
             {aside}
+            {hint && !open ? (
+              <span data-testid={`summary-${name}-hint`} title={hint} className="ml-auto min-w-0 truncate pl-2 text-caption-11 text-text-tertiary">
+                {hint}
+              </span>
+            ) : null}
             <ChevronDown
               aria-hidden="true"
               className={cn(
                 "size-(--icon-14) shrink-0 text-text-tertiary transition-transform duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
-                aside ? "ml-2" : "ml-auto",
+                aside || (hint && !open) ? "ml-2" : "ml-auto",
                 !open && "-rotate-90",
               )}
             />
@@ -639,20 +659,39 @@ function PlanRow({ entry }: { entry: PlanEntry }) {
   );
 }
 
-/** The file name first, its folder after it dimmed: truncating the full path from the right would cut the name. */
+/**
+ * The file name first, its folder after it dimmed. Every part has its own
+ * claim on the row: the counts never shrink, the folder shrinks first (it is
+ * the secondary fact), and a name that still does not fit loses the end of
+ * its stem — the extension stays, because `…note.spec.ts` says what the file is
+ * where `booking-medical-exa…` does not. The title holds the whole path.
+ *
+ * The name does not shrink by flex weight: a weighted shrink gives up a
+ * fraction of a pixel even while the folder has room, and a name that is a
+ * hair too narrow is drawn with an ellipsis. It is capped instead, against the
+ * row's own width (the row is a size container), by what the icon, the gaps
+ * and the counts need.
+ */
 function ChangeRow({ change, onOpen }: { change: SessionChange; onOpen: () => void }) {
   const cut = change.path.lastIndexOf("/");
-  const name = cut >= 0 ? change.path.slice(cut + 1) : change.path;
+  const { stem, tail } = splitFileName(cut >= 0 ? change.path.slice(cut + 1) : change.path);
   const dir = cut >= 0 ? change.path.slice(0, cut) : "";
   const content = (
     <>
       <FileIcon path={change.path} className={ICON} />
-      <span className="shrink-0 truncate">{name}</span>
-      {dir ? <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">{dir}</span> : <span className="flex-1" />}
+      <span data-testid="summary-change-name" className="flex max-w-[calc(100cqw-7.25rem)] min-w-12 shrink-0">
+        <span className="min-w-0 truncate">{stem}</span>
+        {tail ? <span className="shrink-0">{tail}</span> : null}
+      </span>
+      {dir ? (
+        <span data-testid="summary-change-dir" className="min-w-0 shrink-1000 truncate text-caption-11 text-text-tertiary">
+          {dir}
+        </span>
+      ) : null}
       {change.binary ? (
-        <span className="shrink-0 text-caption-11 text-text-tertiary">binary</span>
+        <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">binary</span>
       ) : (
-        <span className="flex shrink-0 gap-1 text-caption-11 tabular-nums">
+        <span className="ml-auto flex shrink-0 gap-1 text-caption-11 tabular-nums">
           <span className="text-status-success">{`+${change.added}`}</span>
           <span className="text-status-danger">{`−${change.removed}`}</span>
         </span>
@@ -690,7 +729,7 @@ function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number 
   const tokens = tokenRows(usage.tokens);
   const limits = limitRows(usage.limits);
   return (
-    <SectionShell name="context" title="Context">
+    <SectionShell name="context" title="Context" hint={percent !== null ? `${percent}% used` : undefined}>
       {percent !== null ? (
         <div
           className="flex flex-col gap-1.5 px-3.5 pt-1 pb-2"

@@ -1,8 +1,9 @@
 import * as React from "react";
-import { CircleAlert, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, X, type LucideIcon } from "lucide-react";
+import { ChevronRight, CircleAlert, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, X, type LucideIcon } from "lucide-react";
 
 import { openExternal } from "@/bridge/browser";
 import { cn } from "@/lib/utils";
+import { showModuleHome } from "@/workbench/showModule";
 import type { PullRequestCard, PullRequestNotice, Tone } from "./pullRequestModel";
 import type { PullRequestsPanel } from "./usePullRequests";
 
@@ -153,19 +154,75 @@ function PullRequestCardView({
   );
 }
 
-/** Why a repository has no card: stated, not silent. */
+/**
+ * Why repositories have no card: stated, not silent, and once per reason. One
+ * repository reads as its own sentence; several that fail the same way read as
+ * the sentence they share, with the repositories behind a disclosure and the
+ * one action that fixes all of them beside it.
+ */
 function NoticeRow({ notice }: { notice: PullRequestNotice }) {
+  const [open, setOpen] = React.useState(false);
+  const many = notice.folders.length > 1;
+  const listId = React.useId();
   return (
     <div
       data-testid="summary-pr-notice"
       data-status={notice.status}
       data-tone={notice.tone}
+      data-count={notice.folders.length}
       role="status"
-      title={`${notice.name}: ${notice.message}`}
-      className="flex items-start gap-2.5 px-3.5 py-1.5 text-caption-11 text-text-secondary"
+      className="flex flex-col gap-1 px-3.5 py-1.5 text-caption-11 text-text-secondary"
     >
-      <CircleAlert aria-hidden="true" className={cn("mt-px size-(--icon-14) shrink-0", TONE_TEXT[notice.tone])} />
-      <span className="min-w-0 wrap-break-word">{notice.message}</span>
+      <div className="flex items-start gap-2.5">
+        <CircleAlert aria-hidden="true" className={cn("mt-px size-(--icon-14) shrink-0", TONE_TEXT[notice.tone])} />
+        <span className="min-w-0 wrap-break-word" title={notice.folders.map((f) => `${f.name}: ${f.message}`).join("\n")}>
+          {notice.message}
+        </span>
+      </div>
+      <div className="flex min-w-0 items-center gap-1 pl-6.5">
+        {notice.action ? (
+          <button
+            type="button"
+            data-testid="summary-pr-notice-action"
+            onClick={() => showModuleHome("accounts")}
+            className={cn(
+              "h-6 shrink-0 cursor-pointer rounded-sm px-2 text-caption-11 text-text-primary ring-1 ring-border-subtle transition-control hover:bg-state-soft",
+              FOCUS,
+            )}
+          >
+            {notice.action.label}
+          </button>
+        ) : null}
+        {many ? (
+          <button
+            type="button"
+            data-testid="summary-pr-notice-toggle"
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setOpen((value) => !value)}
+            className={cn(
+              "flex h-6 min-w-0 cursor-pointer items-center gap-0.5 rounded-sm px-1.5 text-caption-11 text-text-tertiary transition-control hover:text-text-secondary",
+              FOCUS,
+            )}
+          >
+            <ChevronRight aria-hidden="true" className={cn("size-(--icon-12) shrink-0 transition-transform motion-reduce:transition-none", open && "rotate-90")} />
+            <span className="truncate">{`${notice.folders.length} repositories`}</span>
+          </button>
+        ) : (
+          <span className="min-w-0 truncate px-1.5 text-text-tertiary" title={notice.folders[0]?.folder}>
+            {notice.folders[0]?.name}
+          </span>
+        )}
+      </div>
+      {many && open ? (
+        <ul id={listId} data-testid="summary-pr-notice-folders" className="flex flex-col pl-6.5">
+          {notice.folders.map((folder) => (
+            <li key={folder.folder} title={`${folder.folder}\n${folder.message}`} className="min-w-0 truncate py-0.5 pl-1.5 text-text-tertiary">
+              {folder.name}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

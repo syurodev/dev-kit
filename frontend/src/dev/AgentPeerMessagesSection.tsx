@@ -19,6 +19,10 @@ const reply: MessageSource = { kind: "session", sessionId: "beta", agentType: "c
 const terminal: MessageSource = { kind: "terminal", messageId: "m3", hop: 1 };
 const gone: MessageSource = { kind: "session", sessionId: "deleted", agentType: "claude", name: "Scratch idea", messageId: "m4", hop: 2 };
 
+const CHIRO: MessageSource = { kind: "session", sessionId: "qa", agentType: "opencode", name: "CHIRO-fa9e88 QA khôi phục ca", messageId: "m5", hop: 2 };
+const VIETNAMESE =
+  "[QA CHIRO-fa9e88] Tiếp tục sau restart, trạng thái hiện tại:\n\nLÀM XONG (giai đoạn 1 — chỉ đọc + tài liệu):\n- Đã claim task CHIRO-fa9e88 (in_progress, session b623a486-d121-415a-ac4e-ec2828f66ba6).\n- Đọc source baseline his-connector trên nhánh hiện tại: xác nhận các mốc trong plan — hủy đơn/hàng loạt chỉ ACTIVE→CANCELLED + history CANCELLATION, không recalc; vô hiệu hóa ca (changeStatus INACTIVE) bulk-cancel KHÔNG ghi dòng history; change_type history chỉ có CANCELLATION.";
+
 const LONG = Array.from(
   { length: 14 },
   (_, i) => `${i + 1}. The rounding moved to InvoiceLine.total(); callers in billing-api no longer need to round again.`,
@@ -63,19 +67,31 @@ export function AgentPeerMessagesSection() {
           <PeerMessageView source={terminal} text="Run the linter before you commit." />
           <PeerMessageView source={gone} text="Last note from a session that has since been deleted." />
           <PeerMessageView source={alpha} sender={sender("Refactor invoice rounding", "claude")} onOpenSession={setOpened} text={LONG} />
+          <PeerMessageView source={CHIRO} sender={sender("CHIRO-fa9e88 QA khôi phục ca", "opencode")} onOpenSession={setOpened} text={VIETNAMESE} />
           <p className="text-caption-11 text-text-tertiary" data-testid="peer-opened">{opened ? `Opened session: ${opened}` : "Click a sender to open its session."}</p>
         </div>
 
         <div className="flex w-90 flex-col gap-3" data-testid="peer-sent">
           <h3 className="text-label-12 text-text-tertiary">The sender's tool result</h3>
-          <MessageSentCard message={sent({ messageId: "a", delivery: "started", sessionId: "gamma", title: "Why does the retry test flake on CI?", hop: 1 })} onOpenSession={setOpened} />
-          <MessageSentCard message={sent({ messageId: "b", delivery: "steered", sessionId: "beta", title: "Review the OpenAPI diff", hop: 2 })} onOpenSession={setOpened} />
+          <MessageSentCard message={sent({ messageId: "a", delivery: "started", sessionId: "gamma", title: "Why does the retry test flake on CI?", hop: 1 })} recipient={sender("Why does the retry test flake on CI?", "claude")} onOpenSession={setOpened} />
+          <MessageSentCard message={sent({ messageId: "b", delivery: "steered", sessionId: "beta", title: "Review the OpenAPI diff", hop: 2 })} recipient={sender("Review the OpenAPI diff", "codex")} onOpenSession={setOpened} />
           <MessageSentCard
             message={sent({ messageId: "c", delivery: "queued", sessionId: "perm", title: "Wants to run rm -rf build", reason: "The session is waiting for the person to answer it." })}
+            recipient={sender("Wants to run rm -rf build", "claude")}
             onOpenSession={setOpened}
           />
           <MessageSentCard message={sent({ messageId: "d", delivery: "refused", code: "loop", reason: "This exchange is 6 messages deep (the limit is 6). Stop replying, summarise for the person, or wait for them to continue." })} />
           <MessageSentCard message={sent({ messageId: "e", delivery: "refused", code: "not_found", reason: "No session with that id is reachable from yours. agenthub.listPeers lists the sessions of your workspace." })} />
+        </div>
+
+        <div className="flex w-70 flex-col gap-3" data-testid="peer-narrow">
+          <h3 className="text-label-12 text-text-tertiary">Rail width (280px), a long name and a long report</h3>
+          <PeerMessageView source={CHIRO} sender={sender("CHIRO-fa9e88 QA khôi phục ca — kiểm thử hủy hàng loạt", "opencode")} onOpenSession={setOpened} text={VIETNAMESE} />
+          <MessageSentCard
+            message={sent({ messageId: "f", delivery: "started", sessionId: "qa", title: "CHIRO-fa9e88 QA khôi phục ca — kiểm thử hủy hàng loạt", hop: 2 })}
+            recipient={sender("CHIRO-fa9e88 QA khôi phục ca — kiểm thử hủy hàng loạt", "opencode")}
+            onOpenSession={setOpened}
+          />
         </div>
 
         <div className="h-100 w-70 overflow-hidden rounded-control border border-border-subtle bg-(--background-app)" data-testid="peer-rail">

@@ -36,11 +36,30 @@ describe("agenthub.sendMessage", () => {
 
   it("links the recipient when the message went somewhere", () => {
     const html = renderToString(<MessageSentCard message={parseSentMessage(STEERED)!} onOpenSession={() => {}} />);
-    expect(html).toContain("Message to beta");
+    expect(html).toContain("Message to");
+    expect(html).toContain("beta");
+    expect(html).toContain('aria-label="Open beta"');
+    // The delivery is a chip, as on the receiving side.
+    expect(html).toMatch(/data-slot="status-chip"[^>]*data-testid="message-sent-delivery"[^>]*data-tone="steered"/);
     expect(html).toContain("Steered");
     expect(html).toContain('data-delivery="steered"');
     expect(html).toContain('data-testid="message-sent-open"');
     expect(html).toContain("step 2");
+  });
+
+  it("shows the recipient's face and its live title when they are known", () => {
+    const html = renderToString(
+      <MessageSentCard message={parseSentMessage(STEERED)!} recipient={{ title: "beta (renamed)", agentType: "codex" }} onOpenSession={() => {}} />,
+    );
+    expect(html).toContain('data-slot="vendor-icon"');
+    expect(html).toContain("beta (renamed)");
+    expect(html).not.toContain(">beta<");
+  });
+
+  it("wraps a long reason instead of cutting it", () => {
+    const html = renderToString(<MessageSentCard message={parseSentMessage(REFUSED)!} />);
+    expect(html).toContain("wrap-anywhere");
+    expect(html).toContain('data-tone="refused"');
   });
 
   it("gives a refusal its reason and nothing to open", () => {
