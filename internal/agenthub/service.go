@@ -1640,6 +1640,8 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		lastUpdate   json.RawMessage
 		permDenied   atomic.Bool
 		touched      touchedPaths
+		// A tool call that was real work (isWorkToolCall): see peerState.workDone.
+		worked atomic.Bool
 		// The agent's last message this turn, for the session preview.
 		lastMsg lastAgentMessage
 	)
@@ -1679,6 +1681,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 			if parsed.ToolCall != nil {
 				for _, location := range parsed.ToolCall.Locations {
 					touched.add(location.Path)
+				}
+				if isWorkToolCall(parsed.ToolCall) {
+					worked.Store(true)
 				}
 			}
 		},
@@ -1789,6 +1794,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
 	}
 
+	if worked.Load() {
+		// A finished turn that ran something: the exchanges this session is in
+		// have had real work between their messages, so their hop count restarts.
+		s.peers.workDone(in.SessionID)
+	}
 	if workspaceContext != "" {
 		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
 	}

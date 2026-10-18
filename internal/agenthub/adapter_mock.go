@@ -443,6 +443,20 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		h.OnUpdate(update, nil)
 	}
 
+	// DO_WORK is a turn that ran a command; CHAT_TOOL one that only used an
+	// agenthub.* tool. Both complete.
+	for trigger, call := range map[string]map[string]any{
+		"DO_WORK":   {"toolCallId": "mock-work", "title": "go test ./internal/agenthub/", "kind": "execute", "name": "Bash", "status": "completed"},
+		"CHAT_TOOL": {"toolCallId": "mock-chat", "title": "devkit - agenthub_sendMessage (MCP)", "kind": "other", "name": "mcp__devkit__agenthub_sendMessage", "status": "completed"},
+	} {
+		if strings.Contains(text, trigger) && h.OnUpdate != nil {
+			call["sessionUpdate"] = "tool_call"
+			if raw, err := json.Marshal(call); err == nil {
+				h.OnUpdate(raw, nil)
+			}
+		}
+	}
+
 	if strings.Contains(text, "NEED_PERMISSION") && h.OnPermission != nil {
 		params, err := json.Marshal(map[string]any{
 			"sessionId": sid,

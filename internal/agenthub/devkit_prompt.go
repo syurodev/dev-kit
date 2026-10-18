@@ -202,10 +202,13 @@ shows the memory.
   Limits, which are enforced and not suggestions:
   - **One message per round.** Several questions or points for the same session
     go in ONE message, numbered, never in separate messages.
-  - **An exchange is at most 6 messages** — a message and the replies it leads
-    to, whoever sends them — and at most **4 between siblings**. You may send
-    one session at most 5 messages a minute. A report to your parent is never
-    refused by the exchange cap.
+  - **An exchange is at most 6 messages with no work between them** — a
+    message and the replies it leads to, whoever sends them — and at most **4
+    between siblings**. Running a command, editing a file or using a tool other
+    than the agenthub ones between two messages starts the count again; talking
+    about it does not. Two sessions exchange at most 30 messages an hour, work
+    or not. You may send one session at most 5 messages a minute. A report to
+    your parent is never refused by the exchange cap or the hourly limit.
   - **When you reach a limit, or the question is big, ask your parent.** A
     refusal for depth or rate is the end of that exchange: do not try another
     session or reword it. A big question is a decision, a change of scope or
@@ -219,7 +222,7 @@ shows the memory.
   holds the plan; the person watches it. The exchange cap never refuses a
   report to your parent. You may message a sibling (a session
   with the same parent) for one narrow question, such as a contract detail,
-  but an exchange between siblings stops after 4 messages and what was agreed
+  but an exchange between siblings stops after 4 messages with no work between them and what was agreed
   goes into your report to the parent. Sessions of other parents are out of
   reach: ask your parent to pass it on.
 

@@ -790,7 +790,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `user_message_chunk` with `source` (`MessageSource`, stored payload + `_devkit.source`), drawn by `PeerMessage` and
   never as the person's bubble; the model gets an envelope (`peerEnvelope`) saying it is not the person's, framed by
   lines carrying the message id. Loop/storm guards: hop count (**per pair of sessions**, below; the person's prompt
-  resets it; cap 6), 5/min per pair, 20/min per target. `peerState.chain` is keyed by the unordered pair `{A,B}` (`peerPair`),
+  resets it; cap 6, siblings 4), 5/min per pair, 20/min per target. `peerState.chain` is keyed by the unordered pair `{A,B}` (`peerPair`),
   not by session: it holds the hop of the last message either sent the other, who sent it and when. A message A→B is
   step 1 with no exchange in the last 15 min (`peerChainDecay`); one step deeper than the last when B spoke last (an
   answer, `replyTo` or not); the *same* step when A spoke last (a second progress report is not a conversation, nobody
@@ -801,7 +801,18 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   to it end every pair containing it. **A message to the sender's own PARENT is never refused by the hop cap** (it is
   still recorded in its own pair, and stays under the 5/min pair and 20/min target limits); the cap and its `loop`
   refusal stay for parent→child, sibling↔sibling (4) and every other pair, so a parent↔child ping-pong stops on the
-  parent's side. The test rig's `hold` starts its turn as the terminal, because a window prompt would end the pair. Tests: `peer_hops_test.go`. Not run with real
+  parent's side. **Only chat counts; real work restarts the count** (`isWorkToolCall`, `peerState.workDone`): when a
+  session finishes a turn in which a tool call was a command/test (`kind` execute), a file edit/delete/move, or any MCP
+  tool that is not `agenthub.*`, every pair containing it is dropped, so a review loop (parent reviews, child fixes,
+  again) is never cut by the 6/4 cap while two agents trading messages with nothing happening still are. Reads,
+  searches, fetches, thinking and the whole `agenthub.*` family (sendMessage, listPeers, readSession, …) are not work.
+  The signal is the tool-call update in `Service.Invoke` (`worked`); a failed or cancelled turn restarts nothing.
+  **Hard backstop**: at most `peerPairPerHour` (30) messages between one pair in `peerPairHour`, work or not
+  (`hour:` window, refused as `loop` with "last hour"; the person's terminal and a child's report to its parent are
+  never refused by it, the report is still counted). Not verified: the work signal against real Codex/opencode turns —
+  Codex reports no tool name (only the `devkit.<tool>` title) and opencode's kinds were not checked, so a call with no
+  `kind` is judged by name/title alone. The test rig's `hold` (terminal caller) and the mock's `DO_WORK` / `CHAT_TOOL`
+  prompts stand in. Tests: `peer_hops_test.go`, `peer_work_test.go`. Not run with real
   models: the tests drive the mock runtime. The window mirrors its own prompt queue to Go
   (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
   checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.

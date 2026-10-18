@@ -158,3 +158,30 @@ func TestTheEnvelopeFramesWhateverTheSenderWrites(t *testing.T) {
 		t.Error("the envelope no longer says who did not write it")
 	}
 }
+
+func TestWhichToolCallsAreRealWork(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call ToolCall
+		want bool
+	}{
+		{"a command, whatever it mentions", ToolCall{Kind: "execute", Name: "Bash", Title: "go test ./internal/agenthub/"}, true},
+		{"an edit", ToolCall{Kind: "edit", Name: "Edit", Title: "Edit a.go"}, true},
+		{"a delete", ToolCall{Kind: "delete", Title: "rm a.go"}, true},
+		{"another MCP tool (Claude)", ToolCall{Kind: "other", Name: "mcp__devkit__git_status"}, true},
+		{"another MCP tool (Codex title)", ToolCall{Title: "devkit.db.query"}, true},
+		{"sendMessage (Claude)", ToolCall{Kind: "other", Name: "mcp__devkit__agenthub_sendMessage"}, false},
+		{"sendMessage (Codex title)", ToolCall{Title: "devkit.agenthub.sendMessage"}, false},
+		{"readSession", ToolCall{Kind: "other", Name: "mcp__devkit__agenthub_readSession"}, false},
+		{"a file read", ToolCall{Kind: "read", Name: "Read", Title: "Read a.go"}, false},
+		{"a search", ToolCall{Kind: "search", Name: "Grep"}, false},
+		{"thinking", ToolCall{Kind: "think", Name: "Agent"}, false},
+	} {
+		if got := isWorkToolCall(&tc.call); got != tc.want {
+			t.Errorf("%s: isWorkToolCall = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if isWorkToolCall(nil) {
+		t.Error("nil is work")
+	}
+}

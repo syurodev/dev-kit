@@ -40,6 +40,14 @@ const (
 	// between them is a decision that belongs in the parent's hands.
 	MaxSiblingHops = 4
 
+	// peerPairPerHour is the backstop on one pair of sessions: messages in
+	// either direction within peerPairHour, however much real work lies between
+	// them (work restarts the hop count, so the count alone would never stop two
+	// agents that each run `ls` before answering). A report to the parent is
+	// counted but never refused by it.
+	peerPairPerHour = 30
+	peerPairHour    = time.Hour
+
 	peerPairPerMinute   = 5  // messages one session may send another per minute
 	peerTargetPerMinute = 20 // messages one session may receive per minute, from anyone
 	peerQueueLimit      = 20 // messages waiting for one session
@@ -261,19 +269,29 @@ func (p *peerState) init() {
 // allow records one message in the sliding window under key and says whether it
 // fits in limit per peerWindow. Called with mu held.
 func (p *peerState) allow(key string, limit int) bool {
+	if p.inWindow(key, peerWindow) >= limit {
+		return false
+	}
+	p.windows[key] = append(p.windows[key], p.clock())
+	return true
+}
+
+// inWindow drops the entries of key older than window and counts the rest.
+// A key is always used with one window. Called with mu held.
+func (p *peerState) inWindow(key string, window time.Duration) int {
 	now := p.clock()
 	kept := p.windows[key][:0]
 	for _, at := range p.windows[key] {
-		if now.Sub(at) < peerWindow {
+		if now.Sub(at) < window {
 			kept = append(kept, at)
 		}
 	}
-	if len(kept) >= limit {
-		p.windows[key] = kept
-		return false
+	if len(kept) == 0 {
+		delete(p.windows, key)
+		return 0
 	}
-	p.windows[key] = append(kept, now)
-	return true
+	p.windows[key] = kept
+	return len(kept)
 }
 
 // unallow takes back the newest entry of a window, for a message refused after
@@ -329,6 +347,16 @@ func (p *peerState) noteHop(sender, target string, hop int) {
 		}
 	}
 	p.chain[pairOf(sender, target)] = peerChain{hop: hop, from: sender, at: now}
+}
+
+// workDone is a turn of the session that did real work (see isWorkToolCall):
+// the exchanges it was in were not two agents trading messages with nothing
+// happening, so their count starts again. The hour backstop is not touched.
+func (p *peerState) workDone(sessionID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	p.endChains(sessionID)
 }
 
 // endChains drops every exchange the session is part of. Called with mu held.
@@ -570,6 +598,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		senderKey = sender.ID
 	}
 	pairKey, targetKey := senderKey+">"+target.ID, "to:"+target.ID
+	hourKey := "hour:" + pairOf(senderKey, target.ID).lo + "|" + pairOf(senderKey, target.ID).hi
 	s.peers.mu.Lock()
 	s.peers.init()
 	hop, limit, toParent := 1, MaxPeerHops, false
@@ -593,9 +622,12 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	case hop > limit && !toParent:
 		s.peers.mu.Unlock()
 		if limit == MaxSiblingHops {
-			return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("This exchange between siblings is %d messages deep (the limit is %d). Stop replying: report what was agreed, and what is still open, to your parent.", hop-1, limit)), nil
+			return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("This exchange between siblings is %d messages deep (the limit is %d) with no real work in between. Stop replying: report what was agreed, and what is still open, to your parent. Running a command, editing a file or using another tool between messages restarts the count.", hop-1, limit)), nil
 		}
-		return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("This exchange is %d messages deep (the limit is %d). Stop replying, summarise for the person, or wait for them to continue.", hop-1, limit)), nil
+		return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("This exchange is %d messages deep (the limit is %d) with no real work in between. Stop replying, summarise for the person, or wait for them to continue. Running a command, editing a file or using another tool between messages restarts the count.", hop-1, limit)), nil
+	case caller.IsAgent() && !toParent && s.peers.inWindow(hourKey, peerPairHour) >= peerPairPerHour:
+		s.peers.mu.Unlock()
+		return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("These two sessions have already exchanged %d messages in the last hour, which is the most allowed between a pair even when work lies between them. Stop messaging this session: tell %s where things stand and let them decide.", peerPairPerHour, whoToTell(limit == MaxSiblingHops))), nil
 	case !s.peers.allow(pairKey, peerPairPerMinute):
 		s.peers.mu.Unlock()
 		return finish(DeliveryRefused, PeerRate, fmt.Sprintf("You may send one session at most %d messages a minute. Combine them into one and wait a little.", peerPairPerMinute)), nil
@@ -604,6 +636,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		s.peers.mu.Unlock()
 		return finish(DeliveryRefused, PeerRate, "That session is receiving too many messages right now. Wait a little."), nil
 	}
+	s.peers.windows[hourKey] = append(s.peers.windows[hourKey], s.peers.clock())
 	msg := &peerMessage{id: res.MessageID, from: src, to: target.ID, text: text, at: s.peers.clock(), length: utf8.RuneCountInString(text), limit: limit, sibling: limit == MaxSiblingHops}
 	s.peers.remember(msg.id, peerRecord{from: senderKey, to: target.ID, hop: hop})
 	if caller.IsAgent() {
@@ -619,10 +652,52 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		s.peers.mu.Lock()
 		s.peers.unallow(pairKey)
 		s.peers.unallow(targetKey)
+		s.peers.unallow(hourKey)
 		s.peers.mu.Unlock()
 		return SendMessageResult{}, err
 	}
 	return finish(delivery, code, reason), nil
+}
+
+// whoToTell says who a session that hit the pair backstop reports to.
+func whoToTell(sibling bool) string {
+	if sibling {
+		return "your parent"
+	}
+	return "the person, or your parent if you have one"
+}
+
+// isWorkToolCall says a tool call is real work, as opposed to talking about it.
+// What counts: a command or test, a file written, moved or deleted, and any
+// MCP tool that is not part of agenthub.* (messaging, peers, status, models).
+// Reads, searches, fetches and thinking do not: they are how a session reads
+// the message it is replying to. The wire kind decides first because a shell
+// command's title is its text, and `go test ./internal/agenthub/` is work.
+// Tools of other vendors that report no kind are judged by name/title alone.
+func isWorkToolCall(tc *ToolCall) bool {
+	if tc == nil {
+		return false
+	}
+	switch tc.Kind {
+	case "execute", "edit", "delete", "move":
+		return true
+	case "read", "search", "fetch", "think", "switch_mode":
+		return false
+	}
+	return !isAgenthubTool(tc)
+}
+
+// isAgenthubTool reads the tool's name the way each vendor spells it:
+// `mcp__devkit__agenthub_sendMessage` (Claude), `devkit.agenthub.sendMessage`
+// (Codex's title).
+func isAgenthubTool(tc *ToolCall) bool {
+	for _, name := range []string{tc.Name, tc.Title} {
+		name = strings.ToLower(name)
+		if strings.Contains(name, "agenthub_") || strings.Contains(name, "agenthub.") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) peerEvent(ev PeerMessageEvent) {
