@@ -790,7 +790,16 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `user_message_chunk` with `source` (`MessageSource`, stored payload + `_devkit.source`), drawn by `PeerMessage` and
   never as the person's bubble; the model gets an envelope (`peerEnvelope`) saying it is not the person's, framed by
   lines carrying the message id. Loop/storm guards: hop count (replies count even without `replyTo`; the person's
-  prompt resets it; cap 6), 5/min per pair, 20/min per target. The window mirrors its own prompt queue to Go
+  prompt resets it; cap 6), 5/min per pair, 20/min per target. `chain[session]` is the highest hop the session was
+  handed in the last 15 min; a reply is chain+1. **A hop-1 message starts an exchange, so it resets the target's chain
+  to 1** (the terminal's deletes it) instead of being ignored — a sender with nothing handed (or decayed) is never part
+  of a loop, and without this a parent re-prompted by the person left each child at its old 5, so the child's answer was
+  hop 6/7 and refused. **A message to the sender's own PARENT is never refused by the hop cap** (it still counts the
+  hop, raising the parent's chain, and stays under the 5/min pair and 20/min target limits); the cap and its `loop`
+  refusal stay for parent→child, sibling↔sibling (4) and every other pair, so a parent↔child ping-pong stops on the
+  parent's side. Before this, in a parent with three children every message raised someone's chain and a child's final
+  report was refused 4 times in a row (seen in the person's database). Tests: `peer_hops_test.go`. Not run with real
+  models: the tests drive the mock runtime. The window mirrors its own prompt queue to Go
   (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
   checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.
 

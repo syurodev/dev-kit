@@ -204,7 +204,8 @@ shows the memory.
 - **Report to your parent.** A session another session started reports to it:
   what it did, what it decided, what blocks it and what it needs — when the work
   is done, when it is blocked, and when a decision is the parent's. The parent
-  holds the plan; the person watches it. You may message a sibling (a session
+  holds the plan; the person watches it. The exchange cap never refuses a
+  report to your parent. You may message a sibling (a session
   with the same parent) for one narrow question, such as a contract detail,
   but an exchange between siblings stops after 4 messages and what was agreed
   goes into your report to the parent. Sessions of other parents are out of
