@@ -1251,18 +1251,22 @@ export function AgentComposer({
             {onAgentChange ? (
               <DropdownMenu {...menu("agent")}>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-testid="composer-agent"
-                    aria-label={`Agent: ${vendorInfo(agent).name}`}
-                    className="min-w-0 shrink-0 gap-1.5 px-2 text-text-secondary"
-                  >
-                    <VendorIcon vendor={agent} className="size-3.5" />
-                    <span className="text-body-13">{vendorInfo(agent).name}</span>
-                    <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
-                  </Button>
+                  {/* The mark alone: the vendor's name is in the tooltip and the
+                      label, and the width goes to the model beside it, whose
+                      name (provider/model for opencode) is the long one. */}
+                  <ActionTooltip label={`Agent: ${vendorInfo(agent).name}`} side="top">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-testid="composer-agent"
+                      aria-label={`Agent: ${vendorInfo(agent).name}`}
+                      className="min-w-0 shrink-0 gap-1 px-2 text-text-secondary"
+                    >
+                      <VendorIcon vendor={agent} className="size-4" />
+                      <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
+                    </Button>
+                  </ActionTooltip>
                 </DropdownMenuTrigger>
                 {/* No width: the rows (200px minimum) size it. At w-48 the check
                     marking the current agent was cut in half at the edge. */}

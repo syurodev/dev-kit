@@ -123,6 +123,8 @@ const SIGN_IN_LABELS: Record<string, string> = {
   "claude-ai-login": "Sign in with Claude subscription",
   "console-login": "Sign in with Anthropic Console",
   "claude-login": "Sign in with Claude",
+  // The agent names it "Login with opencode", which read as "Sign in with Login with opencode".
+  "opencode-login": "Sign in to opencode",
 };
 
 /** The button for a method: known ids get plain words, anything new its own name. */
@@ -174,6 +176,16 @@ export function runtimeStatusLine(
       : current !== null && compareVersions(latestVersion, current.version) > 0);
   const latest = newer ? (pinned ? `${latestVersion} available (not tested by DevKit)` : `${latestVersion} available`) : null;
   return { headline, latest };
+}
+
+/**
+ * The small line under an install's name. Claude's adapter is Node code over an
+ * SDK, so both versions matter; a native binary (Codex, opencode) has no SDK and
+ * Node was only there to install it, so it is just the disk it takes.
+ */
+export function runtimeDetail(current: Pick<InstalledRuntime, "sdkVersion" | "nodeVersion">, diskBytes: number): string {
+  const disk = `${formatBytes(diskBytes)} on disk`;
+  return current.sdkVersion && current.nodeVersion ? `SDK ${current.sdkVersion} · Node ${current.nodeVersion} · ${disk}` : disk;
 }
 
 /** The backticked commands in an install hint ("e.g. `brew install node`"), for Copy buttons. */
