@@ -525,16 +525,25 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	pairKey, targetKey := senderKey+">"+target.ID, "to:"+target.ID
 	s.peers.mu.Lock()
 	s.peers.init()
-	hop, limit := 1, MaxPeerHops
+	hop, limit, toParent := 1, MaxPeerHops, false
 	if caller.IsAgent() {
 		hop = s.peers.hopFor(sender.ID, in.ReplyTo)
-		if rel, _ := peerRelationOf(byID, sender, target); rel == PeerSibling {
+		rel, _ := peerRelationOf(byID, sender, target)
+		switch rel {
+		case PeerSibling:
 			limit = MaxSiblingHops
+		case PeerParent:
+			// A report to the parent is never cut by the depth cap: in a
+			// parent with several children every message raises someone's
+			// count, so the cap would silence the final report of whichever
+			// child spoke last. A loop still stops on the parent's side
+			// (parent -> child is capped) and on the rate limits.
+			toParent = true
 		}
 	}
 	src.Hop, res.Hop = hop, hop
 	switch {
-	case hop > limit:
+	case hop > limit && !toParent:
 		s.peers.mu.Unlock()
 		if limit == MaxSiblingHops {
 			return finish(DeliveryRefused, PeerLoop, fmt.Sprintf("This exchange between siblings is %d messages deep (the limit is %d). Stop replying: report what was agreed, and what is still open, to your parent.", hop-1, limit)), nil
@@ -550,11 +559,16 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	}
 	msg := &peerMessage{id: res.MessageID, from: src, to: target.ID, text: text, at: s.peers.clock(), length: utf8.RuneCountInString(text), limit: limit, sibling: limit == MaxSiblingHops}
 	s.peers.remember(msg.id, peerRecord{from: senderKey, to: target.ID, hop: hop})
-	if caller.IsAgent() {
-		// The target's own replies in this exchange are one step deeper.
-		if c, ok := s.peers.chain[target.ID]; !ok || hop >= c.hop || s.peers.clock().Sub(c.at) >= peerChainDecay {
-			s.peers.chain[target.ID] = peerChain{hop: hop, at: s.peers.clock()}
-		}
+	switch c, had := s.peers.chain[target.ID]; {
+	case !caller.IsAgent():
+		// The person's terminal starting an exchange: nothing came before it.
+		delete(s.peers.chain, target.ID)
+	case hop == 1 || !had || hop >= c.hop || s.peers.clock().Sub(c.at) >= peerChainDecay:
+		// The target's own replies in this exchange are one step deeper. Hop 1
+		// is a sender that was handed nothing (or whose chain decayed), so it
+		// starts an exchange rather than continuing one: the target's count
+		// from an older exchange must not make its answer look like a loop.
+		s.peers.chain[target.ID] = peerChain{hop: hop, at: s.peers.clock()}
 	}
 	s.peers.mu.Unlock()
 
