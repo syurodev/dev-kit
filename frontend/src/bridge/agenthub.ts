@@ -20,7 +20,7 @@ import type {
 import type { SessionUpdate } from "../modules/agenthub/types";
 import type { ConfigOption } from "../modules/agenthub/types";
 
-export type AgentVendor = "claude" | "codex";
+export type AgentVendor = "claude" | "codex" | "opencode";
 
 /**
  * The Claude agent as the hub knows it — the `agentType` a session is created
@@ -36,6 +36,12 @@ export const CLAUDE_VENDOR: AgentVendor = "claude";
  * apart anyway, so nothing depends on that.
  */
 export const CODEX_VENDOR: AgentVendor = "codex";
+
+/**
+ * opencode as the hub knows it. Its runtime id (OPENCODE_AGENT) is the same
+ * string, kept apart in the vendor table like Codex's.
+ */
+export const OPENCODE_VENDOR: AgentVendor = "opencode";
 
 export type SessionStatus =
   | "idle"

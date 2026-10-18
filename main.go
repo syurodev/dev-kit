@@ -386,11 +386,32 @@ func main() {
 		}
 	}
 	codexAdapter := agenthub.NewCodexAdapter(codexOpts)
-	runtimes.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
-		agentruntime.ClaudeACP: claudeAdapter.Probe,
-		agentruntime.CodexCLI:  codexAdapter.Probe,
+	// opencode has no pinned version: DevKit installs npm's latest and the
+	// adapter's Probe is what decides, per install, whether it is usable. Its
+	// home is DevKit's own, like Codex's: the user's ~/.config/opencode and
+	// sign-in are never the session's.
+	openCodeOpts := agenthub.OpenCodeOptions{
+		OnUnknownMethod: reportUnknownMethod,
+		Home:            filepath.Join(dataDir, "agent-homes", "opencode"),
+		Runtime: func() (agentruntime.Resolved, error) {
+			return runtimes.ResolveLeased(agentruntime.OpenCodeCLI)
+		},
 	}
-	vendors := []agenthub.VendorAdapter{claudeAdapter, codexAdapter}
+	// Development and CI only, like DEVKIT_CODEX_COMMAND.
+	if override := os.Getenv("DEVKIT_OPENCODE_COMMAND"); override != "" {
+		if filepath.IsAbs(override) {
+			openCodeOpts.Command = override
+		} else {
+			log.Printf("agenthub: DEVKIT_OPENCODE_COMMAND must be absolute, ignoring %q", override)
+		}
+	}
+	openCodeAdapter := agenthub.NewOpenCodeAdapter(openCodeOpts)
+	runtimes.Verifiers = map[string]func(context.Context, agentruntime.Resolved) error{
+		agentruntime.ClaudeACP:   claudeAdapter.Probe,
+		agentruntime.CodexCLI:    codexAdapter.Probe,
+		agentruntime.OpenCodeCLI: openCodeAdapter.Probe,
+	}
+	vendors := []agenthub.VendorAdapter{claudeAdapter, codexAdapter, openCodeAdapter}
 	if application.System.IsServer() {
 		// Server mode serves the bridge over unauthenticated loopback HTTP and
 		// the jail shares the host loopback: a session could approve its own

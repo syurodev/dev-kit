@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentType } from "../../../bindings/devkit/internal/agenthub/models";
-import { CLAUDE_AGENT, CODEX_AGENT } from "@/bridge/agentRuntime";
-import { CLAUDE_INFO, CODEX_INFO, SHIPPED_VENDORS, vendorInfo } from "./vendors";
+import { CLAUDE_AGENT, CODEX_AGENT, OPENCODE_AGENT } from "@/bridge/agentRuntime";
+import { CLAUDE_INFO, CODEX_INFO, OPENCODE_INFO, SHIPPED_VENDORS, vendorInfo } from "./vendors";
 
 describe("vendor table", () => {
   test("every shipped vendor is one the backend registers", () => {
@@ -15,11 +15,19 @@ describe("vendor table", () => {
     expect(vendorInfo("claude").runtimeId).toBe(CLAUDE_AGENT);
     expect(vendorInfo("codex")).toBe(CODEX_INFO);
     expect(vendorInfo("codex").runtimeId).toBe(CODEX_AGENT);
+    expect(vendorInfo("opencode")).toBe(OPENCODE_INFO);
+    expect(vendorInfo("opencode").runtimeId).toBe(OPENCODE_AGENT);
   });
 
-  test("Claude signs in in a terminal, Codex inside DevKit", () => {
+  test("Claude and opencode sign in in a terminal, Codex inside DevKit", () => {
     expect(vendorInfo("claude").signIn).toBe("terminal");
     expect(vendorInfo("codex").signIn).toBe("inApp");
+    expect(vendorInfo("opencode").signIn).toBe("terminal");
+  });
+
+  test("opencode has no skills/MCP overrides of its own to manage", () => {
+    expect(vendorInfo("opencode").customization).toBeUndefined();
+    expect(vendorInfo("opencode").configCatalog).toBe(true);
   });
 
   test("an unknown vendor is itself, never Claude", () => {
@@ -34,5 +42,6 @@ describe("vendor table", () => {
   test("names are what the person reads", () => {
     expect(vendorInfo("claude").name).toBe("Claude");
     expect(vendorInfo("codex").name).toBe("Codex");
+    expect(vendorInfo("opencode").name).toBe("opencode");
   });
 });

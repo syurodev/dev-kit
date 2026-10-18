@@ -32,7 +32,9 @@ export function AgentRuntimeSetup({ vendor, onOpenSettings }: { vendor: string; 
       <p className="text-caption-11 text-text-tertiary">
         {s.current
           ? "Something it needs is missing from this machine."
-          : `DevKit installs the version it has tested (${s.testedVersion}) into its own folder — nothing goes on your PATH.`}
+          : s.testedVersion
+            ? `DevKit installs the version it has tested (${s.testedVersion}) into its own folder — nothing goes on your PATH.`
+            : "DevKit installs the latest release into its own folder — nothing goes on your PATH."}
       </p>
       {unmet.length > 0 ? <RuntimeRequirements requirements={unmet} /> : null}
       <div className="flex items-center gap-2">

@@ -33,6 +33,7 @@ import {
   agentHubListContextFiles,
   agentHubListDraftContextFiles,
   CLAUDE_VENDOR,
+  OPENCODE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
   type AgentSession,
@@ -346,6 +347,18 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     () => (tabSessionId ? sessions.find((s) => s.id === tabSessionId) ?? null : null),
     [sessions, tabSessionId],
   );
+  // opencode's sign-in methods are listed by starting opencode, so they are only
+  // asked for once opencode is what the person is working with (the draft's
+  // agent, this tab's session, or a create waiting on a sign-in).
+  const openCodeSignIn = useClaudeSignIn(
+    retryAfterSignIn,
+    OPENCODE_VENDOR,
+    (draft !== null && draftAgent === OPENCODE_VENDOR) ||
+      activeSession?.agentType === OPENCODE_VENDOR ||
+      (authRetry?.kind === "create" && authRetry.params.vendor === OPENCODE_VENDOR),
+  );
+  /** The terminal sign-in controller of a vendor that signs in that way. */
+  const terminalSignIn = (vendor: string | undefined) => (vendor === OPENCODE_VENDOR ? openCodeSignIn : claudeSignIn);
   const sessionConfig = useQuery({
     queryKey: ["agenthub", "sessionConfig", activeSession?.id],
     queryFn: async () => { await agentHubPrepareSession(activeSession!.id); return true; },
@@ -943,12 +956,13 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       return;
     }
     if (action === "login") {
-      const methods = claudeSignIn.methods.data ?? [];
+      const terminal = terminalSignIn(activeSession?.agentType);
+      const methods = terminal.methods.data ?? [];
       // One way in: take it. Several: the error card's panel names them, and
       // picking for the user would be guessing. An agent that signs in
       // inside DevKit shows its panel, where the browser is the first button.
       if (vendorInfo(activeSession?.agentType).signIn === "terminal" && methods.length === 1) {
-        claudeSignIn.start(methods[0]);
+        terminal.start(methods[0]);
       } else {
         setErrorCause("authRequired");
       }
@@ -971,7 +985,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   function signInFor(vendor: string) {
     switch (vendorInfo(vendor).signIn) {
       case "terminal":
-        return <ClaudeSignIn signIn={claudeSignIn} />;
+        return <ClaudeSignIn signIn={terminalSignIn(vendor)} vendor={vendor} />;
       case "inApp":
         return <CodexSignIn signIn={codexSignIn} />;
       default:

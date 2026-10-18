@@ -1152,6 +1152,17 @@ func (k *procKiller) Signal(sig os.Signal) error {
 }
 
 type claudeRuntime struct {
+	// vendor names whose agent this ACP runtime talks to; empty means Claude.
+	// The runtime is the generic ACP one (opencode reuses it), and only its
+	// messages and logs need to know which vendor they are about.
+	vendor AgentType
+	// permissionBefore and permissionAfter let a vendor adapter set the policy
+	// around the person's answer: Before may rewrite the request or answer it
+	// itself (answer non-nil), After may adjust what the person chose. Both nil
+	// for Claude, whose own modes decide what is asked.
+	permissionBefore func(ctx context.Context, params json.RawMessage) (rewritten, answer json.RawMessage)
+	permissionAfter  func(answer json.RawMessage) json.RawMessage
+
 	environment  *environmentSnapshot
 	conn         *acp.Conn
 	proc         *sandbox.Proc
@@ -1195,6 +1206,14 @@ type claudeRuntime struct {
 // noteServeExit records that the serve loop ended. Everything after this is a
 // runtime with no process behind it: Prompt and the settings calls refuse, and
 // Dead tells Service to resume the session on a fresh one.
+// vendorType is the vendor this runtime reports errors for.
+func (r *claudeRuntime) vendorType() AgentType {
+	if r.vendor == "" {
+		return AgentTypeClaude
+	}
+	return r.vendor
+}
+
 func (r *claudeRuntime) noteServeExit(serveErr error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1432,7 +1451,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 	// still thinking. These two lines bracket the call: "sent" with nothing
 	// after it says the agent has the prompt and is not replying, which is a
 	// different bug from never having sent it at all.
-	log.Printf("agenthub: claude session/prompt sent (session %s)", sid)
+	log.Printf("agenthub: %s session/prompt sent (session %s)", r.vendorType(), sid)
 	var res acp.PromptResult
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
@@ -1440,7 +1459,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 		Meta:      meta,
 	}, &res)
 	if err == nil {
-		log.Printf("agenthub: claude session/prompt returned (session %s, stop %q)", sid, res.StopReason)
+		log.Printf("agenthub: %s session/prompt returned (session %s, stop %q)", r.vendorType(), sid, res.StopReason)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -1454,13 +1473,13 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 		case <-r.serveDone:
 			if r.proc != nil {
 				reason = stderrReason(r.proc)
-				logStderrTail("claude session/prompt", r.proc)
+				logStderrTail(string(r.vendorType())+" session/prompt", r.proc)
 			}
 		default:
 		}
-		log.Printf("agenthub: claude session/prompt (session %s): %v%s", sid, err, reason)
+		log.Printf("agenthub: %s session/prompt (session %s): %v%s", r.vendorType(), sid, err, reason)
 		if isAuthRequired(err) {
-			return PromptOutcome{}, vendorError(AgentTypeClaude, fmt.Errorf("%w: %v", ErrAgentAuthRequired, err))
+			return PromptOutcome{}, vendorError(r.vendorType(), fmt.Errorf("%w: %v", ErrAgentAuthRequired, err))
 		}
 		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)
 	}
@@ -1540,7 +1559,20 @@ func (h *claudeConnHandler) RequestPermission(ctx context.Context, params json.R
 	if handlers.OnPermission == nil {
 		return nil, ErrPermissionDenied
 	}
-	return handlers.OnPermission(ctx, params)
+	if before := h.rt.permissionBefore; before != nil {
+		rewritten, answer := before(ctx, params)
+		if answer != nil {
+			return answer, nil
+		}
+		if rewritten != nil {
+			params = rewritten
+		}
+	}
+	answer, err := handlers.OnPermission(ctx, params)
+	if err == nil && h.rt.permissionAfter != nil {
+		answer = h.rt.permissionAfter(answer)
+	}
+	return answer, err
 }
 
 // Elicit implements acp.ElicitationHandler, so Conn answers elicitation/create

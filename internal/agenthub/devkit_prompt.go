@@ -253,6 +253,22 @@ var codexNaming = toolNaming{
 	viewHint: " You are in Codex: call these from exec, print text with text(result.content[0].text), and forward every image block of a result — `for (const c of result.content) if (c.type === \"image\") image(c);`. A page image that your script does not forward with image(...) is never shown to you.",
 }
 
+// opencodeNaming is how opencode's model reaches a DevKit tool. opencode (2.0.32,
+// measured from the request it sends) puts MCP tools in a "Code Mode" catalog in
+// its system prompt rather than in its function list: they only run inside code
+// passed to its `execute` tool, as `await tools.<server>.<tool>(args)`, with the
+// dots of a DevKit name turned into underscores (git.status → git_status). With
+// more than about 20 tools the catalog is cut and the rest is found with the
+// `search` function, so a name below may not be listed until it is searched for.
+var opencodeNaming = toolNaming{
+	tool: func(name string) string { return "`tools.devkit." + strings.ReplaceAll(name, ".", "_") + "`" },
+	note: "\nYou call DevKit's tools from your `execute` tool, as `await tools.devkit.<name>(args)` with\n" +
+		"the names below (e.g. `await tools.devkit.git_status({})`). Your Code Mode catalog lists them; if\n" +
+		"one is missing from it, find it with `search`. A tool returns a result object; `return` what\n" +
+		"you need from your code.\n",
+	viewHint: " You are in opencode: call these from `execute`, and return the result's content; an image block in a result reaches you only if your code returns it.",
+}
+
 // devkitPrompt renders the prompt for one vendor and one session. brief says
 // where the session is (Service.SessionBrief), or is empty.
 func devkitPrompt(naming toolNaming, brief string) string {

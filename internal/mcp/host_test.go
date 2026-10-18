@@ -63,12 +63,24 @@ func TestServeUnixListenAcceptClose(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	info, err := os.Stat(sock)
-	if err != nil {
-		t.Fatal(err)
+	// ServeUnix listens and then chmods, so a dial that lands between the two
+	// sees the socket as the process umask made it. The directory above it is
+	// 0700, so nobody else could use it in that gap; the contract is the mode
+	// once ServeUnix has finished starting, which the poll waits for.
+	var mode os.FileMode
+	for {
+		info, err := os.Stat(sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mode = info.Mode().Perm()
+		if mode&0o777 == 0o600 || time.Now().After(deadline.Add(2*time.Second)) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if info.Mode().Perm()&0o777 != 0o600 {
-		t.Fatalf("socket mode = %o, want 0600", info.Mode().Perm())
+	if mode&0o777 != 0o600 {
+		t.Fatalf("socket mode = %o, want 0600", mode)
 	}
 
 	_ = conn.Close()

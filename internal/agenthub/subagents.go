@@ -102,6 +102,11 @@ func planSubagents(profiles []preferences.AgentModelProfile, vendor AgentType, c
 
 // subagentProblem is why a profile cannot be offered to its vendor, or "".
 func subagentProblem(p preferences.AgentModelProfile, vendor AgentType, catalog *VendorModels) string {
+	// A vendor whose adapter has no subagent translator would drop the profile
+	// without a word; saying so here keeps it from reading "active".
+	if vendor == AgentTypeOpenCode {
+		return fmt.Sprintf("DevKit does not hand subagents to %s yet", vendor)
+	}
 	if !subagentValue.MatchString(p.Model) {
 		return fmt.Sprintf("the model %q is not a name the agent can take", p.Model)
 	}

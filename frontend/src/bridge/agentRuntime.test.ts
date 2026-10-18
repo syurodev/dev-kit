@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { AgentType } from "../../bindings/devkit/internal/agenthub/models";
-import { CLAUDE_VENDOR, CODEX_VENDOR } from "./agenthub";
+import { CLAUDE_VENDOR, CODEX_VENDOR, OPENCODE_VENDOR } from "./agenthub";
 import {
   CLAUDE_AGENT,
   CODEX_AGENT,
+  OPENCODE_AGENT,
   formatBytes,
   hintCommands,
   isAgentAuthRequiredError,
@@ -64,6 +65,25 @@ describe("runtimeStatusLine", () => {
       testedVersion: "0.147.0", current: installed("0.147.0"), latestVersion: "0.150.0",
     }), "Codex");
     expect(line).toEqual({ headline: "Codex 0.147.0 · tested", latest: "0.150.0 available (not tested by DevKit)" });
+  });
+
+  // opencode has no tested version: it is whatever npm's latest was when it was
+  // installed, so "tested" and "not tested" would both be untrue of it.
+  test("an agent with no tested version says neither tested nor untested", () => {
+    const none = { testedVersion: "" };
+    expect(runtimeStatusLine(status({ ...none }), "opencode")).toEqual({ headline: "Not installed", latest: null });
+    expect(runtimeStatusLine(status({ ...none, current: installed("2.0.32"), latestVersion: "2.0.32" }), "opencode")).toEqual({
+      headline: "opencode 2.0.32",
+      latest: null,
+    });
+    expect(runtimeStatusLine(status({ ...none, current: installed("2.0.32"), latestVersion: "2.0.33" }), "opencode")).toEqual({
+      headline: "opencode 2.0.32",
+      latest: "2.0.33 available",
+    });
+    // Not installed yet: nothing to update from, so no offer next to "Install latest".
+    expect(runtimeStatusLine(status({ ...none, latestVersion: "2.0.33" }), "opencode").latest).toBeNull();
+    // A cached catalog older than what is installed is not an update.
+    expect(runtimeStatusLine(status({ ...none, current: installed("2.0.40"), latestVersion: "2.0.33" }), "opencode").latest).toBeNull();
   });
 
   test("an older cached catalog does not offer a downgrade as an update", () => {
@@ -147,6 +167,16 @@ describe("the two Claude ids", () => {
 
   test("and that is not the runtime's id", () => {
     expect(CLAUDE_AGENT).not.toBe(CLAUDE_VENDOR);
+  });
+});
+
+describe("opencode's ids", () => {
+  test("a session is created with the vendor the backend registers", () => {
+    expect(OPENCODE_VENDOR).toBe(AgentType.AgentTypeOpenCode);
+  });
+
+  test("the runtime id is the agentruntime registry's", () => {
+    expect(OPENCODE_AGENT).toBe("opencode");
   });
 });
 

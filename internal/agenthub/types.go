@@ -12,6 +12,8 @@ const (
 	AgentTypeMock   AgentType = "mock"
 	AgentTypeClaude AgentType = "claude"
 	AgentTypeCodex  AgentType = "codex"
+	// AgentTypeOpenCode is opencode (https://opencode.ai), run as `opencode acp`.
+	AgentTypeOpenCode AgentType = "opencode"
 )
 
 // SessionStatus is the hub-visible lifecycle state of an AgentSession.

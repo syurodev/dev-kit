@@ -1,5 +1,5 @@
-import { CLAUDE_VENDOR, CODEX_VENDOR } from "@/bridge/agenthub";
-import { CLAUDE_AGENT, CODEX_AGENT } from "@/bridge/agentRuntime";
+import { CLAUDE_VENDOR, CODEX_VENDOR, OPENCODE_VENDOR } from "@/bridge/agenthub";
+import { CLAUDE_AGENT, CODEX_AGENT, OPENCODE_AGENT } from "@/bridge/agentRuntime";
 
 /**
  * How a vendor signs in. Claude runs its own login in a terminal the person
@@ -48,13 +48,28 @@ export const CODEX_INFO: VendorInfo = {
   customization: "native",
 };
 
+/**
+ * opencode signs in like Claude: its own login in a terminal, credentials kept
+ * in DevKit's opencode home. It has no skills/MCP overrides of its own here
+ * (no `customization`), and no pinned runtime version.
+ */
+export const OPENCODE_INFO: VendorInfo = {
+  id: OPENCODE_VENDOR,
+  name: "opencode",
+  runtimeId: OPENCODE_AGENT,
+  runtimeName: "opencode",
+  signIn: "terminal",
+  configCatalog: true,
+};
+
 const KNOWN: Record<string, VendorInfo> = {
   [CLAUDE_INFO.id]: CLAUDE_INFO,
   [CODEX_INFO.id]: CODEX_INFO,
+  [OPENCODE_INFO.id]: OPENCODE_INFO,
 };
 
 /** The vendors DevKit ships, in the order the picker offers them. */
-export const SHIPPED_VENDORS: readonly string[] = [CLAUDE_INFO.id, CODEX_INFO.id];
+export const SHIPPED_VENDORS: readonly string[] = [CLAUDE_INFO.id, CODEX_INFO.id, OPENCODE_INFO.id];
 
 /**
  * A vendor's row. One DevKit does not know gets its id for a name and nothing

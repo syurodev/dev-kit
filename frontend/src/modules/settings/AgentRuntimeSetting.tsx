@@ -151,6 +151,9 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
 
   const { headline, latest } = runtimeStatusLine(s, info.runtimeName);
   const { current, previous, testedVersion, latestVersion } = s;
+  // opencode has no tested version: it is installed at npm's latest, and there
+  // is no "untested" to warn about or to step back to.
+  const pinned = testedVersion !== "";
   const machine = s.claudeBinary.machine;
 
   return (
@@ -168,7 +171,9 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
                   ? `SDK ${current.sdkVersion} · Node ${current.nodeVersion} · ${formatBytes(s.diskBytes)} on disk`
                   : // A native binary (Codex): no SDK, and Node was only for the install.
                     `${formatBytes(s.diskBytes)} on disk`
-                : `DevKit has tested ${testedVersion}. ${formatBytes(s.diskBytes)} on disk.`}
+                : pinned
+                  ? `DevKit has tested ${testedVersion}. ${formatBytes(s.diskBytes)} on disk.`
+                  : `DevKit installs the latest release. ${formatBytes(s.diskBytes)} on disk.`}
             </span>
           </div>
           {rt.installing ? (
@@ -183,10 +188,10 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
           {!current ? (
             <Button type="button" size="sm" disabled={rt.busy} onClick={() => rt.install()}>
               {rt.installing ? <Loader2 className="animate-spin" /> : <Download />}
-              {rt.installing ? "Installing…" : `Install ${testedVersion}`}
+              {rt.installing ? "Installing…" : pinned ? `Install ${testedVersion}` : "Install latest"}
             </Button>
           ) : null}
-          {current && current.version !== testedVersion ? (
+          {current && pinned && current.version !== testedVersion ? (
             <Button
               type="button"
               size="sm"
@@ -221,12 +226,12 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
           {latest && latestVersion ? (
             <Button
               type="button"
-              variant="outline"
+              variant={pinned ? "outline" : "default"}
               size="sm"
               disabled={rt.busy}
-              onClick={() => setConfirmLatest(true)}
+              onClick={() => (pinned ? setConfirmLatest(true) : rt.install(latestVersion))}
             >
-              {`Install ${latestVersion} (untested)`}
+              {pinned ? `Install ${latestVersion} (untested)` : `Update to ${latestVersion}`}
             </Button>
           ) : null}
           {previous ? (
@@ -309,7 +314,7 @@ export function AgentRuntimeSetting({ vendor = CLAUDE_INFO.id }: { vendor?: stri
       {current && info.signIn !== "none" ? (
         <div className="flex flex-col gap-2.5">
           <SubLabel>SIGN IN</SubLabel>
-          {info.signIn === "inApp" ? <CodexAccountSection /> : <ClaudeSignInSection />}
+          {info.signIn === "inApp" ? <CodexAccountSection /> : <ClaudeSignInSection vendor={info.id} />}
         </div>
       ) : null}
 

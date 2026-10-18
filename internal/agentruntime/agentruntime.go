@@ -32,10 +32,22 @@ const ClaudeACP = "claude-acp"
 // TestedVersion is still the default install.
 const CodexCLI = "codex"
 
+// OpenCodeCLI is the opencode agent, run as `opencode acp`. Like Codex it is a
+// native binary that npm delivers in a platform package. Unlike the other two it
+// has no pinned version: DevKit installs npm's latest and relies on the agent's
+// own answers (initialize, a conformance probe) rather than on a version number
+// to know what it can do.
+const OpenCodeCLI = "opencode"
+
 // Agent is what DevKit knows about one installable adapter.
 type Agent struct {
 	ID      string
 	Package string
+	// Unpinned says there is no TestedVersion: Install with no version asks npm
+	// for the latest release and installs that. The runtime's compatibility is
+	// then established by the Verifier at install time, not by a version DevKit
+	// was measured against.
+	Unpinned bool
 	// TestedVersion is the version DevKit was measured against and installs by
 	// default. Raising it is a code change that re-runs
 	// TestClaudeACPMetaChannelStillWorks and the live Agent Hub tests: the
@@ -59,6 +71,16 @@ type Agent struct {
 }
 
 var agents = map[string]Agent{
+	OpenCodeCLI: {
+		ID:       OpenCodeCLI,
+		Package:  "@opencode/cli",
+		Unpinned: true,
+		// The wrapper package (@opencode/cli) only forwards to the platform
+		// package that npm picked by os/cpu/libc, so the glob names the latter.
+		NativeEntry: []string{
+			"node_modules/@opencode/cli-*/bin/" + exeName("opencode"),
+		},
+	},
 	ClaudeACP: {
 		ID:            ClaudeACP,
 		Package:       "@agentclientprotocol/claude-agent-acp",
