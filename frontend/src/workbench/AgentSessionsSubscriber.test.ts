@@ -124,6 +124,24 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(row.status).toBe("running");
   });
 
+  it("takes the title Go gave a turn it did not send, but never replaces one the row has", async () => {
+    const named = (title: string): TurnBridge => ({
+      invoke: () => new Promise(() => {}),
+      getStatus: async (id) => ({ ...useAgentSessionsStore.getState().sessionsById[id], title }),
+    });
+    const row = () => useAgentSessionsStore.getState().sessionsById.s1;
+
+    useAgentSessionsStore.getState().upsertSession({ ...row(), title: null });
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, named("Fix the flaky test"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(row().title).toBe("Fix the flaky test");
+
+    useAgentSessionsStore.getState().upsertSession({ ...row(), title: "My name" });
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, named("Something else"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(row().title).toBe("My name");
+  });
+
   it("keeps the newest preview when two reads answer out of order", async () => {
     const replies: Array<(preview: string, updatedAt: number) => void> = [];
     const bridge: TurnBridge = {

@@ -156,10 +156,14 @@ export function handleAgentTurnFinished(
       .then((fresh) => {
         if (previewReads.get(sessionId) !== read) return;
         const current = useAgentSessionsStore.getState().sessionsById[sessionId];
-        if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt)) {
+        // A title only when the row has none: Go names a session after its
+        // first turn (agenthub/session_title.go), and a rename made here since
+        // is the person's.
+        const title = current && !current.title?.trim() && fresh?.title ? fresh.title : current?.title;
+        if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt || title !== current.title)) {
           useAgentSessionsStore
             .getState()
-            .upsertSession({ ...current, preview: fresh.preview, updatedAt: fresh.updatedAt });
+            .upsertSession({ ...current, title, preview: fresh.preview, updatedAt: fresh.updatedAt });
         }
       })
       .catch(() => {});

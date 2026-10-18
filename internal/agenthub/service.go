@@ -1600,6 +1600,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		if err := s.recorder.Flush(context.WithoutCancel(ctx), in.SessionID); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(in.SessionID, err)
 		}
+		// Before the event, so the window's refresh of the row sees the title.
+		// A peer's message is another agent's, not what the session is about.
+		if peer == nil {
+			s.nameFromPrompt(context.WithoutCancel(ctx), sess, in.Prompt)
+		}
 		if s.OnTurnFinished != nil {
 			if session, err := s.store.GetSession(context.WithoutCancel(ctx), in.SessionID); err == nil {
 				s.OnTurnFinished(in.SessionID, session.Status, turnOutcome)
