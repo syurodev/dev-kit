@@ -375,6 +375,15 @@ describe("the tools row", () => {
     expect(render(<AgentComposer {...props} />)).not.toContain('data-testid="composer-agent"');
   });
 
+  it("shows the agent as its mark alone, so the width goes to the model", () => {
+    const draft = render(<AgentComposer {...props} agents={["claude", "opencode"]} agent="opencode" onAgentChange={noop} />);
+    const picker = draft.match(/<button[^>]*data-testid="composer-agent"[^>]*>.*?<\/button>/)?.[0] ?? "";
+    // The name is still said — by the label — but not drawn beside the mark.
+    expect(picker).toContain('aria-label="Agent: opencode"');
+    expect(picker).toContain('data-vendor="opencode"');
+    expect(picker.replace(/<[^>]*>/g, "").trim()).toBe("");
+  });
+
   it("sends and stops from the same place, with the same names", () => {
     const idle = render(<AgentComposer {...props} />);
     expect(idle).toContain('aria-label="Send message"');

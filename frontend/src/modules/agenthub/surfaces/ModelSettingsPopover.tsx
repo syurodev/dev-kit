@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { cn } from "@/lib/utils";
 import type { ConfigOption } from "../types";
-import { reasoningLabel } from "../modelSettings";
+import { CONTROL_FOCUS, CONTROL_SURFACE } from "@/components/ui/control-styles";
+import { MODEL_SEARCH_THRESHOLD, filterModelChoices, reasoningLabel } from "../modelSettings";
 
 type Props = {
   options: ConfigOption[];
@@ -28,12 +29,28 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
   const reduced = useReducedMotion();
   const [modelsOpen, setModelsOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [query, setQuery] = useState("");
   const backButton = useRef<HTMLButtonElement>(null);
   const modelButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (open) (modelsOpen ? backButton : modelButton).current?.focus();
-  }, [modelsOpen, open]);
+  const searchBox = useRef<HTMLInputElement>(null);
+  const modelList = useRef<HTMLDivElement>(null);
   const model = options.find((option) => option.category === "model" || option.id === "model");
+  const choices = model?.options ?? [];
+  // A long list is searched, and the box is where focus goes: typing is the way in.
+  const searchable = choices.length > MODEL_SEARCH_THRESHOLD;
+  const matches = filterModelChoices(choices, query);
+  useEffect(() => {
+    if (!open) return;
+    if (!modelsOpen) modelButton.current?.focus();
+    else (searchable ? searchBox : backButton).current?.focus();
+  }, [modelsOpen, open, searchable]);
+  useEffect(() => {
+    if (!modelsOpen) setQuery("");
+  }, [modelsOpen]);
+  // The model in use may be far down a long list: bring it into view.
+  useEffect(() => {
+    if (modelsOpen) modelList.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [modelsOpen]);
   const effort = options.find((option) => option.category === "thought_level" || /effort|thinking/.test(option.id));
   const selected = model?.options?.find((choice) => choice.value === model.currentValue);
   const efforts = effort?.options ?? [];
@@ -83,18 +100,65 @@ export function ModelSettingsPopover({ options, onSelect, open, onOpenChange, lo
                 <RotateCcw className={cn("size-3.5", loading && "animate-spin motion-reduce:animate-none")} />
               </button>}
             </div>
-            {model?.defaultValue && <button type="button" className="mb-1 w-full rounded-lg px-2 py-1.5 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:bg-surface-hover"
+            {searchable && (
+              <input
+                ref={searchBox}
+                type="text"
+                role="searchbox"
+                data-testid="composer-model-search"
+                aria-label="Search models"
+                placeholder="Search models…"
+                autoComplete="off"
+                spellCheck={false}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && query) {
+                    // The first Escape clears the search; the popover closes on the next.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setQuery("");
+                  } else if (event.key === "Enter" && matches[0]) {
+                    event.preventDefault();
+                    void onSelect(model!.id, matches[0].value);
+                    setModelsOpen(false);
+                  } else if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    modelList.current?.querySelector<HTMLButtonElement>("button")?.focus();
+                  }
+                }}
+                className={cn(CONTROL_SURFACE, CONTROL_FOCUS, "mb-2 h-8 w-full rounded-lg px-2.5 text-body-13 placeholder:text-text-tertiary")}
+              />
+            )}
+            {!query && model?.defaultValue && <button type="button" className="mb-1 w-full rounded-lg px-2 py-1.5 text-left transition-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:bg-surface-hover"
               onClick={() => { void onSelect(model.id, model.defaultValue!); setModelsOpen(false); }}>
               <div className="text-body-13 text-text-primary">Default</div>
               <div className="text-caption-11 text-text-tertiary">Recommended model</div>
             </button>}
-            <div className="max-h-72 overflow-y-auto overscroll-contain">
-              {model?.options?.map((choice) => <button key={choice.value} type="button" data-testid="composer-config-option"
-                aria-pressed={choice.value === model.currentValue}
-                onClick={() => { void onSelect(model.id, choice.value); setModelsOpen(false); }}
+            <div
+              ref={modelList}
+              className="max-h-72 overflow-y-auto overscroll-contain"
+              onKeyDown={(event) => {
+                // Arrow keys walk the list, and the way back up ends in the search box.
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+                const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                if (at < 0) return;
+                event.preventDefault();
+                if (event.key === "ArrowDown") items[Math.min(at + 1, items.length - 1)]?.focus();
+                else if (at > 0) items[at - 1]?.focus();
+                else searchBox.current?.focus();
+              }}
+            >
+              {matches.length === 0 && (
+                <p role="status" className="px-2 py-3 text-body-13 text-text-tertiary">{`No models match “${query.trim()}”`}</p>
+              )}
+              {matches.map((choice) => <button key={choice.value} type="button" data-testid="composer-config-option"
+                aria-pressed={choice.value === model?.currentValue}
+                onClick={() => { void onSelect(model!.id, choice.value); setModelsOpen(false); }}
                 className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-body-13 text-text-primary transition-control aria-pressed:bg-state-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus/50 hover:bg-surface-hover">
                 <span className="truncate">{choice.name ?? choice.value}</span>
-                {choice.value === model.currentValue && <Check aria-hidden className="size-4 shrink-0 text-text-secondary" />}
+                {choice.value === model?.currentValue && <Check aria-hidden className="size-4 shrink-0 text-text-secondary" />}
               </button>)}
             </div>
           </div>
