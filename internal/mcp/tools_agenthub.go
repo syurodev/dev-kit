@@ -85,8 +85,8 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.listPeers",
-		Description: "List the Agent Hub sessions you can message: your own workspace's sessions, your sub-sessions and your parent " +
-			"(closed ones are counted, not listed). Use the sessionId with agenthub.sendMessage.",
+		Description: "List the sessions you can message: your workspace's, your sub-sessions, parent and siblings (same parent). " +
+			"Closed ones are counted, not listed. Use the sessionId with agenthub.sendMessage.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubListPeers)
 
