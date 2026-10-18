@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type * as React from "react";
 import { renderToString } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,6 +19,14 @@ import {
   useSessionSummaryData,
   type SessionSummaryInput,
 } from "./SessionSummary";
+
+// Sections start folded (summaryFold), so a test that reads rows opens them first.
+const SECTIONS = ["environment", "goal", "plan", "changes", "pullRequests", "background", "sources", "subagents", "connectors", "context"];
+beforeEach(() => {
+  resetSummaryFold();
+  for (const name of SECTIONS) setSummarySectionOpen(name, true);
+});
+afterEach(() => resetSummaryFold());
 
 type Props = SessionSummaryInput & {
   usage: Usage | null;
@@ -297,28 +305,33 @@ describe("vendor-driven sections", () => {
 });
 
 describe("folding a section", () => {
-  test("every section has a toggle, open by default", () => {
+  const environment = [{ key: "agent", label: "Agent", value: "Codex" }, { key: "model", label: "Model", value: "gpt-5" }];
+
+  test("every section has a toggle and starts folded, with a line saying what is inside", () => {
     resetSummaryFold();
-    const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={[{ key: "agent", label: "Agent", value: "Codex" }]} />);
-    for (const name of ["environment", "plan"]) {
+    const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={environment} goal={{ objective: "Ship the viewer" } as SessionGoal} />);
+    for (const name of ["environment", "plan", "goal"]) {
       expect(html).toContain(`data-testid="summary-${name}-toggle"`);
     }
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('data-testid="summary-plan-row"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('aria-expanded="true"');
+    expect(html).not.toContain('data-testid="summary-plan-row"');
+    expect(html).not.toContain('data-testid="summary-environment-row"');
+    // The folded header still reads: the model, the plan's progress, the goal.
+    expect(html).toMatch(/data-testid="summary-environment-hint"[^>]*>gpt-5</);
+    expect(html).toContain("1/3");
+    expect(html).toMatch(/data-testid="summary-goal-hint"[^>]*>Ship the viewer</);
   });
 
-  test("a folded section keeps its title and count and hides its rows, the others stay", () => {
-    try {
-      setSummarySectionOpen("plan", false);
-      const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={[{ key: "agent", label: "Agent", value: "Codex" }]} />);
-      expect(html).toContain('data-testid="summary-plan-toggle"');
-      expect(html).toContain('data-open="false"');
-      expect(html).toContain("1/3");
-      expect(html).not.toContain('data-testid="summary-plan-row"');
-      expect(html).toContain('data-testid="summary-environment-row"');
-    } finally {
-      resetSummaryFold();
-    }
+  test("an opened section shows its rows and drops the hint, the others stay folded", () => {
+    resetSummaryFold();
+    setSummarySectionOpen("plan", true);
+    const html = render(<SessionSummaryBody {...base} items={[planItem]} environment={environment} />);
+    expect(html).toContain('data-open="true"');
+    expect(html).toContain('data-testid="summary-plan-row"');
+    expect(html).not.toContain('data-testid="summary-environment-row"');
+    expect(html).toContain('data-testid="summary-environment-hint"');
+    expect(html).toContain("1/3");
   });
 });
 
@@ -433,5 +446,83 @@ describe("the pull request section", () => {
     } finally {
       resetSummaryFold();
     }
+  });
+});
+
+describe("a change row with a long name", () => {
+  const long = "src/v2/booking/booking-medical-examination-note.spec.ts";
+
+  test("the stem truncates, the extension and the counts stay, the folder shrinks first", () => {
+    const html = render(<SessionSummaryBody {...base} checkpoints={checkpointsWith([long])} />);
+    // Name: stem in a truncating box, the tail beside it that never shrinks.
+    expect(html).toMatch(/data-testid="summary-change-name"[^>]*><span class="min-w-0 truncate">booking-medical-examination-note<\/span><span class="shrink-0">\.spec\.ts<\/span>/);
+    // The folder gives way before the name does, and the counts are pushed right and never shrink.
+    expect(html).toMatch(/data-testid="summary-change-dir" class="[^"]*shrink-1000[^"]*truncate/);
+    expect(html).toMatch(/class="ml-auto flex shrink-0 gap-1[^"]*"><span class="text-status-success">\+2/);
+    // The whole path is still one hover away.
+    expect(html).toContain(`title="${long}"`);
+  });
+
+  test("a file with no folder has no folder column", () => {
+    const html = render(<SessionSummaryBody {...base} checkpoints={checkpointsWith(["Makefile"])} />);
+    expect(html).not.toContain("summary-change-dir");
+    expect(html).toContain("Makefile");
+  });
+});
+
+describe("pull requests of a workspace of many folders", () => {
+  const item = (status: string, folder: string, message: string) =>
+    ({ folder, branch: "x", status, message, source: "branch" }) as unknown as PullRequestItem;
+  const noAccount = (name: string) =>
+    item("no_account", `/w/${name}`, `No GitLab account for this remote (acme/${name} on gitlab.com). Add a token in Accounts.`);
+  const six = ["his-connector", "db-migrations", "log-service", "project-docs", "web-dashboard", "workload"].map(noAccount);
+
+  test("six identical refusals are one notice with the folders behind a disclosure and one action", () => {
+    const html = render(<SessionSummaryBody {...base} pullRequests={pullRequestsView(six)} />);
+    expect(html.match(/data-testid="summary-pr-notice"/g)?.length).toBe(1);
+    expect(html).toContain("No GitLab account for this remote. Add a token in Accounts.");
+    // Not in the text; each folder's own sentence is the tooltip.
+    expect(html.replace(/title="[^"]*"/g, "")).not.toContain("acme/his-connector");
+    expect(html).toContain("6 repositories");
+    expect(html).toMatch(/data-testid="summary-pr-notice-toggle"[^>]*aria-expanded="false"/);
+    expect(html).toContain('data-testid="summary-pr-notice-action"');
+    expect(html).toContain("Add token");
+    // Folded away until asked for.
+    expect(html).not.toContain("summary-pr-notice-folders");
+  });
+
+  test("folded, the section says how many are waiting; the cards come before the notice when open", () => {
+    resetSummaryFold();
+    const folded = render(<SessionSummaryBody {...base} pullRequests={pullRequestsView(six)} />);
+    expect(folded).toMatch(/data-testid="summary-pullRequests-hint"[^>]*>6 need an account</);
+    expect(folded).not.toContain("summary-pr-notice");
+  });
+
+  test("a request and the notice share the section, the request first", () => {
+    const found = {
+      folder: "/w/api",
+      branch: "feat/x",
+      source: "branch",
+      status: "found",
+      changeRequest: {
+        repo: { host: "gitlab.com", path: "acme/api" },
+        number: 4,
+        title: "Fix it",
+        url: "https://gitlab.com/acme/api/-/merge_requests/4",
+        state: "open",
+        head: "feat/x",
+        base: "main",
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        terms: { platform: "GitLab", short: "MR", long: "merge request", checks: "pipelines" },
+      },
+    } as unknown as PullRequestItem;
+    const html = render(<SessionSummaryBody {...base} pullRequests={pullRequestsView([found, ...six])} />);
+    expect(html.indexOf("summary-pr-card")).toBeGreaterThan(-1);
+    expect(html.indexOf("summary-pr-card")).toBeLessThan(html.indexOf("summary-pr-notice"));
+    resetSummaryFold();
+    const folded = render(<SessionSummaryBody {...base} pullRequests={pullRequestsView([found, ...six])} />);
+    expect(folded).toMatch(/summary-pullRequests-hint"[^>]*>1 open · 6 need an account</);
   });
 });

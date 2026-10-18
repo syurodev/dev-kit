@@ -180,6 +180,21 @@ export function linkHosts(items: readonly TranscriptItem[]): LinkHost[] {
 }
 
 /**
+ * A file name in two parts, so a narrow row can cut the stem and keep the
+ * extension: `booking-note.spec.ts` → `booking-note` + `.spec.ts`. The tail is
+ * the last extension, plus the one before it when that is short (`.spec`,
+ * `.entity`, `.d`), and nothing for a dotfile or a name with no extension.
+ */
+export function splitFileName(name: string): { stem: string; tail: string } {
+  const last = name.lastIndexOf(".");
+  if (last <= 0 || last === name.length - 1) return { stem: name, tail: "" };
+  const before = name.lastIndexOf(".", last - 1);
+  const start = before > 0 && last - before <= 8 ? before : last;
+  const tail = name.slice(start);
+  return tail.length > 14 ? { stem: name.slice(0, last), tail: name.slice(last) } : { stem: name.slice(0, start), tail };
+}
+
+/**
  * A line of a summary section that is a name and a value, and how it reads:
  * `tone` is how safe it is (the chrome's status colours), never which kind.
  */
@@ -216,6 +231,24 @@ function currentChoice(option: ConfigOption | undefined): string {
 }
 
 /**
+ * Several repositories: the branch when they are all on one (`main · 15 repos`),
+ * else how many branches there are. The tooltip groups the repositories by
+ * branch, so "which of the fifteen is not on main" is one hover away.
+ */
+function branchesRow(repos: readonly { name: string; branch: string }[]): SummaryRow {
+  const byBranch = new Map<string, string[]>();
+  for (const repo of repos) byBranch.set(repo.branch, [...(byBranch.get(repo.branch) ?? []), repo.name]);
+  const groups = [...byBranch.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  const count = `${repos.length} repos`;
+  return {
+    key: "branch",
+    label: "Branches",
+    value: groups.length === 1 ? `${groups[0][0]} · ${count}` : `${groups.length} branches · ${count}`,
+    title: groups.map(([branch, names]) => `${branch} (${names.length}): ${names.join(", ")}`).join("\n"),
+  };
+}
+
+/**
  * Where and how the session runs. Only what the session actually has: a row is
  * left out rather than drawn empty, so a vendor with no effort setting, or a
  * folder outside a workspace, simply has fewer rows.
@@ -236,12 +269,7 @@ export function environmentRows(input: EnvironmentInput): SummaryRow[] {
   if (repos.length === 1) {
     rows.push({ key: "branch", label: "Branch", value: repos[0].branch, title: repos[0].name });
   } else if (repos.length > 1) {
-    rows.push({
-      key: "branch",
-      label: "Branches",
-      value: `${repos.length} repositories`,
-      title: repos.map((r) => `${r.name}: ${r.branch}`).join("\n"),
-    });
+    rows.push(branchesRow(repos));
   }
   return rows;
 }

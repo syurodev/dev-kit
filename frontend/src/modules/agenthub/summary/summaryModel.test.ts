@@ -3,6 +3,7 @@ import {
   backgroundTasks,
   connectorRows,
   environmentRows,
+  splitFileName,
   latestPlan,
   limitRows,
   linkHosts,
@@ -229,9 +230,43 @@ describe("environmentRows", () => {
       ],
     });
     const branches = many.find((r) => r.key === "branch");
-    expect(branches?.value).toBe("2 repositories");
-    expect(branches?.title).toBe("api: main\nweb: feat/x");
+    expect(branches?.value).toBe("2 branches · 2 repos");
+    expect(branches?.title).toBe("feat/x (1): web\nmain (1): api");
     expect(many.find((r) => r.key === "workspace")?.value).toBe("Clinic");
+  });
+});
+
+describe("environmentRows with many repositories", () => {
+  const base = { vendorName: "opencode", folderPath: "", configOptions: [], mode: null, availableModes: [] };
+  const repos = (branches: string[]) => branches.map((branch, i) => ({ name: `svc-${i}`, branch, own: i === 0 }));
+
+  test("fifteen repositories on one branch say the branch and the count", () => {
+    const row = environmentRows({ ...base, repos: repos(Array(15).fill("main")) }).find((r) => r.key === "branch");
+    expect(row?.label).toBe("Branches");
+    expect(row?.value).toBe("main · 15 repos");
+  });
+
+  test("on several branches it counts the branches, and the tooltip groups the repositories, biggest group first", () => {
+    const row = environmentRows({ ...base, repos: repos(["main", "main", "feat/x", "main"]) }).find((r) => r.key === "branch");
+    expect(row?.value).toBe("2 branches · 4 repos");
+    expect(row?.title).toBe("main (3): svc-0, svc-1, svc-3\nfeat/x (1): svc-2");
+  });
+});
+
+describe("splitFileName", () => {
+  test("keeps the extension, and a short infix with it, apart from the stem", () => {
+    expect(splitFileName("booking-medical-examination-note.spec.ts")).toEqual({ stem: "booking-medical-examination-note", tail: ".spec.ts" });
+    expect(splitFileName("customer.entity.ts")).toEqual({ stem: "customer", tail: ".entity.ts" });
+    expect(splitFileName("service.go")).toEqual({ stem: "service", tail: ".go" });
+    expect(splitFileName("archive.tar.gz")).toEqual({ stem: "archive", tail: ".tar.gz" });
+  });
+  test("a long infix is a name, not an extension", () => {
+    expect(splitFileName("some.very-long-segment.ts")).toEqual({ stem: "some.very-long-segment", tail: ".ts" });
+  });
+  test("a dotfile, a bare name and a trailing dot have no tail", () => {
+    expect(splitFileName(".gitignore")).toEqual({ stem: ".gitignore", tail: "" });
+    expect(splitFileName("Makefile")).toEqual({ stem: "Makefile", tail: "" });
+    expect(splitFileName("odd.")).toEqual({ stem: "odd.", tail: "" });
   });
 });
 

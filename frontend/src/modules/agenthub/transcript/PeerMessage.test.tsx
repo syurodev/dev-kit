@@ -14,8 +14,12 @@ describe("a message from another session", () => {
   it("names the sender by its live title and opens it", () => {
     const html = renderToString(<PeerMessageView source={FROM} text="please look at the parser" sender={alive} onOpenSession={() => {}} />);
     expect(html).toContain('data-testid="peer-message"');
-    expect(html).toContain("From alpha (now)");
+    expect(html).toContain("alpha (now)");
+    expect(html).toContain('aria-label="From alpha (now). Open this session"');
     expect(html).not.toContain("alpha (then)");
+    // The sender's face, on the same framed card a tool result uses.
+    expect(html).toContain('data-slot="peer-avatar"');
+    expect(html).toContain('data-slot="framed-card"');
     // A button: the label opens the session that sent it.
     expect(html).toMatch(/<button[^>]*data-testid="peer-message-source"/);
     expect(html).toContain("please look at the parser");
@@ -24,7 +28,7 @@ describe("a message from another session", () => {
 
   it("keeps the name it was sent under when the sender is gone, and says so", () => {
     const html = renderToString(<PeerMessageView source={FROM} text="hi" onOpenSession={() => {}} />);
-    expect(html).toContain("From alpha (then)");
+    expect(html).toContain("alpha (then)");
     expect(html).toContain("(session gone)");
     expect(html).not.toMatch(/<button[^>]*data-testid="peer-message-source"/);
   });
@@ -32,6 +36,7 @@ describe("a message from another session", () => {
   it("says which step of an exchange it is, from the second on", () => {
     const html = renderToString(<PeerMessageView source={{ ...FROM, hop: 3 }} text="and again" sender={alive} />);
     expect(html).toContain("step 3");
+    expect(html).toContain('data-slot="status-chip"');
   });
 
   it("introduces the terminal as the person's CLI, not as a session", () => {
@@ -39,13 +44,25 @@ describe("a message from another session", () => {
     expect(peerSourceLabel(source)).toBe("From a CLI in your terminal");
     const html = renderToString(<PeerMessageView source={source} text="from the shell" />);
     expect(html).toContain('data-source-kind="terminal"');
+    expect(html).toContain("a CLI in your terminal");
     expect(html).not.toContain("session gone");
   });
 
-  it("folds a long message behind Show more", () => {
+  it("clamps a long message to three lines behind an accessible Show more", () => {
     const html = renderToString(<PeerMessageView source={FROM} text={"line\n".repeat(30)} />);
-    expect(html).toContain("line-clamp-8");
+    expect(html).toContain("line-clamp-3");
     expect(html).toContain("Show more");
+    // The button says what it controls and that it is closed.
+    const id = html.match(/id="([^"]+)"[^>]*data-testid="peer-message-text"/)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`aria-controls="${id}"`);
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("leaves a short message whole, with nothing to open", () => {
+    const html = renderToString(<PeerMessageView source={FROM} text="short" />);
+    expect(html).not.toContain("line-clamp-3");
+    expect(html).not.toContain("peer-message-toggle");
   });
 
   it("takes the place of the person's bubble in a turn, and offers nothing that edits it", () => {

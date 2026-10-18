@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ChangeRequest, PullRequestItem } from "@/bridge/pullRequests";
-import { folderName, hasPullRequests, pullRequestsView } from "./pullRequestModel";
+import { folderName, hasPullRequests, pullRequestsHint, pullRequestsView, sharedMessage } from "./pullRequestModel";
 
 // The generated types are string enums; a test writes the strings the wire carries.
 type Extra = { [K in keyof ChangeRequest]?: unknown };
@@ -131,7 +131,12 @@ describe("notices", () => {
     const view = pullRequestsView([item("no_account", "No GitHub account for this remote (acme/widgets on github.com). Add a token in Accounts.")]);
     expect(view.cards).toHaveLength(0);
     expect(view.notices).toEqual([
-      expect.objectContaining({ status: "no_account", name: "widgets", tone: "warning", message: expect.stringContaining("No GitHub account") }),
+      expect.objectContaining({
+        status: "no_account",
+        tone: "warning",
+        message: expect.stringContaining("No GitHub account"),
+        folders: [expect.objectContaining({ name: "widgets" })],
+      }),
     ]);
     expect(hasPullRequests(view)).toBe(true);
   });
@@ -150,9 +155,48 @@ describe("notices", () => {
     }
   });
 
-  test("two folders failing for one reason are one notice", () => {
+  test("two folders failing for one reason are one notice, and what needs a person comes first", () => {
     const view = pullRequestsView([item("no_account", "same", "/w/a"), item("no_account", "same", "/w/b"), item("unauthorized", "other", "/w/c")]);
-    expect(view.notices.map((n) => n.status)).toEqual(["no_account", "unauthorized"]);
+    expect(view.notices.map((n) => n.status)).toEqual(["unauthorized", "no_account"]);
+    expect(view.notices[1].folders.map((f) => f.name)).toEqual(["a", "b"]);
+  });
+
+  test("the repository is taken out of a sentence so refusals for different repositories group", () => {
+    expect(sharedMessage("No GitLab account for this remote (a/b on gitlab.com). Add a token in Accounts.")).toBe(
+      "No GitLab account for this remote. Add a token in Accounts.",
+    );
+    const view = pullRequestsView(
+      ["his-connector", "db-migrations", "workload"].map((name) =>
+        item("no_account", `No GitLab account for this remote (chiro/${name} on gitlab.com). Add a token in Accounts.`, `/w/${name}`),
+      ),
+    );
+    expect(view.notices).toHaveLength(1);
+    expect(view.notices[0]).toMatchObject({ status: "no_account", message: "No GitLab account for this remote. Add a token in Accounts.", action: { label: "Add token", target: "accounts" } });
+    expect(view.notices[0].folders.map((f) => f.name)).toEqual(["his-connector", "db-migrations", "workload"]);
+    // Each folder keeps its own sentence for the tooltip.
+    expect(view.notices[0].folders[0].message).toContain("chiro/his-connector");
+  });
+
+  test("one folder listed twice (a branch and an attachment) is counted once", () => {
+    const view = pullRequestsView([item("no_account", "same", "/w/a"), item("no_account", "same", "/w/a")]);
+    expect(view.notices[0].folders).toHaveLength(1);
+  });
+
+  test("only what a person can fix offers an action", () => {
+    const action = (status: string) => pullRequestsView([item(status, "x")]).notices[0].action?.label;
+    expect(action("no_account")).toBe("Add token");
+    expect(action("unauthorized")).toBe("Fix token");
+    expect(action("rate_limited")).toBeUndefined();
+    expect(action("unavailable")).toBeUndefined();
+  });
+
+  test("the folded section's line counts cards and refusals", () => {
+    const refused = (n: number) => pullRequestsView(Array.from({ length: n }, (_, i) => item("no_account", "m", `/w/${i}`)));
+    expect(pullRequestsHint(refused(6))).toBe("6 need an account");
+    expect(pullRequestsHint(refused(1))).toBe("1 needs an account");
+    expect(pullRequestsHint(pullRequestsView([found(cr()), found(cr({ number: 2, state: "merged" }))]))).toBe("1 open");
+    expect(pullRequestsHint(pullRequestsView([found(cr({ state: "merged" }))]))).toBe("1 finished");
+    expect(pullRequestsHint(pullRequestsView([]))).toBeUndefined();
   });
 
   test("a notice with no message is not drawn", () => {

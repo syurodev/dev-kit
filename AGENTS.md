@@ -253,9 +253,25 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   are **not** on the ACP wire (`getContextUsage` / `mcpServerStatus` exist in the SDK, the adapter does not forward
   them) — adding them means an adapter extension, not a guess. `Usage` replaces whole on every update, so the Codex
   translator keeps tokens, limits and the last meter together and re-sends them (`usageUpdateLocked`). Extras
-  travel on the wire's `_devkit` key (`wireDevKit`). Every section is a shadcn `Collapsible` (`SectionShell`); what the person
-  folded is remembered across sessions in `localStorage` (`summary/summaryFold.ts`, shared by the docked card and the
-  corner popover). Gallery: `?gallery#agenthub-summary`.
+  travel on the wire's `_devkit` key (`wireDevKit`). Every section is a shadcn `Collapsible` (`SectionShell`) and **starts
+  folded**; what the person *opened* is remembered across sessions in `localStorage` (`summary/summaryFold.ts`, key
+  `devkit.agenthub.summary.opened`, shared by the docked card and the corner popover; the old `…closed` list is ignored).
+  A folded header carries one dimmed line (`hint`: Environment → model, Goal → objective, Pull requests → "1 open · 6 need
+  an account", Context → "19% used"); sections with a count or a +/− total keep that instead. A Changes row is a name
+  (stem truncates, extension stays: `splitFileName`), a folder that shrinks first and right-aligned counts; the name is
+  capped against the row's own width (`@container`, `100cqw`) because a weighted flex shrink gives up a fraction of a pixel
+  and draws a whole name with an ellipsis. Branches reads `main · 15 repos` / `2 branches · 15 repos`, the tooltip grouped
+  by branch. Pull-request refusals are **one notice per reason, not per folder** (`pullRequestsView` groups by status +
+  `sharedMessage`, the sentence with its parenthesised repository removed): the shared sentence, an `Add token` action
+  (Accounts), and the folders behind a disclosure; cards come first. Go already stops polling for a folder that needs a
+  person (`nextPoll` → -1 for no account) and asks once for all folders, so nothing changed there.
+  Gallery: `?gallery#agenthub-summary` (Open all / Fold all; the opencode card is the 15-folder case).
+- **Peer messages and `agenthub.sendMessage` results share one look** (`transcript/peerParts.tsx`: `PeerAvatar`, `PeerParty`,
+  `StatusChip`; `PeerMessage.tsx`, `toolViews/message.tsx`). Both are a `FramedCard` (raised frame, inset body); the party is the
+  vendor avatar + live session title (`From …` / `Message to …`, opens the session); the delivery is a chip (started/steered
+  green dot, queued amber, refused red — a word always accompanies the colour). A received text is clamped to 3 lines with
+  an `aria-expanded`/`aria-controls` Show more shown only when the text really overflows (measured; length decides before
+  the first measure). The sent card wraps a long reason instead of truncating it. Gallery: `?gallery#agenthub-peer-messages`.
 - **A session's pull request is tracked, not guessed** (`internal/forge`, `internal/prwatch`, bridge
   `PullRequestState|Attach|Detach`, frontend `summary/usePullRequests.ts`, `pullRequestModel.ts`,
   `PullRequestCards.tsx`; section "Pull requests" beside Changes). `forge` is a leaf: a platform-neutral `Provider`
