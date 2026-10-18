@@ -14,6 +14,7 @@ import {
   onAgentHubNotificationAction,
   onAgentHubSessionRewound,
   onAgentHubTurnFinished,
+  onAgentHubTurnStarted,
   type AgentSession,
   type AgentTurnFinishedEvent,
   type SessionUpdateEvent,
@@ -193,6 +194,20 @@ export function handleAgentTurnFinished(
 }
 
 /**
+ * A turn began. One this window sent already set the row running; one an
+ * agent's message or the terminal started would otherwise show as idle in the
+ * rail until it ended.
+ */
+export function handleAgentTurnStarted(sessionId: string): void {
+  const state = useAgentSessionsStore.getState();
+  const session = state.sessionsById[sessionId];
+  if (!session || state.turnInFlightBySession[sessionId]) return;
+  if (session.status === "running" || session.status === "awaiting_permission") return;
+  state.upsertSession({ ...session, status: "running" });
+  setAgentHubTabsStatus(sessionId, "running");
+}
+
+/**
  * A session another caller created (an agent's child) is not in the list this
  * window loaded at start. Read its row and add it, unless it is already there —
  * the rail then draws it under its parent, and a tab that was waiting on it
@@ -348,6 +363,8 @@ export function AgentSessionsSubscriber() {
       handleSessionUpdateTabs(event);
     });
   }, [trackSubagent]);
+
+  useEffect(() => onAgentHubTurnStarted(handleAgentTurnStarted), []);
 
   useEffect(() => onAgentHubSessionCreated((sessionId) => void adoptCreatedSession(sessionId)), []);
 

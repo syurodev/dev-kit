@@ -6,6 +6,7 @@ import {
   adoptCreatedSession,
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
+  handleAgentTurnStarted,
   handleSessionUpdateTabs,
   isPeerMessage,
   promptQueueChanges,
@@ -321,5 +322,35 @@ describe("a session another caller created", () => {
       throw new Error("gone");
     });
     expect(useAgentSessionsStore.getState().sessionsById["child-1"]).toBeUndefined();
+  });
+});
+
+describe("a turn another caller started", () => {
+  const row = () => useAgentSessionsStore.getState().sessionsById.s1;
+
+  beforeEach(() => {
+    useAgentSessionsStore.setState({
+      sessionsById: { s1: { id: "s1", agentType: "opencode", status: "idle" } as never },
+      turnInFlightBySession: {},
+    });
+  });
+
+  it("shows the session as running in the rail", () => {
+    handleAgentTurnStarted("s1");
+    expect(row().status).toBe("running");
+  });
+
+  it("leaves a turn this window sent to the call that sent it", () => {
+    useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
+    handleAgentTurnStarted("s1");
+    expect(row().status).toBe("idle");
+  });
+
+  it("does not turn a waiting session back into a running one, nor invent a session", () => {
+    useAgentSessionsStore.getState().upsertSession({ ...row(), status: "awaiting_permission" });
+    handleAgentTurnStarted("s1");
+    expect(row().status).toBe("awaiting_permission");
+    handleAgentTurnStarted("nobody");
+    expect(useAgentSessionsStore.getState().sessionsById.nobody).toBeUndefined();
   });
 });

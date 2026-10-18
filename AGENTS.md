@@ -798,6 +798,11 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   startup for older rows from their first user message, keeping the row's time so the rail does not reorder. The window takes the
   title from the row when a turn it did not send ends. A vendor title that arrives after the fallback does not replace it.
 
+- **The rail learns when a turn starts, not only when it ends** (`Service.OnTurnStarted` → `agenthub:turnStarted`, frontend
+  `handleAgentTurnStarted`). A turn an agent's `sendMessage` or the terminal started set the row `running` in Go, but the window
+  heard nothing until `agenthub:turnFinished`, so a working child showed as idle (no running arc) in the rail. Turns this window
+  sent are left to the call that sent them (`turnInFlightBySession`), and a session waiting for permission is not set back to running.
+
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
 and server mode's bridge has no authentication, so a session could approve itself.

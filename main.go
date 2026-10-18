@@ -668,6 +668,9 @@ func main() {
 		// says which session to ask for.
 		emitAppEvent("agenthub:sessionCreated", map[string]any{"sessionId": sess.ID})
 	}
+	agentSvc.OnTurnStarted = func(sessionID string) {
+		emitAppEvent("agenthub:turnStarted", map[string]any{"sessionId": sessionID, "status": "running"})
+	}
 	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {
 		emitAppEvent("agenthub:turnFinished", map[string]any{
 			"sessionId": sessionID,
