@@ -1,3 +1,4 @@
+import { BrandIcon } from "@/components/brand-icon/BrandIcon";
 import { notify } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FeedbackBanner, PendingStatus } from "@/components/ui/feedback";
@@ -93,11 +94,16 @@ export function KafkaSidebar() {
         id: `cluster:${p.id}`,
         label: p.name,
         title: p.bootstrapServers.join(", "),
+        // Kafka's mark, and the connection is its colour (it was a dot): the
+        // state is still said, by the label and by the colour.
         icon: (
           <span
-            className={cn("size-1.5 shrink-0 rounded-full", isConnected ? "bg-status-success" : "bg-text-tertiary")}
+            className={cn("inline-flex", isConnected ? "text-status-success" : "text-text-tertiary")}
+            role="img"
             aria-label={isConnected ? "connected" : "not connected"}
-          />
+          >
+            <BrandIcon brand="kafka" />
+          </span>
         ),
         trailing: p.env ? (
           <TreeRowTag danger={prod}>{env}</TreeRowTag>

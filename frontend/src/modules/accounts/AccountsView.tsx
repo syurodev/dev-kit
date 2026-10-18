@@ -1,3 +1,4 @@
+import { BrandIcon, isBrand } from "@/components/brand-icon/BrandIcon";
 import { useCallback, useEffect, useState } from "react";
 import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Plus, RefreshCw, RotateCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,12 @@ function AccountRow({
 
   return (
     <li className="flex items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0">
-      <KeyRound className="size-4 shrink-0 text-text-tertiary" aria-hidden />
+      {/* Which host the credential is for, when DevKit has its mark; the key for the rest. */}
+      {isBrand(account.provider) ? (
+        <BrandIcon brand={account.provider} className="text-text-tertiary" />
+      ) : (
+        <KeyRound className="size-4 shrink-0 text-text-tertiary" aria-hidden />
+      )}
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-13-medium text-text-primary">
           {account.label}

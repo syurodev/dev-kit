@@ -1,5 +1,5 @@
 import { SidebarInset } from "@/components/ui/sidebar-shell";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ComponentType } from "react";
 import {
   Bot,
   Boxes,
@@ -14,13 +14,12 @@ import {
   Globe,
   MessageSquare,
   Network,
-  Puzzle,
   Send,
   SquarePlus,
   Workflow,
-  type LucideIcon,
 } from "lucide-react";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
+import { BrandIcon } from "@/components/brand-icon/BrandIcon";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -44,17 +43,23 @@ export const VERB_CHIP = "inline-flex h-5.25 shrink-0 items-center justify-cente
 /** The filter strip's chips: ALL, and one per verb present. */
 const FILTER_CHIP = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 text-code-11";
 
+/** Anything a tree row can take as an icon: a lucide icon, or a brand's mark. */
+type EntryIcon = ComponentType<{ className?: string }>;
+
+/** The `plugin` kind is Kong's request cycle (its heading says "Kong plugins"), so it wears Kong. */
+export const KongMark: EntryIcon = ({ className }) => <BrandIcon brand="kong" className={className} />;
+
 /** What each kind's heading and its owners' rows are marked with. */
-const KIND_ICON: Record<string, LucideIcon> = {
+const KIND_ICON: Record<string, EntryIcon> = {
   http: Globe,
   graphql: Braces,
   rpc: Network,
   message: MessageSquare,
   socket: Cable,
   schedule: Clock,
-  plugin: Puzzle,
+  plugin: KongMark,
 };
-const kindIcon = (kind: string) => KIND_ICON[kind] ?? Workflow;
+export const kindIcon = (kind: string): EntryIcon => KIND_ICON[kind] ?? Workflow;
 
 /** One folder's entry points and how well they can be trusted. */
 export type FolderEntries = {
@@ -175,7 +180,7 @@ export function EntryPointsTab({
         </ContextMenu>
       ),
     });
-    const group = (key: string, label: string, title: string | undefined, Icon: LucideIcon, count: number, sticky: number, children: TreeNodeData[]): TreeNodeData => ({
+    const group = (key: string, label: string, title: string | undefined, Icon: EntryIcon, count: number, sticky: number, children: TreeNodeData[]): TreeNodeData => ({
       id: key,
       label,
       title,
@@ -189,7 +194,7 @@ export function EntryPointsTab({
     });
     const build = (f: (typeof shown)[number], base: number): TreeNodeData[] => {
       const ownerNode = (o: OwnerGroup, kind: string, sticky: number) =>
-        group(`${f.folderId}:${o.key}`, o.label, o.owner, kind === "plugin" ? Puzzle : CodeXml, o.entries.length, sticky, o.entries.map((ep) => entryNode(f.folderId, ep, o.owner)));
+        group(`${f.folderId}:${o.key}`, o.label, o.owner, kind === "plugin" ? KongMark : CodeXml, o.entries.length, sticky, o.entries.map((ep) => entryNode(f.folderId, ep, o.owner)));
       const serviceNodes = (k: KindGroup, sticky: number): TreeNodeData[] =>
         k.services.length === 1
           ? k.services[0].owners.map((o) => ownerNode(o, k.kind, sticky))
