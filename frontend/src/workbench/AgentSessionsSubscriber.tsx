@@ -9,10 +9,12 @@ import {
   onAgentHubElicitation,
   onAgentHubElicitationClosed,
   onAgentHubPermission,
+  onAgentHubSessionCreated,
   onAgentHubSessionUpdate,
   onAgentHubNotificationAction,
   onAgentHubSessionRewound,
   onAgentHubTurnFinished,
+  type AgentSession,
   type AgentTurnFinishedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
@@ -187,6 +189,28 @@ export function handleAgentTurnFinished(
 }
 
 /**
+ * A session another caller created (an agent's child) is not in the list this
+ * window loaded at start. Read its row and add it, unless it is already there —
+ * the rail then draws it under its parent, and a tab that was waiting on it
+ * stops saying "Session not available".
+ */
+export async function adoptCreatedSession(
+  sessionId: string,
+  getStatus: (id: string) => Promise<AgentSession> = agentHubGetStatus,
+): Promise<void> {
+  if (useAgentSessionsStore.getState().sessionsById[sessionId]) return;
+  try {
+    const session = await getStatus(sessionId);
+    // A turn event may have added it while the read was in flight.
+    if (session && !useAgentSessionsStore.getState().sessionsById[sessionId]) {
+      useAgentSessionsStore.getState().upsertSession(session);
+    }
+  } catch {
+    // Deleted again, or the hub is unavailable: the list loads it next time.
+  }
+}
+
+/**
  * Keeps the shared Agent Hub session store in sync regardless of which
  * module is mounted. Rendered once in Workbench.tsx, as a sibling of the
  * sidebar and content card — never remounted on module switch, unlike
@@ -320,6 +344,8 @@ export function AgentSessionsSubscriber() {
       handleSessionUpdateTabs(event);
     });
   }, [trackSubagent]);
+
+  useEffect(() => onAgentHubSessionCreated((sessionId) => void adoptCreatedSession(sessionId)), []);
 
   useEffect(
     () =>

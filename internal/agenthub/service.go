@@ -343,6 +343,11 @@ type Service struct {
 	Documents *DocumentLibrary
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
+	// OnSessionCreated fires after a session was created by someone other than
+	// the window itself — an agent (agenthub.createAgentSession) or the terminal.
+	// The window loads its list once, so without this a child an agent starts
+	// never shows in the rail, and its tab says "Session not available".
+	OnSessionCreated func(AgentSession)
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
 	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
@@ -713,6 +718,10 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
 
+	// The window upserts the session it created itself from the call's answer.
+	if s.OnSessionCreated != nil && !invokeUnbounded(ctx) {
+		s.OnSessionCreated(sess)
+	}
 	return sess, nil
 }
 

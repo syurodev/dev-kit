@@ -659,6 +659,11 @@ func main() {
 			},
 		})
 	}
+	agentSvc.OnSessionCreated = func(sess agenthub.AgentSession) {
+		// The window reads the row itself (AgentHubGetStatus): the event only
+		// says which session to ask for.
+		emitAppEvent("agenthub:sessionCreated", map[string]any{"sessionId": sess.ID})
+	}
 	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {
 		emitAppEvent("agenthub:turnFinished", map[string]any{
 			"sessionId": sessionID,

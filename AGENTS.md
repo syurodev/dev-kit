@@ -783,6 +783,11 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   each, `beforeSeq` pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
   (`TestNewContainerGrantsTheChildControlTools`); only `readSession` is pre-approved. The UI's Resume on the "interrupted" notice
   now dismisses the notice and toasts, because it used to succeed silently (the row's `updated_at` moved, nothing on screen did).
+- **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
+  `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
+  by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"
+  until the app restarted. The event carries only the id; the window reads the row (`AgentHubGetStatus`) and upserts it.
+  Sessions the window creates itself (UI / remote human callers) do not fire it.
 
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
