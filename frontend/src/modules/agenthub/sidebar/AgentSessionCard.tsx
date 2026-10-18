@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronRight, Ellipsis, GitBranch, MessageSquareShare } from "lucide-react";
+import { ChevronRight, Ellipsis, GitBranch, MessageSquareShare, X } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,13 @@ export type AgentSessionCardProps = {
    * person, so it neither joins Needs you nor takes the waiting dot.
    */
   peerUnread?: number;
+  /**
+   * The person dismissed this session's failure (dismissed.ts): the row keeps
+   * its place in its group but draws the quiet idle look.
+   */
+  dismissed?: boolean;
+  /** Its failure can be dismissed now: failed, not dismissed, nothing waiting in it. */
+  dismissable?: boolean;
   /** The minute clock, so a card's age is the only thing a tick changes. */
   now: number;
   /**
@@ -133,6 +140,8 @@ function AgentSessionCardView({
   subagents,
   parentTitle,
   peerUnread,
+  dismissed = false,
+  dismissable = false,
   now,
   inTree = false,
   nested = false,
@@ -150,13 +159,23 @@ function AgentSessionCardView({
   const waiting = kind !== null;
   const age = shortAge(session.updatedAt, now);
   const hint = hintKind ? ({ kind: hintKind, count: hintCount } as BranchHint) : null;
-  const summary = cardSummary({ vendorName: vendor.name, session, attention, subagents, pinned, age, parentTitle, peerUnread });
+  const summary = cardSummary({
+    vendorName: vendor.name,
+    session,
+    attention,
+    subagents,
+    pinned,
+    age,
+    parentTitle,
+    peerUnread,
+    dismissed,
+  });
   if (childCount > 0) summary.push(childCountLabel(childCount));
   if (hint) summary.push(branchHintLabel(hint));
-  const line = secondLine({ session, ask });
+  const line = secondLine({ session, ask, dismissed });
   const avatarState: AvatarState = waiting
     ? "waiting"
-    : session.status === "error"
+    : session.status === "error" && !dismissed
       ? "error"
       : session.status === "running"
         ? "running"
@@ -176,6 +195,7 @@ function AgentSessionCardView({
       data-status={session.status || "idle"}
       data-selected={selected || undefined}
       data-waiting={waiting || undefined}
+      data-dismissed={dismissed || undefined}
       className={cn(
         "group/card relative flex h-12.5 items-center gap-2.75 rounded-lg px-2 transition-colors duration-(--motion-fast)",
         selected ? "bg-surface-raised" : "hover:bg-state-soft focus-within:bg-state-soft",
@@ -315,14 +335,30 @@ function AgentSessionCardView({
       </span>
 
       {/* Appears on hover and on keyboard focus anywhere in the card, and stays
-          while its menu is open. It sits where the age was. */}
+          while its menu is open. It sits where the age was. A failed session
+          also has Dismiss beside the menu: the one thing a row in Needs you
+          that cannot be answered needs, one press away and a Tab stop. */}
       <div
         className={cn(
-          "absolute top-1.5 right-1.5 z-20 opacity-0 transition-opacity duration-(--motion-fast)",
+          "absolute top-1.5 right-1.5 z-20 flex items-center gap-0.5 opacity-0 transition-opacity duration-(--motion-fast)",
           "group-hover/card:opacity-100 group-focus-within/card:opacity-100",
           menuOpen && "opacity-100",
         )}
       >
+        {dismissable && actions.dismissFailure ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            data-testid="agent-card-dismiss"
+            aria-label="Dismiss from Needs you"
+            title="Dismiss from Needs you"
+            onClick={() => actions.dismissFailure?.(session)}
+            className="bg-surface-raised text-text-secondary"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        ) : null}
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
@@ -342,7 +378,7 @@ function AgentSessionCardView({
             className="w-56"
             onCloseAutoFocus={() => actions.release((apply) => apply())}
           >
-            <SessionMenuItems kit={DROPDOWN_KIT} session={session} pinned={pinned} subagents={subagents} />
+            <SessionMenuItems kit={DROPDOWN_KIT} session={session} pinned={pinned} subagents={subagents} dismissable={dismissable} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -355,7 +391,7 @@ function AgentSessionCardView({
       <ContextMenuContent className="w-56" onCloseAutoFocus={() => actions.release((apply) => apply())}>
         <ContextMenuLabel className="truncate">{title}</ContextMenuLabel>
         <ContextMenuSeparator />
-        <SessionMenuItems kit={CONTEXT_KIT} session={session} pinned={pinned} subagents={subagents} />
+        <SessionMenuItems kit={CONTEXT_KIT} session={session} pinned={pinned} subagents={subagents} dismissable={dismissable} />
       </ContextMenuContent>
     </ContextMenu>
   );

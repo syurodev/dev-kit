@@ -232,6 +232,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     blanks the preview. Subagents are in the row menu.
   - "Needs you" lists waiting/failed sessions across workspaces (`needsYou`, through `groupSessions`'
     keep filter, so a child stays with its parent's group).
+  - **A failed session can be dismissed from Needs you** (`sidebar/dismissed.ts`, `dismissFailure.ts`; X button on the row,
+    "Dismiss from Needs you" in the row menu before Close session, "Dismiss" in the open session's failure banner). Only
+    the failure: the session is not closed, goes back to its group with the quiet idle look (no red dot, no danger line;
+    the tooltip says "Stopped with an error, dismissed"), stops marking its parent (`branchSignals`), and its tab dot and
+    "ready to review" mark settle. `agentPins.dismissedFailures` is `sessionId → the row's updatedAt` then; a failure is
+    dismissed while the row is not newer, and `watchDismissedFailures` (AgentSessionsSubscriber) forgets an entry once the
+    session leaves `error` or is gone (never before the list has loaded), so the next failure is news. A pending permission
+    or question is never dismissable (`failureDismissable`). Not seen in the native app, only in the gallery
+    (`?gallery#agenthub-session-rail`, "rail-dismissed").
   - The title-bar workspace comes first and open; other groups fold to one line with a running count
     (`agentPins.expanded`), except one holding the selected session.
   - A turn this window did not send refreshes only `preview` + `updatedAt`

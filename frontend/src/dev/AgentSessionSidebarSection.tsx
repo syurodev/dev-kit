@@ -115,7 +115,7 @@ const peerUnread: Record<string, number> = { fam2: 2, lone2: 1 };
 const workspaces = [{ id: "ws-billing", name: "billing-platform", paths: [API, WEB] }];
 
 /** `collapsed` / `older` start as given, so a capture can open on any of them. */
-function Rail({ width, extraAttention, initialCollapsed = [] as string[], initialOlder = [] as string[], initialFolded = [] as string[], initialActive = "b2" }: {
+function Rail({ width, extraAttention, initialCollapsed = [] as string[], initialOlder = [] as string[], initialFolded = [] as string[], initialActive = "b2", initialDismissed = {} as Record<string, number> }: {
   width: number;
   /** Merged over the fixture's own: lets a capture make one more session start waiting. */
   extraAttention?: Record<string, Attention>;
@@ -124,6 +124,8 @@ function Rail({ width, extraAttention, initialCollapsed = [] as string[], initia
   /** Sessions whose children start folded. */
   initialFolded?: string[];
   initialActive?: string;
+  /** Failures already dismissed (id → the row's updatedAt then). */
+  initialDismissed?: Record<string, number>;
 }) {
   const [active, setActive] = useState(initialActive);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
@@ -131,6 +133,7 @@ function Rail({ width, extraAttention, initialCollapsed = [] as string[], initia
   const [folded, setFolded] = useState(initialFolded);
   const [pinned, setPinned] = useState<string[]>(["b11"]);
   const [hideClosed, setHideClosed] = useState(false);
+  const [dismissed, setDismissed] = useState(initialDismissed);
   const toggle = (list: string[], set: (v: string[]) => void) => (key: string) =>
     set(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
   const items = useMemo(() => sessions, []);
@@ -148,6 +151,8 @@ function Rail({ width, extraAttention, initialCollapsed = [] as string[], initia
         foldedBranchIds={folded}
         onToggleBranch={toggle(folded, setFolded)}
         pinnedIds={pinned}
+        dismissed={dismissed}
+        onDismissFailure={(session) => setDismissed((d) => ({ ...d, [session.id]: session.updatedAt ?? 0 }))}
         onTogglePin={(id) => toggle(pinned, setPinned)(id)}
         collapsedKeys={collapsed}
         onToggleCollapsed={toggle(collapsed, setCollapsed)}
@@ -190,6 +195,8 @@ export function AgentSessionSidebarSection() {
         <div data-testid="rail-narrow"><Rail width={240} initialActive="fam3b" /></div>
         <div data-testid="rail-wide"><Rail width={360} initialOlder={["workspace:ws-billing"]} initialFolded={["fam3"]} /></div>
         <div data-testid="rail-branches-folded"><Rail width={280} initialFolded={["fam", "lone"]} initialActive="run" /></div>
+        {/* The failed session ("err") dismissed: back in its group with the quiet look, nothing in Needs you for it. */}
+        <div data-testid="rail-dismissed"><Rail width={280} initialDismissed={{ err: sessions.find((x) => x.id === "err")?.updatedAt ?? 0 }} /></div>
         <div data-testid="rail-folded"><Rail width={280} initialCollapsed={["workspace:ws-billing", "project:/work/solo"]} initialActive="d1" /></div>
       </div>
     </section>

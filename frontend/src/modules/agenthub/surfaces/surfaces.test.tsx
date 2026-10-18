@@ -390,6 +390,19 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Resume session");
     });
 
+    it("offers Dismiss beside the way out, only when it is wired", () => {
+      const withDismiss = renderToString(
+        <AgentSessionError cause="crashed" agentName="docs-sweep" onRetry={() => {}} onDismiss={() => {}} />,
+      );
+      expect(withDismiss).toContain('data-testid="session-error-dismiss"');
+      expect(withDismiss).toContain(">Dismiss<");
+      // Dismiss first, the primary action last: the way out stays the eye's end point.
+      expect(withDismiss.indexOf("session-error-dismiss")).toBeLessThan(withDismiss.indexOf("session-error-retry"));
+      expect(withDismiss).toContain("Resume session");
+      const without = renderToString(<AgentSessionError cause="crashed" agentName="docs-sweep" onRetry={() => {}} />);
+      expect(without).not.toContain("session-error-dismiss");
+    });
+
     it("changes only the copy and the primary label between causes", () => {
       // The two variants share one surface, one structure and one set of
       // tones; branching them apart would have been two components.

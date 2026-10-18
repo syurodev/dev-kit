@@ -60,6 +60,8 @@ import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleFolder } from "../../stores/workFolder";
 import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
 import { useSidebarWorkspaces } from "./sidebarWorkspaces";
+import { dismissSessionFailure } from "./sidebar/dismissFailure";
+import { attentionBySession, failureDismissable } from "./sidebar/model";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -1022,6 +1024,17 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     () => pendingForSession(pendingQueue, activeSession?.id),
     [pendingQueue, activeSession?.id],
   );
+  // "Dismiss" on a failed session's banner: only while its failure is still in
+  // the rail's Needs you, and never while a permission or a question waits.
+  const dismissedFailures = useAgentPinsStore((state) => state.dismissedFailures);
+  const canDismissError = Boolean(
+    activeSession &&
+      failureDismissable(
+        activeSession,
+        attentionBySession(pendingQueue, elicitationQueue)[activeSession.id],
+        dismissedFailures,
+      ),
+  );
   const { busy: permissionBusy, resolve: resolvePermission } = useResolvePermission(activePending);
   const activeQuestion = useMemo(
     () => elicitationForSession(elicitationQueue, activeSession?.id),
@@ -1198,6 +1211,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error || sandboxHint}
             errorCause={errorCause}
+            onDismissError={canDismissError && activeSession ? () => dismissSessionFailure(activeSession) : undefined}
             // Reopen the same conversation; replaying a turn is a separate action.
             onRetrySession={() => void handleResumeSession()}
             onNewSession={newSession}

@@ -171,6 +171,8 @@ type AgentSessionsState = {
   markCompletedUnread: (sessionId: string) => void;
   /** Also clears the session's unread messages from other sessions: both mean "it was looked at". */
   markCompletedRead: (sessionId: string) => void;
+  /** Settles only the "turn ready to review" mark (a dismissed failure), leaving messages from other sessions unread. */
+  clearCompletedUnread: (sessionId: string) => void;
   notePeerMessage: (sessionId: string) => void;
   enqueuePrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
   removeQueuedPrompt: (sessionId: string, promptId: string) => void;
@@ -374,6 +376,12 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       const { [sessionId]: _read, ...unreadCompletedBySession } = state.unreadCompletedBySession;
       const { [sessionId]: _peerRead, ...peerUnreadBySession } = state.peerUnreadBySession;
       return { unreadCompletedBySession, peerUnreadBySession };
+    }),
+  clearCompletedUnread: (sessionId) =>
+    set((state) => {
+      if (!state.unreadCompletedBySession[sessionId]) return state;
+      const { [sessionId]: _read, ...unreadCompletedBySession } = state.unreadCompletedBySession;
+      return { unreadCompletedBySession };
     }),
   notePeerMessage: (sessionId) =>
     set((state) => ({

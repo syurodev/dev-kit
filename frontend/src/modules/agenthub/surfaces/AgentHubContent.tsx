@@ -101,6 +101,8 @@ export type AgentHubContentProps = {
   failure?: SessionFailure | null;
   onFailureAction?: (action: string) => void;
   onDismissFailure?: () => void;
+  /** Dismisses the session's failure from the rail's Needs you; absent when it cannot be (already dismissed, or something waits on the person). */
+  onDismissError?: () => void;
   /** What the session works towards, and the ask to change it; see AgentComposer. */
   goal?: SessionGoal | null;
   /** The MCP servers the vendor started, for a vendor that reports them. */
@@ -249,6 +251,7 @@ export function AgentHubContent({
   failure,
   onFailureAction,
   onDismissFailure,
+  onDismissError,
   goal,
   connectors = [],
   onSetGoal,
@@ -548,6 +551,7 @@ export function AgentHubContent({
                       cause={errorCause}
                       agentName={displayTitle || "Agent"}
                       reason={errorMessage}
+                      onDismiss={onDismissError}
                       onRetry={onRetrySession}
                       onOpenSettings={onOpenSettings}
                       // No Close here. The thing to do with a failed turn is retry

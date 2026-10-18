@@ -1,6 +1,6 @@
 import { SessionRemoteControlItem } from "./SessionRemoteControlItem";
 import * as React from "react";
-import { Ban, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2, Wrench } from "lucide-react";
+import { Ban, BellOff, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2, Wrench } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
@@ -24,6 +24,8 @@ export type SessionActions = {
   copy?: (text: string) => void;
   cancelTurn?: (session: AgentSession) => void;
   closeSession?: (session: AgentSession) => void;
+  /** Hides a failed session from Needs you without closing it; it returns by failing again. */
+  dismissFailure?: (session: AgentSession) => void;
   deleteSession?: (session: AgentSession, descendants: number) => void;
   /** Folds or opens the children drawn under a session. */
   toggleBranch?: (sessionId: string) => void;
@@ -83,10 +85,13 @@ export function SessionMenuItems({
   session,
   pinned,
   subagents,
+  dismissable = false,
 }: {
   kit: MenuKit;
   session: AgentSession;
   pinned: boolean;
+  /** The session failed and nothing waits on the person in it (failureDismissable). */
+  dismissable?: boolean;
   /** The agents it started inside itself: the row no longer draws them, so the menu opens them. */
   subagents: readonly Subagent[];
 }) {
@@ -142,7 +147,16 @@ export function SessionMenuItems({
         </>
       ) : null}
 
-      {a.cancelTurn || a.closeSession || a.deleteSession ? <Separator /> : null}
+      {a.cancelTurn || a.closeSession || a.deleteSession || (dismissable && a.dismissFailure) ? <Separator /> : null}
+      {/* Dismiss comes first: it is the gentlest of the three, and only changes
+          where the row is drawn. Not offered when there is nothing to dismiss
+          (a menu that moves between visits is read every time, but a row that
+          could never apply is not "disabled", it is noise). */}
+      {dismissable && a.dismissFailure ? (
+        <Item icon={<BellOff />} onSelect={() => a.dismissFailure?.(session)}>
+          Dismiss from Needs you
+        </Item>
+      ) : null}
       {/* Cancel stops the turn and leaves the agent running; close ends the process. */}
       {a.cancelTurn ? (
         <Item icon={<Ban />} disabled={session.status !== "running"} onSelect={() => a.cancelTurn?.(session)}>
