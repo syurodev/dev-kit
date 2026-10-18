@@ -272,3 +272,32 @@ func TestSeatbeltProfileListensOnlyOnTheLoopbackPortsAsked(t *testing.T) {
 		}
 	}
 }
+
+func TestSeatbeltAncestorsAreStatOnlyUnlessAskedToBeReadable(t *testing.T) {
+	work := "/Users/someone/Workspace/project"
+	private := true
+	plain := buildSeatbeltProfile(Policy{WorkDir: work, PrivateHome: &private})
+	for _, dir := range []string{"/Users", "/Users/someone", "/Users/someone/Workspace"} {
+		if !strings.Contains(plain, `(allow file-read-metadata (literal "`+dir+`"))`) {
+			t.Errorf("no stat of %s: resolving a path walks it\n%s", dir, plain)
+		}
+	}
+	if strings.Contains(plain, "file-read-data (literal") {
+		t.Fatalf("ancestors are listable without being asked:\n%s", plain)
+	}
+
+	readable := buildSeatbeltProfile(Policy{WorkDir: work, PrivateHome: &private, ReadAncestors: true})
+	for _, dir := range []string{"/Users", "/Users/someone", "/Users/someone/Workspace"} {
+		if !strings.Contains(readable, `(allow file-read-data (literal "`+dir+`"))`) {
+			t.Errorf("ReadAncestors did not make %s readable", dir)
+		}
+	}
+	// The directory itself is not an ancestor of itself: its grant is the subpath one.
+	if strings.Contains(readable, `(allow file-read-data (literal "`+work+`"))`) {
+		t.Error("the working directory is listed as its own ancestor")
+	}
+	// Nothing but the ancestors: no write, no broader read.
+	if strings.Contains(readable, `file-write* (literal "/Users"`) || strings.Contains(readable, `(allow file-read* (literal "/Users"`) {
+		t.Errorf("more than listing was granted:\n%s", readable)
+	}
+}

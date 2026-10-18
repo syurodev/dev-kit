@@ -63,6 +63,19 @@ type Policy struct {
 	// ReadPreferenceDomains grants read-only access to named macOS preference
 	// domains through cfprefsd. It never grants preference writes.
 	ReadPreferenceDomains []string
+	// ReadAncestors lets the process read (list) every directory above a path it
+	// is granted, not only stat it. Seatbelt: an agent that resolves its working
+	// directory by walking up through each parent (opencode does, when it opens a
+	// session) fails with `EPERM: lstat '/Users'` on a stat-only grant — measured:
+	// `file-read-data` on the ancestors is what it needs, `file-read-metadata` and
+	// `file-read-xattr` are not enough. What it costs is the names inside those
+	// directories (the other users of the machine, the project's sibling folders),
+	// never a file's contents, so only an agent that needs it asks. It does not
+	// reach what is directly inside an ancestor: stat-ing a directory there that
+	// the jail hides (a private home's real ~/.claude) needs read access to that
+	// directory as well, which would list every folder in the home. bwrap: a
+	// no-op, its parent directories are already listable.
+	ReadAncestors bool
 	// AllowKeychain lets the process read the macOS login keychain. Vendor
 	// agents that authenticate with a subscription keep their OAuth token
 	// there, not in a file or an env var. No-op off darwin.

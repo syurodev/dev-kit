@@ -114,9 +114,13 @@ func buildSeatbeltProfile(p Policy) string {
 	// Ancestor lookup. (subpath X) does not let a process stat X's parents, and
 	// resolving a path walks every one of them: node exits with
 	// `EPERM: lstat '/Users'` before it reads a single file it was granted.
-	// Metadata only — this permits stat, never open/read of the directories.
+	// Metadata only — this permits stat, never open/read of the directories —
+	// unless the policy says its process lists them too (ReadAncestors).
 	for _, dir := range pathAncestors(p.grantedPaths()) {
 		b.WriteString("(allow file-read-metadata (literal \"" + escapeSBPL(dir) + "\"))\n")
+		if p.ReadAncestors {
+			b.WriteString("(allow file-read-data (literal \"" + escapeSBPL(dir) + "\"))\n")
+		}
 	}
 
 	b.WriteString("(allow process-exec)\n")

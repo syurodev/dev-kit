@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -328,6 +329,37 @@ func (a *OpenCodeAdapter) resolveCommand() (launch, error) {
 	return l, nil
 }
 
+// openCodeNeedsSharedHome refuses, with the reason, a private-home session in a
+// project inside the user's home folder on macOS. opencode resolves every
+// directory above the project and what is directly inside each (~/.claude among
+// them); Seatbelt answers a stat of a directory the jail hides with EPERM, which
+// fails session/new, and the only way to let it through is to make those
+// directories readable — in a private home, every folder of it. Measured: with
+// the home shared, or a project outside it, it opens. Better said here than as
+// "Agent process failed".
+func openCodeNeedsSharedHome(workDir string, spec OpenSpec) error {
+	if runtime.GOOS != "darwin" || (spec.PrivateHome != nil && !*spec.PrivateHome) {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	resolve := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return filepath.Clean(p)
+	}
+	rel, err := filepath.Rel(resolve(home), resolve(workDir))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	return fmt.Errorf("%w: opencode cannot open a project inside your home folder while \"Share home folder\" is off — "+
+		"macOS only lets it look at the folders above the project when the home is shared. "+
+		"Turn it on in Settings → Agents → Safety, or open a project outside your home folder", ErrProcessFailed)
+}
+
 // jail is the one place an opencode policy is written, shared by sessions,
 // sign-in and Probe, so each runs under the jail a session gets.
 func (a *OpenCodeAdapter) jail(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbox.Cmd, error) {
@@ -350,12 +382,15 @@ func (a *OpenCodeAdapter) jail(workDir string, l launch, spec OpenSpec) (sandbox
 		// `opencode acp` serves its own private HTTP API on a loopback port and
 		// talks to it; the session's dev servers need the same.
 		AllowLoopbackListeners: true,
-		Env:                    openCodeEnv(l, spec, roots, openCodeConfig(promptFile)),
-		ReadOnlyPaths:          uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths:         uniqueAbsPaths(append([]string{roots.home}, spec.ExtraReadWritePaths...)...),
-		DenyReadPaths:          denyRead,
-		DenyWritePaths:         denyWrite,
-		AllowUnixSockets:       append([]string(nil), spec.AllowUnixSockets...),
+		// opencode resolves every directory above the project when it opens a
+		// session; a stat-only grant on them fails every session/new under /Users.
+		ReadAncestors:    true,
+		Env:              openCodeEnv(l, spec, roots, openCodeConfig(promptFile)),
+		ReadOnlyPaths:    uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
+		ReadWritePaths:   uniqueAbsPaths(append([]string{roots.home}, spec.ExtraReadWritePaths...)...),
+		DenyReadPaths:    denyRead,
+		DenyWritePaths:   denyWrite,
+		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
 		// gh/glab and other CLIs may keep their login in the macOS keychain.
 		// ShareHome opts into the user's CLI environment, just as for Codex.
 		AllowKeychain: spec.PrivateHome != nil && !*spec.PrivateHome,
@@ -442,6 +477,9 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 	}
 	if st, err := os.Stat(workDir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("%w: project path", ErrProcessFailed)
+	}
+	if err := openCodeNeedsSharedHome(workDir, spec); err != nil {
+		return nil, err
 	}
 	l, err := a.resolveCommand()
 	if err != nil {

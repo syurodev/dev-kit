@@ -3,11 +3,13 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -454,5 +456,43 @@ func TestOpenCodeInstallLive(t *testing.T) {
 	}
 	if methods, err := adapter.AuthMethods(ctx); err != nil || len(methods) == 0 {
 		t.Fatalf("auth methods of the installed runtime: %v, %v", methods, err)
+	}
+}
+
+// A real project lives under /Users (or /home), not in a temp directory, and
+// opencode resolves every directory above it when it opens a session. Where the
+// jail let it only stat those directories, session/new failed with
+// `EPERM: lstat '/Users'` for every project — which no test caught, because
+// every test used a temp directory under /var. Both home modes, since the
+// ancestors are granted differently.
+func TestOpenCodeLiveProjectUnderHome(t *testing.T) {
+	a, _, _ := openCodeForReal(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	for name, private := range map[string]bool{"shared home": false, "private home": true} {
+		t.Run(name, func(t *testing.T) {
+			project, err := os.MkdirTemp(home, ".dkoc-project-")
+			if err != nil {
+				t.Skipf("cannot make a project under %s: %v", home, err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(project) })
+			priv := private
+			if private && runtime.GOOS == "darwin" {
+				// Said up front instead (openCodeNeedsSharedHome): Seatbelt cannot let
+				// opencode walk through a hidden home without listing all of it.
+				_, err := a.Open(context.Background(), OpenSpec{Cwd: project, PrivateHome: &priv})
+				if !errors.Is(err, ErrProcessFailed) || !strings.Contains(err.Error(), "Share home folder") {
+					t.Fatalf("a private-home session inside the home: err = %v, want the explained refusal", err)
+				}
+				return
+			}
+			s := openLive(t, a, OpenSpec{Cwd: project, PrivateHome: &priv})
+			s.prompt(t, "SHELL: printf here > from-home.txt")
+			if !exists(filepath.Join(project, "from-home.txt")) {
+				t.Fatalf("%s: the session opened but the command did not run", name)
+			}
+		})
 	}
 }
