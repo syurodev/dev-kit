@@ -14,12 +14,16 @@ const INITIAL: ConfigOption[] = [
 
 /** A model list as long as opencode's, to see the search box: every provider with credentials adds its own. */
 const PROVIDERS = ["anthropic", "openai", "openrouter", "google", "mistral"];
-const MANY_MODELS = PROVIDERS.flatMap((provider) =>
+const LONG_NAMES = [
+  { value: "openrouter/nemotron-3-super-free", name: "openrouter/Nemotron 3 Super (free)" },
+  { value: "openrouter/nemotron-3.5-super-long-context", name: "openrouter/NVIDIA Nemotron 3.5 Super Long Context Instruct (free)" },
+];
+const MANY_MODELS = [...LONG_NAMES, ...PROVIDERS.flatMap((provider) =>
   ["fast", "mini", "pro", "ultra", "preview", "long-context", "code", "vision"].map((kind) => ({
     value: `${provider}/${kind}`,
     name: `${provider}/${kind[0]!.toUpperCase()}${kind.slice(1)}`,
   })),
-);
+)];
 
 /** In-memory fixtures only: no session, vendor or bridge calls. */
 export function AgentHubCalmPreview() {
