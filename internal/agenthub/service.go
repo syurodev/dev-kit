@@ -276,9 +276,12 @@ type Service struct {
 	store       Store
 	recorder    *Recorder
 	unknownSeen map[string]struct{}
-	runtimes    map[string]SessionRuntime
-	endpoints   map[string]func() // per-session MCP socket close
-	invoking    map[string]struct{}
+	// retrying holds the sessions whose agent has an unanswered provider-retry
+	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
+	retrying  map[string]struct{}
+	runtimes  map[string]SessionRuntime
+	endpoints map[string]func() // per-session MCP socket close
+	invoking  map[string]struct{}
 	// workspaceSent is the workspace context block each session's agent last
 	// received (see workspaceContextDue). Not persisted: a restart resumes the
 	// runtime, which forgets it, and the block goes out once more.
@@ -1598,6 +1601,10 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		release()
 		// Whatever waited for this turn to end can go now.
 		defer s.kickPeers(in.SessionID)
+		// Before the flush: an agent that gave up retrying does not always say
+		// the notice is over, and a banner left behind would claim a turn that
+		// has ended is still trying.
+		s.endProviderRetry(context.WithoutCancel(ctx), in.SessionID)
 		// The turn is over however it went: land the tail the recorder is
 		// still holding. WithoutCancel because the error paths reach here on
 		// a context that is already gone — the transcript of a failed turn is
@@ -1889,6 +1896,9 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 			s.OnUnknownUpdate(sessionID, parsed.WireKind, parsed.Raw)
 		}
 	}
+	if parsed.Kind == UpdateProviderRetry {
+		s.markProviderRetry(sessionID, parsed.Retry != nil)
+	}
 	// The live event above carries any page picture; the stored row does not.
 	stored, _ := slimPageImages(parsed)
 	if err := s.recorder.Record(ctx, sessionID, stored); err != nil && s.OnRecordError != nil {
@@ -2016,6 +2026,36 @@ func (s *Service) adoptSessionTitle(ctx context.Context, sessionID, title string
 	// line below this call, carrying the title in its parsed form. A second
 	// channel for one string would be a second thing to keep in sync.
 	return s.store.AdoptSessionTitle(ctx, sessionID, title, time.Now().UTC())
+}
+
+// markProviderRetry records whether the session's retry notice is showing.
+func (s *Service) markProviderRetry(sessionID string, showing bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !showing {
+		delete(s.retrying, sessionID)
+		return
+	}
+	if s.retrying == nil {
+		s.retrying = make(map[string]struct{})
+	}
+	s.retrying[sessionID] = struct{}{}
+}
+
+// endProviderRetry clears a retry notice still showing when the turn ends,
+// for the window and for the stored row alike: a turn that is over is not
+// waiting to try again.
+func (s *Service) endProviderRetry(ctx context.Context, sessionID string) {
+	s.mu.Lock()
+	_, showing := s.retrying[sessionID]
+	s.mu.Unlock()
+	if !showing {
+		return
+	}
+	s.handleUpdate(ctx, sessionID, marshalUpdate(map[string]any{
+		"sessionUpdate": string(UpdateSessionInfo),
+		"_meta":         map[string]any{"opencode/retry": nil},
+	}))
 }
 
 // markUnknownSeen reports whether this is the first time the session has seen

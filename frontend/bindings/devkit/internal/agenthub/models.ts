@@ -990,6 +990,17 @@ export enum UpdateKind {
     UpdateConnectors = "devkit_connectors_update",
 
     /**
+     * UpdateProviderRetry is DevKit's own name for a session_info_update that
+     * carries only opencode's retry notice (`_meta["opencode/retry"]`): the model
+     * provider failed and the agent is waiting to try again. It is the current
+     * state of one thing — set on each attempt, null when that attempt starts —
+     * so it is session state, one row replaced in place, not a thing said:
+     * kept as session_info_update it stored 128 near-identical rows in one
+     * outage. A Retry of nil means the notice was cleared.
+     */
+    UpdateProviderRetry = "provider_retry_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.

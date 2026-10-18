@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { providerRetryDetail } from "../providerRetry";
 import type { SessionFailure } from "../types";
 
 /** What the vendor's action hints do, in the user's words. */
@@ -39,7 +41,12 @@ export function AgentSessionFailure({
 }) {
   const warning = failure.severity === "warning";
   const actions = (failure.actions ?? []).filter((action) => action in ACTION_LABEL);
-  const detail = failure.details || failure.reason || failure.category;
+  // A retry notice counts down to the next attempt, so it ticks; and it has no
+  // Dismiss, because the next attempt or the turn ending replaces it.
+  const retrying = Boolean(failure.retryAt);
+  const now = useNow(retrying);
+  const detail = retrying ? providerRetryDetail(failure, now) : failure.details || failure.reason || failure.category;
+  const dismiss = retrying ? undefined : onDismiss;
 
   return (
     <div
@@ -71,13 +78,13 @@ export function AgentSessionFailure({
           <span className="min-w-30 flex-1" />
         )}
         <div className="flex shrink-0 items-center gap-2">
-          {onDismiss ? (
+          {dismiss ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               data-testid="session-failure-dismiss"
-              onClick={onDismiss}
+              onClick={dismiss}
               className="h-8 text-text-secondary"
             >
               Dismiss
@@ -102,4 +109,16 @@ export function AgentSessionFailure({
       </div>
     </div>
   );
+}
+
+/** The clock, once a second while `active`; a fixed value otherwise. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
 }

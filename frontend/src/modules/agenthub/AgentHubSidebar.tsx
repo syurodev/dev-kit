@@ -26,7 +26,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import { AgentSessionSidebar } from "./sidebar/AgentSessionSidebar";
-import { askBySession, attentionBySession } from "./sidebar/model";
+import { askBySession, attentionBySession, retryLines } from "./sidebar/model";
 import { AgentEnvironmentDialog } from "./environment/AgentEnvironment";
 import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { showSubagent } from "./sidebar/openSubagent";
@@ -124,7 +124,13 @@ export function AgentHubSidebar() {
   // so a card can say which.
   const attention = useMemo(() => attentionBySession(pendingQueue, elicitationQueue), [pendingQueue, elicitationQueue]);
   // And what it asks, in its own words: the row's second line while it waits.
-  const asks = useMemo(() => askBySession(pendingQueue, elicitationQueue), [pendingQueue, elicitationQueue]);
+  const providerRetries = useAgentSessionsStore((state) => state.providerRetries);
+  const asks = useMemo(
+    // A session waiting on the person says so before it says its provider is
+    // down: the ask is the one thing only they can fix.
+    () => ({ ...retryLines(providerRetries), ...askBySession(pendingQueue, elicitationQueue) }),
+    [pendingQueue, elicitationQueue, providerRetries],
+  );
 
   async function cancelTurn(session: AgentSession) {
     try {

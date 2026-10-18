@@ -1,6 +1,7 @@
 import type { AgentSession } from "@/bridge/agenthub";
 import type { PendingElicitation, PendingPermission } from "@/bridge/agenthub";
-import type { Subagent } from "../types";
+import { providerRetryLine } from "../providerRetry";
+import type { ProviderRetry, Subagent } from "../types";
 import { projectLabel, sessionGroup, type SidebarWorkspace } from "./grouping";
 
 /**
@@ -223,6 +224,13 @@ export function askBySession(
     const p = permissions[i];
     if (p.title) out[p.sessionId] = plainAsk(p.title);
   }
+  return out;
+}
+
+/** Each retrying session's row line (providerRetryLine), for the row to show beside its asks. */
+export function retryLines(retries: Record<string, ProviderRetry>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [sessionId, retry] of Object.entries(retries)) out[sessionId] = providerRetryLine(retry);
   return out;
 }
 

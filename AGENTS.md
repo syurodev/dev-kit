@@ -713,6 +713,23 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - Catalog: `ConfigCatalog` reads `model`/`effort` from a scratch session and **deletes it** (opencode persists a session when it is
     created); the efforts of the current model only, since every model switch reloads the agent. The scratch directory is not
     resolved through symlinks (`/private/var/…` makes opencode resolve `/private`, which the jail does not show it).
+  - **A provider outage explains itself** (`provider_retry_update`, `ProviderRetry`, `providerRetry.ts`). While its model
+    provider fails, opencode retries and says so in `session_info_update` `_meta["opencode/retry"]` = `{attempt, nextRetryAt
+    (RFC 3339), error:{type, message, status, response}}`, replaced on each attempt (~10 s apart) and `null` when that
+    attempt starts (measured in the person's database: 128 such rows in one outage, each carrying the provider's whole
+    response). A retry-only update parses as its own kind (`UpdateProviderRetry`, `Raw` dropped) and is session state: the
+    recorder keeps **one row**, replaced in place (`sessionStateKinds`). `Service.endProviderRetry` clears a notice still
+    showing when the turn ends (the agent does not always send the null before giving up). The window draws it as the
+    session failure banner (`providerRetryFailure`: warning, counts down to `nextRetryAt`, no Dismiss) and as the rail row's
+    second line (`providerRetries` in the store, fed by `AgentSessionsSubscriber`; an ask wins). The vendor does not say how
+    many attempts it will make, so the UI never says "of N". A new prompt does not clear it (its row sits above that prompt on
+    a reload); a notice whose time passed 30 s ago is ignored (app quit mid-outage).
+  - **A JSON-RPC error from a live process is a turn failure, not a crash** (`claudeRuntime.Prompt`, shared with Claude).
+    `refusedByLiveAgent`: the call returned an `*acp.RPCError` and the serve loop has not ended → `ErrTurnFailed` carrying the
+    agent's sentence (`rpcSentence`: the message, or `data.details|message|error` when the message is the generic "Internal
+    error", else the provider's own words from the last retry notice), the session stays idle with a "retry" banner
+    (`agent-turn-failed`). A transport error, a closed pipe or an ended serve loop is still `ErrProcessFailed`; auth is still
+    `ErrAgentAuthRequired`. Before this every non-auth error became "The agent stopped unexpectedly".
   - Not verified: a real model, `auth_required` as opencode really answers it, a subagent that calls tools (child-session
     updates are declared via `_meta["opencode/child-session-updates"]`, untested), `/compact` with a model that obeys its template,
     bwrap on Linux, Windows, and V1 (ACP is there too; only V2 was run).

@@ -44,6 +44,7 @@ export function createInitialTranscriptModel(): TranscriptModel {
     items: [],
     usage: null,
     failure: null,
+    retry: null,
     goal: null,
     connectors: [],
     commands: [],
@@ -223,6 +224,7 @@ export function applySessionUpdates(
   let toolCallIndexCopied = false;
   let usage = model.usage;
   let failure = model.failure;
+  let retry = model.retry;
   let goal = model.goal;
   let connectors = model.connectors;
   let commands = model.commands;
@@ -270,6 +272,15 @@ export function applySessionUpdates(
         connectors = [...update.connectors];
         changed = true;
       }
+      continue;
+    }
+
+    // The provider outage the agent is waiting out: one current notice,
+    // replaced on every attempt and cleared by a null (or Go, when the turn
+    // ends). Not cleared by a new prompt — see TranscriptModel.retry.
+    if (kind === UpdateKind.UpdateProviderRetry || kind === "provider_retry_update") {
+      retry = update.retry ?? null;
+      changed = true;
       continue;
     }
 
@@ -513,6 +524,7 @@ export function applySessionUpdates(
     items,
     usage,
     failure,
+    retry,
     goal,
     connectors,
     commands,
@@ -566,6 +578,11 @@ export function initTranscript(
 
     if (kind === UpdateKind.UpdateConnectors || kind === "devkit_connectors_update") {
       if (payload.connectors) model.connectors = payload.connectors;
+      continue;
+    }
+
+    if (kind === UpdateKind.UpdateProviderRetry || kind === "provider_retry_update") {
+      model.retry = payload.retry ?? null;
       continue;
     }
 

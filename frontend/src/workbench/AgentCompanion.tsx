@@ -9,6 +9,7 @@ import {
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
+import { providerRetryFailure } from "@/modules/agenthub/providerRetry";
 import { rateLimitFailure } from "@/modules/agenthub/surfaces/AgentContextMeter";
 import { failureKey } from "@/modules/agenthub/AgentHubView";
 import { useAgentTranscript } from "@/modules/agenthub/transcript";
@@ -83,7 +84,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   // The vendor's own failure wins when there is one; a rejected rate limit is
   // read the same way, since Claude never reports that through the vendor's
   // failure channel (see AgentContextMeter's rateLimitFailure).
-  const activeFailure = transcriptModel.failure ?? rateLimitFailure(transcriptModel.usage);
+  const activeFailure =
+    transcriptModel.failure ?? providerRetryFailure(transcriptModel.retry) ?? rateLimitFailure(transcriptModel.usage);
   // Following this session from outside Agent Hub: each change it finishes is
   // a toast with Open — there is no pane here to fill (follow.tsx).
   const [following] = useFollowing(session?.id);

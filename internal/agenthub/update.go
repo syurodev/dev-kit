@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"devkit/internal/acp"
@@ -55,6 +56,14 @@ const (
 	// adapter that learns of them (Codex's startup status) writes it. It is
 	// session state — one current list, replaced whole — not a thing said.
 	UpdateConnectors UpdateKind = "devkit_connectors_update"
+	// UpdateProviderRetry is DevKit's own name for a session_info_update that
+	// carries only opencode's retry notice (`_meta["opencode/retry"]`): the model
+	// provider failed and the agent is waiting to try again. It is the current
+	// state of one thing — set on each attempt, null when that attempt starts —
+	// so it is session state, one row replaced in place, not a thing said:
+	// kept as session_info_update it stored 128 near-identical rows in one
+	// outage. A Retry of nil means the notice was cleared.
+	UpdateProviderRetry UpdateKind = "provider_retry_update"
 	// UpdateUnknown is a kind this build does not model. The raw blob is kept
 	// so a vendor that ships a new kind degrades to "not rendered" rather than
 	// "silently dropped" — the Meta Inspector surface reads Raw.
@@ -244,6 +253,40 @@ type SessionFailure struct {
 	Actions  []string `json:"actions,omitempty"`
 }
 
+// ProviderRetry is the agent telling us its model provider failed and when it
+// will try again — opencode's `opencode/retry` notice. It is transient: the
+// next attempt replaces it, and a turn ending clears it.
+//
+// NextRetryAt is the vendor's own RFC 3339 time, passed on as sent; the window
+// counts down to it. The attempt that is about to start is Attempt (opencode
+// numbers the first retry 2); the vendor does not say how many it will make.
+// Status is the provider's HTTP status when it gave one.
+type ProviderRetry struct {
+	Attempt     int    `json:"attempt"`
+	NextRetryAt string `json:"nextRetryAt,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Status      int    `json:"status,omitempty"`
+	Type        string `json:"type,omitempty"`
+}
+
+// Sentence is the provider's failure as one line a person can read: its
+// message, with the HTTP status when it gave one.
+func (r *ProviderRetry) Sentence() string {
+	if r == nil {
+		return ""
+	}
+	message := strings.TrimRight(r.Message, ". ")
+	switch {
+	case message == "" && r.Status > 0:
+		return fmt.Sprintf("The provider answered %d.", r.Status)
+	case message == "":
+		return "The provider is not answering."
+	case r.Status > 0:
+		return fmt.Sprintf("%s (%d)", message, r.Status)
+	}
+	return message
+}
+
 // SessionGoal is the objective a session is working towards, from the goal
 // extension: set with /goal or through _session/goal, cleared the same way,
 // and published on a session_info_update's _meta whenever it changes.
@@ -332,6 +375,10 @@ type SessionUpdate struct {
 	Failure     *SessionFailure `json:"failure,omitempty"`
 	Goal        *SessionGoal    `json:"goal,omitempty"`
 	GoalCleared bool            `json:"goalCleared,omitempty"`
+	// Retry is the provider outage the agent is waiting out, on a
+	// provider_retry_update (or beside a title on a session_info_update that
+	// carries both). Nil on a provider_retry_update means it ended.
+	Retry *ProviderRetry `json:"retry,omitempty"`
 	// Connectors is the whole list of MCP servers and their states, on a
 	// devkit_connectors_update. Each update replaces the list.
 	Connectors []Connector `json:"connectors,omitempty"`
@@ -565,6 +612,14 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Title = wire.Title
 		out.Failure = parseSessionFailure(wire.Meta)
 		out.Goal, out.GoalCleared = parseSessionGoal(wire.Meta)
+		if retry, present := parseProviderRetry(wire.Meta); present {
+			out.Retry = retry
+			if out.Title == "" && out.Failure == nil && out.Goal == nil && !out.GoalCleared {
+				// Only the notice: its own kind, so it is state, not 128 rows.
+				out.Kind = UpdateProviderRetry
+				out.Raw = nil
+			}
+		}
 	case UpdateConnectors:
 		out.Kind = UpdateConnectors
 		if wire.DevKit != nil {
@@ -698,6 +753,44 @@ type wireSessionInfoMeta struct {
 		} `json:"air"`
 	} `json:"jetbrains"`
 	Goal json.RawMessage `json:"goal"`
+	// OpenCodeRetry is opencode's retry notice. Like Goal, null (the notice
+	// ended) must be told apart from the key being absent.
+	OpenCodeRetry json.RawMessage `json:"opencode/retry"`
+}
+
+// parseProviderRetry reads opencode's retry notice. present says the key was
+// there at all; the notice is nil when it was null (cleared) or unreadable —
+// a retry with no attempt number says nothing worth drawing.
+func parseProviderRetry(meta json.RawMessage) (*ProviderRetry, bool) {
+	if len(meta) == 0 {
+		return nil, false
+	}
+	var parsed wireSessionInfoMeta
+	if err := json.Unmarshal(meta, &parsed); err != nil || len(parsed.OpenCodeRetry) == 0 {
+		return nil, false
+	}
+	if string(parsed.OpenCodeRetry) == "null" {
+		return nil, true
+	}
+	var wire struct {
+		Attempt     int    `json:"attempt"`
+		NextRetryAt string `json:"nextRetryAt"`
+		Error       struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Status  int    `json:"status"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(parsed.OpenCodeRetry, &wire); err != nil || wire.Attempt <= 0 {
+		return nil, true
+	}
+	return &ProviderRetry{
+		Attempt:     wire.Attempt,
+		NextRetryAt: wire.NextRetryAt,
+		Message:     clipRunes(oneLine(wire.Error.Message), 300),
+		Status:      wire.Error.Status,
+		Type:        wire.Error.Type,
+	}, true
 }
 
 // parseSessionFailure reads the air extension's failure out of a

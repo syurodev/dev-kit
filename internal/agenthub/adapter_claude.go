@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1185,6 +1186,11 @@ type claudeRuntime struct {
 	cancelServe   context.CancelFunc
 	serveDone     chan struct{}
 
+	// lastRetry is the provider failure the agent last said it was retrying
+	// during the running prompt (opencode's retry notice).
+	retryMu   sync.Mutex
+	lastRetry *ProviderRetry
+
 	mu       sync.Mutex
 	handlers RuntimeHandlers
 	closed   bool
@@ -1452,6 +1458,9 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 	// after it says the agent has the prompt and is not replying, which is a
 	// different bug from never having sent it at all.
 	log.Printf("agenthub: %s session/prompt sent (session %s)", r.vendorType(), sid)
+	r.retryMu.Lock()
+	r.lastRetry = nil
+	r.retryMu.Unlock()
 	var res acp.PromptResult
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
@@ -1481,9 +1490,125 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, m
 		if isAuthRequired(err) {
 			return PromptOutcome{}, vendorError(r.vendorType(), fmt.Errorf("%w: %v", ErrAgentAuthRequired, err))
 		}
+		if r.refusedByLiveAgent(err) {
+			return PromptOutcome{}, r.turnRefusal(err)
+		}
 		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)
 	}
 	return PromptOutcome{StopReason: res.StopReason, Meta: res.Meta}, nil
+}
+
+// refusedByLiveAgent is whether a failed session/prompt was an answer from a
+// process that is still running — a JSON-RPC error response — rather than a
+// process that went away. The first is a turn the agent ended (its provider
+// failed, its context is full); calling it a crash put "the agent stopped
+// unexpectedly" and an error state on a session that was fine, and hid the
+// sentence the agent gave. A transport error (closed pipe, EOF) or a serve
+// loop that has already ended stays a process failure.
+func (r *claudeRuntime) refusedByLiveAgent(err error) bool {
+	var rpcErr *acp.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	select {
+	case <-r.serveDone:
+		return false
+	default:
+		return true
+	}
+}
+
+// turnRefusal is a turn the live agent ended, as ErrTurnFailed carrying its own
+// sentence, and says it in the session first: the banner is what the
+// transcript keeps, where the error only reaches the caller of this prompt
+// (the same order as codexTurnFailure).
+func (r *claudeRuntime) turnRefusal(err error) error {
+	message := rpcSentence(err)
+	if message == "" {
+		message = r.lastRetrySentence()
+	}
+	failure := SessionFailure{
+		ID:       "agent-turn-failed",
+		Revision: int(time.Now().Unix()),
+		Category: "turn_failed",
+		Severity: "error",
+		Title:    "The turn didn't finish",
+		Details:  message,
+		Actions:  []string{"retry"},
+	}
+	if on := r.handlersSnapshot().OnUpdate; on != nil {
+		on(sessionFailureUpdate(failure), nil)
+	}
+	return vendorMessageError(r.vendorType(), fmt.Errorf("%w: session/prompt: %s", ErrTurnFailed, message), message)
+}
+
+// lastRetrySentence is what the provider said the last time the agent retried
+// during this prompt, or "". An agent that retried its provider until it gave
+// up answers with a bare "Internal error"; the provider's own sentence is the
+// one it showed while retrying.
+func (r *claudeRuntime) lastRetrySentence() string {
+	r.retryMu.Lock()
+	retry := r.lastRetry
+	r.retryMu.Unlock()
+	if retry == nil {
+		return ""
+	}
+	return retry.Sentence()
+}
+
+// noteRetry remembers the agent's retry notice of the running prompt. A null
+// notice (the next attempt began) leaves the last one in place: it is what the
+// final failure was about.
+func (r *claudeRuntime) noteRetry(update json.RawMessage) {
+	if !bytes.Contains(update, []byte("opencode/retry")) {
+		return
+	}
+	if parsed := ParseSessionUpdate(update); parsed.Retry != nil {
+		r.retryMu.Lock()
+		r.lastRetry = parsed.Retry
+		r.retryMu.Unlock()
+	}
+}
+
+// rpcSentence is the part of a JSON-RPC error worth showing a person: the
+// error's message, or — when that is the generic "Internal error" — the reason
+// the agent put in data. "" when there is nothing more specific than
+// "Internal error".
+func rpcSentence(err error) string {
+	var rpcErr *acp.RPCError
+	if !errors.As(err, &rpcErr) {
+		return ""
+	}
+	generic := func(s string) bool {
+		switch strings.ToLower(strings.TrimRight(strings.TrimSpace(s), ".")) {
+		case "", "internal error", "error":
+			return true
+		}
+		return false
+	}
+	message := oneLine(rpcErr.Message)
+	if !generic(message) {
+		return clipRunes(message, 300)
+	}
+	if len(rpcErr.Data) > 0 {
+		var text string
+		if json.Unmarshal(rpcErr.Data, &text) == nil && !generic(text) {
+			return clipRunes(oneLine(text), 300)
+		}
+		var fields struct {
+			Details string `json:"details"`
+			Message string `json:"message"`
+			Error   string `json:"error"`
+		}
+		if json.Unmarshal(rpcErr.Data, &fields) == nil {
+			for _, candidate := range []string{fields.Details, fields.Message, fields.Error} {
+				if !generic(candidate) {
+					return clipRunes(oneLine(candidate), 300)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (r *claudeRuntime) Cancel(ctx context.Context) error {
@@ -1602,6 +1727,7 @@ func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMe
 		return nil
 	}
 	update := p.Update
+	h.rt.noteRetry(update)
 	// Handlers are only installed after open() has set acpSessionID, so reading
 	// it here — after the non-nil snapshot above — is ordered behind that write.
 	if p.SessionID != "" && p.SessionID != h.rt.acpSessionID {

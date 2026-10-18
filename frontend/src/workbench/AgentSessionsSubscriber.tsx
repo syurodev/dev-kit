@@ -139,6 +139,8 @@ export function handleAgentTurnFinished(
   bridge?: TurnBridge,
 ) {
   const state = useAgentSessionsStore.getState();
+  // A turn that is over is not waiting to try again (Go clears the notice too).
+  state.setProviderRetry(sessionId, null);
   const session = state.sessionsById[sessionId];
   const ours = state.turnInFlightBySession[sessionId];
   const nextStatus = status === "error" ? "error" : status === "closed" ? "closed" : "idle";
@@ -352,6 +354,12 @@ export function AgentSessionsSubscriber() {
         event.parsed.subagent
       ) {
         trackSubagent(event.sessionId, event.parsed.subagent);
+      }
+
+      // An agent waiting out a provider outage: the rail's row says so, for
+      // every session, while a banner covers the open one.
+      if (event.parsed?.kind === UpdateKind.UpdateProviderRetry) {
+        useAgentSessionsStore.getState().setProviderRetry(event.sessionId, event.parsed.retry ?? null);
       }
 
       // Another session wrote to this one. The row says so until the person
