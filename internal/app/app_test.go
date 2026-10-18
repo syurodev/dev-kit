@@ -138,6 +138,21 @@ func TestNewContainerGrantsTheMessagingTools(t *testing.T) {
 	}
 }
 
+// resumeSession, closeSession and readSession call through session:<id>; the
+// MCP tests have no policy, so the real grants decide whether an agent is refused.
+func TestNewContainerGrantsTheChildControlTools(t *testing.T) {
+	container := NewContainer()
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	for _, grant := range [][3]string{
+		{"builtin.agenthub", "agenthub:execute", "session:" + id},
+		{"builtin.agenthub", "agenthub:read", "session:" + id},
+	} {
+		if !container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]}).Allowed {
+			t.Errorf("a child-control tool asks for %s %q on %q, which no default grant covers", grant[0], grant[1], grant[2])
+		}
+	}
+}
+
 // agenthub.listModels and agenthub.listModelProfiles read through scopes of
 // their own. The MCP tests call the handlers with no policy, so only the
 // container's real grants can say whether an agent's call would be refused.

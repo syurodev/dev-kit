@@ -775,6 +775,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   (`AgentHubSetPromptQueue`) so the person's prompts go first and a pause is honoured. `TestNewContainerGrantsTheMessagingTools`
   checks the real grants. Audit: `OnPeerMessage` (never the text). Not durable across a restart.
 
+- **A parent controls the sessions below it** (`internal/mcp/tools_agenthub.go`; beside `cancelAgent`, `getSessionStatus`,
+  `invokeAgent`, `sendMessage`). `agenthub.resumeSession` (`Service.ResumeChild`: reopens a session's process without a prompt,
+  never reloads, refuses itself/outside its tree with `ErrNotDescendant` and a closed session with `ErrSessionClosed` — only the
+  person reopens one that was closed; `ResumeSession` stays UI-only), `agenthub.closeSession` (`CloseSession`; an agent cannot close
+  itself) and `agenthub.readSession` (`ReadSessionMessages`: newest user/agent messages, no tool calls, ≤ 20 per read, 3000 runes
+  each, `beforeSeq` pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
+  (`TestNewContainerGrantsTheChildControlTools`); only `readSession` is pre-approved. The UI's Resume on the "interrupted" notice
+  now dismisses the notice and toasts, because it used to succeed silently (the row's `updated_at` moved, nothing on screen did).
+
 **Not in server mode**: `main.go` registers `agenthub.ServerModeAdapter` stubs there, and
 every session fails with `ErrUnavailableInServerMode` — the jail shares the host loopback
 and server mode's bridge has no authentication, so a session could approve itself.

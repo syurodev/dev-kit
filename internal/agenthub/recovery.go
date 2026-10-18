@@ -13,6 +13,36 @@ func (s *Service) ResumeSession(ctx context.Context, id string, reload bool) err
 	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
 		return ErrPermissionDenied
 	}
+	return s.resumeSession(ctx, id, reload)
+}
+
+// ResumeChild is an agent bringing back a session below it — one the app's
+// restart left without a process — without sending it anything. It never
+// reloads (that is the person's, to pick up new customization), never reaches
+// the caller itself or a session outside its tree, and leaves a session that
+// was closed closed: somebody chose that, and only the person reopens it.
+func (s *Service) ResumeChild(ctx context.Context, id string) error {
+	caller, ok := identity.FromContext(ctx)
+	if !ok || !caller.IsAgent() {
+		return ErrPermissionDenied
+	}
+	if id == caller.SessionID {
+		return ErrNotDescendant
+	}
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sess.Status == SessionStatusClosed {
+		return ErrSessionClosed
+	}
+	return s.resumeSession(ctx, id, false)
+}
+
+func (s *Service) resumeSession(ctx context.Context, id string, reload bool) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return err
 	}
