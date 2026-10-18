@@ -205,6 +205,7 @@ const PERMISSION_EVENT = "agenthub:permission";
 const ELICITATION_EVENT = "agenthub:elicitation";
 const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
+const SESSION_CREATED_EVENT = "agenthub:sessionCreated";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
 const FILES_RESTORED_EVENT = "agenthub:filesRestored";
@@ -797,6 +798,18 @@ function parseSessionEvent(data: unknown): { sessionId: string; status?: Session
     status: typeof value.status === "string" ? asStatus(value.status) : undefined,
     outcome: typeof value.outcome === "string" ? value.outcome as AgentTurnFinishedEvent["outcome"] : undefined,
   };
+}
+
+/**
+ * A session someone else created — an agent's child, or one from the terminal.
+ * The window's own sessions are upserted from the call's answer and never
+ * arrive here.
+ */
+export function onAgentHubSessionCreated(handler: (sessionId: string) => void): () => void {
+  return Events.On(SESSION_CREATED_EVENT, (ev) => {
+    const parsed = parseSessionEvent(ev?.data);
+    if (parsed) handler(parsed.sessionId);
+  });
 }
 
 export function onAgentHubTurnFinished(
