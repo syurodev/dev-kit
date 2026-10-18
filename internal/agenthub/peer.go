@@ -44,9 +44,11 @@ const (
 	peerTargetPerMinute = 20 // messages one session may receive per minute, from anyone
 	peerQueueLimit      = 20 // messages waiting for one session
 	peerQueueTTL        = time.Hour
-	// peerChainDecay is how long a session that received a message keeps
-	// counting its replies as the same exchange.
+	// peerChainDecay is how long a pair of sessions keeps counting their
+	// replies to each other as the same exchange.
 	peerChainDecay = 15 * time.Minute
+	// peerPairSweep is the size past which expired pair chains are swept.
+	peerPairSweep = 256
 	// peerUserQueueFresh is how long a "the person has prompts queued" report is
 	// believed when it is not a pause: it describes a moment between two turns.
 	peerUserQueueFresh = 30 * time.Second
@@ -196,10 +198,25 @@ type peerRecord struct {
 	hop      int
 }
 
+// peerChain is the exchange between two sessions: the hop of the last message
+// either sent the other, who sent it, and when.
 type peerChain struct {
-	hop int
-	at  time.Time
+	hop  int
+	from string
+	at   time.Time
 }
+
+// peerPair names two sessions whatever the direction: lo is the smaller id.
+type peerPair struct{ lo, hi string }
+
+func pairOf(a, b string) peerPair {
+	if a > b {
+		a, b = b, a
+	}
+	return peerPair{lo: a, hi: b}
+}
+
+func (k peerPair) has(id string) bool { return k.lo == id || k.hi == id }
 
 type userQueueMirror struct {
 	waiting int
@@ -215,7 +232,7 @@ type peerState struct {
 	mu        sync.Mutex
 	now       func() time.Time
 	queues    map[string][]*peerMessage
-	chain     map[string]peerChain
+	chain     map[peerPair]peerChain
 	windows   map[string][]time.Time
 	records   map[string]peerRecord
 	order     []string
@@ -235,7 +252,7 @@ func (p *peerState) init() {
 		return
 	}
 	p.queues = map[string][]*peerMessage{}
-	p.chain = map[string]peerChain{}
+	p.chain = map[peerPair]peerChain{}
 	p.windows = map[string][]time.Time{}
 	p.records = map[string]peerRecord{}
 	p.userQueue = map[string]userQueueMirror{}
@@ -276,30 +293,60 @@ func (p *peerState) remember(id string, rec peerRecord) {
 	}
 }
 
-// hopFor is the step a message from sender is. The floor is what the sender
-// itself was handed in the last peerChainDecay (a reply is deeper than the
-// message it answers whether or not it names replyTo); a replyTo that names a
-// message addressed to the sender can only raise it. Called with mu held.
-func (p *peerState) hopFor(sender, replyTo string) int {
-	base := 0
-	if c, ok := p.chain[sender]; ok && p.clock().Sub(c.at) < peerChainDecay {
-		base = c.hop
-	}
-	if replyTo != "" {
-		if rec, ok := p.records[replyTo]; ok && rec.to == sender && rec.hop > base {
-			base = rec.hop
+// hopFor is the step a message from sender to target is. It counts only the
+// back-and-forth between these two sessions, so what either says to anyone else
+// (a parent hearing from three children) never deepens it. Within the last
+// peerChainDecay: if target spoke last, the message answers it and is one step
+// deeper; if sender spoke last, nobody has answered yet, so it stays at the
+// same step (two progress reports are not a conversation); with no exchange it
+// is step 1. A replyTo that names a message target sent to sender can only
+// raise the step. Called with mu held.
+func (p *peerState) hopFor(sender, target, replyTo string) int {
+	hop := 1
+	if c, ok := p.chain[pairOf(sender, target)]; ok && p.clock().Sub(c.at) < peerChainDecay {
+		hop = c.hop
+		if c.from != sender {
+			hop++
 		}
 	}
-	return base + 1
+	if replyTo != "" {
+		if rec, ok := p.records[replyTo]; ok && rec.from == target && rec.to == sender && rec.hop+1 > hop {
+			hop = rec.hop + 1
+		}
+	}
+	return hop
 }
 
-// resetChain is the person speaking to the session: whatever exchange it was in
-// is over.
+// noteHop records an accepted message from sender to target at hop. Called
+// with mu held.
+func (p *peerState) noteHop(sender, target string, hop int) {
+	now := p.clock()
+	if len(p.chain) >= peerPairSweep {
+		for k, c := range p.chain {
+			if now.Sub(c.at) >= peerChainDecay {
+				delete(p.chain, k)
+			}
+		}
+	}
+	p.chain[pairOf(sender, target)] = peerChain{hop: hop, from: sender, at: now}
+}
+
+// endChains drops every exchange the session is part of. Called with mu held.
+func (p *peerState) endChains(sessionID string) {
+	for k := range p.chain {
+		if k.has(sessionID) {
+			delete(p.chain, k)
+		}
+	}
+}
+
+// resetChain is the person speaking to the session: whatever exchanges it was
+// in are over.
 func (p *peerState) resetChain(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.init()
-	delete(p.chain, sessionID)
+	p.endChains(sessionID)
 }
 
 func (p *peerState) forget(sessionID string) {
@@ -307,7 +354,7 @@ func (p *peerState) forget(sessionID string) {
 	defer p.mu.Unlock()
 	p.init()
 	delete(p.queues, sessionID)
-	delete(p.chain, sessionID)
+	p.endChains(sessionID)
 	delete(p.userQueue, sessionID)
 }
 
@@ -527,17 +574,17 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	s.peers.init()
 	hop, limit, toParent := 1, MaxPeerHops, false
 	if caller.IsAgent() {
-		hop = s.peers.hopFor(sender.ID, in.ReplyTo)
+		hop = s.peers.hopFor(sender.ID, target.ID, in.ReplyTo)
 		rel, _ := peerRelationOf(byID, sender, target)
 		switch rel {
 		case PeerSibling:
 			limit = MaxSiblingHops
 		case PeerParent:
-			// A report to the parent is never cut by the depth cap: in a
-			// parent with several children every message raises someone's
-			// count, so the cap would silence the final report of whichever
-			// child spoke last. A loop still stops on the parent's side
-			// (parent -> child is capped) and on the rate limits.
+			// A report to the parent is never cut by the depth cap, so the
+			// final report of a long exchange still arrives. It is counted
+			// in the pair like any message, and a loop still stops on the
+			// parent's side (parent -> child is capped) and on the rate
+			// limits.
 			toParent = true
 		}
 	}
@@ -559,16 +606,11 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	}
 	msg := &peerMessage{id: res.MessageID, from: src, to: target.ID, text: text, at: s.peers.clock(), length: utf8.RuneCountInString(text), limit: limit, sibling: limit == MaxSiblingHops}
 	s.peers.remember(msg.id, peerRecord{from: senderKey, to: target.ID, hop: hop})
-	switch c, had := s.peers.chain[target.ID]; {
-	case !caller.IsAgent():
+	if caller.IsAgent() {
+		s.peers.noteHop(sender.ID, target.ID, hop)
+	} else {
 		// The person's terminal starting an exchange: nothing came before it.
-		delete(s.peers.chain, target.ID)
-	case hop == 1 || !had || hop >= c.hop || s.peers.clock().Sub(c.at) >= peerChainDecay:
-		// The target's own replies in this exchange are one step deeper. Hop 1
-		// is a sender that was handed nothing (or whose chain decayed), so it
-		// starts an exchange rather than continuing one: the target's count
-		// from an older exchange must not make its answer look like a loop.
-		s.peers.chain[target.ID] = peerChain{hop: hop, at: s.peers.clock()}
+		s.peers.endChains(target.ID)
 	}
 	s.peers.mu.Unlock()
 

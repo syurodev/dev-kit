@@ -147,10 +147,15 @@ func (r *peerRig) waitIdle(s agenthub.AgentSession) {
 // the vendor's hands. "running" is not enough: the status turns running before
 // the prompt is handed over, and a Cancel in that gap reaches nothing — the
 // turn then never ends. Waiting for the runtime itself closes the gap.
+//
+// The turn is started as the person's terminal, not the window: a prompt from
+// the window is the person speaking to the session and ends its exchanges, and
+// the hop tests hold a session in the middle of one.
 func (r *peerRig) hold(s agenthub.AgentSession) {
 	r.t.Helper()
+	ctx := identity.WithCaller(context.Background(), identity.UserTerminal())
 	go func() {
-		_, _ = r.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: s.ID, Prompt: "BLOCK"})
+		_, _ = r.svc.Invoke(ctx, agenthub.InvokeInput{SessionID: s.ID, Prompt: "BLOCK"})
 	}()
 	r.waitFor("turn to run", func() bool { return r.status(s) == agenthub.SessionStatusRunning && r.rt(s).InTurn() })
 }
