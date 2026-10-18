@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { entryCollapseKeys } from "./treeActions";
-import { EntryPointsTab, type FolderEntries } from "./EntryPointsTab";
+import { EntryPointsTab, kindIcon, type FolderEntries } from "./EntryPointsTab";
 
 const noop = () => {};
 const render = (folders: FolderEntries[]) => renderToString(
@@ -109,4 +109,31 @@ it("keeps owner groups folded after reopening a collapsed workspace folder", () 
   const reopened = draw(collapsed.filter((key) => key !== "folder:a"));
   expect(reopened).toContain("HealthController");
   expect(reopened).not.toContain("/health");
+});
+
+it("marks Kong's plugin phases with Kong", () => {
+  const html = render([{
+    folderId: "f", path: "/fixture", label: "kong-plugins", note: "",
+    health: { health: "ready", tone: "ok", label: "Indexed", detail: "" },
+    entries: [{ id: "p", entryNode: "handler", verb: "ACCESS", target: "rate-limit", kind: "plugin",
+      owner: "rate-limit", group: "rate-limit", service: "", order: 1 }],
+  }]);
+  expect(html).toContain('data-brand="kong"');
+  // The other kinds are protocols, not brands: they keep their line icons.
+  const http = render([{
+    folderId: "f", path: "/fixture", label: "api", note: "",
+    health: { health: "ready", tone: "ok", label: "Indexed", detail: "" },
+    entries: [{ id: "h", entryNode: "route", verb: "GET", target: "/health", kind: "http",
+      owner: "HealthController", group: "HealthController", service: "", order: 0 }],
+  }]);
+  expect(http).not.toContain("data-brand");
+});
+
+it("gives each kind its own mark and an unknown one a generic one", () => {
+  const draw = (kind: string) => renderToString(<>{(() => { const Icon = kindIcon(kind); return <Icon />; })()}</>);
+  expect(draw("plugin")).toContain('data-brand="kong"');
+  for (const kind of ["http", "graphql", "rpc", "message", "socket", "schedule", "mystery"]) {
+    expect(draw(kind)).not.toContain("data-brand");
+    expect(draw(kind)).toContain("<svg");
+  }
 });

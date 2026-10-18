@@ -1,4 +1,5 @@
 import { FileSyntaxSection } from "./FileSyntaxSection";
+import { BrandIconsSection } from "./BrandIconsSection";
 import { FileIconsSection } from "./FileIconsSection";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
@@ -1071,6 +1072,7 @@ export default function ComponentGallery() {
       </Section>
 
       <FileIconsSection />
+      <BrandIconsSection />
       <AgentEnvironmentPreview />
       <AgentHubTranscriptSection />
       <AgentSessionSidebarSection />
