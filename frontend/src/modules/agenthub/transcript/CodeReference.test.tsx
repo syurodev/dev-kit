@@ -63,6 +63,23 @@ describe("symbols in prose", () => {
     expect(html).toContain('data-testid="agent-file-ref"');
     expect(html).not.toContain("agent-symbol-ref");
   });
+
+  // The hover card says where it goes; a native tooltip drew a second one — a
+  // dark pill with the same words — over the text beside the chip.
+  test("a file reference carries no native tooltip of its own", () => {
+    const html = prose("See `internal/agenthub/service.go`.", true);
+    const chip = html.match(/<button[^>]*data-testid="agent-file-ref"[^>]*>/)?.[0] ?? "";
+    expect(chip).not.toBe("");
+    expect(chip).not.toContain("title=");
+    expect(chip).toContain('aria-label="File internal/agenthub/service.go, opens in editor"');
+  });
+
+  test("a path an answer shortened with an ellipsis is still a file reference", () => {
+    for (const written of ["core/.../DispatchFunction.java", "core/\u2026/DispatchFunction.java"]) {
+      const html = prose(`See \`${written}\`.`, true);
+      expect(html).toContain('data-testid="agent-file-ref"');
+    }
+  });
 });
 
 describe("code inside a link", () => {

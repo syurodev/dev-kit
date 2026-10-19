@@ -151,6 +151,23 @@ const items: TranscriptItem[] = [
     createdAt: at(248),
     updatedAt: at(250),
   },
+  { id: "u2b", kind: "user_message_chunk", text: "Vẽ luồng nạp plugin lúc runtime", createdAt: at(252) },
+  {
+    id: "a2b",
+    kind: "agent_message_chunk",
+    text:
+      "## Hôm nay code đang chạy thế nào\n\n" +
+      "```mermaid\nsequenceDiagram\n  participant Dev as Dev (bundleToRuntime)\n  participant RT as runtime\n  participant DB as bảng plugins\n  participant S3\n" +
+      "  Dev->>RT: POST /v1/cells {programId, versionId, uri: s3://bất kỳ}\n  RT->>DB: lưu (không auth, không digest)\n" +
+      "  Note over RT: ...sau đó, có request đến...\n  RT->>S3: tải JAR (chỉ kiểm Content-Type)\n  RT->>RT: PF4J load JAR → commence()\n```\n\n" +
+      "Một diagram mà Mermaid từ chối thì vẫn là khối code:\n\n" +
+      "```mermaid\nsequenceDiagram\n  Dev->>\n```\n\n" +
+      "| Thành phần | Nơi |\n| --- | --- |\n" +
+      "| `DispatchFunction<I,O>`: commence(in), domainId() | `core/.../DispatchFunction.java` |\n" +
+      "| `RouterId(domain, program)` | `core/…/RouterId.java` |",
+    createdAt: at(253),
+    updatedAt: at(255),
+  },
   { id: "u3", kind: "user_message_chunk", text: "Chạy test của module gateway", createdAt: at(300) },
   {
     id: "tc3",

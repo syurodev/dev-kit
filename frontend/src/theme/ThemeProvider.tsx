@@ -180,6 +180,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+/**
+ * The theme, or null where nothing provides one (a test, a surface drawn on its
+ * own). For what can fall back to a default rather than fail: a diagram in a
+ * message is drawn in the dark palette there, instead of taking the whole
+ * transcript down with an error about a provider.
+ */
+export function useOptionalTheme() {
+  return useContext(ThemeContext);
+}
+
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {

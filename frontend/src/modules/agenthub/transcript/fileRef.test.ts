@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fileRef, linkTarget } from "./fileRef";
+import { elisionPattern, fileRef, hasElision, linkTarget } from "./fileRef";
 
 describe("fileRef", () => {
   test("paths with a source extension", () => {
@@ -78,5 +78,43 @@ describe("linkTarget", () => {
     expect(linkTarget("file:///home/u/p/a%20b.go")).toEqual({ kind: "other" }); // a space after decoding is still not a path
     expect(linkTarget("file:///home/u/p/x.go")).toEqual({ kind: "file", ref: { path: "/home/u/p/x.go" } });
     expect(linkTarget("ftp://x")).toEqual({ kind: "other" });
+  });
+});
+
+describe("an elided path", () => {
+  // An answer shortens a long path to fit a table cell: `core/.../DispatchFunction.java`.
+  test("is a file reference, with either kind of ellipsis", () => {
+    expect(fileRef("core/.../DispatchFunction.java")).toEqual({ path: "core/.../DispatchFunction.java" });
+    expect(fileRef("core/\u2026/DispatchFunction.java:12")).toEqual({ path: "core/\u2026/DispatchFunction.java", line: 12 });
+    expect(fileRef(".../DispatchFunction.java")).toEqual({ path: ".../DispatchFunction.java" });
+    expect(hasElision("core/.../X.java")).toBe(true);
+    expect(hasElision("core/\u2026/X.java")).toBe(true);
+    expect(hasElision("core/src/X.java")).toBe(false);
+    expect(hasElision("../core/X.java")).toBe(false);
+    expect(hasElision("a/v1.2.3/X.java")).toBe(false);
+  });
+
+  test("is no way to hide a climb out: a .. after a name is still refused", () => {
+    expect(fileRef("core/.../../x.go")).toBeNull();
+    expect(fileRef("/w/.../../x.go")).toBeNull();
+  });
+
+  test("matches the real paths its ends allow, and no others", () => {
+    const pattern = elisionPattern("core/.../DispatchFunction.java");
+    expect(pattern.test("/w/api/core/src/main/java/io/x/DispatchFunction.java")).toBe(true);
+    expect(pattern.test("/w/api/core/DispatchFunction.java")).toBe(true); // nothing between is fine
+    expect(pattern.test("/w/api/other/src/DispatchFunction.java")).toBe(false); // wrong start
+    expect(pattern.test("/w/api/core/src/OtherDispatchFunction.java")).toBe(false); // the name is whole
+    expect(pattern.test("/w/api/core/src/DispatchFunction.java.bak")).toBe(false);
+    expect(elisionPattern(".../DispatchFunction.java").test("/a/b/DispatchFunction.java")).toBe(true);
+    // A folder named like a start is not the start unless it is a whole segment.
+    expect(pattern.test("/w/api/hardcore/src/DispatchFunction.java")).toBe(false);
+  });
+
+  test("an absolute one is anchored at the root, and a dot in a name is a dot", () => {
+    const pattern = elisionPattern("/w/.../a.b.java");
+    expect(pattern.test("/w/x/y/a.b.java")).toBe(true);
+    expect(pattern.test("/other/w/x/a.b.java")).toBe(false);
+    expect(pattern.test("/w/x/aXb.java")).toBe(false);
   });
 });

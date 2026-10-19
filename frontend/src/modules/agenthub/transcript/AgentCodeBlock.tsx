@@ -24,6 +24,8 @@ export type AgentCodeBlockProps = {
    * of leaving them inside the code.
    */
   startLine?: number;
+  /** Another action in the header, before Copy: how a block that can be drawn goes back to its picture. */
+  headerAction?: React.ReactNode;
   className?: string;
 };
 
@@ -53,6 +55,7 @@ export function AgentCodeBlock({
   wrap = false,
   startLine,
   label,
+  headerAction,
   className,
 }: AgentCodeBlockProps) {
   const [copied, setCopied] = React.useState(false);
@@ -96,10 +99,13 @@ export function AgentCodeBlock({
         }
         meta={path ? (range ?? lang) : label && lang !== "text" ? lang : range}
         action={
-          <FramedCardAction opens={false} onClick={handleCopy} data-testid="code-block-copy">
-            {copied ? <Check className="text-status-success" aria-hidden="true" /> : <Copy aria-hidden="true" />}
-            {copied ? "Copied" : "Copy"}
-          </FramedCardAction>
+          <>
+            {headerAction}
+            <FramedCardAction opens={false} onClick={handleCopy} data-testid="code-block-copy">
+              {copied ? <Check className="text-status-success" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+              {copied ? "Copied" : "Copy"}
+            </FramedCardAction>
+          </>
         }
       />
       <FramedCardPreview flush className="py-0">
