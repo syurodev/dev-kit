@@ -3,6 +3,8 @@ import type { AgentSession } from "@/bridge/agenthub";
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
 import { AgentPermissionRequest } from "@/modules/agenthub/surfaces/AgentPermissionRequest";
+import { PermissionPreview } from "@/modules/agenthub/surfaces/PermissionPreview";
+import { cn } from "@/lib/utils";
 import { AgentSessionError } from "@/modules/agenthub/surfaces/AgentSessionError";
 import { AgentSessionFailure } from "@/modules/agenthub/surfaces/AgentSessionFailure";
 import { AgentToolDiff } from "@/modules/agenthub/transcript/AgentToolDiff";
@@ -15,6 +17,54 @@ const modelCatalog: ConfigOption[] = [{ id: "model", category: "model", name: "M
   { value: "astra", name: "GPT-6 Astra", defaultEffort: "high", supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })) },
   { value: "luna", name: "GPT-6 Luna", defaultEffort: "low", supportedEfforts: ["low", "medium", "high"].map((value) => ({ value })) },
 ] }];
+
+
+const LONG_SEND_MESSAGE_INPUT = {
+  sessionId: "8d2fcfa7-8e6a-4f5f-a8d6-460d798e85cc",
+  message:
+    "Bạn là session con của 8d2fcfa7-8e6a-4f5f-a8d6-460d798e85cc. Nhiệm vụ dễ, CHỈ ĐỌC / PHÂN TÍCH, không sửa file, không commit/push, không mở thêm agent.\n" +
+    "User muốn từ Đề xuất mua ở medical-examination mở nhanh POS điền sẵn khách, thuốc, số lượng và ghi chú.\n" +
+    "Hãy tìm điểm vào, các màn hình liên quan và nêu những file cần đổi.",
+};
+
+const PERMISSION_OPTIONS = [
+  { optionId: "allow_once", name: "Allow", kind: "allow_once" },
+  { optionId: "allow_always", name: "Allow for this session", kind: "allow_always" },
+  { optionId: "reject_once", name: "Deny", kind: "reject_once" },
+];
+
+const mcpParams = (tool: string, rawInput: Record<string, unknown>) => ({
+  toolCall: {
+    toolCallId: `mcp-approval-${tool}`,
+    title: `devkit.${tool}`,
+    kind: "other",
+    status: "pending",
+    content: [{ type: "content", content: { type: "text", text: `Allow the devkit MCP server to run tool "${tool}"?` } }],
+    rawInput,
+  },
+  options: PERMISSION_OPTIONS,
+});
+
+const PERMISSION_STATES: { name: string; width: string; size: "rail" | "wide"; params: unknown }[] = [
+  { name: "short", width: "w-96 max-w-full", size: "wide", params: mcpParams("db.query", { profileId: "0123456789abcdef01234567", sql: "select 1" }) },
+  { name: "long message", width: "w-180 max-w-full", size: "wide", params: mcpParams("agenthub.sendMessage", LONG_SEND_MESSAGE_INPUT) },
+  {
+    name: "JSON arguments",
+    width: "w-120 max-w-full",
+    size: "wide",
+    params: mcpParams("api.saveRequest", {
+      collectionId: "c-1",
+      request: { method: "POST", url: "https://api.example.test/v1/refunds", headers: [{ name: "Content-Type", value: "application/json" }], body: { orderId: "o-1042", amount: 1999, reason: "duplicate charge" } },
+    }),
+  },
+  {
+    name: "long command",
+    width: "w-120 max-w-full",
+    size: "wide",
+    params: { toolCall: { title: "`./gradlew test`", rawInput: { command: "./gradlew :billing-api:test --tests '*RetryPolicyTest' --info --stacktrace && ./scripts/publish-report.sh --upload --verbose\necho done" } }, options: PERMISSION_OPTIONS },
+  },
+  { name: "narrow rail", width: "w-66", size: "rail", params: mcpParams("agenthub.sendMessage", LONG_SEND_MESSAGE_INPUT) },
+];
 
 /**
  * The Agent Hub conversation with a finished turn and a live one, through the
@@ -331,6 +381,28 @@ export function AgentHubTranscriptSection() {
             },
           }}
         />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — permission request, long input</h2>
+      <div className="flex flex-wrap items-start gap-4" data-testid="gallery-agenthub-permission-states">
+        {PERMISSION_STATES.map((state) => (
+          <figure key={state.name} className={cn("m-0 flex flex-col gap-1", state.width)}>
+            <figcaption className="text-caption-11 text-text-tertiary">{state.name}</figcaption>
+            <div className="overflow-hidden rounded-control border border-border-subtle bg-surface-raised">
+              <AgentPermissionRequest
+                panel
+                size={state.size}
+                session={session}
+                onResolve={() => {}}
+                onMinimize={() => {}}
+                pending={{ id: `perm-${state.name}`, sessionId: session.id, caller: `agent:${session.id}`, title: "", depth: 0, createdAt: "", expiresAt: "", params: state.params }}
+              />
+            </div>
+          </figure>
+        ))}
+        <figure className="m-0 flex w-96 max-w-full flex-col gap-1">
+          <figcaption className="text-caption-11 text-text-tertiary">expanded (static, defaultOpen)</figcaption>
+          <PermissionPreview defaultOpen testId="permission-args" text={JSON.stringify(LONG_SEND_MESSAGE_INPUT)} />
+        </figure>
       </div>
       <h2 className="text-title-16 text-text-primary">Agent Hub — swarm rail</h2>
       <div data-testid="gallery-agenthub-rail" className="h-80 w-66 overflow-hidden rounded-control border border-border-subtle bg-(--background-app) px-2">

@@ -97,6 +97,34 @@ const PERMISSION: PendingPermission = {
   },
 };
 
+// Codex asking before an MCP tool runs, with a long message as its argument:
+// the card folds it to three lines and "Show full request" opens all of it.
+const PERMISSION_MESSAGE: PendingPermission = {
+  ...PERMISSION,
+  id: "perm-message",
+  params: {
+    toolCall: {
+      toolCallId: "mcp-approval-9",
+      title: "devkit.agenthub.sendMessage",
+      kind: "other",
+      status: "pending",
+      content: [{ type: "content", content: { type: "text", text: 'Allow the devkit MCP server to run tool "agenthub.sendMessage"?' } }],
+      rawInput: {
+        sessionId: "8d2fcfa7-8e6a-4f5f-a8d6-460d798e85cc",
+        message:
+          "Bạn là session con của 8d2fcfa7-8e6a-4f5f-a8d6-460d798e85cc. Nhiệm vụ dễ, CHỈ ĐỌC / PHÂN TÍCH, không sửa file, không commit/push, không mở thêm agent.\n" +
+          "User muốn từ Đề xuất mua ở medical-examination mở nhanh POS điền sẵn khách, thuốc, số lượng và ghi chú.\n" +
+          Array.from({ length: 8 }, (_, i) => `${i + 1}. Tìm điểm vào, màn hình liên quan và nêu những file cần đổi cho bước ${i + 1}, kèm lý do và rủi ro.`).join("\n"),
+      },
+    },
+    options: [
+      { optionId: "allow_once", name: "Allow", kind: "allow_once" },
+      { optionId: "allow_always", name: "Allow for this session", kind: "allow_always" },
+      { optionId: "reject_once", name: "Deny", kind: "reject_once" },
+    ],
+  },
+};
+
 const choice = (n: number) => ({
   [`question_${n}`]: {
     type: "string",
@@ -197,8 +225,8 @@ const COMMANDS = [
   { name: "init", description: "" },
 ];
 
-type Scenario = "idle" | "streaming" | "permission" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
-const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
+type Scenario = "idle" | "streaming" | "permission" | "permissionmessage" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
+const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "permissionmessage", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
 const LONG_PROMPT = Array.from({ length: 30 }, (_, i) => `line ${i + 1} of a long prompt`).join("\n");
 
 export function AgentComposerLayoutSection() {
@@ -215,14 +243,19 @@ export function AgentComposerLayoutSection() {
   const [model, setModel] = useState("sonnet");
 
   const session = useMemo<AgentSession>(
-    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" ? "awaiting_permission" : "idle" }),
+    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" || scenario === "permissionmessage" ? "awaiting_permission" : "idle" }),
     [scenario],
   );
   const items = useMemo(() => transcript(turns), [turns]);
 
   // The queues are the store's, as in the app: the tray counts "1 of 3" off them.
   useEffect(() => {
-    const permissions = scenario === "permission" ? [PERMISSION, { ...PERMISSION, id: "perm-2" }, { ...PERMISSION, id: "perm-3" }] : [];
+    const permissions =
+      scenario === "permission"
+        ? [PERMISSION, { ...PERMISSION, id: "perm-2" }, { ...PERMISSION, id: "perm-3" }]
+        : scenario === "permissionmessage"
+          ? [PERMISSION_MESSAGE]
+          : [];
     const questions = scenario === "questions" ? [question("q-1", 4), question("q-2", 2)] : [];
     useAgentSessionsStore.setState({ pendingQueue: permissions, elicitationQueue: questions });
     return () => useAgentSessionsStore.setState({ pendingQueue: [], elicitationQueue: [] });
@@ -281,7 +314,7 @@ export function AgentComposerLayoutSection() {
     onCompact: () => {},
   };
 
-  const pendingPermission = scenario === "permission" ? PERMISSION : null;
+  const pendingPermission = scenario === "permission" ? PERMISSION : scenario === "permissionmessage" ? PERMISSION_MESSAGE : null;
   const pendingElicitation = scenario === "questions" ? question("q-1", 4) : null;
 
   return (

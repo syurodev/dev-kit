@@ -1931,6 +1931,13 @@
 .composer-editor-cap-rail {
     max-height: clamp(2.5rem, 30cqh, 10rem);
 }
+.permission-preview-cap {
+    /* "Show full request": what is left of the panel's cap after the card's own
+       rows (heading, ask, toggle row, footer ≈ 14rem), so the request scrolls in
+       its well rather than the well inside a scrolling panel — never less than a
+       few rows nor more than a page. */
+    max-height: clamp(6rem, calc(78cqh - 8.5rem - 14rem), 28rem);
+}
 .composer-panel-cap {
     /* What is left of the region's cap once the always-present rows (context
        bar, one line of field, tools) are paid for — never less than a few rows. */
