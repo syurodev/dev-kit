@@ -14,7 +14,7 @@ require (
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/twmb/franz-go v1.21.6
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
-	github.com/wailsapp/wails/v3 v3.0.0-beta.31
+	github.com/wailsapp/wails/v3 v3.0.0-beta.32
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.36.0
