@@ -193,3 +193,50 @@ describe("line handling and limits", () => {
     await expect(resolveFileRef({ path: "a.ts" }, ctx, deps)).rejects.toThrow("bridge down");
   });
 });
+
+describe("an elided path", () => {
+  const elided = { path: "core/.../DispatchFunction.java" };
+
+  test("is found by its file name where the written ends fit", async () => {
+    const { deps, calls } = fakeDeps({
+      files: ["/w/api/core/src/main/java/io/x/DispatchFunction.java"],
+      byName: ["/w/api/core/src/main/java/io/x/DispatchFunction.java", "/w/api/other/src/DispatchFunction.java"],
+    });
+    expect(await resolveFileRef(elided, ctx, deps)).toEqual({
+      kind: "found",
+      target: { workspaceId: "ws", folderId: "api", folderName: "api", rel: "core/src/main/java/io/x/DispatchFunction.java" },
+    });
+    // It was never looked up as the literal path it is not.
+    expect(calls.byName).toBe(1);
+    expect(calls.stat).toBe(1);
+  });
+
+  test("is missing when nothing with that name fits its ends", async () => {
+    const { deps } = fakeDeps({ byName: ["/w/api/other/src/DispatchFunction.java"] });
+    expect(await resolveFileRef(elided, ctx, deps)).toEqual({ kind: "missing" });
+  });
+
+  test("is ambiguous when two files fit, one in each folder", async () => {
+    const { deps } = fakeDeps({
+      files: ["/w/api/core/a/DispatchFunction.java", "/w/web/core/b/DispatchFunction.java"],
+      byName: ["/w/api/core/a/DispatchFunction.java", "/w/web/core/b/DispatchFunction.java"],
+    });
+    const result = await resolveFileRef(elided, ctx, deps);
+    expect(result.kind).toBe("ambiguous");
+  });
+
+  test("an elision in the file's own place names nothing", async () => {
+    const { deps, calls } = fakeDeps({ byName: ["/w/api/core/x.java"] });
+    expect(await resolveFileRef({ path: "core/..." }, ctx, deps)).toEqual({ kind: "missing" });
+    expect(calls.byName).toBe(0);
+  });
+
+  test("an absolute one keeps its root", async () => {
+    const { deps } = fakeDeps({ files: ["/w/api/core/a/X.java"], byName: ["/w/api/core/a/X.java", "/elsewhere/core/a/X.java"] });
+    const result = await resolveFileRef({ path: "/w/api/.../X.java" }, ctx, deps);
+    expect(result).toEqual({
+      kind: "found",
+      target: { workspaceId: "ws", folderId: "api", folderName: "api", rel: "core/a/X.java" },
+    });
+  });
+});

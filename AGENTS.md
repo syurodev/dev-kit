@@ -350,6 +350,9 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   files under `frontend/src/modules/agenthub/transcript/`).
   - Parsing is pure: `fileRef.ts` takes `a/b.go`, `./`, absolute, `:27`, `:27-30`, `:27:3`, `#L27(-L30)`
     and an allow-list of known names (`Dockerfile`, `go.mod`, …), never URLs, versions or escaping `..`;
+    a segment that is only `...` or `…` is an **elision** (`core/.../DispatchFunction.java`, how an answer fits a long path
+    in a table cell): `hasElision` / `elisionPattern`, and the resolver (step 0) never stats it as a path — it searches the
+    file name and keeps the files whose path fits the written ends, any number of folders between;
     `linkTarget(href)` splits a markdown link into url (`http(s)`/`mailto`), file (no scheme / `file://`)
     or other (plain text, href in a tooltip).
   - `resolveFileRef.ts` resolves in the **session's** workspace (`RefContext` = session id, workspace id,
@@ -427,6 +430,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     selected here (its picker already connects the shared one).
   - Go: the bridge keeps the message of only the listed `pdf.*` / `memory.*` codes (`bridge/errors.go`
     `keptCodes`; anything else is `internal_error`). PDF engine text reaches only the log.
+- **A ```mermaid fence in an agent's answer is drawn as the diagram** (`transcript/AgentMermaidBlock.tsx`, shared
+  renderer `components/mermaid/useMermaid.ts`, also Notes' blocks). It is the ordinary code block until the message has
+  settled (`CodeRefsContext.settled`: half a diagram never renders) and whenever Mermaid refuses the source or fails to
+  load — the same look as before diagrams existed; once drawn, Source / Diagram toggles and Copy copies the source.
+  Renders run one at a time (Mermaid is configured globally per render), are cached by family/theme/source, and use
+  the app font and theme tokens. `useOptionalTheme` lets a surface with no `ThemeProvider` draw in the dark palette
+  instead of throwing. A file reference chip has no native `title` (the hover card says where it goes, and the
+  tooltip drew a second one over the text); the card header's full path is a title only when it is cut off.
 - **The composer is one cluster in its own layout region** (`surfaces/AgentComposer.tsx`,
   `composer/`; `AgentHubContent` and `AgentRail` give it `agent-composer-region` below the transcript).
   Nothing floats over the transcript: no `--composer-inset`, no measuring observer; `TranscriptStream`

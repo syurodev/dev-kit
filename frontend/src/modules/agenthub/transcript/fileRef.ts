@@ -6,11 +6,45 @@ const SOURCE_EXT = /(^|\/)[^/]+\.(go|ts|tsx|js|jsx|mjs|cjs|java|kt|lua|py|rb|rs|
 const ANY_EXT = /(^|\/)[^/]+\.[A-Za-z0-9]{1,8}$/;
 // Well-known names with no (or an unusual) extension; they count as files on their own.
 const KNOWN_NAMES = /(^|\/)(Dockerfile|Makefile|Taskfile\.ya?ml|go\.mod|go\.sum|package\.json|tsconfig\.json|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|\.env(\.\w+)?)$/;
-const SHAPE = /^(\/?[\w.@-]+(?:\/[\w.@-]+)*)(?::(\d+)(?:-\d+)?)?(?::\d+)?$/; // path[:line[-end]][:col]
+// path[:line[-end]][:col]. A segment may be an elision (`...` or `…`): see hasElision.
+const SHAPE = /^(\/?[\w.@\u2026-]+(?:\/[\w.@\u2026-]+)*)(?::(\d+)(?:-\d+)?)?(?::\d+)?$/;
 // Libraries and frameworks that read like a file name in prose ("Node.js").
 const PROSE_NAMES = /^(Node|Next|Vue|Nuxt|Express|Three|D3|Chart)\.js$/;
 // GitHub-style line anchor: #L27 or #L27-L30 (the first number is the line).
 const LINE_ANCHOR = /#L(\d+)(?:-L\d+)?$/;
+
+/**
+ * A segment that is only dots or an ellipsis — `core/.../DispatchFunction.java`.
+ * An answer shortens a long path this way to fit a table cell; it is not a
+ * folder, it stands for however many there are between the two ends.
+ */
+const ELISION = /^(?:\.{3,}|\u2026)$/;
+
+/** True when a path has an elided segment: it names a pattern of paths, not one. */
+export function hasElision(path: string): boolean {
+  return path.split("/").some((segment) => ELISION.test(segment));
+}
+
+/**
+ * The paths a path with elisions can mean, as a test of an absolute path:
+ * the written segments in order, anything between them where the elision is
+ * (no folder at all included), and the file name last. A relative start
+ * matches at any folder boundary; an absolute one at the root.
+ */
+export function elisionPattern(path: string): RegExp {
+  const absolute = path.startsWith("/");
+  const body = path
+    .split("/")
+    .filter((segment, index) => segment !== "" || index > 0)
+    .map((segment) => (ELISION.test(segment) ? null : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  let source = "";
+  body.forEach((segment, index) => {
+    const last = index === body.length - 1;
+    if (segment === null) source += last ? "" : "(?:[^/]+/)*";
+    else source += last ? segment : `${segment}/`;
+  });
+  return new RegExp(`${absolute ? "^/" : "(?:^|/)"}${source}$`);
+}
 
 /** True when `..` appears only as leading segments of a relative path, before any name. */
 function staysInside(path: string): boolean {

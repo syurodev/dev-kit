@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table/Data
 import { fileRef, linkTarget } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
+import { AgentMermaidBlock } from "./AgentMermaidBlock";
 import { FileReference, UrlReference } from "./ReferencePreview";
 import { CommitReference, EntityReference, entityLabel, openCommitRef, openEntity, openSymbol, SymbolReference } from "./CodeReference";
 import { codeSpans, commitCandidate, type SymbolHit } from "./codeRefs";
@@ -175,12 +176,14 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
             }
             const ref = canOpen && !inLink ? fileRef(token.value) : null;
             if (ref) {
+              // No `title`: the hover card says where it goes, and a native
+              // tooltip drew a second one over the text beside the chip.
               const suffix = token.value.match(/(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L\d+)?)$/)?.[0];
               const label = suffix ? token.value.slice(0, -suffix.length) : token.value;
               return (
                 <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
                   <Badge asChild variant="secondary" className="h-6 max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-0 align-middle whitespace-nowrap text-code-12 cursor-pointer hover:bg-muted">
-                    <button type="button" data-testid="agent-file-ref" title={token.value} aria-label={`File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`}>
+                    <button type="button" data-testid="agent-file-ref" aria-label={`File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`}>
                       <FileLabel path={ref.path} label={label} suffix={suffix} />
                     </button>
                   </Badge>
@@ -382,6 +385,12 @@ function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table
   );
 }
 
+/** A mermaid fence: drawn once the message has settled, the code block until then and whenever it cannot be. */
+function MermaidFence({ code }: { code: string }) {
+  const { settled } = React.useContext(CodeRefsContext);
+  return <AgentMermaidBlock code={code} settled={settled} />;
+}
+
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.type) {
     case "heading":
@@ -440,6 +449,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       // structure to lose, and a token or URL long enough to fill it read as
       // "the message ended" with everything past the fold behind a
       // horizontal scrollbar nothing hinted was there.
+      if (block.language?.toLowerCase() === "mermaid") return <MermaidFence code={block.code} />;
       return <AgentCodeBlock code={block.code} language={block.language} wrap={!block.code.includes("\n")} />;
 
     case "table":

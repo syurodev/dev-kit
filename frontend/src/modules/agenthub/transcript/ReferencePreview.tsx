@@ -267,7 +267,18 @@ function PreviewHeader({
   return (
     <div className="flex min-w-0 items-baseline gap-2 border-b border-border-subtle p-2.5">
       <FileIcon path={path} className="size-3.5" />
-      <span className="flex min-w-0 flex-1 items-baseline text-code-12" title={path}>
+      <span
+        className="flex min-w-0 flex-1 items-baseline text-code-12"
+        // The full path as a native tooltip only when part of it is cut off.
+        // Always on, it drew a dark pill with the same words over the card's
+        // own header — and over the text beside the chip it belongs to.
+        onMouseEnter={(event) => {
+          const header = event.currentTarget;
+          const cut = Array.from(header.children).some((part) => part.scrollWidth > part.clientWidth);
+          if (cut) header.title = path;
+          else header.removeAttribute("title");
+        }}
+      >
         {dir ? (
           // rtl puts the ellipsis on the left, where the least telling part of a path is.
           <span dir="rtl" className="min-w-0 truncate text-left text-text-tertiary">

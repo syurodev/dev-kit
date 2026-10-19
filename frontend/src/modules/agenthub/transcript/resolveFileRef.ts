@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { agentHubListContextFiles } from "@/bridge/agenthub";
 import { listWorkspaceServices } from "@/bridge/workspace";
 import { statFolderFile } from "@/bridge/workspaceCode";
-import type { FileRef } from "./fileRef";
+import { elisionPattern, hasElision, type FileRef } from "./fileRef";
 
 export type RefContext = { sessionId: string; workspaceId: string; projectPath: string };
 export type RefTarget = {
@@ -118,6 +118,42 @@ export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: Resolv
     return { kind: "ambiguous", targets };
   };
 
+  /** The files the search finds for a file name, kept to those `matches`, as a resolution. */
+  const byName = async (base: string, matches: (abs: string) => boolean): Promise<RefResolution> => {
+    let files: { path: string }[];
+    try {
+      files = await deps.byName(ctx.sessionId, base);
+    } catch {
+      return { kind: "missing" };
+    }
+    const cands: Candidate[] = [];
+    const seenCand = new Set<string>();
+    for (const f of files) {
+      const abs = normalizePath(f.path);
+      if (!matches(abs)) continue;
+      const at = locate(folders, abs);
+      if (!at) continue;
+      const key = `${at.folder.id}\u0000${at.rel}`;
+      if (seenCand.has(key)) continue;
+      seenCand.add(key);
+      cands.push(at);
+      // One more than the cap is enough to know the answer is ambiguous; never stat a hundred files.
+      if (cands.length > MAX_AMBIGUOUS) break;
+    }
+    return settle(await probeAll(cands)) ?? { kind: "missing" };
+  };
+
+  // 0. Elided — `core/.../DispatchFunction.java`, an answer's way of fitting a
+  // long path in a table cell. It names the two ends and not the folders
+  // between, so no folder has it as a path: only the search for the file name
+  // can find what it stands for, kept to paths that fit the written ends.
+  if (hasElision(ref.path)) {
+    const name = ref.path.slice(ref.path.lastIndexOf("/") + 1);
+    if (name === "" || hasElision(name)) return { kind: "missing" };
+    const pattern = elisionPattern(ref.path);
+    return byName(name, (abs) => pattern.test(abs));
+  }
+
   // 1. Absolute: the deepest folder containing it, or nothing.
   if (ref.path.startsWith("/")) {
     const at = locate(folders, normalizePath(ref.path));
@@ -142,29 +178,8 @@ export async function resolveFileRef(ref: FileRef, ctx: RefContext, deps: Resolv
   // 4. By name: the context-file search, kept to paths that end in the reference.
   const suffixPath = rootRel.replace(/^(\.\.\/)+/, "");
   if (suffixPath === "" || suffixPath === ".." || suffixPath.startsWith("../")) return { kind: "missing" };
-  const base = suffixPath.slice(suffixPath.lastIndexOf("/") + 1);
-  let files: { path: string }[];
-  try {
-    files = await deps.byName(ctx.sessionId, base);
-  } catch {
-    return { kind: "missing" };
-  }
   const suffix = "/" + suffixPath;
-  const cands: Candidate[] = [];
-  const seenCand = new Set<string>();
-  for (const f of files) {
-    const abs = normalizePath(f.path);
-    if (!abs.endsWith(suffix)) continue;
-    const at = locate(folders, abs);
-    if (!at) continue;
-    const key = `${at.folder.id}\u0000${at.rel}`;
-    if (seenCand.has(key)) continue;
-    seenCand.add(key);
-    cands.push(at);
-    // One more than the cap is enough to know the answer is ambiguous; never stat a hundred files.
-    if (cands.length > MAX_AMBIGUOUS) break;
-  }
-  return settle(await probeAll(cands)) ?? { kind: "missing" };
+  return byName(suffixPath.slice(suffixPath.lastIndexOf("/") + 1), (abs) => abs.endsWith(suffix));
 }
 
 export const liveResolverDeps: ResolverDeps = {
