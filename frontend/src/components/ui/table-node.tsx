@@ -747,7 +747,7 @@ export const TableElement = withHOC(
         // 4px past the table: a table that fills the width would otherwise
         // scroll by those 4px.
         className={cn(
-          'overflow-x-auto py-5 pr-1',
+          'overflow-x-auto py-3 pr-1',
           hasControls && '-ml-2 *:data-[slot=block-selection]:left-2'
         )}
         style={{ paddingLeft: marginLeft }}
@@ -1373,23 +1373,58 @@ export function TableCellElement({
   const { borders, colIndex, colSpan, rowIndex, rowSpan, width } =
     useTableCellPresentation(element);
   const autoLayout = React.useContext(TableAutoLayoutContext);
+  const rowCount = useElementSelector(
+    ([node]) => (node as TTableElement).children.length,
+    [],
+    { key: KEYS.table }
+  );
+  const columnCount = useElementSelector(
+    ([node]) => getTableColumnCount(node as TTableElement),
+    [],
+    { key: KEYS.table }
+  );
+  const firstRow = rowIndex - rowSpan + 1 === 0;
+  const lastRow = rowIndex === rowCount - 1;
+  const firstCol = colIndex - colSpan + 1 === 0;
+  const lastCol = colIndex === columnCount - 1;
+  // The same look as DataTable (tool results, markdown tables in the agent
+  // transcript): a rounded subtle frame, a soft wash behind the header, and a
+  // rule between rows — no vertical rules between columns. Plate's border
+  // model is kept for what a person chooses: an inner right border is drawn
+  // only when the cell's own `borders.right` is set (the borders menu), not
+  // for the default every cell carries.
+  const showRight =
+    borders.right?.size && (lastCol || element.borders?.right?.size);
+  const corner = cn(
+    firstRow && firstCol && 'rounded-tl-control before:rounded-tl-control',
+    firstRow && lastCol && 'rounded-tr-control before:rounded-tr-control',
+    lastRow && firstCol && 'rounded-bl-control before:rounded-bl-control',
+    lastRow && lastCol && 'rounded-br-control before:rounded-br-control'
+  );
 
   return (
     <PlateElement
       {...props}
       as={isHeader ? 'th' : 'td'}
       className={cn(
-        'relative h-full overflow-visible border-none bg-background p-0',
-        element.background ? 'bg-(--cellBackground)' : 'bg-background',
-        isHeader && 'text-left *:m-0',
+        'relative h-full overflow-visible border-none p-0',
+        element.background
+          ? 'bg-(--cellBackground)'
+          : isHeader
+            ? 'bg-(--state-soft)'
+            : 'bg-transparent group-hover/row:bg-(--state-soft)',
+        isHeader
+          ? 'text-left text-body-13-medium text-text-secondary *:m-0'
+          : 'text-body-14 text-text-primary',
+        corner,
         'before:size-full',
         'data-[table-cell-selected=true]:before:z-10',
         'data-[table-cell-selected=true]:before:bg-brand/5',
         "before:absolute before:box-border before:select-none",
-        borders.bottom?.size && 'before:border-b before:border-b-border',
-        borders.right?.size && 'before:border-r before:border-r-border',
-        borders.left?.size && 'before:border-l before:border-l-border',
-        borders.top?.size && 'before:border-t before:border-t-border'
+        borders.bottom?.size && 'before:border-b before:border-b-border-subtle',
+        showRight && 'before:border-r before:border-r-border-subtle',
+        borders.left?.size && 'before:border-l before:border-l-border-subtle',
+        borders.top?.size && 'before:border-t before:border-t-border-subtle'
       )}
       style={
         {
@@ -1406,7 +1441,9 @@ export function TableCellElement({
       }}
     >
       <div
-        className="relative z-20 box-border h-full px-3 py-2"
+        // The paragraph inside adds 4px above and below: 6px a side in all,
+        // DataTable's cell padding.
+        className="relative z-20 box-border h-full px-3 py-0.5"
         style={
           rowSpan === 1
             ? { minHeight: 'var(--tableRowMinHeight, 0px)' }
