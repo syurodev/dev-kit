@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plate, usePlateEditor } from "platejs/react";
+import { DataTable } from "@/components/ui/data-table/DataTable";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { NoteOptionsMenu } from "@/modules/notes/NoteOptionsMenu";
 import { NotesEditorKit } from "@/modules/notes/plate/plugins";
@@ -112,6 +113,24 @@ export function NotesEditorLayoutSection() {
           </EditorContainer>
         </Plate>
       </div>
+      {/* The shared table a note's tables are drawn to match (tool results,
+          markdown tables in the agent transcript). */}
+      <h3 data-testid="notes-table-reference" className="text-title-16 text-text-primary">
+        DataTable, for comparison
+      </h3>
+      <DataTable
+        className="max-w-240 rounded-control border border-border-subtle"
+        columns={[
+          { key: "source", header: "Nguồn", nowrap: true },
+          { key: "state", header: "Trạng thái" },
+          { key: "role", header: "Vai trò" },
+        ]}
+        rows={[
+          ["galaxy-g-governance", "Đã ký", "Xương sống governance: canonical model, EA-CNP-001 và quy tắc đặt tên cho mọi connector"],
+          ["ADR-0053", "Chờ ký", "Hai làn theo FlowClass (MONEY / ≠ MONEY), mỗi làn một execution mode"],
+          ["ADR-0054", "Chờ ký", "Onboard theo bậc sandbox → cell, kèm 5 amendment ★A1–A5"],
+        ]}
+      />
     </section>
   );
 }
