@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { NodeApi } from "platejs";
+import { NodeApi, type TElement } from "platejs";
 import { PlateElement, type PlateElementProps } from "platejs/react";
 import { CodeBlockElement } from "@/components/ui/code-block-node";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,16 @@ function MermaidDiagram({ source }: { source: string }) {
   return <div dangerouslySetInnerHTML={{ __html: state.svg }} />;
 }
 
+/**
+ * The diagram's text, one code line per line. `NodeApi.string` on the block
+ * concatenates its lines with nothing between them, which turned every
+ * multi-line diagram into a single line Mermaid could not parse (a flowchart
+ * failed, a sequence diagram drew its messages as one label).
+ */
+export function mermaidSource(block: TElement): string {
+  return block.children.map((line) => NodeApi.string(line)).join("\n");
+}
+
 export function MermaidCodeBlock(props: PlateElementProps) {
   const lang = (props.element as { lang?: string }).lang;
   const [mode, setMode] = useState<"preview" | "edit">("preview");
@@ -156,7 +166,7 @@ export function MermaidCodeBlock(props: PlateElementProps) {
     );
   }
 
-  const source = NodeApi.string(props.element);
+  const source = mermaidSource(props.element);
 
   return (
     <PlateElement

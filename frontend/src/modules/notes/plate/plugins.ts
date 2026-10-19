@@ -22,9 +22,14 @@ import { SlashInputElement } from "./SlashInput";
  * CodeBlockKit's own code_block plugin renders every language with plain
  * syntax highlighting. Swap in MermaidCodeBlock only for that one plugin —
  * every other language keeps CodeBlockKit's default rendering unchanged.
+ *
+ * `configure`, not `withComponent`: the kit sets its component with
+ * `configure({ node: { component } })`, and Plate applies configurations after
+ * extensions, so a `withComponent` here lost to it and MermaidCodeBlock was
+ * never rendered — every ```mermaid block showed as source.
  */
 const codeBlockKitWithMermaid = CodeBlockKit.map((plugin) =>
-  plugin.key === "code_block" ? plugin.withComponent(MermaidCodeBlock) : plugin,
+  plugin.key === "code_block" ? plugin.configure({ node: { component: MermaidCodeBlock } }) : plugin,
 );
 
 export const NotesEditorKit = [
