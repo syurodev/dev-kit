@@ -166,6 +166,14 @@ func prError(err error, platform string) error {
 	}
 	switch {
 	case errors.Is(err, prwatch.ErrNoAccount):
+		var keyOnly *prwatch.KeyOnlyError
+		if errors.As(err, &keyOnly) {
+			who := "an SSH key account"
+			if keyOnly.Account != "" {
+				who = "the SSH key account “" + keyOnly.Account + "”"
+			}
+			return apperrors.New("pr.noAccount", "This remote has "+who+", which pushes code but cannot call "+platform+"'s API. The person adds a token for it in Accounts.", false)
+		}
 		return apperrors.New("pr.noAccount", "No account for this remote's host. The person adds a token in Accounts.", false)
 	case errors.Is(err, prwatch.ErrAmbiguousAccount):
 		return apperrors.New("pr.ambiguousAccount", "More than one account fits this remote and none was chosen.", true)

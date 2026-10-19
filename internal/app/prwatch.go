@@ -85,7 +85,7 @@ func (c prCredentials) Token(ctx context.Context, req prwatch.TokenRequest) (str
 		case match.Decided:
 			id = match.Account.ID
 		case len(match.Options) == 0:
-			return "", "", prwatch.ErrNoAccount
+			return "", "", c.noToken(req)
 		case !req.Interactive || c.picker.hub == nil:
 			return "", "", prwatch.ErrAmbiguousAccount
 		default:
@@ -114,4 +114,26 @@ func (c prCredentials) Token(ctx context.Context, req prwatch.TokenRequest) (str
 		label = account.Label
 	}
 	return credential.Secret, label, nil
+}
+
+// noToken says why no token fits: when the remote has a key account (bound to
+// it, or the one an SSH push would use) the person is not "without an account",
+// the key just cannot call an API, and the error carries its label so the
+// notice can say so. Nothing is resolved or revealed: only labels are read.
+func (c prCredentials) noToken(req prwatch.TokenRequest) error {
+	if req.BoundAccountID != "" {
+		if bound, err := c.accounts.Get(req.BoundAccountID); err == nil && bound.Kind == accounts.KindSSHKey {
+			return prwatch.NewKeyOnlyError(bound.Label)
+		}
+	}
+	match, err := c.accounts.ForRemote(req.Host, req.Owner, req.Env, accounts.ViaSSH)
+	switch {
+	case err != nil:
+		return prwatch.ErrNoAccount
+	case match.Decided:
+		return prwatch.NewKeyOnlyError(match.Account.Label)
+	case len(match.Options) > 0:
+		return prwatch.NewKeyOnlyError("")
+	}
+	return prwatch.ErrNoAccount
 }

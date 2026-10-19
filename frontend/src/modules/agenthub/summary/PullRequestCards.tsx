@@ -3,6 +3,7 @@ import { ChevronRight, CircleAlert, GitMerge, GitPullRequest, GitPullRequestClos
 
 import { openExternal } from "@/bridge/browser";
 import { cn } from "@/lib/utils";
+import { useAddTokenRequest } from "@/stores/addTokenRequest";
 import { showModuleHome } from "@/workbench/showModule";
 import type { PullRequestCard, PullRequestNotice, Tone } from "./pullRequestModel";
 import type { PullRequestsPanel } from "./usePullRequests";
@@ -184,7 +185,10 @@ function NoticeRow({ notice }: { notice: PullRequestNotice }) {
           <button
             type="button"
             data-testid="summary-pr-notice-action"
-            onClick={() => showModuleHome("accounts")}
+            onClick={() => {
+              useAddTokenRequest.getState().request(notice.provider);
+              showModuleHome("accounts");
+            }}
             className={cn(
               "h-6 shrink-0 cursor-pointer rounded-sm px-2 text-caption-11 text-text-primary ring-1 ring-border-subtle transition-control hover:bg-state-soft",
               FOCUS,

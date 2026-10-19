@@ -54,6 +54,8 @@ export type PullRequestNotice = {
   folders: { folder: string; name: string; message: string }[];
   /** What the person can do about it, when it is theirs to do: Accounts is where it is fixed. */
   action: { label: string; target: "accounts" } | null;
+  /** The account provider the action is about ("gitlab"), from the platform Go named; "" when it named none. */
+  provider: string;
 };
 
 export type PullRequestsView = {
@@ -123,6 +125,7 @@ export function pullRequestsView(items: readonly PullRequestItem[] | null | unde
         tone,
         folders: [entry],
         action: label ? { label, target: "accounts" } : null,
+        provider: (item.platform ?? "").toLowerCase(),
       });
     } else if (!group.folders.some((f) => f.folder === item.folder)) {
       group.folders.push(entry);

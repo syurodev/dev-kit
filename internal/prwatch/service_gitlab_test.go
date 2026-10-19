@@ -168,3 +168,35 @@ func TestSelfHostedGitLabIsStillUnsupportedAndSaysSo(t *testing.T) {
 		t.Error("nothing may be sent to a host no provider serves")
 	}
 }
+
+// A remote whose only account is an SSH key is not "without an account": the
+// notice says the key pushes but cannot read merge requests. It names no
+// repository, so the window folds folders on one key into one notice, and a
+// label cannot smuggle parentheses in (they are what that folding strips).
+func TestAKeyOnlyRemoteIsSaidAsSuch(t *testing.T) {
+	r := newGitLabRig(t)
+	r.src.co["/w/other"] = Checkout{Branch: "feat/x", Origin: glOrigin(), Push: glOrigin(), DefaultBranch: "main"}
+	r.creds.err = NewKeyOnlyError("id_ed25519_gitlab")
+	st := r.svc.State(bg, "s1", []string{"/w/billing", "/w/other"})
+	want := "The GitLab key “id_ed25519_gitlab” pushes your code but can't read merge requests. Add a GitLab token with read_api access in Accounts."
+	for _, it := range st.Items {
+		if it.Status != StatusNoAccount || it.Message != want {
+			t.Errorf("%+v", it)
+		}
+	}
+	if r.host.total() != 0 || st.NextPollMs != -1 {
+		t.Errorf("a notice that needs a person must not poll: %d requests, poll %d", r.host.total(), st.NextPollMs)
+	}
+
+	r.advance(10 * time.Second)
+	r.creds.err = NewKeyOnlyError("")
+	if got := r.svc.State(bg, "s1", []string{"/w/billing"}).Items[0].Message; !strings.HasPrefix(got, "The GitLab SSH key pushes") {
+		t.Errorf("several keys: %q", got)
+	}
+	if got := NewKeyOnlyError("work (old)\n\t key").Account; got != "work [old] key" {
+		t.Errorf("label %q", got)
+	}
+	if got := NewKeyOnlyError(strings.Repeat("é", 100)).Account; len([]rune(got)) != 61 {
+		t.Errorf("label not clipped: %d", len([]rune(got)))
+	}
+}
