@@ -34,6 +34,12 @@ export interface Item {
      * Platform names the host's platform ("GitHub") for a message, when known.
      */
     "platform"?: string;
+
+    /**
+     * KeyAccountID is the SSH key account a "no token" notice is about, so the
+     * token the window asks for can be attached to that key. Empty otherwise.
+     */
+    "keyAccountId"?: string;
 }
 
 /**

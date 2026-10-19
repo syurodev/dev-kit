@@ -1,6 +1,6 @@
 import { BrandIcon, isBrand } from "@/components/brand-icon/BrandIcon";
-import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Plus, RefreshCw, RotateCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { BadgeCheck, Download, Eye, Fingerprint, KeyRound, Pencil, Plus, RefreshCw, RotateCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -14,6 +14,8 @@ import {
   type Account,
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
+import { canRename, groupAccounts } from "./accountGroups";
+import { EditAccountDialog } from "./EditAccountDialog";
 import { AddTokenDialog } from "./AddTokenDialog";
 import { useAddTokenRequest } from "@/stores/addTokenRequest";
 import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
@@ -41,15 +43,20 @@ const STATE_TONE: Record<Account["state"], string> = {
   needs_local_secret: "text-status-warning",
 };
 
-function AccountRow({
+export function AccountRow({
   account,
   onChanged,
   onReveal,
   onShowKey,
   onIdentity,
   onRotate,
+  onEdit,
+  nested = false,
 }: {
   account: Account;
+  /** Drawn under the key it goes with: the API token of that login. */
+  nested?: boolean;
+  onEdit: () => void;
   onChanged: () => void;
   onReveal: () => void;
   onShowKey: () => void;
@@ -67,7 +74,9 @@ function AccountRow({
   const [error, setError] = useState("");
 
   return (
-    <li className="flex items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0">
+    <li
+      className={`flex items-center gap-3 border-b border-border-subtle py-2 last:border-b-0 ${nested ? "pl-9 pr-3" : "px-3"}`}
+    >
       {/* Which host the credential is for, when DevKit has its mark; the key for the rest. */}
       {isBrand(account.provider) ? (
         <BrandIcon brand={account.provider} className="text-text-tertiary" />
@@ -76,6 +85,7 @@ function AccountRow({
       )}
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-13-medium text-text-primary">
+          {nested ? <span className="font-normal text-text-tertiary">API token · </span> : null}
           {account.label}
           {account.subject ? (
             <span className="font-normal text-text-secondary"> · {account.subject}</span>
@@ -93,6 +103,21 @@ function AccountRow({
       <span className={`shrink-0 text-caption-11-medium ${STATE_TONE[account.state]}`}>
         {STATE_LABEL[account.state]}
       </span>
+      {canRename(account) ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Edit ${account.label}`}
+          title={
+            isKey
+              ? "Rename it, and attach the API token that goes with this key"
+              : "Rename it, or see which key it goes with"
+          }
+          onClick={onEdit}
+        >
+          <Pencil className="size-4" aria-hidden />
+        </Button>
+      ) : null}
       {(!account.scopeOwner || local) && account.kind !== "external" ? (
         <Button
           variant="ghost"
@@ -211,17 +236,21 @@ export function AccountsView() {
   const [showingKey, setShowingKey] = useState<Account | null>(null);
   const [editingIdentity, setEditingIdentity] = useState<Account | null>(null);
   const [rotating, setRotating] = useState<Account | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [addingToken, setAddingToken] = useState(false);
   // Another module asked for a token form for one provider (a pull-request notice: "add a GitLab token").
   const [tokenProvider, setTokenProvider] = useState<string | undefined>(undefined);
+  // ...and when the notice was about an SSH key, the key the new token goes with.
+  const [tokenForKey, setTokenForKey] = useState<string | undefined>(undefined);
   const requestedProvider = useAddTokenRequest((state) => state.provider);
   useEffect(() => {
     if (requestedProvider === null) return;
-    const provider = useAddTokenRequest.getState().take();
-    if (provider === null) return;
-    setTokenProvider(provider || undefined);
+    const wish = useAddTokenRequest.getState().take();
+    if (wish === null) return;
+    setTokenProvider(wish.provider || undefined);
+    setTokenForKey(wish.keyId || undefined);
     setAddingToken(true);
   }, [requestedProvider]);
 
@@ -262,6 +291,7 @@ export function AccountsView() {
           title="Add a personal access token for repositories cloned over HTTPS"
           onClick={() => {
             setTokenProvider(undefined);
+            setTokenForKey(undefined);
             setAddingToken(true);
           }}
         >
@@ -338,16 +368,30 @@ export function AccountsView() {
           />
         ) : null}
         <ul>
-          {shared.map((account) => (
-            <AccountRow
-              key={account.id}
-              account={account}
-              onChanged={reload}
-              onReveal={() => setRevealing(account)}
-              onShowKey={() => setShowingKey(account)}
-              onIdentity={() => setEditingIdentity(account)}
-              onRotate={() => setRotating(account)}
-            />
+          {groupAccounts(shared).map(({ account, token }) => (
+            <Fragment key={account.id}>
+              <AccountRow
+                account={account}
+                onChanged={reload}
+                onReveal={() => setRevealing(account)}
+                onShowKey={() => setShowingKey(account)}
+                onIdentity={() => setEditingIdentity(account)}
+                onRotate={() => setRotating(account)}
+                onEdit={() => setEditingId(account.id)}
+              />
+              {token ? (
+                <AccountRow
+                  nested
+                  account={token}
+                  onChanged={reload}
+                  onReveal={() => setRevealing(token)}
+                  onShowKey={() => setShowingKey(token)}
+                  onIdentity={() => setEditingIdentity(token)}
+                  onRotate={() => setRotating(token)}
+                  onEdit={() => setEditingId(token.id)}
+                />
+              ) : null}
+            </Fragment>
           ))}
         </ul>
         {scoped.length > 0 ? (
@@ -364,14 +408,25 @@ export function AccountsView() {
                   onChanged={reload}
                   onReveal={() => setRevealing(account)}
                   onShowKey={() => setShowingKey(account)}
-              onIdentity={() => setEditingIdentity(account)}
-              onRotate={() => setRotating(account)}
+                  onIdentity={() => setEditingIdentity(account)}
+                  onRotate={() => setRotating(account)}
+                  onEdit={() => setEditingId(account.id)}
                 />
               ))}
             </ul>
           </details>
         ) : null}
       </div>
+      <EditAccountDialog
+        account={accounts.find((account) => account.id === editingId) ?? null}
+        accounts={accounts}
+        onClose={() => setEditingId(null)}
+        onChanged={(note) => {
+          setNotice(note ?? "");
+          reload();
+        }}
+        onReplaceToken={(token) => setRotating(token)}
+      />
       <RevealDialog account={revealing} onClose={() => setRevealing(null)} />
       <SSHKeyInfoDialog account={showingKey} onClose={() => setShowingKey(null)} />
       <RotateTokenDialog
@@ -394,17 +449,21 @@ export function AccountsView() {
       <AddTokenDialog
         open={addingToken}
         initialProvider={tokenProvider}
+        linkToKey={accounts.find((a) => a.id === tokenForKey && a.kind === "ssh-key") ?? null}
         onClose={() => {
           setAddingToken(false);
           setTokenProvider(undefined);
+          setTokenForKey(undefined);
         }}
         onSaved={(saved, note) => {
           setAddingToken(false);
           setNotice(note);
           reload();
           // The identity commits are written with is the next thing a new
-          // account needs; ask for it straight away.
-          setEditingIdentity(saved);
+          // account needs; ask for it straight away. A token attached to a key
+          // commits as the key does, so it has none of its own to ask for.
+          if (!tokenForKey) setEditingIdentity(saved);
+          setTokenForKey(undefined);
         }}
       />
       <ImportSSHKeysDialog

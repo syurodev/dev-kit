@@ -193,6 +193,16 @@ describe("notices", () => {
     expect(sharedMessage(view.notices[0].message)).toBe(view.notices[0].message);
   });
 
+  test("the notice says which key its token would go with, only when every repository shares it", () => {
+    const keyed = (keyAccountId: string | undefined, folder: string) =>
+      ({ ...item("no_account", "The GitLab key “k” pushes your code but can't read merge requests.", folder), platform: "GitLab", keyAccountId }) as PullRequestItem;
+    expect(pullRequestsView([keyed("key-1", "/w/a"), keyed("key-1", "/w/b")]).notices[0].keyAccountId).toBe("key-1");
+    // Two keys that happen to share a label: one token cannot go with both.
+    expect(pullRequestsView([keyed("key-1", "/w/a"), keyed("key-2", "/w/b")]).notices[0].keyAccountId).toBe("");
+    // A notice that names no key (several fit) has none to attach to.
+    expect(pullRequestsView([keyed(undefined, "/w/a")]).notices[0].keyAccountId).toBe("");
+  });
+
   test("the add-token action knows its provider", () => {
     const withPlatform = (platform: string | undefined) => pullRequestsView([{ ...item("no_account", "x"), platform } as PullRequestItem]).notices[0].provider;
     expect(withPlatform("GitHub")).toBe("github");

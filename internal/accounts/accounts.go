@@ -121,6 +121,11 @@ type Account struct {
 	// local table, not in the account, and are not secret.
 	AuthorName  string `json:"authorName"`
 	AuthorEmail string `json:"authorEmail"`
+	// LinkedTokenID is, for an SSH key, the API token the person said goes
+	// with it; LinkedKeyIDs is, for a token, the keys it serves. Empty when
+	// nothing is linked. A declaration kept in a local table (links.go).
+	LinkedTokenID string   `json:"linkedTokenId"`
+	LinkedKeyIDs  []string `json:"linkedKeyIds"`
 }
 
 // LocalOwnerPrefix marks a scoped row that belongs to no connection profile:

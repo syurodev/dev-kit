@@ -188,6 +188,14 @@ export function AccountsImportSSHKey(path: string, provider: string, label: stri
     return $Call.ByID(2219224166, path, provider, label, passphrase, syncAcrossDevices, aliases);
 }
 
+/**
+ * AccountsLinkToken says an API token goes with an SSH key account: the key
+ * moves the code, the token reads the pull requests. Returns the key.
+ */
+export function AccountsLinkToken(keyID: string, tokenID: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(417040951, keyID, tokenID);
+}
+
 export function AccountsList(): $CancellablePromise<accounts$0.Account[] | null> {
     return $Call.ByID(4033894790);
 }
@@ -210,6 +218,14 @@ export function AccountsPromote(id: string, label: string): $CancellablePromise<
 
 export function AccountsProviders(): $CancellablePromise<accounts$0.Provider[] | null> {
     return $Call.ByID(3954616476);
+}
+
+/**
+ * AccountsRename changes an account's label. The id stays, so every binding,
+ * choice and link keeps working.
+ */
+export function AccountsRename(id: string, label: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(282990324, id, label);
 }
 
 /**
@@ -286,6 +302,13 @@ export function AccountsSetRevealRequiresPassword(required: boolean): $Cancellab
  */
 export function AccountsStopSyncingProfileSecrets(): $CancellablePromise<app$0.MigrationReport> {
     return $Call.ByID(1579087333);
+}
+
+/**
+ * AccountsUnlinkToken forgets the token of a key. The token account stays.
+ */
+export function AccountsUnlinkToken(keyID: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(1381495386, keyID);
 }
 
 /**

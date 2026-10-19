@@ -56,6 +56,8 @@ export type PullRequestNotice = {
   action: { label: string; target: "accounts" } | null;
   /** The account provider the action is about ("gitlab"), from the platform Go named; "" when it named none. */
   provider: string;
+  /** The SSH key account every repository of the notice is about, when they share one; else "". */
+  keyAccountId: string;
 };
 
 export type PullRequestsView = {
@@ -126,10 +128,13 @@ export function pullRequestsView(items: readonly PullRequestItem[] | null | unde
         folders: [entry],
         action: label ? { label, target: "accounts" } : null,
         provider: (item.platform ?? "").toLowerCase(),
+        keyAccountId: item.keyAccountId ?? "",
       });
     } else if (!group.folders.some((f) => f.folder === item.folder)) {
       group.folders.push(entry);
       group.message = sharedMessage(item.message);
+      // One token can only go with one key: folders on different keys name none.
+      if (group.keyAccountId !== (item.keyAccountId ?? "")) group.keyAccountId = "";
     }
   }
   cards.sort((a, b) => rank(a) - rank(b) || b.number - a.number);

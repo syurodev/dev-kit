@@ -59,6 +59,39 @@ func TestATokenStillWinsOverAKey(t *testing.T) {
 	}
 }
 
+// The key a remote is bound to brings the token the person linked to it, even
+// when the host has other tokens (which, by host alone, would be ambiguous).
+func TestAKeyBoundToTheRemoteBringsItsLinkedToken(t *testing.T) {
+	svc, _ := pickerFixture(t)
+	key := addSSHKey(t, svc, "gitlab", "id_ed25519_gitlab")
+	mine := addAccount(t, svc, "gitlab", "chiro", "glpat-mine")
+	addAccount(t, svc, "gitlab", "a bot", "glpat-bot")
+	c := prCredentials{accounts: svc}
+
+	// Not linked yet: two tokens on the host, nobody to ask → ambiguous.
+	if _, _, err := tokenFor(t, c, prwatch.TokenRequest{BoundAccountID: key.ID}); !errors.Is(err, prwatch.ErrAmbiguousAccount) {
+		t.Fatalf("unlinked = %v, want ErrAmbiguousAccount", err)
+	}
+	if _, err := svc.LinkToken(key.ID, mine.ID); err != nil {
+		t.Fatal(err)
+	}
+	secret, label, err := tokenFor(t, c, prwatch.TokenRequest{BoundAccountID: key.ID})
+	if err != nil || secret != "glpat-mine" || label != "chiro" {
+		t.Fatalf("linked = %q %q %v, want the linked token", secret, label, err)
+	}
+	// A remote not bound to the key still decides by host, as before.
+	if _, _, err := tokenFor(t, c, prwatch.TokenRequest{}); !errors.Is(err, prwatch.ErrAmbiguousAccount) {
+		t.Fatalf("not bound = %v, want ErrAmbiguousAccount", err)
+	}
+	// Unlinking goes back to the host rule.
+	if _, err := svc.UnlinkToken(key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tokenFor(t, c, prwatch.TokenRequest{BoundAccountID: key.ID}); !errors.Is(err, prwatch.ErrAmbiguousAccount) {
+		t.Fatalf("unlinked again = %v", err)
+	}
+}
+
 func TestNoAccountAtAllIsStillPlainNoAccount(t *testing.T) {
 	svc, _ := pickerFixture(t)
 	addSSHKey(t, svc, "github", "a github key") // another host's key is nothing to this remote

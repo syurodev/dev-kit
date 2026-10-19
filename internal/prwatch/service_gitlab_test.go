@@ -176,12 +176,16 @@ func TestSelfHostedGitLabIsStillUnsupportedAndSaysSo(t *testing.T) {
 func TestAKeyOnlyRemoteIsSaidAsSuch(t *testing.T) {
 	r := newGitLabRig(t)
 	r.src.co["/w/other"] = Checkout{Branch: "feat/x", Origin: glOrigin(), Push: glOrigin(), DefaultBranch: "main"}
-	r.creds.err = NewKeyOnlyError("id_ed25519_gitlab")
+	r.creds.err = NewKeyOnlyErrorFor("id_ed25519_gitlab", "key-1")
 	st := r.svc.State(bg, "s1", []string{"/w/billing", "/w/other"})
 	want := "The GitLab key “id_ed25519_gitlab” pushes your code but can't read merge requests. Add a GitLab token with read_api access in Accounts."
 	for _, it := range st.Items {
 		if it.Status != StatusNoAccount || it.Message != want {
 			t.Errorf("%+v", it)
+		}
+		// The window attaches the token it asks for to this key.
+		if it.KeyAccountID != "key-1" {
+			t.Errorf("the notice does not say which key it is about: %+v", it)
 		}
 	}
 	if r.host.total() != 0 || st.NextPollMs != -1 {
@@ -189,9 +193,9 @@ func TestAKeyOnlyRemoteIsSaidAsSuch(t *testing.T) {
 	}
 
 	r.advance(10 * time.Second)
-	r.creds.err = NewKeyOnlyError("")
-	if got := r.svc.State(bg, "s1", []string{"/w/billing"}).Items[0].Message; !strings.HasPrefix(got, "The GitLab SSH key pushes") {
-		t.Errorf("several keys: %q", got)
+	r.creds.err = NewKeyOnlyErrorFor("", "key-1")
+	if it := r.svc.State(bg, "s1", []string{"/w/billing"}).Items[0]; !strings.HasPrefix(it.Message, "The GitLab SSH key pushes") || it.KeyAccountID != "" {
+		t.Errorf("several keys: %q, key %q (no key is named, so none can be attached to)", it.Message, it.KeyAccountID)
 	}
 	if got := NewKeyOnlyError("work (old)\n\t key").Account; got != "work [old] key" {
 		t.Errorf("label %q", got)

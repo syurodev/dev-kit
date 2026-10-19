@@ -30,6 +30,10 @@ export type Account = {
   /** Who commits are written as under this account; absent or empty when none was set. */
   authorName?: string;
   authorEmail?: string;
+  /** For an SSH key: the API token the person linked to it (empty when none). */
+  linkedTokenId?: string;
+  /** For a token: the keys it serves. */
+  linkedKeyIds?: string[] | null;
 };
 
 export type AccountProvider = {
@@ -161,6 +165,28 @@ export function createSSHKeyAccount(input: {
  */
 export function setAccountIdentity(id: string, name: string, email: string): Promise<Account> {
   return callBridge(async () => (await AppService.AccountsSetIdentity(id, name, email)) as Account);
+}
+
+/**
+ * Changes an account's label. The id stays, so every remote, choice and link
+ * bound to it keeps working. An external sign-in and a connection's password
+ * are refused.
+ */
+export function renameAccount(id: string, label: string): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsRename(id, label)) as Account);
+}
+
+/**
+ * Says an API token goes with an SSH key: the key moves the code, the token reads
+ * the pull requests. One token per key; choosing another replaces it. Returns the key.
+ */
+export function linkAccountToken(keyId: string, tokenId: string): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsLinkToken(keyId, tokenId)) as Account);
+}
+
+/** Forgets a key's token. The token account stays. Returns the key. */
+export function unlinkAccountToken(keyId: string): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsUnlinkToken(keyId)) as Account);
 }
 
 /** A private key found on this machine, described without being revealed. */

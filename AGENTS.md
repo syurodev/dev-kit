@@ -1834,6 +1834,31 @@ go test ./internal/accounts/ ./internal/tasks/ ./internal/git/ ./internal/apicli
   `token`/`basic` accounts that are shared or machine-local can be rotated (a key is replaced by adding
   the new one; a connection's password changes through its profile). `Rotate` now clears subject, scopes
   and expiry (shared) or the local row's verification: they describe the OLD value.
+- **A key and its API token are two accounts the person can say belong together** (`internal/accounts/links.go`, table
+  `account_links` migration 44, bridge `AccountsLinkToken|UnlinkToken|Rename`, frontend `modules/accounts/EditAccountDialog.tsx`,
+  `accountGroups.ts`, gallery `?gallery#accounts-links`). A GitLab/GitHub **SSH key moves the code, a token reads the pull
+  requests**; to the person that is one login, to DevKit two credentials (a key is no bearer; a token cannot sign git), each with
+  its own value, verification and rotation — so they stay two accounts and a *link* is a declaration: `LinkToken(keyID, tokenID)`
+  takes an `ssh-key` and a `token` of the same provider (not a connection's login; `ErrLinkMismatch` otherwise), one token per key,
+  one token may serve several keys. Never inferred: a token may be a bot's or another login's (those are simply separate accounts;
+  the Edit dialog shows a warning when both are verified and their `subject`s differ). The table is **local** like identities (a
+  shared account's metadata is decoded field by field by every DevKit, so a new field would make an older one refuse it); a link to
+  an account this device does not have is not shown; `Delete` drops a link from either end and `Promote` (a local account taking a
+  new id) moves it. `Account.LinkedTokenID` (on a key) and `LinkedKeyIDs` (on a token) come with `List`/`Get`.
+  **The pull-request card uses it**: `prCredentials.Token` takes the token linked to the key a remote is *bound* to before it guesses a
+  token by host (so two tokens on a host are no longer "ambiguous" for that remote); a key with no linked token and no token on the
+  host is still the key-only notice, which now carries the key's id (`Item.KeyAccountID`, `KeyOnlyError.AccountID`) so the card's
+  "Add token" opens Accounts' Add token **for that key** (`stores/addTokenRequest.ts`: provider + key id): the provider is the
+  key's, the token is named after it and attached once saved, and no commit identity is asked (a token commits as its key does).
+  The Accounts list draws a linked token under its key (`groupAccounts`); the pencil opens **Edit account**: rename (an external
+  sign-in and a connection's password cannot be renamed; the id stays, so bindings, choices and links keep working — an envelope is
+  sealed against the id, not the label), and for a key: attach an existing unlinked token of the provider, add a new one inline
+  ("Add and attach": kept on this machine, verified, linked), replace its token, detach it (the token account stays); for a token: the
+  keys it serves, each detachable. Link, unlink and rename fire `accounts:changed` like every account write. **Not done**: environment
+  restrictions are still not editable after creation; a link does not sync (it is how this machine groups its accounts); linking a
+  Bitbucket key (DevKit reads no Bitbucket pull requests); the scope hint in Add token still names only `write_repository` for GitLab
+  (a token that reads merge requests needs `read_api`). Not seen in the native app — the dialog's states were rendered from the
+  gallery with the Browser pane hidden (text and structure read, no screenshot).
 - **Importing a key from disk is UI-only and path-guarded** (`internal/bridge/accounts_sshimport.go`).
   `gitssh.Discover` lists `~/.ssh` one level deep (no symlinks, ≤64 KB, skips `config`/`known_hosts`/`*.pub`)
   and `ReadAliases` reads `Host`/`IdentityFile`/`Include` as TEXT (`ssh -G` would report default key

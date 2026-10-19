@@ -153,6 +153,54 @@ func (s *AppService) AccountsSetIdentity(id, name, email string) (accounts.Accou
 	return result.(accounts.Account), nil
 }
 
+// AccountsRename changes an account's label. The id stays, so every binding,
+// choice and link keeps working.
+func (s *AppService) AccountsRename(id, label string) (accounts.Account, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "rename",
+		"account_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.Rename(id, label)
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
+// AccountsLinkToken says an API token goes with an SSH key account: the key
+// moves the code, the token reads the pull requests. Returns the key.
+func (s *AppService) AccountsLinkToken(keyID, tokenID string) (accounts.Account, error) {
+	opaqueID := recordID(keyID)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "link_token",
+		"account_id": opaqueID,
+		"token_id":   recordID(tokenID),
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.LinkToken(keyID, tokenID)
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
+// AccountsUnlinkToken forgets the token of a key. The token account stays.
+func (s *AppService) AccountsUnlinkToken(keyID string) (accounts.Account, error) {
+	opaqueID := recordID(keyID)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "unlink_token",
+		"account_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Accounts.UnlinkToken(keyID)
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
+
 // AccountsRotateToken replaces the token of a token or basic account in place,
 // keeping the username unless a new one is given. The id stays, so every remote
 // and choice bound to the account keeps working; what the provider said about
