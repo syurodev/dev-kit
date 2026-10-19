@@ -296,7 +296,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   requests. Add a GitLab token…"): `prCredentials.noToken` returns `prwatch.KeyOnlyError` (still `ErrNoAccount`,
   carries only the key's sanitised label — no parentheses, which `sharedMessage` would strip — never a secret), `pr.*`
   tools say the same under the published `pr.noAccount`, and "Add token" opens Accounts' add-token form on that provider
-  (`accounts/addTokenRequest.ts`). Polling is the window's: `State` returns
+  (`stores/addTokenRequest.ts`). Polling is the window's: `State` returns
   `nextPollMs` (15 s while a check runs or mergeability is unknown, 60 s settled, 90 s with no request, -1 when merged
   or closed or when it needs a person); react-query pauses while the window is hidden; a turn ending, window focus
   and the `prwatch:changed` event (pr.create, attach) refresh at once. Reads are conditional (ETag/`If-None-Match`,

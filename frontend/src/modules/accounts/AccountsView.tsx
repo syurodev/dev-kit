@@ -15,7 +15,7 @@ import {
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
 import { AddTokenDialog } from "./AddTokenDialog";
-import { useAddTokenRequest } from "./addTokenRequest";
+import { useAddTokenRequest } from "@/stores/addTokenRequest";
 import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
 import { IdentityDialog } from "./IdentityDialog";
 import { canRotateToken } from "./gitTokens";

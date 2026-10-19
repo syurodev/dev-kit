@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { showModuleHome } from "@/workbench/showModule";
 
 /**
  * A note from another module — "this repository needs a GitLab token" — that
@@ -22,9 +21,3 @@ export const useAddTokenRequest = create<AddTokenRequest>((set, get) => ({
     return provider;
   },
 }));
-
-/** Shows Accounts with the add-token form open for `provider` ("" leaves the form's own default). */
-export function openAddToken(provider: string): void {
-  useAddTokenRequest.getState().request(provider);
-  showModuleHome("accounts");
-}
