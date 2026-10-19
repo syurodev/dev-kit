@@ -15,6 +15,7 @@ import {
   type PermissionEnv,
 } from "./permissionCard";
 import { PermissionFileEdits } from "./PermissionFileEdits";
+import { PermissionPreview } from "./PermissionPreview";
 import { GatePermissionDetails, gatePermission, isUntaggedGate } from "./GatePermissionDetails";
 import { TrayPanelHeading } from "./composer/TrayPanelHeading";
 
@@ -82,7 +83,10 @@ export type AgentPermissionRequestProps = {
  * saying what the agent wants to run, the command itself in a well the full
  * width of the tray (a box squeezed beside three buttons cut a one-line
  * `find` to two lines and an ellipsis), then the answers on their own row,
- * Allow once last and filled. Who is asking is on the shield's tooltip — in a
+ * Allow once last and filled (own row under a divider, on the body's padding,
+ * stacking in a narrow rail). The command or arguments fold to three lines with
+ * a "Show full request" row that opens all of it, and Copy (PermissionPreview).
+ * Who is asking is on the shield's tooltip — in a
  * session's own tray that is the session — and named in the row only for a
  * subagent, where it is the thing that decides the answer.
  */
@@ -113,6 +117,7 @@ export function AgentPermissionRequest({
   const { once, always } = permissionChoices(parsePermissionOptions(pending.params));
   const command = permissionCommand(pending.params);
   const detail = command ? {} : permissionDetail(pending.params);
+  const previewText = command ?? detail.argsFull;
   const heading = permissionHeading(pending.params, command);
   const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
   // The caller's depth, off the request: a subagent's is deeper than its session's.
@@ -124,16 +129,21 @@ export function AgentPermissionRequest({
   // vendor offered — Figma: "env always wins".
   const showAllowAlways = env === "open" && Boolean(always);
 
+  // One row, one height (the shared `sm` control), one gap. Deny and the grant
+  // are outlined and Allow once is the only filled control, so the primary
+  // reads first without Deny looking like a missing button. Wide: right-aligned
+  // as a group. Narrow (the rail): the buttons stack full width rather than
+  // overflow or wrap unevenly (`@container` on the card).
   const actions = (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
+    <div className="flex flex-col gap-2 @min-[20rem]/permission:flex-row @min-[20rem]/permission:flex-wrap @min-[20rem]/permission:items-center @min-[20rem]/permission:justify-end">
       <Button
         type="button"
-        variant="ghost"
+        variant="outline"
         size="sm"
         disabled={busy || expired}
         data-testid="permission-deny"
         onClick={() => void onResolve(null)}
-        className="text-text-secondary hover:text-text-primary"
+        className="border-border-subtle text-text-primary"
       >
         Deny
       </Button>
@@ -172,7 +182,7 @@ export function AgentPermissionRequest({
       data-testid="agent-permission-request"
       data-env={env}
       data-size={size}
-      className={cn("flex w-full min-w-0 flex-col", className)}
+      className={cn("@container/permission flex w-full min-w-0 flex-col", className)}
     >
       {panel ? (
         <TrayPanelHeading
@@ -184,7 +194,7 @@ export function AgentPermissionRequest({
           closeTestId="permission-minimize"
         />
       ) : null}
-      <div className="flex w-full min-w-0 flex-col gap-2 p-3">
+      <div className="flex w-full min-w-0 flex-col gap-2 px-3 pt-3 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <span title={askedBy} className="flex shrink-0 items-center text-status-warning">
             <ShieldAlert className="size-4" aria-label={askedBy} />
@@ -214,32 +224,33 @@ export function AgentPermissionRequest({
         </div>
 
         {gate ? <GatePermissionDetails params={pending.params} showTool={false} /> : null}
-        {!gate && detail.message ? (
+        {/* Never cut with an ellipsis: what is allowed is exactly what is shown.
+            Folded it is three lines; "Show full request" opens all of it. */}
+        {!gate && previewText ? (
+          <PermissionPreview
+            key={pending.id}
+            text={previewText}
+            message={detail.message}
+            testId={command ? "permission-command" : "permission-args"}
+          />
+        ) : null}
+        {!gate && !previewText && detail.message ? (
           <p data-testid="permission-message" className="line-clamp-3 text-body-13 text-text-secondary">
             {detail.message}
           </p>
-        ) : null}
-        {!gate && (command || detail.args) ? (
-          // The whole command, wrapped, scrolling past five lines — never cut
-          // with an ellipsis: what is allowed is exactly what is shown.
-          <pre
-            data-testid={command ? "permission-command" : "permission-args"}
-            className="max-h-28 min-w-0 overflow-y-auto rounded-md bg-surface-well px-2.5 py-1.5 text-code-12 whitespace-pre-wrap break-all text-text-primary"
-          >
-            {command ?? detail.args}
-          </pre>
         ) : null}
 
         {/* What the edit is, not only which tool: the file as it would be. */}
         <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
         <PermissionLockedNote env={env} environment={gate?.env} untagged={isUntaggedGate(gate)} />
-        {/* Sticky to the foot of whatever scrolls this card (the composer's panel
-            area on a short pane): a long command or a stack of file edits scrolls
-            past, and Deny / Allow stay where they can be pressed. */}
-        <div data-testid="permission-actions" className="sticky bottom-0 -mx-3 -mb-3 bg-surface-raised px-3 pt-1 pb-3">
-          {actions}
-        </div>
+      </div>
+      {/* Its own row, on the body's padding: sticky to the foot of whatever
+          scrolls this card (the composer's panel area on a short pane), so a
+          long request or a stack of file edits scrolls past and Deny / Allow
+          stay where they can be pressed. */}
+      <div data-testid="permission-actions" className="sticky bottom-0 border-t border-border-subtle bg-surface-raised px-3 py-2.5">
+        {actions}
       </div>
     </div>
   );

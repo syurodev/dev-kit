@@ -1070,18 +1070,19 @@ const PERMISSION_ARGS_LIMIT = 240;
 /**
  * What a request without a command is about: the question the agent put
  * (Codex asks before an MCP tool runs, and says which tool, as text content)
- * and the arguments of the call, as one compact line. Only for a call that is
+ * and the arguments of the call, as one compact line (`args`, elided) and in
+ * full (`argsFull`, for the card's "Show full request"). Only for a call that is
  * not an edit or a read — an edit shows its diff, a read its path — so a
  * file's whole content never lands in the card as JSON.
  */
-export function permissionDetail(params: unknown): { message?: string; args?: string } {
+export function permissionDetail(params: unknown): { message?: string; args?: string; argsFull?: string } {
   if (!params || typeof params !== "object") return {};
   const toolCall = (params as Record<string, unknown>).toolCall;
   if (!toolCall || typeof toolCall !== "object") return {};
   const tc = toolCall as Record<string, unknown>;
   const kind = typeof tc.kind === "string" ? tc.kind : "";
   if (kind && kind !== "other" && kind !== "fetch") return {};
-  const out: { message?: string; args?: string } = {};
+  const out: { message?: string; args?: string; argsFull?: string } = {};
   if (Array.isArray(tc.content)) {
     for (const entry of tc.content) {
       if (!entry || typeof entry !== "object") continue;
@@ -1098,6 +1099,8 @@ export function permissionDetail(params: unknown): { message?: string; args?: st
   if (raw && typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length > 0) {
     const line = JSON.stringify(raw);
     out.args = line.length > PERMISSION_ARGS_LIMIT ? `${line.slice(0, PERMISSION_ARGS_LIMIT - 1)}…` : line;
+    // The toast's one line is elided; the card shows (and expands to) all of it.
+    out.argsFull = line;
   }
   return out;
 }
