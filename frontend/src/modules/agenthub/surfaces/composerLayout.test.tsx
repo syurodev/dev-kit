@@ -355,7 +355,7 @@ describe("the tools row", () => {
   });
 
   it("keeps slash commands, the goal and attaching behind the + menu, and the goal on the row once set", () => {
-    const unset = render(<AgentComposer {...props} commands={[{ name: "compact", description: "x" }]} onSetGoal={noop} onBrowseContext={noop} />);
+    const unset = render(<AgentComposer {...props} commands={[{ name: "compact", description: "x" }]} onSetGoal={noop} onBrowseContext={async () => []} />);
     expect(unset).toContain('data-testid="composer-menu-button"');
     expect(unset).toContain('aria-label="Attach, commands and more"');
     expect(unset).not.toContain('data-testid="composer-goal"');

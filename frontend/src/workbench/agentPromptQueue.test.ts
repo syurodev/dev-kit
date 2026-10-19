@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { drainQueuedPrompt, resumeQueuedPrompts, sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
+import { drainQueuedPrompt, queuedPrompt, resumeQueuedPrompts, sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
 import { handleAgentTurnFinished } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
 import type { AgentSession, InvokeResult, InvokeSessionInput } from "../bridge/agenthub";
@@ -374,5 +374,18 @@ describe("the queue only sends where it may", () => {
 
     expect(b.sent()).toEqual(["first"]);
     expect(store().turnInFlightBySession.s1).toBeFalsy();
+  });
+});
+
+describe("queuedPrompt", () => {
+  it("remembers the draft it was sent from, so editing it brings the chips back", () => {
+    const queued = queuedPrompt("look at @a.md", ["/w/a.md"], [], [], "look at file:%2Fw%2Fa.md|a.md ");
+    expect(queued.draft).toBe("look at file:%2Fw%2Fa.md|a.md ");
+    expect(queued.attachments).toEqual(["/w/a.md"]);
+  });
+
+  it("has no draft field when there was none (a retry, /compact)", () => {
+    expect("draft" in queuedPrompt("/compact", [], [])).toBe(false);
+    expect("draft" in queuedPrompt("hi", [], [], [], "")).toBe(false);
   });
 });

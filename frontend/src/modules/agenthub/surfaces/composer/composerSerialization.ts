@@ -1,39 +1,55 @@
 /**
- * The composer's own plain-text serializer — deliberately not
+ * The composer's own serializer — deliberately not
  * `editor.api.markdown.serialize()`. See composerEditorKit.ts for why: the
  * markdown serializer escapes a soft line break (Shift+Enter) as a trailing
  * backslash, which would send the agent a "\" the user never typed. Walking
- * the tree by hand keeps every character exactly as composed; a mention
- * becomes "@label" and a code block becomes an ordinary fenced block, same
- * as if either had been typed as plain text.
+ * the tree by hand keeps every character exactly as composed, and a code block
+ * becomes an ordinary fenced block, same as if it had been typed as plain text.
+ *
+ * What this writes is the DRAFT, not the prompt: an attached file, image or
+ * reference — a chip in the field — is written as a token (composerDraft.ts)
+ * so the draft keeps what it stands for. `parseDraft` turns the draft into what
+ * the agent reads, where a chip is "@label".
  *
  * Loading a string back INTO the editor is `deserializeComposerValue`, the
  * exact inverse — not `editor.api.markdown.deserialize`, which parses the
  * prompt as a markdown document and loses what markdown treats as syntax:
  * a trailing space, a leading "- " or "# ", a blank line. The composer
- * re-reads its own prompt whenever it changes from outside (a second
+ * re-reads its prompt whenever it changes from outside (a second
  * composer on the same session, a slash command, a queued prompt loaded
  * for editing), so a lossy read ate every space as it was typed.
  */
+
+import { chipToken, scrubText, splitDraft, type ChipKind } from "../../composerDraft";
 
 type ComposerNode = {
   text?: string;
   type?: string;
   value?: unknown;
+  kind?: unknown;
+  key?: unknown;
   lang?: unknown;
   children?: ComposerNode[];
 };
 
-function plainText(node: ComposerNode, mentionType: string): string {
-  if (typeof node.text === "string") return node.text;
-  if (node.type === mentionType) return `@${String(node.value ?? "")}`;
-  return (node.children ?? []).map((child) => plainText(child, mentionType)).join("");
+/** The attachment chip's node: void and inline, empty text inside. */
+export function attachmentNode(type: string, chip: { kind: ChipKind; key: string; label: string }): ComposerNode {
+  return { type, kind: chip.kind, key: chip.key, value: chip.label, children: [{ text: "" }] };
 }
 
-/** The plain string a Plate document sends as the agent prompt. */
+function draftText(node: ComposerNode, attachmentType: string): string {
+  if (typeof node.text === "string") return scrubText(node.text);
+  if (node.type === attachmentType) {
+    const key = String(node.key ?? "");
+    return chipToken({ kind: (node.kind as ChipKind) ?? "file", key, label: String(node.value ?? key) });
+  }
+  return (node.children ?? []).map((child) => draftText(child, attachmentType)).join("");
+}
+
+/** The draft string a Plate document holds: its text, its chips as tokens. */
 export function serializeComposerValue(
   nodes: readonly ComposerNode[],
-  types: { mention: string; codeBlock: string; codeLine: string },
+  types: { attachment: string; codeBlock: string; codeLine: string },
 ): string {
   return nodes
     .map((block) => {
@@ -41,12 +57,32 @@ export function serializeComposerValue(
         const lang = block.lang ? String(block.lang) : "";
         const lines = (block.children ?? [])
           .filter((child) => child.type === types.codeLine)
-          .map((line) => plainText(line, types.mention));
+          .map((line) => draftText(line, types.attachment));
         return "```" + lang + "\n" + lines.join("\n") + "\n```";
       }
-      return plainText(block, types.mention);
+      return draftText(block, types.attachment);
     })
     .join("\n");
+}
+
+/**
+ * A run of draft text as a block's children: its words, and each chip as an
+ * attachment node. Slate wants a text node at either end of an inline and
+ * between two of them, so those are written out (empty ones add nothing to the
+ * string). A run with no chips is the single text node it always was.
+ */
+function inlineChildren(text: string, attachmentType: string): ComposerNode[] {
+  const out: ComposerNode[] = [];
+  for (const part of splitDraft(text)) {
+    if (part.type === "text") {
+      out.push({ text: part.text });
+      continue;
+    }
+    if (out.length === 0 || out[out.length - 1].type) out.push({ text: "" });
+    out.push(attachmentNode(attachmentType, part.chip));
+  }
+  if (out.length === 0 || out[out.length - 1].type) out.push({ text: "" });
+  return out;
 }
 
 const FENCE_OPEN = /^```(\S*)$/;
@@ -59,19 +95,19 @@ const FENCE_OPEN = /^```(\S*)$/;
  * run of text between them is one paragraph whose line breaks are soft
  * breaks, the way Shift+Enter writes them. A fence that is never closed, or
  * closes on nothing, stays text: as a code block it would serialize with a
- * closing fence the prompt never had. "@label" stays text too — it names a
- * file, but not which one.
+ * closing fence the prompt never had. "@label" typed by hand stays text too —
+ * it names a file, but not which one; only a chip's token says that.
  */
 export function deserializeComposerValue(
   text: string,
-  types: { paragraph: string; codeBlock: string; codeLine: string },
+  types: { paragraph: string; attachment: string; codeBlock: string; codeLine: string },
 ): ComposerNode[] {
   if (!text) return [];
   const lines = text.split("\n");
   const blocks: ComposerNode[] = [];
   let paragraph: string[] | null = null;
   const flush = () => {
-    if (paragraph) blocks.push({ type: types.paragraph, children: [{ text: paragraph.join("\n") }] });
+    if (paragraph) blocks.push({ type: types.paragraph, children: inlineChildren(paragraph.join("\n"), types.attachment) });
     paragraph = null;
   };
   for (let i = 0; i < lines.length; i++) {
@@ -82,7 +118,9 @@ export function deserializeComposerValue(
       blocks.push({
         type: types.codeBlock,
         lang: open[1],
-        children: lines.slice(i + 1, close).map((line) => ({ type: types.codeLine, children: [{ text: line }] })),
+        children: lines
+          .slice(i + 1, close)
+          .map((line) => ({ type: types.codeLine, children: inlineChildren(line, types.attachment) })),
       });
       i = close;
       continue;
@@ -91,24 +129,4 @@ export function deserializeComposerValue(
   }
   flush();
   return blocks;
-}
-
-/**
- * Every mention's `key` (the attached file's path) currently in the
- * document — mentions are inline children of a paragraph, or of a code line
- * inside a code block, so this walks the whole tree rather than one level.
- */
-export function collectMentionKeys(nodes: readonly ComposerNode[], mentionType: string): Set<string> {
-  const keys = new Set<string>();
-  const walk = (list: readonly ComposerNode[]) => {
-    for (const node of list) {
-      if (node.type === mentionType) {
-        const key = (node as { key?: unknown }).key;
-        if (key != null) keys.add(String(key));
-      }
-      if (node.children) walk(node.children);
-    }
-  };
-  walk(nodes);
-  return keys;
 }

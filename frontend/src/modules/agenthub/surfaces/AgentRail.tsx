@@ -2,9 +2,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
-import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
-import type { EntityRef } from "@/workbench/intents";
 import type { AvailableCommand, ConfigOption, SessionFailure, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
@@ -32,20 +30,9 @@ export type AgentRailProps = {
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
   onSelectCommand?: (name: string) => void;
-  onSelectContext?: (path: string) => void;
   /** What "@" finds for a query in the session's folders. */
   onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
-  onBrowseContext?: () => void;
-  attachedFiles?: string[];
-  onRemoveAttachment?: (path: string) => void;
-  imageAttachments?: AgentImageAttachment[];
-  onRemoveImage?: (id: string) => void;
-  /** Cross-module refs an `agent.attach` intent handed this turn. */
-  refs?: EntityRef[];
-  onRemoveRef?: (ref: EntityRef) => void;
-  onPasteImage?: (file: File) => void;
-  onDropImage?: (file: File) => void;
-  imageError?: string;
+  onBrowseContext?: () => Promise<string[]>;
   queuedPrompts?: QueuedAgentPrompt[];
   queuePaused?: boolean;
   /** Why the queue paused, when a refusal said; shown next to Paused. */
@@ -128,18 +115,8 @@ export function AgentRail({
   commands = [],
   contextFiles = [],
   onSelectCommand,
-  onSelectContext,
   onSearchContext,
   onBrowseContext,
-  attachedFiles = [],
-  onRemoveAttachment,
-  imageAttachments = [],
-  onRemoveImage,
-  refs = [],
-  onRemoveRef,
-  onPasteImage,
-  onDropImage,
-  imageError,
   queuedPrompts = [],
   queuePaused = false,
   queuePausedReason,
@@ -347,18 +324,8 @@ export function AgentRail({
               commands={commands}
               contextFiles={contextFiles}
               onSelectCommand={onSelectCommand}
-              onSelectContext={onSelectContext}
               onSearchContext={onSearchContext}
               onBrowseContext={onBrowseContext}
-              attachedFiles={attachedFiles}
-              onRemoveAttachment={onRemoveAttachment}
-              imageAttachments={imageAttachments}
-              onRemoveImage={onRemoveImage}
-              refs={refs}
-              onRemoveRef={onRemoveRef}
-              onPasteImage={onPasteImage}
-              onDropImage={onDropImage}
-              imageError={imageError}
               queuedPrompts={queuedPrompts}
               queuePaused={queuePaused}
               queuePausedReason={queuePausedReason}

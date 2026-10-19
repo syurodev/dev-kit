@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { chipToken, fileChip } from "../composerDraft";
 import type { ConfigOption, SessionMode } from "../types";
 import {
   AgentComposer,
@@ -98,14 +99,17 @@ describe("composer controls", () => {
     expect(chosen).toContain('aria-label="Model and effort: Sonnet 4"');
   });
 
-  it("removes an attached file with a named 28px button, not by clicking the 24px chip", () => {
-    const html = renderToString(
-      <AgentComposer {...base} attachedFiles={["src/app.ts"]} onRemoveAttachment={() => {}} />,
-    );
-    const remove = html.match(/<button[^>]*aria-label="Remove src\/app.ts"[^>]*>/)?.[0] ?? "";
-    expect(remove).toContain("control-height-sm");
-    // The chip itself is a label now, not a control.
-    expect(html).not.toMatch(/<button[^>]*data-testid="agent-file-chip"/);
+  it("draws an attached file as a chip in the field, removed by a named button, not by clicking the chip", () => {
+    const html = renderToString(<AgentComposer {...base} value={`compare ${chipToken(fileChip("/work/src/app.ts"))} please`} />);
+    const chip = html.match(/<span[^>]*data-testid="attachment-chip"[^>]*>/)?.[0] ?? "";
+    expect(chip).toContain('data-kind="file"');
+    const remove = html.match(/<button[^>]*aria-label="Remove app.ts"[^>]*>/)?.[0] ?? "";
+    expect(remove).not.toBe("");
+    // The chip itself is a label, not a control.
+    expect(html).not.toMatch(/<button[^>]*data-testid="attachment-chip"/);
+    // No strip above the field: the draft holds the file, once.
+    expect(html).not.toContain('data-testid="composer-attachments"');
+    expect(html.match(/data-testid="attachment-chip"/g)).toHaveLength(1);
   });
 });
 

@@ -7,7 +7,6 @@ import { AtSign, Check, ChevronDown, Command as CommandIcon, LoaderCircle, Paper
 import { ArrowUp, Square } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { KEYS, type Path } from "platejs";
-import { getMentionOnSelectItem } from "@platejs/mention";
 import { Plate, usePlateEditor } from "platejs/react";
 
 import { cn } from "@/lib/utils";
@@ -41,8 +40,6 @@ import { MENU_ROW } from "@/components/ui/menu-row";
 import { Command, CommandItem, CommandList } from "@/components/ui/command";
 import { commandName, commandQuery, filterCommands } from "../slashCommands";
 import { VendorIcon } from "./VendorIcon";
-import { AgentFileChip } from "../transcript/AgentFileChip";
-import { AgentRefChip } from "../transcript/AgentRefChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
 import { ModelSettingsPopover } from "./ModelSettingsPopover";
@@ -50,15 +47,17 @@ import { ComposerEditorKit } from "./composer/composerEditorKit";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
 import { continueList, formatShortcut, toggleList, toggleWrap, type TextEdit } from "./composer/listEditing";
 import { ComposerPanelArea, type TrayPanel } from "./composer/ComposerTray";
-import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composer/composerSerialization";
+import { deserializeComposerValue, serializeComposerValue } from "./composer/composerSerialization";
+import { ATTACHMENT_KEY, insertAttachmentChips } from "./composer/attachments";
+import { fileChip, imageChip, parseDraft } from "../composerDraft";
+import { imageAttachmentFromFile } from "../imageAttachments";
+import { useComposerImagesStore } from "@/stores/composerImages";
 import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
-import type { AgentImageAttachment } from "@/bridge/agenthub";
 import { onAgentHubFilesDropped } from "@/bridge/agenthub";
 import { getAgentSandbox } from "@/bridge/preferences";
 import { toast } from "sonner";
 import type { AgentSandboxSettings } from "../../../../bindings/devkit/internal/preferences/models";
-import type { EntityRef } from "@/workbench/intents";
 import { vendorInfo } from "../vendors";
 
 export type ComposerSize = "wide" | "rail";
@@ -306,16 +305,6 @@ export type AgentComposerProps = {
   turnCount?: number;
   vendor?: string;
   version?: string;
-  attachedFiles?: string[];
-  onRemoveAttachment?: (path: string) => void;
-  imageAttachments?: AgentImageAttachment[];
-  onRemoveImage?: (id: string) => void;
-  /** Cross-module refs an `agent.attach` intent handed this turn. */
-  refs?: EntityRef[];
-  onRemoveRef?: (ref: EntityRef) => void;
-  onPasteImage?: (file: File) => void;
-  onDropImage?: (file: File) => void;
-  imageError?: string;
   queuedPrompts?: QueuedAgentPrompt[];
   /** A turn failed or was cancelled; the queue goes on only when Resume is pressed. */
   queuePaused?: boolean;
@@ -325,7 +314,6 @@ export type AgentComposerProps = {
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onSelectCommand?: (name: string) => void;
-  onSelectContext?: (path: string) => void;
   /**
    * Answers what "@" is being typed: the files matching a query, best first
    * (agentHubListContextFiles and its draft twin). Asked again as the query
@@ -340,7 +328,12 @@ export type AgentComposerProps = {
   trayStrip?: React.ReactNode;
   /** The caller's panel for the tray — a permission, a question, a list opened from a chip. A list being typed goes over it. */
   trayPanel?: TrayPanel | null;
-  onBrowseContext?: () => void;
+  /**
+   * Opens the native file picker and answers the paths chosen (none when it was
+   * cancelled). The composer puts each at the caret as a chip; there is no list
+   * of attachments outside the draft.
+   */
+  onBrowseContext?: () => Promise<string[]>;
   /** Sends /compact from the context popover. Omit when the agent offers no such command. */
   onCompact?: () => void;
   /**
@@ -390,7 +383,7 @@ function contextFileFolder(file: ContextFileItem): string {
 function composerTypes(editor: { getType: (key: string) => string }) {
   return {
     paragraph: editor.getType(KEYS.p),
-    mention: editor.getType(KEYS.mention),
+    attachment: editor.getType(ATTACHMENT_KEY),
     codeBlock: editor.getType(KEYS.codeBlock),
     codeLine: editor.getType(KEYS.codeLine),
   };
@@ -406,7 +399,9 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  *   1. the panel area, growing above the context header;
  *   2. a quiet context header framing the inset input surface;
  *   3. the field, then attach/mention, model/mode and Send.
- *      Attachments and queued messages precede the field.
+ *      Queued messages precede the field. What is attached — files, images,
+ *      references — is not a row of its own: each is a chip in the field, at
+ *      the caret it was added at (composerDraft.ts).
  *
  * The panel has a divider; the field and tools share one surface because there
  * are no cards. It is an ordinary block in the layout (the caller gives it a
@@ -418,7 +413,7 @@ function composerTypes(editor: { getType: (key: string) => string }) {
  * a chevron, and the field opens at one line.
  *
  * Heights are bounded from the inside: the field grows to a ceiling and then
- * scrolls, attachments and queued messages scroll in their own box, and a panel
+ * scrolls, queued messages scroll in their own box, and a panel
  * scrolls past the cap `composer-panel-cap` gives it — so on a short pane the
  * rows that matter (field, tools, an answer's buttons) stay on it.
  *
@@ -444,15 +439,6 @@ export function AgentComposer({
   onSetGoal,
   turnCount = 0,
   vendor = "",
-  attachedFiles = [],
-  onRemoveAttachment,
-  imageAttachments = [],
-  onRemoveImage,
-  refs = [],
-  onRemoveRef,
-  onPasteImage,
-  onDropImage,
-  imageError,
   queuedPrompts = [],
   queuePaused = false,
   queuePausedReason,
@@ -460,7 +446,6 @@ export function AgentComposer({
   onCancelQueued,
   onEditQueued,
   onSelectCommand,
-  onSelectContext,
   onSearchContext,
   trayStrip,
   trayPanel = null,
@@ -487,8 +472,9 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const rail = size === "rail";
 
-  // A Plate document, not a bare string: it is what lets "@" mention a file
-  // as an atomic chip and ``` become a highlighted, editable code block
+  // A Plate document, not a bare string: it is what lets a file, an image or a
+  // reference stand in the text as an atomic chip and ``` become a highlighted,
+  // editable code block
   // (composerEditorKit.ts). It grows with what is typed on its own —
   // contentEditable reflows naturally, unlike a <textarea>'s fixed intrinsic
   // height — so none of the old manual `scrollHeight` measuring survives;
@@ -497,7 +483,9 @@ export function AgentComposer({
   //
   // The prop contract stays a plain string, though: `value`/`onChange` are
   // still the string every other caller (AgentHubView's draft state, queued
-  // prompts, slash commands) already reads and writes. The Plate document is
+  // prompts, slash commands) already reads and writes. A chip travels in it as
+  // a token (composerDraft.ts), so what is attached lives in the draft and
+  // nowhere else. The Plate document is
   // internal, synced out on every edit (serializeComposerValue, not
   // `editor.api.markdown.serialize` — see composerEditorKit.ts for why) and
   // synced in (deserializeComposerValue, its exact inverse) only when `value`
@@ -520,9 +508,6 @@ export function AgentComposer({
 
   const lastEmittedRef = useRef<string | null>(value);
   const isExternalResetRef = useRef(false);
-  // Nothing read from a string is a mention ("@label" stays text), so the
-  // first document holds none.
-  const mentionKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
@@ -545,23 +530,11 @@ export function AgentComposer({
         ? prev
         : nextMention,
     );
-    const current = collectMentionKeys(editor.children, types.mention);
     if (isExternalResetRef.current) {
       // The document now says what `value` says; there is nothing to report.
-      // An external reset (clear-on-send, load-for-edit, the other composer)
-      // also never had these mentions' chips to begin with, so it is not read
-      // as removing them all.
       isExternalResetRef.current = false;
-      mentionKeysRef.current = current;
       return;
     }
-    // A mention's chip is deleted like any other atomic node — backspace,
-    // cut, select-and-delete. When one disappears from the document, drop
-    // it from attachedFiles too, so removing the visible tag is enough.
-    for (const path of mentionKeysRef.current) {
-      if (!current.has(path)) onRemoveAttachment?.(path);
-    }
-    mentionKeysRef.current = current;
 
     const serialized = serializeComposerValue(editor.children, types);
     // Plate reports selection moves as changes too; only text is news.
@@ -642,18 +615,14 @@ export function AgentComposer({
   // server mode or a browser: there nothing emits it, and an image dropped
   // there still goes through onDrop on the field.
   const composerId = React.useId();
-  const dropRef = useRef({ onSelectContext, disabled });
-  dropRef.current = { onSelectContext, disabled };
+  const dropRef = useRef({ disabled });
+  dropRef.current = { disabled };
   useEffect(
     () =>
       onAgentHubFilesDropped((drop) => {
         if (drop.composer !== composerId || dropRef.current.disabled) return;
         if (!editor.selection) editor.tf.focus({ edge: "end" });
-        for (const path of drop.paths) {
-          const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1) || path;
-          getMentionOnSelectItem()(editor, { key: path, text: name });
-          dropRef.current.onSelectContext?.(path);
-        }
+        insertAttachmentChips(editor, drop.paths.map((path) => fileChip(path)));
         if (drop.skipped > 0) {
           toast.info(`${drop.skipped} item${drop.skipped === 1 ? "" : "s"} skipped — only files can be attached.`);
         }
@@ -728,8 +697,32 @@ export function AgentComposer({
     // The "@query" becomes the chip: select it, delete it, insert in its place.
     editor.tf.select({ anchor: { path: mention.path, offset: mention.start }, focus: { path: mention.path, offset: mention.end } });
     editor.tf.delete();
-    getMentionOnSelectItem()(editor, { key: file.path, text: file.name || file.path });
-    onSelectContext?.(file.path);
+    insertAttachmentChips(editor, [fileChip(file.path, file.name || undefined)]);
+    editor.tf.focus();
+  }
+
+  // Everything that adds to the turn ends the same way: a chip at the caret. A
+  // picked or dropped file, a pasted image — each is read off the draft when it
+  // is sent, so nothing here tells a parent.
+  const [imageError, setImageError] = useState("");
+  async function attachImage(file: File) {
+    try {
+      const picked = await imageAttachmentFromFile(file);
+      // An id of its own for each paste: the same picture pasted into two drafts
+      // is two chips, and sending one must not take the other's bytes with it.
+      const image = { ...picked, id: `${picked.id}#${Math.random().toString(36).slice(2, 10)}` };
+      useComposerImagesStore.getState().add(image);
+      insertAttachmentChips(editor, [imageChip(image)]);
+      editor.tf.focus();
+      setImageError("");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "Could not attach image");
+    }
+  }
+  async function browseFiles() {
+    const paths = (await onBrowseContext?.()) ?? [];
+    if (paths.length === 0) return;
+    insertAttachmentChips(editor, paths.map((path) => fileChip(path)));
     editor.tf.focus();
   }
 
@@ -764,7 +757,7 @@ export function AgentComposer({
     state ??
     (isStreaming
       ? "streaming"
-      : attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0
+      : parseDraft(value).chips.length > 0
         ? "attached"
         : "idle");
   const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions, availableModes);
@@ -926,7 +919,6 @@ export function AgentComposer({
       }
     : null;
   const commandsAvailable = commands.length > 0;
-  const hasAttachments = attachedFiles.length > 0 || imageAttachments.length > 0 || refs.length > 0;
 
   return (
     // The caller's className (AgentHubContent passes "min-w-0") sizes the whole
@@ -969,44 +961,10 @@ export function AgentComposer({
         >
           Drop files to attach
         </span>
-        {hasAttachments || queuedPrompts.length > 0 || imageError ? (
-          // Their own scroll box: a long queue or a dozen attachments must not
-          // take the pane from the field below them.
+        {queuedPrompts.length > 0 || imageError ? (
+          // Their own scroll box: a long queue must not take the pane from the
+          // field below it.
           <div data-testid="composer-extras" className="flex max-h-52 min-h-0 shrink flex-col gap-1 overflow-y-auto overscroll-contain">
-            {hasAttachments ? (
-              <div data-testid="composer-attachments" className="flex w-full shrink-0 flex-wrap items-center gap-1 px-1">
-                {refs.map((ref) => (
-                  <AgentRefChip
-                    key={`${ref.module}/${ref.kind}/${ref.id}`}
-                    entityRef={ref}
-                    onRemove={onRemoveRef ? () => onRemoveRef(ref) : undefined}
-                  />
-                ))}
-                {attachedFiles.map((path) => (
-                  // Removed by a named button, like an image: the whole 24px chip
-                  // as the control removed the file on a click that said nothing.
-                  <div key={path} className="flex min-w-0 items-center">
-                    <AgentFileChip path={path} />
-                    {onRemoveAttachment ? (
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${path}`} onClick={() => onRemoveAttachment(path)}>
-                        <X aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                ))}
-                {imageAttachments.map((image) => (
-                  <div key={image.id} className="flex items-center gap-1 rounded-sm bg-surface-base px-1 py-1">
-                    <img src={image.previewUrl} alt={image.name} className="size-8 rounded-sm object-cover" />
-                    <span className="max-w-32 truncate text-caption-11 text-text-secondary">{image.name}</span>
-                    {onRemoveImage ? (
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
-                        <X aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
             {queuedPrompts.length > 0 ? (
               <div data-testid="composer-queued-prompts" className="flex max-h-40 w-full shrink-0 flex-col gap-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface-well/50 p-2">
                 <p className="px-1 pb-1 text-caption-11-medium text-text-tertiary">Queued messages · {queuedPrompts.length}</p>
@@ -1064,16 +1022,16 @@ export function AgentComposer({
                 data-testid="agent-composer-textarea"
                 onPaste={(e) => {
                   const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
-                  if (image && onPasteImage) {
+                  if (image) {
                     e.preventDefault();
-                    onPasteImage(image);
+                    void attachImage(image);
                   }
                 }}
                 onDrop={(e) => {
                   const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
-                  if (image && onDropImage) {
+                  if (image) {
                     e.preventDefault();
-                    onDropImage(image);
+                    void attachImage(image);
                   }
                 }}
                 onDragOver={(e) => {
@@ -1181,7 +1139,7 @@ export function AgentComposer({
                 onCloseAutoFocus={() => heldGoal.release((apply) => apply())}
               >
                 {onBrowseContext ? (
-                  <DropdownMenuItem data-testid="composer-attach-files" icon={<Paperclip aria-hidden="true" />} onSelect={onBrowseContext}>
+                  <DropdownMenuItem data-testid="composer-attach-files" icon={<Paperclip aria-hidden="true" />} onSelect={() => void browseFiles()}>
                     Attach files…
                   </DropdownMenuItem>
                 ) : null}
@@ -1227,8 +1185,11 @@ export function AgentComposer({
               {...menu("context")}
               mode="context"
               contextFiles={contextFiles}
-              onSelectContext={onSelectContext}
-              onBrowseContext={onBrowseContext}
+              onSelectContext={(path) => {
+                insertAttachmentChips(editor, [fileChip(path)]);
+                editor.tf.focus();
+              }}
+              onBrowseContext={onBrowseContext ? () => void browseFiles() : undefined}
             >
               <ActionTooltip label="Mention a file (@)" side="top">
                 <Button

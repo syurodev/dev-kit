@@ -31,6 +31,12 @@ export type QueuedAgentPrompt = {
   attachments: string[];
   images: AgentImageAttachment[];
   refs: EntityRef[];
+  /**
+   * The composer draft it was sent from — its chips as tokens (composerDraft.ts)
+   * — so taking it back for editing puts the files, images and references where
+   * they stood. Absent for a turn that never had a draft (a retry, /compact).
+   */
+  draft?: string;
 };
 
 /**

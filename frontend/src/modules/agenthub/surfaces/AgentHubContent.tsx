@@ -4,9 +4,7 @@ import { cn } from "@/lib/utils";
 import { Bot, Plus } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
-import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
-import type { EntityRef } from "@/workbench/intents";
 import type {
   AvailableCommand,
   ConfigOption,
@@ -43,7 +41,6 @@ export type AgentHubContentProps = {
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
   onSelectCommand?: (name: string) => void;
-  onSelectContext?: (path: string) => void;
   /** What "@" finds for a query — the draft's folders, or the session's. */
   onSearchContext?: (query: string) => Promise<ContextFileItem[]>;
   configOptions?: ConfigOption[];
@@ -75,17 +72,7 @@ export type AgentHubContentProps = {
   /** Shown inside the error card, under the reason — e.g. the sign-in buttons. */
   errorDetail?: React.ReactNode;
   /** Files the user attached to the turn being composed. */
-  attachments?: string[];
-  onBrowseContext?: () => void;
-  onRemoveAttachment?: (path: string) => void;
-  imageAttachments?: AgentImageAttachment[];
-  onRemoveImage?: (id: string) => void;
-  /** Cross-module refs an `agent.attach` intent handed this turn. */
-  refs?: EntityRef[];
-  onRemoveRef?: (ref: EntityRef) => void;
-  onPasteImage?: (file: File) => void;
-  onDropImage?: (file: File) => void;
-  imageError?: string;
+  onBrowseContext?: () => Promise<string[]>;
   queuedPrompts?: QueuedAgentPrompt[];
   queuePaused?: boolean;
   /** Why the queue paused, when a refusal said; shown next to Paused. */
@@ -204,7 +191,6 @@ export function AgentHubContent({
   commands = [],
   contextFiles = [],
   onSelectCommand,
-  onSelectContext,
   onSearchContext,
   configOptions = [],
   mode = null,
@@ -230,16 +216,7 @@ export function AgentHubContent({
   emptyExtra,
   onOpenSettings,
   errorDetail,
-  attachments = [],
   onBrowseContext,
-  onRemoveAttachment,
-  imageAttachments = [],
-  onRemoveImage,
-  refs = [],
-  onRemoveRef,
-  onPasteImage,
-  onDropImage,
-  imageError,
   queuedPrompts = [],
   queuePaused = false,
   queuePausedReason,
@@ -287,9 +264,6 @@ export function AgentHubContent({
     pendingPermission = null;
     pendingElicitation = null;
     queuedPrompts = [];
-    // attachments are not cleared: the view passes the draft's own ("@" picks
-    // them before there is a session), the way it passes its images.
-    refs = [];
     items = [];
     usage = null;
     commands = [];
@@ -589,7 +563,6 @@ export function AgentHubContent({
                 commands={commands}
                 contextFiles={contextFiles}
                 onSelectCommand={onSelectCommand}
-                onSelectContext={onSelectContext}
                 onSearchContext={onSearchContext}
                 configOptions={configOptions}
                 mode={mode}
@@ -605,16 +578,7 @@ export function AgentHubContent({
                 agent={draft ? agent : undefined}
                 onAgentChange={draft ? onAgentChange : undefined}
                 disabled={sendDisabled}
-                attachedFiles={attachments}
                 onBrowseContext={onBrowseContext}
-                onRemoveAttachment={onRemoveAttachment}
-                imageAttachments={imageAttachments}
-                onRemoveImage={onRemoveImage}
-                refs={refs}
-                onRemoveRef={onRemoveRef}
-                onPasteImage={onPasteImage}
-                onDropImage={onDropImage}
-                imageError={imageError}
                 queuedPrompts={queuedPrompts}
                 queuePaused={queuePaused}
                 queuePausedReason={queuePausedReason}
