@@ -319,6 +319,27 @@ func TestAgentHubChooseFilesCancelReturnsEmptyNotNil(t *testing.T) {
 	}
 }
 
+func TestAgentHubDescribeFilesAnswersEachPathInOrder(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "notes.md")
+	if err := os.WriteFile(ok, []byte("# hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.AgentHubDescribeFiles([]string{filepath.Join(dir, "gone.txt"), ok})
+	if err != nil {
+		t.Fatalf("describe: %v", err)
+	}
+	if len(got) != 2 || got[0].Problem == "" || got[1].Kind != "text" || got[1].Size != 4 {
+		t.Fatalf("got %+v", got)
+	}
+	// A list, not null, when nothing was asked: the chip hook spreads it.
+	none, err := svc.AgentHubDescribeFiles(nil)
+	if err != nil || none == nil {
+		t.Fatalf("empty ask: %v %v", none, err)
+	}
+}
+
 func TestAgentHubNewScratchDirectoryMakesAFreshFolderUnderTheRoot(t *testing.T) {
 	// Each "no project" session gets a folder of its own: a shared one would
 	// let two sessions read and overwrite each other's files.

@@ -3,6 +3,9 @@ import type { AgentSession, PendingElicitation, PendingPermission } from "@/brid
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentRail } from "@/modules/agenthub/surfaces/AgentRail";
 import { TrayStatusOverride, type TrayStatus } from "@/modules/agenthub/surfaces/composer/useTrayStatus";
+import { appendChips, fileChip, imageChip, refChip } from "@/modules/agenthub/composerDraft";
+import { seedAttachmentInfo } from "@/modules/agenthub/surfaces/composer/useAttachmentInfo";
+import { useComposerImagesStore } from "@/stores/composerImages";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import type { SessionFailure, TranscriptItem } from "@/modules/agenthub/types";
@@ -141,6 +144,45 @@ const FAILURE: SessionFailure = {
   actions: ["retry"],
 };
 
+/** A picture for the image chip: an inline SVG, so the gallery needs no file. */
+const PICTURE = {
+  id: "gallery-picture",
+  name: "checkout-error.png",
+  mimeType: "image/png",
+  data: "",
+  previewUrl: `data:image/svg+xml;utf8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#27272a"/><text x="160" y="96" fill="#a1a1aa" font-size="20" text-anchor="middle" font-family="sans-serif">screenshot</text></svg>',
+  )}`,
+  size: 48_213,
+};
+
+const LONG_PDF = "/home/ptvu3/Workspace/fsap/digital-connector-platform/SAP-Final Architecture — Galaxy G Super App Platform (consolidated from ADR-0001…0054)-191026-031020.pdf";
+const TOO_BIG = "/home/ptvu3/Workspace/fsap/exports/full-database-dump-2026-10-19.sql";
+
+/**
+ * A draft with every kind of chip, the way a person would have written it: the
+ * long-named PDF from the redesign's screenshot, a file Go would refuse, an
+ * image, a reference and a dozen source files. What Go would say about the
+ * files is seeded, since the gallery has no bridge.
+ */
+function attachmentsDraft(): string {
+  useComposerImagesStore.getState().add(PICTURE);
+  seedAttachmentInfo({ path: LONG_PDF, name: LONG_PDF.split("/").pop()!, size: 2_203_648, kind: "pdf", problem: "" });
+  seedAttachmentInfo({ path: TOO_BIG, name: "full-database-dump-2026-10-19.sql", size: 41_943_040, kind: "text", problem: "Over the 8 MiB limit for an attachment." });
+  const sources = Array.from({ length: 12 }, (_, i) => `/work/src/main/java/com/billing/retry/Retry${i}Policy.java`);
+  for (const path of sources) seedAttachmentInfo({ path, name: path.split("/").pop()!, size: 3_072 + fakeSize(path), kind: "text", problem: "" });
+  let draft = "Compare ";
+  draft = appendChips(draft, [fileChip(LONG_PDF)]);
+  draft += "with the retry code, and why does this fail? ";
+  draft = appendChips(draft, [imageChip(PICTURE), fileChip(TOO_BIG), refChip({ module: "codegraph", kind: "endpoint", id: "POST /v2/partner", label: "POST /v2/partner" })]);
+  draft += "\nThe policies: ";
+  return appendChips(draft, sources.map((path) => fileChip(path)));
+}
+
+function fakeSize(path: string) {
+  return path.length * 7;
+}
+
 const QUEUE: QueuedAgentPrompt[] = Array.from({ length: 8 }, (_, i) => ({
   id: `q${i}`,
   text: `Queued message ${i + 1}: also check the integration tests and the docs for the retry policy, and tell me what changed`,
@@ -165,6 +207,9 @@ export function AgentComposerLayoutSection() {
   const [height, setHeight] = useState(640);
   const [turns, setTurns] = useState(14);
   const [prompt, setPrompt] = useState("");
+  // The attachments scenario starts from a draft full of chips and lets go of it
+  // the moment the field is edited — emptying it must leave it empty.
+  const [edited, setEdited] = useState(false);
   const [project, setProject] = useState("/work/billing/api");
   const [mode, setMode] = useState("default");
   const [model, setModel] = useState("sonnet");
@@ -187,8 +232,16 @@ export function AgentComposerLayoutSection() {
     items,
     usage: { used: 581_900, size: 1_000_000, amount: 0.91 },
     commands: COMMANDS,
-    promptValue: scenario === "longprompt" && prompt === "" ? LONG_PROMPT : prompt,
-    onPromptChange: setPrompt,
+    promptValue:
+      scenario === "longprompt" && prompt === ""
+        ? LONG_PROMPT
+        : scenario === "attachments" && !edited
+          ? attachmentsDraft()
+          : prompt,
+    onPromptChange: (value: string) => {
+      setEdited(true);
+      setPrompt(value);
+    },
     onSend: () => {},
     onCancel: () => {},
     streaming: scenario === "streaming",
@@ -220,9 +273,7 @@ export function AgentComposerLayoutSection() {
     onResumeQueued: () => {},
     onCancelQueued: () => {},
     onEditQueued: () => {},
-    attachments: scenario === "attachments" ? Array.from({ length: 14 }, (_, i) => `src/main/java/com/billing/retry/Retry${i}Policy.java`) : [],
-    onRemoveAttachment: () => {},
-    onBrowseContext: () => {},
+    onBrowseContext: async () => [],
     onOpenFile: () => {},
     onCopy: () => {},
     goal: { objective: "a green build on CI", status: "active" as const },
@@ -243,7 +294,11 @@ export function AgentComposerLayoutSection() {
             type="button"
             data-testid={`layout-scenario-${name}`}
             aria-pressed={scenario === name}
-            onClick={() => setScenario(name)}
+            onClick={() => {
+              setScenario(name);
+              setEdited(false);
+              setPrompt("");
+            }}
             className="rounded-md border border-border-subtle px-2 py-1 aria-pressed:bg-state-soft aria-pressed:text-text-primary"
           >
             {name}

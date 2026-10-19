@@ -420,6 +420,29 @@ export function agentHubChooseFiles(startIn = ""): Promise<string[]> {
   );
 }
 
+/** What the composer's chip says about a file: how big, what DevKit does with it, and why it cannot go. */
+export type AgentAttachmentInfo = {
+  path: string;
+  name: string;
+  size: number;
+  /** "text" | "image" | "pdf" | "word" | "excel" | "other" */
+  kind: string;
+  /** Empty when DevKit can send it. */
+  problem: string;
+};
+
+export function agentHubDescribeFiles(paths: string[]): Promise<AgentAttachmentInfo[]> {
+  return callBridge(async () =>
+    ((await AppService.AgentHubDescribeFiles(paths)) ?? []).map((info) => ({
+      path: info.path,
+      name: info.name,
+      size: info.size,
+      kind: info.kind,
+      problem: info.problem ?? "",
+    })),
+  );
+}
+
 export function agentHubChooseDirectory(startIn = ""): Promise<string> {
   return callBridge(
     () => AppService.AgentHubChooseDirectory(startIn) as Promise<string>,

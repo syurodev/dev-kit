@@ -1,3 +1,4 @@
+import { chipToken, fileChip, imageChip, refChip } from "../composerDraft";
 import { TREE_ROW_HEIGHT } from "@/components/tree-view";
 import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
@@ -182,46 +183,63 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("24.5k of 1M");
     });
 
-    it("inserts the attachment row inside the field when files are attached", () => {
+    it("marks the composer attached when the draft holds files, and draws each once, in the field", () => {
       const html = renderToString(
         <AgentComposer
-          value=""
+          value={`${chipToken(fileChip("/work/src/index.ts"))} ${chipToken(fileChip("/work/schema.sql"))}`}
           onChange={() => {}}
           onSend={() => {}}
           onCancel={() => {}}
-          attachedFiles={["src/index.ts", "schema.sql"]}
         />,
       );
 
       expect(html).toContain('data-state="attached"');
-      expect(html).toContain('data-testid="composer-attachments"');
-      expect(html).toContain("src/index.ts");
+      expect(html).not.toContain('data-testid="composer-attachments"');
+      expect(html.match(/data-testid="attachment-chip"/g)).toHaveLength(2);
+      expect(html).toContain("index.ts");
       expect(html).toContain("schema.sql");
     });
 
-    it("shows queued prompts and pasted image previews in the composer", () => {
+    it("draws a pasted image and a reference as chips too, one family", () => {
+      const image = {
+        id: "image-1",
+        name: "screenshot.png",
+        mimeType: "image/png",
+        data: "aW1hZ2U=",
+        previewUrl: "data:image/png;base64,aW1hZ2U=",
+        size: 5,
+      };
+      const ref = { module: "codegraph", kind: "endpoint", id: "GET /users", label: "GET /users" };
+      const html = renderToString(
+        <AgentComposer
+          value={`${chipToken(imageChip(image))} ${chipToken(refChip(ref))}`}
+          onChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      // The picture itself comes from the image registry, which a server render
+      // reads as empty; the gallery shows it.
+      expect(html).toContain('data-kind="image"');
+      expect(html).toContain("screenshot.png");
+      expect(html).toContain('data-kind="ref"');
+      expect(html).toContain("GET /users");
+      expect(html.match(/data-testid="attachment-chip"/g)).toHaveLength(2);
+    });
+
+    it("shows queued prompts in the composer", () => {
       const html = renderToString(
         <AgentComposer
           value=""
           onChange={() => {}}
           onSend={() => {}}
           onCancel={() => {}}
-          imageAttachments={[{
-            id: "image-1",
-            name: "screenshot.png",
-            mimeType: "image/png",
-            data: "aW1hZ2U=",
-            previewUrl: "data:image/png;base64,aW1hZ2U=",
-            size: 5,
-          }]}
           queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [], refs: [] }]}
           onCancelQueued={() => {}}
           onEditQueued={() => {}}
         />,
       );
 
-      expect(html).toContain('data-testid="composer-attachments"');
-      expect(html).toContain('alt="screenshot.png"');
       expect(html).toContain('data-testid="composer-queued-prompts"');
       expect(html).toContain("Queued");
       expect(html).toContain("Run the tests");
@@ -229,29 +247,20 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Edit queued prompt");
     });
 
-    it("draws queue and image controls at the 28px control size with real icons", () => {
+    it("draws queue controls at the 28px control size with real icons", () => {
       const html = renderToString(
         <AgentComposer
           value=""
           onChange={() => {}}
           onSend={() => {}}
           onCancel={() => {}}
-          imageAttachments={[{
-            id: "image-1",
-            name: "screenshot.png",
-            mimeType: "image/png",
-            data: "aW1hZ2U=",
-            previewUrl: "data:image/png;base64,aW1hZ2U=",
-            size: 5,
-          }]}
-          onRemoveImage={() => {}}
           queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [], refs: [] }]}
           onCancelQueued={() => {}}
           onEditQueued={() => {}}
         />,
       );
 
-      for (const label of ["Remove screenshot.png", "Edit queued prompt", "Cancel queued prompt"]) {
+      for (const label of ["Edit queued prompt", "Cancel queued prompt"]) {
         const button = html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>.*?</button>`))?.[0] ?? "";
         expect(button, label).toContain('data-size="icon-sm"');
         expect(button, label).toContain("<svg");
@@ -1412,14 +1421,13 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     it("shows attached files and a way to add them", () => {
       // The composer had attachedFiles and contextFiles props from the start
       // and nothing fed them: the attach button opened a menu that could only
-      // ever be empty, and there was no path from a file to a prompt.
+      // ever be empty, and there was no path from a file to a prompt. A file is
+      // now a chip in the draft itself.
       const html = renderToString(
         <AgentHubContent
           session={mockSession}
-          attachments={["/x/RefundService.java", "/x/shot.png"]}
-          onBrowseContext={() => {}}
-          onRemoveAttachment={() => {}}
-          promptValue=""
+          onBrowseContext={async () => []}
+          promptValue={`${chipToken(fileChip("/x/RefundService.java"))} ${chipToken(fileChip("/x/shot.png"))}`}
           onPromptChange={() => {}}
           onSend={() => {}}
           onCancel={() => {}}

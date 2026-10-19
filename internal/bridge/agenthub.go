@@ -949,6 +949,25 @@ func (s *AppService) AgentHubChooseFiles(startIn string) ([]string, error) {
 	return []string{}, nil
 }
 
+// AgentHubDescribeFiles says what each of paths is and whether DevKit can send
+// it — size, kind, and the reason when it cannot — for the chip a file becomes
+// in the composer. It stats and sniffs; it does not read the files. UI only,
+// like AgentHubChooseFiles: it answers for whatever path the window names, so it
+// is not an MCP tool (an agent has no use for it and is not meant to probe the
+// filesystem through it).
+func (s *AppService) AgentHubDescribeFiles(paths []string) ([]agenthub.AttachmentInfo, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:new", map[string]any{
+		"action": "describe_files",
+		"count":  len(paths),
+	}, func(context.Context) (any, error) {
+		return agenthub.DescribeAttachments(paths), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.AttachmentInfo), nil
+}
+
 // defaultOpenFilesDialog is the native file picker, sibling of
 // defaultOpenDirectoryDialog.
 func defaultOpenFilesDialog(title, startIn string) ([]string, error) {

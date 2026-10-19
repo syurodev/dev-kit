@@ -28,6 +28,7 @@ export function queuedPrompt(
   attachments: string[],
   images: AgentImageAttachment[],
   refs: EntityRef[] = [],
+  draft?: string,
 ): QueuedAgentPrompt {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
@@ -35,6 +36,8 @@ export function queuedPrompt(
     attachments,
     images,
     refs,
+    // The draft it was sent from, for "edit queued" to put back with its chips.
+    ...(draft ? { draft } : {}),
   };
 }
 

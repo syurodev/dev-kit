@@ -446,7 +446,29 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   the list; Enter still sends), Cmd/Ctrl+Shift+8 / +Shift+7 toggle bullet / numbered markers on the selected
   lines, Cmd/Ctrl+B / +I wrap the selection in `**` / `*`. Not inside a code block, not while composing, and
   not on a line that begins after an `@` chip. Files dragged in from the OS arrive as `agenthub:filesDropped`
-  (Go: `file_drop.go`, `EnableFileDrop` + `data-file-drop-target` on the composer) and become the same chips.
+  (Go: `file_drop.go`, `EnableFileDrop` + `data-file-drop-target` on the composer) and become the same chips
+  as `@` makes (next bullet).
+- **A file, an image and a reference are chips in the draft, and nowhere else** (spec
+  `docs/superpowers/specs/2026-10-19-composer-attachments-design.md`; `modules/agenthub/composerDraft.ts`,
+  `surfaces/composer/attachments.tsx`, `AttachmentChip.tsx`). There is no strip of attachments and no
+  `attachments` / `images` / `refs` state in `AgentHubView` or `AgentCompanion`: `promptBySession` is still a
+  string, and a chip is written into it as a token of private-use characters (`U+E000 kind:key|label U+E001`,
+  `chipToken`). `parseDraft` gives the text the agent reads (`@label` per chip — what `@` always put in the
+  text) and `turnFromDraft` the lists a turn carries; the turn pipeline (`TurnInput`, `queuedPrompt`,
+  `retryTurnFor`, `shouldSteer`) still takes arrays and did not change. So the Hub and the rail composers of
+  one session share everything, a refused first turn puts the whole draft (chips included) back in the field,
+  and a queued prompt keeps its `draft` so "edit queued" restores chips. Image bytes wait in
+  `stores/composerImages.ts` by id (in memory; a chip whose bytes are gone is dropped at send). Everything that
+  adds something — `@`, the `@` button, `+ → Attach files…`, an OS drop, a pasted image, `agent.attach` refs —
+  inserts a chip at the caret (`insertAttachmentChips`; `appendChips` on the string when no editor is mounted).
+  A long name keeps its end (`chipName.ts`); the hover card asks Go what the file is
+  (`AgentHubDescribeFiles` → `DescribeAttachment`, `attachment_info.go`: size, kind, why it cannot be sent;
+  `TestDescribeAgreesWithTheRefusals` keeps it in step with `attachmentBlock`). **The composer kit has no
+  MarkdownPlugin**: a paste is read by `deserializeComposerValue` and comes back exactly as written (the
+  Markdown reader turned `# T\n- a` into `Ta`); copy puts the prompt as the agent reads it on the clipboard as
+  text and keeps the chips in the editor's own fragment. Slate takes a multi-format paste from `beforeinput`,
+  not the `paste` event, so a browser check of it has to dispatch that (`?gallery#agenthub-composer-layout`,
+  scenario "attachments").
 - **The frontend reads a vendor table** (`frontend/src/modules/agenthub/vendors.ts`:
   name, runtime id, how it signs in, colour). Do not compare against `"claude"`; an
   unknown vendor gets its own name and nothing to install or sign in to.

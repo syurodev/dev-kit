@@ -65,7 +65,8 @@ import { attentionBySession, failureDismissable } from "./sidebar/model";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
-import { imageAttachmentFromFile } from "./imageAttachments";
+import { appendChips, refChip, turnFromDraft } from "./composerDraft";
+import { useComposerImagesStore } from "@/stores/composerImages";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -87,6 +88,8 @@ type CreateParams = {
   workspaceId?: string;
   parentSessionId?: string;
   prompt?: string;
+  /** The draft the prompt was read from, chips and all: what goes back into the field if the first turn is refused. */
+  draft?: string;
   attachments?: string[];
   images?: AgentImageAttachment[];
   /** The rest of a workspace's services — see chooseWorkspaceForDraft. */
@@ -250,15 +253,13 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   // first send. A vendor may read its catalog in a short-lived process before
   // that, without creating a conversation. This replaced a dialog that asked
   // for the agent up front, before anyone had said what they wanted from it.
-  // Images pasted into the draft belong to it: they go when it is sent or left.
+  // What the draft attaches — files, images, references — is chips in
+  // `draftPrompt` itself (composerDraft.ts), so it goes when the draft is sent
+  // or left, with nothing to keep in step.
   const [draft, setDraft] = useState<{
     cwd: string;
     workspaceId: string;
     parent: AgentSession | null;
-    images: AgentImageAttachment[];
-    // Files picked with "@" before there is a session to attach them to; they
-    // go with the first message.
-    attachments: string[];
     // The rest of a workspace's services, when "grant every service" was
     // picked instead of one folder — see chooseWorkspaceForDraft.
     extraReadWritePaths: string[];
@@ -328,15 +329,6 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     queryFn: agentHubScratchRoot,
     staleTime: Infinity,
   }).data ?? "";
-  // Per session: attachments belong to the turn you are composing, and
-  // switching tabs must not carry someone else's files into your prompt.
-  const [attachments, setAttachments] = useState<Record<string, string[]>>({});
-  const [images, setImages] = useState<Record<string, AgentImageAttachment[]>>({});
-  // Cross-module refs an `agent.attach` intent handed this session — see the
-  // pendingAgentAttach effect below. Per session for the same reason as
-  // attachments: switching tabs must not carry someone else's refs along.
-  const [refs, setRefs] = useState<Record<string, EntityRef[]>>({});
-  const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Record<string, AgentContextFile[]>>({});
 
   const [busy, setBusy] = useState(false);
@@ -380,14 +372,10 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   useEffect(() => {
     if (!visible || !pendingAgentAttach || !activeSession) return;
     const { refs: attachedRefs, prompt } = pendingAgentAttach;
-    setRefs((prev) => ({
-      ...prev,
-      [activeSession.id]: [...(prev[activeSession.id] ?? []), ...attachedRefs],
-    }));
-    if (prompt) {
-      const draft = useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "";
-      setPrompt(activeSession.id, draft ? `${draft}\n\n${prompt}` : prompt);
-    }
+    // The refs become chips at the end of the draft, then the prompt it came with.
+    let next = appendChips(useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "", attachedRefs.map(refChip));
+    if (prompt) next = next ? `${next}\n\n${prompt}` : prompt;
+    if (next) setPrompt(activeSession.id, next);
     useAgentSessionsStore.getState().consumeAgentAttach();
   }, [visible, pendingAgentAttach, activeSession, setPrompt]);
 
@@ -530,7 +518,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
 
   /** Starts a draft in a folder that is already known — a project row, a parent. */
   function startDraft(cwd: string, parent: AgentSession | null, workspaceId = "") {
-    setDraft({ cwd, workspaceId: parent?.workspaceId || workspaceId, parent, images: [], attachments: [], extraReadWritePaths: [] });
+    setDraft({ cwd, workspaceId: parent?.workspaceId || workspaceId, parent, extraReadWritePaths: [] });
     setDraftPrompt("");
     setError("");
     setErrorReason("");
@@ -625,12 +613,15 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
         const text = params.prompt ?? "";
         void sendAgentTurn(
           session.id,
-          queuedPrompt(text, params.attachments ?? [], params.images ?? []),
-        ).catch((e) => {
-          const agents = useAgentSessionsStore.getState();
-          if (text && !agents.promptBySession[session.id]) agents.setPrompt(session.id, text);
-          toast.error(errorMessage(e));
-        });
+          queuedPrompt(text, params.attachments ?? [], params.images ?? [], [], params.draft),
+        )
+          .then(() => useComposerImagesStore.getState().forget((params.images ?? []).map((image) => image.id)))
+          .catch((e) => {
+            const agents = useAgentSessionsStore.getState();
+            const restore = params.draft || text;
+            if (restore && !agents.promptBySession[session.id]) agents.setPrompt(session.id, restore);
+            toast.error(errorMessage(e));
+          });
       }
     } catch (e) {
       const failure = createFailure(params.vendor, e);
@@ -672,84 +663,27 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     );
   }
 
-  async function handleBrowseContext() {
-    if (!activeSession) return;
+  /** The files the person picked, for the composer to put at the caret; none when cancelled or when the dialog failed. */
+  async function handleBrowseContext(): Promise<string[]> {
     try {
-      const picked = await agentHubChooseFiles(activeSession.projectPath);
-      if (picked.length === 0) return; // cancelled
-      setAttachments((prev) => {
-        const current = prev[activeSession.id] ?? [];
-        // Picking the same file twice is a slip, not an instruction to send it
-        // twice.
-        const merged = [...current, ...picked.filter((p) => !current.includes(p))];
-        return { ...prev, [activeSession.id]: merged };
-      });
+      return await agentHubChooseFiles(draft ? draft.cwd : (activeSession?.projectPath ?? ""));
     } catch (e) {
       reportError(e);
+      return [];
     }
   }
 
-  function handleRemoveAttachment(path: string) {
-    if (draft) {
-      setDraft((current) => current && { ...current, attachments: current.attachments.filter((p) => p !== path) });
-      return;
-    }
-    if (!activeSession) return;
-    setAttachments((prev) => ({
-      ...prev,
-      [activeSession.id]: (prev[activeSession.id] ?? []).filter((p) => p !== path),
-    }));
-  }
-
-  async function handleAddImage(file: File) {
-    try {
-      const image = await imageAttachmentFromFile(file);
-      setImageError("");
-      if (activeSession) setImages((prev) => ({ ...prev, [activeSession.id]: [...(prev[activeSession.id] ?? []), image] }));
-      else if (draft) setDraft((current) => current && { ...current, images: [...current.images, image] });
-    } catch (e) {
-      setImageError(e instanceof Error ? e.message : "Could not attach image");
-    }
-  }
-
-  function handleRemoveImage(id: string) {
-    if (activeSession) {
-      setImages((prev) => ({ ...prev, [activeSession.id]: (prev[activeSession.id] ?? []).filter((image) => image.id !== id) }));
-    } else {
-      setDraft((current) => current && { ...current, images: current.images.filter((image) => image.id !== id) });
-    }
-  }
-
-  function handleRemoveRef(ref: EntityRef) {
-    if (!activeSession) return;
-    setRefs((prev) => ({
-      ...prev,
-      [activeSession.id]: (prev[activeSession.id] ?? []).filter(
-        (r) => !(r.module === ref.module && r.kind === ref.kind && r.id === ref.id),
-      ),
-    }));
-  }
-
-  function queuePrompt(
-    session: AgentSession,
-    text: string,
-    attached: string[],
-    attachedImages: AgentImageAttachment[],
-    attachedRefs: EntityRef[],
-  ) {
-    enqueuePrompt(session.id, queuedPrompt(text, attached, attachedImages, attachedRefs));
+  function queuePrompt(session: AgentSession, turn: ReturnType<typeof turnFromDraft>, draftText: string) {
+    enqueuePrompt(session.id, queuedPrompt(turn.text, turn.attachments, turn.images, turn.refs, draftText));
     setPrompt(session.id, "");
-    setAttachments((prev) => ({ ...prev, [session.id]: [] }));
-    setImages((prev) => ({ ...prev, [session.id]: [] }));
-    setRefs((prev) => ({ ...prev, [session.id]: [] }));
   }
 
   function editQueuedPrompt(queued: QueuedAgentPrompt) {
     if (!activeSession) return;
-    setPrompt(activeSession.id, queued.text);
-    setAttachments((prev) => ({ ...prev, [activeSession.id]: queued.attachments }));
-    setImages((prev) => ({ ...prev, [activeSession.id]: queued.images }));
-    setRefs((prev) => ({ ...prev, [activeSession.id]: queued.refs }));
+    // The draft it was sent from, so its chips come back where they stood; the
+    // images' bytes go back where the chips look for them.
+    useComposerImagesStore.getState().addAll(queued.images);
+    setPrompt(activeSession.id, queued.draft ?? queued.text);
     removeQueuedPrompt(activeSession.id, queued.id);
   }
 
@@ -766,24 +700,6 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
         : Promise.resolve([]);
     }
     return activeSession ? agentHubListContextFiles(activeSession.id, query) : Promise.resolve([]);
-  }
-
-  function handleSelectContext(path: string) {
-    // The draft first: activeSession falls back to the first session even
-    // while a draft is on screen, and the file belongs to the draft's message.
-    if (draft) {
-      setDraft((current) =>
-        current && !current.attachments.includes(path) ? { ...current, attachments: [...current.attachments, path] } : current,
-      );
-      return;
-    }
-    if (!activeSession) return;
-    setAttachments((prev) => {
-      const current = prev[activeSession.id] ?? [];
-      return current.includes(path)
-        ? prev
-        : { ...prev, [activeSession.id]: [...current, path] };
-    });
   }
 
   function handleOpenFile(path: string, line?: number) {
@@ -844,10 +760,14 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
   async function handleSend(retry?: TurnInput, known?: AgentSession) {
     const session = known ?? (retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession);
     if (!session) return;
-    const attached = retry ? retry.attachments : attachments[session.id] ?? [];
-    const attachedImages = retry ? retry.images : images[session.id] ?? [];
-    const attachedRefs = retry ? retry.refs : refs[session.id] ?? [];
-    const text = retry ? retry.text : activePrompt.trim();
+    // What the turn carries is read off the draft: its words, and each chip in
+    // it. A retry carries what its first attempt did.
+    const drafted = retry ? null : turnFromDraft(activePrompt, useComposerImagesStore.getState().byId);
+    const attached = retry ? retry.attachments : drafted!.attachments;
+    const attachedImages = retry ? retry.images : drafted!.images;
+    const attachedRefs = retry ? retry.refs : drafted!.refs;
+    const text = retry ? retry.text : drafted!.text;
+    const sentDraft = retry ? "" : activePrompt;
     // A prompt with attachments and no words is a turn: "look at these".
     if (!text && attached.length === 0 && attachedImages.length === 0 && attachedRefs.length === 0) return;
     // While the agent is working, a message goes INTO the turn rather than
@@ -872,7 +792,7 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
       }
     }
     if (!known && (busy || session.status === "running" || session.status === "awaiting_permission")) {
-      queuePrompt(session, text, attached, attachedImages, attachedRefs);
+      queuePrompt(session, { text, attachments: attached, images: attachedImages, refs: attachedRefs }, sentDraft);
       return;
     }
     if (busy) return;
@@ -885,19 +805,18 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     try {
       // Resolves without a result when the backend was busy and the prompt was
       // queued instead; its files went into the queue with it.
-      await sendAgentTurn(session.id, queuedPrompt(text, attached, attachedImages, attachedRefs));
-      // Cleared only once the turn was accepted: a failed send should leave the
-      // files where the user put them rather than make them pick again.
-      setAttachments((prev) => ({ ...prev, [session.id]: [] }));
-      setImages((prev) => ({ ...prev, [session.id]: [] }));
-      setRefs((prev) => ({ ...prev, [session.id]: [] }));
+      await sendAgentTurn(session.id, queuedPrompt(text, attached, attachedImages, attachedRefs, sentDraft));
+      // The pictures' bytes are only kept for a draft that may yet be sent:
+      // once the turn was accepted they have done their job.
+      useComposerImagesStore.getState().forget(attachedImages.map((image) => image.id));
     } catch (e) {
       reportError(e);
-      // The words were cleared above so the field is ready for the next
-      // message; a turn that never started must not take them with it. Put
-      // back only into an empty field — the person may already be typing.
-      if (!retry && text && !useAgentSessionsStore.getState().promptBySession[session.id]) {
-        setPrompt(session.id, text);
+      // The draft was cleared above so the field is ready for the next
+      // message; a turn that never started must not take it — files, images and
+      // all, since they are chips in it — with it. Put back only into an empty
+      // field: the person may already be typing.
+      if (sentDraft && !useAgentSessionsStore.getState().promptBySession[session.id]) {
+        setPrompt(session.id, sentDraft);
       }
       // A refused prompt (an attachment DevKit will not send) leaves the
       // session idle, so there is no error card to say so: without this the
@@ -1114,7 +1033,6 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             commands={transcriptModel.commands}
             contextFiles={contextFiles[activeSession?.id ?? ""] ?? []}
             onSelectCommand={handleSelectCommand}
-            onSelectContext={handleSelectContext}
             onOpenFile={(path, line) => void handleOpenFile(path, line)}
             configOptions={draft ? draftOptions : transcriptModel.configOptions}
             configLoading={draft ? draftCatalog.isFetching : sessionConfig.isFetching}
@@ -1168,15 +1086,17 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             }}
             onSend={() => {
               if (!draft) return void handleSend();
-              if (!draftPrompt.trim() && draft.images.length === 0 && draft.attachments.length === 0) return;
+              const first = turnFromDraft(draftPrompt, useComposerImagesStore.getState().byId);
+              if (!first.text && first.attachments.length === 0 && first.images.length === 0 && first.refs.length === 0) return;
               void handleCreateSession({
                 vendor: draftAgent,
                 cwd: draft.cwd,
                 workspaceId: draft.workspaceId,
                 parentSessionId: draft.parent?.id,
-                prompt: draftPrompt.trim(),
-                images: draft.images,
-                attachments: draft.attachments,
+                prompt: first.text,
+                draft: draftPrompt,
+                images: first.images,
+                attachments: first.attachments,
                 extraReadWritePaths: draft.extraReadWritePaths,
                 initialConfig: initialModelConfig(draftOptions),
               });
@@ -1220,23 +1140,14 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
             errorDetail={
               errorCause === "authRequired" && activeSession ? signInFor(activeSession.agentType) : undefined
             }
-            attachments={draft ? draft.attachments : activeSession ? attachments[activeSession.id] ?? [] : []}
             onSearchContext={searchContext}
-            imageAttachments={draft ? draft.images : activeSession ? images[activeSession.id] ?? [] : []}
-            onRemoveImage={handleRemoveImage}
-            refs={activeSession ? refs[activeSession.id] ?? [] : []}
-            onRemoveRef={handleRemoveRef}
-            onPasteImage={(file) => void handleAddImage(file)}
-            onDropImage={(file) => void handleAddImage(file)}
-            imageError={imageError}
             queuedPrompts={queuedPrompts}
             queuePaused={queuePaused}
             queuePausedReason={queuePausedReason}
             onResumeQueued={() => activeSession && resumeQueuedPrompts(activeSession.id)}
             onCancelQueued={(id) => activeSession && removeQueuedPrompt(activeSession.id, id)}
             onEditQueued={editQueuedPrompt}
-            onBrowseContext={() => void handleBrowseContext()}
-            onRemoveAttachment={handleRemoveAttachment}
+            onBrowseContext={handleBrowseContext}
           />
         </div>
 

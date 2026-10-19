@@ -421,6 +421,18 @@ export function AgentHubDeleteSession(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * AgentHubDescribeFiles says what each of paths is and whether DevKit can send
+ * it — size, kind, and the reason when it cannot — for the chip a file becomes
+ * in the composer. It stats and sniffs; it does not read the files. UI only,
+ * like AgentHubChooseFiles: it answers for whatever path the window names, so it
+ * is not an MCP tool (an agent has no use for it and is not meant to probe the
+ * filesystem through it).
+ */
+export function AgentHubDescribeFiles(paths: string[] | null): $CancellablePromise<agenthub$0.AttachmentInfo[] | null> {
+    return $Call.ByID(1089881246, paths);
+}
+
+/**
  * AgentHubDismissInterruptedRewind closes the banner without touching files.
  */
 export function AgentHubDismissInterruptedRewind(checkpointID: string): $CancellablePromise<void> {

@@ -5,7 +5,6 @@ import {
   agentHubGetStatus,
   agentHubChooseFiles,
   agentHubListContextFiles,
-  type AgentImageAttachment,
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
@@ -17,9 +16,9 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
-import type { EntityRef } from "@/workbench/intents";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
-import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
+import { appendChips, refChip, turnFromDraft } from "@/modules/agenthub/composerDraft";
+import { useComposerImagesStore } from "@/stores/composerImages";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
@@ -56,10 +55,6 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   // failure's revision is its resetsAt, so dismissing it holds until a new
   // window makes it news again.
   const [dismissedFailure, setDismissedFailure] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [images, setImages] = useState<AgentImageAttachment[]>([]);
-  const [refs, setRefs] = useState<EntityRef[]>([]);
-  const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Awaited<ReturnType<typeof agentHubListContextFiles>>>([]);
   const pendingAgentAttach = useAgentSessionsStore((s) => s.pendingAgentAttach);
   const consumeAgentAttach = useAgentSessionsStore((s) => s.consumeAgentAttach);
@@ -106,60 +101,49 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   useEffect(() => {
     if (!visible || !pendingAgentAttach || !session) return;
     const { refs: attachedRefs, prompt: attachedPrompt } = pendingAgentAttach;
-    setRefs((current) => [...current, ...attachedRefs]);
-    if (attachedPrompt) {
-      const draft = useAgentSessionsStore.getState().promptBySession[session.id] ?? "";
-      setPrompt(session.id, draft ? `${draft}\n\n${attachedPrompt}` : attachedPrompt);
-    }
+    // The refs become chips at the end of the draft, then the prompt it came with.
+    let next = appendChips(useAgentSessionsStore.getState().promptBySession[session.id] ?? "", attachedRefs.map(refChip));
+    if (attachedPrompt) next = next ? `${next}\n\n${attachedPrompt}` : attachedPrompt;
+    if (next) setPrompt(session.id, next);
     consumeAgentAttach();
   }, [visible, pendingAgentAttach, session, setPrompt, consumeAgentAttach]);
 
 
   async function handleSend(inputText?: string) {
     if (!session) return;
-    const text = inputText ?? prompt.trim();
+    // What the turn carries is read off the draft: its words and each chip in it.
+    const sentDraft = inputText === undefined ? prompt : "";
+    const drafted = inputText === undefined
+      ? turnFromDraft(prompt, useComposerImagesStore.getState().byId)
+      : { text: inputText, attachments: [], images: [], refs: [] };
+    const { text, attachments, images, refs } = drafted;
     if (!text && attachments.length === 0 && images.length === 0 && refs.length === 0) return;
-    const turn = queuedPrompt(text, attachments, images, refs);
+    const turn = queuedPrompt(text, attachments, images, refs, sentDraft);
     setPrompt(session.id, "");
     if (busy || session.status === "running" || session.status === "awaiting_permission") {
       enqueuePrompt(session.id, turn);
-      setAttachments([]);
-      setImages([]);
-      setRefs([]);
       return;
     }
     setBusy(true);
     setError("");
     try {
       await sendAgentTurn(session.id, turn);
-      // Cleared only once the turn was accepted or queued: a failed send leaves
-      // the files where the user put them.
-      setAttachments([]);
-      setImages([]);
-      setRefs([]);
+      // The pictures' bytes are kept only while the draft may yet be sent.
+      useComposerImagesStore.getState().forget(images.map((image) => image.id));
     } catch (e) {
       setError(errorMessage(e));
+      // A turn that never started takes nothing with it: the draft, chips and
+      // all, goes back into an empty field.
+      if (sentDraft && !useAgentSessionsStore.getState().promptBySession[session.id]) setPrompt(session.id, sentDraft);
     } finally {
       setBusy(false);
     }
   }
 
-  async function addImage(file: File) {
-    try {
-      const image = await imageAttachmentFromFile(file);
-      setImages((current) => [...current, image]);
-      setImageError("");
-    } catch (e) {
-      setImageError(e instanceof Error ? e.message : "Could not attach image");
-    }
-  }
-
   function editQueuedPrompt(queued: QueuedAgentPrompt) {
     if (!session) return;
-    setPrompt(session.id, queued.text);
-    setAttachments(queued.attachments);
-    setImages(queued.images);
-    setRefs(queued.refs);
+    useComposerImagesStore.getState().addAll(queued.images);
+    setPrompt(session.id, queued.draft ?? queued.text);
     removeQueuedPrompt(session.id, queued.id);
   }
 
@@ -173,10 +157,6 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     } else {
       void handleSend(commandName);
     }
-  }
-
-  function selectContext(path: string) {
-    setAttachments((current) => current.includes(path) ? current : [...current, path]);
   }
 
   function openFile(path: string, line?: number) {
@@ -227,30 +207,21 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       commands={transcriptModel.commands}
       contextFiles={contextFiles}
       onSelectCommand={selectCommand}
-      onSelectContext={selectContext}
       onSearchContext={(query) => (session ? agentHubListContextFiles(session.id, query) : Promise.resolve([]))}
-      attachedFiles={attachments}
-      onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
-      imageAttachments={images}
-      onRemoveImage={(id) => setImages((current) => current.filter((image) => image.id !== id))}
-      refs={refs}
-      onRemoveRef={(ref) =>
-        setRefs((current) => current.filter((r) => !(r.module === ref.module && r.kind === ref.kind && r.id === ref.id)))
-      }
-      onPasteImage={(file) => void addImage(file)}
-      onDropImage={(file) => void addImage(file)}
-      imageError={imageError}
       queuedPrompts={queuedPrompts}
       queuePaused={queuePaused}
       queuePausedReason={queuePausedReason}
       onResumeQueued={() => session && resumeQueuedPrompts(session.id)}
       onCancelQueued={(id) => session && removeQueuedPrompt(session.id, id)}
       onEditQueued={editQueuedPrompt}
-      onBrowseContext={() => {
-        if (!session) return;
-        void agentHubChooseFiles(session.projectPath).then((picked) => {
-          setAttachments((current) => [...current, ...picked.filter((path) => !current.includes(path))]);
-        }).catch((e) => setError(errorMessage(e)));
+      onBrowseContext={async () => {
+        if (!session) return [];
+        try {
+          return await agentHubChooseFiles(session.projectPath);
+        } catch (e) {
+          setError(errorMessage(e));
+          return [];
+        }
       }}
       configOptions={transcriptModel.configOptions}
       mode={transcriptModel.mode}

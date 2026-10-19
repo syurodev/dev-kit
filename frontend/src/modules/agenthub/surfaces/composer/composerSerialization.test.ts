@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { collectMentionKeys, deserializeComposerValue, serializeComposerValue } from "./composerSerialization";
+import { chipToken, fileChip, imageChip, parseDraft } from "../../composerDraft";
+import { attachmentNode, deserializeComposerValue, serializeComposerValue } from "./composerSerialization";
 
-const types = { paragraph: "p", mention: "mention", codeBlock: "code_block", codeLine: "code_line" };
+const types = { paragraph: "p", attachment: "attachment", codeBlock: "code_block", codeLine: "code_line" };
 
 describe("serializeComposerValue", () => {
   it("writes plain text exactly as composed, including a soft break", () => {
@@ -9,18 +10,38 @@ describe("serializeComposerValue", () => {
     expect(serializeComposerValue(nodes, types)).toBe("line one\nline two");
   });
 
-  it("writes a mentioned file as @label, not the empty text it wraps", () => {
+  it("writes a chip as its token, not the empty text it wraps", () => {
     const nodes = [
       {
         type: "p",
         children: [
           { text: "check " },
-          { type: "mention", key: "src/app.ts", value: "app.ts", children: [{ text: "" }] },
+          attachmentNode("attachment", fileChip("/work/src/app.ts")),
           { text: " please" },
         ],
       },
     ];
-    expect(serializeComposerValue(nodes, types)).toBe("check @app.ts please");
+    const draft = serializeComposerValue(nodes, types);
+    expect(draft).toBe(`check ${chipToken(fileChip("/work/src/app.ts"))} please`);
+    expect(parseDraft(draft).text).toBe("check @app.ts please");
+  });
+
+  it("writes an image and a chip inside a code line too", () => {
+    const nodes = [
+      {
+        type: "code_block",
+        lang: "",
+        children: [
+          { type: "code_line", children: [{ text: "see " }, attachmentNode("attachment", imageChip({ id: "i1", name: "a.png" }))] },
+        ],
+      },
+    ];
+    expect(serializeComposerValue(nodes, types)).toBe("```\nsee " + chipToken(imageChip({ id: "i1", name: "a.png" })) + "\n```");
+  });
+
+  it("cannot be made to write a token by typing the delimiters", () => {
+    const nodes = [{ type: "p", children: [{ text: "a\uE000file:x|y\uE001b" }] }];
+    expect(parseDraft(serializeComposerValue(nodes, types)).chips).toEqual([]);
   });
 
   it("writes a code block as an ordinary fenced block, language and all", () => {
@@ -64,6 +85,10 @@ describe("deserializeComposerValue", () => {
     "*",
     "> not a quote",
     "check @app.ts please",
+    `compare ${chipToken(fileChip("/work/a b (1).pdf"))} with ${chipToken(fileChip("/work/c.md"))}`,
+    `${chipToken(fileChip("/work/a.md"))}${chipToken(fileChip("/work/b.md"))}`,
+    `${chipToken(imageChip({ id: "i1", name: "shot.png" }))} what is wrong here?`,
+    "before\n```ts\nconst x = 1; " + chipToken(fileChip("/w/a.ts")) + "\n```\nafter",
     "before\n```ts\nconst x = 1;\n\nconsole.log(x);\n```\nafter",
     "```\ncode\n```",
     "```\na\n```\n\n```\nb\n```",
@@ -81,27 +106,25 @@ describe("deserializeComposerValue", () => {
     ]);
   });
 
-  it("reads an empty prompt as an empty document", () => {
-    expect(deserializeComposerValue("", types)).toEqual([]);
-  });
-});
-
-describe("collectMentionKeys", () => {
-  it("finds every mention's key, nested inside a code line or not", () => {
-    const nodes = [
+  it("reads a token as an attachment node between text nodes", () => {
+    expect(deserializeComposerValue(`see ${chipToken(fileChip("/w/a.ts"))}`, types)).toEqual([
       {
         type: "p",
         children: [
-          { type: "mention", key: "a.ts", value: "a.ts", children: [{ text: "" }] },
-          { text: " and " },
-          { type: "mention", key: "b.ts", value: "b.ts", children: [{ text: "" }] },
+          { text: "see " },
+          { type: "attachment", kind: "file", key: "/w/a.ts", value: "a.ts", children: [{ text: "" }] },
+          { text: "" },
         ],
       },
-    ];
-    expect(collectMentionKeys(nodes, "mention")).toEqual(new Set(["a.ts", "b.ts"]));
+    ]);
   });
 
-  it("finds nothing in a document with no mentions", () => {
-    expect(collectMentionKeys([{ type: "p", children: [{ text: "hi" }] }], "mention")).toEqual(new Set());
+  it("puts empty text between two chips and around a lone one", () => {
+    const [paragraph] = deserializeComposerValue(`${chipToken(fileChip("/a"))}${chipToken(fileChip("/b"))}`, types);
+    expect(paragraph.children?.map((child) => child.type ?? "text")).toEqual(["text", "attachment", "text", "attachment", "text"]);
+  });
+
+  it("reads an empty prompt as an empty document", () => {
+    expect(deserializeComposerValue("", types)).toEqual([]);
   });
 });
