@@ -14,8 +14,10 @@ const INITIAL_JS_BUDGET = 2 * 1024 * 1024;
 // even server mode loopback-only), so compressed size stands in for a download
 // that never happens. What costs startup here is parse and compile, which
 // tracks raw bytes — a second budget over the same bytes only ever needed
-// raising twice.
-const INITIAL_CSS_BUDGET = 280 * 1024;
+// raising twice. CSS sat at 280.0 KiB against a 280 KiB ceiling when the Notes
+// table/column layout added its classes; 320 KiB is room to keep styling in
+// Tailwind rather than shave or move it into inline styles.
+const INITIAL_CSS_BUDGET = 320 * 1024;
 
 function assetPaths(html, relation) {
   const pattern =

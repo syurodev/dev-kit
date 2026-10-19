@@ -4,18 +4,16 @@ import {
   ArrowLeft,
   Bold,
   Code,
-  Columns2,
   FileText,
   Folder,
   Italic,
   Link2,
+  Lock,
   Palette,
   PanelRight,
   History,
-  StretchHorizontal,
   Strikethrough,
   Tag,
-  Trash2,
   Underline,
   X,
 } from "lucide-react";
@@ -25,7 +23,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { FloatingToolbar } from "@/components/ui/floating-toolbar";
-import { Input } from "@/components/ui/input";
 import { LinkToolbarButton } from "@/components/ui/link-toolbar-button";
 import { MarkToolbarButton } from "@/components/ui/mark-toolbar-button";
 import {
@@ -36,9 +33,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSplitPanelActions } from "@/components/ui/split-panel";
-import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
+  createNote,
   deleteNote,
   getNote,
   listFolders,
@@ -52,14 +49,25 @@ import {
 } from "../../bridge/notes";
 import { useModuleAction } from "../../stores/moduleActions";
 import { NoteHistoryPanel } from "./NoteHistoryPanel";
+import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { useNotesSidebar } from "./useNotesSidebar";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
-import { useNoteWidthStore } from "../../stores/noteWidth";
+import { useNoteViewStore } from "../../stores/noteView";
+import { copyText } from "../../bridge/clipboard";
+import { openNoteTab } from "./documents";
 import { tabKey, useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
 import { tagChipVar } from "./tagColor";
 import { NotesEditorKit } from "./plate/plugins";
+import {
+  NOTE_CRUMB_CLASS,
+  NoteTitleField,
+  type NoteView,
+  noteBodyClass,
+  notePageClass,
+  noteTitleClass,
+} from "./noteLayout";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -257,9 +265,22 @@ export function NoteEditor({ params }: NoteEditorProps) {
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
   const bumpNotesRefresh = useNotesRefreshStore((state) => state.bump);
-  const fullWidthNotes = useNoteWidthStore((state) => state.fullWidth);
-  const toggleFullWidth = useNoteWidthStore((state) => state.toggleFullWidth);
+  const fullWidthNotes = useNoteViewStore((state) => state.fullWidth);
+  const smallTextNotes = useNoteViewStore((state) => state.smallText);
+  const lockedNotes = useNoteViewStore((state) => state.locked);
+  const noteFont = useNoteViewStore((state) => state.fonts[noteId] ?? "default");
+  const toggleFullWidth = useNoteViewStore((state) => state.toggleFullWidth);
+  const toggleSmallText = useNoteViewStore((state) => state.toggleSmallText);
+  const toggleLocked = useNoteViewStore((state) => state.toggleLocked);
+  const setNoteFont = useNoteViewStore((state) => state.setFont);
   const isFullWidth = fullWidthNotes.includes(noteId);
+  const isLocked = lockedNotes.includes(noteId);
+  const view: NoteView = {
+    fullWidth: isFullWidth,
+    smallText: smallTextNotes.includes(noteId),
+    font: noteFont,
+    locked: isLocked,
+  };
   const hasEditedRef = useRef(false);
 
   function onBack() {
@@ -482,6 +503,43 @@ export function NoteEditor({ params }: NoteEditorProps) {
     void persistOrganization(folderId, ownTags, nextColor);
   }
 
+  function toggleHistory() {
+    setHistoryOpen((open) => {
+      // One split panel, two things that want it. Opening history puts the
+      // details panel away rather than fighting over the slot.
+      if (!open) setMetaOpen(false);
+      return !open;
+    });
+  }
+
+  async function onCopyContents() {
+    try {
+      await copyText(editor.api.markdown.serialize());
+      toast.success("Copied as Markdown");
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
+  /** Notion's Duplicate: the text as it is on screen (unsaved edits too), the
+   *  folder, tags and colour; opened beside nothing, as a document of its own. */
+  async function onDuplicate() {
+    if (!note) return;
+    try {
+      const copy = await createNote(
+        `${titleRef.current.trim() || "Untitled"} (copy)`,
+        editor.api.markdown.serialize(),
+        folderId,
+        ownTags,
+      );
+      if (color) await setNoteOrganization(copy.id, folderId, ownTags, color);
+      bumpNotesRefresh();
+      openNoteTab(copy, false);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
   async function onDelete() {
     if (!note) {
       return;
@@ -519,13 +577,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
           icon: History,
           label: "History",
           isActive: historyOpen,
-          onClick: () =>
-            setHistoryOpen((open) => {
-              // One split panel, two things that want it. Opening history puts
-              // the details panel away rather than fighting over the slot.
-              if (!open) setMetaOpen(false);
-              return !open;
-            }),
+          onClick: toggleHistory,
         }
       : null,
   );
@@ -640,15 +692,16 @@ export function NoteEditor({ params }: NoteEditorProps) {
           {saveError}
         </p>
       ) : null}
-      <Plate editor={editor} onChange={() => scheduleSave(title)}>
+      <Plate editor={editor} readOnly={isLocked} onChange={() => scheduleSave(title)}>
         <EditorContainer className="min-h-0 flex-1 overflow-y-auto">
           {/* Editor Content (424:3473): the crumb sits on the writing column's
-              own left edge, 20 down; the column starts at 56; 720 wide. No
-              header bar — the tab strip above is the header. Full width
-              (noteWidth.ts) drops that 720px ceiling, Notion's per-page
-              toggle. */}
-          <div className={cn("mx-auto w-full px-6 pt-5 pb-24", !isFullWidth && "max-w-180")}>
-            <div className="flex h-4 items-center gap-2 text-code-11 text-text-tertiary">
+              own left edge, 20 down; 720 wide. No header bar — the tab strip
+              above is the header. The ⋯ menu's choices (noteView.ts) are
+              Notion's per-page Appearance: full width drops that 720px
+              ceiling. The column itself is drawn per block (noteLayout.tsx), so
+              tables can use the pane's width; the crumb spans it too. */}
+          <div className={notePageClass(view.font)}>
+            <div className={NOTE_CRUMB_CLASS}>
               <button
                 type="button"
                 aria-label="Back to notes"
@@ -670,36 +723,47 @@ export function NoteEditor({ params }: NoteEditorProps) {
               <span className="ml-auto shrink-0">
                 {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null}
               </span>
-              <button
-                type="button"
-                aria-label={isFullWidth ? "Switch to default width" : "Switch to full width"}
-                title={isFullWidth ? "Default width" : "Full width"}
-                className="shrink-0 hover:text-text-primary"
-                onClick={() => toggleFullWidth(noteId)}
-              >
-                {isFullWidth ? <Columns2 className="size-3.25" /> : <StretchHorizontal className="size-3.25" />}
-              </button>
-              <button
-                type="button"
-                aria-label="Delete note"
-                className="shrink-0 hover:text-status-danger"
-                onClick={() => void onDelete()}
-              >
-                <Trash2 className="size-3.25" />
-              </button>
+              {isLocked && (
+                <button
+                  type="button"
+                  title="Unlock to edit"
+                  className="flex shrink-0 items-center gap-1 hover:text-text-primary"
+                  onClick={() => toggleLocked(noteId)}
+                >
+                  <Lock className="size-3.25" />
+                  Locked
+                </button>
+              )}
+              <NoteOptionsMenu
+                view={view}
+                folders={folders}
+                folderId={folderId}
+                historyOpen={historyOpen}
+                onFontChange={(font) => setNoteFont(noteId, font)}
+                onToggleSmallText={() => toggleSmallText(noteId)}
+                onToggleFullWidth={() => toggleFullWidth(noteId)}
+                onToggleLocked={() => toggleLocked(noteId)}
+                onCopyContents={() => void onCopyContents()}
+                onDuplicate={() => void onDuplicate()}
+                onMoveTo={(next) => onFolderChange(next || "ungrouped")}
+                onToggleHistory={toggleHistory}
+                onDelete={() => void onDelete()}
+              />
             </div>
-            <Input
-              aria-label="note-title"
+            <NoteTitleField
               value={title}
-              onChange={(e) => {
-                titleRef.current = e.target.value;
-                setTitle(e.target.value);
-                scheduleSave(e.target.value);
+              className={noteTitleClass(isFullWidth)}
+              readOnly={isLocked}
+              onChange={(next) => {
+                titleRef.current = next;
+                setTitle(next);
+                scheduleSave(next);
               }}
-              className="mt-5 h-auto w-full border-none bg-transparent px-0 py-1 text-display-32 shadow-none focus-visible:ring-0"
+              onEnter={() => editor.tf.focus({ edge: "start" })}
             />
-            <Editor placeholder="Write something..." className="mt-4 px-0" />
+            <Editor variant="none" placeholder="Write something..." className={noteBodyClass(view)} />
           </div>
+          {!isLocked && (
           <FloatingToolbar>
             <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold">
               <Bold />
@@ -718,6 +782,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
             </MarkToolbarButton>
             <LinkToolbarButton />
           </FloatingToolbar>
+          )}
         </EditorContainer>
       </Plate>
     </div>
