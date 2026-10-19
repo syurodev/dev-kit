@@ -40,6 +40,34 @@ A short table spans the pane too:
 | 1 | 2026-08-17 |
 | 2 | 2026-11-02 |
 
+[TOC]
+
+## Callout
+
+> [!NOTE]
+> Ranh giới giữa các tầng là thứ kiến trúc **bảo vệ**.
+
+> [!TIP]
+> Dùng \`bun test --isolate\` để chạy từng file riêng.
+
+> [!IMPORTANT]
+> Không có ADR nào được \`Accepted\` khi bất biến chưa có cổng máy-enforce.
+>
+> * một
+> * hai
+
+> [!WARNING]
+> Registry sập thì giao dịch vẫn chạy nhờ serve-stale.
+
+> [!CAUTION]
+> Không tái dùng \`PLATFORM_PUBLIC_KEY\`.
+
+## Công thức
+
+\`\`\`math
+\\int_0^1 x^2\\,dx = \\frac{1}{3} \\qquad e^{i\\pi} + 1 = 0
+\`\`\`
+
 ## Biểu đồ
 
 \`\`\`mermaid
