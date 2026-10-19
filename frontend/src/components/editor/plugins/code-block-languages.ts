@@ -61,8 +61,9 @@ export type CodeBlockLanguage = { label: string; value: string };
  * The picker. Only languages that colour: an entry whose grammar is not
  * registered used to be offered and then rendered plain, which reads as a
  * bug. A block saved with one of those names still shows its name
- * (getCodeBlockLanguageLabel falls back to it). `mermaid` has no grammar on
- * purpose — Notes renders it as a diagram (notes/plate/MermaidCodeBlock).
+ * (getCodeBlockLanguageLabel falls back to it). `mermaid` and `math` have no
+ * grammar on purpose — Notes renders them as a diagram and an equation
+ * (notes/plate/RenderedCodeBlock).
  */
 export const CODE_BLOCK_LANGUAGES: CodeBlockLanguage[] = [
   { label: 'Auto', value: 'auto' },
@@ -99,6 +100,7 @@ export const CODE_BLOCK_LANGUAGES: CodeBlockLanguage[] = [
   { label: 'Lua', value: 'lua' },
   { label: 'Makefile', value: 'makefile' },
   { label: 'Markdown', value: 'markdown' },
+  { label: 'Math', value: 'math' },
   { label: 'Mermaid', value: 'mermaid' },
   { label: 'Nginx', value: 'nginx' },
   { label: 'Objective-C', value: 'objectivec' },

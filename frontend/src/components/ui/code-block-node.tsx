@@ -35,10 +35,14 @@ import {
 
 type CodeBlockElementProps = PlateElementProps<TCodeBlockElement> & {
   showLanguageLabel?: boolean;
+  /** Not editable text: drawn under the code inside the block, such as the
+   *  live preview of a diagram or an equation while its source is edited. */
+  footer?: React.ReactNode;
 };
 
 export function CodeBlockElement({
   showLanguageLabel = true,
+  footer,
   ...props
 }: CodeBlockElementProps) {
   const { editor, element } = props;
@@ -59,6 +63,15 @@ export function CodeBlockElement({
         <pre className="overflow-x-auto p-8 pr-4 text-code-12 tab-size-2 print:break-inside-avoid">
           <code>{props.children}</code>
         </pre>
+
+        {footer ? (
+          <div
+            className="border-t border-border-subtle p-4"
+            contentEditable={false}
+          >
+            {footer}
+          </div>
+        ) : null}
 
         <div
           className="absolute top-1 right-1 z-10 flex select-none gap-0.5"

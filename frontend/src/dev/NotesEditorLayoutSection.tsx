@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plate, usePlateEditor } from "platejs/react";
+import { DataTable } from "@/components/ui/data-table/DataTable";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { NoteOptionsMenu } from "@/modules/notes/NoteOptionsMenu";
 import { NotesEditorKit } from "@/modules/notes/plate/plugins";
@@ -38,6 +39,66 @@ A short table spans the pane too:
 | --- | --- |
 | 1 | 2026-08-17 |
 | 2 | 2026-11-02 |
+
+[TOC]
+
+## Callout
+
+> [!NOTE]
+> Ranh giới giữa các tầng là thứ kiến trúc **bảo vệ**.
+
+> [!TIP]
+> Dùng \`bun test --isolate\` để chạy từng file riêng.
+
+> [!IMPORTANT]
+> Không có ADR nào được \`Accepted\` khi bất biến chưa có cổng máy-enforce.
+>
+> * một
+> * hai
+
+> [!WARNING]
+> Registry sập thì giao dịch vẫn chạy nhờ serve-stale.
+
+> [!CAUTION]
+> Không tái dùng \`PLATFORM_PUBLIC_KEY\`.
+
+## Công thức
+
+\`\`\`math
+\\int_0^1 x^2\\,dx = \\frac{1}{3} \\qquad e^{i\\pi} + 1 = 0
+\`\`\`
+
+## Biểu đồ
+
+\`\`\`mermaid
+flowchart LR
+  A[Client] --> B{Gateway}
+  B -->|MONEY| C[Kafka + outbox]
+  B -->|other| D[NATS]
+\`\`\`
+
+\`\`\`mermaid
+sequenceDiagram
+  Client->>Dispatcher: POST /v2/partner
+  Dispatcher->>Registry: route
+  Registry-->>Dispatcher: cached
+\`\`\`
+
+\`\`\`mermaid
+erDiagram
+  CONNECTOR ||--o{ DEPLOYMENT : has
+\`\`\`
+
+\`\`\`mermaid
+pie title Lanes
+  "MONEY" : 40
+  "other" : 60
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  A --> 
+\`\`\`
 
 ## 2. Bảng nhiều cột
 
@@ -112,6 +173,24 @@ export function NotesEditorLayoutSection() {
           </EditorContainer>
         </Plate>
       </div>
+      {/* The shared table a note's tables are drawn to match (tool results,
+          markdown tables in the agent transcript). */}
+      <h3 data-testid="notes-table-reference" className="text-title-16 text-text-primary">
+        DataTable, for comparison
+      </h3>
+      <DataTable
+        className="max-w-240 rounded-control border border-border-subtle"
+        columns={[
+          { key: "source", header: "Nguồn", nowrap: true },
+          { key: "state", header: "Trạng thái" },
+          { key: "role", header: "Vai trò" },
+        ]}
+        rows={[
+          ["galaxy-g-governance", "Đã ký", "Xương sống governance: canonical model, EA-CNP-001 và quy tắc đặt tên cho mọi connector"],
+          ["ADR-0053", "Chờ ký", "Hai làn theo FlowClass (MONEY / ≠ MONEY), mỗi làn một execution mode"],
+          ["ADR-0054", "Chờ ký", "Onboard theo bậc sandbox → cell, kèm 5 amendment ★A1–A5"],
+        ]}
+      />
     </section>
   );
 }

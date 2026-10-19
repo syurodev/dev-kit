@@ -156,6 +156,9 @@ func TestThePersonsPromptEndsEveryPairOfTheSession(t *testing.T) {
 		t.Fatalf("setup: parent -> x hop %d, want 2", res.Hop)
 	}
 	r.waitIdle(x)
+	// The children's "hello"s each started a turn on the parent; the person's
+	// prompt is refused as busy while one is still running.
+	r.waitIdle(r.a)
 	if _, err := r.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: r.a.ID, Prompt: "carry on"}); err != nil {
 		t.Fatal(err)
 	}
