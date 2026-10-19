@@ -21,6 +21,8 @@ type TasksAPI interface {
 	SetFields(caller tasks.Caller, id string, fields tasks.Fields) (tasks.Task, error)
 	Transition(ctx context.Context, caller tasks.Caller, in tasks.TransitionInput) (tasks.TransitionResult, error)
 	Claim(caller tasks.Caller, id string) (tasks.Task, error)
+	Assignable(caller tasks.Caller, id string) (tasks.Task, error)
+	Assign(caller tasks.Caller, id, sessionID string) (tasks.Task, error)
 	Release(caller tasks.Caller, id string) (tasks.Task, error)
 	Archive(caller tasks.Caller, id string) (tasks.Task, error)
 	AddComment(caller tasks.Caller, taskID, body string) (tasks.Comment, error)

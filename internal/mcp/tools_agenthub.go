@@ -12,6 +12,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
+	"devkit/internal/tasks"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -65,10 +66,11 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name: "agenthub.createAgentSession",
-		Description: "Create a new Agent Hub session, a child of this one. With no `profile` or `initialConfig` it runs on this session's model and effort. " +
+		Description: "Create a child session. With no `profile` or `initialConfig` it runs on your model and effort. " +
 			"`profile` picks one of the person's model profiles (agenthub.listModelProfiles); `initialConfig` names a model and effort from agenthub.listModels. " +
-			"Choosing a model other than yours, or a higher effort, asks the person first unless it comes from a profile. " +
-			"The new session starts in your permission mode (never a more permissive one); there is no input to choose another.",
+			"A model other than yours, or a higher effort, asks the person first unless from a profile. " +
+			"It starts in your permission mode, never a more permissive one. " +
+			"`taskId`: DevKit claims that task for the child and sends it the task as its first message.",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -193,6 +195,10 @@ type agentHubCreateInput struct {
 	// below sets that.
 	InitialConfig *agentHubInitialConfig `json:"initialConfig,omitempty"`
 	Profile       string                 `json:"profile,omitempty"`
+	// TaskID starts the child on a task: DevKit checks the task can be given
+	// away, claims it for the new session and sends the session the task as its
+	// first message. See tools_agenthub_task.go.
+	TaskID string `json:"taskId,omitempty"`
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
@@ -209,9 +215,26 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		}
 	}
 	profile := strings.TrimSpace(in.Profile)
+	// A task is checked before anything is created, so a task that cannot be
+	// given away leaves no session behind.
+	taskID := strings.TrimSpace(in.TaskID)
+	var task tasks.Task
+	if taskID != "" {
+		var err error
+		if task, err = s.prepareTaskForChild(ctx, taskID); err != nil {
+			return nil, nil, err
+		}
+		if in.Title == nil {
+			title := clipText(oneLine(task.Title), 60)
+			in.Title = &title
+		}
+	}
 	// The audit line says which profile the choice came from and what was
 	// asked — names and values, never a prompt.
 	audit := map[string]any{"agent_type": in.AgentType}
+	if taskID != "" {
+		audit["task_id"] = taskID
+	}
 	if profile != "" {
 		audit["profile"] = clipAudit(profile)
 	}
@@ -255,6 +278,14 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	})
 	if err != nil {
 		return nil, nil, err
+	}
+	if taskID != "" {
+		if sess, ok := v.(agenthub.AgentSession); ok {
+			v, err = s.giveChildItsTask(ctx, sess, task)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 	return nil, structured(v), nil
 }

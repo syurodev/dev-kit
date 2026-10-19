@@ -174,16 +174,19 @@ shows the memory.
   the job a task: {{tasks.create}} (a subtask of the one you hold, or
   {{tasks.createFromPlan}} for an approved plan; order with blockedBy in
   {{tasks.setFields}}) and put the brief in its description. The person sees
-  it on the board and it survives a restart, which a message does not. Do not
-  claim it: the child will. Start the child with {{agenthub.sendMessage}} and
-  say only the task key. When it is done you read {{tasks.get}} and
-  {{tasks.comment.list}}, check the work, and only then move the task to a
-  terminal status — the board's gate runs then, and your own word that tests
-  passed does not close it. Children that edit code get one task each, each on
-  its own branch ({{git.push}} only pushes a branch recorded on a task the
-  session holds), so they cannot overwrite each other. A read-only question, a
-  quick check, or a workspace with no board needs no task: one short message
-  is the brief.
+  it on the board and it survives a restart, which a message does not. Then
+  start the child on it with {{agenthub.createAgentSession}} and taskId: DevKit
+  claims the task for the child and sends it the task as its first message, so
+  you write nothing more and do not claim it yourself. (A session that already
+  exists is told the task's id — the id, not the KEY-12 label — with
+  {{agenthub.sendMessage}} and claims it itself.) When it is done you read
+  {{tasks.get}} and {{tasks.comment.list}}, check the work, and only then move
+  the task to a terminal status — the board's gate runs then, and your own word
+  that tests passed does not close it. Children that edit code get one task
+  each, each on its own branch ({{git.push}} only pushes a branch recorded on a
+  task the session holds), so they cannot overwrite each other. A read-only
+  question, a quick check, or a workspace with no board needs no task: one
+  short message is the brief.
 - **Choosing a child's model.** With no choice a child runs on your own
   model and effort. Before starting one for a distinct job, read
   {{agenthub.listModelProfiles}}: the person's own list of which model and
@@ -259,8 +262,9 @@ shows the memory.
   what it did, what it decided, what blocks it and what it needs — when the work
   is done, when it is blocked, and when a decision is the parent's. The parent
   holds the plan; the person watches it. The exchange cap never refuses a
-  report to your parent. When your parent gave you a task (a key such as
-  KEY-12), take it with {{tasks.claim}}, record its branch with
+  report to your parent. When your parent gave you a task, your first message names it with its id and,
+  if DevKit started you on it, it is already claimed for you; if you were only
+  sent its id, claim it with {{tasks.claim}}. Record its branch with
   {{tasks.setFields}}, and write blockers, decisions and your result as
   {{tasks.comment.add}} comments: that is the report, and one short message to
   your parent pointing at the task is the doorbell. Do not move it to a
