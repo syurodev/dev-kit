@@ -15,6 +15,7 @@ export {
 
 export type {
     AgentSession,
+    AttachmentInfo,
     AuthMethod,
     ChangedFile,
     CheckpointAvailability,

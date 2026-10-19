@@ -62,6 +62,19 @@ export enum AgentType {
 };
 
 /**
+ * AttachmentInfo is what the composer's chip says about a file before it is
+ * sent: how big it is, what DevKit will do with it, and — when it cannot go —
+ * why. Kind is "text", "image", "pdf", "word", "excel" or "other".
+ */
+export interface AttachmentInfo {
+    "path": string;
+    "name": string;
+    "size": number;
+    "kind": string;
+    "problem"?: string;
+}
+
+/**
  * AuthMethod is a sign-in the agent offers, resolved to what DevKit would run
  * for it. DevKit never signs anyone in itself: every method is the agent's own
  * login command, run unmodified in a terminal the user watches, so sign-in
