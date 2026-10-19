@@ -15,6 +15,7 @@ import {
 } from "@/bridge/accounts";
 import { AddSSHKeyDialog } from "./AddSSHKeyDialog";
 import { AddTokenDialog } from "./AddTokenDialog";
+import { useAddTokenRequest } from "./addTokenRequest";
 import { ImportSSHKeysDialog } from "./ImportSSHKeysDialog";
 import { IdentityDialog } from "./IdentityDialog";
 import { canRotateToken } from "./gitTokens";
@@ -213,6 +214,16 @@ export function AccountsView() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [addingToken, setAddingToken] = useState(false);
+  // Another module asked for a token form for one provider (a pull-request notice: "add a GitLab token").
+  const [tokenProvider, setTokenProvider] = useState<string | undefined>(undefined);
+  const requestedProvider = useAddTokenRequest((state) => state.provider);
+  useEffect(() => {
+    if (requestedProvider === null) return;
+    const provider = useAddTokenRequest.getState().take();
+    if (provider === null) return;
+    setTokenProvider(provider || undefined);
+    setAddingToken(true);
+  }, [requestedProvider]);
 
   const reload = useCallback(() => {
     listAccounts()
@@ -249,7 +260,10 @@ export function AccountsView() {
           variant="ghost"
           size="sm"
           title="Add a personal access token for repositories cloned over HTTPS"
-          onClick={() => setAddingToken(true)}
+          onClick={() => {
+            setTokenProvider(undefined);
+            setAddingToken(true);
+          }}
         >
           <Plus className="size-4" aria-hidden />
           Add token
@@ -379,7 +393,11 @@ export function AccountsView() {
       />
       <AddTokenDialog
         open={addingToken}
-        onClose={() => setAddingToken(false)}
+        initialProvider={tokenProvider}
+        onClose={() => {
+          setAddingToken(false);
+          setTokenProvider(undefined);
+        }}
         onSaved={(saved, note) => {
           setAddingToken(false);
           setNotice(note);

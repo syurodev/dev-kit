@@ -939,3 +939,18 @@ func TestPRErrorQuotesTheHostBoundedAndMarked(t *testing.T) {
 		t.Errorf("empty host text: %q", msg)
 	}
 }
+
+// The agent hears the same honest thing as the window — through the code that
+// is already published — and the key's label, never the key.
+func TestPRErrorSaysAKeyAccountCannotCallTheAPI(t *testing.T) {
+	err := prError(prwatch.NewKeyOnlyError("id_ed25519_gitlab"), "GitLab")
+	var app *apperrors.AppError
+	if !errors.As(err, &app) || app.Code != "pr.noAccount" ||
+		!strings.Contains(app.Message, "“id_ed25519_gitlab”") || !strings.Contains(app.Message, "cannot call GitLab's API") {
+		t.Fatalf("%v", err)
+	}
+	plain := prError(prwatch.ErrNoAccount, "GitLab").(*apperrors.AppError)
+	if plain.Code != "pr.noAccount" || strings.Contains(plain.Message, "SSH key") {
+		t.Errorf("a remote with nothing keeps its old words: %q", plain.Message)
+	}
+}

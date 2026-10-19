@@ -177,6 +177,28 @@ describe("notices", () => {
     expect(view.notices[0].folders[0].message).toContain("chiro/his-connector");
   });
 
+  test("a remote with only an SSH key says so; the same key groups, a different key does not", () => {
+    const key = (name: string, folder: string) =>
+      ({
+        ...item("no_account", `The GitLab key “${name}” pushes your code but can't read merge requests. Add a GitLab token with read_api access in Accounts.`, folder),
+        platform: "GitLab",
+      }) as PullRequestItem;
+    const view = pullRequestsView([key("id_ed25519_gitlab", "/w/a"), key("id_ed25519_gitlab", "/w/b"), key("work key [old]", "/w/c")]);
+    expect(view.notices).toHaveLength(2);
+    expect(view.notices[0]).toMatchObject({ provider: "gitlab", action: { label: "Add token", target: "accounts" } });
+    expect(view.notices[0].message).toContain("“id_ed25519_gitlab”");
+    expect(view.notices[0].folders.map((f) => f.name)).toEqual(["a", "b"]);
+    expect(view.notices[1].message).toContain("“work key [old]”");
+    // Nothing between the quotes is a parenthesised repository, so nothing is folded away.
+    expect(sharedMessage(view.notices[0].message)).toBe(view.notices[0].message);
+  });
+
+  test("the add-token action knows its provider", () => {
+    const withPlatform = (platform: string | undefined) => pullRequestsView([{ ...item("no_account", "x"), platform } as PullRequestItem]).notices[0].provider;
+    expect(withPlatform("GitHub")).toBe("github");
+    expect(withPlatform(undefined)).toBe("");
+  });
+
   test("one folder listed twice (a branch and an attachment) is counted once", () => {
     const view = pullRequestsView([item("no_account", "same", "/w/a"), item("no_account", "same", "/w/a")]);
     expect(view.notices[0].folders).toHaveLength(1);

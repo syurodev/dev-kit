@@ -291,7 +291,12 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   owner). The account is the one bound to the remote if it is a token, else `Accounts.ForRemote(host, owner, …, https)`;
   the background poll never asks the person (two fitting accounts → "ambiguous", say so), an agent's tool call may.
   Every status without a card is stated (`no_account`, `unauthorized`, `rate_limited`, …) except the quiet ones
-  (no request yet, detached, default branch, not a repo, unsupported host). Polling is the window's: `State` returns
+  (no request yet, detached, default branch, not a repo, unsupported host). `no_account` for a remote that has an
+  SSH-key account but no token is worded as such ("The GitLab key “…” pushes your code but can't read merge
+  requests. Add a GitLab token…"): `prCredentials.noToken` returns `prwatch.KeyOnlyError` (still `ErrNoAccount`,
+  carries only the key's sanitised label — no parentheses, which `sharedMessage` would strip — never a secret), `pr.*`
+  tools say the same under the published `pr.noAccount`, and "Add token" opens Accounts' add-token form on that provider
+  (`accounts/addTokenRequest.ts`). Polling is the window's: `State` returns
   `nextPollMs` (15 s while a check runs or mergeability is unknown, 60 s settled, 90 s with no request, -1 when merged
   or closed or when it needs a person); react-query pauses while the window is hidden; a turn ending, window focus
   and the `prwatch:changed` event (pr.create, attach) refresh at once. Reads are conditional (ETag/`If-None-Match`,

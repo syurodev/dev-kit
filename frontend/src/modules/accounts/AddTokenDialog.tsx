@@ -31,10 +31,13 @@ import { gitHostProviders, tokenNote, usernameRequired } from "./gitTokens";
  */
 export function AddTokenDialog({
   open,
+  initialProvider,
   onClose,
   onSaved,
 }: {
   open: boolean;
+  /** The provider to start on when it hosts repositories ("gitlab"), else the form's own default. */
+  initialProvider?: string;
   onClose: () => void;
   /** Called with the saved account, verified when the provider answered. */
   onSaved: (account: Account, note: string) => void;
@@ -67,10 +70,13 @@ export function AddTokenDialog({
       .then((all) => {
         const hosts = gitHostProviders(all);
         setProviders(hosts);
-        setProvider((current) => (hosts.some((p) => p.ID === current) ? current : (hosts[0]?.ID ?? current)));
+        setProvider((current) => {
+          const wanted = initialProvider && hosts.some((p) => p.ID === initialProvider) ? initialProvider : current;
+          return hosts.some((p) => p.ID === wanted) ? wanted : (hosts[0]?.ID ?? wanted);
+        });
       })
       .catch((e: Error) => setError(e.message));
-  }, [open]);
+  }, [open, initialProvider]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();

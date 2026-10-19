@@ -219,6 +219,11 @@ func failure(item Item, terms forge.Terms, remote RemoteRef, err error) Item {
 	switch {
 	case errors.Is(err, ErrNoAccount):
 		item.Status = StatusNoAccount
+		var keyOnly *KeyOnlyError
+		if errors.As(err, &keyOnly) {
+			item.Message = keyOnlyMessage(platform, terms.Long, keyOnly.Account)
+			break
+		}
 		item.Message = fmt.Sprintf("No %s account for this remote (%s). Add a token in Accounts.", platform, where)
 	case errors.Is(err, ErrAmbiguousAccount):
 		item.Status = StatusAmbiguousAccount
@@ -253,6 +258,23 @@ func failure(item Item, terms forge.Terms, remote RemoteRef, err error) Item {
 		}
 	}
 	return item
+}
+
+// keyOnlyMessage is the no_account notice for a remote whose only account is an
+// SSH key. It names no repository, so the window folds every folder that uses
+// the same key into one notice (sharedMessage), and a different key reads as a
+// different notice. The words "with read_api access" avoid parentheses, which
+// that folding would strip.
+func keyOnlyMessage(platform, noun, key string) string {
+	subject := "The " + platform + " SSH key"
+	if key != "" {
+		subject = "The " + platform + " key “" + key + "”"
+	}
+	scope := ""
+	if platform == "GitLab" {
+		scope = " with read_api access"
+	}
+	return fmt.Sprintf("%s pushes your code but can't read %ss. Add a %s token%s in Accounts.", subject, noun, platform, scope)
 }
 
 // nextPoll is the shortest delay any item asks for; -1 when none wants one.

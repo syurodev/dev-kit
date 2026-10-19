@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"devkit/internal/forge"
 )
@@ -81,6 +82,52 @@ var (
 	// ErrProtectedBranch: the branch is the default or protected, and is left alone.
 	ErrProtectedBranch = errors.New("prwatch: the branch is the default or protected")
 )
+
+// KeyOnlyError is ErrNoAccount for a remote that does have an account — an SSH
+// key, which pushes code but cannot call the host's API. It carries only the
+// key account's label (never the key), so the notice can say so instead of
+// "no account" about a remote the person sees bound to one.
+type KeyOnlyError struct {
+	// Account is the key account's label, made safe to put in a sentence.
+	// Empty when several keys fit and none is bound.
+	Account string
+}
+
+// NewKeyOnlyError builds the error for a key account's label (may be "").
+func NewKeyOnlyError(label string) *KeyOnlyError {
+	return &KeyOnlyError{Account: safeLabel(label)}
+}
+
+func (e *KeyOnlyError) Error() string { return "prwatch: only an SSH key account fits this remote" }
+
+// Is makes errors.Is(err, ErrNoAccount) true: every caller that handled "no
+// account" still does, and only the wording learns more.
+func (e *KeyOnlyError) Is(target error) bool { return target == ErrNoAccount }
+
+// safeLabel reduces a person's account label to one short line with no
+// parentheses: the window folds notices that differ only by a parenthesised
+// repository (sharedMessage), and a label holding "(work)" would be dropped
+// from the key and merge two different keys.
+func safeLabel(label string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(label) {
+		switch {
+		case r == '(':
+			b.WriteRune('[')
+		case r == ')':
+			b.WriteRune(']')
+		case unicode.IsControl(r):
+			b.WriteRune(' ')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Join(strings.Fields(b.String()), " ")
+	if runes := []rune(out); len(runes) > 60 {
+		out = string(runes[:60]) + "…"
+	}
+	return out
+}
 
 const (
 	// minAge is how long an answer is reused without asking the host: two

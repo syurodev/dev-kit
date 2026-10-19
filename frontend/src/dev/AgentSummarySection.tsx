@@ -66,6 +66,12 @@ const pullRequests: PullRequestsPanel = {
       folder: "/work/chiro/legacy-ui",
       message: "No GitHub account for this remote (acme/legacy-ui on github.com). Add a token in Accounts.",
     }),
+    prItem({
+      status: "no_account",
+      folder: "/work/chiro/payments",
+      platform: "GitLab",
+      message: "The GitLab key “id_ed25519_gitlab” pushes your code but can't read merge requests. Add a GitLab token with read_api access in Accounts.",
+    }),
   ]),
   attach: async () => {},
   detach: async () => {},
