@@ -40,6 +40,38 @@ A short table spans the pane too:
 | 1 | 2026-08-17 |
 | 2 | 2026-11-02 |
 
+## Biểu đồ
+
+\`\`\`mermaid
+flowchart LR
+  A[Client] --> B{Gateway}
+  B -->|MONEY| C[Kafka + outbox]
+  B -->|other| D[NATS]
+\`\`\`
+
+\`\`\`mermaid
+sequenceDiagram
+  Client->>Dispatcher: POST /v2/partner
+  Dispatcher->>Registry: route
+  Registry-->>Dispatcher: cached
+\`\`\`
+
+\`\`\`mermaid
+erDiagram
+  CONNECTOR ||--o{ DEPLOYMENT : has
+\`\`\`
+
+\`\`\`mermaid
+pie title Lanes
+  "MONEY" : 40
+  "other" : 60
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  A --> 
+\`\`\`
+
 ## 2. Bảng nhiều cột
 
 | Connector | Owner | Lane | Mode | Registry | Runtime | SDK | Trạng thái | Ghi chú |
