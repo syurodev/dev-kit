@@ -249,7 +249,7 @@ export function AgentPermissionRequest({
           scrolls this card (the composer's panel area on a short pane), so a
           long request or a stack of file edits scrolls past and Deny / Allow
           stay where they can be pressed. */}
-      <div data-testid="permission-actions" className="sticky bottom-0 border-t border-border-subtle bg-surface-raised px-3 py-2.5">
+      <div data-testid="permission-actions" className="sticky bottom-0 border-t border-border-subtle bg-surface-base px-3 py-2.5">
         {actions}
       </div>
     </div>
