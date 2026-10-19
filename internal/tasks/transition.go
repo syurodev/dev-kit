@@ -153,7 +153,7 @@ func (s *Service) claimable(caller Caller, id, holder string, handOver bool) (Ta
 			return Task{}, Board{}, ErrNotAssignable
 		}
 	}
-	if task.SessionID != "" && task.SessionID != holder && !(handOver && task.SessionID == caller.SessionID) {
+	if task.SessionID != "" && task.SessionID != holder && (!handOver || task.SessionID != caller.SessionID) {
 		// A claim held by a session that has died can be taken over: holding
 		// is so the agent can reconnect to its own work, not a lock forever.
 		if s.live == nil || s.live.Alive(task.SessionID) {
