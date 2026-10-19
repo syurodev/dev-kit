@@ -47,6 +47,7 @@ type Service struct {
 	// remoteChoices remembers the answer per (host, owner) for git remotes.
 	remoteChoices *remoteChoiceStore
 	identities    *identityStore
+	links         *linkStore
 	// identifySSH checks an SSH key against its provider; nil means ssh itself.
 	identifySSH func(ctx context.Context, m gitssh.Material, host string) (string, error)
 	providers   *Registry
@@ -306,9 +307,14 @@ func (s *Service) List() ([]Account, error) {
 		}
 	}
 	identities := s.allIdentities()
+	links := s.allLinks()
+	known := make(map[string]bool, len(out))
+	for _, account := range out {
+		known[account.ID] = true
+	}
 	for i := range out {
 		identity, ok := identities[out[i].ID]
-		out[i] = withIdentity(out[i], identity, ok)
+		out[i] = withLinks(withIdentity(out[i], identity, ok), links, known)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Scoped() != out[j].Scoped() {
@@ -326,7 +332,20 @@ func (s *Service) Get(id string) (Account, error) {
 		return Account{}, err
 	}
 	identity, ok := s.IdentityOf(id)
-	return withIdentity(account, identity, ok), nil
+	account = withIdentity(account, identity, ok)
+	links := s.allLinks()
+	known := map[string]bool{}
+	for keyID, tokenID := range links {
+		if keyID != id && tokenID != id {
+			continue
+		}
+		for _, other := range []string{keyID, tokenID} {
+			if _, err := s.get(other); err == nil {
+				known[other] = true
+			}
+		}
+	}
+	return withLinks(account, links, known), nil
 }
 
 func (s *Service) get(id string) (Account, error) {
@@ -577,6 +596,7 @@ func (s *Service) Delete(id string) error {
 			return err
 		}
 		s.forgetIdentity(id)
+		s.forgetLinks(id)
 		s.changed()
 		return nil
 	}
@@ -587,6 +607,7 @@ func (s *Service) Delete(id string) error {
 		return err
 	}
 	s.forgetIdentity(id)
+	s.forgetLinks(id)
 	s.changed()
 	return nil
 }
@@ -654,6 +675,10 @@ func (s *Service) Promote(id, label string) (Account, error) {
 		}
 	}
 	s.forgetIdentity(id)
+	s.moveLinks(id, shared.ID)
+	if refreshed, err := s.Get(shared.ID); err == nil {
+		shared = refreshed
+	}
 	s.changed()
 	return shared, nil
 }

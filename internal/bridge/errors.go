@@ -539,6 +539,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 				return apperrors.New(codeValidationFailed, "This key is already saved as \u201c"+exists.Label+"\u201d for that provider.", true)
 			}
 			return apperrors.New(codeValidationFailed, "This key is already saved for that provider.", true)
+		case errors.Is(err, accounts.ErrLinkMismatch):
+			return apperrors.New(codeValidationFailed, "A token can only go with an SSH key of the same provider, and neither can be a connection's password.", true)
+		case errors.Is(err, accounts.ErrLabelInvalid):
+			return apperrors.New(codeValidationFailed, "Give the account a name of up to 120 characters without line breaks. An external sign-in cannot be renamed.", true)
 		case errors.Is(err, accounts.ErrIdentityInvalid):
 			return apperrors.New(codeValidationFailed, "Enter both a name and an email address (like name@example.com) for commits, or clear both.", true)
 		case errors.Is(err, accounts.ErrTokenInvalid):

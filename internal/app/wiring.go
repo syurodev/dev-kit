@@ -31,6 +31,7 @@ type Tables struct {
 	AccountHostChoices   string
 	AccountRemoteChoices string
 	AccountIdentities    string
+	AccountLinks         string
 	APIRequestHistory    string
 	CodexHookEvents      string
 	TaskVerifyRuns       string
@@ -62,6 +63,9 @@ func WireCredentialsAndWork(c *Container, db *sql.DB, vaultService *vault.Servic
 	// Who each account commits as, so a commit under the work account is not
 	// written with the personal email.
 	c.Accounts.SetIdentities(db, tables.AccountIdentities)
+	// Which API token goes with which SSH key, so the pull-request card finds
+	// the token of the key a remote is bound to.
+	c.Accounts.SetLinks(db, tables.AccountLinks)
 
 	// The API client resolves its credentials through Accounts and asks the
 	// interaction hub before sending on a gated environment. A nil hub is

@@ -95,6 +95,13 @@ const (
 	// decoded field by field). Losing a row costs one form to fill in again.
 	TableAccountIdentities = "account_identities"
 
+	// TableAccountLinks says which API token goes with which SSH key account:
+	// one login the person keeps as two credentials. Local, like identities: it
+	// is how this machine groups its accounts, not a secret, and a shared
+	// account's metadata is decoded field by field by every DevKit on every
+	// device, so a new field there would make an older one refuse the record.
+	TableAccountLinks = "account_links"
+
 	// TableAPIRequestHistory is what this machine sent and what came back. It
 	// never syncs — it says what this device did, not what the project is —
 	// and it is the same call db_query_history already made. The URL is
@@ -1383,7 +1390,23 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43})
+	// m44: the API token that goes with an SSH key account (account_links).
+	m44 := Migration{
+		Version: 44,
+		Name:    "account key-token links",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT PRIMARY KEY,
+					token_id TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableAccountLinks,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44})
 	if err != nil {
 		return err
 	}

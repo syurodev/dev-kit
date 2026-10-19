@@ -16,10 +16,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   accountProviders,
   createGitTokenAccount,
+  linkAccountToken,
   verifyAccount,
   type Account,
   type AccountProvider,
 } from "@/bridge/accounts";
+import { defaultTokenLabel } from "./accountGroups";
 import { gitHostProviders, tokenNote, usernameRequired } from "./gitTokens";
 
 /**
@@ -32,12 +34,19 @@ import { gitHostProviders, tokenNote, usernameRequired } from "./gitTokens";
 export function AddTokenDialog({
   open,
   initialProvider,
+  linkToKey = null,
   onClose,
   onSaved,
 }: {
   open: boolean;
   /** The provider to start on when it hosts repositories ("gitlab"), else the form's own default. */
   initialProvider?: string;
+  /**
+   * An SSH key this token goes with: the provider is the key's, the token is
+   * attached to it once saved, and it is named after it. Opened from a pull-request
+   * notice about a key that cannot read merge requests.
+   */
+  linkToKey?: Account | null;
   onClose: () => void;
   /** Called with the saved account, verified when the provider answered. */
   onSaved: (account: Account, note: string) => void;
@@ -60,7 +69,7 @@ export function AddTokenDialog({
     if (!open) return;
     // Nothing is kept from the last time: a token left in this form is a token
     // left in the render tree.
-    setLabel("");
+    setLabel(linkToKey ? defaultTokenLabel(linkToKey) : "");
     setToken("");
     setUser("");
     setSync(false);
@@ -71,12 +80,13 @@ export function AddTokenDialog({
         const hosts = gitHostProviders(all);
         setProviders(hosts);
         setProvider((current) => {
-          const wanted = initialProvider && hosts.some((p) => p.ID === initialProvider) ? initialProvider : current;
+          const asked = linkToKey?.provider ?? initialProvider;
+          const wanted = asked && hosts.some((p) => p.ID === asked) ? asked : current;
           return hosts.some((p) => p.ID === wanted) ? wanted : (hosts[0]?.ID ?? wanted);
         });
       })
       .catch((e: Error) => setError(e.message));
-  }, [open, initialProvider]);
+  }, [open, initialProvider, linkToKey]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -91,6 +101,18 @@ export function AddTokenDialog({
         user: user.trim(),
         syncAcrossDevices: sync,
       });
+      // A token that goes with a key is attached before anything else can fail:
+      // the person asked for this token for that key. A refusal leaves the saved
+      // token in the list, and says so.
+      let attached = "";
+      if (linkToKey) {
+        try {
+          await linkAccountToken(linkToKey.id, created.id);
+          attached = ` It is attached to “${linkToKey.label}”.`;
+        } catch (e) {
+          attached = ` It could not be attached to “${linkToKey.label}” (${(e as Error).message}); attach it from that key's Edit.`;
+        }
+      }
       // Ask the provider whose token this is: the proof it works at all, and the
       // login. A failure here does not undo the save.
       let saved = created;
@@ -105,7 +127,7 @@ export function AddTokenDialog({
         }
       }
       setToken("");
-      onSaved(saved, tokenNote(saved, failure));
+      onSaved(saved, tokenNote(saved, failure) + attached);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -120,14 +142,18 @@ export function AddTokenDialog({
           <DialogHeader>
             <DialogTitle>Add an access token</DialogTitle>
             <DialogDescription>
-              For repositories cloned over HTTPS. The token is checked with the provider and kept sealed.
+              {linkToKey
+                ? `It goes with the key “${linkToKey.label}”: that key pushes your code, this token lets DevKit read ${
+                    linkToKey.provider === "gitlab" ? "merge" : "pull"
+                  } requests. It is checked with the provider and kept sealed.`
+                : "For repositories cloned over HTTPS. The token is checked with the provider and kept sealed."}
             </DialogDescription>
           </DialogHeader>
 
           <FieldSet disabled={busy}>
             <Field>
               <FieldLabel htmlFor={`${ids}-provider`}>Provider</FieldLabel>
-              <Select value={provider} onValueChange={setProvider} disabled={busy || providers === null}>
+              <Select value={provider} onValueChange={setProvider} disabled={busy || providers === null || linkToKey !== null}>
                 <SelectTrigger id={`${ids}-provider`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>

@@ -46,6 +46,9 @@ type Item struct {
 	RetryAt *time.Time `json:"retryAt,omitempty"`
 	// Platform names the host's platform ("GitHub") for a message, when known.
 	Platform string `json:"platform,omitempty"`
+	// KeyAccountID is the SSH key account a "no token" notice is about, so the
+	// token the window asks for can be attached to that key. Empty otherwise.
+	KeyAccountID string `json:"keyAccountId,omitempty"`
 }
 
 // State is what the card draws, and when to ask again.
@@ -222,6 +225,7 @@ func failure(item Item, terms forge.Terms, remote RemoteRef, err error) Item {
 		var keyOnly *KeyOnlyError
 		if errors.As(err, &keyOnly) {
 			item.Message = keyOnlyMessage(platform, terms.Long, keyOnly.Account)
+			item.KeyAccountID = keyOnly.AccountID
 			break
 		}
 		item.Message = fmt.Sprintf("No %s account for this remote (%s). Add a token in Accounts.", platform, where)

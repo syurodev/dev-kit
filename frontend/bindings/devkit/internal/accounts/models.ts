@@ -49,6 +49,14 @@ export interface Account {
      */
     "authorName": string;
     "authorEmail": string;
+
+    /**
+     * LinkedTokenID is, for an SSH key, the API token the person said goes
+     * with it; LinkedKeyIDs is, for a token, the keys it serves. Empty when
+     * nothing is linked. A declaration kept in a local table (links.go).
+     */
+    "linkedTokenId": string;
+    "linkedKeyIds": string[] | null;
 }
 
 /**

@@ -91,11 +91,23 @@ type KeyOnlyError struct {
 	// Account is the key account's label, made safe to put in a sentence.
 	// Empty when several keys fit and none is bound.
 	Account string
+	// AccountID is that key's id, so the window can attach the token it asks
+	// for to this key. An id is not secret. Empty when Account is.
+	AccountID string
 }
 
 // NewKeyOnlyError builds the error for a key account's label (may be "").
 func NewKeyOnlyError(label string) *KeyOnlyError {
 	return &KeyOnlyError{Account: safeLabel(label)}
+}
+
+// NewKeyOnlyErrorFor is NewKeyOnlyError that also says which account the key is.
+func NewKeyOnlyErrorFor(label, id string) *KeyOnlyError {
+	e := NewKeyOnlyError(label)
+	if e.Account != "" {
+		e.AccountID = id
+	}
+	return e
 }
 
 func (e *KeyOnlyError) Error() string { return "prwatch: only an SSH key account fits this remote" }

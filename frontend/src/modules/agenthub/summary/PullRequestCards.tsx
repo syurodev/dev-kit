@@ -186,7 +186,7 @@ function NoticeRow({ notice }: { notice: PullRequestNotice }) {
             type="button"
             data-testid="summary-pr-notice-action"
             onClick={() => {
-              useAddTokenRequest.getState().request(notice.provider);
+              useAddTokenRequest.getState().request(notice.provider, notice.keyAccountId);
               showModuleHome("accounts");
             }}
             className={cn(

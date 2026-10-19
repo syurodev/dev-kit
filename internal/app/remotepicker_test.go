@@ -41,6 +41,7 @@ func pickerFixture(t *testing.T) (*accounts.Service, *interaction.Hub) {
 		storage.TableAccountSecrets, v, accounts.NewRegistry(accounts.DefaultProviders()), allEnvs{})
 	svc.SetRemoteChoices(db, storage.TableAccountRemoteChoices)
 	svc.SetIdentities(db, storage.TableAccountIdentities)
+	svc.SetLinks(db, storage.TableAccountLinks)
 	return svc, interaction.NewHub(interaction.NoopPrompter{})
 }
 

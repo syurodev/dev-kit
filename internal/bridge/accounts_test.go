@@ -43,6 +43,7 @@ func newBridgeWithAccounts(t *testing.T) (*AppService, *app.Container) {
 	)
 	container.Accounts.SetHostChoices(db, storage.TableAccountHostChoices)
 	container.Accounts.SetIdentities(db, storage.TableAccountIdentities)
+	container.Accounts.SetLinks(db, storage.TableAccountLinks)
 	container.Accounts.SetRemoteChoices(db, storage.TableAccountRemoteChoices)
 	return NewAppService(container), container
 }
@@ -299,5 +300,44 @@ func TestRotateTokenThroughTheBridgeKeepsTheAccountAndSaysWhenTheValueIsBad(t *t
 	key, _ := svc.AccountsCreateSSHKey("github", "Key", newBridgePrivateKey(t), "", false)
 	if _, err := svc.AccountsRotateToken(key.ID, "", "x"); err == nil {
 		t.Fatal("an SSH key was rotated as a token")
+	}
+}
+
+// The window groups a key with its token and renames accounts; every refusal
+// reaches it as a sentence, not "unexpected error".
+func TestAccountsRenameAndLinkThroughTheBridge(t *testing.T) {
+	svc, container := newBridgeWithAccounts(t)
+	token, err := svc.AccountsCreateGitToken("gitlab", "chiro", "", "glpat-x", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.AccountsCreateGitToken("github", "ghp", "", "ghp_x", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := container.Accounts.Create(accounts.CreateInput{
+		Provider: "gitlab", Kind: accounts.KindSSHKey, Label: "id_ed25519_gitlab", Secret: newBridgePrivateKey(t), Local: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linked, err := svc.AccountsLinkToken(key.ID, token.ID)
+	if err != nil || linked.LinkedTokenID != token.ID {
+		t.Fatalf("link = %+v, %v", linked, err)
+	}
+	if _, err := svc.AccountsLinkToken(key.ID, other.ID); err == nil || !strings.Contains(err.Error(), "same provider") {
+		t.Fatalf("a token of another provider = %v", err)
+	}
+	renamed, err := svc.AccountsRename(token.ID, "GitLab · chiro")
+	if err != nil || renamed.Label != "GitLab · chiro" || len(renamed.LinkedKeyIDs) != 1 {
+		t.Fatalf("rename = %+v, %v", renamed, err)
+	}
+	if _, err := svc.AccountsRename(token.ID, "  "); err == nil || !strings.Contains(err.Error(), "up to 120 characters") {
+		t.Fatalf("an empty name = %v", err)
+	}
+	cleared, err := svc.AccountsUnlinkToken(key.ID)
+	if err != nil || cleared.LinkedTokenID != "" {
+		t.Fatalf("unlink = %+v, %v", cleared, err)
 	}
 }

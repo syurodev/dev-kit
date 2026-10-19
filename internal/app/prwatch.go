@@ -59,7 +59,7 @@ func remoteRef(name, url, env, accountID string) prwatch.RemoteRef {
 // prCredentials answers "which token calls this repository's host".
 //
 // An account bound to the remote wins when it is a token (a key cannot call an
-// API); otherwise Accounts decides by host and owner, the way a push does, and
+// API); a key bound to it brings the token linked to it, if any; otherwise Accounts decides by host and owner, the way a push does, and
 // reuses the answer remembered for it. Two accounts that fit are asked about
 // only when the call is the person's or an agent's turn — never from the
 // background poll, which has no one to ask.
@@ -71,9 +71,18 @@ type prCredentials struct {
 func (c prCredentials) Token(ctx context.Context, req prwatch.TokenRequest) (string, string, error) {
 	id := ""
 	if req.BoundAccountID != "" {
-		if bound, err := c.accounts.Get(req.BoundAccountID); err == nil &&
-			bound.Kind != accounts.KindSSHKey && bound.Kind != accounts.KindExternal {
-			id = bound.ID
+		if bound, err := c.accounts.Get(req.BoundAccountID); err == nil {
+			switch bound.Kind {
+			case accounts.KindSSHKey:
+				// The token the person linked to this key is the one that goes
+				// with it: asked before guessing a token by host.
+				if linked, ok := c.accounts.LinkedTokenOf(bound.ID); ok {
+					id = linked.ID
+				}
+			case accounts.KindExternal:
+			default:
+				id = bound.ID
+			}
 		}
 	}
 	if id == "" {
@@ -123,7 +132,7 @@ func (c prCredentials) Token(ctx context.Context, req prwatch.TokenRequest) (str
 func (c prCredentials) noToken(req prwatch.TokenRequest) error {
 	if req.BoundAccountID != "" {
 		if bound, err := c.accounts.Get(req.BoundAccountID); err == nil && bound.Kind == accounts.KindSSHKey {
-			return prwatch.NewKeyOnlyError(bound.Label)
+			return prwatch.NewKeyOnlyErrorFor(bound.Label, bound.ID)
 		}
 	}
 	match, err := c.accounts.ForRemote(req.Host, req.Owner, req.Env, accounts.ViaSSH)
@@ -131,7 +140,7 @@ func (c prCredentials) noToken(req prwatch.TokenRequest) error {
 	case err != nil:
 		return prwatch.ErrNoAccount
 	case match.Decided:
-		return prwatch.NewKeyOnlyError(match.Account.Label)
+		return prwatch.NewKeyOnlyErrorFor(match.Account.Label, match.Account.ID)
 	case len(match.Options) > 0:
 		return prwatch.NewKeyOnlyError("")
 	}

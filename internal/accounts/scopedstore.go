@@ -179,6 +179,13 @@ func (s *scopedStore) markVerified(id, subject string, state State) error {
 	return err
 }
 
+// setLabel renames a row. The envelope is sealed against the id, not the label.
+func (s *scopedStore) setLabel(id, label string) error {
+	_, err := s.db.Exec(fmt.Sprintf(`UPDATE %s SET label = ?, updated_at = ? WHERE id = ?`, s.table),
+		label, time.Now().UTC().Format(time.RFC3339Nano), id)
+	return err
+}
+
 // clearVerification forgets what a provider said about a row's old value.
 func (s *scopedStore) clearVerification(id string) error {
 	_, err := s.db.Exec(fmt.Sprintf(
