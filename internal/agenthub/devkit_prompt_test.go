@@ -178,3 +178,34 @@ func TestPromptTellsAParentToReadTheStopBeforeResuming(t *testing.T) {
 		}
 	}
 }
+
+// A parent briefs a child in a few lines, and for work that changes code the
+// brief lives on a task. The prompt names what to include and what to leave
+// out (DevKit already tells a child who its parent is and to report), the task
+// protocol on both sides, and that only the parent closes the task. Checked
+// for both vendors' tool names, because the rules are the same for each.
+func TestPromptTeachesShortBriefsAndDelegationThroughTheBoard(t *testing.T) {
+	for name, naming := range map[string]toolNaming{"neutral": neutralNaming, "claude": claudeNaming, "codex": codexNaming} {
+		prompt := strings.Join(strings.Fields(devkitPrompt(naming, "")), " ")
+		for _, want := range []string{
+			"who its parent is, that it reports to you, its mode",
+			"A brief is a few lines, not a page",
+			"what is only your suggestion",
+			"session ids",
+			"the story of how the person got here",
+			"a whole result you can check",
+			"the brief in its description",
+			"say only the task key",
+			"Do not claim it: the child will",
+			"only then move the task to a terminal status",
+			"one task each, each on its own branch",
+			"needs no task: one short message is the brief",
+			"When your parent gave you a task",
+			"Do not move it to a terminal status — your parent does that after checking",
+		} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s prompt lacks %q", name, want)
+			}
+		}
+	}
+}

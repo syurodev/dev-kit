@@ -915,6 +915,26 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     your usage limit. Try again at 3:10 PM."), driven through the mock runtime (`FAIL_PROVIDER_503`, `FAIL_USAGE_LIMIT`
     markers). A real provider's wording, Claude Code's own error text, and whether a woken parent behaves well on the notice were
     not exercised.
+- **A parent briefs a child in a few lines, and delegates code through a task** (prompt only: `devkit_prompt.go` "Briefing a
+  child", "Delegating through the task board", "Report to your parent"; `TestPromptTeachesShortBriefsAndDelegationThroughTheBoard`).
+  Evidence: a Codex parent's brief to an opencode child opened with the child's parent id, retold what the person had said
+  earlier and which model the child used, and ended with "report to your parent by sendMessage" — all of which DevKit already
+  gives the child (the `peerEnvelope` names the sender and session, the prompt says to report, the model is a parameter, the
+  mode is inherited). The prompt used to say only "objective, scope, constraints, completion criterion", which invites padding
+  and names nothing to leave out; Claude Code's own Agent tool carries that guidance, DevKit had none. Now: what a brief holds,
+  what it leaves out, "a few lines, not a page"; a child's report is a claim to check. **When the workspace has a board
+  (`tasks.board.list`) and the job changes code or needs acceptance, the brief is a task's description**: the parent creates it
+  (`tasks.create`, a subtask of the one it holds, or `tasks.createFromPlan`; order by `blockedBy`) and does **not** claim it,
+  messages the child only the key; the child `tasks.claim`s (a claim moves the task into the board's first active status and
+  records the session), records its branch, writes blockers/decisions/result as `tasks.comment.add` and sends one short message
+  as the doorbell; the parent reads the task and comments, checks, and moves it to a terminal status — the board's gate runs
+  then. One task and branch per code-editing child is also what keeps them from overwriting each other (`git.push` only pushes
+  a branch recorded on a task the session holds). A read-only question or a board-less workspace is a short message, no task.
+  **Only a prompt rule**: nothing stops a child closing its task (the gate is the same whoever asks), nothing tells the parent
+  when a task's comments change (the message is the doorbell), and a board's "review" status is an `active` one, so the rule
+  cannot say "move to review" — it says "leave it for the parent to close". Not run with any real model: the test reads the
+  rendered text. Next step considered, not built: `createAgentSession` taking a `taskId` so DevKit binds the session and
+  renders the child's first message from the task.
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
   `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
   by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"
