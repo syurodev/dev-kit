@@ -371,6 +371,14 @@ func everyScopedMethod() []scopedCall {
 		{"Archive", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Archive(c, t.ID); return err }},
 		{"Unarchive", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Unarchive(c, t.ID); return err }},
 		{"Claim", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Claim(c, t.ID); return err }},
+		{"Assignable", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Assignable(c, t.ID)
+			return err
+		}},
+		{"Assign", func(s *Service, c Caller, t Task, _ Board) error {
+			_, err := s.Assign(c, t.ID, "assigned-child")
+			return err
+		}},
 		{"Release", func(s *Service, c Caller, t Task, _ Board) error { _, err := s.Release(c, t.ID); return err }},
 		{"Transition", func(s *Service, c Caller, t Task, _ Board) error {
 			_, err := s.Transition(ctx, c, TransitionInput{TaskID: t.ID, To: "review"})
@@ -479,7 +487,7 @@ func TestTheUserReachesEveryBoard(t *testing.T) {
 			f := newScopeFixture(t)
 			task := map[string]Task{"home": f.homeTask, "other workspace": f.otherTask, "unbound": f.unboundTask}[target]
 			for _, method := range everyScopedMethod() {
-				if method.name == "Claim" {
+				if method.name == "Claim" || method.name == "Assign" || method.name == "Assignable" {
 					continue // a claim is an agent's act; the user is refused everywhere
 				}
 				if err := method.call(f.svc, user, task, f.home); err != nil {

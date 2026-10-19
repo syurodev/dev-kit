@@ -211,6 +211,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "A subtask cannot have subtasks of its own.", true)
 		case errors.Is(err, tasks.ErrClaimed):
 			return apperrors.New(codeValidationFailed, "Another agent session holds this task.", true)
+		case errors.Is(err, tasks.ErrNotAssignable):
+			return apperrors.New(codeValidationFailed, "That task is finished or archived, so it cannot be given to a session.", true)
 		case errors.Is(err, tasks.ErrVerifying):
 			return apperrors.New(codeValidationFailed, "This task is already being verified.", true)
 		case errors.Is(err, tasks.ErrInvalid):

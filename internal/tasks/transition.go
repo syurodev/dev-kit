@@ -92,22 +92,79 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 	if !caller.IsAgent() {
 		return Task{}, ErrInvalid
 	}
-	task, err := s.get(id)
+	task, board, err := s.claimable(caller, id, caller.SessionID, false)
 	if err != nil {
 		return Task{}, err
+	}
+	return s.writeClaim(task, board, caller.SessionID, caller.Author())
+}
+
+// Assignable says whether Assign would succeed now, and writes nothing. A
+// parent asks before it starts a child, so a task that cannot be given away
+// does not leave a session behind.
+func (s *Service) Assignable(caller Caller, id string) (Task, error) {
+	if !caller.IsAgent() {
+		return Task{}, ErrInvalid
+	}
+	// The holder does not exist yet: "" is any session but the caller's own,
+	// which is who a task already held may be taken from.
+	task, _, err := s.claimable(caller, id, "", true)
+	return task, err
+}
+
+// Assign is Claim on another session's behalf: an agent that starts a child
+// for a task gives it the task, so the child does not have to take it, and
+// the board shows the child as the holder from its first moment. The caller's
+// scope decides what it may give (a task of a board it cannot see is not
+// found); the holder is any session id, because the caller has just made it.
+//
+// Unlike Claim it never reopens: a finished or archived task is not given to
+// anyone (ErrNotAssignable). A task the caller itself holds can be handed over;
+// one a different live session holds cannot, as with Claim.
+func (s *Service) Assign(caller Caller, id, sessionID string) (Task, error) {
+	if !caller.IsAgent() || sessionID == "" || sessionID == caller.SessionID {
+		return Task{}, ErrInvalid
+	}
+	task, board, err := s.claimable(caller, id, sessionID, true)
+	if err != nil {
+		return Task{}, err
+	}
+	return s.writeClaim(task, board, sessionID, Caller{SessionID: sessionID}.Author())
+}
+
+// claimable reads the task and applies the rules a claim by holder is subject
+// to. handOver is an assignment by another session: it adds the refusals
+// that Claim, which has always reopened a finished task, does not make.
+func (s *Service) claimable(caller Caller, id, holder string, handOver bool) (Task, Board, error) {
+	task, err := s.get(id)
+	if err != nil {
+		return Task{}, Board{}, err
 	}
 	// The board first: ErrClaimed on a task out of scope would say it exists.
 	board, err := s.boardFor(caller, task.BoardID)
 	if err != nil {
-		return Task{}, err
+		return Task{}, Board{}, err
 	}
-	if task.SessionID != "" && task.SessionID != caller.SessionID {
+	if handOver {
+		if task.ArchivedAt != "" {
+			return Task{}, Board{}, ErrNotAssignable
+		}
+		if category, ok := board.Workflow.CategoryOf(task.Status); ok && category == CategoryTerminal {
+			return Task{}, Board{}, ErrNotAssignable
+		}
+	}
+	if task.SessionID != "" && task.SessionID != holder && (!handOver || task.SessionID != caller.SessionID) {
 		// A claim held by a session that has died can be taken over: holding
 		// is so the agent can reconnect to its own work, not a lock forever.
 		if s.live == nil || s.live.Alive(task.SessionID) {
-			return Task{}, ErrClaimed
+			return Task{}, Board{}, ErrClaimed
 		}
 	}
+	return task, board, nil
+}
+
+// writeClaim records holder on the task. author is who the history names.
+func (s *Service) writeClaim(task Task, board Board, holder, author string) (Task, error) {
 	active, ok := board.Workflow.FirstOf(CategoryActive)
 	if !ok {
 		return Task{}, ErrInvalid
@@ -120,15 +177,15 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 	// it (Agent Hub's tray). A shape every version of the history already
 	// reads, not a new field the strict decoder would refuse on an older one.
 	at := s.now().UTC().Format(time.RFC3339)
-	picked := task.SessionID != caller.SessionID
-	return s.mutate(id, func(meta *taskMetadata) error {
-		meta.SessionID = caller.SessionID
+	picked := task.SessionID != holder
+	return s.mutate(task.ID, func(meta *taskMetadata) error {
+		meta.SessionID = holder
 		if meta.Status != active {
-			appendHistory(meta, Transition{From: meta.Status, To: active, By: caller.Author(), At: at})
+			appendHistory(meta, Transition{From: meta.Status, To: active, By: author, At: at})
 			meta.Status = active
 		}
 		if picked {
-			appendHistory(meta, Transition{From: active, To: active, By: caller.Author(), At: at})
+			appendHistory(meta, Transition{From: active, To: active, By: author, At: at})
 		}
 		return nil
 	})

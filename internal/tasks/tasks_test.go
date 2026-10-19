@@ -785,3 +785,90 @@ func TestAPickIsRecordedBesideTheCreation(t *testing.T) {
 		t.Fatalf("takeover history = %+v", taken.History)
 	}
 }
+
+func TestAssignGivesTheTaskToAnotherSessionAndWritesItsPick(t *testing.T) {
+	svc, _ := newService(t)
+	svc.SetLiveness(liveness{"sess-1": true, "child-1": true})
+	board := newBoard(t, svc)
+	task, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x", Description: "the brief"})
+
+	// Asking changes nothing.
+	if _, err := svc.Assignable(agent, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Get(user, task.ID); got.SessionID != "" || got.Status != "todo" {
+		t.Fatalf("Assignable wrote: %+v", got)
+	}
+
+	got, err := svc.Assign(agent, task.ID, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got.History[len(got.History)-1]
+	if got.SessionID != "child-1" || got.Status != "in_progress" || last.By != "agent:child-1" || last.From != last.To {
+		t.Fatalf("assign = %+v, last history %+v: want child-1 holding it in the active column, picked by the child", got, last)
+	}
+	// The parent did not become the holder, and the child's own claim of it is a no-op.
+	if _, err := svc.Claim(Caller{SessionID: "child-1"}, task.ID); err != nil {
+		t.Fatalf("the child cannot claim what it was given: %v", err)
+	}
+	// Another live session cannot take it, nor be given it.
+	if _, err := svc.Assign(agent, task.ID, "child-2"); !errors.Is(err, ErrClaimed) {
+		t.Fatalf("a live child's task was given away: %v", err)
+	}
+}
+
+func TestAssignRefusesWhatClaimWouldQuietlyReopenOrSteal(t *testing.T) {
+	svc, _ := newService(t)
+	svc.SetLiveness(liveness{"sess-1": true, "sess-2": true})
+	board := newBoard(t, svc)
+
+	// A finished task is not given to anyone; Claim has always reopened one.
+	done, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "done"})
+	if _, err := svc.mutate(done.ID, func(m *taskMetadata) error { m.Status = "done"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Assign(agent, done.ID, "child-1"); !errors.Is(err, ErrNotAssignable) {
+		t.Errorf("a finished task = %v, want ErrNotAssignable", err)
+	}
+	// An archived one neither.
+	old, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "old"})
+	if _, err := svc.Archive(user, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Assign(agent, old.ID, "child-1"); !errors.Is(err, ErrNotAssignable) {
+		t.Errorf("an archived task = %v, want ErrNotAssignable", err)
+	}
+	// A task another live session holds.
+	held, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "held"})
+	if _, err := svc.Claim(Caller{SessionID: "sess-2"}, held.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Assign(agent, held.ID, "child-1"); !errors.Is(err, ErrClaimed) {
+		t.Errorf("another live session's task = %v, want ErrClaimed", err)
+	}
+	// But one the caller holds itself is handed over, and a dead holder's is taken.
+	mine, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "mine"})
+	if _, err := svc.Claim(agent, mine.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.Assign(agent, mine.ID, "child-1"); err != nil || got.SessionID != "child-1" {
+		t.Errorf("handing over its own task = %+v, %v", got, err)
+	}
+	svc.SetLiveness(liveness{"sess-1": true})
+	if got, err := svc.Assign(agent, held.ID, "child-2"); err != nil || got.SessionID != "child-2" {
+		t.Errorf("a dead holder's task = %+v, %v", got, err)
+	}
+	// Only an agent gives, and not to itself, or to nobody.
+	fresh, _ := svc.Create(user, CreateInput{BoardID: board.ID, Title: "fresh"})
+	for name, call := range map[string]func() error{
+		"user":    func() error { _, err := svc.Assign(user, fresh.ID, "child-1"); return err },
+		"self":    func() error { _, err := svc.Assign(agent, fresh.ID, "sess-1"); return err },
+		"nobody":  func() error { _, err := svc.Assign(agent, fresh.ID, ""); return err },
+		"missing": func() error { _, err := svc.Assign(agent, "no-such-task", "child-1"); return err },
+	} {
+		if err := call(); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}

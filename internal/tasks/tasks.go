@@ -45,6 +45,9 @@ var (
 	ErrStatusChanged = errors.New("tasks.statusChanged")
 	// ErrClaimed is a task another live session holds.
 	ErrClaimed = errors.New("tasks.claimed")
+	// ErrNotAssignable is a task that is finished or archived: it is not
+	// given to a session, because that would reopen it.
+	ErrNotAssignable = errors.New("tasks.notAssignable")
 	// ErrConfirmationRequired is a terminal transition with nobody to ask.
 	ErrConfirmationRequired = errors.New("tasks.confirmationRequired")
 	ErrPermissionDenied     = errors.New("tasks.permissionDenied")

@@ -195,12 +195,14 @@ func TestPromptTeachesShortBriefsAndDelegationThroughTheBoard(t *testing.T) {
 			"the story of how the person got here",
 			"a whole result you can check",
 			"the brief in its description",
-			"say only the task key",
-			"Do not claim it: the child will",
+			"and taskId: DevKit claims the task for the child",
+			"sends it the task as its first message",
+			"the id, not the KEY-12 label",
 			"only then move the task to a terminal status",
 			"one task each, each on its own branch",
 			"needs no task: one short message is the brief",
-			"When your parent gave you a task",
+			"When your parent gave you a task, your first message names it with its id",
+			"if you were only sent its id, claim it with",
 			"Do not move it to a terminal status — your parent does that after checking",
 		} {
 			if !strings.Contains(prompt, want) {
