@@ -117,7 +117,11 @@ func (s *Service) ChooseForRemote(host, owner, env string, via Via, accountID st
 	}
 	for _, option := range options {
 		if option.ID == accountID {
-			return s.remoteChoices.put(host, owner, via, accountID)
+			if err := s.remoteChoices.put(host, owner, via, accountID); err != nil {
+				return err
+			}
+			s.changed()
+			return nil
 		}
 	}
 	return ErrInvalid
@@ -128,5 +132,9 @@ func (s *Service) ForgetRemoteChoice(host, owner string, via Via) error {
 	if s.remoteChoices == nil {
 		return nil
 	}
-	return s.remoteChoices.forget(normalizeHost(host), normalizeOwner(owner), via)
+	if err := s.remoteChoices.forget(normalizeHost(host), normalizeOwner(owner), via); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }

@@ -156,6 +156,28 @@ func (s *Service) entryFor(repo forge.Repo, number int) *entry {
 	return e
 }
 
+// CredentialsChanged forgets what was read a moment ago, so the next State
+// resolves the account again and calls the host with it: an account was
+// added, rotated, removed or chosen. Credentials themselves are never kept
+// here (every State asks Credentials afresh, so a folder that had no account
+// is not remembered as having none); this drops only the 3-second answers,
+// which could otherwise come from the previous token. A merged or closed
+// request stays: nothing more happens to it, whoever asks.
+func (s *Service) CredentialsChanged() {
+	s.mu.Lock()
+	s.finds = map[string]found{}
+	entries := make([]*entry, 0, len(s.entries))
+	for _, e := range s.entries {
+		entries = append(entries, e)
+	}
+	s.mu.Unlock()
+	for _, e := range entries {
+		e.mu.Lock()
+		e.at = time.Time{}
+		e.mu.Unlock()
+	}
+}
+
 func (s *Service) forget(repo forge.Repo, number int) {
 	key := repo.String() + "#" + strconv.Itoa(number)
 	s.mu.Lock()

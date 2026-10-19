@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge } from "./client";
 
@@ -379,4 +380,16 @@ export function hostOf(url: string): string {
   } catch {
     return "";
   }
+}
+
+export const ACCOUNTS_CHANGED_EVENT = "accounts:changed";
+
+/**
+ * Fires after an account is added, rotated, deleted, promoted or chosen for a
+ * remote or host. Carries nothing (no credential, not even which account):
+ * whoever resolved a credential earlier asks again. Returns an unsubscribe
+ * function.
+ */
+export function onAccountsChanged(cb: () => void): () => void {
+  return Events.On(ACCOUNTS_CHANGED_EVENT, () => cb());
 }

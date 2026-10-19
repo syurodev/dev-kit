@@ -243,7 +243,11 @@ func (s *Service) ChooseForAlias(alias, accountID string) error {
 	if account.Kind != KindSSHKey {
 		return ErrInvalid
 	}
-	return s.remoteChoices.put(alias, aliasOwner, ViaSSH, accountID)
+	if err := s.remoteChoices.put(alias, aliasOwner, ViaSSH, accountID); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 // ForAlias is the key account an ssh alias was bound to, if it still exists.

@@ -1,6 +1,7 @@
 import * as React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import { onAccountsChanged } from "@/bridge/accounts";
 import { attachPullRequest, detachPullRequest, onPullRequestsChanged, pullRequestState } from "@/bridge/pullRequests";
 import { toAppError } from "@/bridge/errors";
 import { EMPTY_PULL_REQUESTS, folderName, pullRequestsView, type PullRequestCard, type PullRequestsView } from "./pullRequestModel";
@@ -17,6 +18,25 @@ export const EMPTY_PANEL: PullRequestsPanel = EMPTY_PULL_REQUESTS;
 export const pullRequestsKey = (sessionId: string, folders: readonly string[]) =>
   ["agenthub", "pullRequests", sessionId, folders.join("\n")] as const;
 
+/** Every session's card: the key prefix an account change invalidates. */
+export const PULL_REQUESTS_KEY_PREFIX = ["agenthub", "pullRequests"] as const;
+
+/**
+ * A folder with no usable account stops polling (Go answers nextPollMs -1: the
+ * person has to act), so adding, rotating or removing an account in Accounts
+ * must reach the card on its own. Invalidates every session's pull-request
+ * query at once; sessions not on screen refetch when they next show. Returns
+ * the unsubscribe.
+ */
+export function watchAccountChanges(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+  subscribe: (cb: () => void) => () => void = onAccountsChanged,
+): () => void {
+  return subscribe(() => {
+    void queryClient.invalidateQueries({ queryKey: PULL_REQUESTS_KEY_PREFIX });
+  });
+}
+
 type Input = {
   sessionId: string;
   /** The repositories this work spans (the composer tray already read them). */
@@ -32,7 +52,7 @@ type Input = {
  * card. Go reads git and calls the host with the account it chose; this only
  * asks again when Go says to (`nextPollMs`), never while the window is hidden
  * (react-query pauses interval refetches in the background), and at once when
- * a turn ends or a request is attached by pr.create.
+ * a turn ends, a request is attached by pr.create, or an account changes.
  */
 export function useSessionPullRequests({ sessionId, folders, live, enabled }: Input): PullRequestsPanel {
   const queryClient = useQueryClient();
@@ -61,6 +81,8 @@ export function useSessionPullRequests({ sessionId, folders, live, enabled }: In
       if (id === sessionId) void queryClient.invalidateQueries({ queryKey: key });
     });
   }, [active, queryClient, key, sessionId]);
+
+  React.useEffect(() => watchAccountChanges(queryClient), [queryClient]);
 
   const wasLive = React.useRef(live);
   React.useEffect(() => {
