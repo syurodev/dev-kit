@@ -314,6 +314,14 @@
     --width-inset-1: calc(100% - 0.5rem);
     --min-width-combobox: calc(var(--anchor-width) + var(--spacing) * 7);
     --max-height-combobox: min(calc(var(--spacing) * 72 - var(--spacing) * 9), calc(var(--available-height) - var(--spacing) * 9));
+    /* A note's 720px writing column, drawn per block (modules/notes/noteLayout.tsx).
+       Percentages resolve where the utility is used: `inset` against the page
+       (the editor's left padding), `overhang` against the editor's content box
+       (what lies past the column — a block's right margin, a table's pull to the
+       left), `bleed` the same plus the 8px a table's controls column hangs out. */
+    --spacing-note-inset: max(0px, calc((100% - 45rem) / 2));
+    --spacing-note-overhang: max(0px, calc(100% - 45rem));
+    --spacing-note-bleed: calc(max(0px, calc(100% - 45rem)) + 0.5rem);
 }
 
 
