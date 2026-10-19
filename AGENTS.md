@@ -299,7 +299,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   (`stores/addTokenRequest.ts`). Polling is the window's: `State` returns
   `nextPollMs` (15 s while a check runs or mergeability is unknown, 60 s settled, 90 s with no request, -1 when merged
   or closed or when it needs a person); react-query pauses while the window is hidden; a turn ending, window focus
-  and the `prwatch:changed` event (pr.create, attach) refresh at once. Reads are conditional (ETag/`If-None-Match`,
+  and the `prwatch:changed` event (pr.create, attach) refresh at once. An account change (`accounts:changed`, from `accounts.Service.OnChanged`: create, rotate, delete, promote, a remote/host choice) invalidates every session's card (`watchAccountChanges`) and drops prwatch's 3 s answers (`CredentialsChanged`) — a `no_account` folder polls no more, so nothing else would notice a new token; credentials themselves are never cached in prwatch. Reads are conditional (ETag/`If-None-Match`,
   a 304 costs no rate limit, the cache key holds a digest of the token, never the token); two calls within 3 s are
   one round; 4 requests in flight. The unresolved-thread count (GraphQL, no ETag) is re-read when the request
   changed or every 3 min. `session_change_requests` (migration 42) holds requests attached by hand or by `pr.create`.

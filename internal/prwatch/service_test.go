@@ -591,3 +591,78 @@ func TestSQLStoreRoundTrip(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// A folder that said "no account" stops polling (nextPollMs -1), so the window
+// asks again when Accounts changes. That ask must really re-resolve: nothing
+// here may remember the folder as having no account.
+func TestAFolderWithNoAccountResolvesOnceATokenExists(t *testing.T) {
+	r := newRig(t)
+	r.serve(pull(nil), run("build", "completed", "success"))
+	r.creds.err = ErrNoAccount
+
+	first := r.state()
+	if it := first.Items[0]; it.Status != StatusNoAccount {
+		t.Fatalf("status = %q, want no_account", it.Status)
+	}
+	if first.NextPollMs != -1 {
+		t.Fatalf("nextPollMs = %d, want -1 (nothing changes by itself)", first.NextPollMs)
+	}
+	if r.host.total() != 0 {
+		t.Fatalf("the host was called without an account: %d requests", r.host.total())
+	}
+
+	// The token is added and the window asks at once: well inside the 3 s
+	// window in which a settled answer would be reused.
+	r.creds.mu.Lock()
+	r.creds.err = nil
+	r.creds.mu.Unlock()
+	r.svc.CredentialsChanged()
+	r.advance(100 * time.Millisecond)
+
+	second := r.state()
+	if it := second.Items[0]; it.Status != StatusFound || it.ChangeRequest == nil || it.ChangeRequest.Number != 7 {
+		t.Fatalf("after the token: %+v", it)
+	}
+	if second.NextPollMs <= 0 {
+		t.Fatalf("nextPollMs = %d, want polling to resume", second.NextPollMs)
+	}
+	if len(r.creds.asked) != 2 {
+		t.Fatalf("credentials were asked %d times, want once per State", len(r.creds.asked))
+	}
+}
+
+func TestCredentialsChangedMakesTheNextStateAskTheHostAgain(t *testing.T) {
+	r := newRig(t)
+	r.serve(pull(nil), run("build", "completed", "success"))
+	r.state()
+	n := r.host.total()
+	r.advance(time.Second)
+	r.state()
+	if r.host.total() != n {
+		t.Fatalf("precondition: a call within %v should be served from memory", minAge)
+	}
+
+	r.svc.CredentialsChanged()
+	r.advance(time.Second)
+	r.state()
+	if r.host.total() == n {
+		t.Error("a State right after an account change was answered from what the old token read")
+	}
+}
+
+func TestCredentialsChangedKeepsAMergedRequestAndNeedsNoSetup(t *testing.T) {
+	r := newRig(t)
+	// Safe on a service that has read nothing.
+	r.svc.CredentialsChanged()
+
+	r.serve(pull(map[string]any{"state": "closed", "merged": true, "merged_at": "2026-10-16T09:30:00Z"}))
+	r.state()
+	n := r.host.total()
+	r.svc.CredentialsChanged()
+	r.advance(time.Second)
+	r.state()
+	if got := r.host.total(); got > n+1 {
+		// The branch lookup may run again; the merged request itself is not re-read.
+		t.Errorf("a merged request was fetched again after an account change: %d → %d requests", n, got)
+	}
+}

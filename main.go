@@ -978,6 +978,17 @@ func main() {
 		TaskBoardBindings:     storage.TableTaskBoardBindings,
 		SessionChangeRequests: storage.TableSessionChangeRequests,
 	})
+	// A token added, rotated, removed or chosen in Accounts must reach the
+	// pull-request card now: a folder that said "no account" stops polling
+	// (nextPollMs -1), so nothing else would ask again.
+	if container.Accounts != nil {
+		container.Accounts.OnChanged = func() {
+			if container.PullRequests != nil {
+				container.PullRequests.CredentialsChanged()
+			}
+			emitAppEvent("accounts:changed", map[string]any{})
+		}
+	}
 	// A pull request opened by pr.create, or attached by hand, must reach the
 	// summary card now, not at its next poll.
 	if container.PullRequests != nil {

@@ -128,7 +128,11 @@ func (s *Service) ChooseForHost(host, env, accountID string) error {
 	}
 	for _, option := range match.Options {
 		if option.ID == accountID {
-			return s.choices.put(normalizeHost(host), env, accountID)
+			if err := s.choices.put(normalizeHost(host), env, accountID); err != nil {
+				return err
+			}
+			s.changed()
+			return nil
 		}
 	}
 	return ErrInvalid
@@ -139,7 +143,11 @@ func (s *Service) ForgetHostChoice(host, env string) error {
 	if s.choices == nil {
 		return nil
 	}
-	return s.choices.forget(normalizeHost(host), env)
+	if err := s.choices.forget(normalizeHost(host), env); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 // normalizeHost matches what the provider registry does, so a choice is stored

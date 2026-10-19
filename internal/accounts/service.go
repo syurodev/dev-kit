@@ -54,6 +54,21 @@ type Service struct {
 	usage       []Usage
 	http        *http.Client
 	now         func() time.Time
+
+	// OnChanged is told after a write that changes which accounts exist, what
+	// one holds, or which one a remote or host is answered with — never with
+	// what changed, so nothing credential-shaped travels. A window that
+	// resolved a credential earlier (the pull-request card said "no account")
+	// asks again instead of waiting for something unrelated to refresh it.
+	// A connection's own password (a scoped row owned by a profile) is not an
+	// account anyone resolves for a remote, so it does not fire.
+	OnChanged func()
+}
+
+func (s *Service) changed() {
+	if s.OnChanged != nil {
+		s.OnChanged()
+	}
 }
 
 // NewService wires the two stores behind one surface. db may be nil in tests
@@ -137,10 +152,19 @@ func (s *Service) Create(in CreateInput) (Account, error) {
 			in.ScopeOwner = LocalOwnerPrefix + id
 		}
 	}
+	var (
+		account Account
+		err     error
+	)
 	if in.ScopeOwner != "" {
-		return s.createScoped(in)
+		account, err = s.createScoped(in)
+	} else {
+		account, err = s.createShared(in)
 	}
-	return s.createShared(in)
+	if err == nil && (in.ScopeOwner == "" || strings.HasPrefix(in.ScopeOwner, LocalOwnerPrefix)) {
+		s.changed()
+	}
+	return account, err
 }
 
 // prepareSSHKey checks a key is one ssh can use and turns the input into what
@@ -486,6 +510,14 @@ func (s *Service) Reveal(id string) (Credential, error) {
 // Rotate replaces an account's value in place, so every binding keeps working.
 // This is why bindings hold an id and not a value.
 func (s *Service) Rotate(id, user, secret string) error {
+	err := s.rotate(id, user, secret)
+	if err == nil {
+		s.changed()
+	}
+	return err
+}
+
+func (s *Service) rotate(id, user, secret string) error {
 	record, err := s.items.Get(id)
 	if err == nil {
 		account, decodeErr := decodeMetadata(record)
@@ -545,6 +577,7 @@ func (s *Service) Delete(id string) error {
 			return err
 		}
 		s.forgetIdentity(id)
+		s.changed()
 		return nil
 	}
 	if s.scoped == nil {
@@ -554,6 +587,7 @@ func (s *Service) Delete(id string) error {
 		return err
 	}
 	s.forgetIdentity(id)
+	s.changed()
 	return nil
 }
 
@@ -620,6 +654,7 @@ func (s *Service) Promote(id, label string) (Account, error) {
 		}
 	}
 	s.forgetIdentity(id)
+	s.changed()
 	return shared, nil
 }
 
