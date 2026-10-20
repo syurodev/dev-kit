@@ -34,8 +34,22 @@ func newServiceWithStore(t *testing.T) (*Service, *vaultitem.Store) {
 	if _, err := v.Setup("correct-horse"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	store := vaultitem.NewStore(schemaCheckedRepository{vaultitem.NewMemoryRepository()}, v)
 	return NewService(store, testEnvs), store
+}
+
+// schemaCheckedRepository refuses what the real repository refuses. The memory
+// repository stores anything, so a metadata shape the schema validator rejects
+// passed every test here and failed only in the app: opening a database under a
+// server profile wrote a link record the validator did not know, and the whole
+// module was unusable ("vault item schema is invalid").
+type schemaCheckedRepository struct{ vaultitem.Repository }
+
+func (r schemaCheckedRepository) Put(record vaultitem.Record) error {
+	if err := vaultitem.ValidateRecordSchema(record.Type, record.Metadata, record.Payload); err != nil {
+		return err
+	}
+	return r.Repository.Put(record)
 }
 
 func TestCreateProfileEncryptsPassword(t *testing.T) {
