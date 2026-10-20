@@ -68,12 +68,12 @@ func TestDatabaseContextInheritsPolicyAndHasNoCredentialPayload(t *testing.T) {
 func TestDatabaseContextFailsClosedForNestedParent(t *testing.T) {
 	svc, store := newServiceWithStore(t)
 	first, _ := json.Marshal(metadata{ParentProfileID: "missing", Database: "a"})
-	a, err := store.Create(itemType, passwordKeyID, first, nil)
+	a, err := store.Create(itemType, passwordKeyID, first, []byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, _ := json.Marshal(metadata{ParentProfileID: a.ID, Database: "b"})
-	b, err := store.Create(itemType, passwordKeyID, second, nil)
+	b, err := store.Create(itemType, passwordKeyID, second, []byte{})
 	if err != nil {
 		t.Fatal(err)
 	}

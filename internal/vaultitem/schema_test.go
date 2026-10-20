@@ -26,6 +26,10 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 		// which is exactly how env slipped through for both modules.
 		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false}`, keyID: "db-password"},
 		{name: "database with a CA bundle", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false,"ca_cert":"-----BEGIN CERTIFICATE-----"}`, keyID: "db-password"},
+		// Exactly what database.Service.OpenDatabase writes for a database opened
+		// under a server connection: json.Marshal of the metadata struct with only
+		// the parent and the database set, so the empty strings are present.
+		{name: "database link to a server profile", itemType: ItemTypeDatabase, metadata: `{"parent_profile_id":"aabbccddeeff001122334455","name":"","host":"","port":0,"database":"analytics","username":"","ssl_mode":"","env":"","read_only":false}`, keyID: "db-password"},
 		{name: "database through a tunnel", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false,"ssh_profile_id":"aabbccddeeff001122334455"}`, keyID: "db-password"},
 		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test","env":"prod"}`, keyID: "ssh-secret"},
 		{name: "db-query saved", itemType: ItemTypeDatabaseQuery, metadata: `{"profile_id":"aabbccddeeff001122334455","name":"monthly totals"}`, keyID: "db-query-body"},
@@ -55,6 +59,12 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 		{name: "note unknown color", itemType: ItemTypeNote, metadata: `{"title":"x","color":"neon"}`, payload: validSchemaEnvelope("note-body")},
 		{name: "missing database host", itemType: ItemTypeDatabase, metadata: `{"name":"db","port":5432,"ssl_mode":"verify-full"}`, payload: validSchemaEnvelope("db-password")},
 		{name: "database without env", itemType: ItemTypeDatabase, metadata: `{"name":"db","host":"db.internal","port":5432,"ssl_mode":"verify-full"}`, payload: validSchemaEnvelope("db-password")},
+		{name: "database link without a database", itemType: ItemTypeDatabase, metadata: `{"parent_profile_id":"aabbccddeeff001122334455","name":"","host":"","port":0,"database":"","username":"","ssl_mode":"","env":"","read_only":false}`, payload: validSchemaEnvelope("db-password")},
+		// A link resolves credentials and policy through its parent; one that
+		// carries its own address would give a synced snapshot a way to point a
+		// trusted profile somewhere else.
+		{name: "database link carrying its own host", itemType: ItemTypeDatabase, metadata: `{"parent_profile_id":"aabbccddeeff001122334455","name":"","host":"evil.example","port":5432,"database":"analytics","username":"","ssl_mode":"disable","env":"dev","read_only":false}`, payload: validSchemaEnvelope("db-password")},
+		{name: "database link with its own tunnel", itemType: ItemTypeDatabase, metadata: `{"parent_profile_id":"aabbccddeeff001122334455","name":"","host":"","port":0,"database":"analytics","username":"","ssl_mode":"","env":"","read_only":false,"ssh_profile_id":"aabbccddeeff001122334455"}`, payload: validSchemaEnvelope("db-password")},
 		{name: "ssh without env", itemType: ItemTypeSSH, metadata: `{"name":"b","host":"h","port":22,"username":"u","auth_method":"key"}`, payload: validSchemaEnvelope("ssh-secret")},
 		{name: "saved query without profile", itemType: ItemTypeDatabaseQuery, metadata: `{"name":"totals"}`, payload: validSchemaEnvelope("db-query-body")},
 		{name: "saved query carrying sql in metadata", itemType: ItemTypeDatabaseQuery, metadata: `{"profile_id":"aabbccddeeff001122334455","name":"t","sql":"SELECT 1"}`, payload: validSchemaEnvelope("db-query-body")},

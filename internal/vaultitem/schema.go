@@ -133,17 +133,20 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 
 	case ItemTypeDatabase:
 		var value struct {
-			Name          string            `json:"name"`
-			Host          string            `json:"host"`
-			Port          int               `json:"port"`
-			Database      string            `json:"database"`
-			Username      string            `json:"username"`
-			SSLMode       string            `json:"ssl_mode"`
-			Env           string            `json:"env"`
-			ReadOnly      bool              `json:"read_only"`
-			SSHProfileID  string            `json:"ssh_profile_id"`
-			Engine        string            `json:"engine"`
-			DriverOptions map[string]string `json:"driver_options"`
+			// Set on a link to a server profile (database.Service.OpenDatabase):
+			// a metadata-only record that names a database under that server.
+			ParentProfileID string            `json:"parent_profile_id"`
+			Name            string            `json:"name"`
+			Host            string            `json:"host"`
+			Port            int               `json:"port"`
+			Database        string            `json:"database"`
+			Username        string            `json:"username"`
+			SSLMode         string            `json:"ssl_mode"`
+			Env             string            `json:"env"`
+			ReadOnly        bool              `json:"read_only"`
+			SSHProfileID    string            `json:"ssh_profile_id"`
+			Engine          string            `json:"engine"`
+			DriverOptions   map[string]string `json:"driver_options"`
 			// The metadata carries it whenever a profile has a CA bundle, and
 			// unknown fields are refused: without it such a profile failed
 			// validation on every write and every sync (#45).
@@ -152,7 +155,20 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			// over Tailscale or a VPN carries it.
 			TrustedNetwork bool `json:"trusted_network"`
 		}
-		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
+		if decodeMetadataObject(metadata, &value) != nil {
+			return ErrInvalidRecordSchema
+		}
+		if value.ParentProfileID != "" {
+			// A link resolves address, credentials and policy through its
+			// parent, so it carries none of its own: one that did would let a
+			// synced snapshot repoint a trusted profile.
+			if len(value.ParentProfileID) > 256 || value.Database == "" ||
+				value.Name != "" || value.Host != "" || value.Port != 0 || value.Username != "" ||
+				value.SSLMode != "" || value.Env != "" || value.ReadOnly || value.SSHProfileID != "" ||
+				value.Engine != "" || len(value.DriverOptions) != 0 || value.CACert != "" || value.TrustedNetwork {
+				return ErrInvalidRecordSchema
+			}
+		} else if value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "db-password"
