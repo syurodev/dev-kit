@@ -77,6 +77,20 @@ func TestPublicErrorMapsCodeGraphFileInputs(t *testing.T) {
 	}
 }
 
+// "Index not ready" tells the person to wait, which is wrong when the index
+// failed because the analyzer was never built: that needs a build, not time.
+func TestPublicErrorSaysAMissingAnalyzerNeedsBuilding(t *testing.T) {
+	cause := fmt.Errorf("%w: %w", codegraph.ErrIndexNotReady, codegraph.ErrAnalyzerNotConfigured)
+	got := publicError("builtin.codegraph", cause).Error()
+	if !strings.HasPrefix(got, "connection_failed:") || !strings.Contains(got, "not built") || strings.Contains(got, "Wait for indexing") {
+		t.Fatalf("error = %q", got)
+	}
+	// Still just "not ready" when nothing says why.
+	if got := publicError("builtin.codegraph", codegraph.ErrIndexNotReady).Error(); !strings.Contains(got, "Wait for indexing") {
+		t.Fatalf("plain index-not-ready = %q", got)
+	}
+}
+
 // A missing file used to surface as one fixed sentence, so a failed index gave
 // no hint whether the analyzer, its runtime or the project folder was gone.
 func TestPublicErrorNamesTheMissingCodeGraphPath(t *testing.T) {
