@@ -11,8 +11,6 @@ import (
 	"devkit/internal/vaultitem"
 )
 
-const DefaultTimeout = 60 * time.Second
-
 type Type string
 
 const (
@@ -108,17 +106,21 @@ type ConfirmRequest struct {
 }
 
 type Pending struct {
-	Target             Target    `json:"target"`
-	ID                 string    `json:"id"`
-	Type               Type      `json:"type"`
-	Kind               Kind      `json:"kind,omitempty"`
-	Env                string    `json:"env,omitempty"`
-	Tool               string    `json:"tool,omitempty"`
-	Summary            string    `json:"summary,omitempty"`
-	AllowAlwaysOffered bool      `json:"allowAlwaysOffered"`
-	Caller             string    `json:"caller,omitempty"`
-	ExpiresAt          time.Time `json:"expiresAt"`
-	CreatedAt          time.Time `json:"createdAt"`
+	Target             Target `json:"target"`
+	ID                 string `json:"id"`
+	Type               Type   `json:"type"`
+	Kind               Kind   `json:"kind,omitempty"`
+	Env                string `json:"env,omitempty"`
+	Tool               string `json:"tool,omitempty"`
+	Summary            string `json:"summary,omitempty"`
+	AllowAlwaysOffered bool   `json:"allowAlwaysOffered"`
+	Caller             string `json:"caller,omitempty"`
+	// ExpiresAt is zero (and omitted) when nothing ends the wait: a question put
+	// to a person has no deadline of its own, the agent asking it has none
+	// either. It is set only when Hub.Timeout is configured or the caller's
+	// context carries a deadline.
+	ExpiresAt time.Time `json:"expiresAt,omitzero"`
+	CreatedAt time.Time `json:"createdAt"`
 	// Options and Remember are set on a KindGitAccount selection only: the
 	// accounts to choose between, and what a kept answer would be kept for.
 	Options  []AccountOption `json:"options,omitempty"`
@@ -129,6 +131,10 @@ type Pending struct {
 type allowKey struct{ caller, tool, profile string }
 
 type Hub struct {
+	// Timeout ends a wait on its own. Zero, the default, is no deadline: a
+	// permission popup stays until the person answers it or the caller's
+	// context is cancelled (the session is stopped), the way the agent's own
+	// turn waits. A positive value is for tests and embedders that want one.
 	Timeout  time.Duration
 	Headless bool
 	// ConfirmAgent routes an identity-bound Agent Hub caller to the shared
@@ -150,7 +156,6 @@ type pendingWait struct {
 
 func NewHub(p Prompter) *Hub {
 	return &Hub{
-		Timeout:     DefaultTimeout,
 		prompter:    p,
 		pending:     map[string]*pendingWait{},
 		allowAlways: map[allowKey]struct{}{},
@@ -200,7 +205,7 @@ func (h *Hub) Complete(id, value string) error {
 		return ErrNoPendingInteraction
 	}
 	w, ok := h.pending[id]
-	if !ok || w.finished || w.ctx.Err() != nil || !time.Now().Before(w.ExpiresAt) {
+	if !ok || w.finished || w.ctx.Err() != nil || (!w.ExpiresAt.IsZero() && !time.Now().Before(w.ExpiresAt)) {
 		return ErrInvalidInteractionID
 	}
 	select {
@@ -330,12 +335,12 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 		}
 	}
 	if caller, ok := identity.FromContext(ctx); ok && caller.IsAgent() && h.ConfirmAgent != nil {
-		timeout := h.Timeout
-		if timeout <= 0 {
-			timeout = DefaultTimeout
+		waitCtx := ctx
+		if h.Timeout > 0 {
+			var cancel context.CancelFunc
+			waitCtx, cancel = context.WithTimeout(ctx, h.Timeout)
+			defer cancel()
 		}
-		waitCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
 		answer, err := h.ConfirmAgent(waitCtx, req)
 		if err != nil {
 			return err
@@ -361,12 +366,10 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 	p.ID = id
 	p.Caller = identity.Label(ctx)
 	p.CreatedAt = time.Now().UTC()
-	timeout := h.Timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
+	if h.Timeout > 0 {
+		p.ExpiresAt = p.CreatedAt.Add(h.Timeout)
 	}
-	p.ExpiresAt = p.CreatedAt.Add(timeout)
-	if deadline, ok := ctx.Deadline(); ok && deadline.Before(p.ExpiresAt) {
+	if deadline, ok := ctx.Deadline(); ok && (p.ExpiresAt.IsZero() || deadline.Before(p.ExpiresAt)) {
 		p.ExpiresAt = deadline
 	}
 	resCh := make(chan string, 1)
@@ -387,19 +390,24 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 		return "", err
 	}
 
-	timer := time.NewTimer(time.Until(p.ExpiresAt))
-	defer timer.Stop()
+	// A nil channel never fires: with no deadline only an answer or ctx ends it.
+	var expired <-chan time.Time
+	if !p.ExpiresAt.IsZero() {
+		timer := time.NewTimer(time.Until(p.ExpiresAt))
+		defer timer.Stop()
+		expired = timer.C
+	}
 
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case <-timer.C:
+	case <-expired:
 		return "", ErrInteractionTimeout
 	case v := <-resCh:
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		if !time.Now().Before(p.ExpiresAt) {
+		if !p.ExpiresAt.IsZero() && !time.Now().Before(p.ExpiresAt) {
 			return "", ErrInteractionTimeout
 		}
 		return mapResult(v)

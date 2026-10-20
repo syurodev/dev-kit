@@ -16,8 +16,8 @@ func TestAgentConfirmUsesBrokerAndPreservesGatePolicy(t *testing.T) {
 		if len(h.PendingList()) != 0 {
 			t.Fatal("broker request also opened popup")
 		}
-		if _, ok := ctx.Deadline(); !ok {
-			t.Fatal("gate deadline lost")
+		if _, ok := ctx.Deadline(); ok {
+			t.Fatal("gate got a deadline nobody configured")
 		}
 		return "allow_always", nil
 	}
