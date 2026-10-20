@@ -41,7 +41,12 @@ if (new URLSearchParams(window.location.search).has('software-compositing')) {
 // in the bundle the performance budget measures; the localStorage switch is
 // what makes it reachable in a production build when a "it feels janky"
 // report needs numbers.
-if (import.meta.env.DEV || localStorage.getItem('devkitPerf') === '1') {
+// DEVKIT_PERF=1 reaches a packaged build as ?perf on the start URL.
+if (
+  import.meta.env.DEV ||
+  localStorage.getItem('devkitPerf') === '1' ||
+  new URLSearchParams(window.location.search).has('perf')
+) {
   void import('./lib/perfTrace').then((m) => m.installPerfTrace())
 }
 

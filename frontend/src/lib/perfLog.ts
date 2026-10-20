@@ -23,10 +23,21 @@ export function perfLog(line: string): void {
 export const WORKBENCH_PROFILER = "workbench";
 
 const commits = new Map<string, number>();
+let workbenchClock = 0;
 
 /** React Profiler onRender: adds this commit's render time to its Profiler's total. */
 export function recordCommit(id: string, _phase: string, actualDuration: number): void {
   commits.set(id, (commits.get(id) ?? 0) + actualDuration);
+  if (id === WORKBENCH_PROFILER) workbenchClock += actualDuration;
+}
+
+/**
+ * Workbench render time since the page loaded, never reset. takeCommits clears
+ * what it hands out, so two readers would steal each other's numbers; a reader
+ * that wants "how much React ran between two moments" subtracts two readings.
+ */
+export function workbenchRenderClock(): number {
+  return workbenchClock;
 }
 
 /**

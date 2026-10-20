@@ -1,4 +1,5 @@
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { installFrameStallProbe } from "./frameStall";
 import { perfLog, takeCommits } from "./perfLog";
 
 /**
@@ -67,6 +68,9 @@ export function installPerfTrace(): () => void {
     );
   });
 
+  // Frames, not switches: the hitch while scrolling, typing or streaming.
+  const stopStalls = installFrameStallProbe({ where: () => active });
+
   let observer: PerformanceObserver | undefined;
   try {
     observer = new PerformanceObserver((list) => {
@@ -82,6 +86,7 @@ export function installPerfTrace(): () => void {
 
   return () => {
     stop();
+    stopStalls();
     observer?.disconnect();
   };
 }
