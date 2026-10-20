@@ -1282,8 +1282,9 @@ func main() {
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		// "/" everywhere but a WebKitGTK window compositing on the CPU, which
-		// carries a flag the frontend reads to flatten its glass.
-		URL: webviewStartURL(),
+		// carries a flag the frontend reads to flatten its glass. DEVKIT_PERF=1
+		// adds the flag that turns the frontend's performance lines on.
+		URL: withPerfFlag(webviewStartURL(), os.LookupEnv),
 	}
 	if frame, ok := loadWindowFrame(container.UIState); ok {
 		// X and Y are ignored unless InitialPosition opts out of the default,
@@ -1372,6 +1373,22 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// perfQuery is the start-URL flag main.tsx reads to install the performance
+// probes (the same switch as localStorage.devkitPerf). A packaged build has no
+// Web Inspector to set localStorage from, so DEVKIT_PERF=1 is how a "it feels
+// janky" report gets numbers out of the app a person actually runs.
+const perfQuery = "perf"
+
+func withPerfFlag(url string, lookup func(string) (string, bool)) string {
+	if v, ok := lookup("DEVKIT_PERF"); !ok || v != "1" {
+		return url
+	}
+	if strings.Contains(url, "?") {
+		return url + "&" + perfQuery
+	}
+	return url + "?" + perfQuery
 }
 
 // perfEventName matches PERF_EVENT in frontend/src/lib/perfLog.ts.

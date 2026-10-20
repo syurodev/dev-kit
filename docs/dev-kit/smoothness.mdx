@@ -226,6 +226,20 @@ virtualization và batching; đây là phần chạm tới cảm giác:
   thấy cả cú đổi module). `main.tsx` import động sau
   `import.meta.env.DEV || localStorage.devkitPerf === "1"`, nên nó thành chunk
   riêng và không nằm trong bundle mà budget đo.
+- **Dò khựng theo frame** (`frontend/src/lib/frameStall.ts`, chạy cùng
+  `perfTrace`): WebKit không có `longtask`, và đổi tab chỉ là một trong những
+  lúc giật. Probe chạy một vòng `requestAnimationFrame` và một timer 25 ms;
+  frame cách nhau hơn 50 ms thì ghi một dòng
+  `[perf] stall 180ms: main thread held 150ms, 12ms React, after wheel on
+  scroll-area while "agenthub › …" was active`. Hai đồng hồ trả lời câu hỏi
+  "do code hay do compositor": timer trễ nhiều ⇒ JS/layout giữ main thread;
+  timer đúng giờ mà frame vẫn trễ ⇒ paint/GPU/compositor (dòng ghi
+  `paint or compositor`). Tối đa 300 dòng mỗi lần chạy. Vòng rAF không bao giờ
+  dừng nên chỉ chạy sau cờ, không bao giờ trong build thường.
+  Bật ở app đóng gói: `DEVKIT_PERF=1 dev-kit 2>&1 | grep '\[perf\]'`
+  (Go thêm `?perf` vào URL khởi động; `localStorage.devkitPerf = "1"` vẫn
+  dùng được khi có Web Inspector). Chưa chạy trên cửa sổ WebKitGTK thật: test
+  chỉ phủ luật phát hiện, không phủ dây nối với trình duyệt.
 - **Frame-đầu test**: SSR render view với store rỗng phải cho skeleton/nội
   dung, không bao giờ cho empty-copy (mẫu: `firstVisit.test.tsx`). Mở rộng
   cho 10 file ở 2.1.
