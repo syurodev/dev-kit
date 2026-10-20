@@ -594,8 +594,11 @@ mới bắt đầu cung cấp.
 ở module khác, không thấy transcript. Một grant sống lâu hơn cả lượt phải được
 cấp từ rail, nơi nhìn được đủ. Toast có nút "Open rail" cho đúng việc đó.
 
-**Toast hiện deadline chứ không giấu.** `interaction.DefaultTimeout` là 60 giây và
-fail-closed; một toast tự tắt sẽ từ chối lượt của agent trong im lặng.
+**Toast không có deadline.** Agent không bị giới hạn thời gian thì câu hỏi quyền
+cũng không: `interaction.Hub.Timeout` mặc định 0, request không mang `expiresAt` và
+thẻ không vẽ đồng hồ hay "expired". Gate vẫn fail-closed — Deny, dừng session hoặc
+ctx bị huỷ thì từ chối; chỉ khi cấu hình `Timeout` > 0 (test, embedder) thì toast
+mới hiện deadline, vì một toast tự tắt sẽ từ chối lượt của agent trong im lặng.
 
 Trong module Agent Hub: `Agent Hub / Sidebar Content` (264×836) là bầy dưới dạng
 **cây** — thụt lề chính là chuỗi cha→con, cũng là ranh giới một agent được phép

@@ -44,7 +44,7 @@ func TestGatePermissionUsesAgentCardAndValidatesProductionChoice(t *testing.T) {
 		if err := json.Unmarshal(p.Params, &params); err != nil {
 			t.Fatal(err)
 		}
-		if params.Origin != "devkit_gate" || !params.Locked || params.Summary != req.Summary || p.ExpiresAt.IsZero() || len(h.PendingList()) != 0 {
+		if params.Origin != "devkit_gate" || !params.Locked || params.Summary != req.Summary || !p.ExpiresAt.IsZero() || len(h.PendingList()) != 0 {
 			t.Fatalf("bad gate card: %s", p.Params)
 		}
 		for _, opt := range params.Options {

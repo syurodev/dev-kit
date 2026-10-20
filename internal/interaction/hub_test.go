@@ -57,6 +57,36 @@ func TestSelectTimeout(t *testing.T) {
 	}
 }
 
+// A popup has no deadline of its own: it outlives any default timer and can
+// still be answered, and the pending item carries no ExpiresAt for the UI to
+// draw as "expired".
+func TestConfirmHasNoDeadlineByDefault(t *testing.T) {
+	h := NewHub(NoopPrompter{})
+	if h.Timeout != 0 {
+		t.Fatalf("default Timeout = %v, want none", h.Timeout)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- h.Confirm(context.Background(), ConfirmRequest{Kind: KindDatabase, Tool: "db.query", EnvBlocks: true})
+	}()
+	waitForPending(t, h)
+	pend := h.Pending()
+	if !pend.ExpiresAt.IsZero() {
+		t.Fatalf("ExpiresAt = %v, want zero", pend.ExpiresAt)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("returned before an answer: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := h.Complete(pend.ID, "allow"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompleteAfterTimeoutReturnsNoPending(t *testing.T) {
 	h := NewHub(NoopPrompter{})
 	h.Timeout = 50 * time.Millisecond

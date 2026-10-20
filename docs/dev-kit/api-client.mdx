@@ -123,7 +123,7 @@ gate, và không phân biệt được đang bắn vào `dev` hay `prod`.
 |---|---|
 | NFR-1 | Mọi call — UI lẫn MCP — qua `AppService.call` + Capability Gateway. `api:send` là capability riêng, tách khỏi `api:read`/`api:write`. |
 | NFR-2 | Secret không bao giờ nằm trong metadata plaintext, log, audit hay history. Audit ghi method + host + path + status + **account đã dùng (theo ID)**, không ghi header/body. Copy as cURL xuất ra placeholder cho phần auth, không xuất giá trị. |
-| NFR-3 | Gate fail closed: headless / không ai trả lời trong 60s ⇒ không gửi (`interaction.DefaultTimeout`, như Agent Hub). |
+| NFR-3 | Gate fail closed: headless / bị từ chối / session bị dừng ⇒ không gửi. Popup xác nhận không có deadline (`interaction.Hub.Timeout` = 0), như Agent Hub: chờ người dùng trả lời. |
 | NFR-4 | Body response cắt ở 5 MB khi hiển thị và 256 KB khi trả cho agent (kèm `truncated: true`); không treo UI với response lớn. |
 | NFR-5 | Timeout mặc định 30s, cancel được từ UI và từ ctx của MCP call. |
 | NFR-6 | Chỉ `http`/`https`. `http://` tới loopback luôn được; tới máy khác chỉ khi request **không** bind account và env tag **không** hỏi trước (`ErrPlainHTTP`) — dev server trong LAN/container là chuyện thường ngày, credential hay env cần xác nhận thì không đi plaintext. Không theo redirect sang origin khác (scheme + host + port): dừng và trả chính response 3xx, `redirectBlocked` nêu nơi nó trỏ tới. |
