@@ -112,6 +112,21 @@ func TestFailedRefreshIsNotReadyAndDoesNotBumpRevision(t *testing.T) {
 	}
 }
 
+// A failed index keeps its reason: "index not ready" alone reads as "wait", and
+// for a missing analyzer waiting never helps.
+func TestFailedIndexKeepsItsCause(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(t.Context(), "/fake/project"); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetAnalyzer(fakeAnalyzer{err: ErrAnalyzerNotConfigured})
+	svc.runReindex(t.Context())
+	_, err := svc.ListEntryPoints(t.Context())
+	if !errors.Is(err, ErrIndexNotReady) || !errors.Is(err, ErrAnalyzerNotConfigured) {
+		t.Fatalf("err = %v, want both ErrIndexNotReady and its cause", err)
+	}
+}
+
 func TestLastProjectRestoresOnNewService(t *testing.T) {
 	config, root := t.TempDir(), t.TempDir()
 	first := NewService(NewNilStore(), fakeAnalyzer{result: sampleResult()})

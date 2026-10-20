@@ -426,12 +426,15 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, codegraph.ErrNoActiveProject):
 			return apperrors.Wrap(codeValidationFailed, "No active CodeGraph project.", true, codegraph.ErrNoActiveProject)
+		// Before the generic "not ready": an index that failed because its
+		// analyzer was never built needs a build, and "wait for indexing" would
+		// send the person away from the setup panel that offers one.
+		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
+			return apperrors.Wrap(codeConnectionFailed, "CodeGraph's analyzer for this project is not built, so it cannot be indexed. Build it from CodeGraph's setup panel, then reopen the project.", true, codegraph.ErrAnalyzerNotConfigured)
 		case errors.Is(err, codegraph.ErrIndexNotReady):
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph index not ready. Wait for indexing to finish or reopen the project to retry.", true, err)
 		case errors.Is(err, codegraph.ErrNodeNotFound):
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph node not found.", true, codegraph.ErrNodeNotFound)
-		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
-			return apperrors.Wrap(codeConnectionFailed, "CodeGraph analyzer not configured.", true, codegraph.ErrAnalyzerNotConfigured)
 		// The analyzer exists but the runtime that launches it does not — a
 		// packaged install ships the artifact and not a JDK. CodeGraph's setup
 		// panel says which program is missing and what to install; this is the

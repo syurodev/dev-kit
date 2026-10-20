@@ -75,7 +75,12 @@ func (st *indexState) readyErr() error {
 	if st.unsupported {
 		return ErrUnsupportedProject
 	}
-	if st.err != nil || (st.busy() && !st.stale) {
+	if st.err != nil {
+		// Keep why the index failed: a bare ErrIndexNotReady reads as "wait",
+		// and for an analyzer that was never built waiting never helps.
+		return fmt.Errorf("%w: %w", ErrIndexNotReady, st.err)
+	}
+	if st.busy() && !st.stale {
 		return ErrIndexNotReady
 	}
 	return nil
