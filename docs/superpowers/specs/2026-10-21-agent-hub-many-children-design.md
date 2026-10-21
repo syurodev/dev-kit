@@ -52,9 +52,11 @@ in Needs you, not in the tree (`ask={null}` in `SessionBranch`), and stays so.
 - `branchSignals` and `branchHint` read the whole list, so a hidden child still
   marks its parent (waiting / failed always; running / unread when folded).
 - The parent's count (`childCount` = `node.descendants`) stays the real total.
-- The "more" row carries an unread dot when a hidden child has a peer message
-  the person has not seen (`peerUnread`). A hidden child that is running cannot
-  exist (rule 3.1), and waiting/failed ones are marked on the parent already.
+- The "more" row carries the unread mark (the card's message icon and a count)
+  for folded sessions, **including their descendants** (they are folded too),
+  that hold a peer message the person has not seen. A folded running child
+  cannot exist (rule 3.1), and waiting/failed ones are marked on the parent
+  already.
 - Folding the branch (the existing chevron) hides the whole list including the
   "more" row, as today; "Show all" is separate from fold and is forgotten when
   the branch is folded and opened again.

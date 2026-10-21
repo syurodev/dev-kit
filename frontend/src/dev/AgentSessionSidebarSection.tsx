@@ -8,7 +8,8 @@ import type { Attention } from "@/modules/agenthub/sidebar/model";
  * The real Agent Hub rail (AgentSessionSidebar), fed fixtures: groups of 1, 3,
  * 7 and 26 sessions, long titles, a crowd of subagents, and every state a card
  * can be in, and parents with children drawn under them (a tree is one of the
- * five recent; a folded parent marks what runs, waits or is unread below it).
+ * five recent; a folded parent marks what runs, waits or is unread below it;
+ * a parent with eleven finished children folds all but the newest three).
  * Interactive, so folding, the stack, pinning and selection can be
  * tried without a bridge. `?gallery#agenthub-session-rail`.
  */
@@ -79,6 +80,25 @@ const sessions: AgentSession[] = [
   s("lone", WEB, "Review the checkout redesign", 12, { workspaceId: "ws-billing" }),
   s("lone1", WEB, "Check the empty states", 11, { workspaceId: "ws-billing", parentSessionId: "lone", depth: 1, status: "running" }),
   s("lone2", WEB, "Check keyboard order", 13, { workspaceId: "ws-billing", parentSessionId: "lone", depth: 1 }),
+  // Many children: eleven finished ones fold to the newest three and a "+8 more" row.
+  s("orch", WEB, "Web-app tài chính cá nhân", 14, { workspaceId: "ws-billing" }),
+  ...Array.from({ length: 11 }, (_, i) =>
+    s(`orch${i}`, WEB, `PF-${String.fromCharCode(65 + i)} · plan task ${i + 1}`, 20 + i * 30, {
+      workspaceId: "ws-billing",
+      parentSessionId: "orch",
+      depth: 1,
+    }),
+  ),
+  // Four running children: the limit follows them (four), so only the two idle ones fold.
+  s("crew", WEB, "Parallel migration crew", 15, { workspaceId: "ws-billing" }),
+  ...Array.from({ length: 6 }, (_, i) =>
+    s(`crew${i}`, WEB, `Migrate module ${i + 1}`, 16 + i * 10, {
+      workspaceId: "ws-billing",
+      parentSessionId: "crew",
+      depth: 1,
+      status: i < 4 ? "running" : "idle",
+    }),
+  ),
   // A child whose parent is not in the list is drawn as a root.
   s("orphan", DOCS, "Child of a session that was deleted", 40, { parentSessionId: "deleted", depth: 1 }),
   // An old session that is waiting must show even though it is far down.
@@ -110,7 +130,7 @@ const attention: Record<string, Attention> = {
   famw: { permissions: 1, questions: 0 },
 };
 
-const peerUnread: Record<string, number> = { fam2: 2, lone2: 1 };
+const peerUnread: Record<string, number> = { fam2: 2, lone2: 1, orch9: 1 };
 
 const workspaces = [{ id: "ws-billing", name: "billing-platform", paths: [API, WEB] }];
 
@@ -195,6 +215,7 @@ export function AgentSessionSidebarSection() {
         <div data-testid="rail-narrow"><Rail width={240} initialActive="fam3b" /></div>
         <div data-testid="rail-wide"><Rail width={360} initialOlder={["workspace:ws-billing"]} initialFolded={["fam3"]} /></div>
         <div data-testid="rail-branches-folded"><Rail width={280} initialFolded={["fam", "lone"]} initialActive="run" /></div>
+        <div data-testid="rail-many-children"><Rail width={280} initialActive="orch0" /></div>
         {/* The failed session ("err") dismissed: back in its group with the quiet look, nothing in Needs you for it. */}
         <div data-testid="rail-dismissed"><Rail width={280} initialDismissed={{ err: sessions.find((x) => x.id === "err")?.updatedAt ?? 0 }} /></div>
         <div data-testid="rail-folded"><Rail width={280} initialCollapsed={["workspace:ws-billing", "project:/work/solo"]} initialActive="d1" /></div>
