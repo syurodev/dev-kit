@@ -193,7 +193,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 | 6.1 | **Selector hẹp, không destructure cả store.** `const { a, b } = useStore()` render lại theo *mọi* thay đổi của store. | Đã chuyển toàn bộ 16 file sang selector `useShallow`. Ratchet `storeSubscriptionRatchet.test.ts` giữ baseline = 0. |
 | 6.2 | **Việc nặng sau click không chặn frame click.** Mount module nặng, set bảng lớn, dựng graph: `startTransition` hoặc chia frame; frame đầu chỉ vẽ khung. | `startTransition` mới dùng 1 chỗ. |
 | 6.3 | **Bảng > 100 dòng virtualize.** `@tanstack/react-virtual` đã cài. | Đã phủ QueryConsole, peek Kafka và LiveActivity qua `useVirtualRows` dùng chung — windowing bằng hàng đệm chứ không absolute, vì `<tr>` ra khỏi flow kéo theo chiều rộng cột và làm `thead` sticky hết tác dụng. Dưới ngưỡng 100 dòng thì render thẳng, nên `renderToString` (không có scroller để đo) vẫn ra đủ bảng. Đo trên Chromium, scroller cao 360 px: 80 dòng → 80 `<tr>`; 500 dòng → 26 `<tr>` lúc đứng yên, 43 sau khi cuộn 5000 px, header vẫn dính và cột vẫn 200 px. |
-| 6.4 | **`content-visibility: auto` cho vùng ẩn dưới màn.** | Notes card, agent line và message scroller vẫn dùng hint này. Transcript Agent Hub dùng virtualization theo turn (5.000 turn → 11 section trong fixture), và module/companion ẩn không subscribe transcript snapshot; shell stream vẫn nhận token/permission. |
+| 6.4 | **`content-visibility: auto` cho vùng ẩn dưới màn.** | `NoteCard` dùng hint này cho **từng thẻ** (`content-visibility-auto` + `contain-intrinsic-37`) và `message-scroller.tsx` cho từng tin (component này hiện không được nơi nào khác trong `src/` dùng). Transcript Agent Hub dùng virtualization theo turn (5.000 turn → 11 section trong fixture), và module/companion ẩn không subscribe transcript snapshot; shell stream vẫn nhận token/permission. **Cảnh báo (đo 2026-10-21, mục 13.2): trên WebKitGTK 2.52.6, `content-visibility: auto` trên 4000 phần tử anh em làm layout cưỡng bức sau khi sửa một thẻ tốn 377–508 ms và quét cuộn 414–516 ms/frame (Chrome: 1–2 ms và 16,7 ms); chi phí tăng siêu tuyến tính, ổn ở ≤300 và xấu đi ở 1000.** Notes grid cần đo với fixture 10.000 note và virtualize nếu chạm ngưỡng; không mở rộng hint ra thêm phần tử nhỏ. |
 | 6.5 | **Gõ phím không chờ render phụ.** Editor/ô search cập nhật ngay; filter/kết quả defer (`useDeferredValue`). | Notes search có debounce; các ô search rail filter đồng bộ (ổn khi < 1 000 dòng). |
 | 6.6 | **Phím tắt phản hồi trong frame đó.** ⌘↵, ⌘⇧E, ⌘K: state đổi ngay, việc nặng sau. | Đúng ở Kafka/Workbench; cần đo trên WKWebView. |
 | 6.7 | **Không thrash layout.** Đọc `getBoundingClientRect`/`offsetTop` rồi ghi style trong cùng frame là thrash; framer `layout` trên nhiều phần tử = nhiều lần đo. | `layout` chỉ ở TabStrip; giữ ở section-level. `useWindowWidth` set state mỗi resize — chấp nhận được, nhưng resize nên throttle bằng rAF. Thứ đo lại theo ResizeObserver mà đắt (terminal, Flow canvas, diff) đi qua `settledRunner` (`lib/panelMotion.ts`): trong lúc panel của shell đang chạy animation thì chỉ ghi nợ, chạy đúng một lần ở frame sau khi dừng; không có gì chạy animation thì chạy ngay như cũ. Kéo sash bất kỳ (cờ `shellDrag` do `useResizableSize` bật, mọi panel coi là tức thì — sidebar và các cột clamp lẫn nhau), resize cửa sổ và thay đổi chỉ do clamp của panel bên cạnh **không bao giờ** bật tín hiệu (`panelMotionStep`, có test), nên terminal/diff vẫn fit liên tục khi kéo. Kích thước đổi từ hoặc về 0 (tab hiện ra từ `display:none`) chạy ngay dù panel đang chạy. |
@@ -206,6 +206,10 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 | 7.2 | **`will-change` chỉ đặt ngay trước khi animate và gỡ sau.** Đặt thường trực = layer thừa, memory GPU. | Cần rà. |
 | 7.3 | **Không chồng nhiều lớp mờ.** Popover glass trên panel glass trên rail glass = blur 3 lần cùng pixel. | Xảy ra khi mở menu trong split panel. |
 | 7.4 | **Vibrancy native làm nền, không tự vẽ blur nền cửa sổ.** | Đúng. Fallback `no-backdrop-blur` đã gỡ (2026-09-10): nó ép kính thành đục cho **mọi** máy Linux, dựa trên tiền đề "DevKit chạy đường software" — mà tiền đề đó do chính cờ DMABUF sinh ra và đã bị gỡ ở `27cfeed`. Đường tắt kính giờ là `prefers-reduced-transparency`, thuộc quyền người dùng chứ không phải một phán đoán về nền tảng, và đã phủ cả tầng modal. |
+| 7.5 | **Cho `html` một nền đục.** `backdrop-filter` làm phần tử gốc thành "backdrop root"; nếu nó trong suốt, engine thêm một layer composite cả màn hình (WebKit bug 271340, sửa ở trunk 2024-03 nhưng không gắn với một bản phát hành). | `.native` để `html`/`body` trong suốt (`index.css:734-746`) và vẽ nền ở `AppShell`. Cần kiểm trong tab Layers (13.4) xem có layer toàn màn hình thừa không. |
+| 7.6 | **Không dùng `background-attachment: fixed`** (hay thứ gì đồng bộ với cuộn). WebKit bug 221738: tắt nó làm CPU giảm ~150% → 15% và cuộn gần như mượt trên WebKitGTK 4K/Skia. | Rà 2026-10-21 bằng grep (bỏ file test): không có `background-attachment`, `bg-fixed` hay `will-change` trong `frontend/src`. Giữ như vậy (ratchet D11). |
+| 7.7 | **`will-change` chỉ đặt ngay trước khi animate và gỡ sau.** Đo trên WebKitGTK 2.52.6: `will-change: transform` trên 4000 thẻ làm quét cuộn 49 ms/frame (mọi frame >20 ms), nhưng ở 1000 thẻ vẫn 17 ms: vách đá nằm ở tổng diện tích layer. | Không có `will-change` trong mã không phải test (grep 2026-10-21). Giữ nguyên. |
+| 7.8 | **Blur và bóng lớn: xác minh trên đúng bản WebKitGTK trước khi dựa vào.** Igalia nói từ 2.46 mọi CSS filter chạy trên Skia và "các trang dùng blur không còn chậm", nhưng bug 240865 có bình luận 2026 đo `filter: blur()` ~184 ms giữa các frame so với 16 ms trên 2.54.1. Hai nguồn mâu thuẫn; chưa đo trên 2.52.6 với DevKit. | 22 chỗ `backdrop-filter`/`backdrop-blur` (ratchet). Đo tách riêng blur trong harness (13.4) trước khi coi nó là nghi phạm hay vô tội. |
 
 ## 8. Khởi động và chuyển cảnh lớn
 
@@ -348,7 +352,7 @@ viết ở nhiều nơi. Cả hai dep mới đã nối code (`@tanstack/react-qu
 | Công cụ | Trạng thái | Thay cho | Quy tắc áp dụng ở DevKit |
 |---|---|---|---|
 | **TanStack Query** | Đã dùng (QueryClient ở App, 3 view Database + 10 view fetch) | Máy trạng thái fetch tự viết trong 10+ view (`useState([])` + `loading` + `error` + effect + refetch tay) — mục 2.1–2.4, 5 | Đã cấu hình QueryClient dùng chung tại `App.tsx` (`retry: 0`, không refetch khi focus/reconnect, staleTime 5 phút); chuyển đổi 3 view mẫu Database (`LiveActivityView`, `QueryHistoryView`, `SavedQueriesView`) và 10 view fetch danh sách/đọc (`SettingsView`, `ERDView`, `AnalyzerSetup`, `SSHView`, `NotesDashboard`, `NoteHistoryPanel`, `NoteLink`, `NotesTrash`, `NoteEditor`, `SyncView`); bảo toàn nguyên vẹn chu trình autosave của Notes. **Quy tắc rút ra khi review (2026-09-10):** query bị gate theo tab (`enabled: activeTab === …`) mà nghiệp vụ là "tươi khi vào" (History sau khi chạy SQL ở Console, Live activity snapshot) phải đặt `staleTime: 0` — với default 5 phút, vào lại tab không refetch và History không thấy query vừa chạy (regression đã sửa ở `eacf60f`). Ngoài ra, thêm Query vào initial chunk đưa JS ban đầu lên 1019.6 KiB / trần 1024 — còn 4 KiB; thứ tiếp theo vào shell phải lazy. **Đã lấy lại chỗ (2026-09-10):** `@xterm/xterm` cùng addon và stylesheet nằm trong initial chunk dù `TerminalPane` chỉ render khi người dùng mở một tab terminal — 323.9 KiB theo phân bổ sourcemap, khoản duy nhất trong shell chỉ có một consumer và không có vai trò gì ở frame đầu. Tách bằng `React.lazy` ngay trong `TerminalWorkspace` (thanh tab và nút New terminal ở lại chunk shell) đưa JS ban đầu **1019.6 → 691.6 KiB**. Quy tắc "thứ tiếp theo vào shell phải lazy" vẫn giữ và đã áp ngay: `<Toaster/>` của sonner tốn 36 KiB nếu mount thẳng nên cũng lazy, `perfTrace` cũng vậy. |
-| **`<Activity>`** (React 19.2) | Đã dùng (DatabaseView thay visited set) | Keep-alive tay: `contents`/`hidden` ở WorkbenchViews, `visited` set ở DatabaseView — mục 2.2 | Đã dùng `mode="visible"|"hidden"` thay thế hoàn toàn cơ chế `visited` set và wrapper ẩn/hiện thủ công trong DatabaseView cho các tab Console, Activity, History, Saved. Giữ nguyên trạng thái và tạm dừng effect khi tab bị ẩn; giữ ERDView ở chế độ mount theo nhu cầu vì canvas React Flow cần đo đạc kích thước thực tế khi gắn vào DOM. Không chạm vào chu trình autosave của Notes và listener của Agent Hub. |
+| **`<Activity>`** (React 19.2) | **Chưa dùng** — dòng "Đã dùng" ở đây không còn khớp mã: rà `frontend/src` ngày 2026-10-21 chỉ thấy icon `Activity` của lucide, `DatabaseView.tsx` không có từ này. Sửa lại để khỏi làm người đọc tin rằng keep-alive đã chuyển sang Activity. | Keep-alive tay: `contents`/`hidden` ở WorkbenchViews, `visited` set ở DatabaseView — mục 2.2 | **Ghi chú lỗi thời (2026-10-21):** đoạn mô tả bên dưới nói đã thay cơ chế `visited` set bằng `mode="visible"` hoặc `mode="hidden"` trong DatabaseView, nhưng mã trên `main` không có điều đó; đọc nó như ý định thiết kế, không phải hiện trạng. Quy tắc dùng Activity (huỷ Effect khi ẩn, con vẫn render ở ưu tiên thấp khi props đổi) xem Frontend performance mục "Kỹ thuật cực hạn" 2.7. Đoạn gốc: đã dùng `mode="visible"` hoặc `mode="hidden"` thay thế hoàn toàn cơ chế `visited` set và wrapper ẩn/hiện thủ công trong DatabaseView cho các tab Console, Activity, History, Saved. Giữ nguyên trạng thái và tạm dừng effect khi tab bị ẩn; giữ ERDView ở chế độ mount theo nhu cầu vì canvas React Flow cần đo đạc kích thước thực tế khi gắn vào DOM. Không chạm vào chu trình autosave của Notes và listener của Agent Hub. |
 | **`useShallow`** (zustand) | Đã dùng (16 file, ratchet 0) | Render theo mọi thay đổi store do `const { a, b } = useStore()` — mục 6.1 | Đã chuyển toàn bộ 16 file sang selector `useShallow`. Ratchet `storeSubscriptionRatchet.test.ts` giữ baseline 0; không đổi kiến trúc store. |
 | **`tw-animate-css`** | Đã dùng (22 bề mặt nổi & dialog, guard test SSR) | Dialog/popover/tooltip/dropdown/toast trong catalogue 4.4 — không cần framer hay `@starting-style` tự viết | Đã quy chuẩn các bề mặt nổi Radix và dialog tùy biến về token `duration-(--motion-base)` khi mở và `duration-(--motion-fast)` khi đóng; tắt hoàn toàn animation khi có `prefers-reduced-motion`. Test SSR `floatingMotion.test.tsx` bảo vệ thuộc tính motion. |
 | **`@formkit/auto-animate`** | Đã dùng (groups, history, saved, notes list) | Bọc từng item bằng `AnimatePresence` cho list thêm/xoá/sắp xếp — mục 4.4 | Đã gắn `useAutoAnimate` với thời lượng 180 ms và easing `--ease-out-strong` (cubic-bezier 0.23, 1, 0.32, 1) lên các container danh sách động: bảng consumer groups của Kafka (**không** gắn lên bảng peek: một lần peek thay toàn bộ tới 500 dòng, tức 500 FLIP cùng lúc — auto-animate chỉ cho danh sách thay đổi từng phần), danh sách QueryHistoryView và SavedQueriesView của Database, lưới thẻ ghi chú và sidebar/trash của Notes. Không gắn vào TreeView (đã có motion riêng) và bảng virtualize. |
@@ -384,3 +388,226 @@ kiến trúc) → TanStack Query cho 10 view fetch, lấy 3 view Database làm m
 9. **Còn nợ từ đợt này**: 2.1 vẫn còn 7 chỗ `useState([])` cạnh effect trong
    `modules/`; `scrollbar-gutter` chưa phủ transcript; 2 bảng chưa virtualize
    (`table-node.tsx`, `AgentMessageRich.tsx`) — cả hai đều nhỏ, ratchet giữ số.
+10. **Tối ưu DOM theo kịch bản, không theo module hay component** (quyết định
+    2026-10-21): chốt kịch bản (A transcript dài đang stream cùng pane DB; B kéo
+    hết chiều dài transcript; C đổi tab/module khi transcript đang sống; D rail
+    nhiều session; E gõ trong composer/editor), profile để tìm nguyên nhân, sửa ở
+    tầng thấp nhất gây ra nó, đo lại trên **cả hai engine** theo mẫu bằng chứng
+    của Frontend performance (mục "Kỹ thuật cực hạn" 4). Thứ tự khởi đầu, đều là
+    **giả thuyết cần đo**: (a) ba chỗ đọc computed style trong
+    `TranscriptStream.tsx` (13.1); (b) `useFlushSync: false` cho các virtualizer;
+    (c) đóng băng khối đã chốt khi stream và kiểm identity bằng Profiler; (d) rà
+    `content-visibility` theo 13.2, trước hết Notes grid.
+11. **Biến harness thăm dò 2026-10-21 thành công cụ lặp lại được** (một trang
+    dev trong repo theo công thức ở 13.7; hiện nó chỉ nằm ở thư mục tạm của buổi
+    khảo sát, chưa vào repo) để mọi bước ở trên có cùng thước đo.
+
+## 13. WebKitGTK 2.52: phép đo và quy tắc (2026-10-21)
+
+<Callout type="info" title="Phạm vi và độ tin cậy">
+Số trong mục này **đo trên máy này** bằng `MiniBrowser` của WebKitGTK 2.52.6
+(Ubuntu 26.04, Wayland, DPR 2) và Chrome 155 headless (DPR 1), trên trang thăm
+dò tổng hợp: DOM tổng hợp, không React, không shell Wails, một lượt cho mỗi
+biến thể, trung vị của 12–20 lần lặp trong trang. Độ phân giải timer của
+WebKitGTK là mili giây nguyên. Số tuyệt đối sẽ khác trong app thật; **tương quan
+hiệu ứng thì lớn và nhất quán**. "Đọc" nghĩa là đã đọc nguồn gốc (liên kết cuối
+mục), "Suy luận" nghĩa là chưa kiểm chứng. WebKitGTK 2.54 (2026-09) đổi
+compositor; Ubuntu 26.04 vẫn ở 2.52.6. Ghi phiên bản vào mỗi báo cáo. Ghi chú
+chi tiết từng nguồn nằm ở `docs/superpowers/research/2026-10-21-perf-browser-pipeline-and-webkitgtk.md`;
+quy tắc React và đo lường tương ứng ở Frontend performance, mục "Kỹ thuật cực hạn".
+</Callout>
+
+### 13.1 Ghi thuộc tính kế thừa trên tổ tiên lớn
+
+Ghi một biến CSS lên `<html>` rồi đọc lại bằng `getComputedStyle(html).getPropertyValue`,
+trên 20.000 phần tử (trung vị 20 lần lặp):
+
+| Thao tác | WebKitGTK 2.52.6 | Chrome 155 |
+|---|---:|---:|
+| ghi `--x` lên `html` + `getPropertyValue` | 53 ms | 27 ms |
+| cùng việc đó + `offsetHeight` (layout cưỡng bức) | 134 ms | 72 ms |
+| ghi một biến **không ai đọc** lên `html` + `offsetHeight` | 53 ms | 26,5 ms |
+| ghi lên một phần tử lá nhỏ + `getComputedStyle` | 0 | 0 |
+| ghi lên `html` một thuộc tính đã `@property` với `inherits: false` | 0 | 0 |
+
+- Chi phí là **restyle cả cây kế thừa**, không phụ thuộc có ai đọc biến hay không.
+  Style+layout chậm gấp 1,9–2× trên WebKitGTK, khớp với 1,7–2,1× đã quan sát.
+- PR tương tự đã gộp ngoài đời (simstudioai/sim #5738, tự báo): ghi biến lên
+  `documentElement` trên cây ~42k phần tử tốn ~77 ms mỗi lần, ghi lên phần tử
+  tiêu thụ chỉ ~0,5 ms; p95 khung panel 91,6 → 8,4 ms.
+- Chrome blog (Bramus, Chromium M1): đăng ký biến `inherits: false` nhanh hơn
+  ~848%; câu trích: "If you can register your custom property with
+  `inherits: false`, you definitely should."
+- **Quy tắc.** Không ghi thuộc tính kế thừa lên `:root` hay tổ tiên lớn trong
+  effect hoặc theo frame; ghi lên chính phần tử tiêu thụ, hoặc khai báo
+  `@property --x { inherits: false }`; giữ con số trong JS thay vì đi vòng qua
+  computed style. Mọi đọc `getComputedStyle` hay chỉ số layout trong effect chạy
+  mỗi commit là lỗi cho tới khi chứng minh được là rẻ. Ba chỗ đọc computed style
+  trong `TranscriptStream.tsx` (dòng 383, 490, 517) là ứng viên đầu tiên;
+  `--header-inset` hiện chỉ được **đọc** ở dòng 517 và tiêu thụ ở dòng 687/758 và
+  `AgentTurn.tsx:151` (chưa tìm thấy nơi ghi trong `src`, kiểm lại trước khi sửa).
+- Kiểm: Selector Stats / "Recalculate Style" trong Chrome trace; dòng "Style
+  invalidation / recalculation" của timeline Layout & Rendering trên WebKit.
+
+### 13.2 Containment và `content-visibility` trên nhiều phần tử anh em
+
+4000 thẻ (mỗi thẻ 8 đoạn văn), sau khi sửa **một** thẻ rồi ép layout; quét cuộn
+39 frame (Chrome trong ngoặc):
+
+| Biến thể | layout cưỡng bức sau sửa 1 thẻ | quét cuộn p50 / số frame >20 ms |
+|---|---:|---:|
+| bình thường | 3 ms (1,3) | 17 ms / 0 (16,7) |
+| `contain: layout` | **266 ms** (2,2) | 17 ms / 1 |
+| `contain: paint` | **352 ms** (1,6) | 17 ms / 0 |
+| `contain: layout style paint` | **333 ms** (1,4) | 17 ms / 0 |
+| `contain: style` | 3 ms (1,1) | 17 ms / 1 |
+| `isolation: isolate` | 3 ms (1,5) | 17 ms / 1 |
+| `overflow: hidden` | **318 ms** (1,3) | 17 ms / 1 |
+| `content-visibility: auto` (cỡ cố định) | **508 ms** (1,1) | **516 ms / 38** (16,7) |
+| `content-visibility: auto` + `contain-intrinsic-size: auto 175px` | **377 ms** (1,1) | **414 ms / 38** (16,7) |
+| `will-change: transform` mỗi thẻ | 4 ms (1,8) | **49 ms / 39 trên 39** (16,7) |
+
+- Chi phí **siêu tuyến tính theo số anh em**: `contain: layout` ở N=100: 1 ms,
+  300: 2, 1000: 7, 2000: 46, 4000: 266. `content-visibility: auto` ổn ở N≤300, p90
+  26 ms ở N=1000. `will-change` không phạt ở 100–1000, phạt ở 4000.
+- Nguyên nhân khớp với ghi chú phát hành Safari 27.0 (đọc): "`contain: layout` caused
+  significantly slower forced layouts when all siblings created their own
+  formatting context". Mọi biến thể chậm đều khiến **mỗi anh em tạo một formatting
+  context riêng** (`overflow:hidden`, `contain: layout|paint`, `content-visibility`);
+  `contain: style` và `isolation` không, và không chậm. 2.52.6 chưa có bản sửa
+  (không thấy trong ghi chú phát hành 2.52.x; chưa kiểm xem có backport không).
+- **Quy tắc.** Virtualize danh sách dài thay vì dựa vào `content-visibility`; giữ
+  số anh em có contain dưới ~300 mỗi container; dùng `contain` chỉ cho vài pane
+  lớn; một ranh giới `content-visibility` mỗi turn (thô), không mỗi dòng/ô.
+  `contain-intrinsic-size: auto <ước lượng>` đi kèm bắt buộc.
+- **Áp vào DevKit.** `NoteCard` đặt `content-visibility-auto` cho từng thẻ trong
+  Notes grid (`NotesDashboard` còn đặt `contain-layout` trên container, là một
+  phần tử, không phải anh em). Chưa đo với số note thật; cần fixture 10.000 note.
+
+### 13.3 Hỗ trợ tính năng: WebKitGTK 2.52.6 so với Chrome 155
+
+"V" = đã chạy dò trong engine thật hôm nay; "BCD" = dữ liệu MDN, mô tả Safari
+chứ không phải WebKitGTK; "U" = chưa kiểm. UA của WebKitGTK ghi `Version/60.5
+Safari/605.1.15`: đừng đánh hơi phiên bản Safari từ nó.
+
+| Tính năng | WebKitGTK 2.52.6 | Ghi chú |
+|---|---|---|
+| `scheduler.yield`, `scheduler.postTask`, `isInputPending`, `requestIdleCallback` | **V: không có** | Chrome 155 có cả bốn. Yield bằng `MessageChannel` (như scheduler của React) theo lát 5–8 ms. |
+| Long Animation Frames, `longtask` | **V: không có** | Có Event Timing (`event`, `first-input`). Dùng rAF + timer 10 ms (`frameStall.ts`). |
+| `overflow-anchor` (scroll anchoring) | **V: không có** | BCD: Safari 27. JS phải bù vị trí; xem Frontend performance 3.1. |
+| `OffscreenCanvas` trong worker | **V: 2D có, WebGL không** | Hạn chế hướng canvas-trong-worker. |
+| `SharedArrayBuffer` | V: undefined; **U** với COOP+COEP qua asset handler Wails | Chưa thử. |
+| `content-visibility`, `contain`, `contain-intrinsic-size` | V: có | Nhưng xem 13.2. |
+| `@starting-style`, View Transitions, `inert`, `scrollbar-gutter`, `scrollbar-color`, `animation-timeline: scroll()` | V: có | `scrollbar-gutter` không có tác dụng với thanh cuộn overlay (Safari 18 notes). |
+| `Element.moveBefore` | **V: không có** | Khớp ghi chú ở 3.8. |
+| `CSS.registerProperty` / `@property` | V: có | Dùng cho `inherits: false` (13.1). |
+
+### 13.4 Layer, paint, DPR
+
+- `backdrop-filter` làm phần tử gốc thành backdrop root; nếu nó trong suốt sẽ
+  thêm một layer composite toàn màn hình (WebKit bug 271340): xem 7.5.
+- Mỗi layer tốn bộ nhớ GPU và băng thông CPU–GPU (Chrome docs, Lewis): chỉ
+  `transform` và `opacity` là compositor-only; đặt `will-change` ngay trước và gỡ
+  sau (MDN); xem 7.7. Dùng tab **Layers** của Web Inspector trước và sau mọi thay
+  đổi chạm `opacity`, `will-change`, filter, `inert`, scroll container: so số
+  layer và bộ nhớ, xem một pane lớn có thành một layer khổng lồ không.
+- Skia (WebKitGTK 2.46+): paint layer GPU đã chuyển ra worker (có thể chồng với
+  JS), bóng và filter trên layer lớn bị ghi lại cho từng vùng bẩn; vì thế một
+  frame có thể "không có JS nhưng nặng paint". Phép thử của `frameStall.ts`
+  ("timer đúng giờ mà frame trễ ⇒ paint/compositor") đúng là phép thử cần dùng.
+- **DPR 2.** WebKitGTK ở scale lẻ vẽ ở 2×, nên mỗi lần vẽ lại cả viewport tốn
+  4× pixel. Bug 250998 và 280920 (mở, chưa có nguyên nhân gốc) báo cuộn chậm cấp
+  độ lớn ở 4K/2× trên Intel: đúng cấu hình này. Mọi cổng hiệu năng phải chạy ở
+  DPR 2, không phải DPR 1 (Chrome ở DPR 1 làm đẹp số). **Chưa thử**: ép
+  `GDK_SCALE=1` hay đổi scale màn hình có đổi frame time không.
+
+### 13.5 Scroll anchoring không có: bù vị trí bằng JS
+
+Mọi thứ chèn phía trên viewport (transcript stream, hàng đo muộn) cần bù vị trí
+tường minh trong cùng frame với khối đọc/ghi layout. Khi WebKitGTK có anchoring
+(2.54 trở đi, chưa kiểm), engine có thể bù hai lần với bộ bù của DevKit: lấy
+`overflow-anchor: none` trên scroller làm hợp đồng tường minh cho cả hai engine.
+Lỗi này Chrome che đi vì Chrome có anchoring mặc định.
+
+### 13.6 Thí nghiệm biến môi trường (chưa phải khuyến nghị)
+
+Từ tài liệu Igalia (đọc; "hành vi có thể đổi giữa các phiên bản"): 
+`WEBKIT_SKIA_GPU_PAINTING_THREADS` (mặc định 2 nếu >3 nhân, ngược lại 1; `0` tắt
+vẽ tile GPU), `WEBKIT_SKIA_CPU_PAINTING_THREADS`, `WEBKIT_SKIA_ENABLE_CPU_RENDERING`
+(điều khiển), `WEBKIT_DISABLE_DMABUF_RENDERER` (điều khiển; đã đặt trong
+`native_webview_linux.go` khi không có render node DRM). Đây là bộ A/B cho harness;
+**chưa có số nào** cho Iris Xe. Embedder (Wails) chỉ điều khiển được chính sách
+tăng tốc (`Always`/`Never`), developer extras và biến môi trường đặt trước khi GTK
+khởi động. Với 2.54: `WEBKIT_USE_SKIA_FOR_COMPOSITION=0` quay về TextureMapper để
+bisect hồi quy compositor.
+
+### 13.7 Đo trên WebKitGTK
+
+1. **Inspector từ xa:** `WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:<cổng>` cộng
+   developer extras (Wails v3.0.0-beta.32 có `DevToolsEnabled`, DevKit chưa đặt),
+   mở bằng một tab Chromium. Chỉ cho build hiệu năng, bind loopback.
+2. **Timelines:** Layout & Rendering, JavaScript & Events, CPU, rồi **Frames**
+   (JS / Layout / Paint / Other, vạch 30 và 60 fps) trả lời "JS hay layout hay
+   paint" mà không cần LoAF; lưu `.json` cạnh trace Chrome của cùng kịch bản.
+   Web Inspector đo web process, không đo GPU/compositor; phía đó Linux chỉ có
+   Sysprof (chưa rõ gói Ubuntu có kèm marks không).
+3. **Harness (mẫu để biến thành trang dev lặp lại được):** kịch bản có script
+   (stream N token/s, bật/tắt pane, quét cuộn 40–120 bước, mount module); khoảng
+   cách rAF → trung vị, p90, p99, max, số frame >20 ms và >33 ms; đồng hồ thứ hai
+   là timer 10 ms (trễ ⇒ main thread bận; đúng giờ mà frame trễ ⇒ paint/GPU);
+   Event Timing với `durationThreshold: 16`; gom nhiều lần lặp vì timer chỉ có
+   độ phân giải mili giây; ghi phiên bản engine, đường GPU, DPR, scale màn hình,
+   kích thước cửa sổ và biến `WEBKIT_*`; so theo **tỉ lệ WebKitGTK/Chrome** và p90
+   tuyệt đối, vì số tuyệt đối khác theo máy.
+
+### 13.8 Việc cần làm cho DevKit, theo thứ tự
+
+1. Gỡ các lần đọc computed style khỏi đường nóng của `TranscriptStream`; không ghi
+   thuộc tính kế thừa lên tổ tiên lớn (13.1).
+2. Đo Notes grid ở 1000 và 10.000 note; virtualize nếu `content-visibility` rơi
+   vào vùng bệnh lý (13.2); xoá `message-scroller.tsx` nếu xác nhận không dùng.
+3. Dựng harness lặp lại được và gắn cờ `WEBKIT_*` làm biến thí nghiệm (13.6, 13.7).
+4. Đặt ngân sách công việc mỗi frame trên WebKitGTK khoảng **8–10 ms** (một nửa
+   tốc độ Chrome; "10 ms trong 16,7 ms" là quy tắc của web.dev).
+5. Chạy lại toàn bộ khi có gói WebKitGTK 2.54 cho Ubuntu.
+
+### Nguồn
+
+[Irish, What forces layout/reflow](https://gist.github.com/paulirish/5d52fb081b3570c81e3a) ·
+[web.dev, Avoid large complex layouts and layout thrashing](https://web.dev/articles/avoid-large-complex-layouts-and-layout-thrashing) ·
+[web.dev, Rendering performance](https://web.dev/articles/rendering-performance) ·
+[Lewis, FLIP](https://aerotwist.com/blog/flip-your-animations/) ·
+[Lewis, compositor-only properties](https://web.dev/articles/stick-to-compositor-only-properties-and-manage-layer-count) ·
+[MDN, will-change](https://developer.mozilla.org/en-US/docs/Web/CSS/will-change) ·
+[Chrome, RenderingNG architecture](https://developer.chrome.com/docs/chromium/renderingng-architecture) ·
+[web.dev, Reduce the scope of style calculations](https://web.dev/articles/reduce-the-scope-and-complexity-of-style-calculations) ·
+[Chrome, Selector Stats](https://developer.chrome.com/docs/devtools/performance/selector-stats) ·
+[Bramus, Benchmarking CSS @property](https://web.dev/blog/at-property-performance) ·
+[sim PR #5738](https://github.com/simstudioai/sim/pull/5738) ·
+[Archibald, Tasks, microtasks, queues and schedules](https://jakearchibald.com/2015/tasks-microtasks-queues-and-schedules/) ·
+[Lawson, Accurately measuring layout](https://nolanlawson.com/2018/09/25/accurately-measuring-layout-on-the-web/) ·
+[Surma, Is postMessage slow?](https://surma.dev/things/is-postmessage-slow/) ·
+[web.dev, Optimize long tasks](https://web.dev/articles/optimize-long-tasks) ·
+[Chrome, scheduler.yield](https://developer.chrome.com/blog/use-scheduler-yield) ·
+[React scheduler source](https://raw.githubusercontent.com/facebook/react/main/packages/scheduler/src/forks/Scheduler.js) ·
+[Chrome, Long Animation Frames](https://developer.chrome.com/docs/web-platform/long-animation-frames) ·
+[Russell, Performance Inequality Gap 2026](https://infrequently.org/2025/11/performance-inequality-gap-2026/) ·
+[Lawson, Style scoping vs shadow DOM](https://nolanlawson.com/2022/06/22/style-scoping-versus-shadow-dom-which-is-fastest/) ·
+[web.dev, content-visibility](https://web.dev/articles/content-visibility) ·
+[MDN, CSS containment](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_containment/Using_CSS_containment) ·
+[WebKit, Features for Safari 27.0](https://webkit.org/blog/18325/webkit-features-for-safari-27-0/) ·
+[WebKit, Features in Safari 18.0](https://webkit.org/blog/16301/webkit-features-in-safari-18-0/) ·
+[Igalia, Graphics in WebKitGTK 2.46 (Skia)](https://blogs.igalia.com/carlosgc/?p=1029) ·
+[Igalia, Graphics after the switch to Skia](https://blogs.igalia.com/carlosgc/?p=1041) ·
+[WebKitGTK 2.50 highlights](https://webkitgtk.org/2025/11/26/webkitgtk-2.50.html) ·
+[Igalia, Skia compositor (2.54)](https://blogs.igalia.com/carlosgc/2026/09/21/skia-compositor-for-wpe-webkit-and-webkitgtk/) ·
+[WPE/WebKitGTK environment variables](https://people.igalia.com/aperez/Documentation/wpe-webkit/environment-variables.html) ·
+[Remote Web Inspector](https://people.igalia.com/aperez/Documentation/wpe-webkit/remote-inspector.html) ·
+[Web Inspector, Timelines](https://webkit.org/web-inspector/timelines-tab/) ·
+[Web Inspector, Layers](https://webkit.org/web-inspector/layers-tab/) ·
+WebKit Bugzilla [221738](https://bugs.webkit.org/show_bug.cgi?id=221738),
+[250998](https://bugs.webkit.org/show_bug.cgi?id=250998),
+[271340](https://bugs.webkit.org/show_bug.cgi?id=271340),
+[280920](https://bugs.webkit.org/show_bug.cgi?id=280920),
+[298514](https://bugs.webkit.org/show_bug.cgi?id=298514) ·
+[Stavracas, Profiling a web engine (Sysprof)](https://feaneron.com/2024/07/12/profiling-a-web-engine/).
