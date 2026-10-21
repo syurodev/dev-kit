@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
  */
 export function BranchMore({
   hidden,
+  running,
   unread,
   open,
   controls,
@@ -17,6 +18,8 @@ export function BranchMore({
 }: {
   /** Children folded away; the count the label reads. */
   hidden: number;
+  /** Folded sessions, descendants included, that are running: work nothing else on the rail shows. */
+  running: number;
   /** Folded sessions that hold a message the person has not seen. */
   unread: number;
   /** Everything is drawn: the row is the way back. */
@@ -46,6 +49,15 @@ export function BranchMore({
           <span className="shrink-0">Show all</span>
         </>
       )}
+      {!open && running > 0 ? (
+        <span
+          data-testid="agent-branch-more-running"
+          className="flex shrink-0 items-center gap-1 text-caption-11 text-text-secondary tabular-nums"
+        >
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-text-primary" />
+          {`${running} running`}
+        </span>
+      ) : null}
       {!open && unread > 0 ? (
         <span
           data-testid="agent-branch-more-unread"

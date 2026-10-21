@@ -54,9 +54,14 @@ in Needs you, not in the tree (`ask={null}` in `SessionBranch`), and stays so.
 - The parent's count (`childCount` = `node.descendants`) stays the real total.
 - The "more" row carries the unread mark (the card's message icon and a count)
   for folded sessions, **including their descendants** (they are folded too),
-  that hold a peer message the person has not seen. A folded running child
-  cannot exist (rule 3.1), and waiting/failed ones are marked on the parent
-  already.
+  that hold a peer message the person has not seen. Waiting/failed ones are
+  marked on the parent already.
+- A folded **direct** child cannot be running (rule 3.1), but a folded idle
+  child can hold a running descendant, and the parent's own dot speaks for
+  running work only while the branch is folded. So the row also says
+  `{n} running` (a dot and the count, as visible text) for running sessions
+  among the folded ones, descendants included. The limit still counts only
+  direct running children; this is a mark, not a rule change.
 - Folding the branch (the existing chevron) hides the whole list including the
   "more" row, as today; "Show all" is separate from fold and is forgotten when
   the branch is folded and opened again.
@@ -89,8 +94,9 @@ in Needs you, not in the tree (`ask={null}` in `SessionBranch`), and stays so.
 ### `BranchMore` (new, same folder)
 
 - A `button`, about 28px high, `aria-expanded`, `aria-controls`, text
-  `+ {n} more` / `Show fewer`, an unread dot when a hidden child has
-  `peerUnread > 0` (with a visible word in the label: "new message").
+  `+{n} more · Show all` / `Show fewer`, `{n} running` when folded sessions
+  run, and the unread mark (message icon and count) when folded sessions hold a
+  peer message. The button has no `aria-label`: its visible text is its name.
 - Tailwind classes and the theme's chrome tokens; the only inline style is the
   geometry the guides already use. No new fill, border or shadow of its own.
 - Keyboard: a normal button (Enter / Space). It is a `listitem` of the branch

@@ -89,7 +89,10 @@ function BranchChildren({
   );
   const folds = hidden.length > 0;
   const drawn = folds && !all ? shown : node.children;
-  const unread = hidden.flatMap(flattenNode).filter((n) => (ctx.peerUnread[n.session.id] ?? 0) > 0).length;
+  const foldedAway = hidden.flatMap(flattenNode);
+  // A folded idle child can hold a running one: the parent's dot speaks for it only while the branch is folded.
+  const running = foldedAway.filter((n) => n.session.status === "running").length;
+  const unread = foldedAway.filter((n) => (ctx.peerUnread[n.session.id] ?? 0) > 0).length;
 
   return (
     <div
@@ -117,7 +120,7 @@ function BranchChildren({
           data-testid="agent-branch-more-row"
           className="relative"
         >
-          <BranchMore hidden={hidden.length} unread={unread} open={all} controls={listId} onToggle={() => setAll((v) => !v)} />
+          <BranchMore hidden={hidden.length} running={running} unread={unread} open={all} controls={listId} onToggle={() => setAll((v) => !v)} />
           {indent ? <Guides first={false} last height={MORE_HEIGHT} /> : null}
         </div>
       ) : null}

@@ -1179,6 +1179,22 @@ describe("a branch with many children", () => {
     expect(tagOf(render({ sessions: family(11), peerUnread: { k0: 1 } }), "agent-branch-more-unread")).toBe("");
   });
 
+  it("says how many folded sessions are running, a folded child's own child included", () => {
+    const sessions = [
+      ...family(11),
+      session("deep", { parentSessionId: "k9", depth: 2, updatedAt: 1, status: "running" }),
+    ];
+    const html = render({ sessions });
+    expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2"]);
+    expect(html).toContain("1 running");
+    expect(tagOf(html, "agent-branch-more-running")).not.toBe("");
+    // Nothing running below: no mark; and a running child that is drawn says so itself.
+    expect(render({ sessions: family(11) })).not.toContain("agent-branch-more-running");
+    expect(render({ sessions: family(11, (i) => ({ status: i === 0 ? "running" : "idle" })) })).not.toContain(
+      "agent-branch-more-running",
+    );
+  });
+
   it("counts an unread message of a folded child's own child", () => {
     const sessions = [...family(11), session("deep", { parentSessionId: "k9", depth: 2, updatedAt: 1 })];
     const html = render({ sessions, peerUnread: { deep: 1 } });
