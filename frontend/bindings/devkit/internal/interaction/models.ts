@@ -62,7 +62,14 @@ export interface Pending {
     "summary"?: string;
     "allowAlwaysOffered": boolean;
     "caller"?: string;
-    "expiresAt": string;
+
+    /**
+     * ExpiresAt is zero (and omitted) when nothing ends the wait: a question put
+     * to a person has no deadline of its own, the agent asking it has none
+     * either. It is set only when Hub.Timeout is configured or the caller's
+     * context carries a deadline.
+     */
+    "expiresAt"?: string;
     "createdAt": string;
 
     /**
