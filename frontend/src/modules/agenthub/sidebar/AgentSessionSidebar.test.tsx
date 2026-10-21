@@ -1139,7 +1139,8 @@ describe("a branch with many children", () => {
     expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2"]);
     const more = tagOf(html, "agent-branch-more");
     expect(more).toContain('aria-expanded="false"');
-    expect(more).toContain('aria-label="Show 8 more child sessions"');
+    // Named by what it shows ("+8 more · Show all"), so the unread mark inside is heard too.
+    expect(more).not.toContain("aria-label");
     expect(more).toMatch(/aria-controls="[^"]+"/);
     expect(html).toContain("+8 more");
     // The parent still counts every child it started.
@@ -1158,7 +1159,7 @@ describe("a branch with many children", () => {
   it("draws the session on screen though it is old", () => {
     const html = render({ sessions: family(11), activeSessionId: "k9" });
     expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2", "k9"]);
-    expect(tagOf(html, "agent-branch-more")).toContain('aria-label="Show 7 more child sessions"');
+    expect(html).toContain("+7 more");
   });
 
   it("draws all of them, with a way back, once shown", () => {
@@ -1166,7 +1167,7 @@ describe("a branch with many children", () => {
     expect(cardIds(html)).toHaveLength(12);
     const more = tagOf(html, "agent-branch-more");
     expect(more).toContain('aria-expanded="true"');
-    expect(more).toContain('aria-label="Show fewer child sessions"');
+    expect(more).not.toContain("aria-label");
     expect(html).toContain("Show fewer");
   });
 
@@ -1176,6 +1177,13 @@ describe("a branch with many children", () => {
     expect(dot).toContain('aria-label="2 folded sessions have new messages"');
     // An unread child that is drawn says so itself, so it is not counted here.
     expect(tagOf(render({ sessions: family(11), peerUnread: { k0: 1 } }), "agent-branch-more-unread")).toBe("");
+  });
+
+  it("counts an unread message of a folded child's own child", () => {
+    const sessions = [...family(11), session("deep", { parentSessionId: "k9", depth: 2, updatedAt: 1 })];
+    const html = render({ sessions, peerUnread: { deep: 1 } });
+    expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2"]);
+    expect(tagOf(html, "agent-branch-more-unread")).toContain('aria-label="1 folded session has new messages"');
   });
 
   it("ends the guide line at the row, and the row has an elbow like its siblings", () => {
@@ -1202,6 +1210,6 @@ describe("a branch with many children", () => {
     ];
     const html = render({ sessions });
     expect(cardIds(html)).toEqual(["root", "k0", "g0", "g1", "g2"]);
-    expect(tagOf(html, "agent-branch-more")).toContain('aria-label="Show 3 more child sessions"');
+    expect(html).toContain("+3 more");
   });
 });

@@ -32,7 +32,6 @@ export function BranchMore({
       data-testid="agent-branch-more"
       aria-expanded={open}
       aria-controls={controls}
-      aria-label={open ? "Show fewer child sessions" : `Show ${hidden} more child sessions`}
       onClick={onToggle}
       className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-body-12 text-text-tertiary outline-none hover:text-text-secondary focus-visible:ring-2 focus-visible:ring-border-focus/50"
     >
