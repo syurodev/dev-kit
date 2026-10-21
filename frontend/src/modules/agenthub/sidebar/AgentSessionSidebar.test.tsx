@@ -17,6 +17,8 @@ import { AgentSessionCard, type AgentSessionCardProps } from "./AgentSessionCard
 import { AgentSessionSidebar, type AgentSessionSidebarProps } from "./AgentSessionSidebar";
 import { attentionBySession } from "./model";
 import { showSubagent } from "./openSubagent";
+import { SessionBranch, type BranchContext } from "./SessionBranch";
+import { buildForest } from "./tree";
 
 useWorkbenchTabsStore.persist.setOptions({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
 
@@ -1098,5 +1100,108 @@ describe("children under their parent", () => {
   it("a row in Needs you keeps the list item of its own", () => {
     const html = render({ sessions: [session("w", { status: "awaiting_permission" })] });
     expect(html).toMatch(/<div role="listitem" data-slot="agent-session-card"/);
+  });
+});
+
+describe("a branch with many children", () => {
+  /** A root and n idle children, k0 the newest. */
+  const family = (n: number, over: (i: number) => Partial<AgentSession> = () => ({})) => [
+    session("root", { updatedAt: 1000 }),
+    ...Array.from({ length: n }, (_, i) =>
+      session(`k${i}`, { parentSessionId: "root", depth: 1, updatedAt: 100 - i, ...over(i) }),
+    ),
+  ];
+  const ctx = (over: Partial<BranchContext> = {}): BranchContext => ({
+    pinned: new Set(),
+    folded: new Set(),
+    held: new Set(),
+    subagents: {},
+    peerUnread: {},
+    signals: {},
+    titles: new Map(),
+    now: Date.now(),
+    ...over,
+  });
+  /** One tree on its own, so the state a press would set can be given up front. */
+  function renderBranch(sessions: AgentSession[], over: Partial<BranchContext> = {}): string {
+    const [root] = buildForest(sessions);
+    return renderToString(
+      <TooltipProvider>
+        <SessionActionsContext.Provider value={NO_ACTIONS}>
+          <SessionBranch node={root} first={false} last={false} guided={false} ctx={ctx(over)} />
+        </SessionActionsContext.Provider>
+      </TooltipProvider>,
+    );
+  }
+
+  it("draws three of eleven idle children and a row that says how many are folded", () => {
+    const html = render({ sessions: family(11) });
+    expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2"]);
+    const more = tagOf(html, "agent-branch-more");
+    expect(more).toContain('aria-expanded="false"');
+    expect(more).toContain('aria-label="Show 8 more child sessions"');
+    expect(more).toMatch(/aria-controls="[^"]+"/);
+    expect(html).toContain("+8 more");
+    // The parent still counts every child it started.
+    expect(cardHtml(html, "root")).toMatch(/data-testid="agent-branch-count">11</);
+    expect(buttonDepth(html)).toBe(1);
+  });
+
+  it("draws every running child, and no row when nothing is folded", () => {
+    const running = family(8, (i) => ({ status: i >= 2 && i < 7 ? "running" : "idle" }));
+    const html = render({ sessions: running });
+    expect(cardIds(html)).toEqual(["root", "k2", "k3", "k4", "k5", "k6"]);
+    expect(html).toContain("agent-branch-more");
+    expect(render({ sessions: family(3) })).not.toContain("agent-branch-more");
+  });
+
+  it("draws the session on screen though it is old", () => {
+    const html = render({ sessions: family(11), activeSessionId: "k9" });
+    expect(cardIds(html)).toEqual(["root", "k0", "k1", "k2", "k9"]);
+    expect(tagOf(html, "agent-branch-more")).toContain('aria-label="Show 7 more child sessions"');
+  });
+
+  it("draws all of them, with a way back, once shown", () => {
+    const html = renderBranch(family(11), { initialShowAll: new Set(["root"]) });
+    expect(cardIds(html)).toHaveLength(12);
+    const more = tagOf(html, "agent-branch-more");
+    expect(more).toContain('aria-expanded="true"');
+    expect(more).toContain('aria-label="Show fewer child sessions"');
+    expect(html).toContain("Show fewer");
+  });
+
+  it("marks a folded child that has a message the person has not seen", () => {
+    const html = render({ sessions: family(11), peerUnread: { k8: 1, k9: 2 } });
+    const dot = tagOf(html, "agent-branch-more-unread");
+    expect(dot).toContain('aria-label="2 folded sessions have new messages"');
+    // An unread child that is drawn says so itself, so it is not counted here.
+    expect(tagOf(render({ sessions: family(11), peerUnread: { k0: 1 } }), "agent-branch-more-unread")).toBe("");
+  });
+
+  it("ends the guide line at the row, and the row has an elbow like its siblings", () => {
+    const html = render({ sessions: family(11) });
+    // Three children and the row: four guides; the last child is not last any more.
+    expect(html.match(/data-testid="agent-branch-guide"/g)).toHaveLength(4);
+    const rowAt = html.indexOf('data-testid="agent-branch-more-row"');
+    // The guide follows the row's button inside its list item; nothing after it draws a line.
+    const row = html.slice(rowAt);
+    expect(row.match(/border-left/g)?.length).toBe(1); // elbow only: the line ends here
+    expect(html.slice(html.indexOf('data-session-id="k2"'), rowAt).match(/border-left/g)?.length).toBe(2); // k2: line + elbow
+  });
+
+  it("folding the parent hides the row with the children", () => {
+    const html = render({ sessions: family(11), foldedBranchIds: ["root"] });
+    expect(cardIds(html)).toEqual(["root"]);
+    expect(html).not.toContain("agent-branch-more");
+  });
+
+  it("applies at every level", () => {
+    const sessions = [
+      ...family(1),
+      ...Array.from({ length: 6 }, (_, i) => session(`g${i}`, { parentSessionId: "k0", depth: 2, updatedAt: 50 - i })),
+    ];
+    const html = render({ sessions });
+    expect(cardIds(html)).toEqual(["root", "k0", "g0", "g1", "g2"]);
+    expect(tagOf(html, "agent-branch-more")).toContain('aria-label="Show 3 more child sessions"');
   });
 });
