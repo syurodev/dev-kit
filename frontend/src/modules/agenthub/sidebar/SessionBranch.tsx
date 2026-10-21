@@ -3,8 +3,9 @@ import * as React from "react";
 import { TREE_ELBOW_RADIUS, TREE_GUIDE } from "@/components/tree-guides";
 import type { Subagent } from "../types";
 import { AgentSessionCard } from "./AgentSessionCard";
+import { BranchMore } from "./BranchMore";
 import { failureDismissed, type DismissedFailures } from "./dismissed";
-import { branchHint, branchOpen, indented, type BranchSignals, type SessionNode } from "./tree";
+import { branchHint, branchOpen, flattenNode, indented, visibleChildren, type BranchSignals, type SessionNode } from "./tree";
 
 const NO_SUBAGENTS: readonly Subagent[] = [];
 
@@ -20,6 +21,7 @@ const LINE_X = 23;
 const INDENT = 28;
 const ELBOW_WIDTH = 10;
 const ROW_GAP = 2;
+const MORE_HEIGHT = 28;
 
 export type BranchContext = {
   activeId?: string;
@@ -35,10 +37,12 @@ export type BranchContext = {
   titles: ReadonlyMap<string, string>;
   /** A workspace of several folders says which one each row works in. */
   now: number;
+  /** Branches that start with every child drawn (a test or a capture; a person presses the row). */
+  initialShowAll?: ReadonlySet<string>;
 };
 
 /** The guide for one child: the line down its parent's side and the elbow into its row. */
-function Guides({ first, last }: { first: boolean; last: boolean }) {
+function Guides({ first, last, height = CARD_HEIGHT }: { first: boolean; last: boolean; height?: number }) {
   const top = first ? -(CARD_HEIGHT - FACE_BOTTOM) : -ROW_GAP;
   const x = LINE_X - INDENT;
   return (
@@ -52,13 +56,75 @@ function Guides({ first, last }: { first: boolean; last: boolean }) {
           left: x,
           top,
           width: ELBOW_WIDTH,
-          height: CARD_HEIGHT / 2 - top,
+          height: height / 2 - top,
           borderLeft: TREE_GUIDE,
           borderBottom: TREE_GUIDE,
           borderBottomLeftRadius: TREE_ELBOW_RADIUS,
         }}
       />
     </span>
+  );
+}
+
+/**
+ * The nested list of one open branch: the children that are drawn and, when
+ * some are folded, the row that draws them all. The "all" choice lives here, so
+ * folding the branch (which unmounts this) forgets it.
+ */
+function BranchChildren({
+  node,
+  listId,
+  indent,
+  ctx,
+}: {
+  node: SessionNode;
+  listId: string;
+  indent: boolean;
+  ctx: BranchContext;
+}) {
+  const [all, setAll] = React.useState(() => ctx.initialShowAll?.has(node.session.id) ?? false);
+  const { shown, hidden } = React.useMemo(
+    () => visibleChildren(node.children, { activeId: ctx.activeId, pinned: ctx.pinned }),
+    [node.children, ctx.activeId, ctx.pinned],
+  );
+  const folds = hidden.length > 0;
+  const drawn = folds && !all ? shown : node.children;
+  const foldedAway = hidden.flatMap(flattenNode);
+  // A folded idle child can hold a running one: the parent's dot speaks for it only while the branch is folded.
+  const running = foldedAway.filter((n) => n.session.status === "running").length;
+  const unread = foldedAway.filter((n) => (ctx.peerUnread[n.session.id] ?? 0) > 0).length;
+
+  return (
+    <div
+      id={listId}
+      role="list"
+      data-testid="agent-branch-list"
+      aria-label={`Sessions started by ${ctx.titles.get(node.session.id) ?? "this session"}`}
+      className="relative mt-0.5 flex flex-col gap-0.5"
+      style={indent ? { paddingLeft: INDENT } : undefined}
+    >
+      {drawn.map((child, at) => (
+        <SessionBranch
+          key={child.session.id}
+          node={child}
+          first={at === 0}
+          last={at === drawn.length - 1 && !folds}
+          guided={indent}
+          ctx={ctx}
+        />
+      ))}
+      {folds ? (
+        <div
+          role="listitem"
+          aria-level={node.level + 2}
+          data-testid="agent-branch-more-row"
+          className="relative"
+        >
+          <BranchMore hidden={hidden.length} running={running} unread={unread} open={all} controls={listId} onToggle={() => setAll((v) => !v)} />
+          {indent ? <Guides first={false} last height={MORE_HEIGHT} /> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -120,27 +186,7 @@ export function SessionBranch({
       />
       {/* After the card, so the elbow paints over its ground when selected. */}
       {guided ? <Guides first={first} last={last} /> : null}
-      {open ? (
-        <div
-          id={listId}
-          role="list"
-          data-testid="agent-branch-list"
-          aria-label={`Sessions started by ${ctx.titles.get(session.id) ?? "this session"}`}
-          className="relative mt-0.5 flex flex-col gap-0.5"
-          style={indent ? { paddingLeft: INDENT } : undefined}
-        >
-          {node.children.map((child, at) => (
-            <SessionBranch
-              key={child.session.id}
-              node={child}
-              first={at === 0}
-              last={at === node.children.length - 1}
-              guided={indent}
-              ctx={ctx}
-            />
-          ))}
-        </div>
-      ) : null}
+      {open ? <BranchChildren node={node} listId={listId} indent={indent} ctx={ctx} /> : null}
     </div>
   );
 }

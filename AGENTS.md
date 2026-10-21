@@ -223,6 +223,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - The rail's Subagents (the vendor's own) are a different thing and stay in the row menu.
   `surfaces/AgentSidebarTree` is no longer rendered by Agent Hub (gallery and tests only).
   Gallery: `?gallery#agenthub-session-rail` (the "branches-folded" rail shows the folded dots).
+  - **A branch draws `max(3, running children)` children, not all of them** (`tree.ts` `visibleChildren`,
+    `BranchMore.tsx`, spec `docs/superpowers/specs/2026-10-21-agent-hub-many-children-design.md`). Every running child
+    is drawn, then the newest idle ones up to three; the session on screen, a pinned one, and the child above them
+    are drawn even past that. The rest fold into one row, `+N more · Show all` (it also says how many folded
+    sessions are running and which hold unread messages, descendants included, because a folded idle child can
+    hold running work and an open parent's dot stays silent). Applies at every level; the "all" choice is state of `BranchChildren` and is forgotten when
+    the branch is folded. The parent's count, `branchSignals` and Needs you still read every session. Gallery:
+    `rail-many-children`.
 - **The rail and the main view are a quiet list and a column with a summary card**
   (spec `docs/superpowers/specs/2026-10-13-agent-hub-wide-layout-design.md`, its last section lists
   what Phase 1 changed from it).

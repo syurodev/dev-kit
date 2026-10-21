@@ -161,6 +161,43 @@ export function heldBranches(roots: readonly SessionNode[], activeId: string | u
   return held;
 }
 
+/** A branch always draws at least this many of its children (more when more are running). */
+export const MIN_VISIBLE_CHILDREN = 3;
+
+/**
+ * Which children of one node a branch draws and which fold into its "more" row.
+ *
+ * The limit is the larger of MIN_VISIBLE_CHILDREN and the number of running
+ * children. Every running child is drawn; what is left of the limit goes to the
+ * newest of the rest (`children` arrives newest first, as buildForest sorts it).
+ * Any child that is, or holds in its subtree, the session on screen or a pinned
+ * one is an exception: it is drawn too, even past the limit. Both lists keep
+ * that order. Level-agnostic: it takes any node's children.
+ */
+export function visibleChildren(
+  children: readonly SessionNode[],
+  options: { activeId?: string; pinned?: ReadonlySet<string> } = {},
+): { shown: SessionNode[]; hidden: SessionNode[] } {
+  const { activeId, pinned } = options;
+  const running = (node: SessionNode) => node.session.status === "running";
+  const limit = Math.max(MIN_VISIBLE_CHILDREN, children.filter(running).length);
+  if (children.length <= limit) return { shown: [...children], hidden: [] };
+
+  const holds = (node: SessionNode) =>
+    flattenNode(node).some((n) => n.session.id === activeId || (pinned?.has(n.session.id) ?? false));
+  const chosen = new Set<SessionNode>(children.filter(running));
+  for (const node of children) {
+    if (chosen.size >= limit) break;
+    chosen.add(node);
+  }
+  // Exceptions come on top of the limit, so keeping one in view never costs a newer child its place.
+  for (const node of children) if (holds(node)) chosen.add(node);
+  return {
+    shown: children.filter((node) => chosen.has(node)),
+    hidden: children.filter((node) => !chosen.has(node)),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // What is going on below a session
 

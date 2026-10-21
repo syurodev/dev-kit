@@ -10,8 +10,10 @@ import {
   flattenNode,
   heldBranches,
   indented,
+  MIN_VISIBLE_CHILDREN,
   partitionForest,
   type SessionNode,
+  visibleChildren,
 } from "./tree";
 
 const session = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
@@ -229,5 +231,70 @@ describe("branchSignals and branchHint", () => {
     expect(branchHintLabel({ kind: "waiting", count: 1 })).toBe("A child session is waiting for you");
     expect(branchHintLabel({ kind: "waiting", count: 3 })).toBe("3 child sessions are waiting for you");
     expect(branchHintLabel({ kind: "unread", count: 2 })).toBe("2 child sessions have new messages");
+  });
+});
+
+describe("visibleChildren", () => {
+  /** The children of one root, newest first (buildForest orders them). */
+  const kids = (n: number, over: (i: number) => Partial<AgentSession> = () => ({})) =>
+    buildForest([
+      session("root", { updatedAt: 1000 }),
+      ...Array.from({ length: n }, (_, i) => kid(`k${i}`, "root", { updatedAt: 100 - i, ...over(i) })),
+    ])[0].children;
+  const ids = (nodes: readonly SessionNode[]) => nodes.map((n) => n.session.id);
+
+  it("keeps the three newest of eleven idle children and hides the rest", () => {
+    const { shown, hidden } = visibleChildren(kids(11));
+    expect(MIN_VISIBLE_CHILDREN).toBe(3);
+    expect(ids(shown)).toEqual(["k0", "k1", "k2"]);
+    expect(ids(hidden)).toEqual(["k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10"]);
+  });
+
+  it("shows every running child when more than three run", () => {
+    const { shown, hidden } = visibleChildren(kids(11, (i) => ({ status: i >= 5 && i < 10 ? "running" : "idle" })));
+    expect(ids(shown)).toEqual(["k5", "k6", "k7", "k8", "k9"]);
+    expect(hidden).toHaveLength(6);
+  });
+
+  it("fills up to three with the newest idle ones when fewer than three run", () => {
+    const one = visibleChildren(kids(11, (i) => ({ status: i === 7 ? "running" : "idle" })));
+    expect(ids(one.shown)).toEqual(["k0", "k1", "k7"]);
+    const two = visibleChildren(kids(5, (i) => ({ status: i === 3 || i === 4 ? "running" : "idle" })));
+    expect(ids(two.shown)).toEqual(["k0", "k3", "k4"]);
+  });
+
+  it("draws the session on screen or a pinned one though it is old, going past the limit", () => {
+    const active = visibleChildren(kids(11), { activeId: "k9" });
+    expect(ids(active.shown)).toEqual(["k0", "k1", "k2", "k9"]);
+    const pinned = visibleChildren(kids(11), { pinned: new Set(["k8", "k10"]) });
+    expect(ids(pinned.shown)).toEqual(["k0", "k1", "k2", "k8", "k10"]);
+  });
+
+  it("draws the child above a grandchild that is on screen", () => {
+    const children = buildForest([
+      session("root", { updatedAt: 1000 }),
+      ...Array.from({ length: 6 }, (_, i) => kid(`k${i}`, "root", { updatedAt: 100 - i })),
+      kid("deep", "k5", { updatedAt: 1, depth: 2 }),
+    ])[0].children;
+    expect(ids(visibleChildren(children, { activeId: "deep" }).shown)).toEqual(["k0", "k1", "k2", "k5"]);
+  });
+
+  it("hides nothing when there are no more children than the limit", () => {
+    for (const n of [0, 1, 3]) {
+      const { shown, hidden } = visibleChildren(kids(n));
+      expect(shown).toHaveLength(n);
+      expect(hidden).toHaveLength(0);
+    }
+    // Four children, one running: limit is still three, so one is hidden.
+    expect(visibleChildren(kids(4, (i) => ({ status: i === 0 ? "running" : "idle" }))).hidden).toHaveLength(1);
+    // Four running: limit is four, nothing hidden.
+    expect(visibleChildren(kids(4, () => ({ status: "running" }))).hidden).toHaveLength(0);
+  });
+
+  it("keeps the input order in both lists", () => {
+    const children = kids(8, (i) => ({ status: i === 6 ? "running" : "idle" }));
+    const { shown, hidden } = visibleChildren(children);
+    expect(ids(shown)).toEqual(["k0", "k1", "k6"]);
+    expect(ids(hidden)).toEqual(["k2", "k3", "k4", "k5", "k7"]);
   });
 });
