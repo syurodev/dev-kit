@@ -137,11 +137,13 @@ export function visibleChildren(
 
   const holds = (node: SessionNode) =>
     flattenNode(node).some((n) => n.session.id === activeId || (pinned?.has(n.session.id) ?? false));
-  const chosen = new Set<SessionNode>(children.filter((node) => running(node) || holds(node)));
+  const chosen = new Set<SessionNode>(children.filter(running));
   for (const node of children) {
     if (chosen.size >= limit) break;
     chosen.add(node);
   }
+  // Exceptions come on top of the limit, so keeping one in view never costs a newer child its place.
+  for (const node of children) if (holds(node)) chosen.add(node);
   return {
     shown: children.filter((node) => chosen.has(node)),
     hidden: children.filter((node) => !chosen.has(node)),
