@@ -370,3 +370,27 @@ messages; bwrap on Linux; every field of `account/rateLimits/read` (seen only
 through a PR description and a third-party type); whether any Claude usage-check
 candidate works without DevKit holding the token; whether a check of a team
 seat reports the whole login's use or only the seat's.
+
+## Measured
+
+Phase 0, in progress (2026-10-22). Machine: `claude` 2.1.308, `codex-cli` 0.147.0 (DevKit pins
+0.163.0; re-check there before building the probe).
+
+**Codex `account/rateLimits/read` — schema only (from `codex app-server generate-ts`, no account used yet).**
+It is a request with no params. The response is
+`{ rateLimits: RateLimitSnapshot, rateLimitsByLimitId: { [limitId]?: RateLimitSnapshot } | null, rateLimitResetCredits }`.
+A `RateLimitSnapshot` is `{ limitId, limitName, primary, secondary, credits, individualLimit,
+spendControlReached, planType, rateLimitReachedType }` and a window is
+`{ usedPercent, windowDurationMins, resetsAt }` — the same fields `codexLimitWindows` already reads from the
+`account/rateLimits/updated` notification, so one translator serves both. `rateLimitsByLimitId` carries the
+per-bucket view (`limitName` becomes the label prefix there too). The same schema also lists
+`account/usage/read` and `account/workspaceMessages/read`; whether either says more about a team workspace
+than `rateLimits/read` is to be measured. Whether the numbers include other people's use of a team login is
+still open (needs a team seat).
+
+**Claude sign-in per home.** `claude auth` has `login`, `logout` and `status`, so a per-account sign-in is
+`CLAUDE_CONFIG_DIR=<home> claude auth login`, and `claude auth status` fills `signed_in`.
+
+**Still to measure (needs two real accounts of each vendor):** shared `projects/` resume for Claude, shared
+`sessions/` resume for Codex and the smallest file set it needs, Claude's usage-check candidates, the
+`auth.json` race, and whether a team seat's numbers include other users.
