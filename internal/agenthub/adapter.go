@@ -71,7 +71,8 @@ type OpenSpec struct {
 	// built-in account, exactly as sessions ran before accounts existed.
 	// AccountSharedPaths are the conversation-store directories that home links
 	// to (SharedStorePaths); the jail grants them read-write.
-	// Set by Service.applyAccount from the session's own row, never from a tool.
+	// AccountSharedPaths is ignored without an AccountHome. Both are set by the
+	// service, from the session's own row, never from a tool.
 	AccountHome        string
 	AccountSharedPaths []string
 }

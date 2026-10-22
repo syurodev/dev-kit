@@ -8,6 +8,7 @@ import (
 )
 
 func TestCodexJailUsesTheAccountHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	builtin := t.TempDir()
 	account := filepath.Join(t.TempDir(), "work")
 	shared := filepath.Join(builtin, "sessions")
@@ -34,6 +35,7 @@ func TestCodexJailUsesTheAccountHome(t *testing.T) {
 // The jail's own preparation follows the account home: its policy files are
 // reset like the built-in home's, and the link to the shared store is left alone.
 func TestCodexJailPreparesTheAccountHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	builtin := t.TempDir()
 	account := filepath.Join(t.TempDir(), "work")
 	if err := PrepareAccountHome(AgentTypeCodex, account, builtin); err != nil {
@@ -65,6 +67,7 @@ func TestCodexJailPreparesTheAccountHome(t *testing.T) {
 // An account session sees its own home and the shared store, and no other
 // account's home or the built-in login.
 func TestCodexJailHidesOtherHomesFromAnAccountSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	data := t.TempDir()
 	builtin := filepath.Join(data, "agent-homes", "codex")
 	account := filepath.Join(data, "agent-accounts", "codex", "work")
@@ -133,9 +136,67 @@ func TestCodexJailWithoutAccountIsUnchanged(t *testing.T) {
 	if !slices.Contains(pol.DenyReadPaths, builtin) {
 		t.Errorf("deny-read = %v lost the built-in home entry", pol.DenyReadPaths)
 	}
+	// Literal facts, not only equality with carveOut: the vault stays denied
+	// and the machine's own ~/.codex is denied.
+	for _, hidden := range []string{filepath.Join(data, "vault"), filepath.Join(host, ".codex")} {
+		if !slices.Contains(pol.DenyReadPaths, hidden) {
+			t.Errorf("deny-read = %v must hide %s", pol.DenyReadPaths, hidden)
+		}
+	}
+}
+
+// Shared paths mean nothing without an account home: the built-in session's
+// Codex policy is the same with or without them, and they are never granted.
+func TestCodexJailIgnoresSharedPathsWithoutAnAccountHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	data := t.TempDir()
+	builtin := filepath.Join(data, "agent-homes", "codex")
+	stray := filepath.Join(data, "stray")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	a := NewCodexAdapter(CodexOptions{Home: builtin})
+	base := OpenSpec{DenyReadPaths: []string{data}}
+	withStray := base
+	withStray.AccountSharedPaths = []string{stray}
+	want, _, err := a.jail(t.TempDir(), launch{}, base, codexStoreFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := a.jail(t.TempDir(), launch{}, withStray, codexStoreFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.ReadWritePaths, want.ReadWritePaths) || !slices.Equal(got.DenyReadPaths, want.DenyReadPaths) {
+		t.Errorf("a stray shared path changed the policy: rw %v vs %v, deny %v vs %v",
+			got.ReadWritePaths, want.ReadWritePaths, got.DenyReadPaths, want.DenyReadPaths)
+	}
+	if slices.Contains(got.ReadWritePaths, stray) {
+		t.Errorf("read-write = %v granted a shared path with no account home", got.ReadWritePaths)
+	}
+}
+
+// fakeClaudeLogin puts the built-in login paths under a throw-away HOME and
+// returns them, so the assertions about them are never vacuous.
+func fakeClaudeLogin(t *testing.T) []string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.Mkdir(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	own := claudeCredentialPaths(home)
+	if len(own) != 2 {
+		t.Fatalf("claudeCredentialPaths(%s) = %v, want ~/.claude and ~/.claude.json", home, own)
+	}
+	return own
 }
 
 func TestClaudeSandboxUsesTheAccountConfigDir(t *testing.T) {
+	own := fakeClaudeLogin(t)
 	account := filepath.Join(t.TempDir(), "work")
 	shared := filepath.Join(t.TempDir(), "projects")
 	spec := OpenSpec{AccountHome: account, AccountSharedPaths: []string{shared}}
@@ -146,14 +207,15 @@ func TestClaudeSandboxUsesTheAccountConfigDir(t *testing.T) {
 	if !slices.Contains(pol.ReadWritePaths, account) || !slices.Contains(pol.ReadWritePaths, shared) {
 		t.Errorf("read-write = %v, want the account home and the shared store", pol.ReadWritePaths)
 	}
-	for _, own := range claudeCredentialPaths(pol.Env["HOME"]) {
-		if slices.Contains(pol.ReadWritePaths, own) {
-			t.Errorf("read-write = %v must not grant the built-in login path %s", pol.ReadWritePaths, own)
+	for _, path := range own {
+		if slices.Contains(pol.ReadWritePaths, path) {
+			t.Errorf("read-write = %v must not grant the built-in login path %s", pol.ReadWritePaths, path)
 		}
 	}
 }
 
 func TestClaudeSandboxCarvesTheAccountOutOfTheDataDirectory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	data := t.TempDir()
 	account := filepath.Join(data, "agent-accounts", "claude", "work")
 	other := filepath.Join(data, "agent-accounts", "claude", "other")
@@ -183,6 +245,7 @@ func TestClaudeSandboxCarvesTheAccountOutOfTheDataDirectory(t *testing.T) {
 // paths and the extra grants, and the deny list exactly as given (a path that
 // is also a keep of some account stays denied).
 func TestClaudeSandboxWithoutAccountIsUnchanged(t *testing.T) {
+	own := fakeClaudeLogin(t)
 	extra := t.TempDir()
 	deny := []string{t.TempDir(), filepath.Join(t.TempDir(), "missing")}
 	spec := OpenSpec{DenyReadPaths: deny, ExtraReadWritePaths: []string{extra}}
@@ -190,9 +253,14 @@ func TestClaudeSandboxWithoutAccountIsUnchanged(t *testing.T) {
 	if _, set := pol.Env["CLAUDE_CONFIG_DIR"]; set {
 		t.Errorf("CLAUDE_CONFIG_DIR must not be set for the built-in account")
 	}
-	want := uniqueAbsPaths(append(claudeCredentialPaths(pol.Env["HOME"]), extra)...)
+	want := uniqueAbsPaths(append(append([]string(nil), own...), extra)...)
 	if !slices.Equal(pol.ReadWritePaths, want) {
 		t.Errorf("read-write = %v, want %v", pol.ReadWritePaths, want)
+	}
+	for _, path := range own {
+		if !slices.Contains(pol.ReadWritePaths, path) {
+			t.Errorf("read-write = %v must grant the built-in login path %s", pol.ReadWritePaths, path)
+		}
 	}
 	if !slices.Equal(pol.DenyReadPaths, deny) {
 		t.Errorf("deny-read = %v, want %v", pol.DenyReadPaths, deny)
@@ -201,5 +269,24 @@ func TestClaudeSandboxWithoutAccountIsUnchanged(t *testing.T) {
 	zero, _ := sandboxFor(t.TempDir(), launch{path: "/bin/true"}, OpenSpec{})
 	if _, set := zero.Env["CLAUDE_CONFIG_DIR"]; set || len(zero.DenyReadPaths) != 0 {
 		t.Errorf("zero spec policy changed: env=%v deny=%v", zero.Env, zero.DenyReadPaths)
+	}
+}
+
+// Shared paths mean nothing without an account home: the built-in session's
+// Claude policy is the same with or without them, and they are never granted.
+func TestClaudeSandboxIgnoresSharedPathsWithoutAnAccountHome(t *testing.T) {
+	fakeClaudeLogin(t)
+	stray := t.TempDir()
+	base := OpenSpec{DenyReadPaths: []string{t.TempDir()}}
+	withStray := base
+	withStray.AccountSharedPaths = []string{stray}
+	want, _ := sandboxFor(t.TempDir(), launch{path: "/bin/true"}, base)
+	got, _ := sandboxFor(t.TempDir(), launch{path: "/bin/true"}, withStray)
+	if !slices.Equal(got.ReadWritePaths, want.ReadWritePaths) || !slices.Equal(got.DenyReadPaths, want.DenyReadPaths) {
+		t.Errorf("a stray shared path changed the policy: rw %v vs %v, deny %v vs %v",
+			got.ReadWritePaths, want.ReadWritePaths, got.DenyReadPaths, want.DenyReadPaths)
+	}
+	if slices.Contains(got.ReadWritePaths, stray) {
+		t.Errorf("read-write = %v granted a shared path with no account home", got.ReadWritePaths)
 	}
 }

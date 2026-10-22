@@ -18,6 +18,7 @@ var dataDirSecrets = []string{
 	"consoles",        // saved query consoles
 	"agent-documents", // PDFs attached to sessions: read through the pdf.* tools, scoped per session
 	"pdf-engine",      // the PDF engine's compiled-module cache
+	"agent-accounts",  // each added account's own home: one account's session reads only its own
 }
 
 // ProtectDataDir is what to hide of DevKit's data directory from an agent

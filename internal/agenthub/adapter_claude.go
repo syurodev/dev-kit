@@ -177,16 +177,18 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		env[key] = value
 	}
 	completeToolPath(env, spec)
-	readWrite := append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)
-	denyRead := append([]string(nil), spec.DenyReadPaths...)
+	var readWrite, denyRead []string
 	if spec.AccountHome != "" {
 		// An added account is a config directory of its own. The machine's own
 		// ~/.claude and ~/.claude.json hold the built-in account's login, so they
 		// are not granted here (a shared $HOME still shows them, as it always did).
 		env["CLAUDE_CONFIG_DIR"] = spec.AccountHome
-		kept := append([]string{spec.AccountHome}, spec.AccountSharedPaths...)
-		readWrite = append(append([]string(nil), kept...), spec.ExtraReadWritePaths...)
-		denyRead = carveOutAll(denyRead, kept...)
+		keep := append([]string{spec.AccountHome}, spec.AccountSharedPaths...)
+		readWrite = append(keep, spec.ExtraReadWritePaths...)
+		denyRead = carveOutAll(spec.DenyReadPaths, keep...)
+	} else {
+		readWrite = append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)
+		denyRead = append([]string(nil), spec.DenyReadPaths...)
 	}
 	pol := sandbox.Policy{
 		WorkDir:                workDir,

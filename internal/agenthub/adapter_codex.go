@@ -219,22 +219,31 @@ func codexEnv(l launch, spec OpenSpec, home string) map[string]string {
 func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store string, listen ...int) (sandbox.Policy, sandbox.Cmd, error) {
 	a.customizationMu.Lock()
 	defer a.customizationMu.Unlock()
-	home := a.opts.Home
+	var home string
+	// accountShared is the conversation store an added account's home links to;
+	// without an account home there is nothing to share, so a stray value is ignored.
+	var accountShared []string
 	if spec.AccountHome != "" {
 		home = spec.AccountHome
+		accountShared = spec.AccountSharedPaths
+	} else {
+		home = a.opts.Home
 	}
+	keep := append([]string{home}, accountShared...)
 	denyWrite, err := prepareCodexHome(home)
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
 	}
 	// DevKit's data directory is hidden from every session; this vendor's own
 	// home inside it is carved back out for this vendor's sessions only.
-	denyRead := carveOut(spec.DenyReadPaths, home)
+	var denyRead []string
 	if spec.AccountHome != "" {
 		// An added account's home and the conversation store it links to are
 		// carved out together; no other account's home (nor the built-in
 		// login) is.
-		denyRead = carveOutAll(spec.DenyReadPaths, append([]string{home}, spec.AccountSharedPaths...)...)
+		denyRead = carveOutAll(spec.DenyReadPaths, keep...)
+	} else {
+		denyRead = carveOut(spec.DenyReadPaths, home)
 	}
 	// Shared-home sessions inherit the user's skills, plugin assets and portable
 	// MCP/settings, while keeping DevKit's sign-in and transcript state separate.
@@ -288,7 +297,7 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		AllowLoopbackListeners: true,
 		Env:                    codexEnv(l, spec, home),
 		ReadOnlyPaths:          uniqueAbsPaths(append(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...), customizationPaths...)...),
-		ReadWritePaths:         uniqueAbsPaths(append(append([]string{home}, spec.AccountSharedPaths...), spec.ExtraReadWritePaths...)...),
+		ReadWritePaths:         uniqueAbsPaths(append(keep, spec.ExtraReadWritePaths...)...),
 		DenyReadPaths:          denyRead,
 		DenyWritePaths:         denyWrite,
 		AllowUnixSockets:       append([]string(nil), spec.AllowUnixSockets...),
