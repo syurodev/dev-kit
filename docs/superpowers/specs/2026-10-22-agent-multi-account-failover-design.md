@@ -34,8 +34,14 @@ spent, say when the first one comes back.
    home directory DevKit gives it.
 5. Off by default. With no setup, behaviour is exactly today's.
 
-Non-goals (v1): opencode, API-key accounts, polling a usage endpoint for idle
-accounts, switching inside a running turn, syncing accounts between devices,
+Most of the accounts this is for are **team logins that several people use**, so
+the usage a session sees is not the whole story: others spend the same window.
+The design therefore has an active way to check an account's limit (see "Usage")
+and treats DevKit's own observations as a lower bound for a shared account.
+
+Non-goals (v1): opencode, API-key accounts, a background timer that polls usage,
+calling a vendor's usage API with a subscription token, switching inside a
+running turn, syncing accounts between devices,
 any proxy that carries a token, an MCP tool that reads or edits accounts.
 
 ## Decisions taken in conversation
@@ -47,6 +53,8 @@ any proxy that carries a token, an MCP tool that reads or edits accounts.
 | Conversation continuity | Share the native conversation store between account homes; the spike (Phase 0) decides if it works. |
 | Policy | Percent threshold + the person's order. Not "most quota left". |
 | A real limit refuses the turn | A **setting**, `onLimitRefusal`, default `none` (do not resend). |
+| Accounts several people use | Marked `shared`; their usage is **checked** through the vendor's own CLI (not only observed), on Refresh and before a turn when the reading is old. Never on a timer. |
+| Claude has no official usage read | Ranked candidates, the spike picks one; DevKit never calls the usage API with the token. Without one, Claude accounts are "usage not checkable" and rely on the real-limit backstop. |
 
 ## Model
 
@@ -61,6 +69,8 @@ Table `agent_accounts` — local, plaintext SQLite, **not synced, no credential*
 | `label` | what the person calls it ("Work", "Personal") |
 | `home_dir` | `<data>/agent-homes/<vendor>/accounts/<id>` (empty for the built-in default) |
 | `signed_in` | the vendor's own `login status` said so at last check |
+| `shared` | the person says other people also use this login (a team account); default false |
+| `usage_source` | `observed` \| `checked` — where the stored `usage` came from |
 | `exhausted_until` | Unix seconds; 0 = not marked |
 | `usage` | JSON `[]LimitWindow` as last observed (see "Usage") |
 | `observed_at` | Unix seconds of that observation |
@@ -79,7 +89,8 @@ session's process runs as.
 
 Per vendor: `enabled` (default false); `thresholdPercent` (default 90, 50–100);
 `weeklyThresholdPercent` (optional, same range, applies to the weekly windows
-only); `order []accountId` (built-ins may be listed); `onLimitRefusal`:
+only); `usageMaxAgeSeconds` (default 300, 60–3600: how old a reading of a
+`shared` account may be before a turn start re-checks it); `order []accountId` (built-ins may be listed); `onLimitRefusal`:
 `none` (default) | `resendIfNoProgress` | `continue`. Also `riskAcknowledgedAt`.
 Get/set are UI-only bridge methods (`preferences:* agent_account_policy`). An
 unknown id in `order` is ignored; an account missing from `order` is last.
@@ -111,8 +122,11 @@ for the transcript notice and the audit line.
 
 ### Where it runs
 
-`Service.invoke`, after the busy check and before `beginTurn`: if `PickAccount`
-says switch, `Service` (a) closes the session's idle runtime, (b) writes
+`Service.invoke`, after the busy check and before `beginTurn`: first
+`refreshIfStale` (see "Usage": only for `shared` accounts whose reading is older
+than `usageMaxAgeSeconds`, time-boxed at 5 s, a failure keeps the old reading,
+flagged stale; `PickAccount` treats a stale reading as unknown, i.e. eligible,
+and the real-limit backstop covers the gap). Then, if `PickAccount` says switch, `Service` (a) closes the session's idle runtime, (b) writes
 `agent_account_id`, (c) records a `devkit`-sourced notice row ("Switched to
 Personal — Weekly 92 % ≥ 90 %", drawn like the peer notices, never as the
 person's bubble), (d) reopens through `resumeRuntime` with the new account's
@@ -121,17 +135,63 @@ fails) as before; it is logged and the notice says "could not switch".
 Sessions created by an agent choose by the same rule at creation; they do
 not inherit the parent's account. Resume/Reload keep the bound account.
 
-## Usage
+## Usage: observed, and checked on demand
 
-No new endpoint is polled. Every `Usage` update a session already receives
-(Claude `_claude/rateLimit` → `limitsOfRateLimit`; Codex
-`account/rateLimits/updated`) is merged into its account's `usage` by window
-label (Claude sends one window per event) and `observed_at` is set. The merge
-runs in `handleUpdate` beside the existing usage handling and must not block it.
-An account that runs no session is not refreshed: the UI shows the age of its
-numbers, and step 2 above treats an elapsed `resetsAt` as reset. This is a known
-weakness, accepted for v1; polling is a later, separate decision (a vendor
-may treat it as abuse).
+Two sources, never one alone for a shared account.
+
+**Observed.** Every `Usage` update a session already receives (Claude
+`_claude/rateLimit` → `limitsOfRateLimit`; Codex `account/rateLimits/updated`) is
+merged into its account's `usage` by window label (Claude sends one window per
+event), with `observed_at` set and `usage_source = observed`. The merge runs in
+`handleUpdate` beside the existing usage handling and must not block it. It sees
+only what this app's sessions spent: on a `shared` account it is a **lower
+bound**, because other people spend the same window.
+
+**Checked.** A per-vendor `UsageProbe` (`internal/agenthub/usageprobe.go`) asks
+the vendor, through its own CLI under the account's home, what the account has
+left. It returns the account-wide windows — other people's use included, which is
+exactly what a threshold needs — and DevKit never reads a token to do it.
+
+- **Codex**: `account/rateLimits/read`, an official app-server request added to
+  check limits without sending a message (openai/codex#5302; later versions also
+  return per-name buckets). A short-lived `codex app-server` in the jail with the
+  account's `CODEX_HOME`: `initialize`, one call, exit — the shape of
+  `ConfigCatalog`. Field names come from `codex generate-ts` of the pinned
+  version (spike), not from memory. DevKit does not call it today (only the
+  `updated` notification is parsed).
+- **Claude**: no official read exists (feature requests for a `claude usage`
+  command / API are open or closed as not planned). Candidates, in order; the
+  spike picks the first that works against a real account **without DevKit
+  touching the token**: (1) the status-line payload — recent Claude Code
+  versions hand `rate_limits` to the status-line command, so a per-process
+  status-line command could write it to a file in the session's private
+  directory (may not apply under `claude-agent-acp`); (2) `/usage` in a short
+  pty run of the CLI, parsed; (3) a one-token probe turn through the ACP agent
+  whose `_claude/rateLimit` arrives (spends a little of the account's usage, so
+  only on an explicit Refresh, never automatic). **Rejected for v1**: DevKit
+  calling the undocumented `api.anthropic.com/api/oauth/usage` with the stored
+  OAuth token — DevKit would hold a subscription token and use it outside Claude
+  Code (see "Risk and terms"), and community reports say the endpoint answers
+  429 aggressively. If none of 1–3 works, Claude accounts show "usage not
+  checkable", `PickAccount` treats them as unknown, and the real-limit backstop
+  ("A real limit") is what moves a session.
+
+A check replaces the account's windows wholesale when the vendor returns the full
+set (Codex), merges by label otherwise, and sets `usage_source = checked`.
+
+**When a check runs.** Never on a timer. (a) The person presses Refresh, for one
+account or all. (b) At turn start, inside `invoke` before `PickAccount`, for a
+`shared` account — the session's current one, or one `PickAccount` is about to
+choose — whose reading is older than `usageMaxAgeSeconds` (default 300, the
+cache time community tools settled on). Guards: single-flight per account; at
+most one check per account per 60 s even if asked; at most 2 checks at once
+app-wide; 5 s time-box at turn start (on timeout or error, keep the last reading
+and mark it stale, never block the turn). An account that is not `shared` is
+checked only by (a): its own sessions already keep the observed reading true.
+
+**What the person sees.** Every reading carries its source and age ("checked 2 m
+ago", "observed 40 m ago — others may use this account"). An elapsed `resetsAt`
+counts as reset in `PickAccount` (step 2) whatever the source.
 
 ## A real limit
 
@@ -194,6 +254,16 @@ section added to this spec:
    stopped working reliably; unverified)?
 3. A refused-by-limit turn: the exact `Usage`/stop text each vendor produces
    for the reached window (so `exhausted_until` is read, not guessed).
+4. Usage checks (the shared-account requirement): Codex — the real response of
+   `account/rateLimits/read` (`codex generate-ts` for the pinned version: window
+   fields, per-name buckets, does it include other users' use on a team seat),
+   its latency, and whether a second short-lived app-server on a home that a
+   running session also uses races over `auth.json` (token refresh). Claude —
+   try the three candidates against a real team account in order, record which
+   returns account-wide numbers (not only this machine's), their cost in usage
+   and latency, and whether any of them makes DevKit read the token (then it is
+   out). Also: do two people's sessions on one team login show each other's
+   spend in the window the vendor reports?
 
 If 1 or 2 fails, this spec is revised to **seed a fresh native conversation
 from DevKit's transcript** on the new account (lossy, always works) before any
@@ -204,7 +274,9 @@ build. The rest of the design stands.
 Bridge (UI only; an agent or user-terminal caller is refused, like sign-in;
 no MCP tool — `TestNoToolTouchesAgentAccounts`): `AgentAccountsList`,
 `AgentAccountsAdd` (starts the sign-in), `AgentAccountsRename`,
-`AgentAccountsRemove`, `AgentAccountsRefreshStatus`, `AgentAccountPolicyGet|Set`;
+`AgentAccountsRemove`, `AgentAccountsRefreshStatus` (sign-in state),
+`AgentAccountsRefreshUsage` (one account or all: the "Checked" probe, subject to
+its guards), `AgentAccountsSetShared`, `AgentAccountPolicyGet|Set`;
 event `agentaccounts:changed`. Grants added with a test
 (`TestNewContainerGrantsAgentAccounts`); every error code published
 (`bridge.keptCodes` or `redactedOnPurpose`).
@@ -213,8 +285,12 @@ Frontend: new Settings → Agents page **Accounts & limits** (`agents-accounts`,
 a seventh page; `settingsNavigation.ts`, keywords on its `SETTINGS_GROUPS`
 entry). Per vendor: enable switch (first enable shows the risk dialog and stores
 `riskAcknowledgedAt`), ordered account list with drag/arrow reordering, sign-in
-state, usage bars with the age of each reading and its reset time, threshold
-inputs, `onLimitRefusal` select. Session summary → Environment gains `Account`.
+state, a "Other people also use this login" toggle (`shared`), usage bars
+with the source and age of each reading ("checked 2 m ago", "observed 40 m ago —
+others may use this account") and its reset time, a Refresh button per account
+and for all (disabled with the reason while a check is guarded out; "usage not
+checkable" for a Claude account when no candidate works), threshold inputs,
+`usageMaxAgeSeconds`, `onLimitRefusal` select. Session summary → Environment gains `Account`.
 Toasts: switched (once per switch), all accounts limited (with the time).
 Gallery: `?gallery#agent-accounts` (states: off, two accounts, one exhausted,
 all exhausted, stale numbers, sign-in dead).
@@ -225,10 +301,15 @@ The feature drives the vendors' own CLIs, with logins the person created, in
 homes DevKit only names. It does not read, copy or send a token. It can still
 break a vendor's terms: Anthropic restricts subscription OAuth to Claude Code
 and Claude.ai (the sources found say nothing about one person holding several
-accounts, so that is unchecked), and other vendors may treat rotation to avoid a limit as abuse. So: off by default;
-a dialog on first enable states that the person must use accounts they own and
-check the vendor's terms; DevKit makes no claim that it is permitted; usage is
-never polled on a schedule.
+accounts, so that is unchecked), and other vendors may treat rotation to avoid a
+limit as abuse. A team login several people use adds another question: whether
+the plan's terms allow one login to be shared at all is the team's to check, not
+DevKit's. So: off by default; a dialog on first enable states that the person must
+use accounts they are entitled to use and check the vendor's and the plan's terms;
+DevKit makes no claim that it is permitted; usage is never polled on a schedule
+(checks are on Refresh or when a shared account's reading is older than
+`usageMaxAgeSeconds`, rate-capped), and a Claude check never uses the token
+itself.
 
 ## Failure handling
 
@@ -244,6 +325,14 @@ never polled on a schedule.
   ever moves later.
 - App restarts → `agent_account_id`, `exhausted_until` and `usage` persist;
   anti-flip-flop timers are in memory and reset.
+- A usage check fails, times out or is guarded out → keep the last reading,
+  mark it stale in the UI, never block or fail the turn; the error is shown on
+  Refresh only. A check never changes `signed_in` except when the vendor says
+  auth is required.
+- Someone else spends a shared account's window after the last check → the turn
+  may still be refused for a real limit; the backstop ("A real limit") marks
+  the account and the next turn moves. The first such turn is the cost of not
+  polling.
 
 ## Testing
 
@@ -251,7 +340,11 @@ Go: `PickAccount` table tests (threshold, weekly threshold, reset elapsed,
 unknown usage, order, anti flip-flop, all exhausted, dead sign-in); `Service`
 tests with a fake adapter for switch-before-turn, never-mid-turn, reopen failure
 keeps the old account, each `onLimitRefusal` mode including "no progress" read
-from rows and a single resend; usage merge by label; `recordStop` marks
+from rows and a single resend; usage merge by label; `refreshIfStale` (only for
+`shared`, only when older than `usageMaxAgeSeconds`, single-flight, 60 s floor,
+2 concurrent, 5 s time-box that keeps the old reading, never blocks the turn)
+with a fake `UsageProbe`; a Codex probe test against a scripted app-server
+(`account/rateLimits/read`); `recordStop` marks
 `exhausted_until` from `resetsAt` / `retryAfter` / 15 min; migration up/down on an
 existing database; jail policy lists only the bound home;
 `TestNoToolTouchesAgentAccounts`, grants test, `go test ./internal/arch/` (the new
@@ -266,4 +359,7 @@ Every behaviour of a real second account; keychain naming under
 `CLAUDE_CONFIG_DIR`; whether a vendor accepts a resumed conversation after an
 account change (and how large the cache miss is — a switch resends context on
 the new account, which costs its usage); the exact wording of the limit
-messages; bwrap on Linux.
+messages; bwrap on Linux; every field of `account/rateLimits/read` (seen only
+through a PR description and a third-party type); whether any Claude usage-check
+candidate works without DevKit holding the token; whether a check of a team
+seat reports the whole login's use or only the seat's.
