@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
-// The person's rules for switching between several accounts of one vendor
-// (Settings → Agents → Accounts & limits). Local, UI-owned: an agent cannot
-// read or change it. It carries no credential and grants nothing — it only
-// decides which of the person's own accounts a session runs as.
-
+// Refusal choices for a turn the vendor refused at a real limit.
 const (
 	// RefusalNone leaves a turn the vendor refused for a real limit alone; the
 	// next prompt starts on the next account.
@@ -21,14 +18,30 @@ const (
 	RefusalResendIfNoProgress = "resendIfNoProgress"
 	// RefusalContinue sends one fixed "continue" message on the next account.
 	RefusalContinue = "continue"
+)
 
+// Defaults and bounds of an account policy. A zero value in a stored policy
+// means "use the default"; the bounds apply after the defaults are filled in.
+const (
+	// DefaultAccountThresholdPercent is the usage at which an account is left
+	// when the person set none.
 	DefaultAccountThresholdPercent = 90
-	DefaultAccountUsageMaxAge      = 300 // seconds
-	maxAccountOrder                = 32
+	// DefaultAccountUsageMaxAgeSeconds is how old a shared account's reading
+	// may be, when the person set none, before a turn start asks the vendor again.
+	DefaultAccountUsageMaxAgeSeconds = 300
+
+	minAccountThresholdPercent = 50
+	maxAccountThresholdPercent = 100
+	minAccountUsageMaxAge      = 60
+	maxAccountUsageMaxAge      = 3600
+	maxAccountVendorName       = 32
+	maxAccountOrder            = 32
 )
 
 var (
-	ErrInvalidAccountPolicy  = errors.New("preferences: invalid account policy")
+	// ErrInvalidAccountPolicy rejects a policy the store cannot hold.
+	ErrInvalidAccountPolicy = errors.New("preferences: invalid account policy")
+	// ErrAccountPolicyConflict: the policy changed since the caller read it.
 	ErrAccountPolicyConflict = errors.New("account policy revision conflict")
 )
 
@@ -47,13 +60,22 @@ type AccountVendorPolicy struct {
 	OnLimitRefusal string   `json:"onLimitRefusal"`
 }
 
-// AgentAccountPolicy is the whole preference, versioned like AgentModelProfiles.
+// AgentAccountPolicy is the person's rules for switching between several
+// accounts of one vendor (Settings → Agents → Accounts & limits). It is local,
+// UI-owned configuration: an agent cannot read or change it. It carries no
+// credential and grants nothing — it only decides which of the person's own
+// accounts a session runs as. The whole preference is versioned like
+// AgentModelProfiles.
 type AgentAccountPolicy struct {
 	Revision int64 `json:"revision"`
 	// RiskAcknowledgedAt is when the person accepted the terms warning; a vendor
 	// cannot be enabled without it.
 	RiskAcknowledgedAt string                         `json:"riskAcknowledgedAt,omitempty"`
 	Vendors            map[string]AccountVendorPolicy `json:"vendors,omitempty"`
+}
+
+func thresholdInRange(v int) bool {
+	return v >= minAccountThresholdPercent && v <= maxAccountThresholdPercent
 }
 
 func (p AgentAccountPolicy) clone() AgentAccountPolicy {
@@ -72,29 +94,29 @@ func (p AgentAccountPolicy) clone() AgentAccountPolicy {
 func NormalizeAccountPolicy(in AgentAccountPolicy) (AgentAccountPolicy, error) {
 	out := in.clone()
 	for name, v := range out.Vendors {
-		if strings.TrimSpace(name) == "" || len(name) > 32 {
-			return AgentAccountPolicy{}, fmt.Errorf("%w: a vendor name must be 1–32 characters", ErrInvalidAccountPolicy)
+		if n := utf8.RuneCountInString(name); strings.TrimSpace(name) == "" || n > maxAccountVendorName {
+			return AgentAccountPolicy{}, fmt.Errorf("%w: a vendor name must be 1–%d characters", ErrInvalidAccountPolicy, maxAccountVendorName)
 		}
 		if v.ThresholdPercent == 0 {
 			v.ThresholdPercent = DefaultAccountThresholdPercent
 		}
 		if v.UsageMaxAgeSeconds == 0 {
-			v.UsageMaxAgeSeconds = DefaultAccountUsageMaxAge
+			v.UsageMaxAgeSeconds = DefaultAccountUsageMaxAgeSeconds
 		}
 		if v.OnLimitRefusal == "" {
 			v.OnLimitRefusal = RefusalNone
 		}
 		switch {
-		case v.ThresholdPercent < 50 || v.ThresholdPercent > 100:
-			return AgentAccountPolicy{}, fmt.Errorf("%w: the threshold must be between 50 and 100 percent", ErrInvalidAccountPolicy)
-		case v.WeeklyThresholdPercent != 0 && (v.WeeklyThresholdPercent < 50 || v.WeeklyThresholdPercent > 100):
-			return AgentAccountPolicy{}, fmt.Errorf("%w: the weekly threshold must be between 50 and 100 percent", ErrInvalidAccountPolicy)
-		case v.UsageMaxAgeSeconds < 60 || v.UsageMaxAgeSeconds > 3600:
-			return AgentAccountPolicy{}, fmt.Errorf("%w: how old a reading may be must be between 60 and 3600 seconds", ErrInvalidAccountPolicy)
+		case !thresholdInRange(v.ThresholdPercent):
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: the threshold must be between %d and %d percent", ErrInvalidAccountPolicy, name, minAccountThresholdPercent, maxAccountThresholdPercent)
+		case v.WeeklyThresholdPercent != 0 && !thresholdInRange(v.WeeklyThresholdPercent):
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: the weekly threshold must be between %d and %d percent", ErrInvalidAccountPolicy, name, minAccountThresholdPercent, maxAccountThresholdPercent)
+		case v.UsageMaxAgeSeconds < minAccountUsageMaxAge || v.UsageMaxAgeSeconds > maxAccountUsageMaxAge:
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: how old a reading may be must be between %d and %d seconds", ErrInvalidAccountPolicy, name, minAccountUsageMaxAge, maxAccountUsageMaxAge)
 		case v.OnLimitRefusal != RefusalNone && v.OnLimitRefusal != RefusalResendIfNoProgress && v.OnLimitRefusal != RefusalContinue:
-			return AgentAccountPolicy{}, fmt.Errorf("%w: unknown choice for a turn refused at its limit", ErrInvalidAccountPolicy)
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: unknown choice for a turn refused at its limit (use %s, %s or %s)", ErrInvalidAccountPolicy, name, RefusalNone, RefusalResendIfNoProgress, RefusalContinue)
 		case v.Enabled && strings.TrimSpace(out.RiskAcknowledgedAt) == "":
-			return AgentAccountPolicy{}, fmt.Errorf("%w: accept the terms warning before turning switching on", ErrInvalidAccountPolicy)
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: accept the terms warning before turning switching on", ErrInvalidAccountPolicy, name)
 		}
 		seen := map[string]bool{}
 		order := make([]string, 0, len(v.Order))
@@ -107,7 +129,7 @@ func NormalizeAccountPolicy(in AgentAccountPolicy) (AgentAccountPolicy, error) {
 			order = append(order, id)
 		}
 		if len(order) > maxAccountOrder {
-			return AgentAccountPolicy{}, fmt.Errorf("%w: at most %d accounts in the order", ErrInvalidAccountPolicy, maxAccountOrder)
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: at most %d accounts in the order", ErrInvalidAccountPolicy, name, maxAccountOrder)
 		}
 		v.Order = order
 		out.Vendors[name] = v
