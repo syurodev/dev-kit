@@ -1078,7 +1078,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     - A window with `ResetsAt == 0` stays live for ever (no known reset to expire it).
     - On macOS `AllowKeychain` stays on for Claude account sessions, so an account session can reach the built-in keychain
       item; measure before relying on isolation.
-    - Claude's summary card now shows both `unifiedWindows` windows for everyone (intended).
+    - Claude's summary card now shows both `unifiedWindows` windows for everyone (intended). `observeAccountUsage` reads the session row and the policy (two SQLite reads on the one connection) on every limits-carrying usage update, even for a vendor nobody configured, before it dedupes; put a short-TTL "vendor configured" cache in front of it (seconds, so enabling a vendor still applies at the next turn) before the feature is on for people who use Codex/Claude heavily. `SaveUsage` also refreshes `observed_at` when `mergeWindows` rejects every fresh window as stale, so a stale reading can make an account's usage look newer than it is.
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
   `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
   by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"
