@@ -349,10 +349,12 @@ func main() {
 		}
 	}
 	claudeAdapter := agenthub.NewClaudeAdapter(claudeOpts)
+	// DevKit's own Codex home: the user's ~/.codex, its sign-in and its rules,
+	// is never the session's (Codex spec §6). Also the built-in account's home
+	// for the vendor account feature below, so the two cannot drift.
+	codexHome := filepath.Join(dataDir, "agent-homes", "codex")
 	codexOpts := agenthub.CodexOptions{
-		// DevKit's own Codex home: the user's ~/.codex, its sign-in and its
-		// rules, is never the session's (Codex spec §6).
-		Home: filepath.Join(dataDir, "agent-homes", "codex"),
+		Home: codexHome,
 		Runtime: func() (agentruntime.Resolved, error) {
 			return runtimes.ResolveLeased(agentruntime.CodexCLI)
 		},
@@ -594,6 +596,30 @@ func main() {
 	// edit in Settings reaches the next session an agent starts.
 	agentSvc.ModelProfiles = container.Preferences.AgentModelProfiles
 	agentSvc.SubagentLimits = container.Preferences.AgentSubagentLimits
+	// Vendor accounts: several accounts per vendor, a session moves between
+	// them at the start of a turn (spec 2026-10-22-agent-multi-account-failover).
+	// Setting the book changes nothing by itself: with no `agent_account_policy`
+	// entry for a vendor nothing is switched, so the feature stays off until the
+	// person enables a vendor. The built-in accounts are what sessions always ran
+	// as; the conversation store an added account links to is theirs.
+	agentSvc.Accounts = agenthub.NewSQLAccountStore(db)
+	agentSvc.AccountPolicy = container.Preferences.AgentAccountPolicy
+	agentSvc.AccountSharedHome = func(vendor agenthub.AgentType) string {
+		switch vendor {
+		case agenthub.AgentTypeClaude:
+			// The built-in account is whatever config directory the machine's
+			// own `claude` uses: $CLAUDE_CONFIG_DIR when set, else ~/.claude.
+			if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" && filepath.IsAbs(dir) {
+				return dir
+			}
+			if home, err := os.UserHomeDir(); err == nil {
+				return filepath.Join(home, ".claude")
+			}
+		case agenthub.AgentTypeCodex:
+			return codexHome
+		}
+		return ""
+	}
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
 	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a
