@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md`
 
-**Scope of this plan (Plan 1 of 2).** Phase 0 spike, then the Go backend: migration, store, policy preference, `PickAccount`, home preparation, jail/env per account, switch in `invoke`, usage observation, real-limit marking and the `onLimitRefusal` modes, wiring in `main.go`. **Plan 2 (written after the spike, because the spike picks the Claude usage-check method and may change the continuity approach):** `UsageProbe` (Codex `account/rateLimits/read`, Claude per spike), bridge methods + grants + published error codes, the "Accounts & limits" Settings page, transcript notice drawing, summary-card row, toasts, sign-in with a per-account home, account removal, the `devkit`-sourced "continue" prompt.
+**Scope of this plan (Plan 1 of 2).** Phase 0 spike, then the Go backend: migration, store, policy preference, `PickAccount`, home preparation, jail/env per account, switch in `invoke`, usage observation, real-limit marking and the `onLimitRefusal` modes, wiring in `main.go`. **Plan 2 (written after the spike, because the spike picks the Claude usage-check method and may change the continuity approach):** `UsageProbe` (Codex `account/rateLimits/read`; Claude: the CLI's `get_usage` control request, measured in Phase 0), bridge methods + grants + published error codes, the "Accounts & limits" Settings page, transcript notice drawing, summary-card row, toasts, sign-in with a per-account home, account removal, the `devkit`-sourced "continue" prompt.
 
 **Conventions to follow (from `AGENTS.md`):** Go tests `go test ./internal/agenthub/ ./internal/preferences/ ./internal/storage/ ./internal/arch/ -count=1`; vet `go vet -tags server ./...`; `gofmt -l internal main.go`. Keep `internal/arch` green. Commit after each task.
 
@@ -34,6 +34,7 @@
 | `internal/agenthub/adapter.go` | modify | `OpenSpec.AccountHome`, `AccountSharedPaths` |
 | `internal/agenthub/adapter_codex.go` | modify | per-account home in `jail`/`open`/`start` |
 | `internal/agenthub/adapter_claude.go` | modify | `CLAUDE_CONFIG_DIR` + jail in `sandboxFor` |
+| `internal/agenthub/claude_limits.go` | create | Claude `unifiedWindows` → percent windows |
 | `internal/agenthub/account_switch.go` | create | Service side: apply, switch, usage, limit marking, follow-up |
 | `internal/agenthub/service.go`, `rewind.go`, `stop_service.go` | modify | hook points |
 | `main.go` | modify | wire the book, policy, shared home |
@@ -2345,6 +2346,160 @@ git commit -m "agenthub: sessions' usage updates are kept on their account"
 
 ---
 
+### Task 11b: Claude's usage windows come from `unifiedWindows`, as percentages
+
+Phase 0 measured that the real `rate_limit_event` carries both windows in `rate_limit_info.unifiedWindows.{five_hour,seven_day}` as **0–1 fractions** (0.69 while `/usage` said 69%) and no top-level `utilization` while `status` is `allowed`; `limitsOfRateLimit` reads only the top-level value as a percentage. Without this task Claude accounts would never report a window to Task 11, and `PickAccount` (thresholds in percent) would never trigger for them.
+
+**Files:**
+- Create: `internal/agenthub/claude_limits.go`
+- Modify: `internal/agenthub/update.go` (the `case UpdateUsage:` branch, right after `usage.Limits = limitsOfRateLimit(usage.RateLimit)`)
+- Test: `internal/agenthub/claude_limits_test.go` (`package agenthub`)
+
+- [ ] **Step 1: Write the failing test** (the first update is the event captured in Phase 0):
+
+```go
+package agenthub
+
+import "testing"
+
+func TestClaudeUnifiedWindowsBecomePercentWindows(t *testing.T) {
+	update := []byte(`{"sessionUpdate":"usage_update","used":10,"size":200000,"_meta":{"_claude/rateLimit":{
+		"status":"allowed","resetsAt":1792653600,"rateLimitType":"five_hour","overageStatus":"rejected",
+		"overageDisabledReason":"org_level_disabled_until","isUsingOverage":false,
+		"unifiedWindows":{"five_hour":{"utilization":0.69,"resetsAt":1792653600},"seven_day":{"utilization":0.15,"resetsAt":1793080800}}}}}`)
+	got := ParseSessionUpdate(update)
+	if got.Usage == nil || len(got.Usage.Limits) != 2 {
+		t.Fatalf("limits = %+v, want the two unified windows", got.Usage)
+	}
+	want := []LimitWindow{
+		{Label: "5-hour", UsedPercent: 69, ResetsAt: 1792653600, Status: "ok"},
+		{Label: "Weekly", UsedPercent: 15, ResetsAt: 1793080800, Status: "ok"},
+	}
+	for i, w := range want {
+		if got.Usage.Limits[i] != w {
+			t.Errorf("window %d = %+v, want %+v", i, got.Usage.Limits[i], w)
+		}
+	}
+}
+
+func TestClaudeUnifiedWindowStatusFollowsThePercent(t *testing.T) {
+	cases := map[string]string{"0.79": "ok", "0.8": "warning", "0.93": "warning", "1": "reached"}
+	for fraction, status := range cases {
+		update := []byte(`{"sessionUpdate":"usage_update","used":1,"size":2,"_meta":{"_claude/rateLimit":{"status":"allowed",
+			"unifiedWindows":{"five_hour":{"utilization":` + fraction + `,"resetsAt":1792653600}}}}}`)
+		got := ParseSessionUpdate(update)
+		if got.Usage == nil || len(got.Usage.Limits) != 1 || got.Usage.Limits[0].Status != status {
+			t.Errorf("utilization %s: limits = %+v, want status %q", fraction, got.Usage, status)
+		}
+	}
+}
+
+func TestClaudeRateLimitWithoutUnifiedWindowsIsReadAsBefore(t *testing.T) {
+	update := []byte(`{"sessionUpdate":"usage_update","used":10,"size":200000,"_meta":{"_claude/rateLimit":{"status":"allowed_warning","resetsAt":1790000000,"rateLimitType":"five_hour","utilization":82}}}`)
+	got := ParseSessionUpdate(update)
+	if got.Usage == nil || len(got.Usage.Limits) != 1 || got.Usage.Limits[0].UsedPercent != 82 {
+		t.Fatalf("limits = %+v, want the old single window at 82", got.Usage)
+	}
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `go test ./internal/agenthub/ -run 'TestClaudeUnified|TestClaudeRateLimitWithout' -count=1`
+Expected: FAIL (`limits = …, want the two unified windows`).
+
+- [ ] **Step 3: Implement** `claude_limits.go`:
+
+```go
+package agenthub
+
+import (
+	"encoding/json"
+	"math"
+	"sort"
+)
+
+// unifiedWindowOrder is the order Claude's windows are listed in; any other key
+// follows, alphabetically.
+var unifiedWindowOrder = []string{"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"}
+
+// unifiedLimitWindows reads the windows a Claude rate_limit_event carries in
+// rate_limit_info.unifiedWindows. Measured against the real CLI: utilization
+// there is a 0–1 fraction (0.69 while /usage said 69%), so it is shown as a
+// percentage rounded to 0.01. The key is not in the SDK's declared type, so an
+// absent or unreadable one is no windows, never an error.
+func unifiedLimitWindows(meta json.RawMessage) []LimitWindow {
+	if len(meta) == 0 {
+		return nil
+	}
+	var parsed struct {
+		RateLimit *struct {
+			Unified map[string]struct {
+				Utilization float64 `json:"utilization"`
+				ResetsAt    int64   `json:"resetsAt"`
+			} `json:"unifiedWindows"`
+		} `json:"_claude/rateLimit"`
+	}
+	if json.Unmarshal(meta, &parsed) != nil || parsed.RateLimit == nil || len(parsed.RateLimit.Unified) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(parsed.RateLimit.Unified))
+	for _, k := range unifiedWindowOrder {
+		if _, ok := parsed.RateLimit.Unified[k]; ok {
+			keys = append(keys, k)
+		}
+	}
+	var rest []string
+	for k := range parsed.RateLimit.Unified {
+		known := false
+		for _, o := range unifiedWindowOrder {
+			known = known || o == k
+		}
+		if !known {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	keys = append(keys, rest...)
+
+	out := make([]LimitWindow, 0, len(keys))
+	for _, k := range keys {
+		w := parsed.RateLimit.Unified[k]
+		pct := math.Round(w.Utilization*10000) / 100
+		status := "ok"
+		switch {
+		case pct >= 100:
+			status = "reached"
+		case pct >= 80:
+			status = "warning"
+		}
+		out = append(out, LimitWindow{Label: claudeLimitLabel(k), UsedPercent: pct, ResetsAt: w.ResetsAt, Status: status})
+	}
+	return out
+}
+```
+and in `update.go`, `case UpdateUsage:` after `usage.Limits = limitsOfRateLimit(usage.RateLimit)` add:
+
+```go
+		if unified := unifiedLimitWindows(wire.Meta); len(unified) > 0 {
+			usage.Limits = unified
+		}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `go test ./internal/agenthub/ -count=1`
+Expected: PASS, including the existing `update_meta_test.go` and `codex_insights_test.go` cases (they carry no `unifiedWindows`).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/agenthub/claude_limits.go internal/agenthub/claude_limits_test.go internal/agenthub/update.go
+git commit -m "agenthub: Claude's usage windows are read from unifiedWindows, as percentages"
+```
+
+---
+
 ### Task 12: A real limit marks the account, and `onLimitRefusal` follows
 
 **Files:**
@@ -2643,7 +2798,7 @@ git commit -m "main: wire the vendor account book and its policy into Agent Hub"
     `agent_account_id`, record a `session_info_update` carrying `_meta.devkit.accountSwitch`, reopen in the new home. Never
     inside a running turn. A move that fails leaves the session where it was.
   - **Usage is observed, not polled**: `UpdateUsage` windows are merged into the session's account by label
-    (`observeAccountUsage`; Claude sends one window per event). On a shared team login that is a lower bound. A real
+    (`observeAccountUsage`; Claude's real event carries both windows in `unifiedWindows` as 0–1 fractions, read by `claude_limits.go`). On a shared team login that is a lower bound. A real
     refusal (`usage_limit`, `rate_limited`) marks the account exhausted until the reached window's reset, else the stop's
     retry time, else 15 minutes (`markAccountLimited`, only ever later). `onLimitRefusal` (`none` default,
     `resendIfNoProgress`, `continue`) is read in `Invoke`; one follow-up at most, only when another account can take it.
