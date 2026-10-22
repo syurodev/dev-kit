@@ -434,3 +434,27 @@ usage). `parseRateLimit`/`limitsOfRateLimit` read only the top-level `utilizatio
 `unifiedWindows`; their fixtures use 82/83. Against the real event above the summary card gets no window while
 `status` is `allowed` and, when a top-level value does arrive, its scale is unobserved (the SDK type does not say).
 The accounts plan therefore reads `unifiedWindows` (×100) for observed Claude usage.
+
+**Codex — resume under another home with a shared `sessions/` (0.147.0, Linux, two `codex login` homes of one ChatGPT account).**
+Two homes, each signed in by its own `codex login` (independent tokens, no copying). A turn run under A
+(`codex exec`, thread `01a16257…`) wrote `sessions/2026/10/22/rollout-…jsonl` plus per-home state:
+`state_5.sqlite`, `goals_1.sqlite`, `queue_1.sqlite`, `memories_1.sqlite`, `logs_2.sqlite`, `installation_id`,
+`models_cache.json`, `skills/`, `plugins/`. Control: `codex exec resume <thread>` under B with nothing shared fails with
+`thread/resume failed: no rollout found for thread id … (code -32600)` — the same answer DevKit already documents
+for a never-prompted thread. With **only `sessions/` symlinked** to A's, B resumed the thread and answered the word
+A had been given; B's turn was appended to the same rollout file, and A then resumed the thread again and still
+had it. So the smallest shared set is `sessions/` alone; `state_5.sqlite` and the other databases stay per account
+(B created its own). `sharedStoreEntries[codex] = ["sessions"]` stands. Limits: same ChatGPT account in both homes,
+so what an account change does server-side is not measured; the cache miss on a different account is not measured;
+a CLI proxy for `thread/resume`, not DevKit's jailed app-server.
+
+**Codex — `account/rateLimits/read` (real, plan `plus`).** Works with a `codex app-server` started on the account's
+home: `initialize`, `initialized`, one request, no model call. Answer:
+`rateLimits{limitId:"codex", primary{usedPercent:0, windowDurationMins:300, resetsAt}, secondary{usedPercent:10,
+windowDurationMins:10080, resetsAt}, credits, planType:"plus", rateLimitReachedType:null}`, `rateLimitsByLimitId{codex:{…}}`,
+`rateLimitResetCredits{availableCount:0}`. `usedPercent` is a percentage 0–100 (an integer here), the same
+fields `codexLimitWindows` reads from the `updated` notification, so one translator serves both. A team seat has not
+been tried.
+
+Note: `codex login` accepts `--device-auth` in this version for a machine without a browser; each home prints a
+harmless warning ("could not create PATH aliases … under temporary dir") when its home is under `/tmp`.
