@@ -216,7 +216,8 @@ The refused turn ends as it does today. Then `onLimitRefusal`:
 - `none` — nothing is sent. The session is idle; the next prompt the person
   sends starts on the next account.
 - `resendIfNoProgress` — if the turn produced no agent output and no tool call
-  (read from the turn's transcript rows), DevKit sends the same prompt once on
+  (an in-memory per-session flag set from the update stream: agent message or
+  thought chunks and tool calls; not read from transcript rows), DevKit sends the same prompt once on
   the next account. Otherwise as `none`, and the banner offers "Continue on
   <account>".
 - `continue` — DevKit sends one fixed message ("The previous account reached its
@@ -351,8 +352,8 @@ itself.
 Go: `PickAccount` table tests (threshold, weekly threshold, reset elapsed,
 unknown usage, order, anti flip-flop, all exhausted, dead sign-in); `Service`
 tests with a fake adapter for switch-before-turn, never-mid-turn, reopen failure
-keeps the old account, each `onLimitRefusal` mode including "no progress" read
-from rows and a single resend; usage merge by label; `refreshIfStale` (only for
+keeps the old account, each `onLimitRefusal` mode including "no progress" (the
+in-memory flag) and a single resend; usage merge by label; `refreshIfStale` (only for
 `shared`, only when older than `usageMaxAgeSeconds`, single-flight, 60 s floor,
 2 concurrent, 5 s time-box that keeps the old reading, never blocks the turn)
 with a fake `UsageProbe`; a Codex probe test against a scripted app-server
@@ -374,7 +375,12 @@ the new account, which costs its usage); the exact wording of the limit
 messages; bwrap on Linux; every field of `account/rateLimits/read` (seen only
 through a PR description and a third-party type); whether any Claude usage-check
 candidate works without DevKit holding the token; whether a check of a team
-seat reports the whole login's use or only the seat's.
+seat reports the whole login's use or only the seat's; Claude Code's real wording
+when it refuses a turn at a limit (the backstop reads a `reached` window instead);
+whether the first request of a refused turn carries a `rate_limit_event` (ACP sends
+the usage update only after an assistant message); whether the backstop's 10-minute
+freshness window can miss a repeated identical reading (`ObservedAt` is not
+refreshed when the reading is unchanged).
 
 ## Measured
 
