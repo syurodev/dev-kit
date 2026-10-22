@@ -220,6 +220,9 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	a.customizationMu.Lock()
 	defer a.customizationMu.Unlock()
 	home := a.opts.Home
+	if spec.AccountHome != "" {
+		home = spec.AccountHome
+	}
 	denyWrite, err := prepareCodexHome(home)
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
@@ -227,6 +230,12 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	// DevKit's data directory is hidden from every session; this vendor's own
 	// home inside it is carved back out for this vendor's sessions only.
 	denyRead := carveOut(spec.DenyReadPaths, home)
+	if spec.AccountHome != "" {
+		// An added account's home and the conversation store it links to are
+		// carved out together; no other account's home (nor the built-in
+		// login) is.
+		denyRead = carveOutAll(spec.DenyReadPaths, append([]string{home}, spec.AccountSharedPaths...)...)
+	}
 	// Shared-home sessions inherit the user's skills, plugin assets and portable
 	// MCP/settings, while keeping DevKit's sign-in and transcript state separate.
 	var customizationPaths []string
@@ -279,7 +288,7 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 		AllowLoopbackListeners: true,
 		Env:                    codexEnv(l, spec, home),
 		ReadOnlyPaths:          uniqueAbsPaths(append(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...), customizationPaths...)...),
-		ReadWritePaths:         uniqueAbsPaths(append([]string{home}, spec.ExtraReadWritePaths...)...),
+		ReadWritePaths:         uniqueAbsPaths(append(append([]string{home}, spec.AccountSharedPaths...), spec.ExtraReadWritePaths...)...),
 		DenyReadPaths:          denyRead,
 		DenyWritePaths:         denyWrite,
 		AllowUnixSockets:       append([]string(nil), spec.AllowUnixSockets...),
@@ -400,7 +409,7 @@ func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store stri
 	}
 	owned = false
 	spec.Cwd = workDir
-	p := &codexProcess{proc: proc, serveDone: make(chan struct{}), environment: captureEnvironment(AgentTypeCodex, spec, pol.Env, cmd.Path, a.opts.Home)}
+	p := &codexProcess{proc: proc, serveDone: make(chan struct{}), environment: captureEnvironment(AgentTypeCodex, spec, pol.Env, cmd.Path, pol.Env["CODEX_HOME"])}
 	p.conn = codexapp.NewConn(&stdioPipe{r: stdout, w: stdin}, h)
 	var serveCtx context.Context
 	serveCtx, p.cancelServe = context.WithCancel(context.Background())
@@ -544,7 +553,12 @@ func (a *CodexAdapter) open(ctx context.Context, spec OpenSpec, resume string) (
 	if err != nil {
 		return nil, err
 	}
-	key, err := a.apiKey(ctx)
+	// An added account is a ChatGPT sign-in kept in its own home; the Accounts
+	// API key (one, global) belongs to the built-in account only.
+	var key string
+	if spec.AccountHome == "" {
+		key, err = a.apiKey(ctx)
+	}
 	if err != nil {
 		l.releaseLease()
 		return nil, err
