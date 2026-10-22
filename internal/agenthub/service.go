@@ -2307,7 +2307,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
-	s.applyAccount(ctx, &spec, sess)
+	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
 	s.applySubagents(&spec, sess.AgentType)
 
 	if fresh {

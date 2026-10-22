@@ -320,3 +320,48 @@ func TestDeleteSessionForgetsItsCachedAccount(t *testing.T) {
 		t.Errorf("after DeleteSession the cache still holds %q", got)
 	}
 }
+
+// The environment report is a read: it must not say which account a runtime
+// runs as. Only a path that opens a runtime records that.
+func TestEnvironmentReportDoesNotWriteTheSessionAccountCache(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	sess, err := rig.svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
+		t.Fatal("test premise: CreateSession must not record an account")
+	}
+	// Row on "work", no runtime opened for it: the report still describes the account.
+	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, "work"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rig.svc.Environment(uiCtx(), agenthub.AgentTypeMock, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
+		t.Errorf("Environment recorded %q for a session no runtime was opened for", got)
+	}
+
+	// A runtime opened as the built-in account, then the row moves on (as a
+	// concurrent move does before it records): the report must not overwrite it.
+	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.ResumeSession(uiCtx(), sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
+	if got, _ := rig.svc.SessionAccountCachedForTest(sess.ID); got != builtin {
+		t.Fatalf("test premise: cached account = %q, want %q", got, builtin)
+	}
+	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, "work"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rig.svc.Environment(uiCtx(), agenthub.AgentTypeMock, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := rig.svc.SessionAccountCachedForTest(sess.ID); got != builtin {
+		t.Errorf("Environment changed the cached account to %q, want it left as %q", got, builtin)
+	}
+}

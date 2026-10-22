@@ -14,8 +14,19 @@ import (
 	"time"
 
 	"devkit/internal/identity"
+	"devkit/internal/preferences"
 	"devkit/internal/storage"
 )
+
+// usagePolicyFor is a policy with an entry for the vendor, as a person who
+// configured accounts has.
+func usagePolicyFor(vendor AgentType) func() (preferences.AgentAccountPolicy, error) {
+	return func() (preferences.AgentAccountPolicy, error) {
+		return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
+			string(vendor): {Enabled: true},
+		}}, nil
+	}
+}
 
 // usageRig is a service with the SQL account book and one mock session.
 type usageRig struct {
@@ -40,6 +51,8 @@ func newUsageRig(t *testing.T) *usageRig {
 	book := NewSQLAccountStore(db)
 	svc := NewService(reg, NewSQLStore(db), nil)
 	svc.Accounts = book
+	// The person configured the mock vendor (as for Claude or Codex): only then is usage observed.
+	svc.AccountPolicy = usagePolicyFor(AgentTypeMock)
 	ctx := identity.WithCaller(context.Background(), identity.UI())
 	cwd, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -260,5 +273,51 @@ func TestAnUnchangedUsageReadingIsNotAChange(t *testing.T) {
 	w[0].UsedPercent = 51
 	if !svc.usageChanged("a", w) {
 		t.Error("a different percentage is a change")
+	}
+}
+
+// Without a policy entry for the vendor nothing is observed: no row for the
+// built-in account, no SaveUsage, no dedupe entry, whatever the update carries.
+func TestUsageIsNotObservedForAVendorThePersonDidNotConfigure(t *testing.T) {
+	cases := map[string]func() (preferences.AgentAccountPolicy, error){
+		"no policy": nil,
+		"no entry for the vendor": func() (preferences.AgentAccountPolicy, error) {
+			return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
+				string(AgentTypeCodex): {Enabled: true},
+			}}, nil
+		},
+		"an unreadable policy": func() (preferences.AgentAccountPolicy, error) {
+			return preferences.AgentAccountPolicy{}, errors.New("disk full")
+		},
+	}
+	for name, policy := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newUsageRig(t)
+			book := &countingBook{AccountBook: r.book}
+			r.svc.Accounts = book
+			r.svc.AccountPolicy = policy
+			var logged bytes.Buffer
+			log.SetOutput(&logged)
+			defer log.SetOutput(os.Stderr)
+
+			r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+			r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdateAt(50, 93))
+
+			if book.saves != 0 {
+				t.Errorf("SaveUsage calls = %d, want none", book.saves)
+			}
+			if _, err := r.book.Get(r.ctx, BuiltinAccountID(AgentTypeMock)); !errors.Is(err, ErrAccountNotFound) {
+				t.Errorf("Get(built-in) = %v, want no row created", err)
+			}
+			r.svc.mu.Lock()
+			seen := len(r.svc.usageSeen)
+			r.svc.mu.Unlock()
+			if seen != 0 {
+				t.Errorf("usageSeen has %d entries, want none", seen)
+			}
+			if strings.Contains(logged.String(), "saving usage") {
+				t.Errorf("log = %q, want no write attempted", logged.String())
+			}
+		})
 	}
 }

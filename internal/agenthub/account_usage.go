@@ -14,15 +14,24 @@ import (
 // the vendor's update goroutine, so a failure is logged and never returned (the
 // update must still reach the transcript), and s.mu is never held across the
 // book or the store.
+//
+// Only a vendor the person configured (an entry in the account policy, enabled
+// or not) is observed, like markAccountLimited: without one the vendor has no
+// accounts to choose between, and observing would create its built-in account's
+// row and write on every changed reading for everyone.
 func (s *Service) observeAccountUsage(ctx context.Context, sessionID string, parsed SessionUpdate) {
 	if s.Accounts == nil || parsed.Kind != UpdateUsage || parsed.Usage == nil || len(parsed.Usage.Limits) == 0 {
+		return
+	}
+	sess, err := s.store.GetSession(ctx, sessionID)
+	if err != nil || !s.vendorConfigured(sess.AgentType) {
 		return
 	}
 	id := s.observedAccountID(ctx, sessionID)
 	if id == "" || !s.usageChanged(id, parsed.Usage.Limits) {
 		return
 	}
-	switch err := s.saveObservedUsage(ctx, sessionID, id, parsed.Usage.Limits); {
+	switch err := s.saveObservedUsage(ctx, sess, id, parsed.Usage.Limits); {
 	case err == nil:
 	case errors.Is(err, ErrAccountNotFound):
 		// The account was deleted while its session still runs. Nothing to
@@ -38,13 +47,12 @@ func (s *Service) observeAccountUsage(ctx context.Context, sessionID string, par
 // first when it has none: that row only exists once the book was listed. The
 // vendor comes from the session's own row, and only the session's built-in
 // account id is ever created that way.
-func (s *Service) saveObservedUsage(ctx context.Context, sessionID, id string, windows []LimitWindow) error {
+func (s *Service) saveObservedUsage(ctx context.Context, sess AgentSession, id string, windows []LimitWindow) error {
 	err := s.Accounts.SaveUsage(ctx, id, windows, "observed", time.Now())
 	if !errors.Is(err, ErrAccountNotFound) {
 		return err
 	}
-	sess, gerr := s.store.GetSession(ctx, sessionID)
-	if gerr != nil || id != BuiltinAccountID(sess.AgentType) {
+	if id != BuiltinAccountID(sess.AgentType) {
 		return err
 	}
 	if _, lerr := s.Accounts.List(ctx, sess.AgentType); lerr != nil {

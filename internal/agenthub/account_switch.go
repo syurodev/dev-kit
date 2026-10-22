@@ -31,34 +31,44 @@ func accountIDOf(sess AgentSession) string {
 	return BuiltinAccountID(sess.AgentType)
 }
 
-// applyAccount points an OpenSpec at the session's account home. The built-in
-// account changes nothing. An account that is gone falls back to the built-in
-// one (logged): a session must still open. The home and the shared store paths
-// are always set together. It also records which account the runtime will run
-// as, which is the built-in one whenever the spec was left alone.
-func (s *Service) applyAccount(ctx context.Context, spec *OpenSpec, sess AgentSession) {
+// fillAccountSpec points an OpenSpec at the session's account home and returns
+// the id of the account the spec will run as. The built-in account changes
+// nothing. An account that is gone, or no account book, falls back to the
+// built-in one (logged for a missing row): a session must still open. The home
+// and the shared store paths are always set together.
+//
+// It is pure with respect to the service: it records nothing, so a read-only
+// caller (Environment) cannot write a stale account over what a concurrent move
+// just set. A caller that goes on to open a runtime records the returned id with
+// recordSessionAccount.
+func (s *Service) fillAccountSpec(ctx context.Context, spec *OpenSpec, sess AgentSession) string {
 	id := BuiltinAccountID(sess.AgentType)
-	defer func() {
-		s.mu.Lock()
-		s.sessionAccount[sess.ID] = id
-		s.mu.Unlock()
-	}()
 	if s.Accounts == nil || sess.AccountID == "" {
-		return
+		return id
 	}
 	acct, err := s.Accounts.Get(ctx, sess.AccountID)
 	if err != nil {
 		log.Printf("agenthub: session %s: account %s: %v; opening as the built-in account", sess.ID, sess.AccountID, err)
-		return
+		return id
 	}
 	id = sess.AccountID
 	if acct.Builtin() {
-		return
+		return id
 	}
 	spec.AccountHome = acct.HomeDir
 	if s.AccountSharedHome != nil {
 		spec.AccountSharedPaths = SharedStorePaths(acct.Vendor, s.AccountSharedHome(acct.Vendor))
 	}
+	return id
+}
+
+// recordSessionAccount records which account a session's runtime runs as, where
+// a runtime is actually opened for it (resume, rewind): the id fillAccountSpec
+// returned, the built-in one whenever the spec was left alone.
+func (s *Service) recordSessionAccount(sessionID, accountID string) {
+	s.mu.Lock()
+	s.sessionAccount[sessionID] = accountID
+	s.mu.Unlock()
 }
 
 // forgetSessionAccountLocked drops the per-session account state, with s.mu

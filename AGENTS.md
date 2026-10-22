@@ -982,8 +982,11 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     DevKit's own environment says). `PrepareAccountHome` links
     only the conversation store, `sharedStoreEntries`: Claude `projects/`, Codex `sessions/` (the smallest set measured to
     resume; the sign-in, databases and `.claude.json` stay per account). It never replaces a real directory or a link to
-    elsewhere, and refuses a home inside the shared store. `applyAccount` fills `OpenSpec.AccountHome` /
-    `AccountSharedPaths` from the session row, never from a tool; both adapters then set `CODEX_HOME` /
+    elsewhere, and refuses a home inside the shared store. `fillAccountSpec` fills `OpenSpec.AccountHome` /
+    `AccountSharedPaths` from the session row, never from a tool, and returns the account id the spec runs as (the
+    built-in one when the row is missing or there is no book); it records nothing, so the read-only `Environment()` can
+    call it, and only `resumeRuntime` and rewind's `openForked` record the result (`recordSessionAccount`, the
+    `sessionAccount` cache); both adapters then set `CODEX_HOME` /
     `CLAUDE_CONFIG_DIR` and carve exactly the account home and the shared store out of the data-directory deny list with
     `carveOutAll` (`protect.go`; `agent-accounts` is in `dataDirSecrets`, so one account's session never reads another's
     home). `carveOutAll` is not `carveOut`: a keep equal to a deny path is allowed (`carveOut` still denies it); a deny
@@ -1015,8 +1018,14 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     opened is remembered (`accountSwitches`, for the hold and return rules) and announced. Known gaps: a panic in vendor
     code inside the switch window can leak the `invoking` claim (same as the existing `runtimeFor` window); the
     pending-elicitation card of the closed idle process is not cancelled (as in Reload).
-  - **Usage is observed, not polled** (`observeAccountUsage`, from `UpdateUsage` inside `handleUpdate`; windows merge into
-    the account the runtime runs as, by label; `usageSeen` skips an identical reading, a failed write forgets it so the
+  - **Usage is observed, not polled** (`observeAccountUsage`, from `UpdateUsage` inside `handleUpdate`, only for a vendor
+    with a policy entry, enabled or not — `vendorConfigured`, the same gate as `markAccountLimited` and
+    `upgradeStopForReachedWindow` — so everyone else gets no `agent_accounts` row and no write; each limits update of an
+    unconfigured vendor costs one session-row read and one policy read; windows merge into
+    the account the runtime runs as, by label, and `mergeWindows` keeps the stored window when a reading of the same label
+    and the same non-zero `ResetsAt` is lower (usage only grows within a window, and two sessions on one account re-send
+    their own last-known snapshots), while a new reset or `ResetsAt == 0` replaces; `observed_at` is still refreshed by such a
+    stale write; `usageSeen` skips an identical reading, a failed write forgets it so the
     next identical update retries, a deleted account is dropped quietly, and the built-in account's row is created on
     first use). Claude's windows come from `rate_limit_event.unifiedWindows` (`claude_limits.go`) as 0–1 **fractions**
     ×100 (a value over 1.5 is read as already a percentage; measured against Claude Code 2.1.308), and `status:
@@ -1026,7 +1035,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `ObservedAt`, which is not refreshed by an identical reading, so the backstop can miss a repeated identical one.
   - **A real limit** (`recordStop` → `upgradeStopForReachedWindow` → `markAccountLimited`). Only Codex returns
     `ErrAgentUsageLimit`. **Claude Code's real refusal wording is not measured** (a limit cannot be provoked on demand), so
-    Claude's refusal classes as `failed`; `upgradeStopForReachedWindow` turns a plain `failed` stop into `usage_limit`
+    Claude's refusal classes as `failed`; `upgradeStopForReachedWindow` (only for a configured vendor) turns a plain `failed` stop into `usage_limit`
     (not retryable, `retryAfter` = the reset) when the account has a `reached` window with a reset ahead, observed within
     10 minutes. If the refused request was the first of its turn no `rate_limit_event` may have arrived (ACP sends the
     usage update only after an assistant message): then only the percent threshold moves a Claude session.
@@ -1053,6 +1062,23 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     state, cache miss), macOS keychain naming under `CLAUDE_CONFIG_DIR`, a symlinked store inside bwrap, the token-refresh
     race of two processes on one home, whether a team seat's numbers include a teammate's use. Tests use fakes
     (`account_*_test.go`); Phase 0 resume checks were a CLI proxy, not DevKit's jail.
+  - **Spec "Failure handling" not implemented**: an account whose sign-in died keeps being picked (only the 15-minute
+    cooldown applies; `ErrAgentAuthRequired` does not set `signed_in = false`); no `no-shared-history` marker after a
+    failed resume; accounts skipped for a dead sign-in are not listed in the switch reason; `SaveUsage` runs synchronously
+    on the vendor's update goroutine (after the emit, before the recorder).
+  - **Before the feature is turned on** (the bridge/UI plan must settle each; none is built):
+    - `Put` accepts any `HomeDir`. The bridge/UI must require `<data>/agent-accounts/<vendor>/<id>`, absolute and clean,
+      built from the same `dataDir` string as `ProtectDataDir`, because `carveOutAll` is lexical.
+    - `accountProbeCooldown` serves both "a refusal that names no reset" and "reopen in the new home failed". A dead
+      sign-in on the other account makes `ErrAllAccountsLimited` say "reached its limit" (the wrong sentence), and a
+      session-specific failure keeps the account out for every session.
+    - A Claude window above 100% (overage) is marked `reached` by `percentStatus` and is not cleared by
+      `applyRateLimitStatus`, so `markAccountLimited` / `upgradeStopForReachedWindow` would treat an overage account as
+      limited. `reached` should need the event's status to be `rejected`.
+    - A window with `ResetsAt == 0` stays live for ever (no known reset to expire it).
+    - On macOS `AllowKeychain` stays on for Claude account sessions, so an account session can reach the built-in keychain
+      item; measure before relying on isolation.
+    - Claude's summary card now shows both `unifiedWindows` windows for everyone (intended).
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
   `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
   by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"

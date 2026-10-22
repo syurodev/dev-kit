@@ -68,13 +68,23 @@ type AccountBook interface {
 
 // mergeWindows returns old with each of fresh replacing the window of the same
 // label, in old's order, new labels last.
+//
+// A reading is not replaced by an older one of the same window: usage only
+// grows within one window, and two sessions on one account each re-send their
+// own last-known snapshot, so a lower percentage with the same label and the
+// same known reset is the stale one and the stored window wins entirely
+// (percentage, reset and status). A different reset is a new window and a
+// window with no known reset (ResetsAt 0) cannot be told apart, so both replace.
 func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
 	out := append([]LimitWindow(nil), old...)
 	for _, w := range fresh {
 		replaced := false
 		for i := range out {
 			if out[i].Label == w.Label {
-				out[i] = w
+				stale := w.ResetsAt != 0 && out[i].ResetsAt == w.ResetsAt && w.UsedPercent < out[i].UsedPercent
+				if !stale {
+					out[i] = w
+				}
 				replaced = true
 				break
 			}

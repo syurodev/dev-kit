@@ -88,7 +88,8 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 		if reporter, ok := rt.(environmentReporter); ok {
 			return reporter.reportEnvironment(ctx)
 		}
-		s.applyAccount(ctx, &spec, sess)
+		// A read-only report: it must not record which account a runtime runs as.
+		s.fillAccountSpec(ctx, &spec, sess)
 	}
 	s.applySandboxExtras(&spec)
 	adapter, ok := s.reg.Get(vendor)

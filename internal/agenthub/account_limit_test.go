@@ -452,6 +452,42 @@ func TestReachedWindowMakesAPlainFailureAUsageLimit(t *testing.T) {
 	}
 }
 
+// A reached window on a vendor the person never configured explains nothing:
+// the plain failure stays `failed`, and nothing follows from it (no mark on the
+// account, no follow-up on another).
+func TestReachedWindowIsIgnoredForAVendorThePersonDidNotConfigure(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalContinue)
+	rig.svc.AccountPolicy = nil
+	sess := startSession(t, rig)
+	seeReachedWindow(t, rig, time.Now().Add(2*time.Hour), time.Now())
+
+	_, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: plainFailPrompt})
+	if !errors.Is(err, agenthub.ErrTurnFailed) {
+		t.Fatalf("error = %v, want the vendor's own failure", err)
+	}
+	stop := storedStop(t, rig, sess.ID)
+	if stop == nil || stop.Kind != agenthub.StopFailed || !stop.Retryable || stop.RetryAfter != nil {
+		t.Fatalf("stored stop = %+v, want a plain, retryable failure", stop)
+	}
+	if got := exhaustedUntil(t, rig, builtinMock); !got.IsZero() && got.After(time.Now()) {
+		t.Errorf("the account was marked out until %v by a failure that is not a limit", got)
+	}
+	if n := countSent(rig, "FAIL_TURN_PLAIN"); n != 1 {
+		t.Errorf("the prompt was sent %d times, want 1 (no follow-up)", n)
+	}
+	if got := rowAccount(t, rig, sess.ID); got != "" {
+		t.Errorf("session account = %q, want it left on the built-in", got)
+	}
+
+	direct, err := rig.svc.UpgradeStopForTest(uiCtx(), sess.ID, agenthub.SessionStop{Kind: agenthub.StopFailed, Retryable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Kind != agenthub.StopFailed || !direct.Retryable || direct.RetryAfter != nil {
+		t.Errorf("upgradeStopForReachedWindow = %+v, want the stop unchanged", direct)
+	}
+}
+
 func TestReachedWindowRefusalIsResentOnTheNextAccount(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalResendIfNoProgress)
 	sess := startSession(t, rig)

@@ -105,9 +105,16 @@ const reachedWindowFresh = 10 * time.Minute
 // process or a provider outage each has its own cause, and a usage or rate
 // limit is already one. Best effort: it never fails or blocks the recording of
 // the stop (errors are logged, the stop is returned unchanged), never holds s.mu
-// across the book, and does nothing without an account book.
+// across the book, and does nothing without an account book or for a vendor the
+// person has no account policy entry for (vendorConfigured).
 func (s *Service) upgradeStopForReachedWindow(ctx context.Context, sess AgentSession, stop SessionStop) SessionStop {
 	if s.Accounts == nil || stop.Kind != StopFailed {
+		return stop
+	}
+	// Like markAccountLimited, only for a vendor the person configured: without
+	// an entry nothing observed usage (observeAccountUsage), and a reading that
+	// is there says nothing about why a plain failure happened.
+	if !s.vendorConfigured(sess.AgentType) {
 		return stop
 	}
 	id := s.observedAccountID(ctx, sess.ID)
