@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 44 {
-		t.Fatalf("migration version = %d, want 44", version)
+	if version != 45 {
+		t.Fatalf("migration version = %d, want 45", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -905,5 +905,31 @@ func TestMigration43AddsSessionStop(t *testing.T) {
 	}
 	if notNull != 1 || dflt.String != "''" {
 		t.Fatalf("stop: notnull=%d default=%q", notNull, dflt.String)
+	}
+}
+
+func TestMigration45AddsAgentAccounts(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ table, column string }{
+		{TableAgentAccounts, "home_dir"},
+		{TableAgentAccounts, "shared"},
+		{TableAgentAccounts, "exhausted_until"},
+		{TableAgentAccounts, "usage"},
+		{TableAgentSessions, "agent_account_id"},
+	} {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.column).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("%s.%s missing after migration 45", c.table, c.column)
+		}
 	}
 }

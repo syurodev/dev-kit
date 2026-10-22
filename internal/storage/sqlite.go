@@ -28,6 +28,7 @@ const (
 	TableSyncConflicts      = "sync_conflicts"
 	TableEnvTags            = "env_tags"
 	TableAgentSessions      = "agent_sessions"
+	TableAgentAccounts      = "agent_accounts"
 	TableAgentDocuments     = "agent_documents"
 	// TableSessionChangeRequests ties a pull/merge request to an Agent Hub
 	// session by hand or by pr.create. Local like the session; not synced.
@@ -1406,7 +1407,36 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44})
+	// m45: the vendor accounts a person signed in to Agent Hub (agenthub.AccountRecord).
+	// Local, never synced, no credential: a vendor CLI keeps its own login in home_dir.
+	// agent_sessions.agent_account_id is the account a session's process runs as
+	// ('' = the built-in account).
+	m45 := Migration{
+		Version: 45,
+		Name:    "agent accounts",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					vendor TEXT NOT NULL,
+					label TEXT NOT NULL,
+					home_dir TEXT NOT NULL DEFAULT '',
+					signed_in INTEGER NOT NULL DEFAULT 0,
+					shared INTEGER NOT NULL DEFAULT 0,
+					exhausted_until INTEGER NOT NULL DEFAULT 0,
+					usage TEXT NOT NULL DEFAULT '',
+					usage_source TEXT NOT NULL DEFAULT '',
+					observed_at INTEGER NOT NULL DEFAULT 0,
+					created_at TEXT NOT NULL
+				)`, TableAgentAccounts,
+			)); err != nil {
+				return err
+			}
+			return addColumnIfNotExists(ctx, db, TableAgentSessions, "agent_account_id", "TEXT NOT NULL DEFAULT ''")
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45})
 	if err != nil {
 		return err
 	}
