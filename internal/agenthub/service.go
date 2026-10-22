@@ -400,6 +400,27 @@ type Service struct {
 	// started, so a change applies to the next session and to a Reload.
 	SubagentLimits func() (preferences.AgentSubagentLimits, error)
 
+	// Accounts holds the vendor accounts a session can run as and what is known
+	// of their usage. nil means the feature is off: every session runs as the
+	// built-in account, exactly as before. AccountPolicy reads the person's
+	// switching rules, AccountSharedHome the built-in account's home for a vendor
+	// (where the conversation store an added account links to lives). All set in
+	// main.go; read on every turn and every open, so an edit applies at once.
+	Accounts          AccountBook
+	AccountPolicy     func() (preferences.AgentAccountPolicy, error)
+	AccountSharedHome func(vendor AgentType) string
+
+	// accountSwitches remembers, per session, when it last moved and from where
+	// (anti flip-flop; not persisted). sessionAccount caches the account id a
+	// session's runtime runs as, for usage updates that carry only a session id.
+	// turnProgress marks a turn that produced output or a tool call, for
+	// onLimitRefusal. usageSeen is the last usage written per account, so an
+	// unchanged update writes nothing. All guarded by mu.
+	accountSwitches map[string]accountSwitch
+	sessionAccount  map[string]string
+	turnProgress    map[string]bool
+	usageSeen       map[string]string
+
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
 	rewinds  rewindPlans
@@ -430,14 +451,18 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		emit = func(string, json.RawMessage) {}
 	}
 	s := &Service{
-		reg:       reg,
-		store:     store,
-		recorder:  NewRecorder(store),
-		runtimes:  make(map[string]SessionRuntime),
-		endpoints: make(map[string]func()),
-		invoking:  make(map[string]struct{}),
-		resuming:  make(map[string]*resumeCall),
-		emit:      emit,
+		reg:             reg,
+		store:           store,
+		recorder:        NewRecorder(store),
+		runtimes:        make(map[string]SessionRuntime),
+		endpoints:       make(map[string]func()),
+		invoking:        make(map[string]struct{}),
+		resuming:        make(map[string]*resumeCall),
+		emit:            emit,
+		accountSwitches: make(map[string]accountSwitch),
+		sessionAccount:  make(map[string]string),
+		turnProgress:    make(map[string]bool),
+		usageSeen:       make(map[string]string),
 		// Off until main.go says otherwise: a machine with no git, or a user
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
@@ -2223,6 +2248,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
+	s.applyAccount(ctx, &spec, sess)
 	s.applySubagents(&spec, sess.AgentType)
 
 	if fresh {

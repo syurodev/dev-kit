@@ -82,6 +82,7 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 		}
 		vendor = sess.AgentType
 		spec = sessionOpenSpec(sess)
+		s.applyAccount(ctx, &spec, sess)
 		s.mu.Lock()
 		rt := s.runtimes[sessionID]
 		s.mu.Unlock()
@@ -108,7 +109,13 @@ func (a *CodexAdapter) inspectEnvironment(ctx context.Context, spec OpenSpec) (E
 		return missingEnvironment(AgentTypeCodex), nil
 	}
 	defer l.releaseLease()
-	return (environmentSnapshot{Agent: AgentTypeCodex, Spec: spec, Env: codexEnv(l, spec, a.opts.Home), Command: l.path, SkillHome: a.opts.Home}).report(ctx, "next")
+	// An account's session reports from its own home; the built-in account
+	// reports from the adapter's.
+	home := a.opts.Home
+	if spec.AccountHome != "" {
+		home = spec.AccountHome
+	}
+	return (environmentSnapshot{Agent: AgentTypeCodex, Spec: spec, Env: codexEnv(l, spec, home), Command: l.path, SkillHome: home}).report(ctx, "next")
 }
 
 func (a *ClaudeAdapter) inspectEnvironment(ctx context.Context, spec OpenSpec) (EnvironmentReport, error) {
