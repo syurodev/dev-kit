@@ -458,3 +458,26 @@ been tried.
 
 Note: `codex login` accepts `--device-auth` in this version for a machine without a browser; each home prints a
 harmless warning ("could not create PATH aliases … under temporary dir") when its home is under `/tmp`.
+
+**Codex — a second process on the same home, and a 429 the limits endpoint did not predict.**
+With a `codex exec` turn running on home A, a `codex app-server` started on the same home answered
+`account/rateLimits/read` normally and `auth.json` was byte-identical afterwards (hash compared). That proves little
+about the real hazard, a token **refresh** by two processes at once: the tokens were minutes old, so neither process
+refreshed, and no refresh can be provoked on demand. Treated as unmeasured. Design consequence: **while a session is
+running on an account, its usage is read through that session's own app-server process** (same
+`account/rateLimits/read` request on the connection DevKit already holds), and a short-lived second process is started
+only for an account with no running session — so two processes never share a home at refresh time.
+Separately, a `codex exec` turn on A then failed twice with `exceeded retry limit, last status: 429 Too Many Requests`
+while `account/rateLimits/read` said `primary` 0 %, `secondary` 10 %, `rateLimitReachedType: null`. So a limits reading
+cannot predict every refusal: a 429 is a *rate* refusal, not a spent window. `StopFromError` already classes a `429` as
+`rate_limited`; `markAccountLimited` must therefore treat it as a cooldown, not as "the window reached", which is what its
+15-minute default for a refusal that names no reset already does. Also seen: `codex exec` read stdin when started in the
+background with an open stdin (`Reading additional input from stdin…`) and hung until killed; DevKit speaks to
+`codex app-server` and is not affected.
+
+**Phase 0 decision (2026-10-22).** Shared store: **works** for both vendors (Claude `projects/`, Codex `sessions/`),
+measured with one account under two homes. Claude usage check: **`get_usage` control request**. Codex usage check:
+**`account/rateLimits/read`**. The gate is passed for building the backend; still open and carried to the accounts UI
+plan's e2e: a *different* account on the resumed side (server state, cache miss), macOS keychain naming under
+`CLAUDE_CONFIG_DIR`, a symlinked store inside the bwrap jail, whether a team seat's numbers include a teammate's use,
+and the refresh race.
