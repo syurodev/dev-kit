@@ -15,24 +15,32 @@ const (
 	// accountReturnGap is how far under the threshold an account must be before
 	// a session goes back to the one it left.
 	accountReturnGap = 10.0
-	// accountProbeCooldown is how long a refusal that names no reset keeps an
-	// account out, before the next turn may try it again.
-	accountProbeCooldown = 15 * time.Minute
 )
 
 // PickInput is everything PickAccount decides from. Accounts are all of one
-// vendor's; Current is the account the session is bound to ("" is the built-in).
+// vendor's.
 type PickInput struct {
-	Policy     preferences.AccountVendorPolicy
-	Accounts   []AccountRecord
-	Current    string
-	Now        time.Time
-	SwitchedAt time.Time // when this session last switched; zero = never
-	Previous   string    // the account it left then
+	Policy   preferences.AccountVendorPolicy
+	Accounts []AccountRecord
+	// Current is the account the session is bound to; "" means the vendor's
+	// built-in account.
+	Current string
+	Now     time.Time
+	// SwitchedAt is when this session last switched; zero = never.
+	SwitchedAt time.Time
+	// Previous is the account the session left at that switch. It must be an
+	// account id: the built-in's is BuiltinAccountID(vendor), never "". "" means
+	// none (never switched).
+	Previous string
 }
 
 // PickDecision says which account the next turn runs as.
 type PickDecision struct {
+	// Target is the account id the next turn runs as (the built-in is
+	// BuiltinAccountID(vendor), not ""), EXCEPT on the early "stay" returns
+	// (disabled policy, fewer than two accounts, Current not in the list), where
+	// it is Current exactly as given. Callers decide on Switch and AllLimited,
+	// never on Target != Current.
 	Target string
 	Switch bool
 	// Reason is why the current account was left ("Weekly 92% ≥ 90%"), or why
@@ -86,7 +94,11 @@ func PickAccount(in PickInput) PickDecision {
 }
 
 // accountFine reports whether an account may run a turn: not marked exhausted
-// and every window not yet reset under its threshold (lowered by margin).
+// and every window not yet reset under its threshold (lowered by margin). A
+// weekly window (isWeeklyLabel) uses the policy's weekly threshold in place of
+// the main one when that is set. A non-positive main threshold falls back to the
+// default. A window with ResetsAt == 0 has no known reset and stays live. margin
+// lowers the limit: a window at limit-margin or above refuses the account.
 func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Time, margin float64) (bool, string) {
 	if a.ExhaustedUntil.After(now) {
 		return false, "usage limit reached"
@@ -110,6 +122,8 @@ func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Ti
 	return true, ""
 }
 
+// orderedAccounts returns a copy of accounts sorted by order: accounts missing
+// from order come after the ordered ones, in input order.
 func orderedAccounts(order []string, accounts []AccountRecord) []AccountRecord {
 	rank := make(map[string]int, len(order))
 	for i, id := range order {
