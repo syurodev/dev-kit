@@ -1960,6 +1960,9 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	if parsed.Kind == UpdateProviderRetry {
 		s.markProviderRetry(sessionID, parsed.Retry != nil)
 	}
+	if parsed.Kind == UpdateUsage {
+		s.observeAccountUsage(ctx, sessionID, parsed)
+	}
 	// The live event above carries any page picture; the stored row does not.
 	stored, _ := slimPageImages(parsed)
 	if err := s.recorder.Record(ctx, sessionID, stored); err != nil && s.OnRecordError != nil {
