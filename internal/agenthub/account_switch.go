@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -150,18 +151,35 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 // switch failed. If the move back cannot be written the session stays on the
 // target — the row says so, so the transcript says the move happened — and the
 // turn's own resolve tries the target once more, failing as any resume does.
+//
+// The clean-up runs on a context that outlives the turn's: the open that failed
+// may have failed because the turn's own context ended, and a dead context
+// would make every database call here return its error, leaving the session on
+// a target that never opened. When that is why the open failed the account was
+// not at fault, so it is not put on the cooldown and no notice blames it.
 func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, from, target, reason string, openErr error) {
-	log.Printf("agenthub: session %s: could not open on account %s: %v; moving it back to %s", sess.ID, target, openErr, from)
-	backErr := s.moveSession(ctx, sess, bound)
-	if err := s.Accounts.MarkExhausted(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
-		log.Printf("agenthub: account %s: could not keep it out after a failed open: %v", target, err)
+	turnEnded := ctx.Err() != nil || errors.Is(openErr, context.Canceled) || errors.Is(openErr, context.DeadlineExceeded)
+	ctx = context.WithoutCancel(ctx)
+	backErr := error(nil)
+	if turnEnded {
+		log.Printf("agenthub: session %s: the turn ended while opening on account %s: %v; moving it back to %s without blaming the account", sess.ID, target, openErr, from)
+		backErr = s.moveSession(ctx, sess, bound)
+	} else {
+		log.Printf("agenthub: session %s: could not open on account %s: %v; moving it back to %s", sess.ID, target, openErr, from)
+		backErr = s.moveSession(ctx, sess, bound)
+		if err := s.Accounts.MarkExhausted(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
+			log.Printf("agenthub: account %s: could not keep it out after a failed open: %v", target, err)
+		}
 	}
 	if backErr != nil {
 		log.Printf("agenthub: session %s: could not move back to account %s: %v; it stays on %s", sess.ID, from, backErr, target)
 		s.noteAccountSwitch(ctx, sess.ID, from, target, reason)
 		return
 	}
-	s.handleUpdate(context.WithoutCancel(ctx), sess.ID,
+	if turnEnded {
+		return
+	}
+	s.handleUpdate(ctx, sess.ID,
 		accountSwitchFailedUpdate(from, target, clipRunes(oneLine(openErr.Error()), 300)))
 }
 

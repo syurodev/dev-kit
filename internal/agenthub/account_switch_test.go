@@ -48,7 +48,7 @@ type countedMock struct {
 
 func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
 	c.opens.Add(1)
-	if err := c.hook.enter(spec); err != nil {
+	if err := c.hook.enter(ctx, spec); err != nil {
 		return nil, err
 	}
 	return c.hook.opened(c.resumableMock.Open(ctx, spec))(spec)
@@ -56,7 +56,7 @@ func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub
 
 func (c countedMock) Load(ctx context.Context, spec agenthub.OpenSpec, id string) (agenthub.SessionRuntime, error) {
 	c.opens.Add(1)
-	if err := c.hook.enter(spec); err != nil {
+	if err := c.hook.enter(ctx, spec); err != nil {
 		return nil, err
 	}
 	return c.hook.opened(c.resumableMock.Load(ctx, spec, id))(spec)
@@ -70,6 +70,7 @@ var errAccountHomeBroken = errors.New("the account's sign-in has expired")
 type vendorHook struct {
 	homeOpens atomic.Int32 // opens (attempted) in an added account's home
 	failHome  atomic.Bool  // refuse every open in an added account's home
+	ctxEnds   atomic.Bool  // an open in an added account's home answers its context's error once that has ended
 
 	mu      sync.Mutex
 	block   chan struct{} // the next open waits for it to close
@@ -93,7 +94,7 @@ func (h *vendorHook) holdNextOpen() (started <-chan struct{}, release func()) {
 	return h.started, func() { once.Do(func() { close(block) }) }
 }
 
-func (h *vendorHook) enter(spec agenthub.OpenSpec) error {
+func (h *vendorHook) enter(ctx context.Context, spec agenthub.OpenSpec) error {
 	if spec.AccountHome != "" {
 		h.homeOpens.Add(1)
 		if h.failHome.Load() {
@@ -107,6 +108,9 @@ func (h *vendorHook) enter(spec agenthub.OpenSpec) error {
 	if block != nil {
 		close(started)
 		<-block
+	}
+	if spec.AccountHome != "" && h.ctxEnds.Load() && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return nil
 }

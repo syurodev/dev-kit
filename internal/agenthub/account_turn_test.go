@@ -389,6 +389,79 @@ func TestAccountTurnStaysOnItsAccountWhenTheNewOneCannotOpen(t *testing.T) {
 	}
 }
 
+// A turn whose context ends while the target account opens did not find the
+// account broken: the session goes back, the account is not put on the
+// cooldown, nothing says the switch failed, and the next turn tries it again.
+func TestAccountTurnEndedWhileTheNewOneOpensDoesNotBlameIt(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	rig.fillBuiltin(t, 95)
+	rig.vendor.ctxEnds.Store(true)
+	sess := startSession(t, rig)
+	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
+
+	started, release := rig.vendor.holdNextOpen()
+	defer release()
+	ctx, cancel := context.WithCancel(uiCtx())
+	defer cancel()
+	invoked := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"})
+		invoked <- err
+	}()
+	select {
+	case <-started: // the open in the work home is inside the vendor
+	case err := <-invoked:
+		t.Fatalf("the turn ended (%v) before the open in the new account began", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the open in the new account did not begin")
+	}
+	cancel()
+	release()
+	select {
+	case <-invoked: // cancelled; its outcome is not what this test is about
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn did not end")
+	}
+
+	if got := rowAccount(t, rig, sess.ID); got != "" {
+		t.Errorf("session account = %q, want the built-in it was on (empty, as it was written)", got)
+	}
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); !ok || got != builtin {
+		t.Errorf("cached account = %q (%v), want the built-in", got, ok)
+	}
+	if n := switchNotices(rig); len(n) != 0 {
+		t.Errorf("a move that did not stand must not be announced; got %v", n)
+	}
+	if n := failedSwitchNotices(rig); len(n) != 0 {
+		t.Errorf("an ended turn is not a failed switch; got %v", n)
+	}
+	work, err := rig.book.Get(context.Background(), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !work.ExhaustedUntil.IsZero() {
+		t.Errorf("work kept out until %v, want no cooldown: the account was not at fault", work.ExhaustedUntil)
+	}
+	if status := mustStatus(t, rig, sess.ID); status != agenthub.SessionStatusIdle {
+		t.Errorf("status after the ended turn = %s, want idle", status)
+	}
+
+	// The account was not blamed, so a turn with a live context moves to it.
+	rig.vendor.ctxEnds.Store(false)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "again"}); err != nil {
+		t.Fatalf("next turn: %v", err)
+	}
+	if got := rowAccount(t, rig, sess.ID); got != "work" {
+		t.Errorf("session account after the next turn = %q, want work", got)
+	}
+	if got := rig.mock.LastSpec().AccountHome; got != rig.home {
+		t.Errorf("the next turn ran in %q, want the account home %q", got, rig.home)
+	}
+	if n := switchNotices(rig); len(n) != 1 {
+		t.Errorf("want one switch notice after the next turn, got %v", n)
+	}
+}
+
 // accountWritesFailFrom writes a session's account until the n-th call, then
 // refuses.
 type accountWritesFailFrom struct {

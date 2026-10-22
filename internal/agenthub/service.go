@@ -2188,7 +2188,10 @@ type resumeCall struct {
 // Fails with ErrUnavailable, not something new: to a caller this is still "no
 // runtime", and only the reason differs — vendor cannot resume, no id was
 // recorded, or the attempt failed. The old behaviour is the floor, so a vendor
-// without SessionLoader is exactly as available as before.
+// without SessionLoader is exactly as available as before. The one exception is
+// a session deleted between the caller's read and the resume: the row is read
+// again once the resume owns the session, and its absence is the store's
+// ErrSessionNotFound.
 //
 // A fresh MCP endpoint is opened for the resumed session because the old one
 // died with its process, and the identity-bound socket is what ties the agent's
