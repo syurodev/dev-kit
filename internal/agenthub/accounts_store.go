@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -20,6 +21,9 @@ var _ AccountBook = (*SQLAccountStore)(nil)
 
 const accountColumns = `id, vendor, label, home_dir, signed_in, shared, exhausted_until, usage, usage_source, observed_at`
 
+// scanAccount reads one row of accountColumns. Migration 45 stores
+// exhausted_until and observed_at as Unix seconds, while created_at is an
+// RFC3339 string.
 func scanAccount(scan func(dest ...any) error) (AccountRecord, error) {
 	var a AccountRecord
 	var vendor, usage string
@@ -41,6 +45,13 @@ func scanAccount(scan func(dest ...any) error) (AccountRecord, error) {
 		_ = json.Unmarshal([]byte(usage), &a.Usage)
 	}
 	return a, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (st *SQLAccountStore) ensureBuiltin(ctx context.Context, vendor AgentType) error {
@@ -83,6 +94,16 @@ func (st *SQLAccountStore) Get(ctx context.Context, id string) (AccountRecord, e
 }
 
 func (st *SQLAccountStore) Put(ctx context.Context, a AccountRecord) error {
+	switch {
+	case a.ID == "":
+		return fmt.Errorf("%w: an account needs an id", ErrInvalidAccount)
+	case a.Vendor == "":
+		return fmt.Errorf("%w: an account needs a vendor", ErrInvalidAccount)
+	case a.ID == BuiltinAccountID(a.Vendor) && a.HomeDir != "":
+		return fmt.Errorf("%w: the built-in account has no home folder", ErrInvalidAccount)
+	case a.ID != BuiltinAccountID(a.Vendor) && a.HomeDir == "":
+		return fmt.Errorf("%w: only the built-in account may have no home folder", ErrInvalidAccount)
+	}
 	_, err := st.db.ExecContext(ctx,
 		`INSERT INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, shared, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -92,26 +113,37 @@ func (st *SQLAccountStore) Put(ctx context.Context, a AccountRecord) error {
 	return err
 }
 
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
+// SaveUsage reads, merges and writes the usage in one transaction: sessions of
+// one account report concurrently, each with a different window, and a
+// read-merge-write across separate statements would lose one of them.
 func (st *SQLAccountStore) SaveUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error {
-	cur, err := st.Get(ctx, id)
+	tx, err := st.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(mergeWindows(cur.Usage, windows))
+	defer tx.Rollback() // a no-op once committed
+	var stored string
+	if err := tx.QueryRowContext(ctx, `SELECT usage FROM `+tableAgentAccounts+` WHERE id = ?`, id).Scan(&stored); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrAccountNotFound
+		}
+		return err
+	}
+	var cur []LimitWindow
+	if stored != "" {
+		// A reading this build cannot read is no reading, as in scanAccount.
+		_ = json.Unmarshal([]byte(stored), &cur)
+	}
+	raw, err := json.Marshal(mergeWindows(cur, windows))
 	if err != nil {
 		return err
 	}
-	_, err = st.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE `+tableAgentAccounts+` SET usage = ?, usage_source = ?, observed_at = ? WHERE id = ?`,
-		string(raw), source, at.Unix(), id)
-	return err
+		string(raw), source, at.Unix(), id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (st *SQLAccountStore) MarkExhausted(ctx context.Context, id string, until time.Time) error {

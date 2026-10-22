@@ -10,6 +10,10 @@ import (
 // ErrAccountNotFound is an account id the book does not hold.
 var ErrAccountNotFound = errors.New("agenthub.accountNotFound")
 
+// ErrInvalidAccount is a record Put refuses: no id or vendor, or a home that
+// would turn the built-in account into a second one or the reverse.
+var ErrInvalidAccount = errors.New("agenthub.invalidAccount")
+
 // AccountRecord is one vendor account a person can run sessions as. It holds no
 // credential: the vendor CLI keeps its login in HomeDir, and the built-in
 // account (HomeDir "") is the machine's own Claude login or DevKit's own Codex

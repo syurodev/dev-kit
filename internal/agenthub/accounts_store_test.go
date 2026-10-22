@@ -3,7 +3,9 @@ package agenthub_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,5 +113,125 @@ func TestAccountBookMarkExhaustedOnlyMovesLater(t *testing.T) {
 	}
 	if err := book.MarkExhausted(ctx, "missing", late); !errors.Is(err, agenthub.ErrAccountNotFound) {
 		t.Errorf("missing account error = %v, want ErrAccountNotFound", err)
+	}
+}
+
+func TestAccountBookSaveUsageKeepsEveryWindowUnderConcurrency(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	if err := book.Put(ctx, agenthub.AccountRecord{ID: "a", Vendor: agenthub.AgentTypeClaude, Label: "A", HomeDir: "/h/a", SignedIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	const n = 8
+	at := time.Unix(1_800_000_000, 0)
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- book.SaveUsage(ctx, "a", []agenthub.LimitWindow{{Label: fmt.Sprintf("w%d", i), UsedPercent: float64(i)}}, "observed", at)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := book.Get(ctx, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, w := range got.Usage {
+		seen[w.Label] = true
+	}
+	for i := 0; i < n; i++ {
+		if label := fmt.Sprintf("w%d", i); !seen[label] {
+			t.Errorf("window %s lost; usage = %+v", label, got.Usage)
+		}
+	}
+}
+
+func TestAccountBookSaveUsageOnAMissingAccount(t *testing.T) {
+	book := newAccountBook(t)
+	err := book.SaveUsage(context.Background(), "missing", []agenthub.LimitWindow{{Label: "Weekly"}}, "observed", time.Unix(1_800_000_000, 0))
+	if !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("error = %v, want ErrAccountNotFound", err)
+	}
+}
+
+func TestAccountBookListTwiceDoesNotDuplicateTheBuiltin(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		list, err := book.List(ctx, agenthub.AgentTypeClaude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != 1 || list[0].ID != agenthub.BuiltinAccountID(agenthub.AgentTypeClaude) {
+			t.Fatalf("list %d = %+v, want exactly the built-in", i+1, list)
+		}
+	}
+}
+
+func TestAccountBookSignedInIsReadBackAfterPut(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	for _, signedIn := range []bool{true, false} {
+		if err := book.Put(ctx, agenthub.AccountRecord{ID: "a", Vendor: agenthub.AgentTypeCodex, Label: "A", HomeDir: "/h/a", SignedIn: signedIn}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := book.Get(ctx, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.SignedIn != signedIn {
+			t.Errorf("SignedIn = %v after Put(%v)", got.SignedIn, signedIn)
+		}
+	}
+}
+
+func TestAccountBookPutRefusesRecordsThatBreakTheBuiltinRule(t *testing.T) {
+	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeClaude)
+	for _, tc := range []struct {
+		name string
+		rec  agenthub.AccountRecord
+	}{
+		{"empty id", agenthub.AccountRecord{Vendor: agenthub.AgentTypeClaude, Label: "x", HomeDir: "/h/x"}},
+		{"empty vendor", agenthub.AccountRecord{ID: "x", Label: "x", HomeDir: "/h/x"}},
+		{"built-in id with a home", agenthub.AccountRecord{ID: builtin, Vendor: agenthub.AgentTypeClaude, Label: "x", HomeDir: "/h/x"}},
+		{"other id without a home", agenthub.AccountRecord{ID: "x", Vendor: agenthub.AgentTypeClaude, Label: "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			book := newAccountBook(t)
+			if err := book.Put(context.Background(), tc.rec); !errors.Is(err, agenthub.ErrInvalidAccount) {
+				t.Errorf("error = %v, want ErrInvalidAccount", err)
+			}
+		})
+	}
+}
+
+func TestAccountBookPutAcceptsAnAddAndAnEditOfTheBuiltin(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	if err := book.Put(ctx, agenthub.AccountRecord{ID: "work", Vendor: agenthub.AgentTypeCodex, Label: "Work", HomeDir: "/h/work", SignedIn: true}); err != nil {
+		t.Fatalf("valid add refused: %v", err)
+	}
+	id := agenthub.BuiltinAccountID(agenthub.AgentTypeCodex)
+	if _, err := book.List(ctx, agenthub.AgentTypeCodex); err != nil { // creates the built-in
+		t.Fatal(err)
+	}
+	if err := book.Put(ctx, agenthub.AccountRecord{ID: id, Vendor: agenthub.AgentTypeCodex, Label: "Personal", SignedIn: true, Shared: true}); err != nil {
+		t.Fatalf("edit of the built-in refused: %v", err)
+	}
+	got, err := book.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Label != "Personal" || !got.Shared || !got.Builtin() {
+		t.Errorf("built-in after edit = %+v", got)
 	}
 }
