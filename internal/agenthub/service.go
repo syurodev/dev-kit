@@ -419,6 +419,10 @@ type Service struct {
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
 	usageSeen       map[string]string
+	// waitHook, when set (tests only, see export_test.go), is called each time
+	// a caller is about to wait on a resume or a move in flight: waiter is
+	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
+	waitHook func(waiter, sessionID string)
 
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
@@ -2214,7 +2218,11 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	// resume, and two at once would open two MCP endpoints on one socket path.
 	s.mu.Lock()
 	if call, busy := s.resuming[sess.ID]; busy {
+		hook := s.waitHook
 		s.mu.Unlock()
+		if hook != nil {
+			hook("resume", sess.ID)
+		}
 		select {
 		case <-call.done:
 		case <-ctx.Done():
@@ -2249,6 +2257,15 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		call.err = err
 		close(call.done)
 	}()
+
+	// The row, not the caller's copy, names the account: a caller that read the
+	// session before an account move (and waited on the move's barrier above)
+	// must reopen where the session is bound now, not where it was.
+	row, err := s.store.GetSession(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	sess.AccountID = row.AccountID
 
 	spec := sessionOpenSpec(sess)
 	closeEndpoint := func() {}

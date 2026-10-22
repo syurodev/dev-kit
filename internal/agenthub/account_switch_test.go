@@ -3,12 +3,14 @@ package agenthub_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"devkit/internal/acp"
 	"devkit/internal/agenthub"
 	"devkit/internal/preferences"
 	"devkit/internal/storage"
@@ -22,6 +24,10 @@ type accountRig struct {
 	mu      sync.Mutex
 	emitted []json.RawMessage
 	opens   *atomic.Int32 // Open and Load calls of the vendor
+	vendor  *vendorHook   // what the vendor's Open and Load do besides opening
+	reg     *agenthub.Registry
+	store   agenthub.Store
+	refusal string
 }
 
 // rigOptions changes what newAccountRigWith builds; the zero value is newAccountRig.
@@ -32,20 +38,102 @@ type rigOptions struct {
 	noWork bool
 }
 
-// countedMock is resumableMock counting every process it opens.
+// countedMock is resumableMock counting every process it opens, and doing
+// what its vendorHook says before each.
 type countedMock struct {
 	resumableMock
 	opens *atomic.Int32
+	hook  *vendorHook
 }
 
 func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
 	c.opens.Add(1)
-	return c.resumableMock.Open(ctx, spec)
+	if err := c.hook.enter(spec); err != nil {
+		return nil, err
+	}
+	return c.hook.opened(c.resumableMock.Open(ctx, spec))(spec)
 }
 
 func (c countedMock) Load(ctx context.Context, spec agenthub.OpenSpec, id string) (agenthub.SessionRuntime, error) {
 	c.opens.Add(1)
-	return c.resumableMock.Load(ctx, spec, id)
+	if err := c.hook.enter(spec); err != nil {
+		return nil, err
+	}
+	return c.hook.opened(c.resumableMock.Load(ctx, spec, id))(spec)
+}
+
+// errAccountHomeBroken is what the vendor answers when vendorHook.failHome is set.
+var errAccountHomeBroken = errors.New("the account's sign-in has expired")
+
+// vendorHook lets a test hold an open, refuse the ones in an account home, and
+// read back which home each runtime was opened in.
+type vendorHook struct {
+	homeOpens atomic.Int32 // opens (attempted) in an added account's home
+	failHome  atomic.Bool  // refuse every open in an added account's home
+
+	mu      sync.Mutex
+	block   chan struct{} // the next open waits for it to close
+	started chan struct{} // closed when that open has begun
+	homes   []runtimeHome // every runtime opened, in order
+}
+
+type runtimeHome struct {
+	rt   agenthub.SessionRuntime
+	home string
+}
+
+// holdNextOpen makes the next Open or Load wait until release is called;
+// started is closed once that open is waiting.
+func (h *vendorHook) holdNextOpen() (started <-chan struct{}, release func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.block, h.started = make(chan struct{}), make(chan struct{})
+	block := h.block
+	var once sync.Once
+	return h.started, func() { once.Do(func() { close(block) }) }
+}
+
+func (h *vendorHook) enter(spec agenthub.OpenSpec) error {
+	if spec.AccountHome != "" {
+		h.homeOpens.Add(1)
+		if h.failHome.Load() {
+			return errAccountHomeBroken
+		}
+	}
+	h.mu.Lock()
+	block, started := h.block, h.started
+	h.block, h.started = nil, nil
+	h.mu.Unlock()
+	if block != nil {
+		close(started)
+		<-block
+	}
+	return nil
+}
+
+func (h *vendorHook) opened(rt agenthub.SessionRuntime, err error) func(agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return func(spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+		if err == nil {
+			h.mu.Lock()
+			h.homes = append(h.homes, runtimeHome{rt, spec.AccountHome})
+			h.mu.Unlock()
+		}
+		return rt, err
+	}
+}
+
+// promptedHomes is the home of every runtime that was sent a prompt, in the
+// order they were opened.
+func (h *vendorHook) promptedHomes() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []string
+	for _, r := range h.homes {
+		if p, ok := r.rt.(interface{ Prompts() [][]acp.ContentBlock }); ok && len(p.Prompts()) > 0 {
+			out = append(out, r.home)
+		}
+	}
+	return out
 }
 
 // updates returns what the service emitted so far (used by the switching tests of later tasks).
@@ -72,29 +160,17 @@ func newAccountRigWith(t *testing.T, refusal string, opts rigOptions) *accountRi
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	rig := &accountRig{mock: agenthub.NewMockAdapter(), book: agenthub.NewSQLAccountStore(db), home: t.TempDir(), opens: new(atomic.Int32)}
-	reg := agenthub.NewRegistry()
+	rig := &accountRig{
+		mock: agenthub.NewMockAdapter(), book: agenthub.NewSQLAccountStore(db), home: t.TempDir(),
+		opens: new(atomic.Int32), vendor: new(vendorHook), reg: agenthub.NewRegistry(), refusal: refusal,
+	}
 	// reload needs a vendor that can reopen a conversation
-	reg.Register(countedMock{resumableMock{rig.mock}, rig.opens})
-	var store agenthub.Store = agenthub.NewSQLStore(db)
+	rig.reg.Register(countedMock{resumableMock{rig.mock}, rig.opens, rig.vendor})
+	rig.store = agenthub.NewSQLStore(db)
 	if opts.store != nil {
-		store = opts.store(store)
+		rig.store = opts.store(rig.store)
 	}
-	rig.svc = agenthub.NewService(reg, store, func(_ string, u json.RawMessage) {
-		rig.mu.Lock()
-		rig.emitted = append(rig.emitted, u)
-		rig.mu.Unlock()
-	})
-	rig.svc.Accounts = rig.book
-	rig.svc.AccountSharedHome = func(agenthub.AgentType) string { return t.TempDir() }
-	rig.svc.AccountPolicy = func() (preferences.AgentAccountPolicy, error) {
-		return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
-			string(agenthub.AgentTypeMock): {
-				Enabled: true, ThresholdPercent: 90, UsageMaxAgeSeconds: 300, OnLimitRefusal: refusal,
-				Order: []string{agenthub.BuiltinAccountID(agenthub.AgentTypeMock), "work"},
-			},
-		}}, nil
-	}
+	rig.svc = rig.newService(t)
 	if opts.noWork {
 		return rig
 	}
@@ -103,6 +179,35 @@ func newAccountRigWith(t *testing.T, refusal string, opts rigOptions) *accountRi
 		t.Fatal(err)
 	}
 	return rig
+}
+
+// newService builds the rig's service over its registry and store, as the app
+// does at start.
+func (r *accountRig) newService(t *testing.T) *agenthub.Service {
+	t.Helper()
+	svc := agenthub.NewService(r.reg, r.store, func(_ string, u json.RawMessage) {
+		r.mu.Lock()
+		r.emitted = append(r.emitted, u)
+		r.mu.Unlock()
+	})
+	svc.Accounts = r.book
+	svc.AccountSharedHome = func(agenthub.AgentType) string { return t.TempDir() }
+	svc.AccountPolicy = func() (preferences.AgentAccountPolicy, error) {
+		return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
+			string(agenthub.AgentTypeMock): {
+				Enabled: true, ThresholdPercent: 90, UsageMaxAgeSeconds: 300, OnLimitRefusal: r.refusal,
+				Order: []string{agenthub.BuiltinAccountID(agenthub.AgentTypeMock), "work"},
+			},
+		}}, nil
+	}
+	return svc
+}
+
+// restart replaces the rig's service with a new one over the same store, the
+// way the app restarts: every session is left without a process.
+func (r *accountRig) restart(t *testing.T) {
+	t.Helper()
+	r.svc = r.newService(t)
 }
 
 // fillBuiltin reports the built-in account at pct in its weekly window (used by the switching tests of later tasks).
