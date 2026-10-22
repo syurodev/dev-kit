@@ -1,11 +1,15 @@
 package agenthub
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
+	"os"
 	"path/filepath"
-	"sync/atomic"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,8 +58,14 @@ func (r *usageRig) setAccount(id string) {
 	r.svc.mu.Unlock()
 }
 
-const usageUpdate92 = `{"sessionUpdate":"usage_update","used":10,"size":100,
-	"_meta":{"_claude/rateLimit":{"status":"allowed_warning","resetsAt":1900000000,"rateLimitType":"five_hour","utilization":92}}}`
+// usageUpdateAt is a usage_update with the context counter at used and the
+// 5-hour window at pct.
+func usageUpdateAt(used int, pct int) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"sessionUpdate":"usage_update","used":%d,"size":100,
+		"_meta":{"_claude/rateLimit":{"status":"allowed_warning","resetsAt":1900000000,"rateLimitType":"five_hour","utilization":%d}}}`, used, pct))
+}
+
+var usageUpdate92 = usageUpdateAt(10, 92)
 
 func (r *usageRig) wantFiveHour(t *testing.T, pct float64) {
 	t.Helper()
@@ -75,7 +85,7 @@ func TestUsageUpdatesAreMergedIntoTheSessionsAccount(t *testing.T) {
 	}
 	r.setAccount(BuiltinAccountID(AgentTypeMock))
 
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
 
 	r.wantFiveHour(t, 92)
 }
@@ -88,7 +98,7 @@ func TestUsageOfABrandNewBuiltInAccountIsStored(t *testing.T) {
 		t.Fatalf("Get before List = %v, want ErrAccountNotFound", err)
 	}
 
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
 
 	r.wantFiveHour(t, 92)
 }
@@ -103,7 +113,7 @@ func TestUsageOfASessionWithNoRecordedAccountIsTheBuiltInAccounts(t *testing.T) 
 		t.Fatal("test premise: CreateSession must not record an account")
 	}
 
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
 
 	r.wantFiveHour(t, 92)
 	r.svc.mu.Lock()
@@ -116,7 +126,7 @@ func TestUsageOfASessionWithNoRecordedAccountIsTheBuiltInAccounts(t *testing.T) 
 
 func TestUsageOfAnUnknownSessionIsDropped(t *testing.T) {
 	r := newUsageRig(t)
-	r.svc.handleUpdate(r.ctx, "no-such-session", json.RawMessage(usageUpdate92))
+	r.svc.handleUpdate(r.ctx, "no-such-session", usageUpdate92)
 	r.svc.mu.Lock()
 	n := len(r.svc.sessionAccount) + len(r.svc.usageSeen)
 	r.svc.mu.Unlock()
@@ -128,13 +138,13 @@ func TestUsageOfAnUnknownSessionIsDropped(t *testing.T) {
 // countingBook counts SaveUsage calls and can make them fail.
 type countingBook struct {
 	AccountBook
-	saves atomic.Int32
-	fail  atomic.Bool
+	saves int
+	fail  bool
 }
 
 func (c *countingBook) SaveUsage(ctx context.Context, id string, w []LimitWindow, source string, at time.Time) error {
-	c.saves.Add(1)
-	if c.fail.Load() {
+	c.saves++
+	if c.fail {
 		return errors.New("disk full")
 	}
 	return c.AccountBook.SaveUsage(ctx, id, w, source, at)
@@ -145,21 +155,21 @@ func TestAnUnchangedUsageUpdateIsNotWrittenAgain(t *testing.T) {
 	book := &countingBook{AccountBook: r.book}
 	r.svc.Accounts = book
 	r.setAccount(BuiltinAccountID(AgentTypeMock))
-
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
-	// The context counter moves on every turn; the limits did not.
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(
-		`{"sessionUpdate":"usage_update","used":50,"size":100,"_meta":{"_claude/rateLimit":{"status":"allowed_warning","resetsAt":1900000000,"rateLimitType":"five_hour","utilization":92}}}`))
-	// 2 saves: the first attempt hit a missing built-in row, then the retry after List.
-	if got := book.saves.Load(); got != 2 {
-		t.Fatalf("SaveUsage calls = %d, want 2 (first reading + its retry after List), none for repeats", got)
+	if _, err := r.book.List(r.ctx, AgentTypeMock); err != nil {
+		t.Fatal(err)
 	}
 
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(
-		`{"sessionUpdate":"usage_update","used":50,"size":100,"_meta":{"_claude/rateLimit":{"status":"allowed_warning","resetsAt":1900000000,"rateLimitType":"five_hour","utilization":93}}}`))
-	if got := book.saves.Load(); got != 3 {
-		t.Fatalf("SaveUsage calls = %d, want 3 after a changed percentage", got)
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+	// The context counter moves on every turn; the limits did not.
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdateAt(50, 92))
+	if book.saves != 1 {
+		t.Fatalf("SaveUsage calls = %d, want 1 (the first reading), none for repeats", book.saves)
+	}
+
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdateAt(50, 93))
+	if book.saves != 2 {
+		t.Fatalf("SaveUsage calls = %d, want 2 after a changed percentage", book.saves)
 	}
 	r.wantFiveHour(t, 93)
 }
@@ -173,22 +183,70 @@ func TestAFailedUsageWriteIsRetriedByTheNextIdenticalUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	book.fail.Store(true)
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92)) // must not panic or block
-	book.fail.Store(false)
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92))
+	book.fail = true
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92) // must not panic or block
+	book.fail = false
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
 
+	if book.saves != 2 {
+		t.Errorf("SaveUsage calls = %d, want 2 (the failure, then the retry)", book.saves)
+	}
 	r.wantFiveHour(t, 92)
+}
+
+func TestUsageOfADeletedAccountIsDroppedQuietlyAndNotRetried(t *testing.T) {
+	r := newUsageRig(t)
+	book := &countingBook{AccountBook: r.book}
+	r.svc.Accounts = book
+	// Not the session's built-in account, and no such row: it was deleted
+	// while the session runs. "foo-default" must not be taken for a built-in.
+	r.setAccount("foo-default")
+
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+
+	if book.saves != 1 {
+		t.Errorf("SaveUsage calls = %d, want 1: one failed write, no retry, identical update skipped", book.saves)
+	}
+	if logged.Len() != 0 {
+		t.Errorf("a deleted account logged %q, want nothing", logged.String())
+	}
+	if _, err := r.book.Get(r.ctx, "foo-default"); !errors.Is(err, ErrAccountNotFound) {
+		t.Errorf("Get(foo-default) = %v, want no row created", err)
+	}
+	if _, err := r.book.Get(r.ctx, BuiltinAccountID(AgentTypeMock)); !errors.Is(err, ErrAccountNotFound) {
+		t.Errorf("the session's built-in account got a row it was never asked for: %v", err)
+	}
+}
+
+func TestAFailedUsageWriteIsLogged(t *testing.T) {
+	r := newUsageRig(t)
+	book := &countingBook{AccountBook: r.book, fail: true}
+	r.svc.Accounts = book
+	r.setAccount(BuiltinAccountID(AgentTypeMock))
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
+
+	if !strings.Contains(logged.String(), "saving usage") {
+		t.Errorf("log = %q, want the failure", logged.String())
+	}
 }
 
 func TestUsageUpdatesNeedNoAccountBook(t *testing.T) {
 	r := newUsageRig(t)
 	r.svc.Accounts = nil
-	r.svc.handleUpdate(r.ctx, r.sess.ID, json.RawMessage(usageUpdate92)) // no panic
+	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92) // no panic
 }
 
 func TestAnUnchangedUsageReadingIsNotAChange(t *testing.T) {
-	svc := &Service{usageSeen: map[string]string{}}
+	svc := &Service{usageSeen: map[string][]LimitWindow{}}
 	w := []LimitWindow{{Label: "5-hour", UsedPercent: 50, ResetsAt: 1900000000}}
 	if !svc.usageChanged("a", w) {
 		t.Fatal("the first reading is a change")

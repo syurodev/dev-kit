@@ -411,14 +411,14 @@ type Service struct {
 	AccountSharedHome func(vendor AgentType) string
 
 	// All guarded by mu.
-	// accountSwitches: when and from where a session last moved (Task 10).
-	// sessionAccount: the account a session's runtime runs as (set here, read by Task 11).
-	// turnProgress: the turn produced output or a tool call (Task 12).
-	// usageSeen: the last usage written per account (Task 11).
+	// accountSwitches: when and from where a session last moved.
+	// sessionAccount: the account a session's runtime runs as.
+	// turnProgress: whether the running turn has produced output or a tool call.
+	// usageSeen: the last usage windows written per account, to skip repeats.
 	accountSwitches map[string]accountSwitch
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
-	usageSeen       map[string]string
+	usageSeen       map[string][]LimitWindow
 	// waitHook, when set (tests only, see export_test.go), is called each time
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
@@ -465,7 +465,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		accountSwitches: make(map[string]accountSwitch),
 		sessionAccount:  make(map[string]string),
 		turnProgress:    make(map[string]bool),
-		usageSeen:       make(map[string]string),
+		usageSeen:       make(map[string][]LimitWindow),
 		// Off until main.go says otherwise: a machine with no git, or a user
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},

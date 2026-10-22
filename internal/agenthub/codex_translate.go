@@ -606,15 +606,12 @@ func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
 		if w.WindowDurationMins != nil {
 			mins = *w.WindowDurationMins
 		}
-		window := LimitWindow{Label: prefix + codexWindowLabel(mins), UsedPercent: float64(w.UsedPercent), Status: "ok"}
+		window := LimitWindow{Label: prefix + codexWindowLabel(mins), UsedPercent: float64(w.UsedPercent), Status: percentStatus(float64(w.UsedPercent))}
 		if w.ResetsAt != nil {
 			window.ResetsAt = *w.ResetsAt
 		}
-		switch {
-		case w.UsedPercent >= 100 || s.RateLimitReachedType != nil:
+		if s.RateLimitReachedType != nil {
 			window.Status = "reached"
-		case w.UsedPercent >= 80:
-			window.Status = "warning"
 		}
 		out = append(out, window)
 	}
