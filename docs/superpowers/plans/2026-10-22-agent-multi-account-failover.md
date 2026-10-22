@@ -2602,6 +2602,11 @@ Expected: FAIL (the marker is never set).
 - [ ] **Step 3: Implement.** Append to `account_switch.go`:
 
 ```go
+// accountProbeCooldown is how long a refusal that names no reset keeps an
+// account out, before the next turn may try it again (a half-open probe).
+// Defined here, next to its use (Task 6 no longer carries it: it was unused there).
+const accountProbeCooldown = 15 * time.Minute
+
 // continueAfterLimit is what `continue` sends on the next account.
 const continueAfterLimit = "The previous account reached its usage limit. Continue where you left off."
 
