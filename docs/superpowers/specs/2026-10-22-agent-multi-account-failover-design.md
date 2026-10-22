@@ -58,7 +58,11 @@ any proxy that carries a token, an MCP tool that reads or edits accounts.
 
 ## Model
 
-### Accounts (`internal/agentaccounts`, a leaf; migration 45)
+### Accounts (`internal/agenthub/accounts*.go`, migration 45)
+
+Types and store live in `agenthub`, following `SQLStore`: `agenthub` already
+imports `preferences`, and a separate package would have to import
+`agenthub.LimitWindow`.
 
 Table `agent_accounts` — local, plaintext SQLite, **not synced, no credential**:
 
@@ -67,7 +71,7 @@ Table `agent_accounts` — local, plaintext SQLite, **not synced, no credential*
 | `id` | slug of the label, unique |
 | `vendor` | `claude` \| `codex` |
 | `label` | what the person calls it ("Work", "Personal") |
-| `home_dir` | `<data>/agent-homes/<vendor>/accounts/<id>` (empty for the built-in default) |
+| `home_dir` | `<data>/agent-accounts/<vendor>/<id>` (empty for the built-in default). Beside, never inside, `agent-homes/<vendor>`: Codex's built-in home is `<data>/agent-homes/codex`, and a home inside it would be readable by every built-in Codex session (its deny list is carved to its own home), exposing the other accounts' `auth.json`. |
 | `signed_in` | the vendor's own `login status` said so at last check |
 | `shared` | the person says other people also use this login (a team account); default false |
 | `usage_source` | `observed` \| `checked` — where the stored `usage` came from |
@@ -125,15 +129,18 @@ for the transcript notice and the audit line.
 `Service.invoke`, after the busy check and before `beginTurn`: first
 `refreshIfStale` (see "Usage": only for `shared` accounts whose reading is older
 than `usageMaxAgeSeconds`, time-boxed at 5 s, a failure keeps the old reading,
-flagged stale; `PickAccount` treats a stale reading as unknown, i.e. eligible,
-and the real-limit backstop covers the gap). Then, if `PickAccount` says switch, `Service` (a) closes the session's idle runtime, (b) writes
+flagged stale). `PickAccount` uses a reading as it is: a window's usage only
+grows until its `resetsAt`, so an old reading above the threshold is still true;
+an old reading below it proves nothing and the account stays eligible (the
+real-limit backstop covers that gap). Then, if `PickAccount` says switch, `Service` (a) closes the session's idle runtime, (b) writes
 `agent_account_id`, (c) records a `devkit`-sourced notice row ("Switched to
 Personal — Weekly 92 % ≥ 90 %", drawn like the peer notices, never as the
 person's bubble), (d) reopens through `resumeRuntime` with the new account's
 home. A failure to reopen leaves the old account bound and the turn runs (or
 fails) as before; it is logged and the notice says "could not switch".
-Sessions created by an agent choose by the same rule at creation; they do
-not inherit the parent's account. Resume/Reload keep the bound account.
+A new session starts on the built-in account and, like every session, is
+evaluated at the start of each turn, so its first turn chooses; it does not
+inherit its parent's account. Resume/Reload keep the bound account.
 
 ## Usage: observed, and checked on demand
 
@@ -217,7 +224,7 @@ as a person's prompt for peer-hop purposes and never re-attaches PDFs twice
 
 ## Isolation and continuity
 
-Per added account (`accounts/<id>/`):
+Per added account (`<data>/agent-accounts/<vendor>/<id>/`):
 
 - **Claude**: `CLAUDE_CONFIG_DIR=<home_dir>`. The directory holds the account's
   own credentials and `.claude.json`. Conversation store (`projects/`) is a
