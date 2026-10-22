@@ -19,6 +19,7 @@ const (
 	callVisibilityKey      = "codegraph_call_visibility"
 	agentModelProfilesKey  = "agent_model_profiles"
 	agentSubagentLimitsKey = "agent_subagent_limits"
+	agentAccountPolicyKey  = "agent_account_policy"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -327,5 +328,35 @@ func (r *SQLRepository) SetAgentSubagentLimits(limits AgentSubagentLimits) error
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentSubagentLimitsKey, string(body))
+	return err
+}
+
+// GetAgentAccountPolicy reads a value it cannot parse as unset: nothing is
+// enabled, which is how every session ran before accounts existed.
+func (r *SQLRepository) GetAgentAccountPolicy() (AgentAccountPolicy, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentAccountPolicyKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentAccountPolicy{}, false, nil
+	}
+	if err != nil {
+		return AgentAccountPolicy{}, false, err
+	}
+	var policy AgentAccountPolicy
+	if jsonErr := json.Unmarshal([]byte(value), &policy); jsonErr != nil {
+		return AgentAccountPolicy{}, false, nil
+	}
+	return policy, true, nil
+}
+
+func (r *SQLRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) error {
+	body, err := json.Marshal(policy)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentAccountPolicyKey, string(body))
 	return err
 }

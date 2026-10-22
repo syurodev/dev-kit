@@ -25,6 +25,8 @@ type MemoryRepository struct {
 	hasModelProfiles      bool
 	subagentLimits        AgentSubagentLimits
 	hasSubagentLimits     bool
+	accountPolicy         AgentAccountPolicy
+	hasAccountPolicy      bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -192,5 +194,19 @@ func (r *MemoryRepository) SetAgentSubagentLimits(limits AgentSubagentLimits) er
 	defer r.mu.Unlock()
 	r.subagentLimits = limits.clone()
 	r.hasSubagentLimits = true
+	return nil
+}
+
+func (r *MemoryRepository) GetAgentAccountPolicy() (AgentAccountPolicy, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.accountPolicy.clone(), r.hasAccountPolicy, nil
+}
+
+func (r *MemoryRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accountPolicy = policy.clone()
+	r.hasAccountPolicy = true
 	return nil
 }
