@@ -607,11 +607,10 @@ func main() {
 	agentSvc.AccountSharedHome = func(vendor agenthub.AgentType) string {
 		switch vendor {
 		case agenthub.AgentTypeClaude:
-			// The built-in account is whatever config directory the machine's
-			// own `claude` uses: $CLAUDE_CONFIG_DIR when set, else ~/.claude.
-			if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" && filepath.IsAbs(dir) {
-				return dir
-			}
+			// The built-in account is the machine's own ~/.claude: the Claude
+			// sandbox (claudeCredentialPaths, claudeEnvAllowlist) never reads
+			// $CLAUDE_CONFIG_DIR, so a built-in session uses ~/.claude whatever
+			// this process's environment says, and the store must be that one's.
 			if home, err := os.UserHomeDir(); err == nil {
 				return filepath.Join(home, ".claude")
 			}

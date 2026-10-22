@@ -977,8 +977,9 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   sessions always ran as.
   - **Homes.** An added account's home is meant to be `<data>/agent-accounts/<vendor>/<id>` (nothing creates one yet; the
     path is the `HomeDir` the accounts UI will write), beside and never inside the built-in Codex home `<data>/agent-homes/codex` (a built-in session's deny list is carved to its own
-    home only). The built-in Claude account is the machine's own config
-    directory (`main.go`: `$CLAUDE_CONFIG_DIR` when non-empty and absolute, else `~/.claude`). `PrepareAccountHome` links
+    home only). The built-in Claude account is the machine's own `~/.claude`
+    (`main.go`; the Claude sandbox never reads `$CLAUDE_CONFIG_DIR`, so a built-in session uses `~/.claude` whatever
+    DevKit's own environment says). `PrepareAccountHome` links
     only the conversation store, `sharedStoreEntries`: Claude `projects/`, Codex `sessions/` (the smallest set measured to
     resume; the sign-in, databases and `.claude.json` stay per account). It never replaces a real directory or a link to
     elsewhere, and refuses a home inside the shared store. `applyAccount` fills `OpenSpec.AccountHome` /
