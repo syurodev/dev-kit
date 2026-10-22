@@ -47,7 +47,11 @@ type AgentSession struct {
 	// Stop is why the last turn did not complete, when it did not (see
 	// SessionStop). Set when a turn ends in a failure, cleared when the next turn
 	// starts; nil on a session whose last turn completed.
-	Stop         *SessionStop `json:"Stop,omitempty"`
+	Stop *SessionStop `json:"Stop,omitempty"`
+	// AccountID is the vendor account this session's process runs as ("" is the
+	// built-in account: the machine's own Claude login, DevKit's own Codex home).
+	// Set when a turn moves the session to another account (account_switch.go).
+	AccountID    string `json:"AccountID,omitempty"`
 	ACPSessionID string
 	// ExtraReadWritePaths is the jail widening CreateSession was given (a
 	// workspace's other services — see CreateInput). Stored with the session
