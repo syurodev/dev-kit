@@ -3,6 +3,7 @@ package agenthub
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -32,77 +33,58 @@ func SharedStorePaths(vendor AgentType, sharedFrom string) []string {
 }
 
 // PrepareAccountHome creates an account's home (0700) and links its
-// conversation store to the shared one. It never removes or replaces anything:
-// a real directory where a link belongs is refused.
+// conversation store to the shared one. It also creates the shared store
+// directory inside the built-in account's home (sharedFrom): the link needs a
+// target. It never removes or replaces anything: a real directory or a link to
+// somewhere else where a link belongs is refused, as is a home that is a
+// symlink, not a directory, or inside the shared store (a cycle).
 func PrepareAccountHome(vendor AgentType, home, sharedFrom string) error {
-	if home == "" || !filepath.IsAbs(home) || !filepath.IsAbs(sharedFrom) {
+	if home == "" || sharedFrom == "" || !filepath.IsAbs(home) || !filepath.IsAbs(sharedFrom) {
 		return fmt.Errorf("%w: homes must be absolute paths", ErrAccountHome)
 	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return fmt.Errorf("%w: create %s: %v", ErrAccountHome, home, err)
+	home, sharedFrom = filepath.Clean(home), filepath.Clean(sharedFrom)
+	entries := sharedStoreEntries[vendor]
+	for _, name := range entries {
+		target := filepath.Join(sharedFrom, name)
+		if home == target || pathIsInside(home, target) {
+			return fmt.Errorf("%w: home %s is inside the shared store %s", ErrAccountHome, home, target)
+		}
 	}
-	for _, name := range sharedStoreEntries[vendor] {
+	switch info, err := os.Lstat(home); {
+	case err == nil && !info.IsDir():
+		return fmt.Errorf("%w: home %s is not a directory", ErrAccountHome, home)
+	case err == nil:
+		if err := os.Chmod(home, 0o700); err != nil {
+			return fmt.Errorf("%w: protect %s: %w", ErrAccountHome, home, err)
+		}
+	case errors.Is(err, fs.ErrNotExist):
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			return fmt.Errorf("%w: create %s: %w", ErrAccountHome, home, err)
+		}
+	default:
+		return fmt.Errorf("%w: %s: %w", ErrAccountHome, home, err)
+	}
+	for _, name := range entries {
 		target := filepath.Join(sharedFrom, name)
 		link := filepath.Join(home, name)
 		if err := os.MkdirAll(target, 0o700); err != nil {
-			return fmt.Errorf("%w: create %s: %v", ErrAccountHome, target, err)
+			return fmt.Errorf("%w: create %s: %w", ErrAccountHome, target, err)
 		}
 		info, err := os.Lstat(link)
 		switch {
 		case err == nil && info.Mode()&os.ModeSymlink != 0:
-			if current, _ := os.Readlink(link); current == target {
+			if current, _ := os.Readlink(link); filepath.Clean(current) == target {
 				continue
 			}
 			return fmt.Errorf("%w: %s already links somewhere else", ErrAccountHome, link)
 		case err == nil:
 			return fmt.Errorf("%w: %s exists and is not a link; DevKit will not replace it", ErrAccountHome, link)
-		case !os.IsNotExist(err):
-			return fmt.Errorf("%w: %v", ErrAccountHome, err)
+		case !errors.Is(err, fs.ErrNotExist):
+			return fmt.Errorf("%w: %s: %w", ErrAccountHome, link, err)
 		}
 		if err := os.Symlink(target, link); err != nil {
-			return fmt.Errorf("%w: link %s: %v", ErrAccountHome, link, err)
+			return fmt.Errorf("%w: link %s: %w", ErrAccountHome, link, err)
 		}
 	}
 	return nil
-}
-
-// carveOutAll is carveOut for several paths at once: every deny path that holds
-// one of keeps is replaced by its entries, recursively, except the way down to
-// each kept path. Calling carveOut once per root cannot do this — the second
-// call would hide the first root's siblings' contents again.
-//
-// Entries are listed when a session opens; an entry created later beside a kept
-// path is not hidden from that session (as with carveOut). An unlistable
-// directory stays hidden whole, so the kept path cannot be reached and the spawn
-// fails closed.
-func carveOutAll(deny []string, keeps ...string) []string {
-	var out []string
-	for _, path := range deny {
-		out = append(out, carveKeeps(path, keeps)...)
-	}
-	return out
-}
-
-func carveKeeps(dir string, keeps []string) []string {
-	var inside []string
-	for _, keep := range keeps {
-		if keep == dir {
-			return nil
-		}
-		if pathIsInside(keep, dir) {
-			inside = append(inside, keep)
-		}
-	}
-	if len(inside) == 0 {
-		return []string{dir}
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return []string{dir}
-	}
-	var out []string
-	for _, entry := range entries {
-		out = append(out, carveKeeps(filepath.Join(dir, entry.Name()), inside)...)
-	}
-	return out
 }
