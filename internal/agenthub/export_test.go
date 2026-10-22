@@ -20,3 +20,11 @@ func (s *Service) RuntimeForTest(sessionID string) (SessionRuntime, bool) {
 func (s *Service) BindSessionAccountForTest(ctx context.Context, id, accountID string) error {
 	return s.store.UpdateSessionAccount(ctx, id, accountID, time.Now().UTC())
 }
+
+// SessionAccountCachedForTest returns the account id a session's runtime is cached as running.
+func (s *Service) SessionAccountCachedForTest(id string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.sessionAccount[id]
+	return v, ok
+}

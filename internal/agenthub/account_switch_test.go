@@ -22,6 +22,7 @@ type accountRig struct {
 	emitted []json.RawMessage
 }
 
+// updates returns what the service emitted so far (used by the switching tests of later tasks).
 func (r *accountRig) updates() []json.RawMessage {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,7 +66,7 @@ func newAccountRig(t *testing.T, refusal string) *accountRig {
 	return rig
 }
 
-// fillBuiltin reports the built-in account at pct in its weekly window.
+// fillBuiltin reports the built-in account at pct in its weekly window (used by the switching tests of later tasks).
 func (r *accountRig) fillBuiltin(t *testing.T, pct float64) {
 	t.Helper()
 	w := agenthub.LimitWindow{Label: "Weekly", UsedPercent: pct, ResetsAt: time.Now().Add(24 * time.Hour).Unix()}
@@ -113,9 +114,61 @@ func TestResumedSessionOnTheBuiltinOrAMissingAccountLeavesTheSpecAlone(t *testin
 			t.Errorf("%s: spec carries home %q / shared %v, want the built-in account", what, spec.AccountHome, spec.AccountSharedPaths)
 		}
 	}
+	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
+	cached := func(want string) {
+		t.Helper()
+		if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); !ok || got != want {
+			t.Errorf("cached account = %q (%v), want %q", got, ok, want)
+		}
+	}
 	check("session on the built-in account")
+	cached(builtin)
 	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
 	check("session whose account row is gone")
+	cached(builtin) // the runtime runs as the built-in account, not as "gone"
+}
+
+func TestSessionAccountCacheSaysWhatRunsAndIsForgottenOnClose(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	sess, err := rig.svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, "work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.ResumeSession(uiCtx(), sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); !ok || got != "work" {
+		t.Fatalf("cached account = %q (%v), want work", got, ok)
+	}
+	if err := rig.svc.CloseSession(uiCtx(), sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
+		t.Errorf("after CloseSession the cache still holds %q", got)
+	}
+}
+
+func TestDeleteSessionForgetsItsCachedAccount(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	sess, err := rig.svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.ResumeSession(uiCtx(), sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rig.svc.SessionAccountCachedForTest(sess.ID); !ok {
+		t.Fatal("an opened session should be cached")
+	}
+	if err := rig.svc.DeleteSession(uiCtx(), sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
+		t.Errorf("after DeleteSession the cache still holds %q", got)
+	}
 }

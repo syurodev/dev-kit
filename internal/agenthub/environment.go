@@ -82,13 +82,13 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 		}
 		vendor = sess.AgentType
 		spec = sessionOpenSpec(sess)
-		s.applyAccount(ctx, &spec, sess)
 		s.mu.Lock()
 		rt := s.runtimes[sessionID]
 		s.mu.Unlock()
 		if reporter, ok := rt.(environmentReporter); ok {
 			return reporter.reportEnvironment(ctx)
 		}
+		s.applyAccount(ctx, &spec, sess)
 	}
 	s.applySandboxExtras(&spec)
 	adapter, ok := s.reg.Get(vendor)

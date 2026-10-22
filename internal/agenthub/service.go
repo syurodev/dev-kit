@@ -410,12 +410,11 @@ type Service struct {
 	AccountPolicy     func() (preferences.AgentAccountPolicy, error)
 	AccountSharedHome func(vendor AgentType) string
 
-	// accountSwitches remembers, per session, when it last moved and from where
-	// (anti flip-flop; not persisted). sessionAccount caches the account id a
-	// session's runtime runs as, for usage updates that carry only a session id.
-	// turnProgress marks a turn that produced output or a tool call, for
-	// onLimitRefusal. usageSeen is the last usage written per account, so an
-	// unchanged update writes nothing. All guarded by mu.
+	// All guarded by mu.
+	// accountSwitches: when and from where a session last moved (Task 10).
+	// sessionAccount: the account a session's runtime runs as (set here, read by Task 11).
+	// turnProgress: the turn produced output or a tool call (Task 12).
+	// usageSeen: the last usage written per account (Task 11).
 	accountSwitches map[string]accountSwitch
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
@@ -1321,6 +1320,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
 	s.forgetWorkspaceContextLocked(id)
+	s.forgetSessionAccountLocked(id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -1430,6 +1430,9 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	for _, target := range ids {
 		s.recorder.Drop(target)
 		s.peers.forget(target) // messages waiting for a session that no longer exists
+		s.mu.Lock()
+		s.forgetSessionAccountLocked(target)
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -2141,6 +2144,9 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 	}
 	delete(s.runtimes, id)
 	s.forgetWorkspaceContextLocked(id)
+	// Nothing runs as an account now; the reopen writes it again. The switch
+	// memory stays: the session is still the same one.
+	delete(s.sessionAccount, id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
