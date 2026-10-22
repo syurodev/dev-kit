@@ -654,6 +654,9 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Kind = UpdateUsage
 		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
 		usage.Limits = limitsOfRateLimit(usage.RateLimit)
+		if unified := unifiedLimitWindows(wire.Meta); len(unified) > 0 {
+			usage.Limits = unified
+		}
 		if wire.DevKit != nil {
 			usage.Tokens = wire.DevKit.Tokens
 			if len(wire.DevKit.Limits) > 0 {
