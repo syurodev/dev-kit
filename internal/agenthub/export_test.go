@@ -46,3 +46,35 @@ func (s *Service) SessionAccountCachedForTest(id string) (string, bool) {
 	v, ok := s.sessionAccount[id]
 	return v, ok
 }
+
+// SetFollowUpHookForTest sets what is called just before the follow-up of a
+// turn refused for a real limit is sent.
+func (s *Service) SetFollowUpHookForTest(hook func(sessionID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.followUpHook = hook
+}
+
+// ClaimSessionForTest takes a session's turn claim the way a running turn
+// holds it; release gives it back.
+func (s *Service) ClaimSessionForTest(id string) (release func()) {
+	s.mu.Lock()
+	s.invoking[id] = struct{}{}
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.invoking, id)
+		s.mu.Unlock()
+	}
+}
+
+// MarkAccountLimitedForTest records a stop against a session's account the way
+// a refused turn does.
+func (s *Service) MarkAccountLimitedForTest(ctx context.Context, id string, stop SessionStop) error {
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.markAccountLimited(ctx, sess, stop)
+	return nil
+}

@@ -423,6 +423,10 @@ type Service struct {
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
 	waitHook func(waiter, sessionID string)
+	// followUpHook, when set (tests only), is called just before the one
+	// follow-up of a turn refused for a real limit is sent (account_limit.go).
+	// Read under mu.
+	followUpHook func(sessionID string)
 
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
@@ -1475,8 +1479,17 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 }
 
 // Invoke runs a blocking prompt turn on an existing session.
+//
+// A turn the vendor refused for a real limit has left its account marked
+// (recordStop). Whether anything is sent on the next account is the person's
+// onLimitRefusal: followRefusal sends at most one follow-up, through invoke, so
+// it is never followed in turn. A peer's turn (invoke with a peerRun) gets none.
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
-	return s.invoke(ctx, in, nil)
+	result, err := s.invoke(ctx, in, nil)
+	if errors.Is(err, ErrAgentUsageLimit) {
+		return s.followRefusal(ctx, in, result, err)
+	}
+	return result, err
 }
 
 // invoke is Invoke, and the turn a message from another session starts (peer
@@ -1589,6 +1602,8 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		delete(s.invoking, in.SessionID)
 		s.mu.Unlock()
 	}
+	// A new turn has produced nothing yet (what a refusal may resend depends on it).
+	s.resetTurnProgress(in.SessionID)
 	// The turn's one name, from here to the row written when it ends: the
 	// prompt's echo carries it, the turn row stores it, and a checkpoint or a
 	// rewind names the turn by it. The live stream and a reloaded page agree on
@@ -1963,6 +1978,7 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	if parsed.Kind == UpdateUsage {
 		s.observeAccountUsage(ctx, sessionID, parsed)
 	}
+	s.noteTurnProgress(sessionID, parsed.Kind)
 	// The live event above carries any page picture; the stored row does not.
 	stored, _ := slimPageImages(parsed)
 	if err := s.recorder.Record(ctx, sessionID, stored); err != nil && s.OnRecordError != nil {

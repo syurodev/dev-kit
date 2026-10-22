@@ -17,6 +17,9 @@ import (
 // announced: whoever cancelled knows.
 func (s *Service) recordStop(ctx context.Context, sess AgentSession, turnErr error, timedOut bool, invoker identity.Caller) {
 	stop := StopFromError(turnErr, time.Now(), timedOut)
+	// A real limit keeps the account the turn ran as out until it is usable
+	// again (account_limit.go). sess is the session after any account move.
+	s.markAccountLimited(ctx, sess, stop)
 	if err := s.store.UpdateSessionStop(ctx, sess.ID, &stop, stop.Since); err != nil {
 		log.Printf("agenthub: recording why session %s stopped: %v", sess.ID, err)
 		return

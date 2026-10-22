@@ -435,7 +435,25 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		const said = "Upstream request failed: Endpoint is unavailable."
 		return PromptOutcome{}, WithStopHint(vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said), StopHint{Attempts: 11})
 	}
-	if strings.Contains(text, "FAIL_USAGE_LIMIT") {
+	// The provider throttled the requests: a 429 in the vendor's own words,
+	// which StopFromError reads as rate_limited.
+	if strings.Contains(text, "FAIL_RATE_LIMIT_429") {
+		const said = "429 Too Many Requests"
+		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said)
+	}
+	// The limit hit mid-turn: the agent had already said something, so the
+	// turn made progress before it was refused.
+	if strings.Contains(text, "FAIL_USAGE_LIMIT_AFTER_OUTPUT") && h.OnUpdate != nil {
+		chunk, err := json.Marshal(map[string]any{
+			"sessionUpdate": "agent_message_chunk",
+			"content":       map[string]any{"type": "text", "text": "mock partial reply"},
+		})
+		if err != nil {
+			return PromptOutcome{}, err
+		}
+		h.OnUpdate(chunk, nil)
+	}
+	if strings.Contains(text, "FAIL_USAGE_LIMIT") { // also FAIL_USAGE_LIMIT_AFTER_OUTPUT, once its output is out
 		const said = "You've hit your usage limit. Try again at 3:10 PM."
 		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrAgentUsageLimit, said), said)
 	}
