@@ -562,7 +562,10 @@ func TestStoreSessionAccountRoundTrip(t *testing.T) {
 	if err := store.UpdateSessionAccount(ctx, s.ID, "codex-home", at); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = store.GetSession(ctx, s.ID)
+	got, err = store.GetSession(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.AccountID != "codex-home" {
 		t.Fatalf("after update AccountID = %q, want codex-home", got.AccountID)
 	}
