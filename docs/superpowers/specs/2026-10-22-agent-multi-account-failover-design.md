@@ -166,20 +166,25 @@ exactly what a threshold needs — and DevKit never reads a token to do it.
   `ConfigCatalog`. Field names come from `codex generate-ts` of the pinned
   version (spike), not from memory. DevKit does not call it today (only the
   `updated` notification is parsed).
-- **Claude**: no official read exists (feature requests for a `claude usage`
-  command / API are open or closed as not planned). Candidates, in order; the
-  spike picks the first that works against a real account **without DevKit
-  touching the token**: (1) the status-line payload — recent Claude Code
-  versions hand `rate_limits` to the status-line command, so a per-process
-  status-line command could write it to a file in the session's private
-  directory (may not apply under `claude-agent-acp`); (2) `/usage` in a short
-  pty run of the CLI, parsed; (3) a one-token probe turn through the ACP agent
-  whose `_claude/rateLimit` arrives (spends a little of the account's usage, so
-  only on an explicit Refresh, never automatic). **Rejected for v1**: DevKit
+- **Claude**: the CLI answers a structured **`get_usage` control request** (the data
+  behind `/usage`; SDK type `SDKControlGetUsageResponse`, marked experimental) when
+  started as `claude -p --input-format stream-json --output-format stream-json`
+  with the account's `CLAUDE_CONFIG_DIR`: DevKit writes one control line, reads one
+  `control_response`, closes stdin. Measured (see "Measured"): no model call
+  (`total_cost_usd` 0), about 1 s, utilization 0–100 and an ISO `resets_at` per
+  window (`five_hour`, `seven_day`, per-model, `model_scoped`, `extra_usage`),
+  server-side so it is the whole login's, and DevKit never reads the token — the
+  CLI uses its own. The API is experimental ("may change or be removed in any
+  release"), so the probe validates the shape and reports "usage not checkable"
+  with the reason on any mismatch rather than guessing. Fallbacks, in order, if
+  the shape changes: `claude -p "/usage"` (free, text, parsed by its three
+  `N% used · resets …` lines), then a one-token probe turn whose
+  `rate_limit_event.unifiedWindows` carries both windows (spends a little of the
+  account's usage, so only on an explicit Refresh). **Rejected for v1**: DevKit
   calling the undocumented `api.anthropic.com/api/oauth/usage` with the stored
   OAuth token — DevKit would hold a subscription token and use it outside Claude
   Code (see "Risk and terms"), and community reports say the endpoint answers
-  429 aggressively. If none of 1–3 works, Claude accounts show "usage not
+  429 aggressively. If every method fails, Claude accounts show "usage not
   checkable", `PickAccount` treats them as unknown, and the real-limit backstop
   ("A real limit") is what moves a session.
 
@@ -394,3 +399,38 @@ still open (needs a team seat).
 **Still to measure (needs two real accounts of each vendor):** shared `projects/` resume for Claude, shared
 `sessions/` resume for Codex and the smallest file set it needs, Claude's usage-check candidates, the
 `auth.json` race, and whether a team seat's numbers include other users.
+
+**Claude — resume under another home with a shared `projects/` (Linux, CLI proxy for `session/load`).**
+Account A is the machine's own login; B is `CLAUDE_CONFIG_DIR=<spike>/claude-b` holding a copy of
+`claudeAiOauth` only, with `projects` symlinked to A's. A turn started under A
+(`claude -p`, session `28603a2c…`) was resumed under B with `--resume <id>`: B answered the word A had been
+given, kept the same session id, and appended its turn to the **same** `.jsonl` (both turns in one file).
+`claude auth status` under B reported signed in with only `claudeAiOauth` copied (`.claude.json` and `backups/`
+are created in the new home by the CLI itself). B's credential file was not rewritten (no token refresh).
+Limits of this measurement: A and B are the **same** team account, so server-side state tied to an account (and the
+cache miss a different account would pay: B read 26 148 cached tokens) is not measured; Linux only (file-based
+credentials — macOS keychain naming under `CLAUDE_CONFIG_DIR` is open); a CLI proxy, not `claude-agent-acp`
+`session/load` through DevKit's jail (the accounts UI plan's e2e repeats it, including whether a symlinked `projects/`
+is writable inside bwrap).
+
+**Claude — usage-check candidates, all tried against the team account.**
+1. `get_usage` control request over the CLI's stream-json input: works. `five_hour` 69, `seven_day` 16
+   (percent, 0–100), `resets_at` ISO, `limits[]`, `extra_usage`; 0.9 s; `total_cost_usd` 0. **Chosen.**
+2. `claude -p "/usage"`: works, no pty needed, free, 1.7 s; text only
+   (`Current session: 69% used · resets Oct 22, 2:20pm (Asia/Ho_Chi_Minh)`, `Current week (all models): 16% used …`).
+   Same numbers as 1. Fallback.
+3. One-token probe turn, `stream-json --verbose`: emits `rate_limit_event` with
+   `rate_limit_info.unifiedWindows.{five_hour,seven_day}.{utilization,resetsAt}`; cost $0.064, 1.6 s. Fallback of last
+   resort. **`utilization` here is a 0–1 fraction (0.69 while `/usage` said 69%), and the event carries no top-level
+   `utilization` when `status` is `allowed`.**
+4. Status-line payload: not tried (interactive only; superseded).
+Whether the numbers include a teammate's use of the same login is **not** verified (no second person): the
+figures come from the claude.ai usage endpoint, i.e. per seat on the server, which says yes, but it needs a
+teammate's concurrent use to be a measurement.
+
+**Consequence for DevKit's existing code (to verify, not yet fixed).** `claude-agent-acp` 0.85.1 forwards the SDK's
+`rate_limit_info` unchanged as `_meta["_claude/rateLimit"]` on a `usage_update` (and only when a turn has an assistant
+usage). `parseRateLimit`/`limitsOfRateLimit` read only the top-level `utilization` as a **percentage** and ignore
+`unifiedWindows`; their fixtures use 82/83. Against the real event above the summary card gets no window while
+`status` is `allowed` and, when a top-level value does arrive, its scale is unobserved (the SDK type does not say).
+The accounts plan therefore reads `unifiedWindows` (×100) for observed Claude usage.
