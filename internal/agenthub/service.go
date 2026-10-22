@@ -1607,6 +1607,17 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		ParentSessionID: derefString(sess.ParentSessionID),
 	})
 
+	// Accounts: the start of a turn is the only moment a session changes
+	// account (never inside a running turn). Under the claim, before the
+	// runtime is resolved: a move closes the idle process and the resolve below
+	// reopens it in the new account's home. A refusal ends here, before the
+	// session is marked running or the prompt recorded: nothing ran.
+	if err := s.switchAccountForTurn(ctx, &sess); err != nil {
+		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
+		release()
+		return InvokeResult{}, err
+	}
+
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
 	// too — resumes here. This used to be the end of the conversation.

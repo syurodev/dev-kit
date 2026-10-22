@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,31 @@ type accountRig struct {
 	home    string // the "work" account's home
 	mu      sync.Mutex
 	emitted []json.RawMessage
+	opens   *atomic.Int32 // Open and Load calls of the vendor
+}
+
+// rigOptions changes what newAccountRigWith builds; the zero value is newAccountRig.
+type rigOptions struct {
+	// store wraps the SQL store the service uses (to make one call fail).
+	store func(agenthub.Store) agenthub.Store
+	// noWork leaves the "work" account out: the vendor has only its built-in one.
+	noWork bool
+}
+
+// countedMock is resumableMock counting every process it opens.
+type countedMock struct {
+	resumableMock
+	opens *atomic.Int32
+}
+
+func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	c.opens.Add(1)
+	return c.resumableMock.Open(ctx, spec)
+}
+
+func (c countedMock) Load(ctx context.Context, spec agenthub.OpenSpec, id string) (agenthub.SessionRuntime, error) {
+	c.opens.Add(1)
+	return c.resumableMock.Load(ctx, spec, id)
 }
 
 // updates returns what the service emitted so far (used by the switching tests of later tasks).
@@ -33,6 +59,11 @@ func (r *accountRig) updates() []json.RawMessage {
 // account "work", switching enabled at 90%.
 func newAccountRig(t *testing.T, refusal string) *accountRig {
 	t.Helper()
+	return newAccountRigWith(t, refusal, rigOptions{})
+}
+
+func newAccountRigWith(t *testing.T, refusal string, opts rigOptions) *accountRig {
+	t.Helper()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -41,10 +72,15 @@ func newAccountRig(t *testing.T, refusal string) *accountRig {
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	rig := &accountRig{mock: agenthub.NewMockAdapter(), book: agenthub.NewSQLAccountStore(db), home: t.TempDir()}
+	rig := &accountRig{mock: agenthub.NewMockAdapter(), book: agenthub.NewSQLAccountStore(db), home: t.TempDir(), opens: new(atomic.Int32)}
 	reg := agenthub.NewRegistry()
-	reg.Register(resumableMock{rig.mock}) // reload needs a vendor that can reopen a conversation
-	rig.svc = agenthub.NewService(reg, agenthub.NewSQLStore(db), func(_ string, u json.RawMessage) {
+	// reload needs a vendor that can reopen a conversation
+	reg.Register(countedMock{resumableMock{rig.mock}, rig.opens})
+	var store agenthub.Store = agenthub.NewSQLStore(db)
+	if opts.store != nil {
+		store = opts.store(store)
+	}
+	rig.svc = agenthub.NewService(reg, store, func(_ string, u json.RawMessage) {
 		rig.mu.Lock()
 		rig.emitted = append(rig.emitted, u)
 		rig.mu.Unlock()
@@ -58,6 +94,9 @@ func newAccountRig(t *testing.T, refusal string) *accountRig {
 				Order: []string{agenthub.BuiltinAccountID(agenthub.AgentTypeMock), "work"},
 			},
 		}}, nil
+	}
+	if opts.noWork {
+		return rig
 	}
 	ctx := context.Background()
 	if err := rig.book.Put(ctx, agenthub.AccountRecord{ID: "work", Vendor: agenthub.AgentTypeMock, Label: "Work", HomeDir: rig.home, SignedIn: true}); err != nil {
