@@ -17,6 +17,9 @@ import (
 // announced: whoever cancelled knows.
 func (s *Service) recordStop(ctx context.Context, sess AgentSession, turnErr error, timedOut bool, invoker identity.Caller) {
 	stop := StopFromError(turnErr, time.Now(), timedOut)
+	// A plain failure on an account whose stream just said it is at its limit
+	// is that limit (Claude's refusal carries no sentinel; account_limit.go).
+	stop = s.upgradeStopForReachedWindow(ctx, sess, stop)
 	// A real limit keeps the account the turn ran as out until it is usable
 	// again (account_limit.go). sess is the session after any account move.
 	s.markAccountLimited(ctx, sess, stop)

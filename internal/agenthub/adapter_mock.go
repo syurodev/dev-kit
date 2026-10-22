@@ -120,7 +120,7 @@ func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, 
 	a.mu.Unlock()
 	id := fmt.Sprintf("mock-acp-%d", mockSessionSeq.Add(1))
 	a.mu.Lock()
-	runtime := &mockRuntime{acpSessionID: id, adapter: a, noSteer: a.noSteer}
+	runtime := &mockRuntime{acpSessionID: id, adapter: a, noSteer: a.noSteer, accountHome: spec.AccountHome}
 	a.lastRuntime = runtime
 	a.mu.Unlock()
 	return runtime, nil
@@ -197,6 +197,8 @@ type mockRuntime struct {
 	// steering injects rather than reporting promptRequired — the same rule the
 	// real agent applies.
 	turnRunning bool
+	// accountHome is the OpenSpec's AccountHome: "" for the built-in account.
+	accountHome string
 	noSteer     bool
 	steered     []string
 	goal        string
@@ -441,6 +443,15 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		const said = "429 Too Many Requests"
 		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said)
 	}
+	// A turn that failed with nothing in its words to say why, the way a
+	// refusal DevKit cannot read arrives: StopFromError reads it as failed.
+	// FAIL_LIMIT_IN_BUILTIN_HOME is that failure only in an added account's
+	// home; in the built-in account's it is the usage limit below.
+	plainHere := strings.Contains(text, "FAIL_LIMIT_IN_BUILTIN_HOME") && r.accountHome != ""
+	if strings.Contains(text, "FAIL_TURN_PLAIN") || plainHere {
+		const said = "The agent could not finish this turn."
+		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said)
+	}
 	// The limit hit mid-turn: the agent had already said something, so the
 	// turn made progress before it was refused.
 	if strings.Contains(text, "FAIL_USAGE_LIMIT_AFTER_OUTPUT") && h.OnUpdate != nil {
@@ -453,7 +464,9 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		}
 		h.OnUpdate(chunk, nil)
 	}
-	if strings.Contains(text, "FAIL_USAGE_LIMIT") { // also FAIL_USAGE_LIMIT_AFTER_OUTPUT, once its output is out
+	// Also FAIL_USAGE_LIMIT_AFTER_OUTPUT, once its output is out, and
+	// FAIL_LIMIT_IN_BUILTIN_HOME in the built-in account's home.
+	if strings.Contains(text, "FAIL_USAGE_LIMIT") || strings.Contains(text, "FAIL_LIMIT_IN_BUILTIN_HOME") {
 		const said = "You've hit your usage limit. Try again at 3:10 PM."
 		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrAgentUsageLimit, said), said)
 	}

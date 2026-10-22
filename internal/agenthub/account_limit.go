@@ -27,11 +27,19 @@ const continueAfterLimit = "The previous account reached its usage limit. Contin
 // whatever the row names: the two differ when the row was moved without the
 // process following, and it is the process's account the vendor refused.
 //
+// Only a vendor the person configured is marked: one with an entry in the
+// account policy, enabled or not. Without it the vendor has no accounts to
+// choose between, and marking would only create its built-in account's row
+// (an opencode or mock turn refused for a limit would leave "opencode-default").
+//
 // Best effort, like observing usage: it runs while the turn's failure is being
 // recorded, so an error is logged and never returned, and s.mu is never held
 // across the book.
 func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, stop SessionStop) {
 	if s.Accounts == nil || (stop.Kind != StopUsageLimit && stop.Kind != StopRateLimited) {
+		return
+	}
+	if !s.vendorConfigured(sess.AgentType) {
 		return
 	}
 	// Creates the built-in account's row, which exists only once the book was listed.
@@ -58,6 +66,75 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 	if err := s.Accounts.MarkExhausted(ctx, id, until); err != nil {
 		log.Printf("agenthub: account %s: marking its limit: %v", id, err)
 	}
+}
+
+// vendorConfigured reports whether the person's account policy has an entry for
+// the vendor, enabled or not. No policy, or one that cannot be read (logged),
+// configures nothing.
+func (s *Service) vendorConfigured(vendor AgentType) bool {
+	if s.AccountPolicy == nil {
+		return false
+	}
+	policy, err := s.AccountPolicy()
+	if err != nil {
+		log.Printf("agenthub: account policy: %v", err)
+		return false
+	}
+	_, ok := policy.Vendors[string(vendor)]
+	return ok
+}
+
+// reachedWindowFresh is how recently an account's usage must have been observed
+// for a reached window on it to explain a turn's failure: the window must have
+// been seen during this turn or just before. An older reading says the account
+// was at its limit then, not that the limit is why this turn failed.
+const reachedWindowFresh = 10 * time.Minute
+
+// upgradeStopForReachedWindow reads a turn's plain failure as the usage limit it
+// most likely was. Only Codex refuses with a sentinel (ErrAgentUsageLimit);
+// Claude Code's refusal wording is not one DevKit can recognise (a limit cannot
+// be provoked on demand to measure it), so its refusal classes as `failed`. What
+// Claude does say, in structured form, is the rate-limit event in its stream:
+// observeAccountUsage stores it as a `reached` window on the account the runtime
+// runs as. A `failed` stop on an account with such a window, seen within
+// reachedWindowFresh and with a reset still ahead, becomes `usage_limit`, not
+// retryable before that reset; the vendor's sentence, note, time and attempts
+// are kept.
+//
+// Any other kind is left as it is: a cancel, a timeout, a missing sign-in, a dead
+// process or a provider outage each has its own cause, and a usage or rate
+// limit is already one. Best effort: it never fails or blocks the recording of
+// the stop (errors are logged, the stop is returned unchanged), never holds s.mu
+// across the book, and does nothing without an account book.
+func (s *Service) upgradeStopForReachedWindow(ctx context.Context, sess AgentSession, stop SessionStop) SessionStop {
+	if s.Accounts == nil || stop.Kind != StopFailed {
+		return stop
+	}
+	id := s.observedAccountID(ctx, sess.ID)
+	if id == "" {
+		id = accountIDOf(sess)
+	}
+	acct, err := s.Accounts.Get(ctx, id)
+	if err != nil {
+		// A built-in account no session has reported usage for has no row: nothing seen.
+		if !errors.Is(err, ErrAccountNotFound) {
+			log.Printf("agenthub: session %s: account %s: %v; its failure is not read against its limits", sess.ID, id, err)
+		}
+		return stop
+	}
+	now := time.Now()
+	if acct.ObservedAt.IsZero() || now.Sub(acct.ObservedAt) > reachedWindowFresh {
+		return stop
+	}
+	reset := reachedReset(acct.Usage, now)
+	if reset.IsZero() {
+		return stop
+	}
+	at := reset.UTC()
+	stop.Kind = StopUsageLimit
+	stop.Retryable = false
+	stop.RetryAfter = &at
+	return stop
 }
 
 // reachedReset is when the window that blocks the account resets, or zero when
@@ -88,42 +165,20 @@ func reachedReset(windows []LimitWindow, now time.Time) time.Time {
 	return reached
 }
 
-// noteTurnProgress marks the session's running turn as having produced output
-// or a tool call, which is what makes a refusal after it unsafe to resend. The
-// echo of the prompt and a usage report are not progress.
-func (s *Service) noteTurnProgress(sessionID string, kind UpdateKind) {
-	switch kind {
-	case UpdateAgentMessageChunk, UpdateAgentThoughtChunk, UpdateToolCall:
-		s.mu.Lock()
-		s.turnProgress[sessionID] = true
-		s.mu.Unlock()
-	}
-}
-
-func (s *Service) turnHadProgress(sessionID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.turnProgress[sessionID]
-}
-
-// resetTurnProgress starts a turn with no progress; invoke calls it once the
-// session is claimed.
-func (s *Service) resetTurnProgress(sessionID string) {
-	s.mu.Lock()
-	delete(s.turnProgress, sessionID)
-	s.mu.Unlock()
-}
-
-// refusalFollowUp is what to send after a turn was refused for a real limit, per
-// the person's onLimitRefusal. ok is false for `none`, for a turn that made
+// limitFollowUpInput is what to send after a turn was refused for a real limit,
+// per the person's onLimitRefusal. ok is false for `none`, for a turn that made
 // progress when the choice is resendIfNoProgress, and when there is no other
 // account to run it on (AllLimited or no switch: a follow-up on the refused
 // account would only fail again).
 //
+// There is only ever one follow-up: a second refusal means the next account is
+// limited too, and the person should hear about it rather than DevKit cascading
+// through every account.
+//
 // It runs after the refused turn's invoke has returned, so the progress it reads
 // is that turn's — unless another turn (a queued peer message) has claimed the
 // session since; that turn holds the claim, and the follow-up gives up as busy.
-func (s *Service) refusalFollowUp(ctx context.Context, in InvokeInput) (InvokeInput, bool) {
+func (s *Service) limitFollowUpInput(ctx context.Context, in InvokeInput) (InvokeInput, bool) {
 	sess, err := s.store.GetSession(ctx, in.SessionID)
 	if err != nil {
 		return InvokeInput{}, false
@@ -152,9 +207,11 @@ func (s *Service) refusalFollowUp(ctx context.Context, in InvokeInput) (InvokeIn
 	return in, true
 }
 
-// followRefusal runs the one follow-up a refused turn may get. It is called by
-// Invoke after the refused turn's invoke returned (its claim released), and
-// calls invoke, not Invoke, so a refused follow-up is never followed again.
+// runLimitFollowUp runs the one follow-up a refused turn may get. It is called
+// by Invoke after the refused turn's invoke returned (its claim released), and
+// calls invoke, not Invoke, so a refused follow-up is never followed again: a
+// second refusal means the next account is limited too, and the person should
+// hear about it rather than DevKit cascading through every account.
 //
 // What it returns:
 //   - no follow-up (none, progress, nowhere to go): the original error;
@@ -165,8 +222,8 @@ func (s *Service) refusalFollowUp(ctx context.Context, in InvokeInput) (InvokeIn
 //   - the follow-up ran: its own result, success or failure. A follow-up that
 //     ran and failed failed for its own reason (the next account refused it
 //     too, say), and that is the newer fact about the session.
-func (s *Service) followRefusal(ctx context.Context, in InvokeInput, result InvokeResult, origErr error) (InvokeResult, error) {
-	next, ok := s.refusalFollowUp(ctx, in)
+func (s *Service) runLimitFollowUp(ctx context.Context, in InvokeInput, result InvokeResult, origErr error) (InvokeResult, error) {
+	next, ok := s.limitFollowUpInput(ctx, in)
 	if !ok {
 		return result, origErr
 	}
@@ -182,4 +239,30 @@ func (s *Service) followRefusal(ctx context.Context, in InvokeInput, result Invo
 		return result, origErr
 	}
 	return followResult, err
+}
+
+// endedInUsageLimit reports whether the turn Invoke just ran ended in a usage
+// limit, which is what earns it a follow-up. Two sources say so: the vendor's
+// own sentinel (Codex's ErrAgentUsageLimit), and the stop recordStop wrote for
+// this turn, which may have been upgraded from a plain failure by a reached
+// window (upgradeStopForReachedWindow; Claude). A turn that never ran (busy,
+// every account limited) or was cancelled is no refusal. started is when Invoke
+// began: a stop written before it belongs to an earlier turn, and an invoke that
+// failed before running anything (a refused attachment, a process that would not
+// open) leaves that stop in place.
+func (s *Service) endedInUsageLimit(ctx context.Context, sessionID string, err error, started time.Time) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, ErrAgentUsageLimit):
+		return true
+	case errors.Is(err, ErrSessionBusy), errors.Is(err, ErrAllAccountsLimited),
+		errors.Is(err, ErrCancelled), errors.Is(err, context.Canceled):
+		return false
+	}
+	sess, gerr := s.store.GetSession(ctx, sessionID)
+	if gerr != nil || sess.Stop == nil {
+		return false
+	}
+	return sess.Stop.Kind == StopUsageLimit && !sess.Stop.Since.Before(started)
 }

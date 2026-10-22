@@ -68,8 +68,8 @@ func (s *Service) ClaimSessionForTest(id string) (release func()) {
 	}
 }
 
-// MarkAccountLimitedForTest records a stop against a session's account the way
-// a refused turn does.
+// MarkAccountLimitedForTest calls markAccountLimited directly with a session's
+// row and a stop, without a turn.
 func (s *Service) MarkAccountLimitedForTest(ctx context.Context, id string, stop SessionStop) error {
 	sess, err := s.store.GetSession(ctx, id)
 	if err != nil {
@@ -77,4 +77,14 @@ func (s *Service) MarkAccountLimitedForTest(ctx context.Context, id string, stop
 	}
 	s.markAccountLimited(ctx, sess, stop)
 	return nil
+}
+
+// UpgradeStopForTest calls upgradeStopForReachedWindow directly with a
+// session's row and a stop, without a turn.
+func (s *Service) UpgradeStopForTest(ctx context.Context, id string, stop SessionStop) (SessionStop, error) {
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return SessionStop{}, err
+	}
+	return s.upgradeStopForReachedWindow(ctx, sess, stop), nil
 }

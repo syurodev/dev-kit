@@ -423,9 +423,9 @@ type Service struct {
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
 	waitHook func(waiter, sessionID string)
-	// followUpHook, when set (tests only), is called just before the one
-	// follow-up of a turn refused for a real limit is sent (account_limit.go).
-	// Read under mu.
+	// followUpHook, when set (tests only, see export_test.go), is called just
+	// before the one follow-up of a turn refused for a real limit is sent
+	// (runLimitFollowUp, account_limit.go). Read under mu.
 	followUpHook func(sessionID string)
 
 	// restores and rewinds hold the previews waiting between plan and apply.
@@ -1482,12 +1482,15 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 //
 // A turn the vendor refused for a real limit has left its account marked
 // (recordStop). Whether anything is sent on the next account is the person's
-// onLimitRefusal: followRefusal sends at most one follow-up, through invoke, so
-// it is never followed in turn. A peer's turn (invoke with a peerRun) gets none.
+// onLimitRefusal: runLimitFollowUp sends at most one follow-up, through invoke,
+// so it is never followed in turn. A peer's turn (invoke with a peerRun) gets
+// none. The refusal is the vendor's sentinel or the usage-limit stop recorded
+// for this turn (endedInUsageLimit).
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
+	started := time.Now()
 	result, err := s.invoke(ctx, in, nil)
-	if errors.Is(err, ErrAgentUsageLimit) {
-		return s.followRefusal(ctx, in, result, err)
+	if s.endedInUsageLimit(ctx, in.SessionID, err, started) {
+		return s.runLimitFollowUp(ctx, in, result, err)
 	}
 	return result, err
 }
