@@ -250,7 +250,7 @@ func TestNewContainerGrantsAgentAccounts(t *testing.T) {
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:claude-work"},
 	} {
-		if !container.Permissions.Check(permissions.Request{SubjectID: grant.SubjectID, Capability: grant.Capability, Scope: grant.Scope}).Allowed {
+		if !container.Permissions.Check(permissions.Request(grant)).Allowed {
 			t.Errorf("%s %s on %s was denied", grant.SubjectID, grant.Capability, grant.Scope)
 		}
 	}
