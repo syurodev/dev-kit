@@ -6,6 +6,7 @@ import {
   useAgentSessionsStore,
 } from "../../stores/agentSessions";
 import type {
+  AccountNotice,
   SessionUpdate,
   ToolCall,
   TranscriptAction,
@@ -30,6 +31,30 @@ export type {
   TranscriptModel,
   Usage,
 } from "./types";
+
+/** The item kind an account move is kept under: a line in the transcript, not session state. */
+export const ACCOUNT_NOTICE_KIND = "devkit_account_notice";
+
+/**
+ * A move between vendor accounts, read from a live update or a stored row. Anything
+ * that is not a switch or a failed switch between two ids is not a notice.
+ */
+export function readAccountNotice(value: unknown): AccountNotice | null {
+  const record = value as Record<string, unknown> | null | undefined;
+  if (!record || typeof record !== "object") return null;
+  if (record.kind !== "switch" && record.kind !== "failed") return null;
+  if (typeof record.from !== "string" || typeof record.to !== "string" || !record.to) return null;
+  return {
+    kind: record.kind,
+    from: record.from,
+    to: record.to,
+    ...(typeof record.reason === "string" && record.reason ? { reason: record.reason } : {}),
+  };
+}
+
+export function sameAccountNotice(a: AccountNotice | null | undefined, b: AccountNotice | null | undefined): boolean {
+  return Boolean(a && b && a.kind === b.kind && a.from === b.from && a.to === b.to && (a.reason ?? "") === (b.reason ?? ""));
+}
 
 let fallbackIdCounter = 0;
 function generateId(): string {
@@ -307,6 +332,20 @@ export function applySessionUpdates(
         changed = true;
       } else if (update.goalCleared) {
         goal = null;
+        changed = true;
+      }
+      // A move between accounts is not session state: it is a line where it happened.
+      const notice = readAccountNotice(update.accountNotice);
+      if (notice) {
+        copyItems();
+        items.push({
+          id: generateId(),
+          kind: ACCOUNT_NOTICE_KIND,
+          accountNotice: notice,
+          raw: update.raw,
+          createdAt: now(),
+          updatedAt: now(),
+        });
         changed = true;
       }
       continue;
@@ -597,6 +636,19 @@ export function initTranscript(
       if (payload.failure) model.failure = payload.failure;
       if (payload.goal) model.goal = payload.goal;
       else if (payload.goalCleared) model.goal = null;
+      const notice = readAccountNotice(payload.accountNotice);
+      if (notice) {
+        model.items.push({
+          id,
+          kind: ACCOUNT_NOTICE_KIND,
+          seq,
+          sessionId,
+          accountNotice: notice,
+          raw: payload.raw,
+          createdAt,
+          updatedAt,
+        });
+      }
       continue;
     }
 
@@ -851,6 +903,10 @@ export function prependTranscriptEntries(
  * the stored text already ends with is dropped: the recorder writes chunks in
  * arrival order, so what it has is always a prefix of what was buffered.
  *
+ * An account notice the page already holds is dropped the same way: the newest one
+ * stored is the one a buffered copy would repeat (a move that stood twice in a row
+ * needs a move back in between, so an identical newer one is never lost to this).
+ *
  * ponytail: a text-suffix match, not a cursor. A chunk still between emit and
  * record when the page was read, whose text also happens to repeat the end of
  * the stored text, is dropped too; an exact answer needs a per-update sequence
@@ -877,6 +933,11 @@ export function dropRecordedChunks(model: TranscriptModel, updates: SessionUpdat
         break;
       }
     }
+  }
+  const heldNotice = [...model.items].reverse().find((item) => item.accountNotice)?.accountNotice;
+  if (heldNotice) {
+    const index = updates.findIndex((update) => sameAccountNotice(heldNotice, readAccountNotice(update.accountNotice)));
+    if (index >= 0) dropped.add(index);
   }
   return dropped.size === 0 ? updates : updates.filter((_, index) => !dropped.has(index));
 }
