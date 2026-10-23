@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"devkit/internal/identity"
@@ -215,4 +216,15 @@ func (s *Service) CheckUsageForTest(ctx context.Context, id string, minGap time.
 	}
 	_, asked, err = s.checkUsage(ctx, acct, minGap)
 	return asked, err
+}
+
+// AccountSwitchUpdateForTest and AccountSwitchFailedUpdateForTest expose the
+// writers of the transcript's account notices, so a test can parse what the
+// service really emits.
+func AccountSwitchUpdateForTest(from, to, reason string) json.RawMessage {
+	return accountSwitchUpdate(from, to, reason)
+}
+
+func AccountSwitchFailedUpdateForTest(from, to, reason string) json.RawMessage {
+	return accountSwitchFailedUpdate(from, to, reason)
 }

@@ -282,9 +282,9 @@ func (s *Service) moveSession(ctx context.Context, sess *AgentSession, target st
 
 // accountSwitchUpdate is the transcript notice of a move: a session_info_update
 // carrying DevKit's own key under _meta, which ParseSessionUpdate reads as a
-// session_info_update with nothing applied (no title, failure or goal) and the
-// recorder keeps as an ordinary row with its raw body. The window draws it in
-// the accounts UI work (docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md).
+// session_info_update with a typed AccountNotice (no title, failure or goal) and the
+// recorder keeps as an ordinary row. The window draws it in the accounts UI work
+// (docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md).
 func accountSwitchUpdate(from, to, reason string) json.RawMessage {
 	return devkitInfoUpdate("accountSwitch", map[string]any{"from": from, "to": to, "reason": reason})
 }

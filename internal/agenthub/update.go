@@ -306,6 +306,16 @@ func (r *ProviderRetry) stopHint() StopHint {
 	return hint
 }
 
+// AccountNotice is a move between vendor accounts, carried on a session_info_update's
+// _meta.devkit. Kind is "switch" (a move that stands) or "failed" (one that was tried
+// and undone). From and To are account ids; the built-in account's is "<vendor>-default".
+type AccountNotice struct {
+	Kind   string `json:"kind"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // SessionGoal is the objective a session is working towards, from the goal
 // extension: set with /goal or through _session/goal, cleared the same way,
 // and published on a session_info_update's _meta whenever it changes.
@@ -397,6 +407,9 @@ type SessionUpdate struct {
 	Failure     *SessionFailure `json:"failure,omitempty"`
 	Goal        *SessionGoal    `json:"goal,omitempty"`
 	GoalCleared bool            `json:"goalCleared,omitempty"`
+	// AccountNotice is a move between vendor accounts, from DevKit's own
+	// _meta.devkit key on a session_info_update (nil on every other update).
+	AccountNotice *AccountNotice `json:"accountNotice,omitempty"`
 	// Retry is the provider outage the agent is waiting out, on a
 	// provider_retry_update (or beside a title on a session_info_update that
 	// carries both). Nil on a provider_retry_update means it ended.
@@ -634,6 +647,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Title = wire.Title
 		out.Failure = parseSessionFailure(wire.Meta)
 		out.Goal, out.GoalCleared = parseSessionGoal(wire.Meta)
+		out.AccountNotice = parseAccountNotice(wire.Meta)
 		if retry, present := parseProviderRetry(wire.Meta); present {
 			out.Retry = retry
 			if out.Title == "" && out.Failure == nil && out.Goal == nil && !out.GoalCleared {
@@ -820,6 +834,45 @@ func parseProviderRetry(meta json.RawMessage) (*ProviderRetry, bool) {
 		Status:      wire.Error.Status,
 		Type:        wire.Error.Type,
 	}, true
+}
+
+type accountNoticeWire struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason"`
+}
+
+// parseAccountNotice reads _meta.devkit.accountSwitch / accountSwitchFailed, as
+// accountSwitchUpdate and accountSwitchFailedUpdate write them. Anything malformed
+// is no notice (the row is still stored as an ordinary info update).
+func parseAccountNotice(meta json.RawMessage) *AccountNotice {
+	if len(meta) == 0 {
+		return nil
+	}
+	var wire struct {
+		DevKit struct {
+			Switch json.RawMessage `json:"accountSwitch"`
+			Failed json.RawMessage `json:"accountSwitchFailed"`
+		} `json:"devkit"`
+	}
+	if json.Unmarshal(meta, &wire) != nil {
+		return nil
+	}
+	read := func(kind string, raw json.RawMessage) *AccountNotice {
+		var n accountNoticeWire
+		if len(raw) == 0 || json.Unmarshal(raw, &n) != nil {
+			return nil
+		}
+		reason := n.Reason
+		if r := []rune(reason); len(r) > 300 {
+			reason = string(r[:300])
+		}
+		return &AccountNotice{Kind: kind, From: n.From, To: n.To, Reason: reason}
+	}
+	if notice := read("failed", wire.DevKit.Failed); notice != nil {
+		return notice
+	}
+	return read("switch", wire.DevKit.Switch)
 }
 
 // parseSessionFailure reads the air extension's failure out of a
