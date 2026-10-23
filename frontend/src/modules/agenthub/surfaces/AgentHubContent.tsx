@@ -30,6 +30,8 @@ import { compactOffered } from "../slashCommands";
 import { SessionSummaryButton, SessionSummaryCard, useSessionSummaryData } from "../summary/SessionSummary";
 import { useSessionPullRequests } from "../summary/usePullRequests";
 import { environmentRows } from "../summary/summaryModel";
+import { accountLabelFor } from "../accounts/accountModel";
+import { useAgentAccounts } from "../accounts/useAgentAccounts";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -338,11 +340,18 @@ export function AgentHubContent({
   // Where and how this session runs, for the summary: what the tray already
   // read (workspace, repositories) with what the session says about itself.
   // Rows the session does not have are not made up.
+  // The account the session runs as. Asked only for a session that carries one:
+  // the list is the vendor's, shared with Settings, and a session on the
+  // built-in account that never moved has nothing to say.
+  const accountId = session && !draft ? session.accountId ?? "" : "";
+  const accounts = useAgentAccounts(session?.agentType ?? "", Boolean(accountId));
+  const accountLabel = session ? accountLabelFor(accounts.data, session.agentType, accountId) : undefined;
   const environment = React.useMemo(
     () =>
       session && !draft
         ? environmentRows({
             vendorName: vendorInfo(session.agentType).name,
+            accountLabel,
             folderPath: session.projectPath,
             workspaceName: tray.status.workspace?.name,
             repos: tray.status.repos.map((repo) => ({ name: repo.name, branch: repo.branch, own: repo.own })),
@@ -351,7 +360,7 @@ export function AgentHubContent({
             availableModes,
           })
         : [],
-    [session, draft, tray.status, configOptions, mode, availableModes],
+    [session, draft, accountLabel, tray.status, configOptions, mode, availableModes],
   );
   // The pull (or merge) request each repository's branch became. Go finds it
   // from the folder's branch and calls the host as the account it chose; the
